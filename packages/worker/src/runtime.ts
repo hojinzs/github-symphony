@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
@@ -27,6 +28,10 @@ export type CodexRuntimeConfig = {
   githubTokenBrokerUrl?: string;
   githubTokenBrokerSecret?: string;
   githubTokenCachePath?: string;
+  agentEnv?: Record<string, string>;
+  agentCredentialBrokerUrl?: string;
+  agentCredentialBrokerSecret?: string;
+  agentCredentialCachePath?: string;
   githubProjectId?: string;
   githubGraphqlApiUrl?: string;
   extraEnv?: NodeJS.ProcessEnv;
@@ -39,6 +44,8 @@ export type CodexRuntimePlan = {
   env: NodeJS.ProcessEnv;
   tools: [RuntimeToolDefinition];
 };
+
+export class AgentRuntimeResolutionError extends Error {}
 
 type SpawnLike = (
   command: string,
@@ -125,6 +132,7 @@ export function buildCodexRuntimePlan(config: CodexRuntimeConfig): CodexRuntimeP
     env: {
       ...process.env,
       ...config.extraEnv,
+      ...config.agentEnv,
       CODEX_WORKSPACE_ID: config.workspaceId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       GITHUB_GRAPHQL_TOOL_NAME: tool.name,
@@ -144,6 +152,21 @@ export function launchCodexAppServer(
     cwd: plan.cwd,
     env: plan.env,
     stdio: "pipe"
+  });
+}
+
+export async function prepareCodexRuntimePlan(
+  config: CodexRuntimeConfig,
+  dependencies: {
+    fetchImpl?: typeof fetch;
+    writeFileImpl?: typeof writeFile;
+  } = {}
+): Promise<CodexRuntimePlan> {
+  const agentEnv = await resolveAgentRuntimeEnvironment(config, dependencies);
+
+  return buildCodexRuntimePlan({
+    ...config,
+    agentEnv
   });
 }
 
@@ -186,4 +209,57 @@ export function createGitCredentialHelperEnvironment(
         }
       : {})
   };
+}
+
+export async function resolveAgentRuntimeEnvironment(
+  config: Pick<
+    CodexRuntimeConfig,
+    | "agentEnv"
+    | "agentCredentialBrokerUrl"
+    | "agentCredentialBrokerSecret"
+    | "agentCredentialCachePath"
+  >,
+  dependencies: {
+    fetchImpl?: typeof fetch;
+    writeFileImpl?: typeof writeFile;
+  } = {}
+): Promise<Record<string, string>> {
+  if (config.agentEnv) {
+    return config.agentEnv;
+  }
+
+  if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
+    return {};
+  }
+
+  const fetchImpl = dependencies.fetchImpl ?? fetch;
+  const response = await fetchImpl(config.agentCredentialBrokerUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${config.agentCredentialBrokerSecret}`
+    }
+  });
+  const payload = (await response.json()) as {
+    env?: Record<string, string>;
+    error?: string;
+  };
+
+  if (!response.ok || !payload.env || Object.keys(payload.env).length === 0) {
+    throw new AgentRuntimeResolutionError(
+      payload.error ??
+        `Agent credential broker request failed with status ${response.status}.`
+    );
+  }
+
+  if (config.agentCredentialCachePath) {
+    const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
+    await writeFileImpl(
+      config.agentCredentialCachePath,
+      JSON.stringify(payload),
+      "utf8"
+    );
+  }
+
+  return payload.env;
 }

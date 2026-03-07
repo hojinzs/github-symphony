@@ -1,4 +1,9 @@
-import { GitHubAuthType, WorkspaceStatus } from "@prisma/client";
+import {
+  AgentCredentialProvider,
+  AgentCredentialStatus,
+  WorkspaceAgentCredentialSource,
+  WorkspaceStatus
+} from "@prisma/client";
 import { db } from "./db";
 
 type MemoryRepository = {
@@ -10,13 +15,15 @@ type MemoryRepository = {
   createdAt: Date;
 };
 
-type MemoryCredential = {
+type MemoryAgentCredential = {
   id: string;
-  authType: GitHubAuthType;
-  githubUserId: string | null;
-  githubLogin: string;
-  tokenFingerprint: string;
-  scopes: string[];
+  label: string;
+  provider: AgentCredentialProvider;
+  encryptedSecret: string;
+  secretFingerprint: string;
+  status: AgentCredentialStatus;
+  lastValidatedAt: Date | null;
+  degradedReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -30,7 +37,8 @@ type MemoryWorkspace = {
   githubOwnerLogin: string;
   githubProjectId: string | null;
   githubProjectUrl: string | null;
-  githubCredentialId: string | null;
+  agentCredentialSource: WorkspaceAgentCredentialSource;
+  agentCredentialId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -43,6 +51,7 @@ type MemorySymphonyInstance = {
   port: number;
   workflowPath: string;
   status: "provisioning" | "running" | "stopped" | "failed" | "degraded";
+  degradedReason: string | null;
   lastHeartbeat: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -52,8 +61,9 @@ export function createMemoryDatabase() {
   const state = {
     workspaces: [] as MemoryWorkspace[],
     repositories: [] as MemoryRepository[],
-    credentials: [] as MemoryCredential[],
-    instances: [] as MemorySymphonyInstance[]
+    agentCredentials: [] as MemoryAgentCredential[],
+    instances: [] as MemorySymphonyInstance[],
+    platformDefaultCredentialId: null as string | null
   };
 
   let sequence = 1;
@@ -67,10 +77,10 @@ export function createMemoryDatabase() {
           promptGuidelines: string;
           status: WorkspaceStatus;
           githubOwnerLogin: string;
-          githubCredential?: {
-            connectOrCreate: {
-              where: { tokenFingerprint: string };
-              create: Omit<MemoryCredential, "id" | "createdAt" | "updatedAt">;
+          agentCredentialSource: WorkspaceAgentCredentialSource;
+          agentCredential?: {
+            connect: {
+              id?: string;
             };
           };
           repositories: {
@@ -79,26 +89,6 @@ export function createMemoryDatabase() {
         };
       }) => {
         const now = new Date(`2026-03-07T09:00:${String(sequence).padStart(2, "0")}.000Z`);
-        let credential: MemoryCredential | undefined;
-
-        if (args.data.githubCredential) {
-          const credentialFingerprint =
-            args.data.githubCredential.connectOrCreate.where.tokenFingerprint;
-          credential = state.credentials.find(
-            (entry) => entry.tokenFingerprint === credentialFingerprint
-          );
-
-          if (!credential) {
-            credential = {
-              id: `credential-${sequence}`,
-              ...args.data.githubCredential.connectOrCreate.create,
-              createdAt: now,
-              updatedAt: now
-            };
-            state.credentials.push(credential);
-          }
-        }
-
         const workspace: MemoryWorkspace = {
           id: `workspace-${sequence}`,
           slug: args.data.slug,
@@ -108,7 +98,8 @@ export function createMemoryDatabase() {
           githubOwnerLogin: args.data.githubOwnerLogin,
           githubProjectId: null,
           githubProjectUrl: null,
-          githubCredentialId: credential?.id ?? null,
+          agentCredentialSource: args.data.agentCredentialSource,
+          agentCredentialId: args.data.agentCredential?.connect.id ?? null,
           createdAt: now,
           updatedAt: now
         };
@@ -131,12 +122,6 @@ export function createMemoryDatabase() {
 
         return {
           ...workspace,
-          githubCredential: credential
-            ? {
-                githubLogin: credential.githubLogin,
-                authType: credential.authType
-              }
-            : null,
           repositories
         };
       },
@@ -145,7 +130,11 @@ export function createMemoryDatabase() {
         data: Partial<
           Pick<
             MemoryWorkspace,
-            "githubProjectId" | "githubProjectUrl" | "status" | "updatedAt"
+            | "githubProjectId"
+            | "githubProjectUrl"
+            | "status"
+            | "agentCredentialSource"
+            | "agentCredentialId"
           >
         >;
       }) => {
@@ -153,40 +142,111 @@ export function createMemoryDatabase() {
         Object.assign(workspace, args.data, {
           updatedAt: new Date("2026-03-07T10:00:00.000Z")
         });
-        return workspace;
+        return materializeWorkspace(state, workspace);
       },
       findUnique: async (args: { where: { id: string } }) => {
         const workspace = state.workspaces.find((entry) => entry.id === args.where.id);
-
-        if (!workspace) {
-          return null;
-        }
-
-        return {
-          ...workspace,
-          repositories: state.repositories.filter(
-            (repository) => repository.workspaceId === workspace.id
-          )
-        };
+        return workspace ? materializeWorkspace(state, workspace) : null;
       },
       findMany: async () => {
         return [...state.workspaces]
           .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
           .map((workspace) => ({
-            ...workspace,
-            repositories: state.repositories.filter(
-              (repository) => repository.workspaceId === workspace.id
-            ),
+            ...materializeWorkspace(state, workspace),
             symphonyInstance:
-              state.instances.find((instance) => instance.workspaceId === workspace.id) ?? null
+              state.instances.find((instance) => instance.workspaceId === workspace.id) ??
+              null
           }));
+      }
+    },
+    agentCredential: {
+      create: async (args: {
+        data: Omit<MemoryAgentCredential, "id" | "createdAt" | "updatedAt">;
+      }) => {
+        const now = new Date(`2026-03-07T09:10:${String(sequence).padStart(2, "0")}.000Z`);
+        const credential: MemoryAgentCredential = {
+          id: `agent-credential-${sequence}`,
+          ...args.data,
+          createdAt: now,
+          updatedAt: now
+        };
+        state.agentCredentials.push(credential);
+        sequence += 1;
+        return credential;
+      },
+      findUnique: async (args: { where: { id: string } }) => {
+        return (
+          state.agentCredentials.find((entry) => entry.id === args.where.id) ?? null
+        );
+      },
+      findMany: async () => {
+        return [...state.agentCredentials].sort(
+          (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+        );
+      },
+      update: async (args: {
+        where: { id: string };
+        data: Partial<
+          Pick<
+            MemoryAgentCredential,
+            | "label"
+            | "encryptedSecret"
+            | "secretFingerprint"
+            | "status"
+            | "lastValidatedAt"
+            | "degradedReason"
+          >
+        >;
+      }) => {
+        const credential = mustFindAgentCredential(state.agentCredentials, args.where.id);
+        Object.assign(credential, args.data, {
+          updatedAt: new Date("2026-03-07T10:02:00.000Z")
+        });
+        return credential;
+      }
+    },
+    platformAgentCredentialConfig: {
+      findUnique: async () => {
+        return {
+          singletonKey: "system",
+          defaultAgentCredentialId: state.platformDefaultCredentialId,
+          defaultAgentCredential: state.platformDefaultCredentialId
+            ? mustFindAgentCredential(state.agentCredentials, state.platformDefaultCredentialId)
+            : null,
+          createdAt: new Date("2026-03-07T08:00:00.000Z"),
+          updatedAt: new Date("2026-03-07T08:00:00.000Z")
+        };
+      },
+      upsert: async (args: {
+        update: {
+          defaultAgentCredentialId: string;
+        };
+        create: {
+          defaultAgentCredentialId: string;
+        };
+      }) => {
+        state.platformDefaultCredentialId =
+          args.update.defaultAgentCredentialId ?? args.create.defaultAgentCredentialId;
+
+        return {
+          singletonKey: "system",
+          defaultAgentCredentialId: state.platformDefaultCredentialId,
+          createdAt: new Date("2026-03-07T08:00:00.000Z"),
+          updatedAt: new Date("2026-03-07T10:03:00.000Z")
+        };
       }
     },
     symphonyInstance: {
       upsert: async (args: {
         where: { workspaceId: string };
-        update: Omit<MemorySymphonyInstance, "id" | "workspaceId" | "createdAt" | "updatedAt" | "lastHeartbeat">;
-        create: Omit<MemorySymphonyInstance, "id" | "createdAt" | "updatedAt" | "lastHeartbeat">;
+        update: Omit<
+          MemorySymphonyInstance,
+          "id" | "workspaceId" | "createdAt" | "updatedAt" | "lastHeartbeat" | "degradedReason"
+        >;
+        create: Omit<
+          MemorySymphonyInstance,
+          "id" | "createdAt" | "updatedAt" | "lastHeartbeat" | "degradedReason"
+        >;
       }) => {
         const existing = state.instances.find(
           (entry) => entry.workspaceId === args.where.workspaceId
@@ -202,6 +262,7 @@ export function createMemoryDatabase() {
         const created: MemorySymphonyInstance = {
           id: `instance-${sequence}`,
           ...args.create,
+          degradedReason: null,
           lastHeartbeat: null,
           createdAt: new Date("2026-03-07T10:05:00.000Z"),
           updatedAt: new Date("2026-03-07T10:05:00.000Z")
@@ -215,7 +276,7 @@ export function createMemoryDatabase() {
       update: async (args: {
         where: { workspaceId: string };
         data: Partial<
-          Pick<MemorySymphonyInstance, "status" | "lastHeartbeat">
+          Pick<MemorySymphonyInstance, "status" | "lastHeartbeat" | "degradedReason">
         >;
       }) => {
         const instance = mustFindInstance(state.instances, args.where.workspaceId);
@@ -228,8 +289,31 @@ export function createMemoryDatabase() {
   };
 
   return {
-    db: database as unknown as Pick<typeof db, "workspace" | "symphonyInstance">,
+    db: database as unknown as Pick<
+      typeof db,
+      "workspace" | "symphonyInstance" | "agentCredential" | "platformAgentCredentialConfig"
+    >,
     state
+  };
+}
+
+function materializeWorkspace(
+  state: {
+    repositories: MemoryRepository[];
+    agentCredentials: MemoryAgentCredential[];
+  },
+  workspace: MemoryWorkspace
+) {
+  return {
+    ...workspace,
+    repositories: state.repositories.filter(
+      (repository) => repository.workspaceId === workspace.id
+    ),
+    agentCredential: workspace.agentCredentialId
+      ? state.agentCredentials.find(
+          (credential) => credential.id === workspace.agentCredentialId
+        ) ?? null
+      : null
   };
 }
 
@@ -244,6 +328,19 @@ function mustFindWorkspace(
   }
 
   return workspace;
+}
+
+function mustFindAgentCredential(
+  credentials: MemoryAgentCredential[],
+  credentialId: string
+): MemoryAgentCredential {
+  const credential = credentials.find((entry) => entry.id === credentialId);
+
+  if (!credential) {
+    throw new Error(`Agent credential not found: ${credentialId}`);
+  }
+
+  return credential;
 }
 
 function mustFindInstance(

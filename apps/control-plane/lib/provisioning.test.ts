@@ -32,6 +32,7 @@ describe("renderWorkflowMarkdown", () => {
         slug: "platform",
         promptGuidelines: "Prefer small changes",
         githubProjectId: "project-1",
+        agentCredentialSource: "platform_default",
         repositories: [
           {
             owner: "acme",
@@ -47,6 +48,7 @@ describe("renderWorkflowMarkdown", () => {
         slug: "platform",
         promptGuidelines: "Prefer small changes",
         githubProjectId: "project-1",
+        agentCredentialSource: "platform_default",
         repositories: [
           {
             owner: "acme",
@@ -93,6 +95,7 @@ describe("provisionWorkspaceRuntime", () => {
         slug: "platform",
         promptGuidelines: "Prefer small changes",
         githubProjectId: "project-1",
+        agentCredentialSource: "platform_default",
         repositories: [
           {
             owner: "acme",
@@ -120,6 +123,9 @@ describe("provisionWorkspaceRuntime", () => {
     );
     expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
       "GITHUB_TOKEN_BROKER_URL="
+    );
+    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
+      "AGENT_CREDENTIAL_BROKER_URL="
     );
     expect(docker.createContainer).toHaveBeenCalledTimes(1);
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);

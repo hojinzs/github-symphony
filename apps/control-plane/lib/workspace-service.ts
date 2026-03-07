@@ -1,4 +1,8 @@
-import { WorkspaceStatus, type Prisma } from "@prisma/client";
+import {
+  WorkspaceAgentCredentialSource,
+  WorkspaceStatus,
+  type Prisma
+} from "@prisma/client";
 import { db } from "./db";
 
 export type WorkspaceRepositoryInput = {
@@ -12,6 +16,8 @@ export type CreateWorkspaceInput = {
   promptGuidelines: string;
   repositories: WorkspaceRepositoryInput[];
   githubOwnerLogin?: string;
+  agentCredentialSource: WorkspaceAgentCredentialSource;
+  agentCredentialId?: string;
 };
 
 export function parseCreateWorkspaceInput(value: unknown): CreateWorkspaceInput {
@@ -28,12 +34,21 @@ export function parseCreateWorkspaceInput(value: unknown): CreateWorkspaceInput 
   const githubOwnerLogin = value.githubOwnerLogin
     ? requireNonEmptyString(value.githubOwnerLogin, "githubOwnerLogin")
     : undefined;
+  const agentCredentialSource = parseAgentCredentialSource(
+    value.agentCredentialSource
+  );
+  const agentCredentialId =
+    value.agentCredentialId === undefined || value.agentCredentialId === null
+      ? undefined
+      : requireNonEmptyString(value.agentCredentialId, "agentCredentialId");
 
   return {
     name,
     promptGuidelines,
     repositories,
-    githubOwnerLogin
+    githubOwnerLogin,
+    agentCredentialSource,
+    agentCredentialId
   };
 }
 
@@ -56,6 +71,17 @@ export function buildWorkspaceCreateData(
     promptGuidelines: input.promptGuidelines,
     status: WorkspaceStatus.draft,
     githubOwnerLogin: input.githubOwnerLogin ?? githubOwnerLogin,
+    agentCredentialSource: input.agentCredentialSource,
+    ...(input.agentCredentialSource ===
+    WorkspaceAgentCredentialSource.workspace_override
+      ? {
+          agentCredential: {
+            connect: {
+              id: input.agentCredentialId
+            }
+          }
+        }
+      : {}),
     repositories: {
       create: input.repositories.map((repository) => ({
         owner: repository.owner,
@@ -131,4 +157,24 @@ function requireNonEmptyString(value: unknown, field: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseAgentCredentialSource(
+  value: unknown
+): WorkspaceAgentCredentialSource {
+  if (
+    value === undefined ||
+    value === null ||
+    value === WorkspaceAgentCredentialSource.platform_default
+  ) {
+    return WorkspaceAgentCredentialSource.platform_default;
+  }
+
+  if (value === WorkspaceAgentCredentialSource.workspace_override) {
+    return value;
+  }
+
+  throw new Error(
+    "agentCredentialSource must be either platform_default or workspace_override."
+  );
 }

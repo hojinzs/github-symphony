@@ -42,6 +42,22 @@ enum WorkspaceStatus {
   failed
 }
 
+enum AgentCredentialProvider {
+  openai
+}
+
+enum AgentCredentialStatus {
+  pending
+  ready
+  degraded
+  revoked
+}
+
+enum WorkspaceAgentCredentialSource {
+  platform_default
+  workspace_override
+}
+
 model GitHubCredential {
   id               String          @id @default(cuid())
   authType         GitHubAuthType
@@ -99,20 +115,23 @@ model GitHubBootstrapAttempt {
 }
 
 model Workspace {
-  id                 String             @id @default(cuid())
-  slug               String             @unique
-  name               String
-  promptGuidelines   String
-  status             WorkspaceStatus    @default(draft)
-  githubOwnerLogin   String
-  githubProjectId    String?            @unique
-  githubProjectUrl   String?
-  githubCredentialId String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  githubCredential   GitHubCredential?  @relation(fields: [githubCredentialId], references: [id], onDelete: SetNull)
-  repositories       WorkspaceRepository[]
-  symphonyInstance   SymphonyInstance?
+  id                    String                         @id @default(cuid())
+  slug                  String                         @unique
+  name                  String
+  promptGuidelines      String
+  status                WorkspaceStatus                @default(draft)
+  githubOwnerLogin      String
+  githubProjectId       String?                        @unique
+  githubProjectUrl      String?
+  githubCredentialId    String?
+  agentCredentialSource WorkspaceAgentCredentialSource @default(platform_default)
+  agentCredentialId     String?
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  githubCredential      GitHubCredential?              @relation(fields: [githubCredentialId], references: [id], onDelete: SetNull)
+  agentCredential       AgentCredential?               @relation("WorkspaceAgentCredentialOverride", fields: [agentCredentialId], references: [id], onDelete: SetNull)
+  repositories          WorkspaceRepository[]
+  symphonyInstance      SymphonyInstance?
 }
 
 model WorkspaceRepository {
@@ -128,15 +147,39 @@ model WorkspaceRepository {
 }
 
 model SymphonyInstance {
-  id            String                 @id @default(cuid())
-  workspaceId   String                 @unique
-  containerId   String                 @unique
-  containerName String                 @unique
-  port          Int
-  workflowPath  String
-  status        SymphonyInstanceStatus @default(provisioning)
-  lastHeartbeat DateTime?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id             String                 @id @default(cuid())
+  workspaceId    String                 @unique
+  containerId    String                 @unique
+  containerName  String                 @unique
+  port           Int
+  workflowPath   String
+  status         SymphonyInstanceStatus @default(provisioning)
+  degradedReason String?
+  lastHeartbeat  DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model AgentCredential {
+  id                String                  @id @default(cuid())
+  label             String
+  provider          AgentCredentialProvider @default(openai)
+  encryptedSecret   String
+  secretFingerprint String                  @unique
+  status            AgentCredentialStatus   @default(pending)
+  lastValidatedAt   DateTime?
+  degradedReason    String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  workspaces        Workspace[]             @relation("WorkspaceAgentCredentialOverride")
+  defaultConfigs    PlatformAgentCredentialConfig[] @relation("PlatformDefaultAgentCredential")
+}
+
+model PlatformAgentCredentialConfig {
+  singletonKey             String           @id @default("system")
+  defaultAgentCredentialId String?          @unique
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  defaultAgentCredential   AgentCredential? @relation("PlatformDefaultAgentCredential", fields: [defaultAgentCredentialId], references: [id], onDelete: SetNull)
 }

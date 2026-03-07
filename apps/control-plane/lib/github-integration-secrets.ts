@@ -1,16 +1,13 @@
 import {
-  createCipheriv,
-  createDecipheriv,
-  createHash,
-  randomBytes
-} from "node:crypto";
+  createPlatformSecretProtector,
+  loadPlatformSecretProtectorFromEnv,
+  PlatformSecretProtectionError,
+  type PlatformSecretProtector
+} from "./platform-secrets";
 
-const ENCRYPTION_KEY_BYTES = 32;
-const IV_BYTES = 12;
-const PAYLOAD_VERSION = "v1";
 const GITHUB_APP_SECRETS_KEY_ENV = "GITHUB_APP_SECRETS_KEY";
 
-export class GitHubSecretProtectionError extends Error {}
+export class GitHubSecretProtectionError extends PlatformSecretProtectionError {}
 
 export type GitHubSecretProtector = {
   encrypt(secret: string): string;
@@ -21,69 +18,7 @@ export type GitHubSecretProtector = {
 export function createGitHubSecretProtector(input: {
   encryptionKey: string | Buffer;
 }): GitHubSecretProtector {
-  const key = normalizeEncryptionKey(input.encryptionKey);
-
-  return {
-    encrypt(secret: string): string {
-      requireNonEmptySecret(secret);
-
-      const iv = randomBytes(IV_BYTES);
-      const cipher = createCipheriv("aes-256-gcm", key, iv);
-      const ciphertext = Buffer.concat([
-        cipher.update(secret, "utf8"),
-        cipher.final()
-      ]);
-      const tag = cipher.getAuthTag();
-
-      return [
-        PAYLOAD_VERSION,
-        iv.toString("base64url"),
-        tag.toString("base64url"),
-        ciphertext.toString("base64url")
-      ].join(".");
-    },
-    decrypt(payload: string): string {
-      const [version, ivValue, tagValue, ciphertextValue] = payload.split(".");
-
-      if (
-        version !== PAYLOAD_VERSION ||
-        !ivValue ||
-        !tagValue ||
-        !ciphertextValue
-      ) {
-        throw new GitHubSecretProtectionError("GitHub secret payload is malformed.");
-      }
-
-      try {
-        const decipher = createDecipheriv(
-          "aes-256-gcm",
-          key,
-          Buffer.from(ivValue, "base64url")
-        );
-
-        decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
-
-        const plaintext = Buffer.concat([
-          decipher.update(Buffer.from(ciphertextValue, "base64url")),
-          decipher.final()
-        ]).toString("utf8");
-
-        requireNonEmptySecret(plaintext);
-
-        return plaintext;
-      } catch (error) {
-        throw new GitHubSecretProtectionError(
-          error instanceof Error
-            ? `GitHub secret decryption failed: ${error.message}`
-            : "GitHub secret decryption failed."
-        );
-      }
-    },
-    fingerprint(secret: string): string {
-      requireNonEmptySecret(secret);
-      return createHash("sha256").update(secret).digest("hex");
-    }
-  };
+  return wrapGitHubErrors(createPlatformSecretProtector(input));
 }
 
 export function loadGitHubSecretProtectorFromEnv(
@@ -97,37 +32,50 @@ export function loadGitHubSecretProtectorFromEnv(
     );
   }
 
-  return createGitHubSecretProtector({
-    encryptionKey
-  });
+  return wrapGitHubErrors(
+    loadPlatformSecretProtectorFromEnv({
+      ...env,
+      PLATFORM_SECRETS_KEY: encryptionKey
+    })
+  );
 }
 
-function normalizeEncryptionKey(value: string | Buffer): Buffer {
-  if (Buffer.isBuffer(value)) {
-    if (value.byteLength !== ENCRYPTION_KEY_BYTES) {
-      throw new GitHubSecretProtectionError(
-        `GitHub secret encryption key must be ${ENCRYPTION_KEY_BYTES} bytes.`
-      );
+function wrapGitHubErrors(protector: PlatformSecretProtector): GitHubSecretProtector {
+  return {
+    encrypt(secret: string): string {
+      try {
+        return protector.encrypt(secret);
+      } catch (error) {
+        throw coerceGitHubSecretError(error);
+      }
+    },
+    decrypt(payload: string): string {
+      try {
+        return protector.decrypt(payload);
+      } catch (error) {
+        throw coerceGitHubSecretError(error);
+      }
+    },
+    fingerprint(secret: string): string {
+      try {
+        return protector.fingerprint(secret);
+      } catch (error) {
+        throw coerceGitHubSecretError(error);
+      }
     }
+  };
+}
 
-    return value;
+function coerceGitHubSecretError(error: unknown): GitHubSecretProtectionError {
+  if (error instanceof GitHubSecretProtectionError) {
+    return error;
   }
 
-  const trimmed = value.trim();
-  const encoding = /^[a-f0-9]+$/i.test(trimmed) ? "hex" : "base64";
-  const key = Buffer.from(trimmed, encoding);
-
-  if (key.byteLength !== ENCRYPTION_KEY_BYTES) {
-    throw new GitHubSecretProtectionError(
-      `GitHub secret encryption key must decode to ${ENCRYPTION_KEY_BYTES} bytes.`
+  if (error instanceof PlatformSecretProtectionError) {
+    return new GitHubSecretProtectionError(
+      error.message.replaceAll("Platform secret", "GitHub secret")
     );
   }
 
-  return key;
-}
-
-function requireNonEmptySecret(secret: string): void {
-  if (secret.trim().length === 0) {
-    throw new GitHubSecretProtectionError("GitHub secret values must be non-empty.");
-  }
+  return new GitHubSecretProtectionError("GitHub secret protection failed.");
 }

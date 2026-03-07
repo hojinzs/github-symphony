@@ -7,6 +7,12 @@ type DashboardWorkspace = {
   name: string;
   slug: string;
   status: string;
+  agentCredential: {
+    source: "platform_default" | "workspace_override";
+    status: "ready" | "missing" | "degraded";
+    label: string | null;
+    message: string;
+  };
   runtime: null | {
     status: string;
     port: number;
@@ -65,6 +71,19 @@ export function DashboardClient() {
             </span>
           </div>
           <p className="mt-2 font-mono text-sm text-ink/45">{workspace.slug}</p>
+          <div className="mt-4 rounded-2xl border border-black/10 bg-mist/60 p-4 text-sm text-ink/75">
+            <p className="font-semibold text-ink">
+              Agent credential:{" "}
+              {workspace.agentCredential.label ??
+                (workspace.agentCredential.source === "platform_default"
+                  ? "Platform default"
+                  : "Workspace override")}
+            </p>
+            <p className="mt-1 uppercase tracking-[0.16em] text-[11px] text-ink/55">
+              {workspace.agentCredential.status.replace("_", " ")}
+            </p>
+            <p className="mt-2">{workspace.agentCredential.message}</p>
+          </div>
           {workspace.runtime ? (
             <div className="mt-6 space-y-3 text-sm text-ink/70">
               <p>Runtime status: {workspace.runtime.status}</p>

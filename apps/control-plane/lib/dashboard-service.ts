@@ -1,8 +1,12 @@
 import { db } from "./db";
+import { readWorkspaceAgentCredentialStatus } from "./agent-credentials";
 
 export async function loadWorkspaceDashboard(
   fetchImpl: typeof fetch = fetch,
-  database: Pick<typeof db, "workspace"> = db
+  database: Pick<
+    typeof db,
+    "workspace" | "agentCredential" | "platformAgentCredentialConfig"
+  > = db
 ) {
   const workspaces = await database.workspace.findMany({
     include: {
@@ -16,6 +20,10 @@ export async function loadWorkspaceDashboard(
 
   return Promise.all(
     workspaces.map(async (workspace) => {
+      const agentCredential = await readWorkspaceAgentCredentialStatus(
+        workspace.id,
+        database as Parameters<typeof readWorkspaceAgentCredentialStatus>[1]
+      );
       const runtime = workspace.symphonyInstance;
 
       if (!runtime) {
@@ -24,6 +32,7 @@ export async function loadWorkspaceDashboard(
           slug: workspace.slug,
           name: workspace.name,
           status: workspace.status,
+          agentCredential,
           runtime: null
         };
       }
@@ -44,6 +53,7 @@ export async function loadWorkspaceDashboard(
           slug: workspace.slug,
           name: workspace.name,
           status: workspace.status,
+          agentCredential,
           runtime: {
             status: runtime.status,
             port: runtime.port,
@@ -56,6 +66,7 @@ export async function loadWorkspaceDashboard(
           slug: workspace.slug,
           name: workspace.name,
           status: workspace.status,
+          agentCredential,
           runtime: {
             status: "degraded",
             port: runtime.port,

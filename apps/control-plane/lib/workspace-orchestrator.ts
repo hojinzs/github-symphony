@@ -9,6 +9,7 @@ import {
   provisionWorkspaceRuntime,
   type ProvisionedWorkspaceRuntime
 } from "./provisioning";
+import { ensureWorkspaceHasUsableAgentCredential } from "./agent-credentials";
 import {
   createWorkspace,
   type CreateWorkspaceInput,
@@ -18,7 +19,10 @@ import { db } from "./db";
 
 type WorkspaceRecord = Prisma.PromiseReturnType<typeof createWorkspace>;
 
-type DatabaseLike = Pick<typeof db, "workspace" | "symphonyInstance">;
+type DatabaseLike = Pick<
+  typeof db,
+  "workspace" | "symphonyInstance" | "agentCredential" | "platformAgentCredentialConfig"
+>;
 
 export async function provisionWorkspace(
   input: CreateWorkspaceInput,
@@ -41,6 +45,13 @@ export async function provisionWorkspace(
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const credentialBroker =
     dependencies.credentialBroker ?? getBrokeredGitHubCredentials;
+  await ensureWorkspaceHasUsableAgentCredential(
+    {
+      agentCredentialSource: input.agentCredentialSource,
+      agentCredentialId: input.agentCredentialId
+    },
+    database as Parameters<typeof ensureWorkspaceHasUsableAgentCredential>[1]
+  );
   const credentials = await credentialBroker({
     fetchImpl
   });
@@ -71,6 +82,7 @@ export async function provisionWorkspace(
       slug: workspace.slug,
       promptGuidelines: workspace.promptGuidelines,
       githubProjectId: project.id,
+      agentCredentialSource: workspace.agentCredentialSource,
       repositories: workspace.repositories.map((repository) => ({
         owner: repository.owner,
         name: repository.name,

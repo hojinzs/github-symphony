@@ -2,7 +2,13 @@ import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AgentCredentialProvider,
+  AgentCredentialStatus,
+  WorkspaceAgentCredentialSource
+} from "@prisma/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { markAgentCredentialDegraded } from "./agent-credentials";
 import { loadWorkspaceDashboard } from "./dashboard-service";
 import { createIssueForWorkspace } from "./issue-service";
 import { provisionWorkspace } from "./workspace-orchestrator";
@@ -24,95 +30,34 @@ afterEach(async () => {
 describe("Control-plane integration", () => {
   it("provisions a workspace, mediates GitHub issue creation, and aggregates runtime state", async () => {
     const { db } = createMemoryDatabase();
+    const seededCredential = await db.agentCredential.create({
+      data: {
+        label: "Platform default",
+        provider: AgentCredentialProvider.openai,
+        encryptedSecret: "encrypted-agent-secret",
+        secretFingerprint: "fingerprint-platform-default",
+        status: AgentCredentialStatus.ready,
+        lastValidatedAt: new Date("2026-03-07T08:30:00.000Z"),
+        degradedReason: null
+      }
+    });
+    await db.platformAgentCredentialConfig.upsert({
+      where: {
+        singletonKey: "system"
+      },
+      update: {
+        defaultAgentCredentialId: seededCredential.id
+      },
+      create: {
+        singletonKey: "system",
+        defaultAgentCredentialId: seededCredential.id
+      }
+    });
     const runtimeRoot = mkdtempSync(join(tmpdir(), "github-symphony-integration-"));
     tempPaths.push(runtimeRoot);
 
-    const graphFetch = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              user: { id: "owner-1" },
-              organization: null
-            }
-          }),
-          { status: 200 }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              createProjectV2: {
-                projectV2: {
-                  id: "project-1",
-                  number: 7,
-                  title: "Platform Workspace",
-                  url: "https://github.com/orgs/acme/projects/7"
-                }
-              }
-            }
-          }),
-          { status: 200 }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              repository: { id: "repo-1" }
-            }
-          }),
-          { status: 200 }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              createIssue: {
-                issue: {
-                  id: "issue-1",
-                  number: 21,
-                  url: "https://github.com/acme/platform/issues/21"
-                }
-              }
-            }
-          }),
-          { status: 200 }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              addProjectV2ItemById: {
-                item: {
-                  id: "project-item-1"
-                }
-              }
-            }
-          }),
-          { status: 200 }
-        )
-      );
-
-    const docker = {
-      createContainer: vi.fn().mockResolvedValue({
-        id: "container-1",
-        start: vi.fn().mockResolvedValue(undefined),
-        stop: vi.fn().mockResolvedValue(undefined),
-        remove: vi.fn().mockResolvedValue(undefined),
-        inspect: vi.fn().mockResolvedValue({
-          State: {
-            Running: true,
-            Status: "running"
-          }
-        })
-      }),
-      getContainer: vi.fn()
-    };
+    const graphFetch = createGraphFetch();
+    const docker = createDocker();
 
     const credentialBroker = vi.fn().mockResolvedValue({
       token: "ghs_installation",
@@ -126,6 +71,7 @@ describe("Control-plane integration", () => {
       {
         name: "Platform Workspace",
         promptGuidelines: "Prefer small changes",
+        agentCredentialSource: WorkspaceAgentCredentialSource.platform_default,
         repositories: [
           {
             owner: "acme",
@@ -181,9 +127,181 @@ describe("Control-plane integration", () => {
     expect(runtime.port).toBe(4505);
     expect(issue.projectItemId).toBe("project-item-1");
     expect(dashboard).toHaveLength(1);
+    expect(dashboard[0]?.agentCredential.status).toBe("ready");
     expect(dashboard[0]?.runtime).toMatchObject({
       status: "provisioning",
       port: 4505
     });
   });
+
+  it("supports workspace-specific overrides and surfaces degraded credential recovery state", async () => {
+    const { db } = createMemoryDatabase();
+    const overrideCredential = await db.agentCredential.create({
+      data: {
+        label: "Workspace override",
+        provider: AgentCredentialProvider.openai,
+        encryptedSecret: "encrypted-override-secret",
+        secretFingerprint: "fingerprint-override",
+        status: AgentCredentialStatus.ready,
+        lastValidatedAt: new Date("2026-03-07T08:35:00.000Z"),
+        degradedReason: null
+      }
+    });
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "github-symphony-override-"));
+    tempPaths.push(runtimeRoot);
+
+    const { workspace } = await provisionWorkspace(
+      {
+        name: "Override Workspace",
+        promptGuidelines: "Prefer small changes",
+        agentCredentialSource: WorkspaceAgentCredentialSource.workspace_override,
+        agentCredentialId: overrideCredential.id,
+        repositories: [
+          {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git"
+          }
+        ]
+      },
+      {
+        db,
+        fetchImpl: createGraphFetch() as typeof fetch,
+        docker: createDocker(),
+        runtimeRoot,
+        portAllocator: async () => 4506,
+        credentialBroker: vi.fn().mockResolvedValue({
+          token: "ghs_installation",
+          expiresAt: new Date("2026-03-07T11:00:00.000Z"),
+          installationId: "installation-1",
+          ownerLogin: "acme",
+          ownerType: "Organization"
+        }),
+        runtimeAuthEnv: {
+          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret"
+        }
+      }
+    );
+
+    await markAgentCredentialDegraded(
+      {
+        credentialId: overrideCredential.id,
+        reason: "Rotate or replace the workspace override credential to resume runs."
+      },
+      db
+    );
+
+    const dashboard = await loadWorkspaceDashboard(
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            activeTask: 0
+          }),
+          { status: 200 }
+        )
+      ) as unknown as Promise<Response> as unknown as typeof fetch,
+      db
+    );
+
+    expect(workspace.agentCredentialSource).toBe(
+      WorkspaceAgentCredentialSource.workspace_override
+    );
+    expect(dashboard[0]?.agentCredential).toMatchObject({
+      source: WorkspaceAgentCredentialSource.workspace_override,
+      status: "degraded",
+      label: "Workspace override",
+      message: "Rotate or replace the workspace override credential to resume runs."
+    });
+  });
 });
+
+function createGraphFetch() {
+  return vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            user: { id: "owner-1" },
+            organization: null
+          }
+        }),
+        { status: 200 }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            createProjectV2: {
+              projectV2: {
+                id: "project-1",
+                number: 7,
+                title: "Platform Workspace",
+                url: "https://github.com/orgs/acme/projects/7"
+              }
+            }
+          }
+        }),
+        { status: 200 }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            repository: { id: "repo-1" }
+          }
+        }),
+        { status: 200 }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            createIssue: {
+              issue: {
+                id: "issue-1",
+                number: 21,
+                url: "https://github.com/acme/platform/issues/21"
+              }
+            }
+          }
+        }),
+        { status: 200 }
+      )
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            addProjectV2ItemById: {
+              item: {
+                id: "project-item-1"
+              }
+            }
+          }
+        }),
+        { status: 200 }
+      )
+    );
+}
+
+function createDocker() {
+  return {
+    createContainer: vi.fn().mockResolvedValue({
+      id: "container-1",
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
+      inspect: vi.fn().mockResolvedValue({
+        State: {
+          Running: true,
+          Status: "running"
+        }
+      })
+    }),
+    getContainer: vi.fn()
+  };
+}

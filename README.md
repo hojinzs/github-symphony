@@ -28,7 +28,7 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
 
 1. Install Node.js 24+ and pnpm 9+.
 2. Run `pnpm install`.
-3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `GITHUB_APP_SECRETS_KEY`, and `WORKSPACE_RUNTIME_AUTH_SECRET`.
+3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `PLATFORM_SECRETS_KEY` (or `GITHUB_APP_SECRETS_KEY` for backward compatibility), and `WORKSPACE_RUNTIME_AUTH_SECRET`.
 4. Start PostgreSQL.
 5. Run `pnpm prisma:generate` and `pnpm prisma:db-push`.
 6. Start the UI with `pnpm dev:control-plane`.
@@ -57,7 +57,8 @@ The control plane now bootstraps its GitHub integration from the UI. On first ru
 
 Required non-GitHub secrets:
 
-- `GITHUB_APP_SECRETS_KEY`: encrypts stored GitHub App secrets at rest
+- `PLATFORM_SECRETS_KEY`: recommended encryption key for stored GitHub App and agent runtime credentials
+- `GITHUB_APP_SECRETS_KEY`: legacy fallback if `PLATFORM_SECRETS_KEY` is not set
 - `WORKSPACE_RUNTIME_AUTH_SECRET`: derives workspace-scoped secrets for runtime token refresh
 
 Recommended base URLs:
@@ -80,6 +81,22 @@ Required GitHub settings for merge-driven completion:
 - GitHub Projects built-in automation should move closed issues into the completed state.
 
 The legacy helper script at [scripts/github-app-installation-token.sh](/home/ubuntu/projects/github-symphony/scripts/github-app-installation-token.sh) remains useful for diagnostics, but it is no longer part of the normal setup flow.
+
+## Agent credential setup
+
+The control plane now manages the service credential used to start `codex app-server` inside each worker container.
+
+1. Open `/workspaces/new`.
+2. Register an agent credential with an OpenAI-compatible API key.
+3. Mark one ready credential as the platform default, or leave it available only for workspace overrides.
+4. Create a workspace by choosing either `Platform default` or `Workspace override`.
+
+Runtime behavior:
+
+- Worker containers fetch the effective agent credential from the control plane immediately before launch.
+- The worker stores only the brokered environment contract needed for the current run.
+- Rotating the platform default or an override changes subsequent runs automatically; workflow files and repositories are not rewritten with long-lived agent secrets.
+- If the effective credential is missing, revoked, or degraded, workspace creation and new runtime launches are blocked until the credential is repaired or reassigned.
 
 ## Worker image
 

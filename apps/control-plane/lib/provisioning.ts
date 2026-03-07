@@ -3,6 +3,9 @@ import { join, resolve } from "node:path";
 import Docker from "dockerode";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "../../../packages/worker/src/workflow-lifecycle";
 import {
+  buildWorkspaceAgentCredentialBrokerUrl
+} from "./runtime-agent-credentials";
+import {
   buildWorkspaceRuntimeTokenBrokerUrl,
   deriveWorkspaceRuntimeAuthSecret
 } from "./runtime-github-credentials";
@@ -13,12 +16,15 @@ const DEFAULT_INTERNAL_PORT = 4141;
 const WORKSPACE_RUNTIME_DIR = "/workspace-runtime";
 const WORKSPACE_RUNTIME_TOKEN_CACHE_PATH =
   `${WORKSPACE_RUNTIME_DIR}/.github-installation-token.json`;
+const WORKSPACE_RUNTIME_AGENT_CACHE_PATH =
+  `${WORKSPACE_RUNTIME_DIR}/.agent-runtime-auth.json`;
 
 export type ProvisionWorkspaceInput = {
   workspaceId: string;
   slug: string;
   promptGuidelines: string;
   githubProjectId: string;
+  agentCredentialSource: "platform_default" | "workspace_override";
   repositories: Array<{
     owner: string;
     name: string;
@@ -109,6 +115,10 @@ export async function provisionWorkspaceRuntime(
     input.workspaceId,
     runtimeAuthEnv
   );
+  const agentCredentialBrokerUrl = buildWorkspaceAgentCredentialBrokerUrl(
+    input.workspaceId,
+    runtimeAuthEnv
+  );
   const runtimeTokenBrokerSecret = deriveWorkspaceRuntimeAuthSecret(
     input.workspaceId,
     runtimeAuthEnv
@@ -119,7 +129,8 @@ export async function provisionWorkspaceRuntime(
     input,
     port,
     runtimeTokenBrokerUrl,
-    runtimeTokenBrokerSecret
+    runtimeTokenBrokerSecret,
+    agentCredentialBrokerUrl
   );
 
   const dockerClient = options.docker ?? new Docker();
@@ -131,6 +142,9 @@ export async function provisionWorkspaceRuntime(
       `GITHUB_TOKEN_BROKER_URL=${runtimeTokenBrokerUrl}`,
       `GITHUB_TOKEN_BROKER_SECRET=${runtimeTokenBrokerSecret}`,
       `GITHUB_TOKEN_CACHE_PATH=${WORKSPACE_RUNTIME_TOKEN_CACHE_PATH}`,
+      `AGENT_CREDENTIAL_BROKER_URL=${agentCredentialBrokerUrl}`,
+      `AGENT_CREDENTIAL_BROKER_SECRET=${runtimeTokenBrokerSecret}`,
+      `AGENT_CREDENTIAL_CACHE_PATH=${WORKSPACE_RUNTIME_AGENT_CACHE_PATH}`,
       `WORKSPACE_ALLOWED_REPOSITORIES=${input.repositories
         .map((repository) => repository.cloneUrl)
         .join(",")}`
@@ -318,7 +332,8 @@ async function writeWorkspaceRuntimeArtifacts(
   input: ProvisionWorkspaceInput,
   port: number,
   runtimeTokenBrokerUrl: string,
-  runtimeTokenBrokerSecret: string
+  runtimeTokenBrokerSecret: string,
+  agentCredentialBrokerUrl: string
 ): Promise<void> {
   const hooksDir = join(workspaceRuntimeDir, "hooks");
   const workflowPath = join(workspaceRuntimeDir, "WORKFLOW.md");
@@ -337,6 +352,9 @@ async function writeWorkspaceRuntimeArtifacts(
       `GITHUB_TOKEN_BROKER_URL=${runtimeTokenBrokerUrl}`,
       `GITHUB_TOKEN_BROKER_SECRET=${runtimeTokenBrokerSecret}`,
       `GITHUB_TOKEN_CACHE_PATH=${WORKSPACE_RUNTIME_TOKEN_CACHE_PATH}`,
+      `AGENT_CREDENTIAL_BROKER_URL=${agentCredentialBrokerUrl}`,
+      `AGENT_CREDENTIAL_BROKER_SECRET=${runtimeTokenBrokerSecret}`,
+      `AGENT_CREDENTIAL_CACHE_PATH=${WORKSPACE_RUNTIME_AGENT_CACHE_PATH}`,
       `SYMPHONY_PORT=${port}`,
       `WORKSPACE_ALLOWED_REPOSITORIES=${input.repositories
         .map((repository) => repository.cloneUrl)

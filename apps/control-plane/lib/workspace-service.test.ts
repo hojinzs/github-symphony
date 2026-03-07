@@ -1,3 +1,4 @@
+import { WorkspaceAgentCredentialSource } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import {
   buildWorkspaceCreateData,
@@ -29,7 +30,9 @@ describe("parseCreateWorkspaceInput", () => {
           cloneUrl: "https://github.com/acme/platform.git"
         }
       ],
-      githubOwnerLogin: undefined
+      githubOwnerLogin: undefined,
+      agentCredentialSource: WorkspaceAgentCredentialSource.platform_default,
+      agentCredentialId: undefined
     });
   });
 
@@ -38,7 +41,8 @@ describe("parseCreateWorkspaceInput", () => {
       parseCreateWorkspaceInput({
         name: "Platform",
         promptGuidelines: "Prefer small changes",
-        repositories: []
+        repositories: [],
+        agentCredentialSource: WorkspaceAgentCredentialSource.platform_default
       })
     ).toThrow("repositories must contain at least one repository.");
   });
@@ -64,13 +68,17 @@ describe("buildWorkspaceCreateData", () => {
             name: "platform",
             cloneUrl: "https://github.com/acme/platform.git"
           }
-        ]
+        ],
+        agentCredentialSource: WorkspaceAgentCredentialSource.platform_default
       },
       "acme-user"
     );
 
     expect(data.slug).toBe("platform");
     expect(data.githubOwnerLogin).toBe("acme-user");
+    expect(data.agentCredentialSource).toBe(
+      WorkspaceAgentCredentialSource.platform_default
+    );
     expect(data.repositories).toEqual({
       create: [
         {

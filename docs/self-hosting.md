@@ -28,7 +28,7 @@ Minimum values to set in `.env`:
 - `DATABASE_URL`
 - `CONTROL_PLANE_BASE_URL`
 - `CONTROL_PLANE_RUNTIME_URL`
-- `GITHUB_APP_SECRETS_KEY`
+- `PLATFORM_SECRETS_KEY` or `GITHUB_APP_SECRETS_KEY`
 - `WORKSPACE_RUNTIME_AUTH_SECRET`
 - `SYMPHONY_IMAGE`
 
@@ -44,7 +44,7 @@ Recommended local values:
 - `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`
 - `SYMPHONY_IMAGE=github-symphony-worker:local`
 
-`GITHUB_APP_SECRETS_KEY` encrypts stored GitHub App credentials in PostgreSQL. `WORKSPACE_RUNTIME_AUTH_SECRET` derives workspace-scoped shared secrets so worker containers can refresh short-lived installation tokens without ever receiving the app private key.
+`PLATFORM_SECRETS_KEY` is the recommended encryption key for stored GitHub App and agent credentials in PostgreSQL. `GITHUB_APP_SECRETS_KEY` remains a supported fallback. `WORKSPACE_RUNTIME_AUTH_SECRET` derives workspace-scoped shared secrets so worker containers can refresh short-lived installation tokens and fetch brokered agent credentials without ever receiving the GitHub app private key.
 
 The GitHub App installation must grant:
 
@@ -92,12 +92,14 @@ After setup reaches `ready`, workspace creation and issue submission stop asking
 Suggested first run:
 
 1. Open `/workspaces/new`.
-2. Enter prompt guidelines and allowed repositories.
-3. Create the workspace. The control plane provisions the GitHub Project and worker runtime by using app-backed installation credentials and writes the approval lifecycle mapping into `WORKFLOW.md`.
-4. Ensure the target project exposes planning, human review, implementation, awaiting merge, and completed statuses that match the workspace workflow.
-5. Open `/issues/new` and submit a task.
-6. Review the plan comment the worker posts, then move the issue into the implementation-active state when you approve it.
-7. Merge the linked pull request and confirm GitHub closes the issue and moves the project item into `Done`.
+2. Register at least one ready agent credential from the workspace form.
+3. Mark one ready credential as the platform default, or plan to select a workspace-specific override during workspace creation.
+4. Enter prompt guidelines and allowed repositories.
+5. Create the workspace. The control plane provisions the GitHub Project and worker runtime by using app-backed installation credentials plus the selected effective agent credential, and writes the approval lifecycle mapping into `WORKFLOW.md`.
+6. Ensure the target project exposes planning, human review, implementation, awaiting merge, and completed statuses that match the workspace workflow.
+7. Open `/issues/new` and submit a task.
+8. Review the plan comment the worker posts, then move the issue into the implementation-active state when you approve it.
+9. Merge the linked pull request and confirm GitHub closes the issue and moves the project item into `Done`.
 
 ## 7. Recovery flow
 
@@ -107,6 +109,13 @@ If GitHub App installation access is revoked or becomes invalid:
 2. Workspace and issue creation redirect back to `/setup/github-app`.
 3. Use `Reconnect installation` to reinstall the existing app, or `Run setup again` to recreate the bootstrap flow.
 4. Existing workspace metadata remains in PostgreSQL so the operator can recover without rebuilding the control plane.
+
+If an agent credential becomes invalid, revoked, or deleted:
+
+1. The affected workspace shows a degraded or missing agent credential status on the dashboard.
+2. New workspace creation is blocked when the selected effective credential is not ready.
+3. New runtime launches are blocked until the operator rotates the credential, restores the platform default, or rebinds the workspace to another ready override.
+4. Existing workspace metadata remains intact so the operator can recover without rewriting workflow files or repository state.
 
 ## 8. Operational notes
 

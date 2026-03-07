@@ -2,6 +2,11 @@ import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AgentCredentialProvider,
+  AgentCredentialStatus,
+  WorkspaceAgentCredentialSource
+} from "@prisma/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadWorkspaceDashboard } from "./dashboard-service";
 import { createWorkspaceIssue } from "./github-projects";
@@ -9,7 +14,7 @@ import { createIssueForWorkspace, parseCreateIssueInput } from "./issue-service"
 import { createMemoryDatabase } from "./test-harness";
 import { parseCreateWorkspaceInput } from "./workspace-service";
 import { provisionWorkspace } from "./workspace-orchestrator";
-import { buildCodexRuntimePlan } from "../../../packages/worker/src/runtime";
+import { prepareCodexRuntimePlan } from "../../../packages/worker/src/runtime";
 import {
   executeImplementationPhase,
   executePlanningPhase,
@@ -37,6 +42,29 @@ afterEach(async () => {
 describe("Platform end-to-end flow", () => {
   it("covers auth, planning handoff, approval-triggered implementation, PR reporting, and merge completion", async () => {
     const { db } = createMemoryDatabase();
+    const seededCredential = await db.agentCredential.create({
+      data: {
+        label: "Platform default",
+        provider: AgentCredentialProvider.openai,
+        encryptedSecret: "encrypted-agent-secret",
+        secretFingerprint: "fingerprint-platform-default",
+        status: AgentCredentialStatus.ready,
+        lastValidatedAt: new Date("2026-03-07T08:30:00.000Z"),
+        degradedReason: null
+      }
+    });
+    await db.platformAgentCredentialConfig.upsert({
+      where: {
+        singletonKey: "system"
+      },
+      update: {
+        defaultAgentCredentialId: seededCredential.id
+      },
+      create: {
+        singletonKey: "system",
+        defaultAgentCredentialId: seededCredential.id
+      }
+    });
     const runtimeRoot = mkdtempSync(join(tmpdir(), "github-symphony-e2e-"));
     tempPaths.push(runtimeRoot);
 
@@ -159,7 +187,8 @@ describe("Platform end-to-end flow", () => {
           name: "platform",
           cloneUrl: "https://github.com/acme/platform.git"
         }
-      ]
+      ],
+      agentCredentialSource: WorkspaceAgentCredentialSource.platform_default
     });
 
     const { workspace, runtime } = await provisionWorkspace(workspaceInput, {
@@ -189,18 +218,36 @@ describe("Platform end-to-end flow", () => {
         createWorkspaceIssue(token, input, graphFetch as typeof fetch)
     });
 
-    const runtimePlan = buildCodexRuntimePlan({
-      workspaceId: workspace.id,
-      workingDirectory: runtime.workspaceRuntimeDir,
-      githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/workspaces/workspace-1/runtime-credentials",
-      githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-installation-token.json",
-      githubProjectId: workspace.githubProjectId ?? undefined
-    });
+    const runtimePlan = await prepareCodexRuntimePlan(
+      {
+        workspaceId: workspace.id,
+        workingDirectory: runtime.workspaceRuntimeDir,
+        githubTokenBrokerUrl:
+          "http://host.docker.internal:3000/api/workspaces/workspace-1/runtime-credentials",
+        githubTokenBrokerSecret: "runtime-secret",
+        githubTokenCachePath: "/workspace-runtime/.github-installation-token.json",
+        agentCredentialBrokerUrl:
+          "http://host.docker.internal:3000/api/workspaces/workspace-1/agent-credentials",
+        agentCredentialBrokerSecret: "runtime-secret",
+        githubProjectId: workspace.githubProjectId ?? undefined
+      },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              env: {
+                OPENAI_API_KEY: "sk-e2e-agent"
+              }
+            }),
+            { status: 200 }
+          )
+        ) as unknown as typeof fetch
+      }
+    );
 
     expect(runtimePlan.command).toBe("bash");
     expect(runtimePlan.tools[0].name).toBe("github_graphql");
+    expect(runtimePlan.env.OPENAI_API_KEY).toBe("sk-e2e-agent");
     const approvalClient = createMemoryApprovalClient((state) => {
       latestProjectItemState = state;
     });
@@ -279,6 +326,7 @@ describe("Platform end-to-end flow", () => {
         pullRequestUrl: implementationResult.pullRequest?.url
       }
     });
+    expect(dashboard[0]?.agentCredential.status).toBe("ready");
   });
 });
 
