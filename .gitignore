@@ -1,0 +1,11 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.env
+.env.local
+apps/control-plane/.env.local
+packages/worker/.env.local
+secrets
+pnpm-lock.yaml

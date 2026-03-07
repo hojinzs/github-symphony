@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GitHubAuthType {
+  oauth
+  pat
+}
+
+enum GitHubIntegrationStatus {
+  pending
+  ready
+  degraded
+}
+
+enum GitHubBootstrapAttemptStatus {
+  pending
+  converted
+  completed
+  expired
+  failed
+}
+
+enum SymphonyInstanceStatus {
+  provisioning
+  ready
+  running
+  degraded
+  stopped
+  failed
+}
+
+enum WorkspaceStatus {
+  draft
+  provisioning
+  active
+  failed
+}
+
+model GitHubCredential {
+  id               String          @id @default(cuid())
+  authType         GitHubAuthType
+  githubUserId     String?
+  githubLogin      String
+  tokenFingerprint String          @unique
+  scopes           String[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workspaces       Workspace[]
+}
+
+model GitHubIntegration {
+  id                        String                    @id @default(cuid())
+  singletonKey              String                    @unique @default("system")
+  status                    GitHubIntegrationStatus   @default(pending)
+  appId                     String?
+  clientId                  String?
+  appSlug                   String?
+  appName                   String?
+  appWebhookUrl             String?
+  appSetupUrl               String?
+  encryptedClientSecret     String?
+  encryptedPrivateKey       String?
+  encryptedWebhookSecret    String?
+  installationId            String?
+  installationTargetId      String?
+  installationTargetLogin   String?
+  installationTargetType    String?
+  installationTargetUrl     String?
+  manifestCreatedAt         DateTime?
+  lastValidatedAt           DateTime?
+  degradedReason            String?
+  createdAt                 DateTime                  @default(now())
+  updatedAt                 DateTime                  @updatedAt
+  bootstrapAttempts         GitHubBootstrapAttempt[]
+}
+
+model GitHubBootstrapAttempt {
+  id                     String                       @id @default(cuid())
+  integrationId          String?
+  status                 GitHubBootstrapAttemptStatus @default(pending)
+  stateFingerprint       String                       @unique
+  manifest               Json
+  manifestUrl            String?
+  githubAppName          String?
+  expiresAt              DateTime
+  installationId         String?
+  conversionCompletedAt  DateTime?
+  completedAt            DateTime?
+  failureReason          String?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  integration            GitHubIntegration?           @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+}
+
+model Workspace {
+  id                 String             @id @default(cuid())
+  slug               String             @unique
+  name               String
+  promptGuidelines   String
+  status             WorkspaceStatus    @default(draft)
+  githubOwnerLogin   String
+  githubProjectId    String?            @unique
+  githubProjectUrl   String?
+  githubCredentialId String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  githubCredential   GitHubCredential?  @relation(fields: [githubCredentialId], references: [id], onDelete: SetNull)
+  repositories       WorkspaceRepository[]
+  symphonyInstance   SymphonyInstance?
+}
+
+model WorkspaceRepository {
+  id         String    @id @default(cuid())
+  workspaceId String
+  owner      String
+  name       String
+  cloneUrl   String
+  createdAt  DateTime  @default(now())
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, owner, name])
+}
+
+model SymphonyInstance {
+  id            String                 @id @default(cuid())
+  workspaceId   String                 @unique
+  containerId   String                 @unique
+  containerName String                 @unique
+  port          Int
+  workflowPath  String
+  status        SymphonyInstanceStatus @default(provisioning)
+  lastHeartbeat DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}

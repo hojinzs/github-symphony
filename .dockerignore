@@ -1,0 +1,8 @@
+node_modules
+.git
+.next
+coverage
+dist
+tmp
+secrets
+openspec

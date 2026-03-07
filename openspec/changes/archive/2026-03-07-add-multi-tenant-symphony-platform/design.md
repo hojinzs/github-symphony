@@ -31,31 +31,37 @@ The system will be split into a control plane, execution plane, and integration 
 
 Rationale: This keeps user-facing complexity and mutable product state out of the Symphony core, which matches the base spec. The main alternative was embedding provisioning and GitHub writes into the orchestration service, but that would couple the runtime to product-specific state transitions and erode the read-only orchestration model.
 
-### 2. Model workspace and runtime lifecycle in the control-plane database
+### 2. Bootstrap the repository as a product monorepo
+
+The repository will start as a TypeScript monorepo with separate packages for the Next.js control plane, shared libraries, and the Symphony worker/runtime integration layer. The initial bootstrap will include workspace tooling, lint/test scripts, environment templates, and a minimal application shell so feature work can land incrementally without restructuring the project later.
+
+Rationale: The current repository contains only OpenSpec artifacts, so implementation cannot proceed safely without first establishing a codebase boundary that matches the planned planes. The alternative was to begin by dropping all code into a single application package and refactor later, but that would create avoidable churn across Prisma, Docker integration, and runtime code once the worker package is introduced.
+
+### 3. Model workspace and runtime lifecycle in the control-plane database
 
 The control plane will persist `Workspace` and `SymphonyInstance` records. `Workspace` stores tenancy-level configuration such as name, GitHub owner context, prompt guidelines, linked repositories, and GitHub Project identifiers. `SymphonyInstance` stores runtime metadata such as container ID, exposed port, workflow path, status, and last heartbeat.
 
 Rationale: Product state such as which container belongs to which workspace does not belong in Symphony core. The alternative was deriving runtime state only from Docker labels and GitHub metadata, but that would complicate dashboard queries, retry flows, and auditing.
 
-### 3. Generate per-workspace workflow artifacts at provision time
+### 4. Generate per-workspace workflow artifacts at provision time
 
 When a workspace is created, the control plane will generate the minimal `WORKFLOW.md`, environment variables, hook scripts, and container launch parameters needed for that workspace. Those artifacts will be mounted into the worker container instead of maintaining a single static workflow for all tenants.
 
 Rationale: Workspace-specific GitHub Project IDs, repository allowlists, and prompt guidelines must be isolated and reproducible. The alternative was a global workflow template plus runtime branching logic inside Symphony, but that would make tenancy boundaries implicit and harder to audit.
 
-### 4. Use hook-driven repository preparation for multi-repo support
+### 5. Use hook-driven repository preparation for multi-repo support
 
 The runtime will use an `after_create` hook to inspect tracker metadata, determine the target repository clone URL, and clone only the needed repository into the ephemeral workspace. The hook will fail fast if the issue references a repository outside the workspace allowlist.
 
 Rationale: This matches the Symphony extension model and keeps the execution image generic. The alternative was pre-cloning all repositories into each workspace container, which would increase startup cost, storage use, and cross-repository exposure.
 
-### 5. Keep tracker writes agent-driven through `github_graphql`
+### 6. Keep tracker writes agent-driven through `github_graphql`
 
 The control plane will create GitHub issues and scaffold GitHub Projects, but once an issue is in the execution flow, the orchestration backend remains read-only. The runtime injects a `github_graphql` tool so the agent can move cards to `Done` and perform any needed tracker mutation directly against GitHub.
 
 Rationale: This preserves the base Symphony contract and makes completion behavior part of agent execution, not hidden backend automation. The alternative was letting the worker service update GitHub status directly after command completion, but that would violate the design constraint in the PRD and blur ownership.
 
-### 6. Poll worker state through container-local APIs and aggregate in the dashboard
+### 7. Poll worker state through container-local APIs and aggregate in the dashboard
 
 Each worker container will expose its Symphony state endpoint, and the control plane dashboard will poll the mapped `/api/v1/state` endpoints in parallel for all active workspaces. The control plane will combine that live state with persisted metadata from PostgreSQL.
 
@@ -71,11 +77,12 @@ Rationale: This provides near-real-time visibility without making the runtime st
 
 ## Migration Plan
 
-1. Establish the Symphony runtime extensions in a single-workspace development environment: GitHub tracker reads, `github_graphql` tool injection, and hook-based cloning.
-2. Add the control-plane data model and provisioning module, then prove workspace creation can create a GitHub Project and launch an isolated worker.
-3. Add UI flows for workspace creation, issue submission, and aggregated status viewing.
-4. Add conformance, integration, and end-to-end test coverage before broadening rollout.
-5. Roll out behind an internal feature flag until container lifecycle stability and GitHub permission handling are verified.
+1. Bootstrap the monorepo, shared tooling, and minimal application shells for the control plane and worker packages.
+2. Establish the Symphony runtime extensions in a single-workspace development environment: GitHub tracker reads, `github_graphql` tool injection, and hook-based cloning.
+3. Add the control-plane data model and provisioning module, then prove workspace creation can create a GitHub Project and launch an isolated worker.
+4. Add UI flows for workspace creation, issue submission, and aggregated status viewing.
+5. Add conformance, integration, and end-to-end test coverage before broadening rollout.
+6. Roll out behind an internal feature flag until container lifecycle stability and GitHub permission handling are verified.
 
 Rollback strategy: disable new workspace provisioning in the control plane, stop affected worker containers, and preserve database records plus GitHub Projects for investigation. Because Symphony workers are stateless, rollback focuses on the control-plane release and runtime image version rather than data migration reversal.
 
