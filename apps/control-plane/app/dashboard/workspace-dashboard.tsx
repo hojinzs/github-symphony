@@ -14,7 +14,10 @@ type DashboardWorkspace = {
     message: string;
   };
   runtime: null | {
+    driver: "docker" | "local";
+    health: "healthy" | "degraded";
     status: string;
+    host: string;
     port: number;
     state: unknown;
   };
@@ -86,7 +89,10 @@ export function DashboardClient() {
           </div>
           {workspace.runtime ? (
             <div className="mt-6 space-y-3 text-sm text-ink/70">
+              <p>Runtime driver: {workspace.runtime.driver}</p>
+              <p>Runtime health: {workspace.runtime.health}</p>
               <p>Runtime status: {workspace.runtime.status}</p>
+              <p>Host: {workspace.runtime.host}</p>
               <p>Port: {workspace.runtime.port}</p>
               <pre className="overflow-x-auto rounded-2xl bg-ink p-4 text-xs text-mist">
                 {JSON.stringify(workspace.runtime.state, null, 2)}

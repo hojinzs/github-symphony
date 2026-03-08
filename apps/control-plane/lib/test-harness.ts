@@ -46,10 +46,14 @@ type MemoryWorkspace = {
 type MemorySymphonyInstance = {
   id: string;
   workspaceId: string;
-  containerId: string;
-  containerName: string;
+  runtimeDriver: "docker" | "local";
+  runtimeId: string;
+  runtimeName: string;
+  endpointHost: string;
   port: number;
   workflowPath: string;
+  runtimePath: string;
+  processId: number | null;
   status: "provisioning" | "running" | "stopped" | "failed" | "degraded";
   degradedReason: string | null;
   lastHeartbeat: Date | null;

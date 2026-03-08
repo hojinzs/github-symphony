@@ -316,12 +316,18 @@ describe("Platform end-to-end flow", () => {
           { status: 200 }
         )
       ) as unknown as Promise<Response> as unknown as typeof fetch,
-      db
+      db,
+      {
+        syncWorkspaceRuntimeStatusImpl: vi.fn().mockResolvedValue("running")
+      }
     );
 
     expect(issue.url).toContain("/issues/99");
     expect(latestProjectItemState).toBe("Done");
     expect(dashboard[0]?.runtime).toMatchObject({
+      driver: "docker",
+      health: "healthy",
+      status: "running",
       port: 4510,
       state: {
         issueNumber: 99,

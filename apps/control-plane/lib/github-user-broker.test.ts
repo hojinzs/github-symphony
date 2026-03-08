@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getProjectGitHubCredentials } from "./github-user-broker";
 
 vi.mock("./github-integration", async () => {
@@ -25,6 +25,17 @@ vi.mock("./github-pat-api", async () => {
 });
 
 describe("getProjectGitHubCredentials", () => {
+  beforeEach(() => {
+    vi.stubEnv(
+      "PLATFORM_SECRETS_KEY",
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("returns validated PAT credentials", async () => {
     const {
       loadConfiguredGitHubPatCredentials,

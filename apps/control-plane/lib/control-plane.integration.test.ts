@@ -125,7 +125,10 @@ describe("Control-plane integration", () => {
           { status: 200 }
         )
       ) as unknown as Promise<Response> as unknown as typeof fetch,
-      db
+      db,
+      {
+        syncWorkspaceRuntimeStatusImpl: vi.fn().mockResolvedValue("running")
+      }
     );
 
     expect(runtime.port).toBe(4505);
@@ -133,7 +136,9 @@ describe("Control-plane integration", () => {
     expect(dashboard).toHaveLength(1);
     expect(dashboard[0]?.agentCredential.status).toBe("ready");
     expect(dashboard[0]?.runtime).toMatchObject({
-      status: "provisioning",
+      driver: "docker",
+      health: "healthy",
+      status: "running",
       port: 4505
     });
   });
@@ -300,7 +305,10 @@ describe("Control-plane integration", () => {
           { status: 200 }
         )
       ) as unknown as Promise<Response> as unknown as typeof fetch,
-      db
+      db,
+      {
+        syncWorkspaceRuntimeStatusImpl: vi.fn().mockResolvedValue("running")
+      }
     );
 
     expect(workspace.agentCredentialSource).toBe(

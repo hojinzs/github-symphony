@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { resolveControlPlaneRuntimeUrl } from "./runtime-config";
 
-const CONTROL_PLANE_RUNTIME_URL_ENV = "CONTROL_PLANE_RUNTIME_URL";
 const WORKSPACE_RUNTIME_AUTH_SECRET_ENV = "WORKSPACE_RUNTIME_AUTH_SECRET";
 
 export class WorkspaceRuntimeAuthError extends Error {}
@@ -10,10 +10,7 @@ export function buildWorkspaceRuntimeBrokerUrl(
   brokerPath: string,
   env: Record<string, string | undefined> = process.env
 ): string {
-  const baseUrl =
-    env[CONTROL_PLANE_RUNTIME_URL_ENV] ??
-    env.CONTROL_PLANE_BASE_URL ??
-    "http://host.docker.internal:3000";
+  const baseUrl = resolveControlPlaneRuntimeUrl(env);
 
   return `${baseUrl.replace(/\/+$/, "")}/api/workspaces/${encodeURIComponent(
     workspaceId

@@ -27,6 +27,11 @@ enum SymphonyInstanceStatus {
   failed
 }
 
+enum SymphonyRuntimeDriver {
+  docker
+  local
+}
+
 enum WorkspaceStatus {
   draft
   provisioning
@@ -115,10 +120,14 @@ model WorkspaceRepository {
 model SymphonyInstance {
   id             String                 @id @default(cuid())
   workspaceId    String                 @unique
-  containerId    String                 @unique
-  containerName  String                 @unique
+  runtimeDriver  SymphonyRuntimeDriver
+  runtimeId      String                 @unique
+  runtimeName    String                 @unique
+  endpointHost   String                 @default("127.0.0.1")
   port           Int
   workflowPath   String
+  runtimePath    String
+  processId      Int?
   status         SymphonyInstanceStatus @default(provisioning)
   degradedReason String?
   lastHeartbeat  DateTime?

@@ -7,15 +7,15 @@
 
 ## Operational checks
 
-- Verify `DATABASE_URL`, GitHub token scopes, and Docker socket access before enabling provisioning.
+- Verify `DATABASE_URL`, `SYMPHONY_RUNTIME_DRIVER`, GitHub token scopes, and driver-specific runtime access before enabling provisioning.
 - Run `pnpm lint`, `pnpm test`, `pnpm typecheck`, and `pnpm build` on every release candidate.
 - Run `DATABASE_URL='postgresql://postgres:postgres@localhost:5432/github_symphony' pnpm prisma:validate` before applying schema changes.
 
 ## Runtime health
 
-- Confirm each workspace has a persisted `SymphonyInstance` record with container ID, port, and workflow path.
+- Confirm each workspace has a persisted `SymphonyInstance` record with runtime driver, runtime identity, endpoint host/port, and workflow path.
 - Poll each worker `/api/v1/state` endpoint after deployment and alert on degraded or missing responses.
-- Reconcile failed provisions by removing orphaned containers and marking the instance `failed` before retrying.
+- Reconcile failed provisions by removing orphaned containers or terminating orphaned local worker processes before retrying.
 
 ## GitHub integration
 

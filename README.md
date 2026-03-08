@@ -28,10 +28,10 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
 
 1. Install Node.js 24+ and pnpm 9+.
 2. Run `pnpm install`.
-3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `PLATFORM_SECRETS_KEY`, `WORKSPACE_RUNTIME_AUTH_SECRET`, `GITHUB_OPERATOR_CLIENT_ID`, `GITHUB_OPERATOR_CLIENT_SECRET`, and `GITHUB_OPERATOR_ALLOWED_LOGINS`.
+3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `SYMPHONY_RUNTIME_DRIVER`, `PLATFORM_SECRETS_KEY`, `WORKSPACE_RUNTIME_AUTH_SECRET`, `GITHUB_OPERATOR_CLIENT_ID`, `GITHUB_OPERATOR_CLIENT_SECRET`, and `GITHUB_OPERATOR_ALLOWED_LOGINS`.
 4. Start PostgreSQL.
 5. Run `pnpm prisma:generate` and `pnpm prisma:db-push`.
-6. Start the UI with `pnpm dev:control-plane`.
+6. Set `SYMPHONY_RUNTIME_DRIVER=local` and start the UI with `pnpm dev:control-plane`.
 7. Open `http://localhost:3000/sign-in`, authenticate as a trusted operator, and complete the first-run machine-user PAT setup flow.
    Use a classic PAT issued for the dedicated machine user with these scopes:
    `repo`, `read:org`, `project`
@@ -72,8 +72,14 @@ Required GitHub OAuth settings for trusted operator sign-in:
 
 Recommended base URLs:
 
-- `CONTROL_PLANE_BASE_URL=http://localhost:3000`
-- `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`
+- Local development:
+  `CONTROL_PLANE_BASE_URL=http://localhost:3000`,
+  `CONTROL_PLANE_RUNTIME_URL=http://127.0.0.1:3000`,
+  `SYMPHONY_RUNTIME_DRIVER=local`
+- Docker/self-hosting:
+  `CONTROL_PLANE_BASE_URL=http://localhost:3000`,
+  `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`,
+  `SYMPHONY_RUNTIME_DRIVER=docker`
 
 Recommended PAT setup:
 
@@ -98,7 +104,7 @@ If the stored PAT is revoked or loses Project capability, the control plane mark
 
 ## Agent credential setup
 
-The control plane now manages the service credential used to start `codex app-server` inside each worker container.
+The control plane now manages the service credential used to start `codex app-server` inside each worker runtime.
 
 1. Open `/workspaces/new`.
 2. Register an agent credential with an OpenAI-compatible API key.
@@ -107,7 +113,7 @@ The control plane now manages the service credential used to start `codex app-se
 
 Runtime behavior:
 
-- Worker containers fetch the effective agent credential from the control plane immediately before launch.
+- Worker runtimes fetch the effective agent credential from the control plane immediately before launch.
 - The worker stores only the brokered environment contract needed for the current run.
 - Rotating the platform default or an override changes subsequent runs automatically; workflow files and repositories are not rewritten with long-lived agent secrets.
 - If the effective credential is missing, revoked, or degraded, workspace creation and new runtime launches are blocked until the credential is repaired or reassigned.

@@ -1,13 +1,19 @@
 import { db } from "./db";
 import { readWorkspaceAgentCredentialStatus } from "./agent-credentials";
+import { syncWorkspaceRuntimeStatus } from "./provisioning";
 
 export async function loadWorkspaceDashboard(
   fetchImpl: typeof fetch = fetch,
   database: Pick<
     typeof db,
-    "workspace" | "agentCredential" | "platformAgentCredentialConfig"
-  > = db
+    "workspace" | "agentCredential" | "platformAgentCredentialConfig" | "symphonyInstance"
+  > = db,
+  dependencies: {
+    syncWorkspaceRuntimeStatusImpl?: typeof syncWorkspaceRuntimeStatus;
+  } = {}
 ) {
+  const syncWorkspaceRuntimeStatusImpl =
+    dependencies.syncWorkspaceRuntimeStatusImpl ?? syncWorkspaceRuntimeStatus;
   const workspaces = await database.workspace.findMany({
     include: {
       repositories: true,
@@ -38,8 +44,19 @@ export async function loadWorkspaceDashboard(
       }
 
       try {
+        const status = await syncWorkspaceRuntimeStatusImpl(
+          {
+            workspaceId: workspace.id,
+            runtimeDriver: runtime.runtimeDriver,
+            runtimeId: runtime.runtimeId,
+            processId: runtime.processId
+          },
+          {
+            db: database as Pick<typeof db, "symphonyInstance">
+          }
+        );
         const response = await fetchImpl(
-          `http://127.0.0.1:${runtime.port}/api/v1/state`
+          `http://${runtime.endpointHost}:${runtime.port}/api/v1/state`
         );
 
         if (!response.ok) {
@@ -55,7 +72,10 @@ export async function loadWorkspaceDashboard(
           status: workspace.status,
           agentCredential,
           runtime: {
-            status: runtime.status,
+            driver: runtime.runtimeDriver,
+            health: "healthy",
+            status,
+            host: runtime.endpointHost,
             port: runtime.port,
             state: payload
           }
@@ -68,7 +88,10 @@ export async function loadWorkspaceDashboard(
           status: workspace.status,
           agentCredential,
           runtime: {
-            status: "degraded",
+            driver: runtime.runtimeDriver,
+            health: "degraded",
+            status: runtime.status,
+            host: runtime.endpointHost,
             port: runtime.port,
             state: {
               error: error instanceof Error ? error.message : "Unknown error"

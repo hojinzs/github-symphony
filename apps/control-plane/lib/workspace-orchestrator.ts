@@ -9,6 +9,7 @@ import {
   provisionWorkspaceRuntime,
   type ProvisionedWorkspaceRuntime
 } from "./provisioning";
+import { type RuntimeDriver } from "./runtime-config";
 import { ensureWorkspaceHasUsableAgentCredential } from "./agent-credentials";
 import {
   createWorkspace,
@@ -30,11 +31,14 @@ export async function provisionWorkspace(
     db?: DatabaseLike;
     fetchImpl?: typeof fetch;
     docker?: Pick<Docker, "createContainer" | "getContainer">;
+    runtimeDriver?: RuntimeDriver;
     runtimeRoot?: string;
     portAllocator?: () => Promise<number>;
     credentialBroker?: typeof getProjectGitHubCredentials;
     controlPlaneRuntimeUrl?: string;
     runtimeAuthEnv?: Record<string, string | undefined>;
+    workerCommand?: string;
+    projectRoot?: string;
   } = {}
 ): Promise<{
   workspace: WorkspaceRecord;
@@ -94,10 +98,13 @@ export async function provisionWorkspace(
     {
       db: database,
       docker: dependencies.docker,
+      runtimeDriver: dependencies.runtimeDriver,
       runtimeRoot: dependencies.runtimeRoot,
       portAllocator: dependencies.portAllocator,
       controlPlaneRuntimeUrl: dependencies.controlPlaneRuntimeUrl,
-      runtimeAuthEnv: dependencies.runtimeAuthEnv
+      runtimeAuthEnv: dependencies.runtimeAuthEnv,
+      workerCommand: dependencies.workerCommand,
+      projectRoot: dependencies.projectRoot
     }
   );
 

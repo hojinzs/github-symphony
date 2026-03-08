@@ -149,10 +149,14 @@ describe("workspace repository routes", () => {
         url: "https://github.com/orgs/acme/projects/7"
       },
       runtime: {
-        containerId: "container-1",
+        runtimeDriver: "docker",
+        runtimeId: "container-1",
+        runtimeName: "symphony-platform-workspace",
+        endpointHost: "127.0.0.1",
         port: 4501,
         workflowPath: "/tmp/workflow.md",
-        workspaceRuntimeDir: "/tmp/runtime"
+        workspaceRuntimeDir: "/tmp/runtime",
+        processId: null
       }
     } as never);
 

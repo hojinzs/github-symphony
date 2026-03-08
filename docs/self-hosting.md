@@ -29,6 +29,7 @@ Minimum values to set in `.env`:
 - `DATABASE_URL`
 - `CONTROL_PLANE_BASE_URL`
 - `CONTROL_PLANE_RUNTIME_URL`
+- `SYMPHONY_RUNTIME_DRIVER`
 - `PLATFORM_SECRETS_KEY`
 - `GITHUB_OPERATOR_CLIENT_ID`
 - `GITHUB_OPERATOR_CLIENT_SECRET`
@@ -47,6 +48,7 @@ Recommended local values:
 
 - `CONTROL_PLANE_BASE_URL=http://localhost:3000`
 - `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`
+- `SYMPHONY_RUNTIME_DRIVER=docker`
 - `SYMPHONY_IMAGE=github-symphony-worker:local`
 
 `PLATFORM_SECRETS_KEY` protects the stored machine-user PAT and agent credentials in PostgreSQL. `WORKSPACE_RUNTIME_AUTH_SECRET` derives workspace-scoped shared secrets so worker containers can refresh brokered GitHub credentials and fetch brokered agent credentials without ever receiving the control-plane secret material. `OPERATOR_SESSION_SECRET` can be set separately for signed operator sessions, but the control plane will fall back to `PLATFORM_SECRETS_KEY` when it is omitted.
