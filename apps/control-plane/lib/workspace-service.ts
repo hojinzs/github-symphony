@@ -1,7 +1,7 @@
 import {
+  Prisma,
   WorkspaceAgentCredentialSource,
   WorkspaceStatus,
-  type Prisma
 } from "@prisma/client";
 import { db } from "./db";
 
@@ -15,6 +15,15 @@ export type CreateWorkspaceInput = {
   name: string;
   promptGuidelines: string;
   repositories: WorkspaceRepositoryInput[];
+  githubOwnerLogin?: string;
+  agentCredentialSource: WorkspaceAgentCredentialSource;
+  agentCredentialId?: string;
+};
+
+export type CreateWorkspaceSubmission = {
+  name: string;
+  promptGuidelines: string;
+  repositoryIds: string[];
   githubOwnerLogin?: string;
   agentCredentialSource: WorkspaceAgentCredentialSource;
   agentCredentialId?: string;
@@ -52,6 +61,58 @@ export function parseCreateWorkspaceInput(value: unknown): CreateWorkspaceInput 
   };
 }
 
+export function parseCreateWorkspaceSubmission(
+  value: unknown
+): CreateWorkspaceSubmission {
+  if (!isRecord(value)) {
+    throw new Error("Workspace payload must be an object.");
+  }
+
+  const name = requireNonEmptyString(value.name, "name");
+  const promptGuidelines = requireNonEmptyString(
+    value.promptGuidelines,
+    "promptGuidelines"
+  );
+  const repositoryIds = parseRepositoryIds(value.repositoryIds);
+  const githubOwnerLogin = value.githubOwnerLogin
+    ? requireNonEmptyString(value.githubOwnerLogin, "githubOwnerLogin")
+    : undefined;
+  const agentCredentialSource = parseAgentCredentialSource(
+    value.agentCredentialSource
+  );
+  const agentCredentialId =
+    value.agentCredentialId === undefined || value.agentCredentialId === null
+      ? undefined
+      : requireNonEmptyString(value.agentCredentialId, "agentCredentialId");
+
+  return {
+    name,
+    promptGuidelines,
+    repositoryIds,
+    githubOwnerLogin,
+    agentCredentialSource,
+    agentCredentialId
+  };
+}
+
+export function createWorkspaceInputFromSubmission(
+  submission: CreateWorkspaceSubmission,
+  repositories: WorkspaceRepositoryInput[]
+): CreateWorkspaceInput {
+  return {
+    name: submission.name,
+    promptGuidelines: submission.promptGuidelines,
+    repositories: repositories.map((repository) => ({
+      owner: repository.owner,
+      name: repository.name,
+      cloneUrl: repository.cloneUrl
+    })),
+    githubOwnerLogin: submission.githubOwnerLogin,
+    agentCredentialSource: submission.agentCredentialSource,
+    agentCredentialId: submission.agentCredentialId
+  };
+}
+
 export function slugifyWorkspaceName(name: string): string {
   return name
     .trim()
@@ -61,12 +122,26 @@ export function slugifyWorkspaceName(name: string): string {
     .slice(0, 48);
 }
 
+export function buildWorkspaceSlugCandidate(name: string, collisionCount = 0): string {
+  const baseSlug = slugifyWorkspaceName(name) || "workspace";
+
+  if (collisionCount === 0) {
+    return baseSlug;
+  }
+
+  const suffix = `-${collisionCount + 1}`;
+  const maxBaseLength = Math.max(1, 48 - suffix.length);
+
+  return `${baseSlug.slice(0, maxBaseLength).replace(/-+$/g, "")}${suffix}`;
+}
+
 export function buildWorkspaceCreateData(
   input: CreateWorkspaceInput,
-  githubOwnerLogin: string
+  githubOwnerLogin: string,
+  slug = buildWorkspaceSlugCandidate(input.name)
 ): Prisma.WorkspaceCreateInput {
   return {
-    slug: slugifyWorkspaceName(input.name),
+    slug,
     name: input.name,
     promptGuidelines: input.promptGuidelines,
     status: WorkspaceStatus.draft,
@@ -97,12 +172,30 @@ export async function createWorkspace(
   githubOwnerLogin: string,
   database: Pick<typeof db, "workspace"> = db
 ) {
-  return database.workspace.create({
-    data: buildWorkspaceCreateData(input, githubOwnerLogin),
-    include: {
-      repositories: true
+  let collisionCount = 0;
+
+  while (collisionCount < 100) {
+    try {
+      return await database.workspace.create({
+        data: buildWorkspaceCreateData(
+          input,
+          githubOwnerLogin,
+          buildWorkspaceSlugCandidate(input.name, collisionCount)
+        ),
+        include: {
+          repositories: true
+        }
+      });
+    } catch (error) {
+      if (!isWorkspaceSlugUniqueConstraintError(error)) {
+        throw error;
+      }
+
+      collisionCount += 1;
     }
-  });
+  }
+
+  throw new Error("Could not allocate a unique workspace slug.");
 }
 
 export async function updateWorkspaceProvisioning(
@@ -147,6 +240,14 @@ function parseRepositories(value: unknown): WorkspaceRepositoryInput[] {
   });
 }
 
+function parseRepositoryIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("repositoryIds must contain at least one repository.");
+  }
+
+  return [...new Set(value.map((item, index) => requireNonEmptyString(item, `repositoryIds[${index}]`)))];
+}
+
 function requireNonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${field} must be a non-empty string.`);
@@ -177,4 +278,22 @@ function parseAgentCredentialSource(
   throw new Error(
     "agentCredentialSource must be either platform_default or workspace_override."
   );
+}
+
+function isWorkspaceSlugUniqueConstraintError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code !== "P2002") {
+    return false;
+  }
+
+  const target = error.meta?.target;
+
+  if (!Array.isArray(target)) {
+    return false;
+  }
+
+  return target.includes("slug");
 }

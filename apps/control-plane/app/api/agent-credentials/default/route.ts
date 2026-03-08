@@ -3,9 +3,15 @@ import {
   AgentCredentialError,
   setPlatformDefaultAgentCredential
 } from "../../../../lib/agent-credentials";
+import {
+  createOperatorAuthJsonResponse,
+  OperatorAuthRequiredError,
+  requireOperatorRequestSession
+} from "../../../../lib/operator-auth-guard";
 
 export async function POST(request: Request) {
   try {
+    requireOperatorRequestSession(request);
     const body = (await request.json()) as {
       credentialId?: string;
     };
@@ -20,6 +26,10 @@ export async function POST(request: Request) {
       credential
     });
   } catch (error) {
+    if (error instanceof OperatorAuthRequiredError) {
+      return createOperatorAuthJsonResponse(error);
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unknown error"

@@ -24,12 +24,11 @@ export function deriveWorkspaceRuntimeAuthSecret(
   workspaceId: string,
   env: Record<string, string | undefined> = process.env
 ): string {
-  const secretSeed =
-    env[WORKSPACE_RUNTIME_AUTH_SECRET_ENV] ?? env.GITHUB_APP_SECRETS_KEY;
+  const secretSeed = env[WORKSPACE_RUNTIME_AUTH_SECRET_ENV];
 
   if (!secretSeed) {
     throw new WorkspaceRuntimeAuthError(
-      `${WORKSPACE_RUNTIME_AUTH_SECRET_ENV} or GITHUB_APP_SECRETS_KEY is required for runtime credential refresh.`
+      `${WORKSPACE_RUNTIME_AUTH_SECRET_ENV} is required for runtime credential refresh.`
     );
   }
 

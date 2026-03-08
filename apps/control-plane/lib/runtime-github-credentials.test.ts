@@ -67,15 +67,19 @@ describe("issueWorkspaceRuntimeCredentials", () => {
         }
       } as never,
       credentialBroker: async () => ({
-        token: "ghs_runtime",
+        token: "ghp_runtime",
         expiresAt: new Date("2026-03-07T11:00:00.000Z"),
-        installationId: "installation-1",
+        installationId: null,
         ownerLogin: "acme",
-        ownerType: "Organization"
+        ownerType: "Organization",
+        provider: "pat_classic",
+        source: "pat",
+        actorLogin: "machine-user",
+        tokenFingerprint: "pat-fingerprint"
       })
     });
 
-    expect(credentials.token).toBe("ghs_runtime");
+    expect(credentials.token).toBe("ghp_runtime");
     expect(credentials.githubProjectId).toBe("project-1");
     expect(credentials.gitHostname).toBe("github.com");
     expect(credentials.gitUsername).toBe("x-access-token");

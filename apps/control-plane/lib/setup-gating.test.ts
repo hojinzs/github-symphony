@@ -6,6 +6,10 @@ vi.mock("next/navigation", () => ({
   })
 }));
 
+vi.mock("./operator-auth-guard", () => ({
+  requireOperatorPageSession: vi.fn()
+}));
+
 vi.mock("./github-integration", async () => {
   const actual =
     await vi.importActual<typeof import("./github-integration")>("./github-integration");
@@ -19,24 +23,35 @@ vi.mock("./github-integration", async () => {
 describe("setup gating", () => {
   it("redirects workspace creation to setup on first boot", async () => {
     const { loadGitHubIntegrationSummary } = await import("./github-integration");
+    const { requireOperatorPageSession } = await import("./operator-auth-guard");
     const WorkspacePage = (await import("../app/workspaces/new/page")).default;
 
+    vi.mocked(requireOperatorPageSession).mockResolvedValue({
+      githubLogin: "operator",
+      githubUserId: "1",
+      expiresAt: Date.now() + 60_000
+    });
     vi.mocked(loadGitHubIntegrationSummary).mockResolvedValue({
       state: "unconfigured",
       missingFields: [],
-      integration: null,
-      latestBootstrapAttempt: null
+      integration: null
     });
 
     await expect(WorkspacePage()).rejects.toThrow(
-      "REDIRECT:/setup/github-app?next=%2Fworkspaces%2Fnew"
+      "REDIRECT:/setup/github?next=%2Fworkspaces%2Fnew"
     );
   });
 
   it("redirects issue creation to setup when the integration is degraded", async () => {
     const { loadGitHubIntegrationSummary } = await import("./github-integration");
+    const { requireOperatorPageSession } = await import("./operator-auth-guard");
     const IssuePage = (await import("../app/issues/new/page")).default;
 
+    vi.mocked(requireOperatorPageSession).mockResolvedValue({
+      githubLogin: "operator",
+      githubUserId: "1",
+      expiresAt: Date.now() + 60_000
+    });
     vi.mocked(loadGitHubIntegrationSummary).mockResolvedValue({
       state: "degraded",
       missingFields: [],
@@ -44,27 +59,23 @@ describe("setup gating", () => {
         id: "integration-1",
         singletonKey: "system",
         status: "degraded",
-        appId: "123",
-        clientId: "Iv1.123",
-        appSlug: "github-symphony",
-        appName: "GitHub Symphony",
-        installationId: "installation-1",
-        installationTargetLogin: "acme",
-        installationTargetType: "Organization",
-        installationTargetUrl: "https://github.com/acme",
+        patTokenFingerprint: "pat-fingerprint",
+        patActorId: "100",
+        patActorLogin: "machine-user",
+        patValidatedOwnerId: "200",
+        patValidatedOwnerLogin: "acme",
+        patValidatedOwnerType: "Organization",
+        patValidatedOwnerUrl: "https://github.com/acme",
         degradedReason: "Installation revoked.",
         lastValidatedAt: null,
         createdAt: new Date("2026-03-07T10:00:00.000Z"),
         updatedAt: new Date("2026-03-07T10:00:00.000Z"),
-        hasClientSecret: true,
-        hasPrivateKey: true,
-        hasWebhookSecret: false
-      },
-      latestBootstrapAttempt: null
+        hasPatToken: true
+      }
     });
 
     await expect(IssuePage()).rejects.toThrow(
-      "REDIRECT:/setup/github-app?next=%2Fissues%2Fnew"
+      "REDIRECT:/setup/github?next=%2Fissues%2Fnew"
     );
   });
 });

@@ -1,81 +1,28 @@
-import {
-  GitHubBootstrapAttemptStatus,
-  GitHubIntegrationStatus
-} from "@prisma/client";
+import { GitHubIntegrationStatus } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
   classifyGitHubIntegration,
-  createGitHubBootstrapAttempt,
-  fingerprintBootstrapStateToken,
+  loadConfiguredGitHubPatCredentials,
   loadGitHubIntegrationSummary,
-  loadReadyGitHubIntegration,
   saveGitHubIntegration
 } from "./github-integration";
 import { createGitHubSecretProtector } from "./github-integration-secrets";
 
-type IntegrationFixture = Exclude<
-  Parameters<typeof classifyGitHubIntegration>[0],
-  null
->;
-
-const encryptedClientSecret = createGitHubSecretProtector({
+const secretProtector = createGitHubSecretProtector({
   encryptionKey: Buffer.alloc(32, 1)
-}).encrypt("client-secret");
-const encryptedPrivateKey = createGitHubSecretProtector({
-  encryptionKey: Buffer.alloc(32, 1)
-}).encrypt("private-key");
+});
 
-const baseIntegration: IntegrationFixture = {
-  id: "integration-1",
-  singletonKey: "system",
-  status: GitHubIntegrationStatus.pending,
-  appId: null,
-  clientId: null,
-  appSlug: null,
-  appName: null,
-  encryptedClientSecret: null,
-  encryptedPrivateKey: null,
-  encryptedWebhookSecret: null,
-  installationId: null,
-  installationTargetLogin: null,
-  installationTargetType: null,
-  installationTargetUrl: null,
-  degradedReason: null,
-  lastValidatedAt: null,
-  createdAt: new Date("2026-03-07T10:00:00.000Z"),
-  updatedAt: new Date("2026-03-07T10:00:00.000Z"),
-  bootstrapAttempts: [] as Array<{
-    id: string;
-    status: GitHubBootstrapAttemptStatus;
-    expiresAt: Date;
-    manifestUrl: string | null;
-    githubAppName: string | null;
-    failureReason: string | null;
-    createdAt: Date;
-  }>
-};
+const encryptedPatToken = secretProtector.encrypt("ghp_machine_user");
 
-function createDatabase(overrides: {
-  integration?: IntegrationFixture | null;
-}) {
-  const gitHubIntegration = {
-    findUnique: vi.fn().mockResolvedValue(overrides.integration ?? null),
-    upsert: vi.fn().mockImplementation(async (args) => ({
-      id: "integration-1",
-      ...args.create
-    }))
-  };
-  const gitHubBootstrapAttempt = {
-    create: vi.fn().mockImplementation(async (args) => ({
-      id: "attempt-1",
-      ...args.data
-    })),
-    findUnique: vi.fn().mockResolvedValue(null)
-  };
-
+function createDatabase(integration: Record<string, unknown> | null) {
   return {
-    gitHubIntegration,
-    gitHubBootstrapAttempt
+    gitHubIntegration: {
+      findUnique: vi.fn().mockResolvedValue(integration),
+      upsert: vi.fn().mockImplementation(async (args) => ({
+        id: "integration-1",
+        ...args.create
+      }))
+    }
   };
 }
 
@@ -84,91 +31,98 @@ describe("classifyGitHubIntegration", () => {
     expect(classifyGitHubIntegration(null)).toBe("unconfigured");
   });
 
-  it("returns pending when bootstrap is in progress", () => {
-    expect(classifyGitHubIntegration(baseIntegration)).toBe("pending");
-  });
-
-  it("returns degraded when a ready record is incomplete", () => {
+  it("returns degraded when a ready PAT record is incomplete", () => {
     expect(
       classifyGitHubIntegration({
-        ...baseIntegration,
-        status: GitHubIntegrationStatus.ready
-      })
+        id: "integration-1",
+        singletonKey: "system",
+        status: GitHubIntegrationStatus.ready,
+        encryptedPatToken: encryptedPatToken,
+        patTokenFingerprint: null,
+        patActorId: "100",
+        patActorLogin: "machine-user",
+        patValidatedOwnerId: "200",
+        patValidatedOwnerLogin: "acme",
+        patValidatedOwnerType: "Organization",
+        patValidatedOwnerUrl: "https://github.com/acme",
+        lastValidatedAt: null,
+        degradedReason: null,
+        createdAt: new Date("2026-03-07T10:00:00.000Z"),
+        updatedAt: new Date("2026-03-07T10:00:00.000Z")
+      } as never)
     ).toBe("degraded");
   });
 });
 
 describe("loadGitHubIntegrationSummary", () => {
-  it("returns recovery-safe integration metadata", async () => {
+  it("surfaces PAT metadata without exposing the token", async () => {
     const database = createDatabase({
-      integration: {
-        ...baseIntegration,
-        appName: "GitHub Symphony",
-        bootstrapAttempts: [
-          {
-            id: "attempt-1",
-            status: GitHubBootstrapAttemptStatus.pending,
-            expiresAt: new Date("2026-03-07T11:00:00.000Z"),
-            manifestUrl: "https://github.com/settings/apps/new",
-            githubAppName: "GitHub Symphony",
-            failureReason: null,
-            createdAt: new Date("2026-03-07T10:00:00.000Z")
-          }
-        ]
-      }
+      id: "integration-1",
+      singletonKey: "system",
+      status: GitHubIntegrationStatus.ready,
+      encryptedPatToken,
+      patTokenFingerprint: "pat-fingerprint",
+      patActorId: "100",
+      patActorLogin: "machine-user",
+      patValidatedOwnerId: "200",
+      patValidatedOwnerLogin: "acme",
+      patValidatedOwnerType: "Organization",
+      patValidatedOwnerUrl: "https://github.com/acme",
+      degradedReason: null,
+      lastValidatedAt: new Date("2026-03-07T10:00:00.000Z"),
+      createdAt: new Date("2026-03-07T10:00:00.000Z"),
+      updatedAt: new Date("2026-03-07T10:00:00.000Z")
     });
 
-    const summary = await loadGitHubIntegrationSummary(
-      database as never,
-      new Date("2026-03-07T10:30:00.000Z")
-    );
+    const summary = await loadGitHubIntegrationSummary(database as never);
 
-    expect(summary.state).toBe("pending");
-    expect(summary.integration?.appName).toBe("GitHub Symphony");
-    expect(summary.integration?.hasClientSecret).toBe(false);
-    expect(summary.latestBootstrapAttempt?.isExpired).toBe(false);
+    expect(summary.state).toBe("ready");
+    expect(summary.integration?.patActorLogin).toBe("machine-user");
+    expect(summary.integration?.patValidatedOwnerLogin).toBe("acme");
+    expect(summary.integration?.hasPatToken).toBe(true);
+    expect(summary.missingFields).toEqual([]);
   });
 });
 
-describe("loadReadyGitHubIntegration", () => {
-  it("decrypts ready GitHub App credentials", async () => {
+describe("loadConfiguredGitHubPatCredentials", () => {
+  it("decrypts a configured PAT-backed integration", async () => {
     const database = createDatabase({
-      integration: {
-        ...baseIntegration,
-        status: GitHubIntegrationStatus.ready,
-        appId: "12345",
-        clientId: "Iv1.12345",
-        encryptedClientSecret,
-        encryptedPrivateKey,
-        installationId: "67890",
-        installationTargetLogin: "acme",
-        installationTargetType: "Organization"
-      }
+      id: "integration-1",
+      singletonKey: "system",
+      status: GitHubIntegrationStatus.ready,
+      encryptedPatToken,
+      patTokenFingerprint: "pat-fingerprint",
+      patActorId: "100",
+      patActorLogin: "machine-user",
+      patValidatedOwnerId: "200",
+      patValidatedOwnerLogin: "acme",
+      patValidatedOwnerType: "Organization",
+      patValidatedOwnerUrl: "https://github.com/acme",
+      degradedReason: null,
+      lastValidatedAt: new Date("2026-03-07T10:00:00.000Z"),
+      createdAt: new Date("2026-03-07T10:00:00.000Z"),
+      updatedAt: new Date("2026-03-07T10:00:00.000Z")
     });
 
-    const ready = await loadReadyGitHubIntegration(
+    const configured = await loadConfiguredGitHubPatCredentials(
       database as never,
-      createGitHubSecretProtector({
-        encryptionKey: Buffer.alloc(32, 1)
-      })
+      secretProtector
     );
 
-    expect(ready.appId).toBe("12345");
-    expect(ready.clientSecret).toBe("client-secret");
-    expect(ready.privateKey).toBe("private-key");
+    expect(configured.token).toBe("ghp_machine_user");
+    expect(configured.actorLogin).toBe("machine-user");
+    expect(configured.validatedOwnerLogin).toBe("acme");
   });
 });
 
-describe("singleton persistence helpers", () => {
+describe("saveGitHubIntegration", () => {
   it("upserts the singleton integration record", async () => {
-    const database = createDatabase({
-      integration: null
-    });
+    const database = createDatabase(null);
 
     await saveGitHubIntegration(
       {
         status: GitHubIntegrationStatus.pending,
-        appName: "GitHub Symphony"
+        degradedReason: null
       },
       database as never
     );
@@ -178,31 +132,6 @@ describe("singleton persistence helpers", () => {
         where: {
           singletonKey: "system"
         }
-      })
-    );
-  });
-
-  it("stores bootstrap attempts by hashed state token", async () => {
-    const database = createDatabase({
-      integration: null
-    });
-
-    await createGitHubBootstrapAttempt(
-      {
-        stateToken: "bootstrap-state",
-        manifest: {
-          name: "GitHub Symphony"
-        },
-        expiresAt: new Date("2026-03-07T11:00:00.000Z")
-      },
-      database as never
-    );
-
-    expect(database.gitHubBootstrapAttempt.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          stateFingerprint: fingerprintBootstrapStateToken("bootstrap-state")
-        })
       })
     );
   });

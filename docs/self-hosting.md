@@ -5,7 +5,8 @@ This guide assumes a trusted operator running the control plane and allowing it 
 ## 1. Prerequisites
 
 - Docker Engine with Compose
-- A GitHub account that can create and install GitHub Apps in the target user or organization
+- A trusted operator GitHub account for control-plane sign-in
+- A dedicated machine-user GitHub account with access to the target organization
 - Access to the repositories and GitHub Projects that Symphony should manage
 
 ## 2. Clone the repository
@@ -28,9 +29,13 @@ Minimum values to set in `.env`:
 - `DATABASE_URL`
 - `CONTROL_PLANE_BASE_URL`
 - `CONTROL_PLANE_RUNTIME_URL`
-- `PLATFORM_SECRETS_KEY` or `GITHUB_APP_SECRETS_KEY`
+- `PLATFORM_SECRETS_KEY`
+- `GITHUB_OPERATOR_CLIENT_ID`
+- `GITHUB_OPERATOR_CLIENT_SECRET`
+- `GITHUB_OPERATOR_ALLOWED_LOGINS` (optional)
 - `WORKSPACE_RUNTIME_AUTH_SECRET`
 - `SYMPHONY_IMAGE`
+- `OPERATOR_SESSION_SECRET` (optional, otherwise `PLATFORM_SECRETS_KEY` is reused)
 
 Generate the two non-GitHub secrets with a tool such as:
 
@@ -44,15 +49,7 @@ Recommended local values:
 - `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`
 - `SYMPHONY_IMAGE=github-symphony-worker:local`
 
-`PLATFORM_SECRETS_KEY` is the recommended encryption key for stored GitHub App and agent credentials in PostgreSQL. `GITHUB_APP_SECRETS_KEY` remains a supported fallback. `WORKSPACE_RUNTIME_AUTH_SECRET` derives workspace-scoped shared secrets so worker containers can refresh short-lived installation tokens and fetch brokered agent credentials without ever receiving the GitHub app private key.
-
-The GitHub App installation must grant:
-
-- `Contents: Read and write`
-- `Issues: Read and write`
-- `Pull requests: Read and write`
-- `Repository projects: Read and write`
-- `Organization projects: Read and write`
+`PLATFORM_SECRETS_KEY` protects the stored machine-user PAT and agent credentials in PostgreSQL. `WORKSPACE_RUNTIME_AUTH_SECRET` derives workspace-scoped shared secrets so worker containers can refresh brokered GitHub credentials and fetch brokered agent credentials without ever receiving the control-plane secret material. `OPERATOR_SESSION_SECRET` can be set separately for signed operator sessions, but the control plane will fall back to `PLATFORM_SECRETS_KEY` when it is omitted.
 
 ## 4. Start the stack
 
@@ -69,7 +66,7 @@ What the stack does:
 - applies the current schema with `prisma db push`
 - builds and starts the Next.js control plane on port `3000`
 
-## 5. Bootstrap the GitHub App from the UI
+## 5. Bootstrap GitHub from the UI
 
 Open:
 
@@ -79,11 +76,12 @@ http://localhost:3000
 
 Then complete the first-run setup flow:
 
-1. Open `/setup/github-app` if you are not redirected there automatically.
-2. Click `Start setup`.
-3. GitHub opens the manifest flow and creates the app using the control-plane callback and setup URLs.
-4. Install the app into the target user or organization.
-5. GitHub redirects back to the control plane, which verifies the installation and stores the encrypted app credentials.
+1. Create or configure a dedicated GitHub OAuth App for trusted operators with callback URL `<CONTROL_PLANE_BASE_URL>/api/auth/github/callback`.
+2. Open `/sign-in` and authenticate as a GitHub login listed in `GITHUB_OPERATOR_ALLOWED_LOGINS`.
+3. Open `/setup/github` if you are not redirected there automatically.
+4. Paste the dedicated machine-user PAT and the organization owner login into the default setup form.
+5. Submit the form and wait for the control plane to validate actor lookup, repository inventory, and GitHub Project access.
+6. Confirm the setup page shows the PAT integration as `ready`.
 
 After setup reaches `ready`, workspace creation and issue submission stop asking for manual GitHub tokens.
 
@@ -95,7 +93,7 @@ Suggested first run:
 2. Register at least one ready agent credential from the workspace form.
 3. Mark one ready credential as the platform default, or plan to select a workspace-specific override during workspace creation.
 4. Enter prompt guidelines and allowed repositories.
-5. Create the workspace. The control plane provisions the GitHub Project and worker runtime by using app-backed installation credentials plus the selected effective agent credential, and writes the approval lifecycle mapping into `WORKFLOW.md`.
+5. Create the workspace. The control plane provisions the GitHub Project and worker runtime by using the configured machine-user PAT plus the selected effective agent credential, and writes the approval lifecycle mapping into `WORKFLOW.md`.
 6. Ensure the target project exposes planning, human review, implementation, awaiting merge, and completed statuses that match the workspace workflow.
 7. Open `/issues/new` and submit a task.
 8. Review the plan comment the worker posts, then move the issue into the implementation-active state when you approve it.
@@ -103,11 +101,11 @@ Suggested first run:
 
 ## 7. Recovery flow
 
-If GitHub App installation access is revoked or becomes invalid:
+If the stored machine-user PAT is revoked, rotated, or loses Project capability:
 
 1. The control plane marks the integration `degraded`.
-2. Workspace and issue creation redirect back to `/setup/github-app`.
-3. Use `Reconnect installation` to reinstall the existing app, or `Run setup again` to recreate the bootstrap flow.
+2. Workspace and issue creation redirect back to `/setup/github`.
+3. Replace the PAT from the default setup form and target the same organization owner, or move to a new supported organization-backed machine user if ownership changed.
 4. Existing workspace metadata remains in PostgreSQL so the operator can recover without rebuilding the control plane.
 
 If an agent credential becomes invalid, revoked, or deleted:
@@ -122,12 +120,9 @@ If an agent credential becomes invalid, revoked, or deleted:
 - The compose sample is intended for self-hosted single-host operation.
 - Mounting `docker.sock` gives the control plane privileged access to the host Docker daemon.
 - `CONTROL_PLANE_RUNTIME_URL` must be reachable from worker containers, not just from the operator browser.
+- GitHub OAuth sign-in relies on `CONTROL_PLANE_BASE_URL` being the externally reachable browser URL.
 - Keep GitHub linked-issue auto-close enabled; the implementation phase creates pull requests that rely on `Fixes #<issue-number>` for merge completion.
 - Keep the project's built-in workflow automation enabled so closed issues advance into the completed project state.
 - For internet-facing deployments, put a reverse proxy and TLS terminator in front of the app.
-- The helper script at [scripts/github-app-installation-token.sh](/home/ubuntu/projects/github-symphony/scripts/github-app-installation-token.sh) is now optional and mostly useful for diagnostics.
-
 ## References
-
-- GitHub App manifests: https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest
-- GitHub App installation authentication: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation
+- GitHub classic PAT scopes: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens

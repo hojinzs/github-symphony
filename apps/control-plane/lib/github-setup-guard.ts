@@ -3,7 +3,7 @@ import { loadGitHubIntegrationSummary } from "./github-integration";
 export class GitHubSetupRequiredError extends Error {
   constructor(readonly state: string) {
     super(
-      `GitHub App bootstrap is ${state}. Complete setup before creating workspaces or issues.`
+      `GitHub integration is ${state}. Complete setup before creating workspaces or issues.`
     );
   }
 }
@@ -19,7 +19,7 @@ export async function requireReadyGitHubSetup() {
 }
 
 export function buildGitHubSetupPath(nextPath: string): string {
-  const url = new URL("http://github-symphony.local/setup/github-app");
+  const url = new URL("http://github-symphony.local/setup/github");
   url.searchParams.set("next", nextPath);
   return `${url.pathname}${url.search}`;
 }

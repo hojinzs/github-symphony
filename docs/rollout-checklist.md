@@ -19,7 +19,7 @@
 
 ## GitHub integration
 
-- Validate the GitHub App installation has write access for repository contents, issues, pull requests, and the relevant GitHub Project scope before creating workspaces or issues.
+- Validate the machine-user PAT has `repo`, `read:org`, and `project` scopes plus organization access before creating workspaces or issues.
 - Confirm created GitHub issues are attached to the expected Project and begin in a planning-active status.
 - Confirm the planning run moves work into the human-review state and the implementation run moves it into the awaiting-merge state.
 - Confirm linked pull requests include `Fixes #<issue-number>` and that merging them closes the issue and advances the project item to `Done`.

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { getBrokeredGitHubCredentials } from "./github-installation-broker";
+import { getProjectGitHubCredentials } from "./github-user-broker";
 import {
   buildWorkspaceRuntimeBrokerUrl,
   deriveWorkspaceRuntimeAuthSecret,
@@ -26,7 +26,7 @@ export async function issueWorkspaceRuntimeCredentials(
   dependencies: {
     db?: Pick<typeof db, "workspace">;
     fetchImpl?: typeof fetch;
-    credentialBroker?: typeof getBrokeredGitHubCredentials;
+    credentialBroker?: typeof getProjectGitHubCredentials;
   } = {}
 ) {
   const database = dependencies.db ?? db;
@@ -47,8 +47,9 @@ export async function issueWorkspaceRuntimeCredentials(
   }
 
   const credentialBroker =
-    dependencies.credentialBroker ?? getBrokeredGitHubCredentials;
+    dependencies.credentialBroker ?? getProjectGitHubCredentials;
   const credentials = await credentialBroker({
+    db: database as never,
     fetchImpl: dependencies.fetchImpl
   });
 

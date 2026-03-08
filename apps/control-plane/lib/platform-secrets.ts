@@ -90,11 +90,11 @@ export function createPlatformSecretProtector(input: {
 export function loadPlatformSecretProtectorFromEnv(
   env: Record<string, string | undefined> = process.env
 ): PlatformSecretProtector {
-  const encryptionKey = env.PLATFORM_SECRETS_KEY ?? env.GITHUB_APP_SECRETS_KEY;
+  const encryptionKey = env.PLATFORM_SECRETS_KEY;
 
   if (!encryptionKey) {
     throw new PlatformSecretProtectionError(
-      "PLATFORM_SECRETS_KEY or GITHUB_APP_SECRETS_KEY is required to protect stored platform secrets."
+      "PLATFORM_SECRETS_KEY is required to protect stored platform secrets."
     );
   }
 

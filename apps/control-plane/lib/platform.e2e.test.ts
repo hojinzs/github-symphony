@@ -77,12 +77,11 @@ describe("Platform end-to-end flow", () => {
       };
       const query = body.query ?? "";
 
-      if (query.includes("query ResolveOwner")) {
+      if (query.includes("query ResolveOrganization")) {
         return new Response(
           JSON.stringify({
             data: {
-              user: { id: "owner-1" },
-              organization: null
+              organization: { id: "owner-1" }
             }
           }),
           { status: 200 }
@@ -171,11 +170,15 @@ describe("Platform end-to-end flow", () => {
       getContainer: vi.fn()
     };
     const credentialBroker = vi.fn().mockResolvedValue({
-      token: "ghs_installation",
+      token: "ghp_machine_user",
       expiresAt: new Date("2026-03-07T11:00:00.000Z"),
-      installationId: "installation-1",
+      installationId: null,
       ownerLogin: "acme",
-      ownerType: "Organization"
+      ownerType: "Organization",
+      provider: "pat_classic",
+      source: "pat",
+      actorLogin: "machine-user",
+      tokenFingerprint: "pat-fingerprint"
     });
 
     const workspaceInput = parseCreateWorkspaceInput({
@@ -225,7 +228,7 @@ describe("Platform end-to-end flow", () => {
         githubTokenBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-1/runtime-credentials",
         githubTokenBrokerSecret: "runtime-secret",
-        githubTokenCachePath: "/workspace-runtime/.github-installation-token.json",
+        githubTokenCachePath: "/workspace-runtime/.github-token.json",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-1/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",

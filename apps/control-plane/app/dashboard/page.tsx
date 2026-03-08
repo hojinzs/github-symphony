@@ -1,6 +1,9 @@
 import { DashboardClient } from "./workspace-dashboard";
+import { requireOperatorPageSession } from "../../lib/operator-auth-guard";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  await requireOperatorPageSession("/dashboard");
+
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-6 py-10 lg:px-10">
       <header className="space-y-4">

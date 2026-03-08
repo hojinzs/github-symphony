@@ -5,8 +5,6 @@ import {
   type PlatformSecretProtector
 } from "./platform-secrets";
 
-const GITHUB_APP_SECRETS_KEY_ENV = "GITHUB_APP_SECRETS_KEY";
-
 export class GitHubSecretProtectionError extends PlatformSecretProtectionError {}
 
 export type GitHubSecretProtector = {
@@ -24,20 +22,13 @@ export function createGitHubSecretProtector(input: {
 export function loadGitHubSecretProtectorFromEnv(
   env: Record<string, string | undefined> = process.env
 ): GitHubSecretProtector {
-  const encryptionKey = env[GITHUB_APP_SECRETS_KEY_ENV];
-
-  if (!encryptionKey) {
+  if (!env.PLATFORM_SECRETS_KEY) {
     throw new GitHubSecretProtectionError(
-      `${GITHUB_APP_SECRETS_KEY_ENV} is required to protect stored GitHub App secrets.`
+      "PLATFORM_SECRETS_KEY is required to protect stored GitHub credentials."
     );
   }
 
-  return wrapGitHubErrors(
-    loadPlatformSecretProtectorFromEnv({
-      ...env,
-      PLATFORM_SECRETS_KEY: encryptionKey
-    })
-  );
+  return wrapGitHubErrors(loadPlatformSecretProtectorFromEnv(env));
 }
 
 function wrapGitHubErrors(protector: PlatformSecretProtector): GitHubSecretProtector {

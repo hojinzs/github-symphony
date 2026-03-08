@@ -5,14 +5,36 @@ import {
   listAgentCredentials,
   parseCreateAgentCredentialInput
 } from "../../../lib/agent-credentials";
+import {
+  createOperatorAuthJsonResponse,
+  OperatorAuthRequiredError,
+  requireOperatorRequestSession
+} from "../../../lib/operator-auth-guard";
 
-export async function GET() {
-  const payload = await listAgentCredentials();
-  return NextResponse.json(payload);
+export async function GET(request: Request) {
+  try {
+    requireOperatorRequestSession(request);
+    const payload = await listAgentCredentials();
+    return NextResponse.json(payload);
+  } catch (error) {
+    if (error instanceof OperatorAuthRequiredError) {
+      return createOperatorAuthJsonResponse(error);
+    }
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unknown error"
+      },
+      {
+        status: 500
+      }
+    );
+  }
 }
 
 export async function POST(request: Request) {
   try {
+    requireOperatorRequestSession(request);
     const body = await request.json();
     const credential = await createAgentCredential(
       parseCreateAgentCredentialInput(body)
@@ -27,6 +49,10 @@ export async function POST(request: Request) {
       }
     );
   } catch (error) {
+    if (error instanceof OperatorAuthRequiredError) {
+      return createOperatorAuthJsonResponse(error);
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unknown error"

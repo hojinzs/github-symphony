@@ -1,18 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-
-type RepositoryDraft = {
-  owner: string;
-  name: string;
-  cloneUrl: string;
-};
-
-const EMPTY_REPOSITORY: RepositoryDraft = {
-  owner: "",
-  name: "",
-  cloneUrl: ""
-};
+import {
+  FormEvent,
+  useDeferredValue,
+  useEffect,
+  useState
+} from "react";
+import {
+  addRepositorySelection,
+  buildRepositoryInventoryErrorMessage,
+  buildRepositorySelectionRefreshMessage,
+  filterRepositoryInventory,
+  reconcileRepositorySelection,
+  removeRepositorySelection,
+  type AvailableRepository
+} from "./repository-selection";
 
 type AgentCredentialOption = {
   id: string;
@@ -27,7 +29,15 @@ type AgentCredentialOption = {
 export function WorkspaceCreateForm() {
   const [name, setName] = useState("");
   const [promptGuidelines, setPromptGuidelines] = useState("");
-  const [repositories, setRepositories] = useState<RepositoryDraft[]>([EMPTY_REPOSITORY]);
+  const [availableRepositories, setAvailableRepositories] = useState<AvailableRepository[]>(
+    []
+  );
+  const [selectedRepositoryIds, setSelectedRepositoryIds] = useState<string[]>([]);
+  const [repositoryQuery, setRepositoryQuery] = useState("");
+  const deferredRepositoryQuery = useDeferredValue(repositoryQuery);
+  const [repositoryError, setRepositoryError] = useState("");
+  const [isLoadingRepositories, setIsLoadingRepositories] = useState(true);
+  const [isRefreshingRepositories, setIsRefreshingRepositories] = useState(false);
   const [agentCredentialSource, setAgentCredentialSource] = useState<
     "platform_default" | "workspace_override"
   >("platform_default");
@@ -50,14 +60,72 @@ export function WorkspaceCreateForm() {
   const selectedOverride = readyCredentials.find(
     (credential) => credential.id === agentCredentialId
   );
+  const selectedRepositories = selectedRepositoryIds
+    .map((repositoryId) =>
+      availableRepositories.find((repository) => repository.id === repositoryId)
+    )
+    .filter((repository): repository is AvailableRepository => Boolean(repository));
+  const visibleRepositories = filterRepositoryInventory(
+    availableRepositories,
+    selectedRepositoryIds,
+    deferredRepositoryQuery
+  );
   const canSubmit =
     !isSubmitting &&
+    !isLoadingRepositories &&
+    selectedRepositoryIds.length > 0 &&
     (agentCredentialSource === "platform_default"
       ? hasReadyPlatformDefault
       : Boolean(selectedOverride));
 
+  async function loadRepositories(action: "load" | "refresh") {
+    if (action === "load") {
+      setIsLoadingRepositories(true);
+    } else {
+      setIsRefreshingRepositories(true);
+    }
+
+    const response = await fetch("/api/github/repositories");
+    const payload = (await response.json()) as {
+      repositories?: AvailableRepository[];
+      error?: string;
+    };
+
+    if (!response.ok) {
+      setRepositoryError(buildRepositoryInventoryErrorMessage(action, payload.error));
+
+      if (action === "load") {
+        setIsLoadingRepositories(false);
+      } else {
+        setIsRefreshingRepositories(false);
+      }
+
+      return;
+    }
+
+    const repositories = payload.repositories ?? [];
+    let refreshMessage = "";
+
+    setAvailableRepositories(repositories);
+    setSelectedRepositoryIds((current) => {
+      const nextSelection = reconcileRepositorySelection(current, repositories);
+      refreshMessage = buildRepositorySelectionRefreshMessage(
+        nextSelection.removedRepositoryIds.length
+      );
+      return nextSelection.selectedRepositoryIds;
+    });
+    setRepositoryError(refreshMessage);
+
+    if (action === "load") {
+      setIsLoadingRepositories(false);
+    } else {
+      setIsRefreshingRepositories(false);
+    }
+  }
+
   useEffect(() => {
     void loadCredentials();
+    void loadRepositories("load");
   }, []);
 
   async function loadCredentials() {
@@ -98,10 +166,7 @@ export function WorkspaceCreateForm() {
               agentCredentialId
             }
           : {}),
-        repositories: repositories.filter(
-          (repository) =>
-            repository.owner && repository.name && repository.cloneUrl
-        )
+        repositoryIds: selectedRepositoryIds
       })
     });
 
@@ -190,7 +255,7 @@ export function WorkspaceCreateForm() {
           />
         </label>
         <div className="rounded-2xl border border-black/10 bg-mist px-4 py-3 text-sm text-ink/70">
-          Trusted-operator mode uses the stored GitHub App installation automatically.
+          Trusted-operator mode uses the stored system GitHub provider automatically.
         </div>
       </div>
 
@@ -350,57 +415,118 @@ export function WorkspaceCreateForm() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-display text-2xl text-ink">Repository allowlist</h2>
-            <p className="text-sm text-ink/60">Add one or more repositories this workspace may clone.</p>
+            <p className="text-sm text-ink/60">
+              Search the repositories currently available to the configured machine-user PAT and
+              select the ones this workspace may clone.
+            </p>
           </div>
           <button
             className="rounded-full border border-black/10 px-4 py-2 text-sm"
             type="button"
-            onClick={() => setRepositories((current) => [...current, EMPTY_REPOSITORY])}
+            disabled={isLoadingRepositories || isRefreshingRepositories}
+            onClick={() => void loadRepositories("refresh")}
           >
-            Add repository
+            {isRefreshingRepositories ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
-        {repositories.map((repository, index) => (
-          <div key={`${repository.cloneUrl}-${index}`} className="grid gap-3 rounded-2xl border border-black/10 p-4 md:grid-cols-3">
-            <input
-              className="rounded-2xl border border-black/10 px-4 py-3"
-              value={repository.owner}
-              onChange={(event) =>
-                setRepositories((current) =>
-                  current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, owner: event.target.value } : item
-                  )
-                )
-              }
-              placeholder="owner"
-            />
-            <input
-              className="rounded-2xl border border-black/10 px-4 py-3"
-              value={repository.name}
-              onChange={(event) =>
-                setRepositories((current) =>
-                  current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, name: event.target.value } : item
-                  )
-                )
-              }
-              placeholder="repository"
-            />
-            <input
-              className="rounded-2xl border border-black/10 px-4 py-3"
-              value={repository.cloneUrl}
-              onChange={(event) =>
-                setRepositories((current) =>
-                  current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, cloneUrl: event.target.value } : item
-                  )
-                )
-              }
-              placeholder="https://github.com/acme/platform.git"
-            />
-          </div>
-        ))}
+        <label className="grid gap-2">
+          <span className="text-sm uppercase tracking-[0.2em] text-ink/60">Search repositories</span>
+          <input
+            className="rounded-2xl border border-black/10 px-4 py-3"
+            disabled={isLoadingRepositories}
+            value={repositoryQuery}
+            onChange={(event) => setRepositoryQuery(event.target.value)}
+            placeholder="Search by owner, repository, or clone URL"
+          />
+        </label>
+
+        <div className="grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
+          <section className="grid gap-3 rounded-[28px] border border-black/10 bg-white/80 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-ink">Available repositories</h3>
+              <span className="text-xs uppercase tracking-[0.18em] text-ink/50">
+                {visibleRepositories.length} visible
+              </span>
+            </div>
+
+            {isLoadingRepositories ? (
+              <p className="rounded-2xl border border-dashed border-black/15 bg-mist/40 p-4 text-sm text-ink/60">
+                Loading installation repositories...
+              </p>
+            ) : visibleRepositories.length > 0 ? (
+              <div className="grid max-h-96 gap-3 overflow-y-auto pr-1">
+                {visibleRepositories.map((repository) => (
+                  <button
+                    key={repository.id}
+                    className="grid gap-2 rounded-2xl border border-black/10 bg-mist/35 p-4 text-left transition hover:border-black/20 hover:bg-mist/60"
+                    type="button"
+                    onClick={() => {
+                      setSelectedRepositoryIds((current) =>
+                        addRepositorySelection(current, repository.id)
+                      );
+                      setRepositoryError("");
+                    }}
+                  >
+                    <span className="font-semibold text-ink">{repository.fullName}</span>
+                    <span className="text-sm text-ink/60">{repository.cloneUrl}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-2xl border border-dashed border-black/15 bg-mist/40 p-4 text-sm text-ink/60">
+                {availableRepositories.length === 0
+                  ? "The configured machine-user PAT does not currently expose any repositories."
+                  : "No repositories match the current search."}
+              </p>
+            )}
+          </section>
+
+          <section className="grid gap-3 rounded-[28px] border border-black/10 bg-mist/60 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-ink">Selected repositories</h3>
+              <span className="text-xs uppercase tracking-[0.18em] text-ink/50">
+                {selectedRepositories.length} selected
+              </span>
+            </div>
+
+            {selectedRepositories.length > 0 ? (
+              <div className="grid gap-3">
+                {selectedRepositories.map((repository) => (
+                  <article
+                    key={repository.id}
+                    className="grid gap-3 rounded-2xl border border-black/10 bg-white/85 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="grid gap-1">
+                        <h4 className="font-semibold text-ink">{repository.fullName}</h4>
+                        <p className="text-sm text-ink/60">{repository.cloneUrl}</p>
+                      </div>
+                      <button
+                        className="rounded-full border border-black/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-ink/70"
+                        type="button"
+                        onClick={() =>
+                          setSelectedRepositoryIds((current) =>
+                            removeRepositorySelection(current, repository.id)
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-2xl border border-dashed border-black/15 bg-white/70 p-4 text-sm text-ink/60">
+                Select at least one installation-backed repository before creating the
+                workspace.
+              </p>
+            )}
+          </section>
+        </div>
+
+        {repositoryError ? <p className="text-sm text-red-600">{repositoryError}</p> : null}
       </section>
 
       <button

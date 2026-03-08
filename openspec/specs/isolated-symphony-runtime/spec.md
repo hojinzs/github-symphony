@@ -59,15 +59,15 @@ The system SHALL use an `after_create` hook to determine the target repository f
 - **THEN** the worker does not start agent execution for that task
 
 ### Requirement: Runtime SHALL refresh GitHub credentials without operator re-entry
-The system SHALL issue renewable GitHub installation credentials for each workspace runtime from the stored GitHub App configuration and SHALL refresh those credentials before expiry without requiring the operator to re-enter GitHub secrets.
+The system SHALL issue renewable GitHub credentials for each workspace runtime from the stored machine-user PAT configuration and SHALL refresh those credentials before expiry or revalidation windows without requiring the operator to re-enter GitHub secrets.
 
 #### Scenario: Long-lived workspace refreshes credentials
-- **WHEN** a workspace runtime needs GitHub access after its previous installation token approaches expiry or has expired
-- **THEN** the runtime obtains a refreshed installation token derived from the stored GitHub App configuration
+- **WHEN** a workspace runtime needs GitHub access after its previous brokered credential approaches expiry or its PAT validation window has elapsed
+- **THEN** the runtime obtains a refreshed brokered credential derived from the stored machine-user PAT configuration
 - **THEN** workspace processing continues without manual operator credential input
 
 #### Scenario: Credential refresh fails after installation revocation
-- **WHEN** a workspace runtime cannot obtain a refreshed installation token because the GitHub App installation is revoked or invalid
+- **WHEN** a workspace runtime cannot obtain a refreshed brokered credential because the stored machine-user PAT is revoked, expired, or no longer valid
 - **THEN** the runtime enters a degraded or failed state for that workspace
 - **THEN** the control plane indicates that GitHub integration recovery is required
 

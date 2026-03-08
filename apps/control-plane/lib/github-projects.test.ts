@@ -6,7 +6,7 @@ import {
 } from "./github-projects";
 
 describe("createWorkspaceProject", () => {
-  it("resolves the owner and creates a GitHub project", async () => {
+  it("resolves a user owner and creates a GitHub project", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -15,8 +15,7 @@ describe("createWorkspaceProject", () => {
             data: {
               user: {
                 id: "owner-1"
-              },
-              organization: null
+              }
             }
           }),
           { status: 200 }
@@ -44,6 +43,59 @@ describe("createWorkspaceProject", () => {
       "ghp_secret",
       {
         ownerLogin: "acme",
+        ownerType: "User",
+        title: "Platform Workspace"
+      },
+      fetchImpl as typeof fetch
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(project).toEqual({
+      id: "project-1",
+      number: 7,
+      title: "Platform Workspace",
+      url: "https://github.com/orgs/acme/projects/7"
+    });
+  });
+
+  it("resolves an organization owner and creates a GitHub project", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              organization: {
+                id: "owner-1"
+              }
+            }
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              createProjectV2: {
+                projectV2: {
+                  id: "project-1",
+                  number: 7,
+                  title: "Platform Workspace",
+                  url: "https://github.com/orgs/acme/projects/7"
+                }
+              }
+            }
+          }),
+          { status: 200 }
+        )
+      );
+
+    const project = await createWorkspaceProject(
+      "ghp_secret",
+      {
+        ownerLogin: "acme",
+        ownerType: "Organization",
         title: "Platform Workspace"
       },
       fetchImpl as typeof fetch

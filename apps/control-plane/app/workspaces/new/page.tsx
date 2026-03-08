@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { loadGitHubIntegrationSummary } from "../../../lib/github-integration";
 import { buildGitHubSetupPath } from "../../../lib/github-setup-guard";
+import { requireOperatorPageSession } from "../../../lib/operator-auth-guard";
 import { WorkspaceCreateForm } from "./workspace-create-form";
 
 export default async function NewWorkspacePage() {
+  await requireOperatorPageSession("/workspaces/new");
   const summary = await loadGitHubIntegrationSummary();
 
   if (summary.state !== "ready") {
@@ -17,7 +19,7 @@ export default async function NewWorkspacePage() {
         <h1 className="font-display text-5xl text-ink">Create a new Symphony workspace.</h1>
         <p className="max-w-3xl text-lg leading-8 text-ink/70">
           Define prompt guardrails and register the repositories this workspace is allowed to
-          touch. The control plane uses the stored GitHub App installation automatically.
+          touch. The control plane uses the configured system GitHub provider automatically.
         </p>
       </header>
       <WorkspaceCreateForm />

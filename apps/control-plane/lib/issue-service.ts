@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { createWorkspaceIssue } from "./github-projects";
-import { getBrokeredGitHubCredentials } from "./github-installation-broker";
+import { getProjectGitHubCredentials } from "./github-user-broker";
 
 export type CreateIssueInput = {
   workspaceId: string;
@@ -29,14 +29,14 @@ export async function createIssueForWorkspace(
   dependencies: {
     db?: Pick<typeof db, "workspace">;
     createWorkspaceIssueImpl?: typeof createWorkspaceIssue;
-    credentialBroker?: typeof getBrokeredGitHubCredentials;
+    credentialBroker?: typeof getProjectGitHubCredentials;
   } = {}
 ) {
   const database = dependencies.db ?? db;
   const createWorkspaceIssueImpl =
     dependencies.createWorkspaceIssueImpl ?? createWorkspaceIssue;
   const credentialBroker =
-    dependencies.credentialBroker ?? getBrokeredGitHubCredentials;
+    dependencies.credentialBroker ?? getProjectGitHubCredentials;
 
   const workspace = await database.workspace.findUnique({
     where: {
@@ -64,7 +64,10 @@ export async function createIssueForWorkspace(
     throw new Error("Repository does not belong to the selected workspace.");
   }
 
-  const credentials = await credentialBroker();
+  const credentials = await credentialBroker({
+    db: database as never,
+    fetchImpl: undefined
+  });
 
   return createWorkspaceIssueImpl(credentials.token, {
     repositoryOwner: input.repositoryOwner,

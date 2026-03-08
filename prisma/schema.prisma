@@ -18,14 +18,6 @@ enum GitHubIntegrationStatus {
   degraded
 }
 
-enum GitHubBootstrapAttemptStatus {
-  pending
-  converted
-  completed
-  expired
-  failed
-}
-
 enum SymphonyInstanceStatus {
   provisioning
   ready
@@ -71,47 +63,21 @@ model GitHubCredential {
 }
 
 model GitHubIntegration {
-  id                        String                    @id @default(cuid())
-  singletonKey              String                    @unique @default("system")
-  status                    GitHubIntegrationStatus   @default(pending)
-  appId                     String?
-  clientId                  String?
-  appSlug                   String?
-  appName                   String?
-  appWebhookUrl             String?
-  appSetupUrl               String?
-  encryptedClientSecret     String?
-  encryptedPrivateKey       String?
-  encryptedWebhookSecret    String?
-  installationId            String?
-  installationTargetId      String?
-  installationTargetLogin   String?
-  installationTargetType    String?
-  installationTargetUrl     String?
-  manifestCreatedAt         DateTime?
-  lastValidatedAt           DateTime?
-  degradedReason            String?
-  createdAt                 DateTime                  @default(now())
-  updatedAt                 DateTime                  @updatedAt
-  bootstrapAttempts         GitHubBootstrapAttempt[]
-}
-
-model GitHubBootstrapAttempt {
-  id                     String                       @id @default(cuid())
-  integrationId          String?
-  status                 GitHubBootstrapAttemptStatus @default(pending)
-  stateFingerprint       String                       @unique
-  manifest               Json
-  manifestUrl            String?
-  githubAppName          String?
-  expiresAt              DateTime
-  installationId         String?
-  conversionCompletedAt  DateTime?
-  completedAt            DateTime?
-  failureReason          String?
-  createdAt              DateTime                     @default(now())
-  updatedAt              DateTime                     @updatedAt
-  integration            GitHubIntegration?           @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  id                     String                  @id @default(cuid())
+  singletonKey           String                  @unique @default("system")
+  status                 GitHubIntegrationStatus @default(pending)
+  encryptedPatToken      String?
+  patTokenFingerprint    String?
+  patActorId             String?
+  patActorLogin          String?
+  patValidatedOwnerId    String?
+  patValidatedOwnerLogin String?
+  patValidatedOwnerType  String?
+  patValidatedOwnerUrl   String?
+  lastValidatedAt        DateTime?
+  degradedReason         String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 }
 
 model Workspace {

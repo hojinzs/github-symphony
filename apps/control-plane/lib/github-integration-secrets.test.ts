@@ -6,7 +6,7 @@ import {
 } from "./github-integration-secrets";
 
 describe("createGitHubSecretProtector", () => {
-  it("encrypts and decrypts GitHub App secret material", () => {
+  it("encrypts and decrypts GitHub PAT secret material", () => {
     const protector = createGitHubSecretProtector({
       encryptionKey: Buffer.alloc(32, 7)
     });
@@ -29,12 +29,19 @@ describe("createGitHubSecretProtector", () => {
 });
 
 describe("loadGitHubSecretProtectorFromEnv", () => {
-  it("loads from the dedicated encryption key without relying on legacy GitHub env vars", () => {
+  it("loads from the platform secrets key", () => {
     const protector = loadGitHubSecretProtectorFromEnv({
-      GITHUB_APP_SECRETS_KEY: Buffer.alloc(32, 3).toString("base64"),
-      GITHUB_CLIENT_ID: undefined,
-      GITHUB_CLIENT_SECRET: undefined,
-      GITHUB_APP_TOKEN: undefined
+      PLATFORM_SECRETS_KEY: Buffer.alloc(32, 4).toString("base64")
+    });
+
+    const payload = protector.encrypt("private-key-material");
+
+    expect(protector.decrypt(payload)).toBe("private-key-material");
+  });
+
+  it("requires the platform secrets key for GitHub secret protection", () => {
+    const protector = loadGitHubSecretProtectorFromEnv({
+      PLATFORM_SECRETS_KEY: Buffer.alloc(32, 3).toString("base64")
     });
 
     const payload = protector.encrypt("private-key-material");
@@ -44,7 +51,7 @@ describe("loadGitHubSecretProtectorFromEnv", () => {
 
   it("fails when the encryption key is missing", () => {
     expect(() => loadGitHubSecretProtectorFromEnv({})).toThrow(
-      "GITHUB_APP_SECRETS_KEY is required"
+      "PLATFORM_SECRETS_KEY is required to protect stored GitHub credentials."
     );
   });
 });

@@ -15,7 +15,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
       githubTokenBrokerUrl:
         "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-installation-token.json",
+      githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123"
     });
 
@@ -27,7 +27,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
       GITHUB_TOKEN_BROKER_URL:
         "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
-      GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-installation-token.json",
+      GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123"
     });
   });
@@ -41,7 +41,7 @@ describe("buildCodexRuntimePlan", () => {
       githubTokenBrokerUrl:
         "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-installation-token.json",
+      githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
       agentEnv: {
         OPENAI_API_KEY: "sk-ready-runtime"
@@ -71,7 +71,7 @@ describe("createGitCredentialHelperEnvironment", () => {
       githubTokenBrokerUrl:
         "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
-      githubTokenCachePath: "/workspace-runtime/.github-installation-token.json"
+      githubTokenCachePath: "/workspace-runtime/.github-token.json"
     });
 
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");

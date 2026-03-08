@@ -31,7 +31,7 @@ export default async function HomePage() {
           label: "Create workspace"
         }
       : {
-          href: "/setup/github-app",
+          href: "/setup/github",
           label: "Connect GitHub"
         };
 

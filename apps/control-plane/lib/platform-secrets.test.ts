@@ -6,16 +6,12 @@ import {
 } from "./platform-secrets";
 
 const originalPlatformSecretsKey = process.env.PLATFORM_SECRETS_KEY;
-const originalGitHubSecretsKey = process.env.GITHUB_APP_SECRETS_KEY;
-
 beforeEach(() => {
   delete process.env.PLATFORM_SECRETS_KEY;
-  delete process.env.GITHUB_APP_SECRETS_KEY;
 });
 
 afterEach(() => {
   process.env.PLATFORM_SECRETS_KEY = originalPlatformSecretsKey;
-  process.env.GITHUB_APP_SECRETS_KEY = originalGitHubSecretsKey;
 });
 
 describe("createPlatformSecretProtector", () => {
@@ -50,11 +46,9 @@ describe("loadPlatformSecretProtectorFromEnv", () => {
     expect(protector.decrypt(protector.encrypt("sk-ready"))).toBe("sk-ready");
   });
 
-  it("falls back to the legacy GitHub secrets key", () => {
-    process.env.GITHUB_APP_SECRETS_KEY = Buffer.alloc(32, 8).toString("base64");
-
-    const protector = loadPlatformSecretProtectorFromEnv();
-
-    expect(protector.decrypt(protector.encrypt("sk-legacy"))).toBe("sk-legacy");
+  it("fails when the platform secrets key is missing", () => {
+    expect(() => loadPlatformSecretProtectorFromEnv()).toThrow(
+      "PLATFORM_SECRETS_KEY is required to protect stored platform secrets."
+    );
   });
 });

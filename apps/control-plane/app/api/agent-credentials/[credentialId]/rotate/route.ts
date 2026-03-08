@@ -4,6 +4,11 @@ import {
   parseRotateAgentCredentialInput,
   rotateAgentCredential
 } from "../../../../../lib/agent-credentials";
+import {
+  createOperatorAuthJsonResponse,
+  OperatorAuthRequiredError,
+  requireOperatorRequestSession
+} from "../../../../../lib/operator-auth-guard";
 
 type RotateCredentialRouteProps = {
   params: Promise<{
@@ -16,6 +21,7 @@ export async function POST(
   { params }: RotateCredentialRouteProps
 ) {
   try {
+    requireOperatorRequestSession(request);
     const { credentialId } = await params;
     const body = await request.json();
     const credential = await rotateAgentCredential(
@@ -26,6 +32,10 @@ export async function POST(
       credential
     });
   } catch (error) {
+    if (error instanceof OperatorAuthRequiredError) {
+      return createOperatorAuthJsonResponse(error);
+    }
+
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Unknown error"

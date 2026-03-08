@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import Docker from "dockerode";
+import type Docker from "dockerode";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "../../../packages/worker/src/workflow-lifecycle";
 import {
   buildWorkspaceAgentCredentialBrokerUrl
@@ -15,7 +15,7 @@ const DEFAULT_SYMPHONY_IMAGE = "ghcr.io/openai/symphony:latest";
 const DEFAULT_INTERNAL_PORT = 4141;
 const WORKSPACE_RUNTIME_DIR = "/workspace-runtime";
 const WORKSPACE_RUNTIME_TOKEN_CACHE_PATH =
-  `${WORKSPACE_RUNTIME_DIR}/.github-installation-token.json`;
+  `${WORKSPACE_RUNTIME_DIR}/.github-token.json`;
 const WORKSPACE_RUNTIME_AGENT_CACHE_PATH =
   `${WORKSPACE_RUNTIME_DIR}/.agent-runtime-auth.json`;
 
@@ -85,6 +85,12 @@ type PersistenceLike = {
   };
 };
 
+// Load dockerode at call time so Next does not try to bundle optional SSH/native paths.
+async function createDockerClient(): Promise<DockerClientLike> {
+  const { default: Docker } = await import("dockerode");
+  return new Docker();
+}
+
 export async function provisionWorkspaceRuntime(
   input: ProvisionWorkspaceInput,
   options: {
@@ -133,7 +139,7 @@ export async function provisionWorkspaceRuntime(
     agentCredentialBrokerUrl
   );
 
-  const dockerClient = options.docker ?? new Docker();
+  const dockerClient = options.docker ?? (await createDockerClient());
   const container = (await dockerClient.createContainer({
     Image: options.symphonyImage ?? DEFAULT_SYMPHONY_IMAGE,
     name: containerName,
@@ -248,7 +254,7 @@ export async function syncWorkspaceRuntimeStatus(
     docker?: DockerClientLike;
   }
 ): Promise<"running" | "stopped" | "failed"> {
-  const dockerClient = options.docker ?? new Docker();
+  const dockerClient = options.docker ?? (await createDockerClient());
   const container = dockerClient.getContainer(input.containerId) as DockerContainerLike;
   const inspection = await container.inspect();
   const nextStatus = inspection.State?.Running
@@ -280,7 +286,7 @@ export async function teardownWorkspaceRuntime(
     docker?: DockerClientLike;
   }
 ): Promise<void> {
-  const dockerClient = options.docker ?? new Docker();
+  const dockerClient = options.docker ?? (await createDockerClient());
   const container = dockerClient.getContainer(input.containerId) as DockerContainerLike;
 
   await container.stop();
@@ -309,7 +315,7 @@ export async function reconcileProvisioningFailure(
   }
 ): Promise<void> {
   if (input.containerId) {
-    const dockerClient = options.docker ?? new Docker();
+    const dockerClient = options.docker ?? (await createDockerClient());
     const container = dockerClient.getContainer(input.containerId) as DockerContainerLike;
 
     await container.remove({

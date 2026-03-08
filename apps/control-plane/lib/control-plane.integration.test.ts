@@ -60,11 +60,15 @@ describe("Control-plane integration", () => {
     const docker = createDocker();
 
     const credentialBroker = vi.fn().mockResolvedValue({
-      token: "ghs_installation",
+      token: "ghp_machine_user",
       expiresAt: new Date("2026-03-07T11:00:00.000Z"),
-      installationId: "installation-1",
+      installationId: null,
       ownerLogin: "acme",
-      ownerType: "Organization"
+      ownerType: "Organization",
+      provider: "pat_classic",
+      source: "pat",
+      actorLogin: "machine-user",
+      tokenFingerprint: "pat-fingerprint"
     });
 
     const { workspace, runtime } = await provisionWorkspace(
@@ -134,6 +138,98 @@ describe("Control-plane integration", () => {
     });
   });
 
+  it("supports PAT-backed workspace provisioning and issue creation for an organization owner", async () => {
+    const { db } = createMemoryDatabase();
+    const seededCredential = await db.agentCredential.create({
+      data: {
+        label: "Platform default",
+        provider: AgentCredentialProvider.openai,
+        encryptedSecret: "encrypted-agent-secret",
+        secretFingerprint: "fingerprint-platform-default",
+        status: AgentCredentialStatus.ready,
+        lastValidatedAt: new Date("2026-03-07T08:31:00.000Z"),
+        degradedReason: null
+      }
+    });
+    await db.platformAgentCredentialConfig.upsert({
+      where: {
+        singletonKey: "system"
+      },
+      update: {
+        defaultAgentCredentialId: seededCredential.id
+      },
+      create: {
+        singletonKey: "system",
+        defaultAgentCredentialId: seededCredential.id
+      }
+    });
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "github-symphony-pat-integration-"));
+    tempPaths.push(runtimeRoot);
+
+    const graphFetch = createGraphFetch();
+    const docker = createDocker();
+    const credentialBroker = vi.fn().mockResolvedValue({
+      token: "ghp_machine_user",
+      expiresAt: new Date("2026-03-07T11:15:00.000Z"),
+      installationId: null,
+      ownerLogin: "acme",
+      ownerType: "Organization",
+      provider: "pat_classic",
+      source: "pat",
+      actorLogin: "machine-user",
+      tokenFingerprint: "pat-fingerprint"
+    });
+
+    const { workspace } = await provisionWorkspace(
+      {
+        name: "PAT Workspace",
+        promptGuidelines: "Prefer small changes",
+        agentCredentialSource: WorkspaceAgentCredentialSource.platform_default,
+        repositories: [
+          {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git"
+          }
+        ]
+      },
+      {
+        db,
+        fetchImpl: graphFetch as typeof fetch,
+        docker,
+        runtimeRoot,
+        portAllocator: async () => 4507,
+        credentialBroker,
+        runtimeAuthEnv: {
+          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret"
+        }
+      }
+    );
+
+    const issue = await createIssueForWorkspace(
+      {
+        workspaceId: workspace.id,
+        repositoryOwner: "acme",
+        repositoryName: "platform",
+        title: "PAT-backed issue",
+        body: "Exercise the PAT provider path."
+      },
+      {
+        db,
+        credentialBroker,
+        createWorkspaceIssueImpl: (token, input) =>
+          import("./github-projects").then(({ createWorkspaceIssue }) =>
+            createWorkspaceIssue(token, input, graphFetch as typeof fetch)
+          )
+      }
+    );
+
+    expect(workspace.githubOwnerLogin).toBe("acme");
+    expect(workspace.githubProjectId).toBe("project-1");
+    expect(issue.url).toBe("https://github.com/acme/platform/issues/21");
+    expect(issue.projectItemId).toBe("project-item-1");
+  });
+
   it("supports workspace-specific overrides and surfaces degraded credential recovery state", async () => {
     const { db } = createMemoryDatabase();
     const overrideCredential = await db.agentCredential.create({
@@ -171,11 +267,15 @@ describe("Control-plane integration", () => {
         runtimeRoot,
         portAllocator: async () => 4506,
         credentialBroker: vi.fn().mockResolvedValue({
-          token: "ghs_installation",
+          token: "ghp_machine_user",
           expiresAt: new Date("2026-03-07T11:00:00.000Z"),
-          installationId: "installation-1",
+          installationId: null,
           ownerLogin: "acme",
-          ownerType: "Organization"
+          ownerType: "Organization",
+          provider: "pat_classic",
+          source: "pat",
+          actorLogin: "machine-user",
+          tokenFingerprint: "pat-fingerprint"
         }),
         runtimeAuthEnv: {
           WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret"
@@ -222,8 +322,7 @@ function createGraphFetch() {
       new Response(
         JSON.stringify({
           data: {
-            user: { id: "owner-1" },
-            organization: null
+            organization: { id: "owner-1" }
           }
         }),
         { status: 200 }

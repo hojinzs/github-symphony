@@ -28,11 +28,13 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
 
 1. Install Node.js 24+ and pnpm 9+.
 2. Run `pnpm install`.
-3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `PLATFORM_SECRETS_KEY` (or `GITHUB_APP_SECRETS_KEY` for backward compatibility), and `WORKSPACE_RUNTIME_AUTH_SECRET`.
+3. Configure `DATABASE_URL`, `CONTROL_PLANE_BASE_URL`, `CONTROL_PLANE_RUNTIME_URL`, `PLATFORM_SECRETS_KEY`, `WORKSPACE_RUNTIME_AUTH_SECRET`, `GITHUB_OPERATOR_CLIENT_ID`, `GITHUB_OPERATOR_CLIENT_SECRET`, and `GITHUB_OPERATOR_ALLOWED_LOGINS`.
 4. Start PostgreSQL.
 5. Run `pnpm prisma:generate` and `pnpm prisma:db-push`.
 6. Start the UI with `pnpm dev:control-plane`.
-7. Open `http://localhost:3000/setup/github-app` and complete the first-run GitHub App bootstrap flow.
+7. Open `http://localhost:3000/sign-in`, authenticate as a trusted operator, and complete the first-run machine-user PAT setup flow.
+   Use a classic PAT issued for the dedicated machine user with these scopes:
+   `repo`, `read:org`, `project`
 
 ## Self-hosting with Docker Compose
 
@@ -53,26 +55,38 @@ It also mounts `/var/run/docker.sock` so the control plane can provision isolate
 
 ## GitHub bootstrap
 
-The control plane now bootstraps its GitHub integration from the UI. On first run it redirects workspace and issue flows to `/setup/github-app`, walks the operator through GitHub App registration and installation, encrypts the returned app credentials in PostgreSQL, and then brokers short-lived installation tokens for control-plane and runtime use.
+The control plane starts with trusted-operator GitHub OAuth sign-in, then bootstraps its system GitHub integration from the UI. On first run it redirects setup, workspace, and issue flows through `/sign-in`, guides the operator through machine-user PAT setup, validates the token against organization repository and Project access, and stores the encrypted PAT metadata in PostgreSQL.
 
 Required non-GitHub secrets:
 
-- `PLATFORM_SECRETS_KEY`: recommended encryption key for stored GitHub App and agent runtime credentials
-- `GITHUB_APP_SECRETS_KEY`: legacy fallback if `PLATFORM_SECRETS_KEY` is not set
+- `PLATFORM_SECRETS_KEY`: encryption key for stored PAT and agent runtime credentials
 - `WORKSPACE_RUNTIME_AUTH_SECRET`: derives workspace-scoped secrets for runtime token refresh
+- `OPERATOR_SESSION_SECRET`: optional dedicated session-signing secret; when unset, the control plane reuses `PLATFORM_SECRETS_KEY`
+
+Required GitHub OAuth settings for trusted operator sign-in:
+
+- `GITHUB_OPERATOR_CLIENT_ID`
+- `GITHUB_OPERATOR_CLIENT_SECRET`
+- `GITHUB_OPERATOR_ALLOWED_LOGINS`: optional comma-separated GitHub logins allowed to operate the control plane; if omitted, any GitHub user who completes sign-in is accepted
+- GitHub OAuth callback URL: `http://localhost:3000/api/auth/github/callback` for local development, or the equivalent deployed control-plane URL in other environments
 
 Recommended base URLs:
 
 - `CONTROL_PLANE_BASE_URL=http://localhost:3000`
 - `CONTROL_PLANE_RUNTIME_URL=http://host.docker.internal:3000`
 
-Required GitHub App permissions for the approval-gated workflow:
+Recommended PAT setup:
 
-- `Contents: Read and write`
-- `Issues: Read and write`
-- `Pull requests: Read and write`
-- `Repository projects: Read and write`
-- `Organization projects: Read and write`
+- use a dedicated machine-user account rather than a personal operator account
+- target an organization owner login for setup and provisioning
+- keep the token scoped to the repositories and GitHub Project mutations Symphony needs
+- rotate the PAT by re-running `/setup/github` and replacing the stored token when access changes or expires
+
+Required classic PAT scopes for the default setup path:
+
+- `repo`: repository inventory, issue creation, git push, and pull request workflows
+- `read:org`: organization owner validation and organization-scoped access checks
+- `project`: GitHub Project v2 lookup and mutation flows used by provisioning and runtime updates
 
 Required GitHub settings for merge-driven completion:
 
@@ -80,7 +94,7 @@ Required GitHub settings for merge-driven completion:
 - Linked issue auto-close must remain enabled so PR bodies that include `Fixes #<issue-number>` close the tracked issue on merge.
 - GitHub Projects built-in automation should move closed issues into the completed state.
 
-The legacy helper script at [scripts/github-app-installation-token.sh](/home/ubuntu/projects/github-symphony/scripts/github-app-installation-token.sh) remains useful for diagnostics, but it is no longer part of the normal setup flow.
+If the stored PAT is revoked or loses Project capability, the control plane marks the integration `degraded` and routes the operator back to `/setup/github` to replace the token.
 
 ## Agent credential setup
 

@@ -25,11 +25,17 @@ export async function createWorkspaceProject(
   token: string,
   input: {
     ownerLogin: string;
+    ownerType: string;
     title: string;
   },
   fetchImpl: typeof fetch = fetch
 ): Promise<WorkspaceProject> {
-  const ownerId = await resolveOwnerId(token, input.ownerLogin, fetchImpl);
+  const ownerId = await resolveOwnerId(
+    token,
+    input.ownerLogin,
+    input.ownerType,
+    fetchImpl
+  );
 
   const payload = await executeGitHubGraphQL<{
     createProjectV2: {
@@ -112,27 +118,50 @@ export async function createWorkspaceIssue(
 async function resolveOwnerId(
   token: string,
   ownerLogin: string,
+  ownerType: string,
   fetchImpl: typeof fetch
 ): Promise<string> {
+  if (ownerType === "Organization") {
+    const payload = await executeGitHubGraphQL<{
+      organization: { id: string } | null;
+    }>(
+      token,
+      RESOLVE_ORGANIZATION_QUERY,
+      {
+        login: ownerLogin
+      },
+      fetchImpl
+    );
+
+    if (!payload.organization?.id) {
+      throw new GitHubGraphQLError(`GitHub owner not found for login "${ownerLogin}".`);
+    }
+
+    return payload.organization.id;
+  }
+
+  if (ownerType !== "User") {
+    throw new GitHubGraphQLError(
+      `Unsupported GitHub owner type "${ownerType}" for login "${ownerLogin}".`
+    );
+  }
+
   const payload = await executeGitHubGraphQL<{
     user: { id: string } | null;
-    organization: { id: string } | null;
   }>(
     token,
-    RESOLVE_OWNER_QUERY,
+    RESOLVE_USER_QUERY,
     {
       login: ownerLogin
     },
     fetchImpl
   );
 
-  const ownerId = payload.user?.id ?? payload.organization?.id;
-
-  if (!ownerId) {
+  if (!payload.user?.id) {
     throw new GitHubGraphQLError(`GitHub owner not found for login "${ownerLogin}".`);
   }
 
-  return ownerId;
+  return payload.user.id;
 }
 
 async function resolveRepositoryId(
@@ -201,11 +230,16 @@ async function executeGitHubGraphQL<T>(
   return payload.data;
 }
 
-const RESOLVE_OWNER_QUERY = `
-  query ResolveOwner($login: String!) {
+const RESOLVE_USER_QUERY = `
+  query ResolveUser($login: String!) {
     user(login: $login) {
       id
     }
+  }
+`;
+
+const RESOLVE_ORGANIZATION_QUERY = `
+  query ResolveOrganization($login: String!) {
     organization(login: $login) {
       id
     }

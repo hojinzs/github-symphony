@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { GitHubAppBootstrapError } from "../../../../../lib/github-app-api";
 import { db } from "../../../../../lib/db";
 import { GitHubIntegrationStateError } from "../../../../../lib/github-integration";
+import { GitHubPatValidationError } from "../../../../../lib/github-pat-api";
 import {
   extractRuntimeAuthorizationSecret,
   issueWorkspaceRuntimeCredentials,
@@ -33,7 +33,7 @@ export async function POST(
     return NextResponse.json(credentials);
   } catch (error) {
     if (
-      error instanceof GitHubAppBootstrapError ||
+      error instanceof GitHubPatValidationError ||
       error instanceof GitHubIntegrationStateError
     ) {
       await db.symphonyInstance
@@ -54,7 +54,7 @@ export async function POST(
         ? 401
         : error instanceof GitHubIntegrationStateError
           ? 503
-          : error instanceof GitHubAppBootstrapError
+          : error instanceof GitHubPatValidationError
             ? 502
             : 400;
 

@@ -4,7 +4,7 @@ import {
   createWorkspaceProject,
   type WorkspaceProject
 } from "./github-projects";
-import { getBrokeredGitHubCredentials } from "./github-installation-broker";
+import { getProjectGitHubCredentials } from "./github-user-broker";
 import {
   provisionWorkspaceRuntime,
   type ProvisionedWorkspaceRuntime
@@ -32,7 +32,7 @@ export async function provisionWorkspace(
     docker?: Pick<Docker, "createContainer" | "getContainer">;
     runtimeRoot?: string;
     portAllocator?: () => Promise<number>;
-    credentialBroker?: typeof getBrokeredGitHubCredentials;
+    credentialBroker?: typeof getProjectGitHubCredentials;
     controlPlaneRuntimeUrl?: string;
     runtimeAuthEnv?: Record<string, string | undefined>;
   } = {}
@@ -44,7 +44,7 @@ export async function provisionWorkspace(
   const database = dependencies.db ?? db;
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const credentialBroker =
-    dependencies.credentialBroker ?? getBrokeredGitHubCredentials;
+    dependencies.credentialBroker ?? getProjectGitHubCredentials;
   await ensureWorkspaceHasUsableAgentCredential(
     {
       agentCredentialSource: input.agentCredentialSource,
@@ -53,6 +53,7 @@ export async function provisionWorkspace(
     database as Parameters<typeof ensureWorkspaceHasUsableAgentCredential>[1]
   );
   const credentials = await credentialBroker({
+    db: database as never,
     fetchImpl
   });
 
@@ -61,6 +62,7 @@ export async function provisionWorkspace(
     credentials.token,
     {
       ownerLogin: workspace.githubOwnerLogin,
+      ownerType: credentials.ownerType,
       title: `${workspace.name} Workspace`
     },
     fetchImpl
