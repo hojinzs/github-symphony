@@ -14,7 +14,7 @@ The system SHALL ensure that each assigned issue run executes in a runtime isola
 - **THEN** it does not require a brand-new repository checkout to continue execution
 
 ### Requirement: The runtime SHALL launch Codex through the native Symphony execution model
-The system SHALL start the agent runtime for an assigned issue run by launching `codex app-server` as a subprocess inside the Symphony worker, SHALL communicate with it using the standard Symphony app-server interface, SHALL render prompt input before starting work, and SHALL capture runtime session state needed for reconciliation, retry, and observability.
+The system SHALL start the agent runtime for an assigned issue run by launching `codex app-server` as a subprocess inside the Symphony worker, SHALL communicate with it using the standard Symphony app-server interface, SHALL render prompt input before starting work, and SHALL capture runtime session state needed for reconciliation, retry, and observability through a stable minimal session snapshot.
 
 #### Scenario: Worker startup
 - **WHEN** the orchestrator assigns a Symphony worker to process an issue for a workspace
@@ -24,11 +24,16 @@ The system SHALL start the agent runtime for an assigned issue run by launching 
 
 #### Scenario: Worker reports session state
 - **WHEN** a worker is running an assigned issue session
-- **THEN** it reports machine-readable runtime state that identifies the assigned run, current status, and session-level failure or progress details
+- **THEN** it reports machine-readable runtime state that identifies the assigned run, current status, retry kind, and session-level failure or progress details
 - **THEN** the orchestrator can use that state for status surfaces and reconciliation decisions
 
+#### Scenario: Transport detail stays outside the stable core contract
+- **WHEN** the worker exchanges detailed app-server events or transport frames during execution
+- **THEN** those raw protocol details may be logged or persisted outside the core snapshot
+- **THEN** the canonical runtime state exposed to orchestrator consumers remains the stable minimal session snapshot
+
 ### Requirement: Workflow artifacts SHALL describe phase-aware execution states
-The system SHALL load workflow semantics from the assigned repository's `WORKFLOW.md`, and that workflow file SHALL define tracker states, runtime settings, and hook configuration required for planning, human review, implementation, awaiting merge, completion, and runtime lifecycle decisions so the orchestrator and worker do not depend on hard-coded GitHub-first defaults.
+The system SHALL load workflow semantics from the assigned repository's `WORKFLOW.md`, and that workflow file SHALL define tracker states, runtime settings, and hook configuration required for planning, human review, implementation, awaiting merge, completion, and runtime lifecycle decisions so the orchestrator and worker do not depend on hard-coded GitHub-first defaults. Running sessions keep the launch-time workflow snapshot, while future launches and hook executions use the latest valid workflow definition.
 
 #### Scenario: Repository workflow includes lifecycle states and runtime config
 - **WHEN** the worker prepares a repository for an assigned issue run

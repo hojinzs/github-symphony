@@ -14,7 +14,7 @@ The system SHALL detect actionable issues through the configured tracker adapter
 - **THEN** it assigns a worker run that reuses the issue workspace and starts an implementation execution for that issue using the rendered Symphony prompt
 
 ### Requirement: Agent completion SHALL update GitHub state through `github_graphql`
-When the active tracker extension is GitHub Project, the system SHALL inject a `github_graphql` runtime tool so the agent can publish planning comments, report pull request results, and update issue or project status to workflow-defined handoff or completed states through GitHub API calls without requiring backend-owned business logic for normal tracker mutation.
+When the active tracker extension is GitHub Project, the system SHALL inject a `github_graphql` runtime tool so the agent can publish planning comments, report pull request results, and update issue or project status to workflow-defined handoff states through GitHub API calls without requiring backend-owned business logic for normal tracker mutation.
 
 #### Scenario: Planning run enters human review
 - **WHEN** the agent finishes a planning run successfully for a GitHub-backed issue
@@ -25,6 +25,19 @@ When the active tracker extension is GitHub Project, the system SHALL inject a `
 - **WHEN** the agent finishes an implementation run successfully for a GitHub-backed issue
 - **THEN** the agent uses the injected `github_graphql` tool to post a completion comment with the pull request reference
 - **THEN** the agent uses the injected `github_graphql` tool to update the corresponding issue or project item into the awaiting-merge state
+
+### Requirement: GitHub handoff mutation SHALL be verified after runtime completion
+When a GitHub-backed run exits after attempting a normal workflow handoff, the GitHub extension SHALL verify that the expected comment, project-state transition, or pull-request reference was actually applied. If the expected handoff did not land, the system SHALL surface an explicit operator-visible handoff failure or pending repair state instead of silently treating the workflow transition as complete.
+
+#### Scenario: Planning handoff mutation is missing
+- **WHEN** a planning run exits without the expected planning comment or human-review state transition being visible in GitHub
+- **THEN** the extension records a handoff failure or pending repair state for that issue
+- **THEN** the orchestrator does not silently assume the planning handoff succeeded
+
+#### Scenario: Implementation handoff mutation is inconsistent
+- **WHEN** an implementation run reports success but GitHub does not reflect the expected pull request reference or awaiting-merge transition
+- **THEN** the extension surfaces the mismatch as an operator-visible blocker
+- **THEN** the issue does not advance as if the handoff were fully complete
 
 ### Requirement: Non-active tracker states SHALL pause worker execution
 The system SHALL treat workflow-defined human-review and awaiting-merge states as non-actionable so that the orchestrator waits for human or tracker-side progression before assigning another worker run, while preserving the issue workspace for later continuation.

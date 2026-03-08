@@ -5,6 +5,7 @@ The current repository captures parts of the Symphony model, but it still treats
 ## What Changes
 
 - Re-align the core orchestrator, worker runtime, workflow contract, and workspace lifecycle with the Symphony specification as the primary product contract.
+- Recompose the package layout around a Symphony-first architecture with `packages/core`, `packages/runtime-codex`, `packages/tracker-github`, `packages/extension-github-workflow`, and a thinner service/composition layer.
 - Introduce a spec-conformant `WORKFLOW.md` contract based on YAML front matter plus prompt body, including reloadable runtime settings and repository-owned workflow policy.
 - Define persistent per-issue workspace behavior, hook lifecycle, retry/continuation semantics, reconciliation, and status surfaces according to the core Symphony execution model.
 - Re-scope GitHub Project and GitHub Issue support as a first-party tracker extension layered on top of the core tracker contract instead of as the implicit default runtime model.
@@ -24,7 +25,7 @@ The current repository captures parts of the Symphony model, but it still treats
 
 ## Impact
 
-- Affected code: `packages/orchestrator`, `packages/worker`, `packages/shared`, `apps/control-plane`, runtime artifact generation, and OpenSpec capability definitions.
+- Affected code: `packages/shared`, `packages/orchestrator`, `packages/worker`, new `packages/core`, new `packages/runtime-codex`, new `packages/tracker-github`, new `packages/extension-github-workflow`, a thinner service/composition layer, `apps/control-plane`, runtime artifact generation, and OpenSpec capability definitions.
 - Affected contracts: `WORKFLOW.md` format, workspace layout, run lifecycle, status APIs, and tracker adapter boundaries.
 - Affected integrations: GitHub Project polling, GitHub issue/PR mutation tooling, approval workflow semantics, and control-plane orchestration visibility.
 - Dependencies and risks: Requires architectural refactoring across core orchestration and runtime packages, compatibility planning for existing GitHub-first workspace setup, and migration of current generated workflow artifacts to the new contract.

@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: GitHub Projects adapter SHALL bind a workspace to a GitHub-backed tracker
-The system SHALL provide GitHub Project support as an optional tracker extension that binds a workspace to GitHub-backed issue discovery and status refresh while conforming to the core Symphony tracker contract used by the orchestrator.
+The system SHALL provide GitHub Project support as an optional tracker extension that binds a workspace to GitHub-backed issue discovery and status refresh while conforming to the core Symphony tracker contract used by the orchestrator. For GitHub-backed work, the extension SHALL treat the GitHub Issue as the canonical work subject and the GitHub Project item as placement and phase metadata.
 
 #### Scenario: Workspace is bound to a new GitHub Project
 - **WHEN** an operator creates a workspace with the GitHub Projects tracker adapter after machine-user setup is complete
@@ -22,9 +22,27 @@ The system SHALL allow an operator to create a GitHub issue for a repository lin
 - **THEN** no GitHub issue is created
 
 ### Requirement: GitHub Projects adapter SHALL remain outside core workflow semantics
-The system SHALL keep GitHub Project field mapping, GitHub issue normalization, and GitHub mutation tooling inside the GitHub extension boundary so that core Symphony scheduling, workspace lifecycle, and runtime behavior do not depend on GitHub-specific identifiers or status field assumptions.
+The system SHALL keep GitHub Project field mapping, GitHub issue normalization, project-placement validation, and GitHub mutation tooling inside the GitHub extension boundary so that core Symphony scheduling, workspace lifecycle, and runtime behavior do not depend on GitHub-specific identifiers or status field assumptions.
 
 #### Scenario: Core orchestration reads normalized GitHub issues
 - **WHEN** the GitHub Project extension returns actionable work to the orchestrator
 - **THEN** it provides the issue through the normalized core tracker contract
 - **THEN** the orchestrator makes dispatch and reconciliation decisions without depending on raw GitHub Project payload shapes
+
+### Requirement: GitHub Projects adapter SHALL validate workflow field mapping and placement integrity
+The system SHALL have the GitHub extension validate that the configured GitHub Project field names and option values required by `WORKFLOW.md` actually exist, that issues expected to be phase-managed by the project have valid placement, and that duplicate or conflicting project placements are surfaced as adapter-visible errors instead of being left to core policy interpretation alone.
+
+#### Scenario: Required status field option is missing
+- **WHEN** the workflow expects a GitHub Project option for a configured planning, review, implementation, awaiting-merge, or completed phase and the option is not present in the bound project
+- **THEN** the adapter reports an operator-visible configuration error
+- **THEN** the orchestrator does not rely on that broken mapping as if it were valid phase data
+
+#### Scenario: Duplicate project placement is detected for an issue
+- **WHEN** the adapter observes multiple conflicting project placements for the same canonical GitHub Issue subject inside the bound workspace project
+- **THEN** the adapter reports a placement integrity error
+- **THEN** the orchestrator does not treat the conflicting placements as independent pieces of work
+
+#### Scenario: Issue transfer requires manual rebind
+- **WHEN** the adapter detects that a GitHub Issue appears to have moved and no longer matches its prior repository alias metadata
+- **THEN** the adapter records an operator-visible rebind requirement
+- **THEN** it does not automatically rewrite the canonical issue subject identity

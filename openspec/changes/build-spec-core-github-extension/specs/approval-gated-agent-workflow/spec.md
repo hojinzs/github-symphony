@@ -27,11 +27,16 @@ For the GitHub workflow extension, the system SHALL have the agent create or upd
 - **THEN** the agent posts a completion report containing the pull request URL and delivery summary
 - **THEN** the agent updates the tracked item to the workflow-defined awaiting-merge state
 
-### Requirement: Merged pull requests SHALL complete tracked work
-For the GitHub workflow extension, the system SHALL complete tracked work after the linked pull request is merged by relying on GitHub-native issue closure and project completion signals or an explicitly configured equivalent reconciliation path.
+### Requirement: Closed issues SHALL complete tracked work
+For the GitHub workflow extension, the system SHALL treat GitHub Issue closure as the canonical completion signal. Pull-request merge may be a common path to that result, but the orchestrator SHALL not treat merge alone as completion if the linked issue remains open.
 
-#### Scenario: Linked PR merge completes the issue
+#### Scenario: Linked PR merge closes the issue and completes the work
 - **WHEN** the pull request linked to a tracked issue is merged
 - **THEN** the linked issue becomes closed through the configured completion mechanism
 - **THEN** the tracked project item transitions to the completed state
 - **THEN** the worker no longer treats the issue as actionable
+
+#### Scenario: Merged PR without issue closure does not complete the work
+- **WHEN** a pull request linked to a tracked issue is merged but the issue remains open
+- **THEN** the orchestrator does not treat the work as completed yet
+- **THEN** the issue remains in an operator-visible awaiting-close or equivalent non-terminal state until the issue is explicitly closed

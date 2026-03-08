@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Orchestrator SHALL coordinate worker assignment and reconciliation
-The system SHALL act as the authoritative Symphony coordinator by selecting actionable issues from the active tracker adapter, loading workflow semantics from the assigned repository's `WORKFLOW.md`, ensuring that at most one active issue-phase lease exists for a workspace issue, launching a worker against the persistent issue workspace, and reconciling completion, retry, suppression, stall, or terminal cleanup into the next orchestration action.
+The system SHALL act as the authoritative Symphony coordinator by selecting actionable issues from the active tracker adapter, loading workflow semantics from the assigned repository's `WORKFLOW.md`, ensuring that at most one active issue-phase lease exists for a canonical workspace issue subject, launching a worker against the persistent issue workspace, and reconciling completion, retry, suppression, stall, or terminal cleanup into the next orchestration action.
 
 #### Scenario: Duplicate planning run is prevented
 - **WHEN** the tracker still shows a planning-active issue that already has a live planning run lease for the same workspace
@@ -27,7 +27,7 @@ The system SHALL poll tracker adapters and reconcile active runs on a fixed conf
 - **THEN** a service restart is not required to apply the new cadence
 
 ### Requirement: Orchestrator SHALL apply retry backoff to failed runs
-The system SHALL apply Symphony retry semantics by scheduling short continuation retries after normal worker exit, exponential backoff retries after retryable failures, and release or fail the claim when the issue is no longer eligible or retry policy is exhausted.
+The system SHALL apply Symphony retry semantics by distinguishing continuation retry after normal worker exit, exponential-backoff failure retry after retryable errors, and recovery retry after crash, heartbeat loss, or stall recovery, and SHALL release or fail the claim when the issue is no longer eligible or retry policy is exhausted.
 
 #### Scenario: Transient launch failure backs off
 - **WHEN** a worker launch attempt fails with a retryable error
@@ -39,6 +39,11 @@ The system SHALL apply Symphony retry semantics by scheduling short continuation
 - **THEN** the orchestrator records a continuation retry for that issue
 - **THEN** it re-checks the issue on the next continuation attempt before relaunching work
 
+#### Scenario: Recovery path is tracked separately from failure retry
+- **WHEN** the orchestrator detects a worker crash, lost heartbeat, or stall for an otherwise actionable issue
+- **THEN** it records a recovery retry instead of a failure retry
+- **THEN** status surfaces distinguish that degraded recovery path from normal continuation and retryable launch failure
+
 ### Requirement: Orchestrator SHALL expose a status API for optional extensions
 The system SHALL expose a machine-readable Symphony status API for optional extensions, including a spec-aligned state snapshot endpoint and workspace-scoped inspection endpoints, so that extensions can observe orchestration state without depending on internal filesystem layout.
 
@@ -46,3 +51,8 @@ The system SHALL expose a machine-readable Symphony status API for optional exte
 - **WHEN** the control plane or another optional extension needs the latest orchestration state
 - **THEN** it queries the orchestrator status API
 - **THEN** it receives a machine-readable snapshot derived from authoritative orchestrator state rather than from internal files
+
+#### Scenario: Status API surfaces cleanup and handoff blockers
+- **WHEN** the orchestrator encounters a blocked cleanup or extension-verified handoff failure
+- **THEN** the status API includes an operator-visible failure classification for that issue workspace
+- **THEN** extensions can surface the blocker without reading implementation logs directly
