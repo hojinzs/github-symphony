@@ -131,11 +131,26 @@ Alternatives considered:
 
 - Bake GitHub Projects directly into the orchestrator core: rejected because it makes the core architecture less faithful to Symphony's general tracker model.
 
+### 7. Expose orchestrator status through a public status API instead of direct filesystem coupling
+
+Optional extensions such as the control plane will consume orchestrator status through an explicit machine-readable API exposed by the orchestrator process. The filesystem layout under `.runtime/orchestrator/` remains an internal recovery mechanism for the orchestrator itself and SHALL NOT be treated as a public integration surface for extensions.
+
+Rationale:
+
+- Removes control-plane knowledge of orchestrator snapshot paths and directory layout.
+- Makes the extension contract match the headless deployment model, where the orchestrator may run in a different process or host context.
+- Allows status auth, caching, and transport behavior to evolve without forcing extensions to understand internal persistence details.
+
+Alternatives considered:
+
+- Keep the control plane reading `status.json` directly: rejected because it leaks internal storage details across process boundaries.
+- Make the control plane query worker state independently without orchestrator mediation: rejected because the orchestrator is the authoritative source for active run assignment and workspace reconciliation state.
+
 ## Risks / Trade-offs
 
 - [Split-brain transition during migration] → Introduce the orchestrator behind an explicit runtime mode flag and remove control-plane-side dispatch only after orchestrator reconciliation works.
 - [Repository workflow files drift across branches or runs] → Reload `WORKFLOW.md` at run start and surface parse or validation failures as run-blocking status.
-- [Status visibility becomes harder across multiple processes] → Define explicit orchestrator and worker status surfaces that the control plane can query and cache.
+- [Status visibility becomes harder across multiple processes] → Define explicit orchestrator and worker status surfaces that the control plane can query over API boundaries and cache.
 - [Filesystem recovery can drift from tracker state] → Reconcile local files against live tracker state on every orchestrator startup and recovery command.
 - [Local orchestration state may accumulate stale runs] → Add CLI recovery and garbage-collection commands plus bounded retention for historical run logs.
 
@@ -145,7 +160,7 @@ Alternatives considered:
 2. Extract shared tracker-adapter and workflow-evaluation code so the orchestrator can own polling and dispatch.
 3. Update worker launch contracts to accept assigned issue context from the orchestrator.
 4. Load workflow semantics from repository-owned `WORKFLOW.md` instead of control-plane-generated workflow artifacts.
-5. Move dashboard aggregation to read orchestrator and worker status instead of assuming control-plane-owned execution.
+5. Move dashboard aggregation to read orchestrator status from the orchestrator API and worker status from worker endpoints instead of assuming control-plane-owned execution or filesystem snapshot access.
 6. Disable legacy control-plane-side dispatch paths once orchestrator parity is validated.
 
 Rollback:

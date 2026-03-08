@@ -1,4 +1,9 @@
-## ADDED Requirements
+# cli-orchestrator-service Specification
+
+## Purpose
+Define the headless CLI-first orchestrator service that polls trackers, dispatches worker runs, reconciles active execution, and exposes status for optional extensions.
+
+## Requirements
 
 ### Requirement: Orchestrator SHALL run independently of the control plane
 The system SHALL provide a Symphony orchestrator process that can poll configured trackers, dispatch worker runs, reconcile active execution, and recover after restart without requiring the control-plane web application to be running.
@@ -73,6 +78,19 @@ The system SHALL emit structured logs and machine-readable status output for pol
 - **WHEN** the orchestrator evaluates an actionable issue during a reconciliation tick
 - **THEN** it emits structured log data that identifies the workspace, issue, decision, and resulting run state
 - **THEN** CLI status or status-surface consumers can retrieve the current machine-readable view of that run
+
+### Requirement: Orchestrator SHALL expose a status API for optional extensions
+The system SHALL expose a machine-readable orchestrator status API so that optional extensions such as the control plane can read workspace orchestration state without depending on the orchestrator's internal filesystem layout.
+
+#### Scenario: Control plane reads workspace status through orchestrator API
+- **WHEN** the control plane or another optional extension needs the latest orchestration state for a workspace
+- **THEN** it queries the orchestrator status API for that workspace
+- **THEN** it receives the same workspace status snapshot shape the orchestrator uses for CLI status output without reading `status.json` directly
+
+#### Scenario: Unknown workspace returns no status snapshot
+- **WHEN** an extension queries the orchestrator status API for a workspace that has no known orchestration snapshot
+- **THEN** the orchestrator returns a machine-readable not-found response
+- **THEN** the extension treats the workspace as having no current orchestration snapshot instead of probing the filesystem
 
 ### Requirement: Orchestrator SHALL reload workflow semantics from repository state
 The system SHALL load workflow semantics from the repository's `WORKFLOW.md` when preparing an assigned run, and SHALL use the current file contents for each new run instead of relying on stale control-plane-generated workflow artifacts.

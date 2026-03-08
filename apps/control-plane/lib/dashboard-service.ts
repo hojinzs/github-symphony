@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { readWorkspaceAgentCredentialStatus } from "./agent-credentials";
+import { fetchWorkspaceOrchestratorStatus } from "./orchestrator-status-client";
 import { syncWorkspaceRuntimeStatus } from "./provisioning";
 
 export async function loadWorkspaceDashboard(
@@ -25,7 +26,7 @@ export async function loadWorkspaceDashboard(
   });
 
   return Promise.all(
-    workspaces.map(async (workspace) => {
+    workspaces.map(async (workspace: (typeof workspaces)[number]) => {
       const agentCredential = await readWorkspaceAgentCredentialStatus(
         workspace.id,
         database as Parameters<typeof readWorkspaceAgentCredentialStatus>[1]
@@ -52,18 +53,32 @@ export async function loadWorkspaceDashboard(
             processId: runtime.processId
           },
           {
-            db: database as Pick<typeof db, "symphonyInstance">
+            db: database as Pick<typeof db, "symphonyInstance">,
+            fetchImpl
           }
         );
-        const response = await fetchImpl(
-          `http://${runtime.endpointHost}:${runtime.port}/api/v1/state`
-        );
+        const orchestratorState = await fetchWorkspaceOrchestratorStatus(workspace.id, {
+          fetchImpl
+        });
+        const activeRun = orchestratorState?.activeRuns?.[0];
+        let payload: unknown = {
+          orchestrator: orchestratorState
+        };
 
-        if (!response.ok) {
-          throw new Error(`State endpoint returned ${response.status}`);
+        if (activeRun?.port) {
+          const response = await fetchImpl(
+            `http://${runtime.endpointHost}:${activeRun.port}/api/v1/state`
+          );
+
+          if (!response.ok) {
+            throw new Error(`State endpoint returned ${response.status}`);
+          }
+
+          payload = {
+            orchestrator: orchestratorState,
+            worker: await response.json()
+          };
         }
-
-        const payload = (await response.json()) as unknown;
 
         return {
           id: workspace.id,
@@ -73,10 +88,10 @@ export async function loadWorkspaceDashboard(
           agentCredential,
           runtime: {
             driver: runtime.runtimeDriver,
-            health: "healthy",
+            health: status === "failed" ? "degraded" : "healthy",
             status,
             host: runtime.endpointHost,
-            port: runtime.port,
+            port: activeRun?.port ?? runtime.port,
             state: payload
           }
         };

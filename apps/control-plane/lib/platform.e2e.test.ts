@@ -217,8 +217,8 @@ describe("Platform end-to-end flow", () => {
     const issue = await createIssueForWorkspace(issueInput, {
       db,
       credentialBroker,
-      createWorkspaceIssueImpl: (token, input) =>
-        createWorkspaceIssue(token, input, graphFetch as typeof fetch)
+      createWorkspaceIssueImpl: (input) =>
+        createWorkspaceIssue("machine-user-token", input, graphFetch as typeof fetch)
     });
 
     const runtimePlan = await prepareCodexRuntimePlan(
@@ -304,8 +304,40 @@ describe("Platform end-to-end flow", () => {
       hasMergedCompletionSignal(latestProjectItemState, DEFAULT_WORKFLOW_LIFECYCLE)
     ).toBe(true);
 
-    const dashboard = await loadWorkspaceDashboard(
-      vi.fn().mockResolvedValue(
+    const dashboardFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: workspace.id,
+            slug: workspace.slug,
+            tracker: {
+              adapter: "github-project",
+              bindingId: workspace.githubProjectId
+            },
+            lastTickAt: "2026-03-09T00:00:00.000Z",
+            health: "running",
+            summary: {
+              dispatched: 1,
+              suppressed: 0,
+              recovered: 0,
+              activeRuns: 1
+            },
+            activeRuns: [
+              {
+                runId: "run-99",
+                issueIdentifier: `acme/platform#${issue.number}`,
+                phase: "implementation",
+                status: "running",
+                port: 4510
+              }
+            ],
+            lastError: null
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             issueNumber: issue.number,
@@ -315,7 +347,10 @@ describe("Platform end-to-end flow", () => {
           }),
           { status: 200 }
         )
-      ) as unknown as Promise<Response> as unknown as typeof fetch,
+      ) as typeof fetch;
+
+    const dashboard = await loadWorkspaceDashboard(
+      dashboardFetch,
       db,
       {
         syncWorkspaceRuntimeStatusImpl: vi.fn().mockResolvedValue("running")
@@ -330,9 +365,14 @@ describe("Platform end-to-end flow", () => {
       status: "running",
       port: 4510,
       state: {
-        issueNumber: 99,
-        projectItemState: "Done",
-        pullRequestUrl: implementationResult.pullRequest?.url
+        orchestrator: {
+          workspaceId: workspace.id
+        },
+        worker: {
+          issueNumber: 99,
+          projectItemState: "Done",
+          pullRequestUrl: implementationResult.pullRequest?.url
+        }
       }
     });
     expect(dashboard[0]?.agentCredential.status).toBe("ready");

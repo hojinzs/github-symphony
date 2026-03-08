@@ -67,6 +67,7 @@ describe("normalizeProjectItem", () => {
     expect(issue).toEqual({
       id: "issue-1",
       identifier: "acme/platform#42",
+      number: 42,
       title: "Implement tracker adapter",
       description: "Read GitHub project state",
       priority: null,
@@ -83,9 +84,12 @@ describe("normalizeProjectItem", () => {
         url: "https://github.com/acme/platform",
         cloneUrl: "https://github.com/acme/platform.git"
       },
-      projectId: "project-123",
-      projectItemId: "item-1",
-      fieldValues: {
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-1"
+      },
+      metadata: {
         Status: "Todo",
         "Repository Context": "repo context"
       },

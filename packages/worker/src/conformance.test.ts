@@ -59,10 +59,15 @@ describe("Symphony core conformance", () => {
     });
   });
 
-  it("fails fast when WORKFLOW.md is missing required sections", () => {
-    expect(() => parseWorkflowMarkdown("## Prompt Guidelines\n\nMissing everything else")).toThrow(
-      "WORKFLOW.md is missing required content"
-    );
+  it("falls back to default lifecycle semantics when sections are omitted", () => {
+    expect(parseWorkflowMarkdown("## Prompt Guidelines\n\nMissing everything else")).toEqual({
+      githubProjectId: null,
+      promptGuidelines: "Missing everything else",
+      allowedRepositories: [],
+      agentCommand: "bash -lc codex app-server",
+      hookPath: "hooks/after_create.sh",
+      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
+    });
   });
 
   it("keeps workspace paths isolated under the configured root", () => {

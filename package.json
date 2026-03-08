@@ -9,6 +9,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter control-plane dev",
     "dev:control-plane": "pnpm --filter control-plane dev",
+    "dev:orchestrator": "pnpm --filter @github-symphony/orchestrator dev",
     "dev:worker": "pnpm --filter @github-symphony/worker dev",
     "lint": "pnpm -r lint",
     "prisma:db-push": "prisma db push",

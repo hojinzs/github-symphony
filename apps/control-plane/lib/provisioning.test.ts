@@ -41,7 +41,7 @@ describe("renderWorkflowMarkdown", () => {
           }
         ]
       })
-    ).toContain("Project ID: project-1");
+    ).toContain("Prefer small changes");
     expect(
       renderWorkflowMarkdown({
         workspaceId: "workspace-1",
@@ -62,7 +62,7 @@ describe("renderWorkflowMarkdown", () => {
 });
 
 describe("provisionWorkspaceRuntime", () => {
-  it("writes runtime artifacts, starts a container, and persists instance metadata", async () => {
+  it("writes runtime artifacts and persists orchestrator-owned runtime metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "github-symphony-provision-"));
     tempPaths.push(root);
 
@@ -116,10 +116,10 @@ describe("provisionWorkspaceRuntime", () => {
     );
 
     expect(runtime.runtimeDriver).toBe("docker");
-    expect(runtime.runtimeId).toBe("container-1");
-    expect(runtime.runtimeName).toBe("symphony-platform");
-    expect(runtime.port).toBe(4501);
-    expect(readFileSync(runtime.workflowPath, "utf8")).toContain("Prefer small changes");
+    expect(runtime.runtimeId).toBe("workspace-workspace-1");
+    expect(runtime.runtimeName).toBe("orchestrator-platform");
+    expect(runtime.port).toBe(0);
+    expect(runtime.workflowPath).toBe(join(runtime.workspaceRuntimeDir, "WORKFLOW.md"));
     expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
       "GITHUB_PROJECT_ID=project-1"
     );
@@ -132,11 +132,11 @@ describe("provisionWorkspaceRuntime", () => {
     expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
       "SYMPHONY_RUNTIME_DRIVER=docker"
     );
-    expect(docker.createContainer).toHaveBeenCalledTimes(1);
+    expect(docker.createContainer).not.toHaveBeenCalled();
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);
   });
 
-  it("starts a local worker process and persists runtime metadata", async () => {
+  it("persists local runtime metadata without launching a worker eagerly", async () => {
     const root = mkdtempSync(join(tmpdir(), "github-symphony-local-runtime-"));
     tempPaths.push(root);
 
@@ -181,24 +181,16 @@ describe("provisionWorkspaceRuntime", () => {
     );
 
     expect(runtime.runtimeDriver).toBe("local");
-    expect(runtime.runtimeId).toBe("local-workspace-2");
-    expect(runtime.processId).toBe(4321);
+    expect(runtime.runtimeId).toBe("workspace-workspace-2");
+    expect(runtime.processId).toBeNull();
     expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
       "SYMPHONY_RUNTIME_DRIVER=local"
     );
-    expect(spawnImpl).toHaveBeenCalledWith(
-      "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
-      expect.objectContaining({
-        cwd: "/tmp/github-symphony",
-        detached: true,
-        stdio: "ignore"
-      })
-    );
+    expect(spawnImpl).not.toHaveBeenCalled();
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);
   });
 
-  it("syncs runtime state from Docker inspection", async () => {
+  it("syncs runtime state from orchestrator status API", async () => {
     const container = {
       inspect: vi.fn().mockResolvedValue({
         State: {
@@ -231,7 +223,38 @@ describe("provisionWorkspaceRuntime", () => {
       },
       {
         db,
-        docker
+        docker,
+        fetchImpl: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              workspaceId: "workspace-1",
+              slug: "workspace-1",
+              tracker: {
+                adapter: "github-project",
+                bindingId: "project-1"
+              },
+              lastTickAt: "2026-03-09T00:00:00.000Z",
+              health: "running",
+              summary: {
+                dispatched: 1,
+                suppressed: 0,
+                recovered: 0,
+                activeRuns: 1
+              },
+              activeRuns: [
+                {
+                  runId: "run-1",
+                  issueIdentifier: "acme/platform#1",
+                  phase: "planning",
+                  status: "running",
+                  port: 4501
+                }
+              ],
+              lastError: null
+            }),
+            { status: 200 }
+          )
+        ) as typeof fetch
       }
     );
 
@@ -239,7 +262,7 @@ describe("provisionWorkspaceRuntime", () => {
     expect(db.symphonyInstance.update).toHaveBeenCalledTimes(1);
   });
 
-  it("tears down a runtime and persists the stopped state", async () => {
+  it("tears down a runtime by persisting the stopped state", async () => {
     const container = {
       inspect: vi.fn(),
       start: vi.fn(),
@@ -271,14 +294,12 @@ describe("provisionWorkspaceRuntime", () => {
       }
     );
 
-    expect(container.stop).toHaveBeenCalledTimes(1);
-    expect(container.remove).toHaveBeenCalledWith({
-      force: true
-    });
+    expect(container.stop).not.toHaveBeenCalled();
+    expect(container.remove).not.toHaveBeenCalled();
     expect(db.symphonyInstance.update).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles failed provisioning by forcing container cleanup", async () => {
+  it("reconciles failed provisioning by persisting a degraded state", async () => {
     const container = {
       inspect: vi.fn(),
       start: vi.fn(),
@@ -310,14 +331,11 @@ describe("provisionWorkspaceRuntime", () => {
       }
     );
 
-    expect(container.remove).toHaveBeenCalledWith({
-      force: true
-    });
+    expect(container.remove).not.toHaveBeenCalled();
     expect(db.symphonyInstance.update).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles local runtime state from process liveness", async () => {
-    const killSpy = vi.spyOn(process, "kill").mockReturnValue(true as never);
+  it("reconciles local runtime state from orchestrator status", async () => {
     const db = {
       symphonyInstance: {
         upsert: vi.fn(),
@@ -333,12 +351,41 @@ describe("provisionWorkspaceRuntime", () => {
         processId: 4321
       },
       {
-        db
+        db,
+        fetchImpl: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              workspaceId: "workspace-2",
+              slug: "workspace-2",
+              tracker: {
+                adapter: "github-project",
+                bindingId: "project-2"
+              },
+              lastTickAt: "2026-03-09T00:00:00.000Z",
+              health: "running",
+              summary: {
+                dispatched: 0,
+                suppressed: 0,
+                recovered: 0,
+                activeRuns: 1
+              },
+              activeRuns: [
+                {
+                  runId: "run-2",
+                  issueIdentifier: "acme/platform#2",
+                  phase: "planning",
+                  status: "running",
+                  port: 4502
+                }
+              ],
+              lastError: null
+            }),
+            { status: 200 }
+          )
+        ) as typeof fetch
       }
     );
 
     expect(status).toBe("running");
-    expect(killSpy).toHaveBeenCalledWith(4321, 0);
-    killSpy.mockRestore();
   });
 });

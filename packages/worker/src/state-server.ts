@@ -6,12 +6,26 @@ import { parseWorkflowMarkdown } from "./workflow-parser.js";
 export type WorkerRuntimeState = {
   package: string;
   runtime: "self-hosted-sample";
-  status: "idle";
+  status: "idle" | "starting" | "running" | "failed" | "completed";
   projectId: string | null;
   workspaceRuntimeDir: string;
   allowedRepositories: string[];
+  run: null | {
+    runId: string;
+    issueId: string | null;
+    issueIdentifier: string | null;
+    phase: string | null;
+    processId: number | null;
+    repository: {
+      owner: string | null;
+      name: string | null;
+      cloneUrl: string | null;
+      url: string | null;
+    };
+    lastError: string | null;
+  };
   workflow: null | {
-    githubProjectId: string;
+    githubProjectId: string | null;
     agentCommand: string;
     hookPath: string;
     lifecycle: {
@@ -30,12 +44,31 @@ export type WorkerRuntimeState = {
 
 export async function buildWorkerRuntimeState(
   env: NodeJS.ProcessEnv,
-  readFileImpl: typeof readFile = readFile
+  readFileImpl: typeof readFile = readFile,
+  runtime: Partial<Pick<WorkerRuntimeState, "status" | "run">> = {}
 ): Promise<WorkerRuntimeState> {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR ?? "/workspace-runtime";
-  const workflowPath = join(workspaceRuntimeDir, "WORKFLOW.md");
+  const workflowPath = join(env.WORKING_DIRECTORY ?? workspaceRuntimeDir, "WORKFLOW.md");
   let workflow: WorkerRuntimeState["workflow"] = null;
   let allowedRepositories = parseAllowedRepositories(env.WORKSPACE_ALLOWED_REPOSITORIES);
+  const assignedRun =
+    runtime.run ??
+    (env.SYMPHONY_RUN_ID
+      ? {
+          runId: env.SYMPHONY_RUN_ID,
+          issueId: env.SYMPHONY_ISSUE_ID ?? null,
+          issueIdentifier: env.SYMPHONY_ISSUE_IDENTIFIER ?? null,
+          phase: env.SYMPHONY_RUN_PHASE ?? null,
+          processId: null,
+          repository: {
+            owner: env.TARGET_REPOSITORY_OWNER ?? null,
+            name: env.TARGET_REPOSITORY_NAME ?? null,
+            cloneUrl: env.TARGET_REPOSITORY_CLONE_URL ?? null,
+            url: env.TARGET_REPOSITORY_URL ?? null
+          },
+          lastError: null
+        }
+      : null);
 
   try {
     const workflowMarkdown = await readFileImpl(workflowPath, "utf8");
@@ -54,10 +87,11 @@ export async function buildWorkerRuntimeState(
   return {
     package: "@github-symphony/worker",
     runtime: "self-hosted-sample",
-    status: "idle",
+    status: runtime.status ?? "idle",
     projectId: env.GITHUB_PROJECT_ID ?? workflow?.githubProjectId ?? null,
     workspaceRuntimeDir,
     allowedRepositories,
+    run: assignedRun,
     workflow
   };
 }

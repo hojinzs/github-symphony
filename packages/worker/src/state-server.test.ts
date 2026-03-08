@@ -77,6 +77,43 @@ Prefer small changes.
     expect(state.allowedRepositories).toHaveLength(2);
     expect(state.workflow).toBeNull();
   });
+
+  it("surfaces assigned run metadata from the orchestrator", async () => {
+    const state = await buildWorkerRuntimeState(
+      {
+        GITHUB_PROJECT_ID: "project-123",
+        WORKING_DIRECTORY: "/workspace-runtime/repository",
+        SYMPHONY_RUN_ID: "run-1",
+        SYMPHONY_ISSUE_ID: "issue-1",
+        SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#1",
+        SYMPHONY_RUN_PHASE: "planning",
+        TARGET_REPOSITORY_OWNER: "acme",
+        TARGET_REPOSITORY_NAME: "platform",
+        TARGET_REPOSITORY_CLONE_URL: "https://github.com/acme/platform.git"
+      },
+      vi.fn().mockResolvedValue(`# Symphony Workflow
+
+## Prompt Guidelines
+
+Prefer small changes.
+`)
+    );
+
+    expect(state.run).toEqual({
+      runId: "run-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      phase: "planning",
+      processId: null,
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+        url: null
+      },
+      lastError: null
+    });
+  });
 });
 
 describe("createWorkerRequestHandler", () => {
@@ -89,6 +126,7 @@ describe("createWorkerRequestHandler", () => {
       projectId: "project-123",
       workspaceRuntimeDir: "/workspace-runtime",
       allowedRepositories: [],
+      run: null,
       workflow: null
     }));
 

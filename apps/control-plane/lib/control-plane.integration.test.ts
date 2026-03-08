@@ -108,15 +108,47 @@ describe("Control-plane integration", () => {
       {
         db,
         credentialBroker,
-        createWorkspaceIssueImpl: (token, input) =>
+        createWorkspaceIssueImpl: (input) =>
           import("./github-projects").then(({ createWorkspaceIssue }) =>
-            createWorkspaceIssue(token, input, graphFetch as typeof fetch)
+            createWorkspaceIssue("machine-user-token", input, graphFetch as typeof fetch)
           )
       }
     );
 
-    const dashboard = await loadWorkspaceDashboard(
-      vi.fn().mockResolvedValue(
+    const dashboardFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            workspaceId: workspace.id,
+            slug: workspace.slug,
+            tracker: {
+              adapter: "github-project",
+              bindingId: workspace.githubProjectId
+            },
+            lastTickAt: "2026-03-09T00:00:00.000Z",
+            health: "running",
+            summary: {
+              dispatched: 1,
+              suppressed: 0,
+              recovered: 0,
+              activeRuns: 1
+            },
+            activeRuns: [
+              {
+                runId: "run-1",
+                issueIdentifier: `acme/platform#${issue.number}`,
+                phase: "planning",
+                status: "running",
+                port: 4505
+              }
+            ],
+            lastError: null
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             activeTask: issue.number,
@@ -124,14 +156,17 @@ describe("Control-plane integration", () => {
           }),
           { status: 200 }
         )
-      ) as unknown as Promise<Response> as unknown as typeof fetch,
+      ) as typeof fetch;
+
+    const dashboard = await loadWorkspaceDashboard(
+      dashboardFetch,
       db,
       {
         syncWorkspaceRuntimeStatusImpl: vi.fn().mockResolvedValue("running")
       }
     );
 
-    expect(runtime.port).toBe(4505);
+    expect(runtime.port).toBe(0);
     expect(issue.projectItemId).toBe("project-item-1");
     expect(dashboard).toHaveLength(1);
     expect(dashboard[0]?.agentCredential.status).toBe("ready");
@@ -140,6 +175,14 @@ describe("Control-plane integration", () => {
       health: "healthy",
       status: "running",
       port: 4505
+    });
+    expect(dashboard[0]?.runtime?.state).toMatchObject({
+      orchestrator: {
+        workspaceId: workspace.id
+      },
+      worker: {
+        activeTask: issue.number
+      }
     });
   });
 
@@ -222,9 +265,9 @@ describe("Control-plane integration", () => {
       {
         db,
         credentialBroker,
-        createWorkspaceIssueImpl: (token, input) =>
+        createWorkspaceIssueImpl: (input) =>
           import("./github-projects").then(({ createWorkspaceIssue }) =>
-            createWorkspaceIssue(token, input, graphFetch as typeof fetch)
+            createWorkspaceIssue("machine-user-token", input, graphFetch as typeof fetch)
           )
       }
     );

@@ -1,9 +1,9 @@
 import type Docker from "dockerode";
 import { WorkspaceStatus, type Prisma } from "@prisma/client";
 import {
-  createWorkspaceProject,
+  githubProjectTrackerAdapter,
   type WorkspaceProject
-} from "./github-projects";
+} from "./github-project-tracker-adapter";
 import { getProjectGitHubCredentials } from "./github-user-broker";
 import {
   provisionWorkspaceRuntime,
@@ -22,7 +22,10 @@ type WorkspaceRecord = Prisma.PromiseReturnType<typeof createWorkspace>;
 
 type DatabaseLike = Pick<
   typeof db,
-  "workspace" | "symphonyInstance" | "agentCredential" | "platformAgentCredentialConfig"
+  | "workspace"
+  | "symphonyInstance"
+  | "agentCredential"
+  | "platformAgentCredentialConfig"
 >;
 
 export async function provisionWorkspace(
@@ -34,11 +37,11 @@ export async function provisionWorkspace(
     runtimeDriver?: RuntimeDriver;
     runtimeRoot?: string;
     portAllocator?: () => Promise<number>;
-    credentialBroker?: typeof getProjectGitHubCredentials;
     controlPlaneRuntimeUrl?: string;
     runtimeAuthEnv?: Record<string, string | undefined>;
     workerCommand?: string;
     projectRoot?: string;
+    credentialBroker?: typeof getProjectGitHubCredentials;
   } = {}
 ): Promise<{
   workspace: WorkspaceRecord;
@@ -47,8 +50,6 @@ export async function provisionWorkspace(
 }> {
   const database = dependencies.db ?? db;
   const fetchImpl = dependencies.fetchImpl ?? fetch;
-  const credentialBroker =
-    dependencies.credentialBroker ?? getProjectGitHubCredentials;
   await ensureWorkspaceHasUsableAgentCredential(
     {
       agentCredentialSource: input.agentCredentialSource,
@@ -56,20 +57,22 @@ export async function provisionWorkspace(
     },
     database as Parameters<typeof ensureWorkspaceHasUsableAgentCredential>[1]
   );
-  const credentials = await credentialBroker({
-    db: database as never,
-    fetchImpl
-  });
 
-  const workspace = await createWorkspace(input, credentials.ownerLogin, database);
-  const project = await createWorkspaceProject(
-    credentials.token,
+  const workspace = await createWorkspace(
+    input,
+    input.githubOwnerLogin ?? input.repositories[0]?.owner ?? "github",
+    database
+  );
+  const project = await githubProjectTrackerAdapter.bindWorkspace(
     {
-      ownerLogin: workspace.githubOwnerLogin,
-      ownerType: credentials.ownerType,
-      title: `${workspace.name} Workspace`
+      workspaceName: workspace.name,
+      ownerLogin: workspace.githubOwnerLogin
     },
-    fetchImpl
+    {
+      db: database as never,
+      fetchImpl,
+      credentialBroker: dependencies.credentialBroker
+    }
   );
 
   await updateWorkspaceProvisioning(
@@ -89,7 +92,11 @@ export async function provisionWorkspace(
       promptGuidelines: workspace.promptGuidelines,
       githubProjectId: project.id,
       agentCredentialSource: workspace.agentCredentialSource,
-      repositories: workspace.repositories.map((repository) => ({
+      repositories: workspace.repositories.map((repository: {
+        owner: string;
+        name: string;
+        cloneUrl: string;
+      }) => ({
         owner: repository.owner,
         name: repository.name,
         cloneUrl: repository.cloneUrl
@@ -97,7 +104,6 @@ export async function provisionWorkspace(
     },
     {
       db: database,
-      docker: dependencies.docker,
       runtimeDriver: dependencies.runtimeDriver,
       runtimeRoot: dependencies.runtimeRoot,
       portAllocator: dependencies.portAllocator,

@@ -1,12 +1,13 @@
 # GitHub Symphony
 
-GitHub Symphony is a multi-tenant AI coding agent platform built on top of the Symphony specification. It provides a Next.js control plane for workspace and issue management, provisions one isolated Symphony worker per workspace, and keeps agent-side tracker mutation inside the `github_graphql` tool contract.
+GitHub Symphony is a multi-tenant AI coding agent platform built on top of the Symphony specification. It now separates orchestration from operator UX: a CLI-first orchestrator polls tracker state and assigns runs, the control plane remains an optional workspace-management extension, and workers execute one assigned issue run at a time while keeping agent-side tracker mutation inside the `github_graphql` tool contract.
 
 The repository now includes a buildable local worker image instead of assuming a published `ghcr.io/openai/symphony` image exists.
 
 ## What is in this repository
 
 - `apps/control-plane`: Next.js App Router control plane
+- `packages/orchestrator`: headless CLI orchestrator with filesystem-backed leases, run snapshots, and recovery
 - `packages/worker`: Symphony runtime integration, hooks, tracker adapter, runtime launch plan
 - `packages/shared`: shared types and labels
 - `prisma`: PostgreSQL schema for GitHub integration state, workspaces, repositories, and runtime instances
@@ -33,8 +34,34 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
 5. Run `pnpm prisma:generate` and `pnpm prisma:db-push`.
 6. Set `SYMPHONY_RUNTIME_DRIVER=local` and start the UI with `pnpm dev:control-plane`.
 7. Open `http://localhost:3000/sign-in`, authenticate as a trusted operator, and complete the first-run machine-user PAT setup flow.
-   Use a classic PAT issued for the dedicated machine user with these scopes:
-   `repo`, `read:org`, `project`
+ Use a classic PAT issued for the dedicated machine user with these scopes:
+ `repo`, `read:org`, `project`
+8. Create a workspace from the control plane. That persists workspace metadata and emits orchestrator config under `.runtime/orchestrator/workspaces/<workspace-id>/config.json`.
+9. Start the headless orchestrator with `pnpm --filter @github-symphony/orchestrator build` followed by `pnpm --filter @github-symphony/orchestrator start -- run`.
+ The long-running `run` command also exposes the orchestrator status API on `http://127.0.0.1:4680` by default. Override it with `--status-host`, `--status-port`, or `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts.
+
+## Headless orchestration
+
+The orchestrator is the authoritative dispatch loop. It can run without the control-plane web app as long as workspace config already exists under `.runtime/orchestrator`.
+
+- `pnpm --filter @github-symphony/orchestrator start -- run`: continuous polling loop plus the status API on `127.0.0.1:4680` by default
+- `pnpm --filter @github-symphony/orchestrator start -- run-once`: single reconciliation tick
+- `pnpm --filter @github-symphony/orchestrator start -- dispatch --workspace-id <workspace-id>`: targeted workspace reconciliation
+- `pnpm --filter @github-symphony/orchestrator start -- run-issue --workspace-id <workspace-id> --issue <owner/repo#number>`: targeted issue dispatch
+- `pnpm --filter @github-symphony/orchestrator start -- recover`: reconcile filesystem state with live tracker state after a crash
+- `pnpm --filter @github-symphony/orchestrator start -- status`: print machine-readable orchestration status
+
+Runtime state lives under `.runtime/orchestrator`:
+
+- `workspaces/<workspace-id>/config.json`: persisted workspace metadata used by the orchestrator
+- `workspaces/<workspace-id>/leases.json`: active or released issue-phase leases
+- `workspaces/<workspace-id>/status.json`: latest machine-readable workspace status snapshot
+- `runs/<run-id>/run.json`: run snapshot, retry state, and worker assignment
+- `runs/<run-id>/events.ndjson`: structured orchestration events
+
+Each assigned worker run clones the target repository, reloads lifecycle semantics from that repository's `WORKFLOW.md`, and serves `/api/v1/state` so the orchestrator and control-plane extension can aggregate worker state when it is available.
+
+Optional extensions should read orchestration state from the orchestrator status API instead of reading `.runtime/orchestrator/.../status.json` directly. Set `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts when the orchestrator runs on a different host or port.
 
 ## Self-hosting with Docker Compose
 
@@ -55,7 +82,7 @@ It also mounts `/var/run/docker.sock` so the control plane can provision isolate
 
 ## GitHub bootstrap
 
-The control plane starts with trusted-operator GitHub OAuth sign-in, then bootstraps its system GitHub integration from the UI. On first run it redirects setup, workspace, and issue flows through `/sign-in`, guides the operator through machine-user PAT setup, validates the token against organization repository and Project access, and stores the encrypted PAT metadata in PostgreSQL.
+The control plane starts with trusted-operator GitHub OAuth sign-in, then bootstraps its system GitHub integration from the UI. On first run it redirects setup, workspace, and issue flows through `/sign-in`, guides the operator through machine-user PAT setup, validates the token against organization repository and Project access, and stores the encrypted PAT metadata in PostgreSQL. GitHub Project binding and issue creation remain control-plane extension flows; core orchestration happens in the CLI service.
 
 Required non-GitHub secrets:
 
