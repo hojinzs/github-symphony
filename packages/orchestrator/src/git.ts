@@ -33,6 +33,16 @@ export async function cloneRepositoryForRun(input: {
   }
 }
 
+export async function ensureIssueWorkspaceRepository(input: {
+  repository: RepositoryRef;
+  issueWorkspacePath: string;
+}): Promise<string> {
+  return cloneRepositoryForRun({
+    repository: input.repository,
+    targetDirectory: input.issueWorkspacePath
+  });
+}
+
 export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
   _repository: RepositoryRef
