@@ -1,4 +1,2 @@
-export const CORE_OBSERVABILITY_BOUNDARY = {
-  module: "observability",
-  responsibilities: ["structured logs", "runtime snapshot contracts"]
-} as const;
+export * from "./structured-events.js";
+export * from "./snapshot-builder.js";

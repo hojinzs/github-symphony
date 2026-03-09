@@ -4,3 +4,5 @@ export const CORE_WORKSPACE_BOUNDARY = {
 } as const;
 
 export * from "./safety.js";
+export * from "./identity.js";
+export * from "./hooks.js";
