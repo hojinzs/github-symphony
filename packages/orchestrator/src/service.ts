@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   isWorkflowPhaseActionable,
   resolveWorkflowExecutionPhase,
+  scheduleRetryAt,
   type RepositoryRef,
   type TrackedIssue
 } from "@github-symphony/core";
@@ -32,6 +33,7 @@ type SpawnLike = (
 
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
+  private readonly workspacePollIntervals = new Map<string, number>();
 
   constructor(
     readonly store: OrchestratorFsStore,
@@ -58,7 +60,7 @@ export class OrchestratorService {
         return;
       }
 
-      await wait(this.dependencies.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+      await wait(this.getEffectivePollIntervalMs());
     } while (true);
   }
 
@@ -91,6 +93,19 @@ export class OrchestratorService {
     });
   }
 
+  getEffectivePollIntervalMs(): number {
+    if (this.dependencies.pollIntervalMs) {
+      return this.dependencies.pollIntervalMs;
+    }
+
+    const configuredIntervals = [...this.workspacePollIntervals.values()].filter(
+      (value) => Number.isFinite(value) && value > 0
+    );
+    return configuredIntervals.length
+      ? Math.min(...configuredIntervals)
+      : DEFAULT_POLL_INTERVAL_MS;
+  }
+
   private async loadTargetWorkspaces(
     workspaceId?: string
   ): Promise<OrchestratorWorkspaceConfig[]> {
@@ -110,6 +125,7 @@ export class OrchestratorService {
     let dispatched = 0;
     let suppressed = 0;
     let recovered = 0;
+    let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 
     let leases = await this.store.loadWorkspaceLeases(workspace.workspaceId);
     const allRuns = (await this.store.loadAllRuns()).filter(
@@ -126,6 +142,7 @@ export class OrchestratorService {
     }
 
     try {
+      pollIntervalMs = await this.loadWorkspacePollInterval(workspace);
       const issues = await trackerAdapter.listIssues(workspace, {
         fetchImpl: this.dependencies.fetchImpl
       });
@@ -203,6 +220,7 @@ export class OrchestratorService {
       lastError = error instanceof Error ? error.message : "Unknown orchestration error";
     }
 
+    this.workspacePollIntervals.set(workspace.workspaceId, pollIntervalMs);
     await this.store.saveWorkspaceLeases(workspace.workspaceId, leases);
 
     const latestRuns = (await this.store.loadAllRuns()).filter(
@@ -405,7 +423,12 @@ export class OrchestratorService {
     }
 
     const backoffMs = this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
-    const nextRetryAt = new Date(now.getTime() + backoffMs).toISOString();
+    const retryOptions = await this.loadRetryPolicy(workspace, run.repository);
+    const nextRetryAt = (
+      retryOptions
+        ? scheduleRetryAt(now, run.attempt + 1, retryOptions)
+        : new Date(now.getTime() + backoffMs)
+    ).toISOString();
     const retryRecord: OrchestratorRunRecord = {
       ...run,
       status: "retrying",
@@ -465,6 +488,38 @@ export class OrchestratorService {
       }),
       recovered: true
     };
+  }
+
+  private async loadWorkspacePollInterval(
+    workspace: OrchestratorWorkspaceConfig
+  ): Promise<number> {
+    const intervals = await Promise.all(
+      workspace.repositories.map(async (repository) => {
+        const resolution = await this.loadIssueWorkflow(workspace, repository);
+        return resolution.workflow.scheduler.pollIntervalMs;
+      })
+    );
+    const validIntervals = intervals.filter((value) => Number.isFinite(value) && value > 0);
+    return validIntervals.length ? Math.min(...validIntervals) : DEFAULT_POLL_INTERVAL_MS;
+  }
+
+  private async loadRetryPolicy(
+    workspace: OrchestratorWorkspaceConfig,
+    repository: RepositoryRef
+  ): Promise<{ baseDelayMs: number; maxDelayMs: number } | null> {
+    if (this.dependencies.retryBackoffMs) {
+      return {
+        baseDelayMs: this.dependencies.retryBackoffMs,
+        maxDelayMs: this.dependencies.retryBackoffMs
+      };
+    }
+
+    try {
+      const resolution = await this.loadIssueWorkflow(workspace, repository);
+      return resolution.workflow.retry;
+    } catch {
+      return null;
+    }
   }
 }
 
