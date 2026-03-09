@@ -17,6 +17,18 @@ type WorkflowFrontMatterNode =
   | WorkflowFrontMatterNode[]
   | { [key: string]: WorkflowFrontMatterNode };
 
+/**
+ * Parse a WORKFLOW.md file into a typed workflow definition.
+ *
+ * Supports two formats:
+ *  1. **YAML front matter + prompt body** (canonical) — `format: "front-matter"`
+ *  2. **Legacy sectioned markdown** (compatibility) — `format: "legacy-sectioned"`
+ *
+ * The legacy format is auto-detected when no YAML front matter delimiter (`---`)
+ * is found. Existing workspaces with section-based WORKFLOW.md files continue to
+ * work without modification. Operators should migrate to the YAML front matter
+ * format; the legacy parser will be removed in a future version.
+ */
 export function parseWorkflowMarkdown(
   markdown: string,
   env: NodeJS.ProcessEnv = process.env
@@ -103,6 +115,16 @@ export function parseWorkflowMarkdown(
   };
 }
 
+/**
+ * @deprecated Legacy compatibility parser for section-based WORKFLOW.md files.
+ *
+ * This parser handles the original section-based format (## Prompt Guidelines,
+ * ## Repository Allowlist, ## Approval Lifecycle, etc.). It is invoked
+ * automatically by `parseWorkflowMarkdown` when no YAML front matter is detected.
+ *
+ * Migrate existing WORKFLOW.md files to YAML front matter format and remove this
+ * fallback once all workspaces have been transitioned.
+ */
 function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
   const githubProjectId = matchOptional(markdown, /Project ID:\s*(.+)/);
   const promptGuidelines = matchOptionalSection(markdown, "Prompt Guidelines") ?? "";

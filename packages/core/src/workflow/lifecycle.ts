@@ -61,6 +61,10 @@ export function isWorkflowPhaseActionable(phase: WorkflowExecutionPhase): boolea
   return phase === "planning" || phase === "implementation";
 }
 
+export function isWorkflowPhaseTerminal(phase: WorkflowExecutionPhase): boolean {
+  return phase === "completed";
+}
+
 export function isWorkflowStateActionable(
   state: string,
   lifecycle: WorkflowLifecycleConfig

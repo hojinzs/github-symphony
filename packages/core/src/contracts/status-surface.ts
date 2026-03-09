@@ -40,6 +40,7 @@ export type OrchestratorRunRecord = {
   workspaceId: string;
   workspaceSlug: string;
   issueId: string;
+  issueSubjectId: string;
   issueIdentifier: string;
   phase: TrackedIssue["phase"];
   repository: RepositoryRef;
@@ -48,6 +49,7 @@ export type OrchestratorRunRecord = {
   processId: number | null;
   port: number | null;
   workingDirectory: string;
+  issueWorkspaceKey: string | null;
   workspaceRuntimeDir: string;
   workflowPath: string | null;
   retryKind: RetryKind | null;
@@ -57,6 +59,7 @@ export type OrchestratorRunRecord = {
   completedAt: string | null;
   lastError: string | null;
   nextRetryAt: string | null;
+  runtimeSession?: RuntimeSessionRow | null;
 };
 
 export type WorkspaceLeaseRecord = {
@@ -67,6 +70,15 @@ export type WorkspaceLeaseRecord = {
   phase: TrackedIssue["phase"];
   status: "active" | "released";
   updatedAt: string;
+};
+
+export type RuntimeSessionRow = {
+  sessionId: string | null;
+  threadId: string | null;
+  status: "active" | "completed" | "failed" | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  exitClassification: string | null;
 };
 
 export type WorkspaceStatusSnapshot = {
@@ -92,6 +104,7 @@ export type WorkspaceStatusSnapshot = {
     retryKind: RetryKind | null;
     port: number | null;
   }>;
+  runtimeSession?: RuntimeSessionRow | null;
   retryQueue: Array<{
     runId: string;
     issueIdentifier: string;

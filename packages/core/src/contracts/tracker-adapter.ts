@@ -1,5 +1,9 @@
 import type { WorkflowExecutionPhase } from "../workflow/lifecycle.js";
 import type { RepositoryRef } from "../domain/workspace.js";
+import type {
+  OrchestratorRunRecord,
+  OrchestratorWorkspaceConfig,
+} from "./status-surface.js";
 
 export type TrackerAdapterKind = "github-project" | (string & {});
 
@@ -30,4 +34,22 @@ export type TrackedIssue = {
   };
   phase: WorkflowExecutionPhase;
   metadata: Record<string, string>;
+};
+
+export type OrchestratorTrackerAdapter = {
+  listIssues(
+    workspace: OrchestratorWorkspaceConfig,
+    dependencies?: {
+      fetchImpl?: typeof fetch;
+      token?: string;
+    }
+  ): Promise<TrackedIssue[]>;
+  buildWorkerEnvironment(
+    workspace: OrchestratorWorkspaceConfig,
+    issue: TrackedIssue
+  ): Record<string, string>;
+  reviveIssue(
+    workspace: OrchestratorWorkspaceConfig,
+    run: OrchestratorRunRecord
+  ): TrackedIssue;
 };
