@@ -3,13 +3,15 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  assertRepositoryAllowed,
+  resolveWorkspaceDirectory
+} from "@github-symphony/core";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  assertRepositoryAllowed,
   buildAfterCreateHookScript,
-  prepareAfterCreateHook,
-  resolveWorkspaceDirectory
+  prepareAfterCreateHook
 } from "./after-create-hook.js";
 
 const execFileAsync = promisify(execFile);

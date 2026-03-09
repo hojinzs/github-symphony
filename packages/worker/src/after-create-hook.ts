@@ -1,6 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { chmod } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import {
+  assertRepositoryAllowed,
+  resolveWorkspaceDirectory
+} from "@github-symphony/core";
 
 export type AfterCreateHookContext = {
   workspaceId: string;
@@ -14,29 +18,6 @@ export type PreparedAfterCreateHook = {
   workspaceDirectory: string;
   env: Record<string, string>;
 };
-
-export function resolveWorkspaceDirectory(
-  workspaceRoot: string,
-  workspaceId: string
-): string {
-  const normalizedRoot = resolve(workspaceRoot);
-  const candidate = resolve(normalizedRoot, workspaceId);
-
-  if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}/`)) {
-    throw new Error("Workspace path escapes the configured workspace root.");
-  }
-
-  return candidate;
-}
-
-export function assertRepositoryAllowed(
-  targetRepositoryCloneUrl: string,
-  allowedRepositoryCloneUrls: string[]
-): void {
-  if (!allowedRepositoryCloneUrls.includes(targetRepositoryCloneUrl)) {
-    throw new Error(`Repository is not in the workspace allowlist: ${targetRepositoryCloneUrl}`);
-  }
-}
 
 export function buildAfterCreateHookScript(): string {
   return `#!/usr/bin/env bash

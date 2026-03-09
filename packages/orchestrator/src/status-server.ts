@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { WorkspaceStatusSnapshot } from "./types.js";
+import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
 
 export async function resolveOrchestratorStatusResponse(
   pathname: string,

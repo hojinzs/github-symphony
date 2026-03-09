@@ -1,6 +1,10 @@
-import type { TrackedIssue } from "@github-symphony/core";
+import type {
+  OrchestratorRunRecord,
+  OrchestratorTrackerConfig,
+  OrchestratorWorkspaceConfig,
+  TrackedIssue
+} from "@github-symphony/core";
 import { fetchProjectIssues } from "@github-symphony/tracker-github";
-import type { OrchestratorRunRecord, OrchestratorTrackerConfig, OrchestratorWorkspaceConfig } from "./types.js";
 
 export type OrchestratorTrackerAdapter = {
   listIssues(

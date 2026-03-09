@@ -5,18 +5,16 @@ import {
   isWorkflowPhaseActionable,
   resolveWorkflowExecutionPhase,
   scheduleRetryAt,
+  type OrchestratorRunRecord,
+  type OrchestratorWorkspaceConfig,
   type RepositoryRef,
-  type TrackedIssue
+  type TrackedIssue,
+  type WorkspaceLeaseRecord,
+  type WorkspaceStatusSnapshot
 } from "@github-symphony/core";
 import { cloneRepositoryForRun, loadRepositoryWorkflow } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
-import type {
-  OrchestratorRunRecord,
-  OrchestratorWorkspaceConfig,
-  WorkspaceLeaseRecord,
-  WorkspaceStatusSnapshot
-} from "./types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 2;

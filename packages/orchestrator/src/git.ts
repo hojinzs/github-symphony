@@ -5,9 +5,9 @@ import { join } from "node:path";
 import {
   createDefaultWorkflowResolution,
   WorkflowConfigStore,
-  type RepositoryRef
+  type RepositoryRef,
+  type WorkflowResolution
 } from "@github-symphony/core";
-import type { WorkflowResolution } from "./types.js";
 
 const workflowConfigStore = new WorkflowConfigStore();
 

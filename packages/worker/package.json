@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@github-symphony/core": "workspace:*",
-    "@github-symphony/shared": "workspace:*",
     "@github-symphony/tracker-github": "workspace:*"
   }
 }

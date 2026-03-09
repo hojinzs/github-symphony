@@ -5,7 +5,7 @@ import type {
   OrchestratorWorkspaceConfig,
   WorkspaceLeaseRecord,
   WorkspaceStatusSnapshot
-} from "./types.js";
+} from "@github-symphony/core";
 
 type JsonValue =
   | string

@@ -5,7 +5,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["dockerode"],
   transpilePackages: [
     "@github-symphony/core",
-    "@github-symphony/shared",
     "@github-symphony/tracker-github"
   ]
 };
