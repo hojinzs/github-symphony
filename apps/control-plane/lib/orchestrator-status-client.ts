@@ -1,34 +1,14 @@
-export type OrchestratorWorkspaceStatusSnapshot = {
-  workspaceId: string;
-  slug: string;
-  tracker: {
-    adapter: string;
-    bindingId: string;
-  };
-  lastTickAt: string;
-  health: "idle" | "running" | "degraded";
-  summary: {
-    dispatched: number;
-    suppressed: number;
-    recovered: number;
-    activeRuns: number;
-  };
-  activeRuns: Array<{
-    runId: string;
-    issueIdentifier: string;
-    phase: string;
-    status: string;
-    retryKind: string | null;
-    port: number | null;
-  }>;
-  retryQueue: Array<{
-    runId: string;
-    issueIdentifier: string;
-    retryKind: string;
-    nextRetryAt: string | null;
-  }>;
-  lastError: string | null;
-};
+import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
+
+/**
+ * Client-side alias for the orchestrator status snapshot.
+ *
+ * The orchestrator status API serializes `WorkspaceStatusSnapshot` from
+ * `@github-symphony/core` as JSON. This re-export keeps the control-plane
+ * client aligned with the spec-level status surface without duplicating
+ * the type definition.
+ */
+export type OrchestratorWorkspaceStatusSnapshot = WorkspaceStatusSnapshot;
 
 export function resolveOrchestratorStatusBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return env.ORCHESTRATOR_STATUS_BASE_URL ?? "http://127.0.0.1:4680";

@@ -104,6 +104,9 @@ export async function provisionWorkspaceRuntime(
   const runtimeRoot = options.runtimeRoot ?? DEFAULT_RUNTIME_ROOT;
   const workspaceRuntimeDir = resolve(runtimeRoot, input.slug);
   const preferredPort = await (options.portAllocator ?? defaultPortAllocator)();
+  // workflowPath is a DB reference only — no WORKFLOW.md is written during provisioning.
+  // The canonical workflow contract lives in the target repository's WORKFLOW.md and
+  // is loaded by the orchestrator at run time via loadRepositoryWorkflow().
   const workflowPath = join(workspaceRuntimeDir, "WORKFLOW.md");
   const runtimeEnvironment = {
     ...process.env,
@@ -205,6 +208,17 @@ export async function provisionWorkspaceRuntime(
   return runtime;
 }
 
+/**
+ * Render a WORKFLOW.md bootstrap template from provisioning input.
+ *
+ * This is a **seeding helper** — it produces a WORKFLOW.md that can be committed
+ * to a repository to initialize the canonical workflow contract. The orchestrator
+ * always reads WORKFLOW.md from the cloned target repository at run time, so the
+ * generated file has no effect unless it is present in the repository root.
+ *
+ * The control-plane provisioning flow does NOT write this file to the workspace
+ * runtime directory. It writes only `worker.env` and `hooks/after_create.sh`.
+ */
 export function renderWorkflowMarkdown(input: ProvisionWorkspaceInput): string {
   return `---
 github_project_id: ${input.githubProjectId}
@@ -311,6 +325,16 @@ export async function reconcileProvisioningFailure(
   });
 }
 
+/**
+ * Write bootstrap runtime artifacts for a newly provisioned workspace.
+ *
+ * Generated artifacts:
+ *  - `worker.env`           — environment variables for worker processes
+ *  - `hooks/after_create.sh` — default after_create hook (git clone)
+ *
+ * Note: No WORKFLOW.md is written here. The canonical workflow contract lives
+ * in the target repository and is loaded by the orchestrator at run time.
+ */
 async function writeWorkspaceRuntimeArtifacts(
   workspaceRuntimeDir: string,
   input: ProvisionWorkspaceInput,
@@ -362,6 +386,13 @@ git clone "$target_repo" "$workspace_dir/repository"
   );
 }
 
+/**
+ * Write orchestrator workspace config.json under `.runtime/orchestrator/workspaces/<id>/`.
+ *
+ * This config is consumed by the headless orchestrator to discover workspaces,
+ * resolve tracker adapters, and locate runtime directories. The orchestrator then
+ * loads the workflow contract from each target repository’s WORKFLOW.md at run time.
+ */
 async function writeOrchestratorWorkspaceConfig(
   runtimeRoot: string,
   config: {
