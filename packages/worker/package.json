@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/shared": "workspace:*"
+    "@github-symphony/core": "workspace:*",
+    "@github-symphony/shared": "workspace:*",
+    "@github-symphony/tracker-github": "workspace:*"
   }
 }

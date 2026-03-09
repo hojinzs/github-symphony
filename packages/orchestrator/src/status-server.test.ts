@@ -23,9 +23,11 @@ describe("orchestrator status server", () => {
         issueIdentifier: "acme/platform#1",
         phase: "planning",
         status: "running",
+        retryKind: null,
         port: 4601
       }
     ],
+    retryQueue: [],
     lastError: null
   };
 

@@ -140,9 +140,11 @@ describe("Control-plane integration", () => {
                 issueIdentifier: `acme/platform#${issue.number}`,
                 phase: "planning",
                 status: "running",
+                retryKind: null,
                 port: 4505
               }
             ],
+            retryQueue: [],
             lastError: null
           }),
           { status: 200 }

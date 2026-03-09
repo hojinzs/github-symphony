@@ -57,7 +57,7 @@ describe("renderWorkflowMarkdown", () => {
           }
         ]
       })
-    ).toContain("## Approval Lifecycle");
+    ).toContain("lifecycle:");
   });
 });
 
@@ -247,9 +247,11 @@ describe("provisionWorkspaceRuntime", () => {
                   issueIdentifier: "acme/platform#1",
                   phase: "planning",
                   status: "running",
+                  retryKind: null,
                   port: 4501
                 }
               ],
+              retryQueue: [],
               lastError: null
             }),
             { status: 200 }
@@ -375,9 +377,11 @@ describe("provisionWorkspaceRuntime", () => {
                   issueIdentifier: "acme/platform#2",
                   phase: "planning",
                   status: "running",
+                  retryKind: null,
                   port: 4502
                 }
               ],
+              retryQueue: [],
               lastError: null
             }),
             { status: 200 }

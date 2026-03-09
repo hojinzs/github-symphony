@@ -8,13 +8,13 @@ export {
   type GitHubRepositoryRef,
   type GitHubTrackedIssue,
   type GitHubTrackerConfig
-} from "@github-symphony/shared";
+} from "@github-symphony/tracker-github";
 
-import {
-  isWorkflowPhaseActionable,
-  type GitHubTrackedIssue,
-  type GitHubTrackerConfig
-} from "@github-symphony/shared";
+import { isWorkflowPhaseActionable } from "@github-symphony/core";
+import type {
+  GitHubTrackedIssue,
+  GitHubTrackerConfig
+} from "@github-symphony/tracker-github";
 
 export function normalizeStateName(state: string): string {
   return state.trim().toLowerCase();

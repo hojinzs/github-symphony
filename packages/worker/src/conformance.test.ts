@@ -4,50 +4,42 @@ import { calculateRetryDelay, scheduleRetryAt } from "./retry-policy.js";
 import { parseWorkflowMarkdown } from "./workflow-parser.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
-const SAMPLE_WORKFLOW = `# Symphony Workspace
-
-## GitHub Project
-
-- Project ID: project-123
-
-## Prompt Guidelines
-
+const SAMPLE_WORKFLOW = `---
+github_project_id: project-123
+allowed_repositories:
+  - https://github.com/acme/platform.git
+  - https://github.com/acme/api.git
+lifecycle:
+  state_field: Status
+  planning_active:
+    - Todo
+    - Needs Plan
+  human_review:
+    - Human Review
+  implementation_active:
+    - Approved
+    - Ready to Implement
+  awaiting_merge:
+    - Await Merge
+  completed:
+    - Done
+  transitions:
+    planning_complete: Human Review
+    implementation_complete: Await Merge
+    merge_complete: Done
+runtime:
+  agent_command: bash -lc codex app-server
+hooks:
+  after_create: hooks/after_create.sh
+---
 Prefer small changes and always explain risk.
-
-## Repository Allowlist
-
-- https://github.com/acme/platform.git
-- https://github.com/acme/api.git
-
-## Approval Lifecycle
-
-- State field: Status
-- Planning-active states:
-  - Todo
-  - Needs Plan
-- Human-review states:
-  - Human Review
-- Implementation-active states:
-  - Approved
-  - Ready to Implement
-- Awaiting-merge states:
-  - Await Merge
-- Completed states:
-  - Done
-- Planning complete -> Human Review
-- Implementation complete -> Await Merge
-- Merge complete -> Done
-
-## Runtime
-
-- Agent command: \`bash -lc codex app-server\`
-- Hook: \`hooks/after_create.sh\`
 `;
 
 describe("Symphony core conformance", () => {
   it("parses a valid WORKFLOW.md contract", () => {
-    expect(parseWorkflowMarkdown(SAMPLE_WORKFLOW)).toEqual({
+    expect(parseWorkflowMarkdown(SAMPLE_WORKFLOW)).toMatchObject({
       githubProjectId: "project-123",
+      promptTemplate: "Prefer small changes and always explain risk.",
       promptGuidelines: "Prefer small changes and always explain risk.",
       allowedRepositories: [
         "https://github.com/acme/platform.git",
@@ -60,8 +52,9 @@ describe("Symphony core conformance", () => {
   });
 
   it("falls back to default lifecycle semantics when sections are omitted", () => {
-    expect(parseWorkflowMarkdown("## Prompt Guidelines\n\nMissing everything else")).toEqual({
+    expect(parseWorkflowMarkdown("## Prompt Guidelines\n\nMissing everything else")).toMatchObject({
       githubProjectId: null,
+      promptTemplate: "Missing everything else",
       promptGuidelines: "Missing everything else",
       allowedRepositories: [],
       agentCommand: "bash -lc codex app-server",

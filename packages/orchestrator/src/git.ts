@@ -1,10 +1,15 @@
 import { spawn } from "node:child_process";
-import { access, mkdir, readFile } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
-import { parseWorkflowMarkdown, DEFAULT_WORKFLOW_LIFECYCLE } from "@github-symphony/shared";
-import type { RepositoryRef } from "@github-symphony/shared";
+import {
+  createDefaultWorkflowResolution,
+  WorkflowConfigStore,
+  type RepositoryRef
+} from "@github-symphony/core";
 import type { WorkflowResolution } from "./types.js";
+
+const workflowConfigStore = new WorkflowConfigStore();
 
 export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
@@ -14,6 +19,7 @@ export async function cloneRepositoryForRun(input: {
   const repositoryDirectory = join(input.targetDirectory, "repository");
   try {
     await access(join(repositoryDirectory, ".git"), constants.R_OK);
+    await runCommand("git", ["-C", repositoryDirectory, "pull", "--ff-only"]);
     return repositoryDirectory;
   } catch {
     await runCommand("git", [
@@ -29,30 +35,18 @@ export async function cloneRepositoryForRun(input: {
 
 export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
-  repository: RepositoryRef
+  _repository: RepositoryRef
 ): Promise<WorkflowResolution> {
   const workflowPath = join(repositoryDirectory, "WORKFLOW.md");
 
   try {
-    await access(workflowPath, constants.R_OK);
-    const markdown = await readFile(workflowPath, "utf8");
-    const parsed = parseWorkflowMarkdown(markdown);
+    return await workflowConfigStore.load(workflowPath);
+  } catch (error) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
 
-    return {
-      lifecycle: parsed.lifecycle,
-      promptGuidelines: parsed.promptGuidelines,
-      agentCommand: parsed.agentCommand,
-      hookPath: parsed.hookPath,
-      workflowPath
-    };
-  } catch {
-    return {
-      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
-      promptGuidelines: "",
-      agentCommand: "bash -lc codex app-server",
-      hookPath: "hooks/after_create.sh",
-      workflowPath: null
-    };
+    return createDefaultWorkflowResolution();
   }
 }
 
@@ -75,4 +69,13 @@ function runCommand(command: string, args: string[]): Promise<void> {
       reject(new Error(stderr.trim() || `${command} exited with code ${code ?? "unknown"}`));
     });
   });
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
 }

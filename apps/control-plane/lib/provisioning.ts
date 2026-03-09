@@ -206,33 +206,37 @@ export async function provisionWorkspaceRuntime(
 }
 
 export function renderWorkflowMarkdown(input: ProvisionWorkspaceInput): string {
-  return `# Symphony Workflow
-
-## Prompt Guidelines
-
+  return `---
+github_project_id: ${input.githubProjectId}
+allowed_repositories:
+${input.repositories.map((repository) => `  - ${repository.cloneUrl}`).join("\n")}
+lifecycle:
+  state_field: ${DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName}
+  planning_active:
+${DEFAULT_WORKFLOW_LIFECYCLE.planningStates.map((state: string) => `    - ${state}`).join("\n")}
+  human_review:
+${DEFAULT_WORKFLOW_LIFECYCLE.humanReviewStates.map((state: string) => `    - ${state}`).join("\n")}
+  implementation_active:
+${DEFAULT_WORKFLOW_LIFECYCLE.implementationStates.map((state: string) => `    - ${state}`).join("\n")}
+  awaiting_merge:
+${DEFAULT_WORKFLOW_LIFECYCLE.awaitingMergeStates.map((state: string) => `    - ${state}`).join("\n")}
+  completed:
+${DEFAULT_WORKFLOW_LIFECYCLE.completedStates.map((state: string) => `    - ${state}`).join("\n")}
+  transitions:
+    planning_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.planningCompleteState}
+    implementation_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.implementationCompleteState}
+    merge_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState}
+runtime:
+  agent_command: bash -lc codex app-server
+hooks:
+  after_create: hooks/after_create.sh
+scheduler:
+  poll_interval_ms: 30000
+retry:
+  base_delay_ms: 1000
+  max_delay_ms: 30000
+---
 ${input.promptGuidelines}
-
-## Approval Lifecycle
-
-- State field: ${DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName}
-- Planning-active states:
-  ${DEFAULT_WORKFLOW_LIFECYCLE.planningStates.map((state: string) => `- ${state}`).join("\n  ")}
-- Human-review states:
-  ${DEFAULT_WORKFLOW_LIFECYCLE.humanReviewStates.map((state: string) => `- ${state}`).join("\n  ")}
-- Implementation-active states:
-  ${DEFAULT_WORKFLOW_LIFECYCLE.implementationStates.map((state: string) => `- ${state}`).join("\n  ")}
-- Awaiting-merge states:
-  ${DEFAULT_WORKFLOW_LIFECYCLE.awaitingMergeStates.map((state: string) => `- ${state}`).join("\n  ")}
-- Completed states:
-  ${DEFAULT_WORKFLOW_LIFECYCLE.completedStates.map((state: string) => `- ${state}`).join("\n  ")}
-- Planning complete -> ${DEFAULT_WORKFLOW_LIFECYCLE.planningCompleteState}
-- Implementation complete -> ${DEFAULT_WORKFLOW_LIFECYCLE.implementationCompleteState}
-- Merge complete -> ${DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState}
-
-## Runtime
-
-- Agent command: \`bash -lc codex app-server\`
-- Hook: \`hooks/after_create.sh\`
 `;
 }
 

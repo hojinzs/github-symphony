@@ -6,7 +6,7 @@ import {
   resolveWorkflowExecutionPhase,
   type RepositoryRef,
   type TrackedIssue
-} from "@github-symphony/shared";
+} from "@github-symphony/core";
 import { cloneRepositoryForRun, loadRepositoryWorkflow } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
@@ -221,15 +221,24 @@ export class OrchestratorService {
         dispatched,
         suppressed,
         recovered,
-        activeRuns: latestRuns.length
+      activeRuns: latestRuns.length
       },
       activeRuns: latestRuns.map((run) => ({
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
         phase: run.phase,
         status: run.status,
+        retryKind: run.retryKind,
         port: run.port
       })),
+      retryQueue: latestRuns
+        .filter((run) => run.status === "retrying" && run.retryKind)
+        .map((run) => ({
+          runId: run.runId,
+          issueIdentifier: run.issueIdentifier,
+          retryKind: run.retryKind ?? "failure",
+          nextRetryAt: run.nextRetryAt
+        })),
       lastError
     };
 
@@ -338,6 +347,7 @@ export class OrchestratorService {
       workingDirectory: repositoryDirectory,
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
+      retryKind: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       startedAt: now.toISOString(),
@@ -373,6 +383,7 @@ export class OrchestratorService {
         status: "failed",
         completedAt: now.toISOString(),
         updatedAt: now.toISOString(),
+        retryKind: run.retryKind ?? "failure",
         lastError: run.lastError ?? "Worker process exited unexpectedly."
       };
       await this.store.saveRun(failedRecord);
@@ -402,6 +413,7 @@ export class OrchestratorService {
       processId: null,
       updatedAt: now.toISOString(),
       nextRetryAt,
+      retryKind: "failure",
       lastError: "Worker process exited unexpectedly."
     };
     await this.store.saveRun(retryRecord);
@@ -431,6 +443,7 @@ export class OrchestratorService {
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
+      retryKind: run.retryKind ?? "recovery",
       createdAt: run.createdAt
     };
     await this.store.saveRun(recoveredRecord);

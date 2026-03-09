@@ -129,6 +129,7 @@ describe("OrchestratorService", () => {
       workingDirectory: join(tempRoot, "stale-run"),
       workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
       workflowPath: null,
+      retryKind: "failure",
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:00:10.000Z",
       startedAt: "2026-03-08T00:00:00.000Z",
@@ -170,28 +171,30 @@ async function createRepositoryFixture(
   execSync(`git -C ${shell(repositoryRoot)} config user.name tester`);
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
-    `# Symphony Workflow
-
-## Prompt Guidelines
-
+    `---
+github_project_id: project-123
+lifecycle:
+  state_field: Status
+  planning_active:
+    - Needs Plan
+  human_review:
+    - Human Review
+  implementation_active:
+    - Approved
+  awaiting_merge:
+    - Await Merge
+  completed:
+    - Done
+  transitions:
+    planning_complete: Human Review
+    implementation_complete: Await Merge
+    merge_complete: Done
+runtime:
+  agent_command: bash -lc codex app-server
+hooks:
+  after_create: hooks/after_create.sh
+---
 Prefer focused changes.
-
-## Approval Lifecycle
-
-- State field: Status
-- Planning-active states:
-  - Needs Plan
-- Human-review states:
-  - Human Review
-- Implementation-active states:
-  - Approved
-- Awaiting-merge states:
-  - Await Merge
-- Completed states:
-  - Done
-- Planning complete -> Human Review
-- Implementation complete -> Await Merge
-- Merge complete -> Done
 `,
     "utf8"
   );

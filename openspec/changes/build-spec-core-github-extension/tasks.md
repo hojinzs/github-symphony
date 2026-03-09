@@ -1,13 +1,13 @@
 ## 1. Core workflow contract
 
 - [ ] 1.0 Recompose the package layout around `packages/core`, `packages/runtime-codex`, `packages/tracker-github`, `packages/extension-github-workflow`, and a thin service/composition layer.
-- [ ] 1.0.1 Create `packages/core` with spec-shaped internal modules for domain, workflow, orchestration, workspace, contracts, and observability.
-- [ ] 1.0.2 Create `packages/runtime-codex`, `packages/tracker-github`, and `packages/extension-github-workflow` with package-level README or entrypoint contracts that explain their boundaries.
-- [ ] 1.1 Replace the custom section-based `WORKFLOW.md` parser with a YAML front matter + prompt body loader and typed config layer, keeping only a temporary compatibility fallback for legacy sectioned workflow files.
-- [ ] 1.2 Add workflow validation, environment indirection, and last-known-good reload behavior for invalid updates.
+- [x] 1.0.1 Create `packages/core` with spec-shaped internal modules for domain, workflow, orchestration, workspace, contracts, and observability.
+- [x] 1.0.2 Create `packages/runtime-codex`, `packages/tracker-github`, and `packages/extension-github-workflow` with package-level README or entrypoint contracts that explain their boundaries.
+- [x] 1.1 Replace the custom section-based `WORKFLOW.md` parser with a YAML front matter + prompt body loader and typed config layer, keeping only a temporary compatibility fallback for legacy sectioned workflow files.
+- [x] 1.2 Add workflow validation, environment indirection, and last-known-good reload behavior for invalid updates.
 - [ ] 1.3 Add workflow file watch/reload plumbing so future poll, retry, hook, and runtime-launch decisions use the latest valid config while running sessions keep their launch-time workflow snapshot.
 - [ ] 1.4 Move Symphony domain types, workflow/config, orchestration state, workspace lifecycle, and status/log contracts out of `packages/shared` and `packages/orchestrator` into `packages/core`.
-- [ ] 1.5 Reduce `packages/shared` to a temporary compatibility shim or remove it entirely once imports point at the new packages.
+- [x] 1.5 Reduce `packages/shared` to a temporary compatibility shim or remove it entirely once imports point at the new packages.
 
 ## 2. Persistent issue workspace lifecycle
 

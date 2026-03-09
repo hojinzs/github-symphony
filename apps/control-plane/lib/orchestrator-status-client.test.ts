@@ -24,6 +24,7 @@ describe("orchestrator status client", () => {
             activeRuns: 1
           },
           activeRuns: [],
+          retryQueue: [],
           lastError: null
         }),
         { status: 200 }

@@ -18,7 +18,14 @@ export type OrchestratorWorkspaceStatusSnapshot = {
     issueIdentifier: string;
     phase: string;
     status: string;
+    retryKind: string | null;
     port: number | null;
+  }>;
+  retryQueue: Array<{
+    runId: string;
+    issueIdentifier: string;
+    retryKind: string;
+    nextRetryAt: string | null;
   }>;
   lastError: string | null;
 };

@@ -12,43 +12,34 @@ describe("buildWorkerRuntimeState", () => {
         GITHUB_PROJECT_ID: "project-123",
         WORKSPACE_RUNTIME_DIR: "/workspace-runtime"
       },
-      vi.fn().mockResolvedValue(`# Symphony Workspace
-
-## GitHub Project
-
-- Project ID: project-123
-
-## Prompt Guidelines
-
+      vi.fn().mockResolvedValue(`---
+github_project_id: project-123
+allowed_repositories:
+  - https://github.com/acme/platform.git
+lifecycle:
+  state_field: Status
+  planning_active:
+    - Todo
+    - Needs Plan
+  human_review:
+    - Human Review
+  implementation_active:
+    - Approved
+    - Ready to Implement
+  awaiting_merge:
+    - Await Merge
+  completed:
+    - Done
+  transitions:
+    planning_complete: Human Review
+    implementation_complete: Await Merge
+    merge_complete: Done
+runtime:
+  agent_command: bash -lc codex app-server
+hooks:
+  after_create: hooks/after_create.sh
+---
 Prefer small changes.
-
-## Repository Allowlist
-
-- https://github.com/acme/platform.git
-
-## Approval Lifecycle
-
-- State field: Status
-- Planning-active states:
-  - Todo
-  - Needs Plan
-- Human-review states:
-  - Human Review
-- Implementation-active states:
-  - Approved
-  - Ready to Implement
-- Awaiting-merge states:
-  - Await Merge
-- Completed states:
-  - Done
-- Planning complete -> Human Review
-- Implementation complete -> Await Merge
-- Merge complete -> Done
-
-## Runtime
-
-- Agent command: \`bash -lc codex app-server\`
-- Hook: \`hooks/after_create.sh\`
 `)
     );
 
@@ -91,10 +82,10 @@ Prefer small changes.
         TARGET_REPOSITORY_NAME: "platform",
         TARGET_REPOSITORY_CLONE_URL: "https://github.com/acme/platform.git"
       },
-      vi.fn().mockResolvedValue(`# Symphony Workflow
-
-## Prompt Guidelines
-
+      vi.fn().mockResolvedValue(`---
+runtime:
+  agent_command: bash -lc codex app-server
+---
 Prefer small changes.
 `)
     );

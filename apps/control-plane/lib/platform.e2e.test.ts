@@ -329,9 +329,11 @@ describe("Platform end-to-end flow", () => {
                 issueIdentifier: `acme/platform#${issue.number}`,
                 phase: "implementation",
                 status: "running",
+                retryKind: null,
                 port: 4510
               }
             ],
+            retryQueue: [],
             lastError: null
           }),
           { status: 200 }

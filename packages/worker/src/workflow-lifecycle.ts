@@ -7,4 +7,4 @@ export {
   resolveWorkflowExecutionPhase,
   type WorkflowExecutionPhase,
   type WorkflowLifecycleConfig
-} from "@github-symphony/shared";
+} from "@github-symphony/core";
