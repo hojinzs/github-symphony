@@ -1,8 +1,3 @@
-export const GITHUB_WORKFLOW_EXTENSION_BOUNDARY = {
-  package: "@github-symphony/extension-github-workflow",
-  responsibilities: [
-    "planning handoff semantics",
-    "approval-gated implementation",
-    "pull-request and comment verification"
-  ]
-} as const;
+export * from "./approval-workflow.js";
+export * from "./handoff-verification.js";
+export * from "./operator-actions.js";
