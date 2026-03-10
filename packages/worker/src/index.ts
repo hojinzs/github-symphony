@@ -39,6 +39,10 @@ const runtimeState: {
     outputTokens: number;
     totalTokens: number;
   };
+  sessionInfo: {
+    threadId: string | null;
+    turnCount: number;
+  };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   run: launcherEnv.SYMPHONY_RUN_ID
@@ -61,6 +65,10 @@ const runtimeState: {
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
+  },
+  sessionInfo: {
+    threadId: null,
+    turnCount: 0,
   },
 };
 
@@ -531,6 +539,8 @@ async function runCodexClientProtocol(
         | string
         | undefined);
 
+    runtimeState.sessionInfo.threadId = threadId ?? null;
+
     process.stderr.write(
       `[worker] codex thread started (id=${String(threadId ?? "unknown")})\n`
     );
@@ -548,6 +558,7 @@ async function runCodexClientProtocol(
 
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
+      runtimeState.sessionInfo.turnCount = turnCount;
       const isFirstTurn = turn === 0;
       const turnInput = isFirstTurn
         ? renderedPrompt

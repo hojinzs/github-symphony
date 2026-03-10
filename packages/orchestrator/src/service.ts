@@ -599,12 +599,13 @@ export class OrchestratorService {
       }
     }
 
-    // Attempt to capture final token usage from the worker state API
-    // before the worker process fully exits.
-    const tokenUsage = await this.fetchWorkerTokenUsage(run);
-    const runWithTokens: OrchestratorRunRecord = tokenUsage
-      ? { ...run, tokenUsage }
+    // Attempt to capture final token usage and session info from the worker
+    // state API before the worker process fully exits.
+    const workerInfo = await this.fetchWorkerRunInfo(run);
+    const runWithTokens: OrchestratorRunRecord = workerInfo.tokenUsage
+      ? { ...run, tokenUsage: workerInfo.tokenUsage }
       : run;
+    const workerSessionId = workerInfo.sessionId;
 
     if (
       run.attempt >= (this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
@@ -633,7 +634,7 @@ export class OrchestratorService {
         };
       }
 
-      return this.restartRun(workspace, run, leases, now);
+      return this.restartRun(workspace, run, leases, now, workerSessionId);
     }
 
     if (run.issueWorkspaceKey) {
@@ -754,22 +755,32 @@ export class OrchestratorService {
    * Attempt to fetch final token usage from the worker state API.
    * Returns the token usage object or null if the worker is unreachable.
    */
-  private async fetchWorkerTokenUsage(
+  private async fetchWorkerRunInfo(
     run: OrchestratorRunRecord
-  ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
-    const liveWorkerTokenUsage = await this.fetchLiveWorkerTokenUsage(run);
-    if (liveWorkerTokenUsage) {
-      return liveWorkerTokenUsage;
+  ): Promise<{
+    tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
+    sessionId: string | null;
+  }> {
+    const liveState = await this.fetchLiveWorkerState(run);
+    if (liveState.tokenUsage) {
+      return liveState;
     }
 
-    return this.readPersistedWorkerTokenUsage(run);
+    const persistedTokenUsage = await this.readPersistedWorkerTokenUsage(run);
+    return {
+      tokenUsage: persistedTokenUsage,
+      sessionId: liveState.sessionId,
+    };
   }
 
-  private async fetchLiveWorkerTokenUsage(
+  private async fetchLiveWorkerState(
     run: OrchestratorRunRecord
-  ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
+  ): Promise<{
+    tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
+    sessionId: string | null;
+  }> {
     if (!run.port) {
-      return null;
+      return { tokenUsage: null, sessionId: null };
     }
 
     try {
@@ -778,7 +789,7 @@ export class OrchestratorService {
         `http://127.0.0.1:${run.port}/api/v1/state`
       );
       if (!response.ok) {
-        return null;
+        return { tokenUsage: null, sessionId: null };
       }
 
       const state = (await response.json()) as {
@@ -787,10 +798,21 @@ export class OrchestratorService {
           outputTokens: number;
           totalTokens: number;
         };
+        sessionInfo?: {
+          threadId: string | null;
+          turnCount: number;
+        } | null;
       };
-      return hasTokenUsage(state.tokenUsage) ? state.tokenUsage : null;
+
+      const tokenUsage = hasTokenUsage(state.tokenUsage) ? state.tokenUsage : null;
+      const sessionId =
+        state.sessionInfo?.threadId && state.sessionInfo.turnCount > 0
+          ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnCount}`
+          : null;
+
+      return { tokenUsage, sessionId };
     } catch {
-      return null;
+      return { tokenUsage: null, sessionId: null };
     }
   }
 
@@ -856,7 +878,8 @@ export class OrchestratorService {
     workspace: OrchestratorWorkspaceConfig,
     run: OrchestratorRunRecord,
     leases: WorkspaceLeaseRecord[],
-    now: Date
+    now: Date,
+    sessionId?: string | null
   ): Promise<{ leases: WorkspaceLeaseRecord[]; recovered: boolean }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
@@ -889,6 +912,7 @@ export class OrchestratorService {
       event: "run-recovered",
       issueIdentifier: run.issueIdentifier,
       issueId: run.issueId,
+      sessionId: sessionId ?? undefined,
     });
 
     return {

@@ -16,8 +16,8 @@ describe("POST /api/v1/refresh", () => {
       onRefresh
     );
 
-    expect(result.status).toBe(200);
-    expect(result.payload).toEqual({ triggered: true });
+    expect(result.status).toBe(202);
+    expect(result.payload).toEqual({ queued: true });
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
@@ -65,8 +65,8 @@ describe("POST /api/v1/refresh", () => {
       mockStatus
     );
 
-    expect(result.status).toBe(200);
-    expect(result.payload).toEqual({ triggered: true });
+    expect(result.status).toBe(202);
+    expect(result.payload).toEqual({ queued: true });
   });
 
   it("keeps the legacy GET signature working for workspace status lookups", async () => {

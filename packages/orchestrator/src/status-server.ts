@@ -86,8 +86,8 @@ export async function resolveOrchestratorStatusResponse(
     }
     if (refreshPending) {
       return {
-        status: 200,
-        payload: { coalesced: true },
+        status: 202,
+        payload: { queued: true, coalesced: true },
       };
     }
     refreshPending = true;
@@ -97,8 +97,8 @@ export async function resolveOrchestratorStatusResponse(
       refreshPending = false;
     }
     return {
-      status: 200,
-      payload: { triggered: true },
+      status: 202,
+      payload: { queued: true },
     };
   }
 
