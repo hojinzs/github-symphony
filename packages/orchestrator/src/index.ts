@@ -3,6 +3,9 @@ import { resolve } from "node:path";
 import { createStore, OrchestratorService } from "./service.js";
 import { startOrchestratorStatusServer } from "./status-server.js";
 
+export { OrchestratorService, createStore };
+export { startOrchestratorStatusServer };
+
 export async function runCli(
   argv: string[],
   dependencies: {
