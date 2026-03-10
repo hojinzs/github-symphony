@@ -28,6 +28,75 @@ describe("resolveTrackerAdapter", () => {
       })
     ).toThrow("Unsupported tracker adapter: jira");
   });
+
+  it("falls back to the workspace token when no env token is set", async () => {
+    const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          token: "workspace-token",
+        },
+      });
+
+      const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) =>
+        ({
+          ok: true,
+          json: async () => ({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          status: 200,
+          headers: new Headers(),
+        }) as Response;
+
+      await adapter.listIssues(
+        {
+          workspaceId: "workspace-1",
+          slug: "workspace-1",
+          promptGuidelines: "",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+              token: "workspace-token",
+            },
+          },
+          runtime: {
+            driver: "local",
+            workspaceRuntimeDir: "/tmp/workspace-1",
+            projectRoot: "/tmp/workspace-1",
+          },
+        },
+        {
+          fetchImpl: async (url, init) => {
+            const headers = new Headers(init?.headers);
+            expect(headers.get("authorization")).toBe("Bearer workspace-token");
+            return fetchImpl(url, init);
+          },
+        }
+      );
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.GITHUB_GRAPHQL_TOKEN;
+      } else {
+        process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
+      }
+    }
+  });
 });
 
 describe("validateWorkflowFieldMapping", () => {

@@ -22,6 +22,7 @@ import {
   type OrchestratorWorkspaceConfig,
   type RepositoryRef,
   type TrackedIssue,
+  type WorkflowResolution,
   type WorkspaceLeaseRecord,
   type WorkspaceStatusSnapshot,
 } from "@github-symphony/core";
@@ -181,7 +182,7 @@ export class OrchestratorService {
         workspace,
         filteredIssues
       );
-      const concurrency = this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
+      const concurrency = this.getWorkspaceConcurrency(workspace);
       const currentlyActive = leases.filter(
         (lease) => lease.status === "active"
       ).length;
@@ -381,7 +382,8 @@ export class OrchestratorService {
       repository,
       targetDirectory: cacheRoot,
     });
-    return loadRepositoryWorkflow(repositoryDirectory, repository);
+    const resolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
+    return applyWorkspaceWorkflowOverrides(workspace, resolution);
   }
 
   private async startRun(
@@ -607,9 +609,7 @@ export class OrchestratorService {
       : run;
     const workerSessionId = workerInfo.sessionId;
 
-    if (
-      run.attempt >= (this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
-    ) {
+    if (run.attempt >= this.getWorkspaceMaxAttempts(workspace)) {
       const failedRecord: OrchestratorRunRecord = {
         ...runWithTokens,
         status: "failed",
@@ -994,6 +994,26 @@ export class OrchestratorService {
     }
   }
 
+  private getWorkspaceConcurrency(
+    workspace: OrchestratorWorkspaceConfig
+  ): number {
+    return (
+      workspace.orchestrator?.concurrency ??
+      this.dependencies.concurrency ??
+      DEFAULT_CONCURRENCY
+    );
+  }
+
+  private getWorkspaceMaxAttempts(
+    workspace: OrchestratorWorkspaceConfig
+  ): number {
+    return (
+      workspace.orchestrator?.maxAttempts ??
+      this.dependencies.maxAttempts ??
+      DEFAULT_MAX_ATTEMPTS
+    );
+  }
+
   /**
    * Clean up the issue workspace for a terminal (completed) issue.
    *
@@ -1191,4 +1211,35 @@ function isProcessRunning(processId: number): boolean {
   } catch {
     return false;
   }
+}
+
+function applyWorkspaceWorkflowOverrides(
+  workspace: OrchestratorWorkspaceConfig,
+  resolution: WorkflowResolution
+): WorkflowResolution {
+  const overrides = workspace.workflow;
+  if (!overrides) {
+    return resolution;
+  }
+
+  const workflow = {
+    ...resolution.workflow,
+    lifecycle: overrides.lifecycle ?? resolution.workflow.lifecycle,
+    scheduler: {
+      ...resolution.workflow.scheduler,
+      ...(overrides.scheduler ?? {}),
+    },
+    retry: {
+      ...resolution.workflow.retry,
+      ...(overrides.retry ?? {}),
+    },
+    maxConcurrentByPhase:
+      overrides.maxConcurrentByPhase ?? resolution.workflow.maxConcurrentByPhase,
+  };
+
+  return {
+    ...resolution,
+    workflow,
+    lifecycle: workflow.lifecycle,
+  };
 }

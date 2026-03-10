@@ -6,7 +6,10 @@ import { fetchProjectIssues } from "./adapter.js";
 
 export const githubProjectAdapter: OrchestratorTrackerAdapter = {
   async listIssues(workspace, dependencies = {}) {
-    const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
+    const token =
+      dependencies.token ??
+      workspace.tracker.settings?.token ??
+      process.env.GITHUB_GRAPHQL_TOKEN;
 
     if (!token) {
       throw new Error(

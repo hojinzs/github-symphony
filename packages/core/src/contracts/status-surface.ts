@@ -10,6 +10,18 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, string>;
 };
 
+export type WorkspaceWorkflowOverrides = {
+  lifecycle?: WorkflowLifecycleConfig;
+  scheduler?: Partial<WorkflowDefinition["scheduler"]>;
+  retry?: Partial<WorkflowDefinition["retry"]>;
+  maxConcurrentByPhase?: Record<string, number>;
+};
+
+export type WorkspaceOrchestratorConfig = {
+  concurrency?: number;
+  maxAttempts?: number;
+};
+
 export type OrchestratorWorkspaceConfig = {
   workspaceId: string;
   slug: string;
@@ -22,6 +34,8 @@ export type OrchestratorWorkspaceConfig = {
     projectRoot: string;
     workerCommand?: string;
   };
+  workflow?: WorkspaceWorkflowOverrides;
+  orchestrator?: WorkspaceOrchestratorConfig;
 };
 
 export type RetryKind = "continuation" | "failure" | "recovery";

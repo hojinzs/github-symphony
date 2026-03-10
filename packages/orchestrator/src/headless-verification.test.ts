@@ -120,6 +120,69 @@ describe("headless orchestration verification", () => {
       }
     }
   });
+
+  it("applies workspace workflow overrides on top of repository workflows", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const repository = await createRepositoryFixture(tempRoot, "acme", "cli");
+    const service = new OrchestratorService(new OrchestratorFsStore(tempRoot));
+    const workspace = {
+      workspaceId: "workspace-cli",
+      slug: "workspace-cli",
+      promptGuidelines: "Prefer focused changes.",
+      repositories: [repository],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-456",
+        settings: {
+          projectId: "project-456",
+          token: "workspace-token",
+        },
+      },
+      runtime: {
+        driver: "local" as const,
+        workspaceRuntimeDir: join(tempRoot, "workspaces", "workspace-cli"),
+        projectRoot: process.cwd(),
+        workerCommand: "node packages/worker/dist/index.js",
+      },
+      workflow: {
+        lifecycle: {
+          stateFieldName: "Status",
+          planningStates: ["Queued"],
+          humanReviewStates: [],
+          implementationStates: ["Doing"],
+          awaitingMergeStates: [],
+          completedStates: ["Done"],
+          planningCompleteState: "Doing",
+          implementationCompleteState: "Done",
+          mergeCompleteState: "Done",
+        },
+        scheduler: {
+          pollIntervalMs: 15_000,
+        },
+      },
+    };
+
+    const resolution = await (
+      service as unknown as {
+        loadIssueWorkflow: (
+          workspaceConfig: typeof workspace,
+          repositoryConfig: typeof repository
+        ) => Promise<{
+          lifecycle: {
+            planningStates: string[];
+          };
+          workflow: {
+            scheduler: {
+              pollIntervalMs: number;
+            };
+          };
+        }>;
+      }
+    ).loadIssueWorkflow(workspace, repository);
+
+    expect(resolution.lifecycle.planningStates).toEqual(["Queued"]);
+    expect(resolution.workflow.scheduler.pollIntervalMs).toBe(15_000);
+  });
 });
 
 async function createRepositoryFixture(
@@ -185,7 +248,7 @@ function createTrackerResponse(repository: {
   owner: string;
   name: string;
   cloneUrl: string;
-}) {
+}, state = "Todo") {
   return {
     ok: true,
     json: async () => ({
@@ -201,7 +264,7 @@ function createTrackerResponse(repository: {
                   nodes: [
                     {
                       __typename: "ProjectV2ItemFieldSingleSelectValue",
-                      name: "Todo",
+                      name: state,
                       field: {
                         name: "Status",
                       },
