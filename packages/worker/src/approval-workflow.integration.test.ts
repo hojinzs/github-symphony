@@ -39,16 +39,16 @@ describe("approval workflow integration", () => {
       client
     );
 
-    expect(firstResult.nextState).toBe("Human Review");
+    expect(firstResult.nextState).toBe("Plan Review");
     expect(client.comments).toHaveLength(1);
-    expect(client.projectStateUpdates).toEqual(["Human Review", "Human Review"]);
+    expect(client.projectStateUpdates).toEqual(["Plan Review", "Plan Review"]);
     expect(secondResult.operations).toContain("updated planning comment");
   });
 
   it("resumes after approval, upserts a pull request, and transitions to awaiting merge", async () => {
     const client = createMemoryApprovalClient();
     const issue = createIssue({
-      state: "Approved"
+      state: "In Progress"
     });
 
     const firstResult = await executeImplementationPhase(
@@ -75,10 +75,10 @@ describe("approval workflow integration", () => {
     );
 
     expect(firstResult.pullRequest?.url).toContain("/pull/");
-    expect(firstResult.nextState).toBe("Await Merge");
+    expect(firstResult.nextState).toBe("In Review");
     expect(client.pullRequests).toHaveLength(1);
     expect(secondResult.operations).toContain("updated pull request");
-    expect(client.projectStateUpdates.slice(-1)[0]).toBe("Await Merge");
+    expect(client.projectStateUpdates.slice(-1)[0]).toBe("In Review");
   });
 });
 

@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
@@ -69,7 +71,7 @@ export function createGitHubGraphQLToolDefinition(
     description:
       "Execute GitHub GraphQL queries for the active workspace so the agent can mutate project and issue state directly.",
     command: "node",
-    args: [fileURLToPath(new URL("./github-graphql-tool.js", import.meta.url))],
+    args: [fileURLToPath(new URL("./github-graphql-mcp-server.js", import.meta.url))],
     env: {
       GITHUB_GRAPHQL_API_URL:
         config.githubGraphqlApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
@@ -139,6 +141,10 @@ export function buildCodexRuntimePlan(
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       GITHUB_GRAPHQL_TOOL_NAME: tool.name,
       GITHUB_GRAPHQL_TOOL_COMMAND: [tool.command, ...tool.args].join(" "),
+      // Point codex to an isolated config dir so personal MCPs (playwright,
+      // chrome-devtools, context7, etc.) from the operator's ~/.codex/config.toml
+      // are not loaded and do not confuse the implementation agent.
+      CODEX_HOME: join(config.workingDirectory, ".codex-agent"),
       ...gitCredentialHelper,
       ...tool.env,
     },
@@ -162,9 +168,38 @@ export async function prepareCodexRuntimePlan(
   dependencies: {
     fetchImpl?: typeof fetch;
     writeFileImpl?: typeof writeFile;
+    mkdirImpl?: typeof mkdir;
+    copyFileImpl?: typeof copyFile;
   } = {}
 ): Promise<CodexRuntimePlan> {
   const agentEnv = await resolveAgentRuntimeEnvironment(config, dependencies);
+
+  // Create an isolated CODEX_HOME directory with a minimal config.toml so the agent
+  // does not inherit personal MCP servers from the operator's ~/.codex/config.toml.
+  // We still copy auth.json so codex can authenticate without requiring OPENAI_API_KEY.
+  const codexHomeDir = join(config.workingDirectory, ".codex-agent");
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
+  await mkdirImpl(codexHomeDir, { recursive: true });
+  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
+  // Write a minimal config.toml with no mcp_servers block so codex only uses
+  // the dynamic tool definitions passed via thread/start config.
+  await writeFileImpl(
+    join(codexHomeDir, "config.toml"),
+    "# Isolated agent config \u2014 no personal MCP servers\n",
+    "utf8"
+  );
+  // Copy auth.json from the real CODEX_HOME so codex can use ChatGPT OAuth tokens.
+  // This is safe: auth is per-user and needed for the agent to call OpenAI APIs.
+  const realCodexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  const copyFileImpl = dependencies.copyFileImpl ?? copyFile;
+  try {
+    await copyFileImpl(
+      join(realCodexHome, "auth.json"),
+      join(codexHomeDir, "auth.json")
+    );
+  } catch {
+    // auth.json may not exist (e.g. when OPENAI_API_KEY is used instead)
+  }
 
   return buildCodexRuntimePlan({
     ...config,

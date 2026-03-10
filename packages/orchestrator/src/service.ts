@@ -34,7 +34,7 @@ import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
-const DEFAULT_CONCURRENCY = 2;
+const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -157,6 +157,7 @@ export class OrchestratorService {
       (run) => run.workspaceId === workspace.workspaceId
     );
     const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
+    this.initializePortFrom(allRuns);
 
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(workspace, run, leases);
@@ -184,16 +185,15 @@ export class OrchestratorService {
       ).length;
       const availableSlots = Math.max(0, concurrency - currentlyActive);
 
-      for (const issue of actionableCandidates.slice(0, availableSlots)) {
+      const unscheduledCandidates = actionableCandidates.filter((issue) => {
         const leaseKey = buildLeaseKey(issue);
-        if (
-          leases.some(
-            (lease) => lease.leaseKey === leaseKey && lease.status === "active"
-          )
-        ) {
-          continue;
-        }
+        return !leases.some(
+          (lease) => lease.leaseKey === leaseKey && lease.status === "active"
+        );
+      });
 
+      for (const issue of unscheduledCandidates.slice(0, availableSlots)) {
+        const leaseKey = buildLeaseKey(issue);
         const run = await this.startRun(workspace, issue);
         leases = upsertLease(leases, {
           leaseKey,
@@ -507,16 +507,34 @@ export class OrchestratorService {
     const now = this.now();
 
     if (run.processId && isProcessRunning(run.processId)) {
-      const runningRecord: OrchestratorRunRecord = {
-        ...run,
-        status: "running",
-        updatedAt: now.toISOString(),
-      };
-      await this.store.saveRun(runningRecord);
-      return {
-        leases,
-        recovered: false,
-      };
+      // Stuck worker detection: if the run has been active for longer than
+      // the timeout without the worker exiting on its own, kill it so
+      // the orchestrator can re-dispatch (continuation retry).
+      const STUCK_WORKER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const startedAt = run.startedAt ? new Date(run.startedAt).getTime() : 0;
+      const runningSince = now.getTime() - startedAt;
+      if (runningSince > STUCK_WORKER_TIMEOUT_MS) {
+        process.stderr.write(
+          `[orchestrator] stuck worker detected for ${run.runId} (running ${Math.round(runningSince / 60000)}min) — sending SIGTERM\n`
+        );
+        try {
+          process.kill(run.processId, "SIGTERM");
+        } catch {
+          // Already gone.
+        }
+        // Fall through: treat as a normal exit and retry.
+      } else {
+        const runningRecord: OrchestratorRunRecord = {
+          ...run,
+          status: "running",
+          updatedAt: now.toISOString(),
+        };
+        await this.store.saveRun(runningRecord);
+        return {
+          leases,
+          recovered: false,
+        };
+      }
     }
 
     if (
@@ -617,6 +635,13 @@ export class OrchestratorService {
     return this.nextPort;
   }
 
+  private initializePortFrom(runs: OrchestratorRunRecord[]): void {
+    const maxPort = runs.reduce((max, run) => Math.max(max, run.port ?? 0), DEFAULT_PORT_BASE);
+    if (maxPort > this.nextPort) {
+      this.nextPort = maxPort;
+    }
+  }
+
   /**
    * Classify whether a process exit should be treated as continuation retry
    * or failure retry. Continuation applies when the issue is still actionable
@@ -696,6 +721,19 @@ export class OrchestratorService {
     leases: WorkspaceLeaseRecord[],
     now: Date
   ): Promise<{ leases: WorkspaceLeaseRecord[]; recovered: boolean }> {
+    // Mark the old retrying record as terminal BEFORE creating a new run.
+    // Without this, the old record stays in the store with status "retrying"
+    // and isActiveRunStatus() picks it up on every tick, calling restartRun()
+    // again each time → exponential run multiplication.
+    const supersededRecord: OrchestratorRunRecord = {
+      ...run,
+      status: "failed",
+      completedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      lastError: "Superseded by recovered run.",
+    };
+    await this.store.saveRun(supersededRecord);
+
     const issue = resolveTrackerAdapter(workspace.tracker).reviveIssue(
       workspace,
       run

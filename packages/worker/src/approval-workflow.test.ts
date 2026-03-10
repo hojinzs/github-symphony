@@ -37,12 +37,12 @@ describe("buildPullRequestBody", () => {
 describe("phase safeguards", () => {
   it("stops work if an issue leaves the active phase", () => {
     expect(() =>
-      executePhaseGuard("Human Review", "planning", DEFAULT_WORKFLOW_LIFECYCLE)
+      executePhaseGuard("Plan Review", "planning", DEFAULT_WORKFLOW_LIFECYCLE)
     ).toThrow("Issue is no longer actionable");
 
     expect(
       isIssueStillActionableForPhase(
-        "Approved",
+        "In Progress",
         "implementation",
         DEFAULT_WORKFLOW_LIFECYCLE
       )

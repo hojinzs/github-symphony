@@ -40,3 +40,6 @@ The system SHALL complete tracked work after the linked pull request is merged b
 - **THEN** the linked issue becomes closed through the configured completion mechanism
 - **THEN** the tracked project item transitions to the completed state
 - **THEN** the worker no longer treats the issue as actionable
+
+### Requirement: Draft issues SHALL be excluded from orchestration
+The system SHALL ignore tracked items that are in a workflow-defined draft state and SHALL NOT start any run for them.

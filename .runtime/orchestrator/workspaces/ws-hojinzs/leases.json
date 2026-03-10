@@ -1,0 +1,20 @@
+[
+  {
+    "leaseKey": "I_kwDORevHgc7wGM9e:implementation",
+    "runId": "ws-hojinzs-hojinzs-auto-press-1-mmj2kob8",
+    "issueId": "I_kwDORevHgc7wGM9e",
+    "issueIdentifier": "hojinzs/auto-press#1",
+    "phase": "implementation",
+    "status": "released",
+    "updatedAt": "2026-03-09T11:08:47.986Z"
+  },
+  {
+    "leaseKey": "I_kwDORevHgc7wGOAA:implementation",
+    "runId": "ws-hojinzs-hojinzs-auto-press-2-mmj2nce4",
+    "issueId": "I_kwDORevHgc7wGOAA",
+    "issueIdentifier": "hojinzs/auto-press#2",
+    "phase": "implementation",
+    "status": "released",
+    "updatedAt": "2026-03-09T11:12:55.561Z"
+  }
+]

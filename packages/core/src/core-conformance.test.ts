@@ -127,7 +127,7 @@ describe("renderPrompt", () => {
         title: "Fix the bug",
         description: "It crashes on startup",
         priority: null,
-        state: "Needs Plan",
+        state: "Todo",
         branchName: null,
         url: "https://github.com/acme/platform/issues/42",
         labels: [],
@@ -198,20 +198,17 @@ describe("resolveWorkflowExecutionPhase", () => {
   const lifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
 
   it("maps planning states to the planning phase", () => {
-    expect(resolveWorkflowExecutionPhase("Needs Plan", lifecycle)).toBe(
-      "planning"
-    );
     expect(resolveWorkflowExecutionPhase("Todo", lifecycle)).toBe("planning");
   });
 
   it("maps human review states correctly", () => {
-    expect(resolveWorkflowExecutionPhase("Human Review", lifecycle)).toBe(
+    expect(resolveWorkflowExecutionPhase("Plan Review", lifecycle)).toBe(
       "human-review"
     );
   });
 
   it("maps implementation states correctly", () => {
-    expect(resolveWorkflowExecutionPhase("Approved", lifecycle)).toBe(
+    expect(resolveWorkflowExecutionPhase("In Progress", lifecycle)).toBe(
       "implementation"
     );
   });

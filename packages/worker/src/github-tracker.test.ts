@@ -103,7 +103,7 @@ describe("isTrackedIssueActionable", () => {
     expect(
       isTrackedIssueActionable(
         {
-          state: "Human Review",
+          state: "Plan Review",
           phase: "human-review"
         } as never,
         {
@@ -115,7 +115,7 @@ describe("isTrackedIssueActionable", () => {
     expect(
       isTrackedIssueActionable(
         {
-          state: "Approved",
+          state: "In Progress",
           phase: "implementation"
         } as never,
         {

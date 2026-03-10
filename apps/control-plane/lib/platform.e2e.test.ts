@@ -276,14 +276,14 @@ describe("Platform end-to-end flow", () => {
       approvalClient
     );
 
-    expect(planningResult.nextState).toBe("Human Review");
-    expect(latestProjectItemState).toBe("Human Review");
+    expect(planningResult.nextState).toBe("Plan Review");
+    expect(latestProjectItemState).toBe("Plan Review");
 
     const implementationResult = await executeImplementationPhase(
       {
         issue: {
           ...approvalIssue,
-          state: "Approved"
+          state: "In Progress"
         },
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
         report: {
@@ -297,7 +297,7 @@ describe("Platform end-to-end flow", () => {
 
     expect(implementationResult.pullRequest?.url).toContain("/pull/");
     expect(implementationResult.pullRequest?.body).toContain(`Fixes #${issue.number}`);
-    expect(latestProjectItemState).toBe("Await Merge");
+    expect(latestProjectItemState).toBe("In Review");
 
     latestProjectItemState = "Done";
     expect(

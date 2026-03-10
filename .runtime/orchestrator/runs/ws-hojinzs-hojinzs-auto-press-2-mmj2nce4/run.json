@@ -1,0 +1,30 @@
+{
+  "runId": "ws-hojinzs-hojinzs-auto-press-2-mmj2nce4",
+  "workspaceId": "ws-hojinzs",
+  "workspaceSlug": "hojinzs-auto-press",
+  "issueId": "I_kwDORevHgc7wGOAA",
+  "issueSubjectId": "I_kwDORevHgc7wGOAA",
+  "issueIdentifier": "hojinzs/auto-press#2",
+  "phase": "implementation",
+  "repository": {
+    "owner": "hojinzs",
+    "name": "auto-press",
+    "url": "https://github.com/hojinzs/auto-press",
+    "cloneUrl": "https://github.com/hojinzs/auto-press.git"
+  },
+  "status": "failed",
+  "attempt": 3,
+  "processId": null,
+  "port": 4604,
+  "workingDirectory": "/Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/jolly-canyon/.runtime/orchestrator/workspaces/ws-hojinzs/workspaces/ws-hojinzs/issues/c37bf163496768c9/repository",
+  "issueWorkspaceKey": "c37bf163496768c9",
+  "workspaceRuntimeDir": "/Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/jolly-canyon/.runtime/orchestrator/runs/ws-hojinzs-hojinzs-auto-press-2-mmj2nce4/workspace-runtime",
+  "workflowPath": "/Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/jolly-canyon/.runtime/orchestrator/workspaces/ws-hojinzs/workspaces/ws-hojinzs/issues/c37bf163496768c9/repository/WORKFLOW.md",
+  "retryKind": "failure",
+  "createdAt": "2026-03-09T10:47:47.132Z",
+  "updatedAt": "2026-03-09T11:12:55.561Z",
+  "startedAt": "2026-03-09T11:02:07.228Z",
+  "completedAt": "2026-03-09T11:12:55.561Z",
+  "lastError": "Worker process exited unexpectedly.",
+  "nextRetryAt": "2026-03-09T11:12:51.527Z"
+}

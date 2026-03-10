@@ -1,0 +1,19 @@
+{
+  "workspaceId": "ws-hojinzs",
+  "slug": "hojinzs-auto-press",
+  "tracker": {
+    "adapter": "github-project",
+    "bindingId": "PVT_kwHOAPiKdM4BRH04"
+  },
+  "lastTickAt": "2026-03-10T02:56:14.844Z",
+  "health": "idle",
+  "summary": {
+    "dispatched": 0,
+    "suppressed": 0,
+    "recovered": 0,
+    "activeRuns": 0
+  },
+  "activeRuns": [],
+  "retryQueue": [],
+  "lastError": null
+}

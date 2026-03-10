@@ -123,7 +123,7 @@ Required classic PAT scopes for the default setup path:
 
 Required GitHub settings for merge-driven completion:
 
-- The workspace project must expose `Todo` or `Needs Plan`, `Human Review`, `Approved` or `Ready to Implement`, `Await Merge`, and `Done` statuses, or equivalent mapped values in `WORKFLOW.md`.
+- The workspace project must expose `Todo`, `Plan Review`, `In Progress`, `In Review`, and `Done` statuses, or equivalent mapped values in `WORKFLOW.md`. Issues in any other status (e.g. `Draft`) are ignored by the orchestrator.
 - Linked issue auto-close must remain enabled so PR bodies that include `Fixes #<issue-number>` close the tracked issue on merge.
 - GitHub Projects built-in automation should move closed issues into the completed state.
 

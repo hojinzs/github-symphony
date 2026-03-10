@@ -609,18 +609,18 @@ github_project_id: project-123
 lifecycle:
   state_field: Status
   planning_active:
-    - Needs Plan
+    - Todo
   human_review:
-    - Human Review
+    - Plan Review
   implementation_active:
-    - Approved
+    - In Progress
   awaiting_merge:
-    - Await Merge
+    - In Review
   completed:
     - Done
   transitions:
-    planning_complete: Human Review
-    implementation_complete: Await Merge
+    planning_complete: Plan Review
+    implementation_complete: In Review
     merge_complete: Done
 runtime:
   agent_command: bash -lc codex app-server
@@ -659,7 +659,7 @@ function createTrackerResponse(repository: {
                   nodes: [
                     {
                       __typename: "ProjectV2ItemFieldSingleSelectValue",
-                      name: "Needs Plan",
+                      name: "Todo",
                       field: {
                         name: "Status",
                       },

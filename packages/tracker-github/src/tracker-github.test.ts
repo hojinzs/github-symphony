@@ -36,11 +36,9 @@ describe("validateWorkflowFieldMapping", () => {
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
       availableOptions: [
         "Todo",
-        "Needs Plan",
-        "Human Review",
-        "Approved",
-        "Ready to Implement",
-        "Await Merge",
+        "Plan Review",
+        "In Progress",
+        "In Review",
         "Done",
       ],
     });
@@ -57,7 +55,7 @@ describe("validateWorkflowFieldMapping", () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => e.expectedState === "Human Review")).toBe(
+    expect(result.errors.some((e) => e.expectedState === "Plan Review")).toBe(
       true
     );
   });
@@ -67,11 +65,9 @@ describe("validateWorkflowFieldMapping", () => {
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
       availableOptions: [
         "todo",
-        "needs plan",
-        "human review",
-        "approved",
-        "ready to implement",
-        "await merge",
+        "plan review",
+        "in progress",
+        "in review",
         "done",
       ],
     });

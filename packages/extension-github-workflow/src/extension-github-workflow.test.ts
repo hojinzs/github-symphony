@@ -9,7 +9,7 @@ describe("verifyHandoff", () => {
       issueIdentifier: "acme/platform#1",
       phase: "planning",
       expectedTransition: null,
-      actualState: "Needs Plan",
+      actualState: "Todo",
     });
 
     expect(result.verified).toBe(true);
@@ -21,8 +21,8 @@ describe("verifyHandoff", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
-      actualState: "Human Review",
+      expectedTransition: "Plan Review",
+      actualState: "Plan Review",
     });
 
     expect(result.verified).toBe(true);
@@ -34,13 +34,13 @@ describe("verifyHandoff", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
-      actualState: "Needs Plan",
+      expectedTransition: "Plan Review",
+      actualState: "Todo",
     });
 
     expect(result.verified).toBe(false);
-    expect(result.error).toContain("Human Review");
-    expect(result.error).toContain("Needs Plan");
+    expect(result.error).toContain("Plan Review");
+    expect(result.error).toContain("Todo");
   });
 
   it("returns failure when actual state is unknown", () => {
@@ -48,7 +48,7 @@ describe("verifyHandoff", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
+      expectedTransition: "Plan Review",
       actualState: null,
     });
 
@@ -64,8 +64,8 @@ describe("suggestHandoffRepair", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
-      actualState: "Human Review",
+      expectedTransition: "Plan Review",
+      actualState: "Plan Review",
       error: null,
     });
 
@@ -78,8 +78,8 @@ describe("suggestHandoffRepair", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
-      actualState: "Needs Plan",
+      expectedTransition: "Plan Review",
+      actualState: "Todo",
       error: "mismatch",
     });
 
@@ -92,7 +92,7 @@ describe("suggestHandoffRepair", () => {
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
       phase: "planning",
-      expectedTransition: "Human Review",
+      expectedTransition: "Plan Review",
       actualState: null,
       error: "unknown state",
     });

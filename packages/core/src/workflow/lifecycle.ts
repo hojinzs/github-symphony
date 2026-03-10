@@ -20,13 +20,13 @@ export type WorkflowExecutionPhase =
 
 export const DEFAULT_WORKFLOW_LIFECYCLE: WorkflowLifecycleConfig = {
   stateFieldName: "Status",
-  planningStates: ["Todo", "Needs Plan"],
-  humanReviewStates: ["Human Review"],
-  implementationStates: ["Approved", "Ready to Implement"],
-  awaitingMergeStates: ["Await Merge"],
+  planningStates: ["Todo"],
+  humanReviewStates: ["Plan Review"],
+  implementationStates: ["In Progress"],
+  awaitingMergeStates: ["In Review"],
   completedStates: ["Done"],
-  planningCompleteState: "Human Review",
-  implementationCompleteState: "Await Merge",
+  planningCompleteState: "Plan Review",
+  implementationCompleteState: "In Review",
   mergeCompleteState: "Done"
 };
 
