@@ -1,9 +1,13 @@
 import {
   DEFAULT_AGENT_COMMAND,
   DEFAULT_HOOK_PATH,
+  DEFAULT_MAX_TURNS,
+  DEFAULT_READ_TIMEOUT_MS,
+  DEFAULT_TURN_TIMEOUT_MS,
   DEFAULT_WORKFLOW_DEFINITION,
   DEFAULT_WORKFLOW_HOOKS,
   DEFAULT_WORKFLOW_RETRY,
+  DEFAULT_WORKFLOW_RUNTIME,
   DEFAULT_WORKFLOW_SCHEDULER,
   type ParsedWorkflow
 } from "./config.js";
@@ -50,6 +54,13 @@ export function parseWorkflowMarkdown(
   const transitionsConfig = readObject(lifecycleConfig, "transitions");
   const schedulerConfig = readObject(frontMatter, "scheduler");
   const retryConfig = readObject(frontMatter, "retry");
+  const maxConcurrentByPhaseRaw = readObject(frontMatter, "max_concurrent_by_phase");
+  const maxConcurrentByPhase: Record<string, number> = {};
+  for (const [phaseKey, phaseVal] of Object.entries(maxConcurrentByPhaseRaw)) {
+    if (typeof phaseVal === "number") {
+      maxConcurrentByPhase[phaseKey] = phaseVal;
+    }
+  }
   const agentCommand =
     readOptionalString(runtimeConfig, "agent_command", env) ?? DEFAULT_AGENT_COMMAND;
   const hookPath =
@@ -67,7 +78,13 @@ export function parseWorkflowMarkdown(
         beforeRun: readOptionalString(hooksConfig, "before_run", env),
         afterRun: readOptionalString(hooksConfig, "after_run", env),
         beforeRemove: readOptionalString(hooksConfig, "before_remove", env)
-      }
+      },
+      maxTurns:
+        readOptionalNumber(runtimeConfig, "max_turns") ?? DEFAULT_MAX_TURNS,
+      readTimeoutMs:
+        readOptionalNumber(runtimeConfig, "read_timeout_ms") ?? DEFAULT_READ_TIMEOUT_MS,
+      turnTimeoutMs:
+        readOptionalNumber(runtimeConfig, "turn_timeout_ms") ?? DEFAULT_TURN_TIMEOUT_MS,
     },
     scheduler: {
       pollIntervalMs:
@@ -109,6 +126,7 @@ export function parseWorkflowMarkdown(
         readOptionalString(transitionsConfig, "merge_complete", env) ??
         DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState
     },
+    maxConcurrentByPhase,
     format: "front-matter",
     agentCommand,
     hookPath
@@ -143,6 +161,7 @@ function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
     promptGuidelines,
     allowedRepositories,
     runtime: {
+      ...DEFAULT_WORKFLOW_RUNTIME,
       agentCommand,
       hooks: {
         ...DEFAULT_WORKFLOW_HOOKS,

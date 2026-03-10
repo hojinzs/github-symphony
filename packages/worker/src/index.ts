@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -32,6 +34,11 @@ const runtimeState: {
     };
     lastError: string | null;
   };
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   run: launcherEnv.SYMPHONY_RUN_ID
@@ -50,6 +57,11 @@ const runtimeState: {
         lastError: null,
       }
     : null,
+  tokenUsage: {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  },
 };
 
 const server = startWorkerStateServer({
@@ -105,20 +117,23 @@ async function startAssignedRun() {
       runtimeState.run.processId = childProcess.pid ?? null;
     }
 
-    // Wire up the codex app-server client protocol
+    // Wire up the codex app-server client protocol (multi-turn)
     void runCodexClientProtocol(childProcess, plan, launcherEnv);
 
-    childProcess.once("exit", (code, signal) => {
-      runtimeState.status = code === 0 && !signal ? "completed" : "failed";
+    childProcess.once(
+      "exit",
+      (code: number | null, signal: NodeJS.Signals | null) => {
+        runtimeState.status = code === 0 && !signal ? "completed" : "failed";
 
-      if (runtimeState.run) {
-        runtimeState.run.lastError =
-          code === 0 && !signal
-            ? null
-            : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
+        if (runtimeState.run) {
+          runtimeState.run.lastError =
+            code === 0 && !signal
+              ? null
+              : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
+        }
       }
-    });
-    childProcess.once("error", (error) => {
+    );
+    childProcess.once("error", (error: Error) => {
       runtimeState.status = "failed";
 
       if (runtimeState.run) {
@@ -136,10 +151,16 @@ async function startAssignedRun() {
 }
 
 /**
- * Implements the JSON-RPC client side of the codex app-server protocol:
- * 1. Sends initialize
- * 2. After initialize response, sends thread/start with prompt + tool definitions
- * 3. Listens for dynamic_tool_call_request and dispatches to the tool process
+ * Implements the JSON-RPC client side of the codex app-server protocol
+ * with multi-turn support, timeouts, and user-input-required detection.
+ *
+ * Flow:
+ * 1. Initialize codex
+ * 2. Start thread with prompt + tool definitions
+ * 3. Start first turn with rendered prompt
+ * 4. Multi-turn loop: on turn/completed, refresh tracker state,
+ *    send continuation turn if issue is still active
+ * 5. Exit when max_turns reached, issue non-actionable, or error
  */
 async function runCodexClientProtocol(
   child: ReturnType<typeof launchCodexAppServer>,
@@ -161,6 +182,10 @@ async function runCodexClientProtocol(
     return;
   }
 
+  const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
+  const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
+  const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
 
@@ -171,6 +196,10 @@ async function runCodexClientProtocol(
     string,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
   >();
+
+  // Turn completion signaling
+  let turnCompletedResolve: (() => void) | null = null;
+  let userInputRequired = false;
 
   function sendMessage(msg: Record<string, unknown>): void {
     const line = JSON.stringify(msg) + "\n";
@@ -188,6 +217,81 @@ async function runCodexClientProtocol(
     });
   }
 
+  /**
+   * Send a JSON-RPC request with a read timeout. Rejects with
+   * `response_timeout` if no response arrives within the deadline.
+   */
+  function sendRequestWithTimeout(
+    id: string,
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRequests.delete(id);
+        reject(
+          new Error(
+            `response_timeout: ${method} timed out after ${readTimeoutMs}ms`
+          )
+        );
+      }, readTimeoutMs);
+
+      sendRequest(id, method, params).then(
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+
+  /**
+   * Wait for the current turn to complete. Returns a promise that resolves
+   * when `turn/completed` is received from the codex server.
+   */
+  function waitForTurnCompletion(): Promise<void> {
+    return new Promise((resolve) => {
+      turnCompletedResolve = resolve;
+    });
+  }
+
+  /**
+   * Wait for turn completion with an absolute timeout. Kills the codex
+   * process if the turn exceeds `turn_timeout_ms`.
+   */
+  function waitForTurnWithTimeout(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        process.stderr.write(
+          `[worker] turn_timeout: turn exceeded ${turnTimeoutMs}ms — killing codex process\n`
+        );
+        if (child.pid) {
+          try {
+            process.kill(child.pid, "SIGTERM");
+          } catch {
+            // Already gone.
+          }
+        }
+        reject(new Error("turn_timeout: turn exceeded time limit"));
+      }, turnTimeoutMs);
+
+      waitForTurnCompletion().then(
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+
   async function dispatchDynamicToolCall(
     callId: string,
     toolName: string,
@@ -196,7 +300,9 @@ async function runCodexClientProtocol(
     args: unknown
   ): Promise<void> {
     // Find the tool definition to get command + env
-    const toolDef = plan.tools.find((t) => t.name === toolName);
+    const toolDef = plan.tools.find(
+      (t: RuntimeToolDefinition) => t.name === toolName
+    );
     if (!toolDef) {
       process.stderr.write(
         `[worker] unknown dynamic tool: ${toolName}; sending error response\n`
@@ -290,16 +396,67 @@ async function runCodexClientProtocol(
       return;
     }
 
-    // Turn completed — codex has finished its work for this run.
-    // Exit the worker so the orchestrator can detect completion and
-    // decide whether to retry (continuation) or mark done.
+    // User input required — hard failure (agent cannot proceed autonomously)
+    if (
+      msg.method === "item/tool/requestUserInput" ||
+      (msg.method === "turn/completed" &&
+        msg.params != null &&
+        (msg.params as Record<string, unknown>).inputRequired === true)
+    ) {
+      process.stderr.write(
+        "[worker] user_input_required detected — terminating codex process\n"
+      );
+      userInputRequired = true;
+      runtimeState.status = "failed";
+      if (runtimeState.run) {
+        runtimeState.run.lastError =
+          "turn_input_required: agent requires user input";
+      }
+      if (child.pid) {
+        try {
+          process.kill(child.pid, "SIGTERM");
+        } catch {
+          // Already gone.
+        }
+      }
+      // Resolve any pending turn completion
+      if (turnCompletedResolve) {
+        turnCompletedResolve();
+        turnCompletedResolve = null;
+      }
+      return;
+    }
+
+    // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
-      process.stderr.write("[worker] codex turn/completed — exiting worker\n");
-      runtimeState.status = "completed";
-      // Brief delay so the state API can serve the completed status once.
-      setTimeout(() => {
-        server.close(() => process.exit(0));
-      }, 1500);
+      process.stderr.write("[worker] codex turn/completed\n");
+      if (turnCompletedResolve) {
+        turnCompletedResolve();
+        turnCompletedResolve = null;
+      }
+      return;
+    }
+
+    // Token usage events — track cumulative totals
+    if (
+      msg.method === "thread/tokenUsage/updated" ||
+      msg.method === "total_token_usage"
+    ) {
+      const params = (msg.params ?? {}) as Record<string, unknown>;
+      const inputTokens =
+        typeof params.input_tokens === "number" ? params.input_tokens : 0;
+      const outputTokens =
+        typeof params.output_tokens === "number" ? params.output_tokens : 0;
+      const totalTokens =
+        typeof params.total_tokens === "number" ? params.total_tokens : 0;
+
+      // Prefer absolute totals from the event
+      if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
+        runtimeState.tokenUsage.inputTokens = inputTokens;
+        runtimeState.tokenUsage.outputTokens = outputTokens;
+        runtimeState.tokenUsage.totalTokens =
+          totalTokens || inputTokens + outputTokens;
+      }
       return;
     }
 
@@ -333,15 +490,13 @@ async function runCodexClientProtocol(
   try {
     // Step 1: Initialize
     process.stderr.write("[worker] sending codex initialize\n");
-    await sendRequest("init-1", "initialize", {
+    await sendRequestWithTimeout("init-1", "initialize", {
       clientInfo: { name: "github-symphony", version: "0.1.0" },
       capabilities: {},
     });
     process.stderr.write("[worker] codex initialized\n");
 
     // Step 2: thread/start with rendered prompt and MCP server tool definitions
-    // The github_graphql tool is registered as an MCP server so codex can call it.
-    // Each tool in plan.tools is a shell-command MCP server (stdio transport).
     const mcpServers: Record<string, unknown> = {};
     for (const t of plan.tools) {
       mcpServers[t.name] = {
@@ -355,41 +510,115 @@ async function runCodexClientProtocol(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})`
     );
 
-    const threadResult = (await sendRequest("thread-1", "thread/start", {
-      cwd: plan.cwd,
-      developerInstructions: renderedPrompt,
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
-      ephemeral: false,
-      config: {
-        mcp_servers: mcpServers,
-      },
-    })) as Record<string, unknown>;
+    const threadResult = (await sendRequestWithTimeout(
+      "thread-1",
+      "thread/start",
+      {
+        cwd: plan.cwd,
+        developerInstructions: renderedPrompt,
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+        ephemeral: false,
+        config: {
+          mcp_servers: mcpServers,
+        },
+      }
+    )) as Record<string, unknown>;
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??
-      ((threadResult.thread as Record<string, unknown> | undefined)?.id as string | undefined);
+      ((threadResult.thread as Record<string, unknown> | undefined)?.id as
+        | string
+        | undefined);
 
     process.stderr.write(
       `[worker] codex thread started (id=${String(threadId ?? "unknown")})\n`
     );
 
-    // Step 3: turn/start — send the rendered prompt as user input to begin generation.
-    // thread/start only creates the thread; turn/start triggers actual codex execution.
-    if (threadId) {
-      process.stderr.write("[worker] starting codex turn\n");
-      const turnResult = (await sendRequest("turn-1", "turn/start", {
-        threadId,
-        input: [{ type: "text", text: renderedPrompt }],
-        approvalPolicy: "never",
-      })) as Record<string, unknown>;
+    if (!threadId) {
+      process.stderr.write(
+        "[worker] warning: no threadId returned; cannot start turn\n"
+      );
+      return;
+    }
+
+    // Step 3: Multi-turn loop
+    let turnCount = 0;
+    let requestIdCounter = 0;
+
+    for (let turn = 0; turn < maxTurns; turn++) {
+      turnCount = turn + 1;
+      const isFirstTurn = turn === 0;
+      const turnInput = isFirstTurn
+        ? renderedPrompt
+        : "Continue working on the issue. Review your progress and complete any remaining tasks.";
+
+      process.stderr.write(
+        `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
+      );
+
+      requestIdCounter += 1;
+      const turnRequestId = `turn-${requestIdCounter}`;
+      const turnResult = (await sendRequestWithTimeout(
+        turnRequestId,
+        "turn/start",
+        {
+          threadId,
+          input: [{ type: "text", text: turnInput }],
+          approvalPolicy: "never",
+        }
+      )) as Record<string, unknown>;
+
       const turnId =
         (turnResult.turn_id as string | undefined) ??
-        ((turnResult.turn as Record<string, unknown> | undefined)?.id as string | undefined);
-      process.stderr.write(`[worker] codex turn started (id=${String(turnId ?? "unknown")})\n`);
-    } else {
-      process.stderr.write("[worker] warning: no threadId returned; cannot start turn\n");
+        ((turnResult.turn as Record<string, unknown> | undefined)?.id as
+          | string
+          | undefined);
+      process.stderr.write(
+        `[worker] codex turn started (id=${String(turnId ?? "unknown")})\n`
+      );
+
+      // Wait for turn completion with absolute timeout
+      await waitForTurnWithTimeout();
+
+      // Check for user_input_required (set by handleServerMessage)
+      if (userInputRequired) {
+        process.stderr.write("[worker] exiting due to user_input_required\n");
+        break;
+      }
+
+      // Check if we should continue with another turn
+      if (turn + 1 >= maxTurns) {
+        process.stderr.write(
+          `[worker] max_turns (${maxTurns}) reached — exiting\n`
+        );
+        break;
+      }
+
+      // Refresh tracker state to decide whether to continue
+      const trackerState = await refreshTrackerState(env);
+      process.stderr.write(`[worker] tracker state refresh: ${trackerState}\n`);
+
+      if (trackerState === "non-actionable") {
+        process.stderr.write(
+          "[worker] issue no longer actionable — exiting multi-turn loop\n"
+        );
+        break;
+      }
+
+      // trackerState is "active" or "unknown" — continue with next turn
     }
+
+    process.stderr.write(
+      `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
+    );
+    runtimeState.status = userInputRequired ? "failed" : "completed";
+    await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+
+    // Brief delay so the state API can serve the final status once.
+    setTimeout(() => {
+      server.close(() => process.exit(userInputRequired ? 1 : 0));
+    }, 1500);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[worker] codex client protocol error: ${errMsg}\n`);
@@ -397,6 +626,102 @@ async function runCodexClientProtocol(
     if (runtimeState.run) {
       runtimeState.run.lastError = `Codex client protocol error: ${errMsg}`;
     }
+
+    // Map timeout errors to specific categories
+    if (errMsg.startsWith("response_timeout:")) {
+      if (runtimeState.run) {
+        runtimeState.run.lastError = errMsg;
+      }
+    } else if (errMsg.startsWith("turn_timeout:")) {
+      if (runtimeState.run) {
+        runtimeState.run.lastError = errMsg;
+      }
+    }
+
+    await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+
+    // Exit worker on protocol failure
+    setTimeout(() => {
+      server.close(() => process.exit(1));
+    }, 1500);
+  }
+}
+
+async function persistTokenUsageArtifact(
+  env: NodeJS.ProcessEnv,
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  }
+): Promise<void> {
+  const artifactPath = resolveTokenUsageArtifactPath(env);
+  if (!artifactPath) {
+    return;
+  }
+
+  try {
+    await mkdir(dirname(artifactPath), { recursive: true });
+    await writeFile(
+      artifactPath,
+      JSON.stringify(tokenUsage, null, 2) + "\n",
+      "utf8"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `[worker] failed to persist token usage artifact: ${message}\n`
+    );
+  }
+}
+
+function resolveTokenUsageArtifactPath(env: NodeJS.ProcessEnv): string | null {
+  const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR;
+  const runId = env.SYMPHONY_RUN_ID;
+  if (!workspaceRuntimeDir || !runId) {
+    return null;
+  }
+
+  return join(
+    workspaceRuntimeDir,
+    ".orchestrator",
+    "runs",
+    runId,
+    "token-usage.json"
+  );
+}
+
+/**
+ * Refresh tracker state by querying the orchestrator status API.
+ * Returns "active" if the issue run is still tracked, "non-actionable"
+ * if the run is no longer listed, or "unknown" on any failure.
+ */
+async function refreshTrackerState(
+  env: NodeJS.ProcessEnv
+): Promise<"active" | "non-actionable" | "unknown"> {
+  const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
+  const workspaceId = env.WORKSPACE_ID ?? env.CODEX_WORKSPACE_ID;
+  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
+
+  if (!orchestratorUrl || !workspaceId) {
+    return "unknown";
+  }
+
+  try {
+    const response = await fetch(
+      `${orchestratorUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/status`
+    );
+    if (!response.ok) return "unknown";
+
+    const status = (await response.json()) as {
+      activeRuns?: Array<{ issueIdentifier: string }>;
+    };
+    const isActive = status.activeRuns?.some(
+      (run) => run.issueIdentifier === issueIdentifier
+    );
+    return isActive ? "active" : "non-actionable";
+  } catch {
+    return "unknown";
   }
 }
 

@@ -10,6 +10,9 @@ export type WorkflowHooksConfig = {
 export type WorkflowRuntimeConfig = {
   agentCommand: string;
   hooks: WorkflowHooksConfig;
+  maxTurns: number;
+  readTimeoutMs: number;
+  turnTimeoutMs: number;
 };
 
 export type WorkflowSchedulerConfig = {
@@ -37,6 +40,7 @@ export type WorkflowDefinition = {
   scheduler: WorkflowSchedulerConfig;
   retry: WorkflowRetryConfig;
   lifecycle: WorkflowLifecycleConfig;
+  maxConcurrentByPhase: Record<string, number>;
   format: WorkflowSourceFormat;
 };
 
@@ -50,6 +54,9 @@ export const DEFAULT_HOOK_PATH = "hooks/after_create.sh";
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const DEFAULT_BASE_DELAY_MS = 1_000;
 export const DEFAULT_MAX_DELAY_MS = 30_000;
+export const DEFAULT_MAX_TURNS = 20;
+export const DEFAULT_READ_TIMEOUT_MS = 5_000;
+export const DEFAULT_TURN_TIMEOUT_MS = 3_600_000;
 
 export const DEFAULT_WORKFLOW_HOOKS: WorkflowHooksConfig = {
   afterCreate: DEFAULT_HOOK_PATH,
@@ -60,7 +67,10 @@ export const DEFAULT_WORKFLOW_HOOKS: WorkflowHooksConfig = {
 
 export const DEFAULT_WORKFLOW_RUNTIME: WorkflowRuntimeConfig = {
   agentCommand: DEFAULT_AGENT_COMMAND,
-  hooks: DEFAULT_WORKFLOW_HOOKS
+  hooks: DEFAULT_WORKFLOW_HOOKS,
+  maxTurns: DEFAULT_MAX_TURNS,
+  readTimeoutMs: DEFAULT_READ_TIMEOUT_MS,
+  turnTimeoutMs: DEFAULT_TURN_TIMEOUT_MS,
 };
 
 export const DEFAULT_WORKFLOW_SCHEDULER: WorkflowSchedulerConfig = {
@@ -83,5 +93,6 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
   format: "default",
   agentCommand: DEFAULT_AGENT_COMMAND,
-  hookPath: DEFAULT_HOOK_PATH
+  hookPath: DEFAULT_HOOK_PATH,
+  maxConcurrentByPhase: {},
 };

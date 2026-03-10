@@ -15,6 +15,7 @@ import type {
 export type SnapshotInput = {
   workspace: OrchestratorWorkspaceConfig;
   activeRuns: OrchestratorRunRecord[];
+  allRuns?: OrchestratorRunRecord[];
   summary: {
     dispatched: number;
     suppressed: number;
@@ -22,6 +23,7 @@ export type SnapshotInput = {
   };
   lastTickAt: string;
   lastError: string | null;
+  rateLimits?: Record<string, unknown> | null;
 };
 
 /**
@@ -33,7 +35,7 @@ export type SnapshotInput = {
 export function buildWorkspaceSnapshot(
   input: SnapshotInput
 ): WorkspaceStatusSnapshot {
-  const { workspace, activeRuns, summary, lastTickAt, lastError } = input;
+  const { workspace, activeRuns, allRuns, summary, lastTickAt, lastError, rateLimits } = input;
 
   return {
     workspaceId: workspace.workspaceId,
@@ -68,5 +70,50 @@ export function buildWorkspaceSnapshot(
         nextRetryAt: run.nextRetryAt,
       })),
     lastError,
+    codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
+    rateLimits: rateLimits ?? null,
   };
+}
+
+
+/**
+ * Aggregate token usage across all run records that have token data.
+ * Returns cumulative totals and an estimate of total running time.
+ */
+function aggregateTokenUsage(
+  runs: OrchestratorRunRecord[],
+  lastTickAt: string
+): WorkspaceStatusSnapshot["codexTotals"] {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  let earliestStart: number | null = null;
+  let latestEnd: number | null = null;
+
+  for (const run of runs) {
+    if (run.tokenUsage) {
+      inputTokens += run.tokenUsage.inputTokens;
+      outputTokens += run.tokenUsage.outputTokens;
+      totalTokens += run.tokenUsage.totalTokens;
+    }
+    if (run.startedAt) {
+      const start = new Date(run.startedAt).getTime();
+      if (earliestStart === null || start < earliestStart) {
+        earliestStart = start;
+      }
+    }
+    const end = run.completedAt
+      ? new Date(run.completedAt).getTime()
+      : new Date(lastTickAt).getTime();
+    if (latestEnd === null || end > latestEnd) {
+      latestEnd = end;
+    }
+  }
+
+  const secondsRunning =
+    earliestStart !== null && latestEnd !== null
+      ? Math.max(0, Math.round((latestEnd - earliestStart) / 1000))
+      : 0;
+
+  return { inputTokens, outputTokens, totalTokens, secondsRunning };
 }

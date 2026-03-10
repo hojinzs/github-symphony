@@ -14,6 +14,7 @@ import {
   resolveWorkflowExecutionPhase,
   scheduleRetryAt,
 } from "./index.js";
+import type { RunDispatchedEvent } from "./observability/structured-events.js";
 
 describe("deriveIssueWorkspaceKey", () => {
   it("produces a stable deterministic key", () => {
@@ -158,7 +159,7 @@ describe("renderPrompt", () => {
     expect(rendered).toBe("Fix Fix the bug in acme/platform. Be concise.");
   });
 
-  it("leaves unresolved variables as-is", () => {
+  it("leaves unresolved variables as-is in non-strict mode", () => {
     const variables = buildPromptVariables(
       {
         id: "issue-1",
@@ -190,7 +191,84 @@ describe("renderPrompt", () => {
       { attempt: null, guidelines: "" }
     );
 
-    expect(renderPrompt("{{unknown.var}}", variables)).toBe("{{unknown.var}}");
+    expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe("{{unknown.var}}");
+  });
+
+  it("throws template_render_error for unresolved variables in strict mode (default)", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        phase: "planning",
+        metadata: {},
+      },
+      { attempt: null, guidelines: "" }
+    );
+
+    expect(() => renderPrompt("{{unknown.var}}", variables)).toThrow(
+      "template_render_error"
+    );
+    expect(() => renderPrompt("{{unknown.var}}", variables, { strict: true })).toThrow(
+      "template_render_error"
+    );
+  });
+
+  it("does not throw in strict mode when all variables resolve", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Fix the bug",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        phase: "planning",
+        metadata: {},
+      },
+      { attempt: null, guidelines: "Be concise." }
+    );
+
+    expect(() =>
+      renderPrompt("Fix {{issue.title}} — {{guidelines}}", variables)
+    ).not.toThrow();
   });
 });
 
@@ -366,5 +444,160 @@ describe("buildWorkspaceSnapshot", () => {
 
     expect(snapshot.health).toBe("degraded");
     expect(snapshot.lastError).toBe("Tracker query failed");
+  });
+});
+
+describe("structured event field enrichment", () => {
+  it("RunDispatchedEvent includes optional issueId and sessionId fields", () => {
+    const event: RunDispatchedEvent = {
+      at: new Date().toISOString(),
+      event: "run-dispatched",
+      workspaceId: "ws-1",
+      issueIdentifier: "acme/repo#1",
+      issueId: "issue-node-id",
+      sessionId: "thread-1-turn-1",
+    };
+
+    expect(event.issueId).toBe("issue-node-id");
+    expect(event.sessionId).toBe("thread-1-turn-1");
+  });
+
+  it("issueId and sessionId are optional on events", () => {
+    const event: RunDispatchedEvent = {
+      at: new Date().toISOString(),
+      event: "run-dispatched",
+      workspaceId: "ws-1",
+      issueIdentifier: "acme/repo#1",
+    };
+
+    expect(event.issueId).toBeUndefined();
+    expect(event.sessionId).toBeUndefined();
+  });
+});
+
+describe("token accounting - buildWorkspaceSnapshot", () => {
+  it("includes codexTotals from run tokenUsage data", () => {
+    const snapshot = buildWorkspaceSnapshot({
+      workspace: {
+        workspaceId: "ws-1",
+        slug: "test",
+        promptGuidelines: "",
+        repositories: [],
+        tracker: { adapter: "github-project", bindingId: "proj-1" },
+        runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },
+      },
+      activeRuns: [],
+      allRuns: [
+        {
+          runId: "run-1",
+          workspaceId: "ws-1",
+          workspaceSlug: "test",
+          issueId: "i1",
+          issueSubjectId: "s1",
+          issueIdentifier: "acme/repo#1",
+          phase: "planning",
+          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          status: "succeeded",
+          attempt: 1,
+          processId: null,
+          port: null,
+          workingDirectory: "/tmp",
+          issueWorkspaceKey: null,
+          workspaceRuntimeDir: "/tmp",
+          workflowPath: null,
+          retryKind: null,
+          createdAt: "2025-01-01T00:00:00Z",
+          updatedAt: "2025-01-01T01:00:00Z",
+          startedAt: "2025-01-01T00:00:00Z",
+          completedAt: "2025-01-01T01:00:00Z",
+          lastError: null,
+          nextRetryAt: null,
+          tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        },
+      ],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2025-01-01T01:00:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals).toBeDefined();
+    expect(snapshot.codexTotals?.inputTokens).toBe(100);
+    expect(snapshot.codexTotals?.totalTokens).toBe(150);
+  });
+
+  it("aggregates tokens across multiple runs", () => {
+    const snapshot = buildWorkspaceSnapshot({
+      workspace: {
+        workspaceId: "ws-1",
+        slug: "test",
+        promptGuidelines: "",
+        repositories: [],
+        tracker: { adapter: "github-project", bindingId: "proj-1" },
+        runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },
+      },
+      activeRuns: [],
+      allRuns: [
+        {
+          runId: "run-1",
+          workspaceId: "ws-1",
+          workspaceSlug: "test",
+          issueId: "i1",
+          issueSubjectId: "s1",
+          issueIdentifier: "acme/repo#1",
+          phase: "planning",
+          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          status: "succeeded",
+          attempt: 1,
+          processId: null,
+          port: null,
+          workingDirectory: "/tmp",
+          issueWorkspaceKey: null,
+          workspaceRuntimeDir: "/tmp",
+          workflowPath: null,
+          retryKind: null,
+          createdAt: "2025-01-01T00:00:00Z",
+          updatedAt: "2025-01-01T01:00:00Z",
+          startedAt: "2025-01-01T00:00:00Z",
+          completedAt: "2025-01-01T01:00:00Z",
+          lastError: null,
+          nextRetryAt: null,
+          tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        },
+        {
+          runId: "run-2",
+          workspaceId: "ws-1",
+          workspaceSlug: "test",
+          issueId: "i2",
+          issueSubjectId: "s2",
+          issueIdentifier: "acme/repo#2",
+          phase: "planning",
+          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          status: "succeeded",
+          attempt: 1,
+          processId: null,
+          port: null,
+          workingDirectory: "/tmp",
+          issueWorkspaceKey: null,
+          workspaceRuntimeDir: "/tmp",
+          workflowPath: null,
+          retryKind: null,
+          createdAt: "2025-01-01T00:00:00Z",
+          updatedAt: "2025-01-01T02:00:00Z",
+          startedAt: "2025-01-01T01:00:00Z",
+          completedAt: "2025-01-01T02:00:00Z",
+          lastError: null,
+          nextRetryAt: null,
+          tokenUsage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 },
+        },
+      ],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2025-01-01T02:00:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.codexTotals).toBeDefined();
+    expect(snapshot.codexTotals?.inputTokens).toBe(300);
+    expect(snapshot.codexTotals?.outputTokens).toBe(150);
+    expect(snapshot.codexTotals?.totalTokens).toBe(450);
   });
 });

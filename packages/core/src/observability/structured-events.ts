@@ -1,3 +1,5 @@
+import type { TrackedIssue } from "../contracts/tracker-adapter.js";
+
 /**
  * Structured orchestration events emitted during workspace reconciliation.
  *
@@ -12,19 +14,25 @@ export type RunDispatchedEvent = {
   event: "run-dispatched";
   workspaceId: string;
   issueIdentifier: string;
-  phase: string;
+  phase?: TrackedIssue["phase"];
+  issueId?: string;
+  sessionId?: string;
 };
 
 export type RunRecoveredEvent = {
   at: string;
   event: "run-recovered";
   issueIdentifier: string;
+  sessionId?: string;
+  issueId?: string;
 };
 
 export type RunRetriedEvent = {
   at: string;
   event: "run-retried";
   issueIdentifier: string;
+  sessionId?: string;
+  issueId?: string;
   attempt: number;
   retryKind: string;
   nextRetryAt: string;
@@ -34,6 +42,8 @@ export type RunFailedEvent = {
   at: string;
   event: "run-failed";
   issueIdentifier: string;
+  sessionId?: string;
+  issueId?: string;
   attempt: number;
   lastError: string;
 };
@@ -42,6 +52,7 @@ export type RunSuppressedEvent = {
   at: string;
   event: "run-suppressed";
   issueIdentifier: string;
+  issueId?: string;
   reason: string;
 };
 
@@ -66,6 +77,7 @@ export type WorkspaceCleanupEvent = {
   event: "workspace-cleanup";
   workspaceKey: string;
   issueIdentifier: string;
+  issueId?: string;
   outcome: "removed" | "cleanup_blocked" | "skipped";
   error?: string | null;
 };

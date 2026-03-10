@@ -57,10 +57,25 @@ export function buildPromptVariables(
 }
 
 /**
+ * Options for prompt template rendering.
+ */
+export type RenderPromptOptions = {
+  /**
+   * When `true` (default), throw an error if any `{{...}}` variables remain
+   * unresolved after substitution. Set to `false` to preserve legacy behavior
+   * where unresolved variables are left as-is.
+   */
+  strict?: boolean;
+};
+
+/**
  * Render a prompt template with the given variables.
  *
  * Supports simple `{{variable}}` and `{{object.key}}` substitution.
- * Unresolved variables are left as-is to allow downstream processing.
+ *
+ * When `strict` is `true` (the default), an error is thrown if any
+ * `{{...}}` patterns remain after substitution. Set `strict` to `false`
+ * to preserve the legacy behavior of leaving unresolved variables as-is.
  *
  * The template body is the Markdown content of `WORKFLOW.md` after the
  * YAML front matter. It typically contains the base prompt guidelines
@@ -68,11 +83,13 @@ export function buildPromptVariables(
  */
 export function renderPrompt(
   template: string,
-  variables: PromptVariables
+  variables: PromptVariables,
+  options: RenderPromptOptions = {}
 ): string {
+  const strict = options.strict ?? true;
   const flatVars = flattenVariables(variables);
 
-  return template.replace(
+  const rendered = template.replace(
     /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g,
     (match, key: string) => {
       const value = flatVars.get(key);
@@ -82,6 +99,17 @@ export function renderPrompt(
       return String(value);
     }
   );
+
+  if (strict) {
+    const unresolvedMatch = rendered.match(/\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/);
+    if (unresolvedMatch) {
+      throw new Error(
+        `template_render_error: unresolved variable "{{${unresolvedMatch[1]}}}" in rendered prompt`
+      );
+    }
+  }
+
+  return rendered;
 }
 
 /**

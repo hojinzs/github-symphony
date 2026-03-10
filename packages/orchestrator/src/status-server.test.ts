@@ -1,60 +1,106 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveOrchestratorStatusResponse } from "./status-server.js";
 
-describe("orchestrator status server", () => {
-  const workspaceSnapshot = {
-    workspaceId: "workspace-1",
-    slug: "workspace-1",
-    tracker: {
-      adapter: "github-project",
-      bindingId: "project-123"
-    },
-    lastTickAt: "2026-03-09T00:00:00.000Z",
-    health: "running" as const,
-    summary: {
-      dispatched: 1,
-      suppressed: 0,
-      recovered: 0,
-      activeRuns: 1
-    },
-    activeRuns: [
-      {
-        runId: "run-1",
-        issueIdentifier: "acme/platform#1",
-        phase: "planning",
-        status: "running",
-        retryKind: null,
-        port: 4601
-      }
-    ],
-    retryQueue: [],
-    lastError: null
-  };
+describe("POST /api/v1/refresh", () => {
+  it("triggers onRefresh callback on POST", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byWorkspaceId: vi.fn().mockResolvedValue(null),
+    };
+    const onRefresh = vi.fn();
 
-  it("resolves workspace status snapshots and not-found responses", async () => {
-    const resolved = await resolveOrchestratorStatusResponse(
-      "/api/v1/workspaces/workspace-1/status",
-      {
-        all: async () => [workspaceSnapshot],
-        byWorkspaceId: async (workspaceId) =>
-          workspaceId === "workspace-1" ? workspaceSnapshot : null
-      }
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "POST",
+      mockStatus,
+      onRefresh
     );
 
-    expect(resolved.status).toBe(200);
-    expect(resolved.payload).toMatchObject({
+    expect(result.status).toBe(200);
+    expect(result.payload).toEqual({ triggered: true });
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("returns 405 for GET on /api/v1/refresh", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byWorkspaceId: vi.fn().mockResolvedValue(null),
+    };
+
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "GET",
+      mockStatus
+    );
+
+    expect(result.status).toBe(405);
+    expect(result.payload).toEqual({ error: "Method not allowed" });
+  });
+
+  it("returns 405 for PUT on /api/v1/refresh", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byWorkspaceId: vi.fn().mockResolvedValue(null),
+    };
+
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "PUT",
+      mockStatus
+    );
+
+    expect(result.status).toBe(405);
+    expect(result.payload).toEqual({ error: "Method not allowed" });
+  });
+
+  it("works when onRefresh is not provided", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byWorkspaceId: vi.fn().mockResolvedValue(null),
+    };
+
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "POST",
+      mockStatus
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.payload).toEqual({ triggered: true });
+  });
+
+  it("keeps the legacy GET signature working for workspace status lookups", async () => {
+    const snapshot = {
       workspaceId: "workspace-1",
-      health: "running"
-    });
+      slug: "workspace-1",
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-1",
+      },
+      lastTickAt: new Date().toISOString(),
+      health: "idle",
+      summary: {
+        dispatched: 0,
+        suppressed: 0,
+        recovered: 0,
+        activeRuns: 0,
+      },
+      activeRuns: [],
+      retryQueue: [],
+      lastError: null,
+    } as const;
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([snapshot]),
+      byWorkspaceId: vi.fn().mockResolvedValue(snapshot),
+    };
 
-    const notFound = await resolveOrchestratorStatusResponse(
-      "/api/v1/workspaces/missing/status",
-      {
-        all: async () => [workspaceSnapshot],
-        byWorkspaceId: async () => null
-      }
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/workspaces/workspace-1/status",
+      mockStatus
     );
 
-    expect(notFound.status).toBe(404);
+    expect(result.status).toBe(200);
+    expect(result.payload).toEqual(snapshot);
+    expect(mockStatus.byWorkspaceId).toHaveBeenCalledWith("workspace-1");
   });
 });

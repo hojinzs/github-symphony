@@ -16,7 +16,11 @@ describe("headless orchestration verification", () => {
 
     try {
       const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-headless-"));
-      const repository = await createRepositoryFixture(tempRoot, "acme", "platform");
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
       const store = new OrchestratorFsStore(tempRoot);
       await store.saveWorkspaceConfig({
         workspaceId: "workspace-1",
@@ -27,25 +31,25 @@ describe("headless orchestration verification", () => {
           adapter: "github-project",
           bindingId: "project-123",
           settings: {
-            projectId: "project-123"
-          }
+            projectId: "project-123",
+          },
         },
         runtime: {
           driver: "local",
           workspaceRuntimeDir: join(tempRoot, "workspaces", "workspace-1"),
           projectRoot: process.cwd(),
-          workerCommand: "node packages/worker/dist/index.js"
-        }
+          workerCommand: "node packages/worker/dist/index.js",
+        },
       });
 
       const spawnImpl = vi.fn().mockReturnValue({
         pid: 4101,
-        unref: vi.fn()
+        unref: vi.fn(),
       });
       const service = new OrchestratorService(store, {
         fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
         spawnImpl: spawnImpl as never,
-        now: () => new Date("2026-03-09T00:00:00.000Z")
+        now: () => new Date("2026-03-09T00:00:00.000Z"),
       });
 
       let stdout = "";
@@ -55,8 +59,8 @@ describe("headless orchestration verification", () => {
           write(chunk: string) {
             stdout += chunk;
             return true;
-          }
-        }
+          },
+        },
       });
 
       const cliStatus = JSON.parse(stdout) as Array<{
@@ -72,25 +76,30 @@ describe("headless orchestration verification", () => {
         baseUrl: "http://orchestrator.test",
         fetchImpl: (async (input) => {
           const requestUrl =
-            typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
           const resolved = await resolveOrchestratorStatusResponse(
             new URL(requestUrl).pathname,
+            "GET",
             {
               all: () => service.status(),
               byWorkspaceId: async (workspaceId) => {
                 const [status] = await service.status(workspaceId);
                 return status ?? null;
-              }
+              },
             }
           );
 
           return new Response(JSON.stringify(resolved.payload), {
             status: resolved.status,
             headers: {
-              "content-type": "application/json"
-            }
+              "content-type": "application/json",
+            },
           });
-        }) as typeof fetch
+        }) as typeof fetch,
       });
 
       expect(snapshot).toMatchObject({
@@ -98,8 +107,8 @@ describe("headless orchestration verification", () => {
         health: "running",
         tracker: {
           adapter: "github-project",
-          bindingId: "project-123"
-        }
+          bindingId: "project-123",
+        },
       });
       expect(snapshot?.activeRuns[0]?.issueIdentifier).toBe("acme/platform#1");
       expect(spawnImpl).toHaveBeenCalledTimes(1);
@@ -125,7 +134,9 @@ async function createRepositoryFixture(
   const repositoryRoot = join(root, `${owner}-${name}`);
   execSync(`mkdir -p ${shell(repositoryRoot)}`);
   execSync(`git init ${shell(repositoryRoot)}`, { stdio: "ignore" });
-  execSync(`git -C ${shell(repositoryRoot)} config user.email tester@example.com`);
+  execSync(
+    `git -C ${shell(repositoryRoot)} config user.email tester@example.com`
+  );
   execSync(`git -C ${shell(repositoryRoot)} config user.name tester`);
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
@@ -156,13 +167,17 @@ Prefer focused changes.
 `,
     "utf8"
   );
-  execSync(`git -C ${shell(repositoryRoot)} add WORKFLOW.md`, { stdio: "ignore" });
-  execSync(`git -C ${shell(repositoryRoot)} commit -m init`, { stdio: "ignore" });
+  execSync(`git -C ${shell(repositoryRoot)} add WORKFLOW.md`, {
+    stdio: "ignore",
+  });
+  execSync(`git -C ${shell(repositoryRoot)} commit -m init`, {
+    stdio: "ignore",
+  });
 
   return {
     owner,
     name,
-    cloneUrl: repositoryRoot
+    cloneUrl: repositoryRoot,
   };
 }
 
@@ -188,10 +203,10 @@ function createTrackerResponse(repository: {
                       __typename: "ProjectV2ItemFieldSingleSelectValue",
                       name: "Todo",
                       field: {
-                        name: "Status"
-                      }
-                    }
-                  ]
+                        name: "Status",
+                      },
+                    },
+                  ],
                 },
                 content: {
                   __typename: "Issue",
@@ -203,26 +218,26 @@ function createTrackerResponse(repository: {
                   createdAt: "2026-03-09T00:00:00.000Z",
                   updatedAt: "2026-03-09T00:00:00.000Z",
                   labels: {
-                    nodes: []
+                    nodes: [],
                   },
                   repository: {
                     name: repository.name,
                     url: `file://${repository.cloneUrl}`,
                     owner: {
-                      login: repository.owner
-                    }
-                  }
-                }
-              }
+                      login: repository.owner,
+                    },
+                  },
+                },
+              },
             ],
             pageInfo: {
               endCursor: null,
-              hasNextPage: false
-            }
-          }
-        }
-      }
-    })
+              hasNextPage: false,
+            },
+          },
+        },
+      },
+    }),
   };
 }
 

@@ -60,6 +60,11 @@ export type OrchestratorRunRecord = {
   lastError: string | null;
   nextRetryAt: string | null;
   runtimeSession?: RuntimeSessionRow | null;
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 };
 
 export type WorkspaceLeaseRecord = {
@@ -111,6 +116,13 @@ export type WorkspaceStatusSnapshot = {
     retryKind: RetryKind;
     nextRetryAt: string | null;
   }>;
+  codexTotals?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    secondsRunning: number;
+  };
+  rateLimits?: Record<string, unknown> | null;
   lastError: string | null;
 };
 

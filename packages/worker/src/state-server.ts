@@ -24,6 +24,11 @@ export type WorkerRuntimeState = {
     };
     lastError: string | null;
   };
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
   workflow: null | {
     githubProjectId: string | null;
     agentCommand: string;
@@ -45,7 +50,7 @@ export type WorkerRuntimeState = {
 export async function buildWorkerRuntimeState(
   env: NodeJS.ProcessEnv,
   readFileImpl: typeof readFile = readFile,
-  runtime: Partial<Pick<WorkerRuntimeState, "status" | "run">> = {}
+  runtime: Partial<Pick<WorkerRuntimeState, "status" | "run" | "tokenUsage">> = {}
 ): Promise<WorkerRuntimeState> {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR ?? "/workspace-runtime";
   const workflowPath = join(env.WORKING_DIRECTORY ?? workspaceRuntimeDir, "WORKFLOW.md");
@@ -92,6 +97,7 @@ export async function buildWorkerRuntimeState(
     workspaceRuntimeDir,
     allowedRepositories,
     run: assignedRun,
+    tokenUsage: runtime.tokenUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     workflow
   };
 }

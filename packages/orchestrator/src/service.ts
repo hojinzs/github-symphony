@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
@@ -173,7 +173,9 @@ export class OrchestratorService {
         fetchImpl: this.dependencies.fetchImpl,
       });
       const filteredIssues = issueIdentifier
-        ? issues.filter((issue) => issue.identifier === issueIdentifier)
+        ? issues.filter(
+            (issue: TrackedIssue) => issue.identifier === issueIdentifier
+          )
         : issues;
       const actionableCandidates = await this.resolveActionableCandidates(
         workspace,
@@ -192,7 +194,35 @@ export class OrchestratorService {
         );
       });
 
-      for (const issue of unscheduledCandidates.slice(0, availableSlots)) {
+      // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
+      const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
+
+      // Count active runs by phase for per-phase concurrency limits
+      const activeByPhase = new Map<string, number>();
+      for (const lease of leases) {
+        if (lease.status === "active") {
+          const count = activeByPhase.get(lease.phase) ?? 0;
+          activeByPhase.set(lease.phase, count + 1);
+        }
+      }
+
+      // Load per-phase concurrency limits from workflow config
+      const maxConcurrentByPhase =
+        await this.loadWorkspaceMaxConcurrentByPhase(workspace);
+
+      let slotsRemaining = availableSlots;
+      for (const issue of sortedCandidates) {
+        if (slotsRemaining <= 0) break;
+
+        // Per-phase concurrency check: skip if phase limit reached
+        const phaseLimit = maxConcurrentByPhase[issue.phase];
+        if (phaseLimit !== undefined) {
+          const activeInPhase = activeByPhase.get(issue.phase) ?? 0;
+          if (activeInPhase >= phaseLimit) {
+            continue;
+          }
+        }
+
         const leaseKey = buildLeaseKey(issue);
         const run = await this.startRun(workspace, issue);
         leases = upsertLease(leases, {
@@ -210,9 +240,15 @@ export class OrchestratorService {
           event: "run-dispatched",
           workspaceId: workspace.workspaceId,
           issueIdentifier: issue.identifier,
+          issueId: run.issueId,
           phase: issue.phase,
         });
         dispatched += 1;
+        slotsRemaining -= 1;
+        activeByPhase.set(
+          issue.phase,
+          (activeByPhase.get(issue.phase) ?? 0) + 1
+        );
       }
 
       for (const issue of filteredIssues) {
@@ -266,19 +302,20 @@ export class OrchestratorService {
     this.workspacePollIntervals.set(workspace.workspaceId, pollIntervalMs);
     await this.store.saveWorkspaceLeases(workspace.workspaceId, leases);
 
-    const latestRuns = (await this.store.loadAllRuns()).filter(
-      (run) =>
-        run.workspaceId === workspace.workspaceId &&
-        isActiveRunStatus(run.status)
+    const allWorkspaceRuns = (await this.store.loadAllRuns()).filter(
+      (run) => run.workspaceId === workspace.workspaceId
+    );
+    const latestRuns = allWorkspaceRuns.filter((run) =>
+      isActiveRunStatus(run.status)
     );
     const status = buildWorkspaceSnapshot({
       workspace,
       activeRuns: latestRuns,
+      allRuns: allWorkspaceRuns,
       summary: { dispatched, suppressed, recovered },
       lastTickAt: now.toISOString(),
       lastError,
     });
-
     await this.store.saveWorkspaceStatus(status);
     return status;
   }
@@ -301,6 +338,24 @@ export class OrchestratorService {
 
       if (!isWorkflowPhaseActionable(phase)) {
         continue;
+      }
+
+      // Blocker eligibility: skip planning-phase issues with non-terminal blockers
+      if (phase === "planning" && issue.blockedBy.length > 0) {
+        const hasNonTerminalBlocker = issue.blockedBy.some(
+          (blockerId: string) => {
+            const blockerIssue = issues.find((i) => i.identifier === blockerId);
+            if (!blockerIssue) return true; // Unknown blocker treated as blocking
+            const blockerPhase = resolveWorkflowExecutionPhase(
+              blockerIssue.state,
+              resolution.lifecycle
+            );
+            return !isWorkflowPhaseTerminal(blockerPhase);
+          }
+        );
+        if (hasNonTerminalBlocker) {
+          continue;
+        }
       }
 
       candidates.push({
@@ -464,6 +519,13 @@ export class OrchestratorService {
           TARGET_REPOSITORY_URL: issue.repository.url,
           ...trackerAdapter.buildWorkerEnvironment(workspace, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
+          SYMPHONY_MAX_TURNS: String(workflow.workflow.runtime.maxTurns),
+          SYMPHONY_READ_TIMEOUT_MS: String(
+            workflow.workflow.runtime.readTimeoutMs
+          ),
+          SYMPHONY_TURN_TIMEOUT_MS: String(
+            workflow.workflow.runtime.turnTimeoutMs
+          ),
         },
         detached: true,
         stdio: "ignore",
@@ -537,16 +599,24 @@ export class OrchestratorService {
       }
     }
 
+    // Attempt to capture final token usage from the worker state API
+    // before the worker process fully exits.
+    const tokenUsage = await this.fetchWorkerTokenUsage(run);
+    const runWithTokens: OrchestratorRunRecord = tokenUsage
+      ? { ...run, tokenUsage }
+      : run;
+
     if (
       run.attempt >= (this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
     ) {
       const failedRecord: OrchestratorRunRecord = {
-        ...run,
+        ...runWithTokens,
         status: "failed",
         completedAt: now.toISOString(),
         updatedAt: now.toISOString(),
-        retryKind: run.retryKind ?? "failure",
-        lastError: run.lastError ?? "Worker process exited unexpectedly.",
+        retryKind: runWithTokens.retryKind ?? "failure",
+        lastError:
+          runWithTokens.lastError ?? "Worker process exited unexpectedly.",
       };
       await this.store.saveRun(failedRecord);
       return {
@@ -607,9 +677,9 @@ export class OrchestratorService {
     }
 
     const retryRecord: OrchestratorRunRecord = {
-      ...run,
+      ...runWithTokens,
       status: "retrying",
-      attempt: run.attempt + 1,
+      attempt: runWithTokens.attempt + 1,
       processId: null,
       updatedAt: now.toISOString(),
       nextRetryAt,
@@ -636,7 +706,10 @@ export class OrchestratorService {
   }
 
   private initializePortFrom(runs: OrchestratorRunRecord[]): void {
-    const maxPort = runs.reduce((max, run) => Math.max(max, run.port ?? 0), DEFAULT_PORT_BASE);
+    const maxPort = runs.reduce(
+      (max, run) => Math.max(max, run.port ?? 0),
+      DEFAULT_PORT_BASE
+    );
     if (maxPort > this.nextPort) {
       this.nextPort = maxPort;
     }
@@ -658,7 +731,7 @@ export class OrchestratorService {
         fetchImpl: this.dependencies.fetchImpl,
       });
       const runIssue = issues.find(
-        (issue) => issue.identifier === run.issueIdentifier
+        (issue: TrackedIssue) => issue.identifier === run.issueIdentifier
       );
       if (!runIssue) {
         return "failure";
@@ -674,6 +747,70 @@ export class OrchestratorService {
       return isWorkflowPhaseActionable(phase) ? "continuation" : "failure";
     } catch {
       return "failure";
+    }
+  }
+
+  /**
+   * Attempt to fetch final token usage from the worker state API.
+   * Returns the token usage object or null if the worker is unreachable.
+   */
+  private async fetchWorkerTokenUsage(
+    run: OrchestratorRunRecord
+  ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
+    const liveWorkerTokenUsage = await this.fetchLiveWorkerTokenUsage(run);
+    if (liveWorkerTokenUsage) {
+      return liveWorkerTokenUsage;
+    }
+
+    return this.readPersistedWorkerTokenUsage(run);
+  }
+
+  private async fetchLiveWorkerTokenUsage(
+    run: OrchestratorRunRecord
+  ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
+    if (!run.port) {
+      return null;
+    }
+
+    try {
+      const fetchImpl = this.dependencies.fetchImpl ?? fetch;
+      const response = await fetchImpl(
+        `http://127.0.0.1:${run.port}/api/v1/state`
+      );
+      if (!response.ok) {
+        return null;
+      }
+
+      const state = (await response.json()) as {
+        tokenUsage?: {
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+        };
+      };
+      return hasTokenUsage(state.tokenUsage) ? state.tokenUsage : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readPersistedWorkerTokenUsage(
+    run: OrchestratorRunRecord
+  ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
+    const artifactPath = join(
+      run.workspaceRuntimeDir,
+      ".orchestrator",
+      "runs",
+      run.runId,
+      "token-usage.json"
+    );
+
+    try {
+      const raw = await readFile(artifactPath, "utf8");
+      const tokenUsage = JSON.parse(raw) as OrchestratorRunRecord["tokenUsage"];
+      return hasTokenUsage(tokenUsage) ? tokenUsage : null;
+    } catch {
+      return null;
     }
   }
 
@@ -751,6 +888,7 @@ export class OrchestratorService {
       at: now.toISOString(),
       event: "run-recovered",
       issueIdentifier: run.issueIdentifier,
+      issueId: run.issueId,
     });
 
     return {
@@ -782,6 +920,35 @@ export class OrchestratorService {
     return validIntervals.length
       ? Math.min(...validIntervals)
       : DEFAULT_POLL_INTERVAL_MS;
+  }
+
+  private async loadWorkspaceMaxConcurrentByPhase(
+    workspace: OrchestratorWorkspaceConfig
+  ): Promise<Record<string, number>> {
+    const result: Record<string, number> = {};
+    const resolutions = await Promise.all(
+      workspace.repositories.map(async (repository) => {
+        try {
+          return await this.loadIssueWorkflow(workspace, repository);
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const resolution of resolutions) {
+      if (!resolution) continue;
+      const phaseLimits = resolution.workflow.maxConcurrentByPhase;
+      for (const [phase, limit] of Object.entries(phaseLimits)) {
+        const existing = result[phase];
+        const numLimit = typeof limit === "number" ? limit : Number(limit);
+        // Use the minimum limit across all repository workflows
+        result[phase] =
+          existing === undefined ? numLimit : Math.min(existing, numLimit);
+      }
+    }
+
+    return result;
   }
 
   private async loadRetryPolicy(
@@ -893,8 +1060,44 @@ export class OrchestratorService {
   }
 }
 
+function hasTokenUsage(
+  tokenUsage: OrchestratorRunRecord["tokenUsage"] | undefined | null
+): tokenUsage is NonNullable<OrchestratorRunRecord["tokenUsage"]> {
+  return Boolean(
+    tokenUsage &&
+    (tokenUsage.inputTokens > 0 ||
+      tokenUsage.outputTokens > 0 ||
+      tokenUsage.totalTokens > 0)
+  );
+}
+
 export function createStore(runtimeRoot = ".runtime") {
   return new OrchestratorFsStore(runtimeRoot);
+}
+
+/**
+ * Sort dispatch candidates by priority (ascending, null last), then
+ * createdAt (oldest first, null last), then identifier (lexicographic).
+ */
+export function sortCandidatesForDispatch(
+  candidates: TrackedIssue[]
+): TrackedIssue[] {
+  return [...candidates].sort((a, b) => {
+    // 1. Priority ascending (null last)
+    if (a.priority !== b.priority) {
+      if (a.priority === null) return 1;
+      if (b.priority === null) return -1;
+      return a.priority - b.priority;
+    }
+    // 2. createdAt oldest first (null last)
+    if (a.createdAt !== b.createdAt) {
+      if (a.createdAt === null) return 1;
+      if (b.createdAt === null) return -1;
+      return a.createdAt < b.createdAt ? -1 : 1;
+    }
+    // 3. identifier lexicographic
+    return a.identifier.localeCompare(b.identifier);
+  });
 }
 
 function wait(ms: number): Promise<void> {
