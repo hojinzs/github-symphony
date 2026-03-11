@@ -1,10 +1,10 @@
-import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
+import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
 
 /**
  * Client-side alias for the orchestrator status snapshot.
  *
  * The orchestrator status API serializes `WorkspaceStatusSnapshot` from
- * `@github-symphony/core` as JSON. This re-export keeps the control-plane
+ * `@gh-symphony/core` as JSON. This re-export keeps the control-plane
  * client aligned with the spec-level status surface without duplicating
  * the type definition.
  */

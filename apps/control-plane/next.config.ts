@@ -4,8 +4,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["dockerode"],
   transpilePackages: [
-    "@github-symphony/core",
-    "@github-symphony/tracker-github"
+    "@gh-symphony/core",
+    "@gh-symphony/tracker-github"
   ]
 };
 
