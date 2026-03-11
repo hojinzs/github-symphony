@@ -37,19 +37,19 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
  Use a classic PAT issued for the dedicated machine user with these scopes:
  `repo`, `read:org`, `project`
 8. Create a workspace from the control plane. That persists workspace metadata and emits orchestrator config under `.runtime/orchestrator/workspaces/<workspace-id>/config.json`.
-9. Start the headless orchestrator with `pnpm --filter @github-symphony/orchestrator build` followed by `pnpm --filter @github-symphony/orchestrator start -- run`.
+9. Start the headless orchestrator with `pnpm --filter @gh-symphony/orchestrator build` followed by `pnpm --filter @gh-symphony/orchestrator start -- run`.
  The long-running `run` command also exposes the orchestrator status API on `http://127.0.0.1:4680` by default. Override it with `--status-host`, `--status-port`, or `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts.
 
 ## Headless orchestration
 
 The orchestrator is the authoritative dispatch loop. It can run without the control-plane web app as long as workspace config already exists under `.runtime/orchestrator`.
 
-- `pnpm --filter @github-symphony/orchestrator start -- run`: continuous polling loop plus the status API on `127.0.0.1:4680` by default
-- `pnpm --filter @github-symphony/orchestrator start -- run-once`: single reconciliation tick
-- `pnpm --filter @github-symphony/orchestrator start -- dispatch --workspace-id <workspace-id>`: targeted workspace reconciliation
-- `pnpm --filter @github-symphony/orchestrator start -- run-issue --workspace-id <workspace-id> --issue <owner/repo#number>`: targeted issue dispatch
-- `pnpm --filter @github-symphony/orchestrator start -- recover`: reconcile filesystem state with live tracker state after a crash
-- `pnpm --filter @github-symphony/orchestrator start -- status`: print machine-readable orchestration status
+- `pnpm --filter @gh-symphony/orchestrator start -- run`: continuous polling loop plus the status API on `127.0.0.1:4680` by default
+- `pnpm --filter @gh-symphony/orchestrator start -- run-once`: single reconciliation tick
+- `pnpm --filter @gh-symphony/orchestrator start -- dispatch --workspace-id <workspace-id>`: targeted workspace reconciliation
+- `pnpm --filter @gh-symphony/orchestrator start -- run-issue --workspace-id <workspace-id> --issue <owner/repo#number>`: targeted issue dispatch
+- `pnpm --filter @gh-symphony/orchestrator start -- recover`: reconcile filesystem state with live tracker state after a crash
+- `pnpm --filter @gh-symphony/orchestrator start -- status`: print machine-readable orchestration status
 
 Runtime state lives under `.runtime/orchestrator`:
 

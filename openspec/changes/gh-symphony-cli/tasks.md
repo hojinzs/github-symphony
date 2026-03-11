@@ -1,6 +1,6 @@
 ## 1. 패키지 초기 셋업
 
-- [x] 1.1 `packages/cli/` 디렉토리 생성, `package.json` 작성 (`@github-symphony/cli`, bin: `gh-symphony`), workspace 의존성 설정 (`core`, `orchestrator`, `tracker-github`)
+- [x] 1.1 `packages/cli/` 디렉토리 생성, `package.json` 작성 (`@gh-symphony/cli`, bin: `gh-symphony`), workspace 의존성 설정 (`core`, `orchestrator`, `tracker-github`)
 - [x] 1.2 TypeScript 설정 (`tsconfig.json`), 빌드 스크립트 (`tsup` 또는 기존 빌드 도구), ESLint/Prettier 상속
 - [x] 1.3 `@clack/prompts` 의존성 추가, CLI 진입점 (`src/index.ts`) 스캐폴딩 — 명령어 라우팅 구조 (command → handler 패턴)
 - [x] 1.4 글로벌 옵션 파싱 (`--config`, `--verbose`, `--json`, `--no-color`) 및 설정 디렉토리 경로 해석 (`~/.gh-symphony/` 기본값)

@@ -18,8 +18,8 @@ pnpm format               # Prettier check
 pnpm format:write         # Prettier auto-fix
 
 # Single package
-pnpm --filter @github-symphony/core test
-pnpm --filter @github-symphony/orchestrator build
+pnpm --filter @gh-symphony/core test
+pnpm --filter @gh-symphony/orchestrator build
 
 # Single test file
 npx vitest run packages/core/src/workflow/workflow-loader.test.ts
