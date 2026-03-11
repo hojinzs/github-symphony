@@ -1,7 +1,9 @@
 {
-  "name": "@github-symphony/orchestrator",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@gh-symphony/orchestrator",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Headless CLI orchestrator with filesystem-backed state management for GitHub Symphony",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,6 +14,23 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/orchestrator"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --watch src/index.ts",
@@ -21,7 +40,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/core": "workspace:*",
-    "@github-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/tracker-github": "workspace:*"
   }
 }

@@ -1,7 +1,9 @@
 {
-  "name": "@github-symphony/extension-github-workflow",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@gh-symphony/extension-github-workflow",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "GitHub-specific planning, approval, PR reporting, and handoff verification extensions for Symphony",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,6 +14,23 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/extension-github-workflow"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --ext .ts",
@@ -19,6 +38,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/core": "workspace:*"
+    "@gh-symphony/core": "workspace:*"
   }
 }

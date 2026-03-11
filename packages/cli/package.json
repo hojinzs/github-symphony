@@ -1,7 +1,9 @@
 {
-  "name": "@github-symphony/cli",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@gh-symphony/cli",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Interactive CLI for GitHub Symphony orchestration",
   "type": "module",
   "bin": {
     "gh-symphony": "./dist/index.js"
@@ -15,6 +17,23 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --ext .ts",
@@ -23,8 +42,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
-    "@github-symphony/core": "workspace:*",
-    "@github-symphony/orchestrator": "workspace:*",
-    "@github-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/orchestrator": "workspace:*",
+    "@gh-symphony/tracker-github": "workspace:*"
   }
 }

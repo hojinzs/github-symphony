@@ -1,16 +1,35 @@
 {
-  "name": "@github-symphony/shared",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@gh-symphony/shared",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Shared re-exports combining Symphony core and tracker-github packages",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -19,7 +38,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/core": "workspace:*",
-    "@github-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/tracker-github": "workspace:*"
   }
 }

@@ -1,7 +1,10 @@
 {
-  "name": "@github-symphony/worker",
+  "name": "@gh-symphony/worker",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Symphony worker runtime for executing single issue runs",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -13,9 +16,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/core": "workspace:*",
-    "@github-symphony/extension-github-workflow": "workspace:*",
-    "@github-symphony/runtime-codex": "workspace:*",
-    "@github-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/extension-github-workflow": "workspace:*",
+    "@gh-symphony/runtime-codex": "workspace:*",
+    "@gh-symphony/tracker-github": "workspace:*"
   }
 }

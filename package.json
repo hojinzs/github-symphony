@@ -9,8 +9,8 @@
     "build": "pnpm -r build",
     "dev": "pnpm --filter control-plane dev",
     "dev:control-plane": "pnpm --filter control-plane dev",
-    "dev:orchestrator": "pnpm --filter @github-symphony/orchestrator dev",
-    "dev:worker": "pnpm --filter @github-symphony/worker dev",
+    "dev:orchestrator": "pnpm --filter @gh-symphony/orchestrator dev",
+    "dev:worker": "pnpm --filter @gh-symphony/worker dev",
     "lint": "pnpm -r lint",
     "prisma:db-push": "prisma db push",
     "prisma:generate": "prisma generate",
@@ -19,9 +19,14 @@
     "test:watch": "vitest",
     "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
     "format": "prettier --check .",
-    "format:write": "prettier --write ."
+    "format:write": "prettier --write .",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && pnpm -r publish --provenance --access public"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
     "@eslint/js": "^9.22.0",
     "@types/node": "^24.0.0",
     "eslint": "^9.22.0",

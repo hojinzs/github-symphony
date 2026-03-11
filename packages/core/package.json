@@ -1,7 +1,9 @@
 {
-  "name": "@github-symphony/core",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@gh-symphony/core",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Tracker-agnostic Symphony core contracts, workflow loading, orchestration types, and observability surfaces",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,6 +13,23 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
