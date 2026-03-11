@@ -1,4 +1,4 @@
-import type { WorkflowLifecycleConfig } from "@github-symphony/core";
+import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { GitHubTrackedIssue } from "./adapter.js";
 
 type RepositoryAlias = {

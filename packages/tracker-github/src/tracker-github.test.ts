@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WORKFLOW_LIFECYCLE } from "@github-symphony/core";
+import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
 import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
 import {
   validateWorkflowFieldMapping,

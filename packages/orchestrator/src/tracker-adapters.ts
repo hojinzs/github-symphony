@@ -1,3 +1,3 @@
-import { resolveTrackerAdapter } from "@github-symphony/tracker-github";
+import { resolveTrackerAdapter } from "@gh-symphony/tracker-github";
 
 export { resolveTrackerAdapter };

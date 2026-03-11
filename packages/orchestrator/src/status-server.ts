@@ -4,7 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
+import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
 
 let refreshPending = false;
 

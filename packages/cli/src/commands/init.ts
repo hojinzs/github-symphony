@@ -29,7 +29,7 @@ import {
   type HumanReviewMode,
   type WorkflowMappingConfig,
 } from "../config.js";
-import type { WorkflowLifecycleConfig } from "@github-symphony/core";
+import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 
 // ── Cancellation utility ─────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@
  * spawns processes), we replicate the exact protocol logic here and test it directly.
  *
  * This approach verifies the correctness of the protocol patterns without requiring
- * complex module mocking of @github-symphony/runtime-codex dependencies.
+ * complex module mocking of @gh-symphony/runtime-codex dependencies.
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";

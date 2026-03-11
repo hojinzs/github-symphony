@@ -57,7 +57,7 @@ describe("approval workflow integration", () => {
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
         report: {
           summary: "Implemented the approval-aware worker loop.",
-          validation: ["pnpm test --filter @github-symphony/worker"]
+          validation: ["pnpm test --filter @gh-symphony/worker"]
         }
       },
       client
@@ -68,7 +68,7 @@ describe("approval workflow integration", () => {
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
         report: {
           summary: "Implemented the approval-aware worker loop.",
-          validation: ["pnpm test --filter @github-symphony/worker"]
+          validation: ["pnpm test --filter @gh-symphony/worker"]
         }
       },
       client

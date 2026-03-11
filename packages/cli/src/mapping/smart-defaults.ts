@@ -1,4 +1,4 @@
-import type { WorkflowLifecycleConfig } from "@github-symphony/core";
+import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { ColumnRole, HumanReviewMode } from "../config.js";
 
 // ── 3.1: Smart defaults pattern matching ─────────────────────────────────────

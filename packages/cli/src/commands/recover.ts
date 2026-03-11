@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { GlobalOptions } from "../index.js";
-import { runCli as orchestratorRunCli } from "@github-symphony/orchestrator";
+import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
   resolveWorkspaceConfig,

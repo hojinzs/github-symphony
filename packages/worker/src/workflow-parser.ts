@@ -1,1 +1,1 @@
-export { parseWorkflowMarkdown, type ParsedWorkflow } from "@github-symphony/core";
+export { parseWorkflowMarkdown, type ParsedWorkflow } from "@gh-symphony/core";

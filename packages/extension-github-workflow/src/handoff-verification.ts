@@ -1,4 +1,4 @@
-import type { WorkflowExecutionPhase } from "@github-symphony/core";
+import type { WorkflowExecutionPhase } from "@gh-symphony/core";
 
 export type HandoffVerificationInput = {
   runId: string;

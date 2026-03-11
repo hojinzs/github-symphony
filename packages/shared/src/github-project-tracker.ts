@@ -1,1 +1,1 @@
-export * from "@github-symphony/tracker-github";
+export * from "@gh-symphony/tracker-github";

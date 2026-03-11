@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   assertRepositoryAllowed,
   resolveWorkspaceDirectory
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import type {
   OrchestratorWorkspaceConfig,
   WorkflowLifecycleConfig,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";

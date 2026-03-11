@@ -5,5 +5,5 @@ export {
   matchesWorkflowState,
   normalizeWorkflowState,
   resolveWorkflowExecutionPhase
-} from "@github-symphony/core";
-export type { WorkflowExecutionPhase, WorkflowLifecycleConfig } from "@github-symphony/core";
+} from "@gh-symphony/core";
+export type { WorkflowExecutionPhase, WorkflowLifecycleConfig } from "@gh-symphony/core";

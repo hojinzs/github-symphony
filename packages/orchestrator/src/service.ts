@@ -25,7 +25,7 @@ import {
   type WorkflowResolution,
   type WorkspaceLeaseRecord,
   type WorkspaceStatusSnapshot,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import {
   cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,

@@ -7,7 +7,7 @@ import type { CliWorkspaceConfig } from "../config.js";
 const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
 
-vi.mock("@github-symphony/orchestrator", () => ({
+vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
 }));
 

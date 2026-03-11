@@ -1,2 +1,2 @@
-export * from "@github-symphony/core";
-export * from "@github-symphony/tracker-github";
+export * from "@gh-symphony/core";
+export * from "@gh-symphony/tracker-github";

@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import {
   assertRepositoryAllowed,
   resolveWorkspaceDirectory
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 export type AfterCreateHookContext = {
   workspaceId: string;

@@ -4,7 +4,7 @@ import {
   resolveWorkflowExecutionPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;

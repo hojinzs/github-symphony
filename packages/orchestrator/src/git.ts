@@ -7,7 +7,7 @@ import {
   WorkflowConfigStore,
   type RepositoryRef,
   type WorkflowResolution
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 const workflowConfigStore = new WorkflowConfigStore();
 

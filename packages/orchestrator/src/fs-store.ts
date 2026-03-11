@@ -16,7 +16,7 @@ import type {
   OrchestratorWorkspaceConfig,
   WorkspaceLeaseRecord,
   WorkspaceStatusSnapshot,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
   constructor(readonly runtimeRoot: string) {}

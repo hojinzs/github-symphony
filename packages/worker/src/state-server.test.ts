@@ -109,7 +109,7 @@ describe("createWorkerRequestHandler", () => {
   it("serves state payloads from /api/v1/state", async () => {
     const response = createMockResponse();
     const handler = createWorkerRequestHandler(async () => ({
-      package: "@github-symphony/worker",
+      package: "@gh-symphony/worker",
       runtime: "self-hosted-sample",
       status: "idle",
       projectId: "project-123",

@@ -1,7 +1,7 @@
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerConfig,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import { fetchProjectIssues } from "./adapter.js";
 
 export const githubProjectAdapter: OrchestratorTrackerAdapter = {

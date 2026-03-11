@@ -4,7 +4,7 @@ import {
   parseWorkflowMarkdown,
   resolveWorkspaceDirectory,
   scheduleRetryAt
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import { describe, expect, it } from "vitest";
 
 const SAMPLE_WORKFLOW = `---

@@ -1,1 +1,1 @@
-export * from "@github-symphony/extension-github-workflow";
+export * from "@gh-symphony/extension-github-workflow";

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { OrchestratorService } from "./service.js";
 

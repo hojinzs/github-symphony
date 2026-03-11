@@ -94,7 +94,7 @@ export async function buildWorkerRuntimeState(
   }
 
   return {
-    package: "@github-symphony/worker",
+    package: "@gh-symphony/worker",
     runtime: "self-hosted-sample",
     status: runtime.status ?? "idle",
     projectId: env.GITHUB_PROJECT_ID ?? workflow?.githubProjectId ?? null,

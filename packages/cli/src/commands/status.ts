@@ -1,5 +1,5 @@
 import type { GlobalOptions } from "../index.js";
-import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
+import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {

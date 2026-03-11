@@ -6,11 +6,11 @@ import {
   prepareCodexRuntimePlan,
   type CodexRuntimePlan,
   type RuntimeToolDefinition,
-} from "@github-symphony/runtime-codex";
+} from "@gh-symphony/runtime-codex";
 import {
   loadLauncherEnvironment,
   resolveLocalRuntimeLaunchConfig,
-} from "@github-symphony/runtime-codex";
+} from "@gh-symphony/runtime-codex";
 import {
   buildWorkerRuntimeState,
   startWorkerStateServer,
@@ -81,7 +81,7 @@ const server = startWorkerStateServer({
 console.log(
   JSON.stringify(
     {
-      package: "@github-symphony/worker",
+      package: "@gh-symphony/worker",
       runtime: "self-hosted-sample",
       port,
     },

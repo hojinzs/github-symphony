@@ -3,7 +3,7 @@ import {
   matchesWorkflowState,
   resolveWorkflowExecutionPhase,
   type WorkflowLifecycleConfig,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 
 export type ApprovalWorkflowIssue = {
   id: string;

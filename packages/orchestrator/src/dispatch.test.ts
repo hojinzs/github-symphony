@@ -9,7 +9,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorWorkspaceConfig,
   TrackedIssue,
-} from "@github-symphony/core";
+} from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 

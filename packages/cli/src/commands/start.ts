@@ -7,8 +7,8 @@ import {
   OrchestratorService,
   createStore,
   startOrchestratorStatusServer,
-} from "@github-symphony/orchestrator";
-import type { WorkspaceStatusSnapshot } from "@github-symphony/core";
+} from "@gh-symphony/orchestrator";
+import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
 import {
   resolveWorkspaceConfig,
   resolveRuntimeRoot,
