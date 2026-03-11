@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
-    "@github-symphony/core": "workspace:*",
+    "@gh-symphony/core": "workspace:*",
     "@prisma/client": "6.19.2",
     "dockerode": "^4.0.7",
     "next": "^15.2.0",
