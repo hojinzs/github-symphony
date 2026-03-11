@@ -44,7 +44,8 @@ export async function runCli(
           const addr = statusServer.address();
           if (addr && typeof addr === "object") {
             const host = addr.address === "::" || addr.address === "0.0.0.0" ? "localhost" : addr.address;
-            stdout.write(`Status server listening on http://${host}:${addr.port}\n`);
+            const urlHost = host !== "localhost" && host.includes(":") ? `[${host}]` : host;
+            stdout.write(`Status server listening on http://${urlHost}:${addr.port}\n`);
           }
         });
       }
