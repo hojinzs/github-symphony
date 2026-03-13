@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -136,6 +136,17 @@ type EcosystemOptions = {
   skipContext: boolean;
 };
 
+export type EcosystemResult = {
+  projectId: string;
+  projectTitle: string;
+  runtime: string;
+  skillsDir: string | null;
+  contextYamlWritten: boolean;
+  referenceWorkflowWritten: boolean;
+  skillsWritten: string[];
+  skillsSkipped: string[];
+};
+
 function inferAgentRuntimeFromCommand(command?: string): string | null {
   if (!command) {
     return null;
@@ -193,7 +204,9 @@ export async function resolveTenantRuntime(
   return inferAgentRuntimeFromCommand(tenantWorkerCommand) ?? "codex";
 }
 
-export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
+export async function writeEcosystem(
+  opts: EcosystemOptions
+): Promise<EcosystemResult> {
   const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
     opts;
   const ghSymphonyDir = join(cwd, ".gh-symphony");
@@ -203,6 +216,7 @@ export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
   const env = await detectEnvironment(cwd);
 
   // 2. Write context.yaml (unless --skip-context)
+  let contextYamlWritten = false;
   if (!skipContext) {
     const contextYaml = buildContextYaml({
       projectDetail,
@@ -219,6 +233,7 @@ export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
       },
     });
     await writeContextYaml(cwd, contextYaml);
+    contextYamlWritten = true;
   }
 
   // 3. Write reference-workflow.md
@@ -236,27 +251,90 @@ export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
   await rename(tmpRef, refPath);
 
   // 4. Write skills (unless --skip-skills)
-  if (!skipSkills) {
-    const skillsDir = resolveSkillsDir(cwd, runtime);
-    if (skillsDir) {
-      await writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, {
-        runtime,
-        projectId: projectDetail.id,
-        projectTitle: projectDetail.title,
-        repositories: projectDetail.linkedRepositories.map((r) => ({
-          owner: r.owner,
-          name: r.name,
-        })),
-        statusColumns: statusField.options.map((o) => ({
-          id: o.id,
-          name: o.name,
-          role: null as "active" | "wait" | "terminal" | null,
-        })),
-        statusFieldId: statusField.id,
-        contextYamlPath: ".gh-symphony/context.yaml",
-        referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
-      });
+  const skillsDir = resolveSkillsDir(cwd, runtime);
+  let skillsWritten: string[] = [];
+  let skillsSkipped: string[] = [];
+  if (!skipSkills && skillsDir) {
+    const result = await writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, {
+      runtime,
+      projectId: projectDetail.id,
+      projectTitle: projectDetail.title,
+      repositories: projectDetail.linkedRepositories.map((r) => ({
+        owner: r.owner,
+        name: r.name,
+      })),
+      statusColumns: statusField.options.map((o) => ({
+        id: o.id,
+        name: o.name,
+        role: null as "active" | "wait" | "terminal" | null,
+      })),
+      statusFieldId: statusField.id,
+      contextYamlPath: ".gh-symphony/context.yaml",
+      referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+    });
+    skillsWritten = result.written.map((p) => basename(dirname(p)));
+    skillsSkipped = result.skipped.map((p) => basename(dirname(p)));
+  }
+
+  return {
+    projectId: projectDetail.id,
+    projectTitle: projectDetail.title,
+    runtime,
+    skillsDir,
+    contextYamlWritten,
+    referenceWorkflowWritten: true,
+    skillsWritten,
+    skillsSkipped,
+  };
+}
+
+// ── Ecosystem summary output ─────────────────────────────────────────────────
+
+function printEcosystemSummary(
+  result: EcosystemResult,
+  workflowPath: string,
+  opts: { interactive: boolean; nextSteps?: string }
+): void {
+  const cwd = process.cwd();
+  const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
+
+  const lines: string[] = [];
+  lines.push(`Project   ${result.projectTitle}  (${result.projectId})`);
+  lines.push(`Runtime   ${result.runtime}`);
+  lines.push("");
+  lines.push("Generated files");
+  lines.push(`  ✓ WORKFLOW.md                          ${relWorkflow}`);
+  if (result.contextYamlWritten) {
+    lines.push(
+      "  ✓ Context metadata                     .gh-symphony/context.yaml"
+    );
+  }
+  if (result.referenceWorkflowWritten) {
+    lines.push(
+      "  ✓ Reference workflow                   .gh-symphony/reference-workflow.md"
+    );
+  }
+
+  if (result.skillsDir) {
+    const relSkillsDir = relative(cwd, result.skillsDir);
+    lines.push("");
+    lines.push(`Skills  →  ${relSkillsDir}/`);
+    for (const name of result.skillsWritten) {
+      lines.push(`  ✓ ${name}`);
     }
+    for (const name of result.skillsSkipped) {
+      lines.push(`  – ${name}  (already exists, skipped)`);
+    }
+  } else if (result.runtime !== "codex" && result.runtime !== "claude-code") {
+    lines.push("");
+    lines.push("Skills  →  (skipped — custom runtime)");
+  }
+
+  if (opts.interactive) {
+    p.note(lines.join("\n"), "Setup complete");
+    p.outro(opts.nextSteps ?? "Ready.");
+  } else {
+    process.stdout.write(lines.map((l) => `  ${l}`).join("\n") + "\n");
   }
 }
 
@@ -365,7 +443,7 @@ async function runNonInteractive(
 
   await writeFile(outputPath, workflowMd, "utf8");
 
-  await writeEcosystem({
+  const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
     projectDetail: project,
     statusField,
@@ -379,13 +457,10 @@ async function runNonInteractive(
       JSON.stringify({ output: outputPath, status: "created" }) + "\n"
     );
   } else {
-    process.stdout.write(`WORKFLOW.md generated at ${outputPath}\n`);
-    process.stdout.write(
-      `Ecosystem files written to .gh-symphony/ and skills directory.\n`
-    );
-    process.stdout.write(
-      `Run 'gh-symphony tenant add' to register a tenant and connect this configuration.\n`
-    );
+    printEcosystemSummary(ecosystemResult, outputPath, {
+      interactive: false,
+      nextSteps: "Run 'gh-symphony tenant add' to register a tenant.",
+    });
   }
 }
 
@@ -483,6 +558,7 @@ async function runInteractiveFromTenant(
 
   const token = globalConfig.token;
   const projId = tenantConfig.tracker.settings?.projectId as string | undefined;
+  let ecosystemResult: EcosystemResult | null = null;
   if (token && projId) {
     try {
       const client = createClient(token);
@@ -492,7 +568,7 @@ async function runInteractiveFromTenant(
           (f) => f.name.toLowerCase() === stateFieldName.toLowerCase()
         ) ?? fullProject.statusFields[0];
       if (sf) {
-        await writeEcosystem({
+        ecosystemResult = await writeEcosystem({
           cwd: process.cwd(),
           projectDetail: fullProject,
           statusField: sf,
@@ -506,7 +582,11 @@ async function runInteractiveFromTenant(
     }
   }
 
-  p.outro(`WORKFLOW.md generated at ${outputPath}`);
+  if (ecosystemResult) {
+    printEcosystemSummary(ecosystemResult, outputPath, { interactive: true });
+  } else {
+    p.outro(`WORKFLOW.md generated at ${outputPath}`);
+  }
 }
 
 // ── Case B: Standalone WORKFLOW.md generation (no tenant) ────────────────────
@@ -686,7 +766,7 @@ async function runInteractiveStandalone(
   const outputPath = resolve("WORKFLOW.md");
   await writeFile(outputPath, workflowMd, "utf8");
 
-  await writeEcosystem({
+  const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
     projectDetail,
     statusField,
@@ -695,9 +775,10 @@ async function runInteractiveStandalone(
     skipContext: false,
   });
 
-  p.outro(
-    `WORKFLOW.md generated at ${outputPath}\n  Run 'gh-symphony tenant add' to register a tenant and connect this configuration.`
-  );
+  printEcosystemSummary(ecosystemResult, outputPath, {
+    interactive: true,
+    nextSteps: "Run 'gh-symphony tenant add' to register a tenant.",
+  });
 }
 
 async function promptBlockedByField(
