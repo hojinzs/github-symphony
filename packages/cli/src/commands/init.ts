@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
@@ -13,6 +13,7 @@ import {
   type GitHubClient,
   type ProjectSummary,
   type ProjectDetail,
+  type ProjectStatusField,
   type ProjectTextField,
   type LinkedRepository,
 } from "../github/client.js";
@@ -34,6 +35,14 @@ import {
   type StateMapping,
   type WorkflowStateConfig,
 } from "../config.js";
+import { detectEnvironment } from "../detection/environment-detector.js";
+import {
+  buildContextYaml,
+  writeContextYaml,
+} from "../context/generate-context-yaml.js";
+import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
+import { resolveSkillsDir, writeAllSkills } from "../skills/skill-writer.js";
+import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 
 // ── Cancellation utility ─────────────────────────────────────────────────────
 
@@ -55,10 +64,16 @@ type InitFlags = {
   token?: string;
   project?: string;
   output?: string;
+  skipSkills: boolean;
+  skipContext: boolean;
 };
 
 function parseInitFlags(args: string[]): InitFlags {
-  const flags: InitFlags = { nonInteractive: false };
+  const flags: InitFlags = {
+    nonInteractive: false,
+    skipSkills: false,
+    skipContext: false,
+  };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -78,6 +93,12 @@ function parseInitFlags(args: string[]): InitFlags {
       case "--output":
         flags.output = next;
         i += 1;
+        break;
+      case "--skip-skills":
+        flags.skipSkills = true;
+        break;
+      case "--skip-context":
+        flags.skipContext = true;
         break;
     }
   }
@@ -102,6 +123,88 @@ const handler = async (
 };
 
 export default handler;
+
+// ── Ecosystem file generation ────────────────────────────────────────────────
+
+type EcosystemOptions = {
+  cwd: string;
+  projectDetail: ProjectDetail;
+  statusField: ProjectStatusField;
+  runtime: string;
+  skipSkills: boolean;
+  skipContext: boolean;
+};
+
+export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
+  const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
+    opts;
+  const ghSymphonyDir = join(cwd, ".gh-symphony");
+  await mkdir(ghSymphonyDir, { recursive: true });
+
+  // 1. Detect environment
+  const env = await detectEnvironment(cwd);
+
+  // 2. Write context.yaml (unless --skip-context)
+  if (!skipContext) {
+    const contextYaml = buildContextYaml({
+      projectDetail,
+      statusField,
+      detectedEnvironment: env,
+      runtime: {
+        agent: runtime,
+        agent_command:
+          runtime === "codex"
+            ? "bash -lc codex app-server"
+            : runtime === "claude-code"
+              ? "bash -lc claude-code"
+              : runtime,
+      },
+    });
+    await writeContextYaml(cwd, contextYaml);
+  }
+
+  // 3. Write reference-workflow.md
+  const refWorkflow = generateReferenceWorkflow({
+    runtime,
+    statusColumns: statusField.options.map((o) => ({
+      name: o.name,
+      role: null as "active" | "wait" | "terminal" | null,
+    })),
+    repositories: projectDetail.linkedRepositories.map((r) => ({
+      owner: r.owner,
+      name: r.name,
+    })),
+    projectId: projectDetail.id,
+  });
+  const refPath = join(ghSymphonyDir, "reference-workflow.md");
+  const tmpRef = refPath + ".tmp";
+  await writeFile(tmpRef, refWorkflow, "utf8");
+  await rename(tmpRef, refPath);
+
+  // 4. Write skills (unless --skip-skills)
+  if (!skipSkills) {
+    const skillsDir = resolveSkillsDir(cwd, runtime);
+    if (skillsDir) {
+      await writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, {
+        runtime,
+        projectId: projectDetail.id,
+        projectTitle: projectDetail.title,
+        repositories: projectDetail.linkedRepositories.map((r) => ({
+          owner: r.owner,
+          name: r.name,
+        })),
+        statusColumns: statusField.options.map((o) => ({
+          id: o.id,
+          name: o.name,
+          role: null as "active" | "wait" | "terminal" | null,
+        })),
+        statusFieldId: statusField.id,
+        contextYamlPath: ".gh-symphony/context.yaml",
+        referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+      });
+    }
+  }
+}
 
 // ── Non-interactive mode: WORKFLOW.md only ───────────────────────────────────
 
@@ -193,7 +296,8 @@ async function runNonInteractive(
 
   const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
   const textFieldNames = project.textFields.map((f) => f.name);
-  const blockedByFieldName = inferBlockedByFieldName(textFieldNames) ?? undefined;
+  const blockedByFieldName =
+    inferBlockedByFieldName(textFieldNames) ?? undefined;
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
 
   const workflowMd = generateWorkflowMarkdown({
@@ -211,12 +315,24 @@ async function runNonInteractive(
 
   await writeFile(outputPath, workflowMd, "utf8");
 
+  await writeEcosystem({
+    cwd: process.cwd(),
+    projectDetail: project,
+    statusField,
+    runtime: "codex",
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
+  });
+
   if (options.json) {
     process.stdout.write(
       JSON.stringify({ output: outputPath, status: "created" }) + "\n"
     );
   } else {
     process.stdout.write(`WORKFLOW.md generated at ${outputPath}\n`);
+    process.stdout.write(
+      `Ecosystem files written to .gh-symphony/ and skills directory.\n`
+    );
     process.stdout.write(
       `Run 'gh-symphony tenant add' to register a tenant and connect this configuration.\n`
     );
@@ -317,12 +433,39 @@ async function runInteractiveFromTenant(
   const outputPath = resolve("WORKFLOW.md");
   await writeFile(outputPath, workflowMd, "utf8");
 
+  const token = globalConfig.token;
+  const projId = tenantConfig.tracker.settings?.projectId as string | undefined;
+  if (token && projId) {
+    try {
+      const client = createClient(token);
+      const fullProject = await getProjectDetail(client, projId);
+      const sf =
+        fullProject.statusFields.find(
+          (f) => f.name.toLowerCase() === stateFieldName.toLowerCase()
+        ) ?? fullProject.statusFields[0];
+      if (sf) {
+        await writeEcosystem({
+          cwd: process.cwd(),
+          projectDetail: fullProject,
+          statusField: sf,
+          runtime,
+          skipSkills: false,
+          skipContext: false,
+        });
+      }
+    } catch {
+      // best-effort: don't fail init if GitHub API is unreachable
+    }
+  }
+
   p.outro(`WORKFLOW.md generated at ${outputPath}`);
 }
 
 // ── Case B: Standalone WORKFLOW.md generation (no tenant) ────────────────────
 
-async function runInteractiveStandalone(_options: GlobalOptions): Promise<void> {
+async function runInteractiveStandalone(
+  _options: GlobalOptions
+): Promise<void> {
   // Step 1: PAT input
   let client!: GitHubClient;
 
@@ -478,7 +621,9 @@ async function runInteractiveStandalone(_options: GlobalOptions): Promise<void> 
   const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
 
   // Step 4: Blocker field selection (optional)
-  const blockedByFieldName = await promptBlockedByField(projectDetail.textFields);
+  const blockedByFieldName = await promptBlockedByField(
+    projectDetail.textFields
+  );
 
   // Generate WORKFLOW.md only — no config files written
   const workflowMd = generateWorkflowMarkdown({
@@ -496,6 +641,15 @@ async function runInteractiveStandalone(_options: GlobalOptions): Promise<void> 
 
   const outputPath = resolve("WORKFLOW.md");
   await writeFile(outputPath, workflowMd, "utf8");
+
+  await writeEcosystem({
+    cwd: process.cwd(),
+    projectDetail,
+    statusField,
+    runtime: "codex",
+    skipSkills: false,
+    skipContext: false,
+  });
 
   p.outro(
     `WORKFLOW.md generated at ${outputPath}\n  Run 'gh-symphony tenant add' to register a tenant and connect this configuration.`
@@ -517,7 +671,8 @@ async function promptBlockedByField(
     ...textFields.map((f) => ({
       value: f.name,
       label: f.name,
-      hint: f.name === autoDetected ? "auto-detected" : f.dataType.toLowerCase(),
+      hint:
+        f.name === autoDetected ? "auto-detected" : f.dataType.toLowerCase(),
     })),
   ];
 
@@ -548,7 +703,11 @@ type WriteConfigInput = {
   token: string;
   project: ProjectDetail;
   repos: LinkedRepository[];
-  statusField: { name: string; options: Array<{ name: string }> };
+  statusField: {
+    id: string;
+    name: string;
+    options: Array<{ id: string; name: string; color?: string | null }>;
+  };
   mappings: Record<string, StateMapping>;
   runtime: string;
   workerCommand?: string;
@@ -601,7 +760,9 @@ export async function writeConfig(
       settings: {
         projectId: input.project.id,
         token: input.token,
-        ...(input.blockedByFieldName && { blockedByFieldName: input.blockedByFieldName }),
+        ...(input.blockedByFieldName && {
+          blockedByFieldName: input.blockedByFieldName,
+        }),
       },
     },
     runtime: {
@@ -645,7 +806,6 @@ export async function writeConfig(
   );
   await writeFile(workflowMdPath, workflowMd, "utf8");
 }
-
 
 export function generateTenantId(
   projectTitle: string,

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import type { CliTenantConfig, WorkflowStateConfig } from "../config.js";
-import { generateTenantId, writeConfig } from "./init.js";
+import { generateTenantId, writeConfig, writeEcosystem } from "./init.js";
 
 describe("init command config output", () => {
   it("writes workflow and orchestrator overrides for the runtime", async () => {
@@ -18,6 +18,7 @@ describe("init command config output", () => {
         title: "Platform",
         url: "https://github.com/orgs/acme/projects/1",
         statusFields: [],
+        textFields: [],
         linkedRepositories: [],
       },
       repos: [
@@ -29,8 +30,13 @@ describe("init command config output", () => {
         },
       ],
       statusField: {
+        id: "PVTSSF_stage1",
         name: "Stage",
-        options: [{ name: "Queued" }, { name: "Doing" }, { name: "Done" }],
+        options: [
+          { id: "opt_q", name: "Queued" },
+          { id: "opt_d", name: "Doing" },
+          { id: "opt_dn", name: "Done" },
+        ],
       },
       mappings: {
         Queued: { role: "active", goal: "Triage and plan the issue" },
@@ -57,12 +63,7 @@ describe("init command config output", () => {
 
     const mapping = JSON.parse(
       await readFile(
-        join(
-          configDir,
-          "tenants",
-          "tenant-alpha",
-          "workflow-mapping.json"
-        ),
+        join(configDir, "tenants", "tenant-alpha", "workflow-mapping.json"),
         "utf8"
       )
     ) as WorkflowStateConfig;
@@ -82,6 +83,7 @@ describe("init command config output", () => {
         title: "Platform",
         url: "https://github.com/orgs/acme/projects/2",
         statusFields: [],
+        textFields: [],
         linkedRepositories: [],
       },
       repos: [
@@ -93,8 +95,13 @@ describe("init command config output", () => {
         },
       ],
       statusField: {
+        id: "PVTSSF_status1",
         name: "Status",
-        options: [{ name: "Todo" }, { name: "In Progress" }, { name: "Done" }],
+        options: [
+          { id: "opt_todo", name: "Todo" },
+          { id: "opt_ip", name: "In Progress" },
+          { id: "opt_done", name: "Done" },
+        ],
       },
       mappings: {
         Todo: { role: "active" },
@@ -121,5 +128,148 @@ describe("init command config output", () => {
     expect(generateTenantId("Roadmap", "project-a")).not.toBe(
       generateTenantId("Roadmap", "project-b")
     );
+  });
+});
+
+const MOCK_PROJECT_DETAIL = {
+  id: "PVT_eco1",
+  title: "Ecosystem Test",
+  url: "https://github.com/orgs/test/projects/1",
+  statusFields: [],
+  textFields: [],
+  linkedRepositories: [
+    {
+      owner: "test",
+      name: "repo",
+      url: "https://github.com/test/repo",
+      cloneUrl: "https://github.com/test/repo.git",
+    },
+  ],
+} as const;
+
+const MOCK_STATUS_FIELD = {
+  id: "PVTSSF_eco1",
+  name: "Status",
+  options: [
+    {
+      id: "opt_todo",
+      name: "Todo",
+      description: null,
+      color: "GREEN" as string | null,
+    },
+    {
+      id: "opt_ip",
+      name: "In Progress",
+      description: null,
+      color: "YELLOW" as string | null,
+    },
+    {
+      id: "opt_done",
+      name: "Done",
+      description: null,
+      color: "PURPLE" as string | null,
+    },
+  ],
+};
+
+describe("init ecosystem generation", () => {
+  it("generates context.yaml and reference-workflow.md", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const contextYaml = await readFile(
+      join(cwd, ".gh-symphony", "context.yaml"),
+      "utf8"
+    );
+    expect(contextYaml).toContain("schema_version: 1");
+    expect(contextYaml).toContain("PVT_eco1");
+
+    const refWorkflow = await readFile(
+      join(cwd, ".gh-symphony", "reference-workflow.md"),
+      "utf8"
+    );
+    expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+  });
+
+  it("--skip-skills skips skill files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-skip-skill-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    await expect(
+      readFile(join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"), "utf8")
+    ).rejects.toThrow();
+
+    const contextYaml = await readFile(
+      join(cwd, ".gh-symphony", "context.yaml"),
+      "utf8"
+    );
+    expect(contextYaml).toContain("schema_version: 1");
+  });
+
+  it("--skip-context skips context.yaml", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-skip-ctx-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
+
+    const refWorkflow = await readFile(
+      join(cwd, ".gh-symphony", "reference-workflow.md"),
+      "utf8"
+    );
+    expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+  });
+
+  it("context.yaml contains statusField.id and option IDs", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-ids-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: {
+        id: "PVTSSF_myfield",
+        name: "Status",
+        options: [
+          { id: "opt_abc", name: "Todo", description: null, color: null },
+          { id: "opt_def", name: "Done", description: null, color: null },
+        ],
+      },
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    const contextYaml = await readFile(
+      join(cwd, ".gh-symphony", "context.yaml"),
+      "utf8"
+    );
+    expect(contextYaml).toContain("PVTSSF_myfield");
+    expect(contextYaml).toContain("opt_abc");
+    expect(contextYaml).toContain("opt_def");
   });
 });

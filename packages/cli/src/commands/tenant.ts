@@ -82,9 +82,7 @@ const handler = async (
       await tenantRemove(rest, options);
       return;
     default:
-      process.stdout.write(
-        "Usage: gh-symphony tenant <add|list|remove>\n"
-      );
+      process.stdout.write("Usage: gh-symphony tenant <add|list|remove>\n");
   }
 };
 
@@ -457,6 +455,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       project: projectDetail,
       repos: selectedRepos,
       statusField: {
+        id: statusField.id,
         name: statusField.name,
         options: statusField.options,
       },
