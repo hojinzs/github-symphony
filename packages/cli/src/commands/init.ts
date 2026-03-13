@@ -559,8 +559,8 @@ async function runInteractiveFromTenant(
   let token: string | undefined;
   try {
     token = getGhToken();
-  } catch (e) {
-    void e;
+  } catch {
+    // getGhToken failed — token stays undefined; ecosystem write proceeds best-effort
   }
   if (token && projId) {
     try {
