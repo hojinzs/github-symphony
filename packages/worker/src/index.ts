@@ -24,7 +24,7 @@ const runtimeState: {
     runId: string;
     issueId: string | null;
     issueIdentifier: string | null;
-    phase: string | null;
+    state: string | null;
     processId: number | null;
     repository: {
       owner: string | null;
@@ -50,7 +50,7 @@ const runtimeState: {
         runId: launcherEnv.SYMPHONY_RUN_ID,
         issueId: launcherEnv.SYMPHONY_ISSUE_ID ?? null,
         issueIdentifier: launcherEnv.SYMPHONY_ISSUE_IDENTIFIER ?? null,
-        phase: launcherEnv.SYMPHONY_RUN_PHASE ?? null,
+        state: launcherEnv.SYMPHONY_ISSUE_STATE ?? null,
         processId: null,
         repository: {
           owner: launcherEnv.TARGET_REPOSITORY_OWNER ?? null,
@@ -711,16 +711,16 @@ async function refreshTrackerState(
   env: NodeJS.ProcessEnv
 ): Promise<"active" | "non-actionable" | "unknown"> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const workspaceId = env.WORKSPACE_ID ?? env.CODEX_WORKSPACE_ID;
+  const tenantId = env.TENANT_ID ?? env.CODEX_TENANT_ID;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
 
-  if (!orchestratorUrl || !workspaceId) {
+  if (!orchestratorUrl || !tenantId) {
     return "unknown";
   }
 
   try {
     const response = await fetch(
-      `${orchestratorUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/status`
+      `${orchestratorUrl}/api/v1/tenants/${encodeURIComponent(tenantId)}/status`
     );
     if (!response.ok) return "unknown";
 

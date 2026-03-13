@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CliWorkspaceConfig } from "../config.js";
+import type { CliTenantConfig } from "../config.js";
 
 const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
@@ -32,17 +32,17 @@ afterEach(() => {
 });
 
 describe("lifecycle command integration", () => {
-  it("syncs the selected workspace config before single-issue dispatch", async () => {
+  it("syncs the selected tenant config before single-issue dispatch", async () => {
     const configDir = await createConfigFixture({
-      activeWorkspace: "workspace-a",
-      workspaces: [
-        createWorkspace("workspace-a", "acme", "platform"),
-        createWorkspace("workspace-b", "beta", "api"),
+      activeTenant: "tenant-a",
+      tenants: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
       ],
     });
 
     await runModule.default(
-      ["--workspace", "workspace-b", "beta/api#42"],
+      ["--tenant", "tenant-b", "beta/api#42"],
       baseOptions(configDir)
     );
 
@@ -51,7 +51,7 @@ describe("lifecycle command integration", () => {
       "--runtime-root",
       configDir,
       "--workspace-id",
-      "workspace-b",
+      "tenant-b",
       "--issue",
       "beta/api#42",
     ]);
@@ -61,26 +61,26 @@ describe("lifecycle command integration", () => {
         join(
           configDir,
           "orchestrator",
-          "workspaces",
-          "workspace-b",
+          "tenants",
+          "tenant-b",
           "config.json"
         ),
         "utf8"
       )
-    ) as CliWorkspaceConfig;
-    expect(synced.workspaceId).toBe("workspace-b");
+    ) as CliTenantConfig;
+    expect(synced.tenantId).toBe("tenant-b");
     expect(synced.repositories[0]).toMatchObject({
       owner: "beta",
       name: "api",
     });
   });
 
-  it("starts the requested workspace in daemon mode", async () => {
+  it("starts the requested tenant in daemon mode", async () => {
     const configDir = await createConfigFixture({
-      activeWorkspace: "workspace-a",
-      workspaces: [
-        createWorkspace("workspace-a", "acme", "platform"),
-        createWorkspace("workspace-b", "beta", "api"),
+      activeTenant: "tenant-a",
+      tenants: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
       ],
     });
 
@@ -92,13 +92,13 @@ describe("lifecycle command integration", () => {
     });
 
     await startModule.default(
-      ["--workspace", "workspace-b", "--daemon"],
+      ["--tenant", "tenant-b", "--daemon"],
       baseOptions(configDir)
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "start", "--workspace", "workspace-b"],
+      [process.argv[1], "start", "--tenant", "tenant-b"],
       expect.objectContaining({
         env: expect.objectContaining({
           GH_SYMPHONY_CONFIG_DIR: configDir,
@@ -109,8 +109,8 @@ describe("lifecycle command integration", () => {
 
   it("reports recoverable runs without invoking recovery in dry-run mode", async () => {
     const configDir = await createConfigFixture({
-      activeWorkspace: "workspace-a",
-      workspaces: [createWorkspace("workspace-a", "acme", "platform")],
+      activeTenant: "tenant-a",
+      tenants: [createTenant("tenant-a", "acme", "platform")],
     });
     const runDir = join(configDir, "orchestrator", "runs", "run-1");
     await mkdir(runDir, { recursive: true });
@@ -119,7 +119,7 @@ describe("lifecycle command integration", () => {
       JSON.stringify(
         {
           runId: "run-1",
-          workspaceId: "workspace-a",
+          tenantId: "tenant-a",
           issueIdentifier: "acme/platform#7",
           status: "running",
           processId: 999_999,
@@ -156,14 +156,14 @@ function baseOptions(configDir: string) {
   };
 }
 
-function createWorkspace(
-  workspaceId: string,
+function createTenant(
+  tenantId: string,
   owner: string,
   name: string
-): CliWorkspaceConfig {
+): CliTenantConfig {
   return {
-    workspaceId,
-    slug: workspaceId,
+    tenantId,
+    slug: tenantId,
     promptGuidelines: "",
     repositories: [
       {
@@ -174,32 +174,32 @@ function createWorkspace(
     ],
     tracker: {
       adapter: "github-project",
-      bindingId: `${workspaceId}-project`,
+      bindingId: `${tenantId}-project`,
       settings: {
-        projectId: `${workspaceId}-project`,
-        token: `${workspaceId}-token`,
+        projectId: `${tenantId}-project`,
+        token: `${tenantId}-token`,
       },
     },
     runtime: {
       driver: "local",
-      workspaceRuntimeDir: join("/tmp", workspaceId),
+      workspaceRuntimeDir: join("/tmp", tenantId),
       projectRoot: process.cwd(),
     },
   };
 }
 
 async function createConfigFixture(input: {
-  activeWorkspace: string;
-  workspaces: CliWorkspaceConfig[];
+  activeTenant: string;
+  tenants: CliTenantConfig[];
 }): Promise<string> {
   const configDir = await mkdtemp(join(tmpdir(), "cli-lifecycle-"));
   await writeFile(
     join(configDir, "config.json"),
     JSON.stringify(
       {
-        activeWorkspace: input.activeWorkspace,
-        token: `${input.activeWorkspace}-token`,
-        workspaces: input.workspaces.map((workspace) => workspace.workspaceId),
+        activeTenant: input.activeTenant,
+        token: `${input.activeTenant}-token`,
+        tenants: input.tenants.map((tenant) => tenant.tenantId),
       },
       null,
       2
@@ -207,12 +207,12 @@ async function createConfigFixture(input: {
     "utf8"
   );
 
-  for (const workspace of input.workspaces) {
-    const workspaceDir = join(configDir, "workspaces", workspace.workspaceId);
-    await mkdir(workspaceDir, { recursive: true });
+  for (const tenant of input.tenants) {
+    const tenantDir = join(configDir, "tenants", tenant.tenantId);
+    await mkdir(tenantDir, { recursive: true });
     await writeFile(
-      join(workspaceDir, "workspace.json"),
-      JSON.stringify(workspace, null, 2) + "\n",
+      join(tenantDir, "tenant.json"),
+      JSON.stringify(tenant, null, 2) + "\n",
       "utf8"
     );
   }

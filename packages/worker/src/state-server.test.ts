@@ -18,20 +18,13 @@ allowed_repositories:
   - https://github.com/acme/platform.git
 lifecycle:
   state_field: Status
-  planning_active:
+  active_states:
     - Todo
-  human_review:
-    - Plan Review
-  implementation_active:
     - In Progress
-  awaiting_merge:
-    - In Review
-  completed:
+  terminal_states:
     - Done
-  transitions:
-    planning_complete: Plan Review
-    implementation_complete: In Review
-    merge_complete: Done
+  blocker_check_states:
+    - Todo
 runtime:
   agent_command: bash -lc codex app-server
 hooks:
@@ -75,7 +68,7 @@ Prefer small changes.
         SYMPHONY_RUN_ID: "run-1",
         SYMPHONY_ISSUE_ID: "issue-1",
         SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#1",
-        SYMPHONY_RUN_PHASE: "planning",
+        SYMPHONY_ISSUE_STATE: "Todo",
         TARGET_REPOSITORY_OWNER: "acme",
         TARGET_REPOSITORY_NAME: "platform",
         TARGET_REPOSITORY_CLONE_URL: "https://github.com/acme/platform.git"
@@ -92,7 +85,7 @@ Prefer small changes.
       runId: "run-1",
       issueId: "issue-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      state: "Todo",
       processId: null,
       repository: {
         owner: "acme",

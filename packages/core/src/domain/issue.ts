@@ -9,7 +9,7 @@ import type { TrackerAdapterKind } from "../contracts/tracker-adapter.js";
  * metadata and do not participate in workspace identity derivation.
  */
 export type IssueSubjectIdentity = {
-  workspaceId: string;
+  tenantId: string;
   adapter: TrackerAdapterKind;
   /**
    * Stable subject identifier within the adapter scope.
@@ -35,7 +35,7 @@ export type IssueWorkspaceStatus =
 
 export type IssueWorkspaceRecord = {
   workspaceKey: string;
-  workspaceId: string;
+  tenantId: string;
   adapter: TrackerAdapterKind;
   issueSubjectId: string;
   issueIdentifier: string;

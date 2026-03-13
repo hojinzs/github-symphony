@@ -5,7 +5,7 @@ describe("POST /api/v1/refresh", () => {
   it("triggers onRefresh callback on POST", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byWorkspaceId: vi.fn().mockResolvedValue(null),
+      byTenantId: vi.fn().mockResolvedValue(null),
     };
     const onRefresh = vi.fn();
 
@@ -24,7 +24,7 @@ describe("POST /api/v1/refresh", () => {
   it("returns 405 for GET on /api/v1/refresh", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byWorkspaceId: vi.fn().mockResolvedValue(null),
+      byTenantId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -40,7 +40,7 @@ describe("POST /api/v1/refresh", () => {
   it("returns 405 for PUT on /api/v1/refresh", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byWorkspaceId: vi.fn().mockResolvedValue(null),
+      byTenantId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -56,7 +56,7 @@ describe("POST /api/v1/refresh", () => {
   it("works when onRefresh is not provided", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byWorkspaceId: vi.fn().mockResolvedValue(null),
+      byTenantId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -69,10 +69,10 @@ describe("POST /api/v1/refresh", () => {
     expect(result.payload).toEqual({ queued: true });
   });
 
-  it("keeps the legacy GET signature working for workspace status lookups", async () => {
+  it("keeps the legacy GET signature working for tenant status lookups", async () => {
     const snapshot = {
-      workspaceId: "workspace-1",
-      slug: "workspace-1",
+      tenantId: "tenant-1",
+      slug: "tenant-1",
       tracker: {
         adapter: "github-project",
         bindingId: "project-1",
@@ -91,16 +91,16 @@ describe("POST /api/v1/refresh", () => {
     } as const;
     const mockStatus = {
       all: vi.fn().mockResolvedValue([snapshot]),
-      byWorkspaceId: vi.fn().mockResolvedValue(snapshot),
+      byTenantId: vi.fn().mockResolvedValue(snapshot),
     };
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/workspaces/workspace-1/status",
+      "/api/v1/tenants/tenant-1/status",
       mockStatus
     );
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
-    expect(mockStatus.byWorkspaceId).toHaveBeenCalledWith("workspace-1");
+    expect(mockStatus.byTenantId).toHaveBeenCalledWith("tenant-1");
   });
 });

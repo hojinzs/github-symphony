@@ -6,7 +6,7 @@ gh-symphony — AI Coding Agent Orchestrator
 Usage: gh-symphony <command> [options]
 
 Setup:
-  init            Interactive workspace setup wizard
+  init            Interactive tenant setup wizard
   config show     Show current configuration
   config set      Set a configuration value
   config edit     Open config in $EDITOR
@@ -20,10 +20,15 @@ Orchestration:
   recover         Recover stalled runs
   logs            View orchestrator logs
 
-Workspace Management:
-  project list    List all workspaces
-  project switch  Switch active workspace
-  project status  Show workspace details
+Tenant Management:
+  tenant add      Add a new tenant (interactive wizard)
+  tenant list     List all configured tenants
+  tenant remove   Remove a tenant
+
+Project / Repo:
+  project list    List tenants
+  project switch  Switch active tenant
+  project status  Show active tenant details
   repo list       List configured repositories
   repo add        Add a repository
   repo remove     Remove a repository
@@ -37,7 +42,10 @@ Global Options:
   --version, -V   Show version
 
 Examples:
-  gh-symphony init                    # Set up a new workspace
+  gh-symphony tenant add              # Add a tenant (interactive)
+  gh-symphony tenant add --non-interactive --token <PAT> --project <id>
+  gh-symphony tenant list             # List all tenants
+  gh-symphony tenant remove <id>      # Remove a tenant
   gh-symphony start                   # Start orchestrator
   gh-symphony start --daemon          # Start in background
   gh-symphony run org/repo#123        # Dispatch a specific issue

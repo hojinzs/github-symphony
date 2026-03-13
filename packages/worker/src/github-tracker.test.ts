@@ -92,19 +92,17 @@ describe("normalizeProjectItem", () => {
       metadata: {
         Status: "Todo",
         "Repository Context": "repo context"
-      },
-      phase: "planning"
+      }
     });
   });
 });
 
 describe("isTrackedIssueActionable", () => {
-  it("treats workflow handoff states as non-actionable", () => {
+  it("treats non-active states as non-actionable", () => {
     expect(
       isTrackedIssueActionable(
         {
           state: "Plan Review",
-          phase: "human-review"
         } as never,
         {
           lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
@@ -116,7 +114,6 @@ describe("isTrackedIssueActionable", () => {
       isTrackedIssueActionable(
         {
           state: "In Progress",
-          phase: "implementation"
         } as never,
         {
           lifecycle: DEFAULT_WORKFLOW_LIFECYCLE

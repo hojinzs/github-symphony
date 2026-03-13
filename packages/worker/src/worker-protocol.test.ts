@@ -262,20 +262,20 @@ function createProtocolContext(options: {
 
 async function refreshTrackerState(env: {
   SYMPHONY_ORCHESTRATOR_URL?: string;
-  WORKSPACE_ID?: string;
+  TENANT_ID?: string;
   SYMPHONY_ISSUE_IDENTIFIER?: string;
 }): Promise<"active" | "non-actionable" | "unknown"> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const workspaceId = env.WORKSPACE_ID;
+  const tenantId = env.TENANT_ID;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
 
-  if (!orchestratorUrl || !workspaceId) {
+  if (!orchestratorUrl || !tenantId) {
     return "unknown";
   }
 
   try {
     const response = await fetch(
-      `${orchestratorUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/status`
+      `${orchestratorUrl}/api/v1/tenants/${encodeURIComponent(tenantId)}/status`
     );
     if (!response.ok) return "unknown";
 
@@ -384,7 +384,7 @@ describe("multi-turn loop (2.7)", () => {
     });
     const env = {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     };
     let turnCount = 0;
@@ -415,7 +415,7 @@ describe("multi-turn loop (2.7)", () => {
 
     const env = {
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     };
 
@@ -617,13 +617,13 @@ describe("user input required hard failure (4.3)", () => {
 describe("refreshTrackerState", () => {
   it("returns 'unknown' when orchestrator URL is missing", async () => {
     const result = await refreshTrackerState({
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
     expect(result).toBe("unknown");
   });
 
-  it("returns 'unknown' when workspace ID is missing", async () => {
+  it("returns 'unknown' when tenant ID is missing", async () => {
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
@@ -643,7 +643,7 @@ describe("refreshTrackerState", () => {
 
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
 
@@ -663,7 +663,7 @@ describe("refreshTrackerState", () => {
 
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
 
@@ -678,7 +678,7 @@ describe("refreshTrackerState", () => {
 
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
 
@@ -693,7 +693,7 @@ describe("refreshTrackerState", () => {
 
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
-      WORKSPACE_ID: "ws-1",
+      TENANT_ID: "ws-1",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
 

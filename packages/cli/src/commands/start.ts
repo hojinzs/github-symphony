@@ -1,5 +1,5 @@
-import { writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, orchestratorLogPath, logsDir } from "../config.js";
@@ -8,11 +8,11 @@ import {
   createStore,
   startOrchestratorStatusServer,
 } from "@gh-symphony/orchestrator";
-import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
+import type { TenantStatusSnapshot } from "@gh-symphony/core";
 import {
-  resolveWorkspaceConfig,
+  resolveTenantConfig,
   resolveRuntimeRoot,
-  syncWorkspaceToRuntime,
+  syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
@@ -49,16 +49,16 @@ function logLine(icon: string, msg: string): void {
 
 function parseStartArgs(args: string[]): {
   daemon: boolean;
-  workspaceId?: string;
+  tenantId?: string;
 } {
-  const parsed: { daemon: boolean; workspaceId?: string } = { daemon: false };
+  const parsed: { daemon: boolean; tenantId?: string } = { daemon: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--daemon" || arg === "-d") {
       parsed.daemon = true;
     }
-    if (arg === "--workspace" || arg === "--workspace-id") {
-      parsed.workspaceId = args[i + 1];
+    if (arg === "--tenant" || arg === "--tenant-id") {
+      parsed.tenantId = args[i + 1];
       i += 1;
     }
   }
@@ -68,12 +68,12 @@ function parseStartArgs(args: string[]): {
 // ── Tick logging ──────────────────────────────────────────────────────────────
 
 function logTickResult(
-  snapshots: WorkspaceStatusSnapshot[],
-  prevSnapshots: WorkspaceStatusSnapshot[],
+  snapshots: TenantStatusSnapshot[],
+  prevSnapshots: TenantStatusSnapshot[],
   isFirst: boolean
 ): void {
   for (const snap of snapshots) {
-    const prev = prevSnapshots.find((p) => p.workspaceId === snap.workspaceId);
+    const prev = prevSnapshots.find((p) => p.tenantId === snap.tenantId);
 
     if (isFirst) {
       const healthColor =
@@ -84,7 +84,7 @@ function logTickResult(
             : cyan;
       logLine(
         green("\u25CF"),
-        `Workspace ${bold(snap.slug)} connected ${dim("(")}${healthColor(snap.health)}${dim(")")}`
+        `Tenant ${bold(snap.slug)} connected ${dim("(")}${healthColor(snap.health)}${dim(")")}`
       );
       if (snap.summary.activeRuns > 0) {
         logLine(cyan("\u25B8"), `${snap.summary.activeRuns} active run(s)`);
@@ -124,7 +124,7 @@ function logTickResult(
       if (!prevRunIds.has(run.runId)) {
         logLine(
           cyan("\u25B8"),
-          `Run started: ${bold(run.issueIdentifier)} ${dim("phase=")}${run.phase} ${dim("status=")}${run.status}`
+          `Run started: ${bold(run.issueIdentifier)} ${dim("state=")}${run.issueState} ${dim("status=")}${run.status}`
         );
       }
     }
@@ -195,24 +195,24 @@ const handler = async (
   noColor = options.noColor;
   const parsed = parseStartArgs(args);
 
-  const wsConfig = await resolveWorkspaceConfig(
+  const tenantConfig = await resolveTenantConfig(
     options.configDir,
-    parsed.workspaceId
+    parsed.tenantId
   );
-  if (!wsConfig) {
+  if (!tenantConfig) {
     process.stderr.write(
-      "No workspace configured. Run 'gh-symphony init' first.\n"
+      "No tenant configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const workspaceId = wsConfig.workspaceId;
-  await syncWorkspaceToRuntime(options.configDir, wsConfig);
+  const tenantId = tenantConfig.tenantId;
+  await syncTenantToRuntime(options.configDir, tenantConfig);
 
   if (parsed.daemon) {
-    await startDaemon(options, workspaceId);
+    await startDaemon(options, tenantId);
     return;
   }
 
@@ -224,9 +224,9 @@ const handler = async (
   startOrchestratorStatusServer({
     host: "127.0.0.1",
     port: 4680,
-    getWorkspaceStatus: {
+    getTenantStatus: {
       all: () => service.status(),
-      byWorkspaceId: async (id) => {
+      byTenantId: async (id) => {
         const [snapshot] = await service.status(id);
         return snapshot ?? null;
       },
@@ -235,7 +235,7 @@ const handler = async (
 
   logLine(
     green("\u25B2"),
-    `Starting orchestrator for workspace: ${bold(workspaceId)}`
+    `Starting orchestrator for tenant: ${bold(tenantId)}`
   );
   logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
@@ -248,13 +248,26 @@ const handler = async (
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  let prevSnapshots: WorkspaceStatusSnapshot[] = [];
+  let prevSnapshots: TenantStatusSnapshot[] = [];
   let isFirst = true;
 
   while (running) {
     try {
-      const snapshots = await service.runOnce({ workspaceId });
+      const snapshots = await service.runOnce({ tenantId });
       logTickResult(snapshots, prevSnapshots, isFirst);
+
+      if (!isFirst) {
+        for (const snap of snapshots) {
+          const prev = prevSnapshots.find((p) => p.tenantId === snap.tenantId);
+          const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
+          for (const prevRun of prev?.activeRuns ?? []) {
+            if (!currentRunIds.has(prevRun.runId)) {
+              await tailWorkerLog(runtimeRoot, prevRun.runId, prevRun.issueIdentifier);
+            }
+          }
+        }
+      }
+
       prevSnapshots = snapshots;
       isFirst = false;
     } catch (error) {
@@ -271,13 +284,33 @@ const handler = async (
   }
 };
 
+async function tailWorkerLog(
+  runtimeRoot: string,
+  runId: string,
+  issueIdentifier: string
+): Promise<void> {
+  try {
+    const logPath = join(runtimeRoot, "orchestrator", "runs", runId, "worker.log");
+    const content = await readFile(logPath, "utf8");
+    const lines = content.split("\n").filter((l) => l.trim());
+    if (lines.length === 0) return;
+    const tail = lines.slice(-30);
+    logLine(red("\u2717"), red(`Worker stderr (${issueIdentifier}):`));
+    for (const line of tail) {
+      process.stdout.write(`  ${dim(line)}\n`);
+    }
+  } catch {
+    // worker.log 없거나 읽기 실패 시 무시
+  }
+}
+
 export default handler;
 
 // ── 5.2: Daemon mode ─────────────────────────────────────────────────────────
 
 async function startDaemon(
   options: GlobalOptions,
-  workspaceId: string
+  tenantId: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir);
   await mkdir(logsDir(options.configDir), { recursive: true });
@@ -287,7 +320,7 @@ async function startDaemon(
 
   const child = spawn(
     process.execPath,
-    [process.argv[1]!, "start", "--workspace", workspaceId],
+    [process.argv[1]!, "start", "--tenant", tenantId],
     {
       cwd: process.cwd(),
       env: {

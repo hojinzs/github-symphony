@@ -20,6 +20,7 @@ describe("approval workflow integration", () => {
       {
         issue,
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "Plan Review",
         report: {
           summary: "Investigate the issue and stage the implementation.",
           steps: ["Inspect the worker workflow", "Document the implementation plan"]
@@ -31,6 +32,7 @@ describe("approval workflow integration", () => {
       {
         issue,
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "Plan Review",
         report: {
           summary: "Investigate the issue and stage the implementation.",
           steps: ["Inspect the worker workflow", "Document the implementation plan"]
@@ -55,6 +57,7 @@ describe("approval workflow integration", () => {
       {
         issue,
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "In Review",
         report: {
           summary: "Implemented the approval-aware worker loop.",
           validation: ["pnpm test --filter @gh-symphony/worker"]
@@ -66,6 +69,7 @@ describe("approval workflow integration", () => {
       {
         issue,
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "In Review",
         report: {
           summary: "Implemented the approval-aware worker loop.",
           validation: ["pnpm test --filter @gh-symphony/worker"]

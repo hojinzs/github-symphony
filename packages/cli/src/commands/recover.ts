@@ -4,8 +4,8 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveWorkspaceConfig,
-  syncWorkspaceToRuntime,
+  resolveTenantConfig,
+  syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
 
 type RecoverCandidate = {
@@ -17,16 +17,16 @@ type RecoverCandidate = {
 
 function parseRecoverArgs(args: string[]): {
   dryRun: boolean;
-  workspaceId?: string;
+  tenantId?: string;
 } {
-  const parsed: { dryRun: boolean; workspaceId?: string } = { dryRun: false };
+  const parsed: { dryRun: boolean; tenantId?: string } = { dryRun: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--dry-run") {
       parsed.dryRun = true;
     }
-    if (arg === "--workspace" || arg === "--workspace-id") {
-      parsed.workspaceId = args[i + 1];
+    if (arg === "--tenant" || arg === "--tenant-id") {
+      parsed.tenantId = args[i + 1];
       i += 1;
     }
   }
@@ -39,25 +39,25 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseRecoverArgs(args);
 
-  const wsConfig = await resolveWorkspaceConfig(
+  const tenantConfig = await resolveTenantConfig(
     options.configDir,
-    parsed.workspaceId
+    parsed.tenantId
   );
-  if (!wsConfig) {
+  if (!tenantConfig) {
     process.stderr.write(
-      "No workspace configured. Run 'gh-symphony init' first.\n"
+      "No tenant configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const workspaceId = wsConfig.workspaceId;
-  await syncWorkspaceToRuntime(options.configDir, wsConfig);
+  const tenantId = tenantConfig.tenantId;
+  await syncTenantToRuntime(options.configDir, tenantConfig);
 
   if (parsed.dryRun) {
     process.stdout.write("Dry run — scanning for stalled runs...\n");
-    const candidates = await listRecoverCandidates(runtimeRoot, workspaceId);
+    const candidates = await listRecoverCandidates(runtimeRoot, tenantId);
     if (options.json) {
       process.stdout.write(JSON.stringify(candidates, null, 2) + "\n");
       return;
@@ -79,8 +79,8 @@ const handler = async (
     "recover",
     "--runtime-root",
     runtimeRoot,
-    "--workspace-id",
-    workspaceId,
+    "--tenant-id",
+    tenantId,
   ]);
 };
 
@@ -88,7 +88,7 @@ export default handler;
 
 async function listRecoverCandidates(
   runtimeRoot: string,
-  workspaceId: string
+  tenantId: string
 ): Promise<RecoverCandidate[]> {
   const runsDir = join(runtimeRoot, "orchestrator", "runs");
   const candidates: RecoverCandidate[] = [];
@@ -106,7 +106,7 @@ async function listRecoverCandidates(
       const raw = await readFile(runPath, "utf8");
       const run = JSON.parse(raw) as {
         runId: string;
-        workspaceId: string;
+        tenantId: string;
         issueIdentifier: string;
         status: string;
         processId: number | null;
@@ -114,7 +114,7 @@ async function listRecoverCandidates(
         nextRetryAt: string | null;
       };
 
-      if (run.workspaceId !== workspaceId) {
+      if (run.tenantId !== tenantId) {
         continue;
       }
 

@@ -29,7 +29,7 @@ describe("resolveTrackerAdapter", () => {
     ).toThrow("Unsupported tracker adapter: jira");
   });
 
-  it("falls back to the workspace token when no env token is set", async () => {
+  it("falls back to the tenant token when no env token is set", async () => {
     const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
     delete process.env.GITHUB_GRAPHQL_TOKEN;
 
@@ -43,7 +43,7 @@ describe("resolveTrackerAdapter", () => {
         },
       });
 
-      const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) =>
+      const fetchImpl = async (_url: string | URL | Request, _init?: RequestInit) =>
         ({
           ok: true,
           json: async () => ({
@@ -63,7 +63,7 @@ describe("resolveTrackerAdapter", () => {
 
       await adapter.listIssues(
         {
-          workspaceId: "workspace-1",
+          tenantId: "workspace-1",
           slug: "workspace-1",
           promptGuidelines: "",
           repositories: [],
@@ -105,9 +105,7 @@ describe("validateWorkflowFieldMapping", () => {
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
       availableOptions: [
         "Todo",
-        "Plan Review",
         "In Progress",
-        "In Review",
         "Done",
       ],
     });
@@ -119,14 +117,12 @@ describe("validateWorkflowFieldMapping", () => {
   it("reports missing options", () => {
     const result = validateWorkflowFieldMapping({
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
-      availableOptions: ["Todo", "Done"],
+      availableOptions: ["Done"],
     });
 
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors.some((e) => e.expectedState === "Plan Review")).toBe(
-      true
-    );
+    expect(result.errors.some((e) => e.state === "Todo")).toBe(true);
   });
 
   it("matches case-insensitively", () => {
@@ -134,9 +130,7 @@ describe("validateWorkflowFieldMapping", () => {
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
       availableOptions: [
         "todo",
-        "plan review",
         "in progress",
-        "in review",
         "done",
       ],
     });
@@ -171,7 +165,6 @@ describe("detectDuplicatePlacements", () => {
       bindingId: "project-123",
       itemId,
     },
-    phase: "planning" as const,
     metadata: {},
   });
 
@@ -222,7 +215,6 @@ describe("detectTransferRebindRequired", () => {
       bindingId: "project-123",
       itemId: "item-1",
     },
-    phase: "planning" as const,
     metadata: {},
   });
 

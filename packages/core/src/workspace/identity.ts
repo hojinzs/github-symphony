@@ -5,7 +5,7 @@ import type { IssueSubjectIdentity } from "../domain/issue.js";
 /**
  * Derive a stable workspace key from a canonical issue subject identity.
  *
- * The workspace key is a truncated SHA-256 hash of `workspaceId:adapter:issueSubjectId`.
+ * The workspace key is a truncated SHA-256 hash of `tenantId:adapter:issueSubjectId`.
  * It is used to create persistent per-issue workspace directories.
  *
  * **Migration note**: Existing run-scoped workspaces (under `runs/<run-id>/`) are
@@ -18,7 +18,7 @@ export function deriveIssueWorkspaceKey(
   identity: IssueSubjectIdentity
 ): string {
   const input = [
-    identity.workspaceId,
+    identity.tenantId,
     identity.adapter,
     identity.issueSubjectId,
   ].join(":");
@@ -27,14 +27,14 @@ export function deriveIssueWorkspaceKey(
 
 export function resolveIssueWorkspaceDirectory(
   workspaceRoot: string,
-  workspaceId: string,
+  tenantId: string,
   workspaceKey: string
 ): string {
   const normalizedRoot = resolve(workspaceRoot);
   const candidate = resolve(
     normalizedRoot,
     "workspaces",
-    workspaceId,
+    tenantId,
     "issues",
     workspaceKey
   );

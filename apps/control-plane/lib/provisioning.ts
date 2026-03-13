@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
-import { fetchWorkspaceOrchestratorStatus } from "./orchestrator-status-client";
+import { fetchTenantOrchestratorStatus } from "./orchestrator-status-client";
 import { type RuntimeDriver, resolveRuntimeDriver } from "./runtime-config";
 import {
   buildWorkspaceAgentCredentialBrokerUrl
@@ -226,20 +226,12 @@ allowed_repositories:
 ${input.repositories.map((repository) => `  - ${repository.cloneUrl}`).join("\n")}
 lifecycle:
   state_field: ${DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName}
-  planning_active:
-${DEFAULT_WORKFLOW_LIFECYCLE.planningStates.map((state: string) => `    - ${state}`).join("\n")}
-  human_review:
-${DEFAULT_WORKFLOW_LIFECYCLE.humanReviewStates.map((state: string) => `    - ${state}`).join("\n")}
-  implementation_active:
-${DEFAULT_WORKFLOW_LIFECYCLE.implementationStates.map((state: string) => `    - ${state}`).join("\n")}
-  awaiting_merge:
-${DEFAULT_WORKFLOW_LIFECYCLE.awaitingMergeStates.map((state: string) => `    - ${state}`).join("\n")}
-  completed:
-${DEFAULT_WORKFLOW_LIFECYCLE.completedStates.map((state: string) => `    - ${state}`).join("\n")}
-  transitions:
-    planning_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.planningCompleteState}
-    implementation_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.implementationCompleteState}
-    merge_complete: ${DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState}
+  active_states:
+${DEFAULT_WORKFLOW_LIFECYCLE.activeStates.map((state: string) => `    - ${state}`).join("\n")}
+  terminal_states:
+${DEFAULT_WORKFLOW_LIFECYCLE.terminalStates.map((state: string) => `    - ${state}`).join("\n")}
+  blocker_check_states:
+${DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates.map((state: string) => `    - ${state}`).join("\n")}
 runtime:
   agent_command: bash -lc codex app-server
 hooks:
@@ -262,7 +254,7 @@ export async function syncWorkspaceRuntimeStatus(
     docker?: unknown;
   }
 ): Promise<"running" | "stopped" | "failed"> {
-  const status = await fetchWorkspaceOrchestratorStatus(input.workspaceId, {
+  const status = await fetchTenantOrchestratorStatus(input.workspaceId, {
     fetchImpl: options.fetchImpl
   });
   const nextStatus =

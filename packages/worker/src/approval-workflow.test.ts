@@ -3,9 +3,9 @@ import {
   buildImplementationBranchName,
   buildPhaseMarker,
   buildPullRequestBody,
-  executePhaseGuard,
+  executeStateGuard,
   hasMergedCompletionSignal,
-  isIssueStillActionableForPhase
+  isIssueStillActionable
 } from "./approval-workflow.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
@@ -34,16 +34,15 @@ describe("buildPullRequestBody", () => {
   });
 });
 
-describe("phase safeguards", () => {
-  it("stops work if an issue leaves the active phase", () => {
+describe("state safeguards", () => {
+  it("stops work if an issue leaves the active state", () => {
     expect(() =>
-      executePhaseGuard("Plan Review", "planning", DEFAULT_WORKFLOW_LIFECYCLE)
+      executeStateGuard("Plan Review", DEFAULT_WORKFLOW_LIFECYCLE)
     ).toThrow("Issue is no longer actionable");
 
     expect(
-      isIssueStillActionableForPhase(
+      isIssueStillActionable(
         "In Progress",
-        "implementation",
         DEFAULT_WORKFLOW_LIFECYCLE
       )
     ).toBe(true);

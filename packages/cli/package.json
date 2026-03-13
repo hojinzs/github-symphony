@@ -44,6 +44,7 @@
     "@clack/prompts": "^0.9.1",
     "@gh-symphony/core": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
-    "@gh-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/tracker-github": "workspace:*",
+    "@gh-symphony/worker": "workspace:*"
   }
 }

@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { GlobalOptions } from "../index.js";
-import { loadActiveWorkspaceConfig, orchestratorLogPath } from "../config.js";
+import { loadActiveTenantConfig, orchestratorLogPath } from "../config.js";
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -44,10 +44,10 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseLogsArgs(args);
 
-  const wsConfig = await loadActiveWorkspaceConfig(options.configDir);
-  if (!wsConfig) {
+  const tenantConfig = await loadActiveTenantConfig(options.configDir);
+  if (!tenantConfig) {
     process.stderr.write(
-      "No workspace configured. Run 'gh-symphony init' first.\n"
+      "No tenant configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;

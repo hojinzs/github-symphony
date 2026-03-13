@@ -1,35 +1,40 @@
 import { readFile, rm } from "node:fs/promises";
+import { mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
 import {
   buildHookEnv,
   buildPromptVariables,
-  buildWorkspaceSnapshot,
+  buildTenantSnapshot,
   deriveIssueWorkspaceKey,
   executeWorkspaceHook,
-  isWorkflowPhaseActionable,
-  isWorkflowPhaseTerminal,
+  isStateActive,
+  isStateTerminal,
+  matchesWorkflowState,
   renderPrompt,
   resolveIssueWorkspaceDirectory,
-  resolveWorkflowExecutionPhase,
   scheduleRetryAt,
+  WorkflowConfigStore,
   type HookResult,
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
-  type OrchestratorWorkspaceConfig,
+  type OrchestratorTenantConfig,
   type RepositoryRef,
   type TrackedIssue,
+  type WorkflowLifecycleConfig,
   type WorkflowResolution,
-  type WorkspaceLeaseRecord,
-  type WorkspaceStatusSnapshot,
+  type TenantLeaseRecord,
+  type TenantStatusSnapshot,
 } from "@gh-symphony/core";
 import {
   cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,
+  isMissingFileError,
   loadRepositoryWorkflow,
+  validateRepoWorkflow,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
@@ -49,7 +54,8 @@ type SpawnLike = (
 
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
-  private readonly workspacePollIntervals = new Map<string, number>();
+  private readonly tenantPollIntervals = new Map<string, number>();
+  private readonly tenantWorkflowStore = new WorkflowConfigStore();
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -66,7 +72,7 @@ export class OrchestratorService {
 
   async run(
     options: {
-      workspaceId?: string;
+      tenantId?: string;
       issueIdentifier?: string;
       once?: boolean;
     } = {}
@@ -84,38 +90,34 @@ export class OrchestratorService {
 
   async runOnce(
     options: {
-      workspaceId?: string;
+      tenantId?: string;
       issueIdentifier?: string;
     } = {}
-  ): Promise<WorkspaceStatusSnapshot[]> {
-    const workspaces = await this.loadTargetWorkspaces(options.workspaceId);
-    const snapshots: WorkspaceStatusSnapshot[] = [];
-
-    for (const workspace of workspaces) {
-      snapshots.push(
-        await this.reconcileWorkspace(workspace, options.issueIdentifier)
-      );
-    }
-
-    return snapshots;
+  ): Promise<TenantStatusSnapshot[]> {
+    const tenants = await this.loadTargetTenants(options.tenantId);
+    return Promise.all(
+      tenants.map((tenant) =>
+        this.reconcileTenant(tenant, options.issueIdentifier)
+      )
+    );
   }
 
-  async status(workspaceId?: string): Promise<WorkspaceStatusSnapshot[]> {
-    const workspaces = await this.loadTargetWorkspaces(workspaceId);
+  async status(tenantId?: string): Promise<TenantStatusSnapshot[]> {
+    const tenants = await this.loadTargetTenants(tenantId);
     const statuses = await Promise.all(
-      workspaces.map((workspace) =>
-        this.store.loadWorkspaceStatus(workspace.workspaceId)
+      tenants.map((tenant) =>
+        this.store.loadTenantStatus(tenant.tenantId)
       )
     );
 
-    return statuses.filter((status): status is WorkspaceStatusSnapshot =>
+    return statuses.filter((status): status is TenantStatusSnapshot =>
       Boolean(status)
     );
   }
 
-  async recover(workspaceId?: string): Promise<WorkspaceStatusSnapshot[]> {
+  async recover(tenantId?: string): Promise<TenantStatusSnapshot[]> {
     return this.runOnce({
-      workspaceId,
+      tenantId,
     });
   }
 
@@ -125,27 +127,27 @@ export class OrchestratorService {
     }
 
     const configuredIntervals = [
-      ...this.workspacePollIntervals.values(),
+      ...this.tenantPollIntervals.values(),
     ].filter((value) => Number.isFinite(value) && value > 0);
     return configuredIntervals.length
       ? Math.min(...configuredIntervals)
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
-  private async loadTargetWorkspaces(
-    workspaceId?: string
-  ): Promise<OrchestratorWorkspaceConfig[]> {
-    const workspaces = await this.store.loadWorkspaceConfigs();
-    return workspaceId
-      ? workspaces.filter((workspace) => workspace.workspaceId === workspaceId)
-      : workspaces;
+  private async loadTargetTenants(
+    tenantId?: string
+  ): Promise<OrchestratorTenantConfig[]> {
+    const tenants = await this.store.loadTenantConfigs();
+    return tenantId
+      ? tenants.filter((tenant) => tenant.tenantId === tenantId)
+      : tenants;
   }
 
-  private async reconcileWorkspace(
-    workspace: OrchestratorWorkspaceConfig,
+  private async reconcileTenant(
+    tenant: OrchestratorTenantConfig,
     issueIdentifier?: string
-  ): Promise<WorkspaceStatusSnapshot> {
-    const trackerAdapter = resolveTrackerAdapter(workspace.tracker);
+  ): Promise<TenantStatusSnapshot> {
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     let lastError: string | null = null;
     let dispatched = 0;
@@ -153,15 +155,15 @@ export class OrchestratorService {
     let recovered = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 
-    let leases = await this.store.loadWorkspaceLeases(workspace.workspaceId);
+    let leases = await this.store.loadTenantLeases(tenant.tenantId);
     const allRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.workspaceId === workspace.workspaceId
+      (run) => run.tenantId === tenant.tenantId
     );
     const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
     this.initializePortFrom(allRuns);
 
     for (const run of activeRuns) {
-      const outcome = await this.reconcileRun(workspace, run, leases);
+      const outcome = await this.reconcileRun(tenant, run, leases);
       leases = outcome.leases;
       if (outcome.recovered) {
         recovered += 1;
@@ -169,8 +171,8 @@ export class OrchestratorService {
     }
 
     try {
-      pollIntervalMs = await this.loadWorkspacePollInterval(workspace);
-      const issues = await trackerAdapter.listIssues(workspace, {
+      pollIntervalMs = await this.loadTenantPollInterval(tenant);
+      const issues = await trackerAdapter.listIssues(tenant, {
         fetchImpl: this.dependencies.fetchImpl,
       });
       const filteredIssues = issueIdentifier
@@ -178,11 +180,9 @@ export class OrchestratorService {
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
           )
         : issues;
-      const actionableCandidates = await this.resolveActionableCandidates(
-        workspace,
-        filteredIssues
-      );
-      const concurrency = this.getWorkspaceConcurrency(workspace);
+      const { candidates: actionableCandidates, lifecycle } =
+        await this.resolveActionableCandidates(tenant, filteredIssues);
+      const concurrency = this.getTenantConcurrency(tenant);
       const currentlyActive = leases.filter(
         (lease) => lease.status === "active"
       ).length;
@@ -198,40 +198,38 @@ export class OrchestratorService {
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
 
-      // Count active runs by phase for per-phase concurrency limits
-      const activeByPhase = new Map<string, number>();
-      for (const lease of leases) {
-        if (lease.status === "active") {
-          const count = activeByPhase.get(lease.phase) ?? 0;
-          activeByPhase.set(lease.phase, count + 1);
-        }
+      // Count active runs by state for per-state concurrency limits
+      const activeByState = new Map<string, number>();
+      for (const run of activeRuns) {
+        const state = run.issueState;
+        const count = activeByState.get(state) ?? 0;
+        activeByState.set(state, count + 1);
       }
 
-      // Load per-phase concurrency limits from workflow config
-      const maxConcurrentByPhase =
-        await this.loadWorkspaceMaxConcurrentByPhase(workspace);
+      // Load per-state concurrency limits from workflow config
+      const maxConcurrentByState =
+        await this.loadTenantMaxConcurrentByState(tenant);
 
       let slotsRemaining = availableSlots;
       for (const issue of sortedCandidates) {
         if (slotsRemaining <= 0) break;
 
-        // Per-phase concurrency check: skip if phase limit reached
-        const phaseLimit = maxConcurrentByPhase[issue.phase];
-        if (phaseLimit !== undefined) {
-          const activeInPhase = activeByPhase.get(issue.phase) ?? 0;
-          if (activeInPhase >= phaseLimit) {
+        // Per-state concurrency check: skip if state limit reached
+        const stateLimit = maxConcurrentByState[issue.state];
+        if (stateLimit !== undefined) {
+          const activeInState = activeByState.get(issue.state) ?? 0;
+          if (activeInState >= stateLimit) {
             continue;
           }
         }
 
         const leaseKey = buildLeaseKey(issue);
-        const run = await this.startRun(workspace, issue);
+        const run = await this.startRun(tenant, issue);
         leases = upsertLease(leases, {
           leaseKey,
           runId: run.runId,
           issueId: run.issueId,
           issueIdentifier: run.issueIdentifier,
-          phase: run.phase,
           status: "active",
           updatedAt: now.toISOString(),
         });
@@ -239,16 +237,16 @@ export class OrchestratorService {
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
           event: "run-dispatched",
-          workspaceId: workspace.workspaceId,
+          tenantId: tenant.tenantId,
           issueIdentifier: issue.identifier,
           issueId: run.issueId,
-          phase: issue.phase,
+          issueState: issue.state,
         });
         dispatched += 1;
         slotsRemaining -= 1;
-        activeByPhase.set(
-          issue.phase,
-          (activeByPhase.get(issue.phase) ?? 0) + 1
+        activeByState.set(
+          issue.state,
+          (activeByState.get(issue.state) ?? 0) + 1
         );
       }
 
@@ -288,70 +286,69 @@ export class OrchestratorService {
         }
       }
 
-      // Clean up issue workspaces for terminal (completed) issues
+      // Clean up issue workspaces for terminal issues
       for (const issue of filteredIssues) {
-        if (!isWorkflowPhaseTerminal(issue.phase)) {
+        if (!isStateTerminal(issue.state, lifecycle)) {
           continue;
         }
-        await this.cleanupTerminalIssueWorkspace(workspace, issue, now);
+        await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
       }
     } catch (error) {
       lastError =
         error instanceof Error ? error.message : "Unknown orchestration error";
     }
 
-    this.workspacePollIntervals.set(workspace.workspaceId, pollIntervalMs);
-    await this.store.saveWorkspaceLeases(workspace.workspaceId, leases);
+    this.tenantPollIntervals.set(tenant.tenantId, pollIntervalMs);
+    await this.store.saveTenantLeases(tenant.tenantId, leases);
 
-    const allWorkspaceRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.workspaceId === workspace.workspaceId
+    const allTenantRuns = (await this.store.loadAllRuns()).filter(
+      (run) => run.tenantId === tenant.tenantId
     );
-    const latestRuns = allWorkspaceRuns.filter((run) =>
+    const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunStatus(run.status)
     );
-    const status = buildWorkspaceSnapshot({
-      workspace,
+    const status = buildTenantSnapshot({
+      tenant,
       activeRuns: latestRuns,
-      allRuns: allWorkspaceRuns,
+      allRuns: allTenantRuns,
       summary: { dispatched, suppressed, recovered },
       lastTickAt: now.toISOString(),
       lastError,
     });
-    await this.store.saveWorkspaceStatus(status);
+    await this.store.saveTenantStatus(status);
     return status;
   }
 
   private async resolveActionableCandidates(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     issues: TrackedIssue[]
-  ): Promise<TrackedIssue[]> {
+  ): Promise<{ candidates: TrackedIssue[]; lifecycle: WorkflowLifecycleConfig }> {
     const candidates: TrackedIssue[] = [];
+    let lifecycle: WorkflowLifecycleConfig | null = null;
 
     for (const issue of issues) {
-      const resolution = await this.loadIssueWorkflow(
-        workspace,
+      const resolution = await this.loadTenantWorkflow(
+        tenant,
         issue.repository
       );
-      const phase = resolveWorkflowExecutionPhase(
-        issue.state,
-        resolution.lifecycle
-      );
+      if (!lifecycle) {
+        lifecycle = resolution.lifecycle;
+      }
 
-      if (!isWorkflowPhaseActionable(phase)) {
+      if (!isStateActive(issue.state, resolution.lifecycle)) {
         continue;
       }
 
-      // Blocker eligibility: skip planning-phase issues with non-terminal blockers
-      if (phase === "planning" && issue.blockedBy.length > 0) {
+      // Blocker eligibility: skip blocker-check-state issues with non-terminal blockers
+      if (
+        matchesWorkflowState(issue.state, resolution.lifecycle.blockerCheckStates) &&
+        issue.blockedBy.length > 0
+      ) {
         const hasNonTerminalBlocker = issue.blockedBy.some(
           (blockerId: string) => {
             const blockerIssue = issues.find((i) => i.identifier === blockerId);
             if (!blockerIssue) return true; // Unknown blocker treated as blocking
-            const blockerPhase = resolveWorkflowExecutionPhase(
-              blockerIssue.state,
-              resolution.lifecycle
-            );
-            return !isWorkflowPhaseTerminal(blockerPhase);
+            return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
           }
         );
         if (hasNonTerminalBlocker) {
@@ -359,21 +356,35 @@ export class OrchestratorService {
         }
       }
 
-      candidates.push({
-        ...issue,
-        phase,
-      });
+      candidates.push(issue);
     }
 
-    return candidates;
+    // If no issues were processed, load lifecycle from first repo
+    if (!lifecycle && tenant.repositories.length > 0) {
+      const resolution = await this.loadTenantWorkflow(
+        tenant,
+        tenant.repositories[0]!
+      );
+      lifecycle = resolution.lifecycle;
+    }
+
+    return {
+      candidates,
+      lifecycle: lifecycle ?? {
+        stateFieldName: "Status",
+        activeStates: ["Todo", "In Progress"],
+        terminalStates: ["Done"],
+        blockerCheckStates: ["Todo"],
+      },
+    };
   }
 
-  private async loadIssueWorkflow(
-    workspace: OrchestratorWorkspaceConfig,
+  private async loadTenantWorkflow(
+    tenant: OrchestratorTenantConfig,
     repository: RepositoryRef
   ) {
     const cacheRoot = join(
-      workspace.runtime.workspaceRuntimeDir,
+      tenant.runtime.workspaceRuntimeDir,
       "workflow-cache",
       repository.owner,
       repository.name
@@ -382,30 +393,72 @@ export class OrchestratorService {
       repository,
       targetDirectory: cacheRoot,
     });
-    const resolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
-    return applyWorkspaceWorkflowOverrides(workspace, resolution);
+
+    // 1. Try loading from the repository
+    const repoResolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
+
+    if (repoResolution.workflowPath !== null) {
+      // Repo has a WORKFLOW.md — validate against tenant lifecycle
+      const validation = validateRepoWorkflow(
+        repoResolution,
+        tenant.workflow?.lifecycle
+      );
+      if (validation.valid) {
+        return applyTenantWorkflowOverrides(tenant, repoResolution);
+      }
+      // Invalid — log warnings and fall through to tenant fallback
+      for (const warning of validation.warnings) {
+        process.stderr.write(`[orchestrator] workflow warning: ${warning}\n`);
+      }
+    }
+
+    // 2. Try loading from tenant WORKFLOW.md
+    const tenantResolution = await this.loadTenantFallbackWorkflow(tenant);
+    if (tenantResolution) {
+      return applyTenantWorkflowOverrides(tenant, tenantResolution);
+    }
+
+    // 3. Fall back to hardcoded defaults (original behavior)
+    return applyTenantWorkflowOverrides(tenant, repoResolution);
+  }
+
+  private async loadTenantFallbackWorkflow(
+    tenant: OrchestratorTenantConfig
+  ): Promise<WorkflowResolution | null> {
+    const workflowPath = join(
+      this.store.tenantDir(tenant.tenantId),
+      "WORKFLOW.md"
+    );
+    try {
+      return await this.tenantWorkflowStore.load(workflowPath);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async startRun(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
-    const trackerAdapter = resolveTrackerAdapter(workspace.tracker);
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
-    const runId = createRunId(now, workspace.workspaceId, issue.identifier);
+    const runId = createRunId(now, tenant.tenantId, issue.identifier);
     const runDir = this.store.runDir(runId);
     const workspaceRuntimeDir = join(runDir, "workspace-runtime");
 
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      workspaceId: workspace.workspaceId,
+      tenantId: tenant.tenantId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
     const workspaceKey = deriveIssueWorkspaceKey(identity);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      workspace.runtime.workspaceRuntimeDir,
-      workspace.workspaceId,
+      tenant.runtime.workspaceRuntimeDir,
+      tenant.tenantId,
       workspaceKey
     );
 
@@ -415,13 +468,13 @@ export class OrchestratorService {
     });
 
     const existingWorkspaceRecord = await this.store.loadIssueWorkspace(
-      workspace.workspaceId,
+      tenant.tenantId,
       workspaceKey
     );
     if (!existingWorkspaceRecord) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
-        workspaceId: workspace.workspaceId,
+        tenantId: tenant.tenantId,
         adapter: issue.tracker.adapter,
         issueSubjectId,
         issueIdentifier: issue.identifier,
@@ -437,10 +490,11 @@ export class OrchestratorService {
       // Run after_create hook for new issue workspaces
       const afterCreateResult = await this.runHook(
         "after_create",
+        tenant,
         repositoryDirectory,
         issue.repository,
         {
-          workspaceId: workspace.workspaceId,
+          tenantId: tenant.tenantId,
           workspaceKey,
           issueSubjectId,
           issueIdentifier: issue.identifier,
@@ -462,16 +516,13 @@ export class OrchestratorService {
       }
     }
 
-    const workflow = await loadRepositoryWorkflow(
-      repositoryDirectory,
-      issue.repository
-    );
+    const workflow = await this.loadTenantWorkflow(tenant, issue.repository);
     const port = this.allocatePort();
 
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
-      guidelines: workspace.promptGuidelines,
+      guidelines: tenant.promptGuidelines,
     });
     const renderedPrompt = renderPrompt(
       workflow.promptTemplate,
@@ -479,35 +530,37 @@ export class OrchestratorService {
     );
 
     // Run before_run hook before spawning the worker
-    await this.runHook("before_run", repositoryDirectory, issue.repository, {
-      workspaceId: workspace.workspaceId,
+    await this.runHook("before_run", tenant, repositoryDirectory, issue.repository, {
+      tenantId: tenant.tenantId,
       workspaceKey,
       issueSubjectId,
       issueIdentifier: issue.identifier,
       workspacePath: issueWorkspacePath,
       repositoryPath: repositoryDirectory,
       runId,
-      phase: issue.phase,
+      state: issue.state,
     });
 
+    mkdirSync(runDir, { recursive: true });
+    const workerLogFd = openSync(join(runDir, "worker.log"), "a");
     const child = (this.dependencies.spawnImpl ?? spawn)(
       "bash",
-      ["-lc", workspace.runtime.workerCommand ?? DEFAULT_WORKER_COMMAND],
+      ["-lc", tenant.runtime.workerCommand ?? DEFAULT_WORKER_COMMAND],
       {
-        cwd: workspace.runtime.projectRoot,
+        cwd: tenant.runtime.projectRoot,
         env: {
           ...process.env,
-          CODEX_WORKSPACE_ID: workspace.workspaceId,
-          WORKSPACE_ID: workspace.workspaceId,
+          CODEX_TENANT_ID: tenant.tenantId,
+          TENANT_ID: tenant.tenantId,
           WORKING_DIRECTORY: repositoryDirectory,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-          WORKSPACE_ALLOWED_REPOSITORIES: workspace.repositories
+          WORKSPACE_ALLOWED_REPOSITORIES: tenant.repositories
             .map((repository) => repository.cloneUrl)
             .join(","),
           PORT: String(port),
           SYMPHONY_PORT: String(port),
           SYMPHONY_RUN_ID: runId,
-          SYMPHONY_RUN_PHASE: issue.phase,
+          SYMPHONY_ISSUE_STATE: issue.state,
           SYMPHONY_ISSUE_ID: issue.id,
           SYMPHONY_ISSUE_IDENTIFIER: issue.identifier,
           SYMPHONY_ISSUE_SUBJECT_ID: issueSubjectId,
@@ -519,7 +572,7 @@ export class OrchestratorService {
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
           TARGET_REPOSITORY_NAME: issue.repository.name,
           TARGET_REPOSITORY_URL: issue.repository.url,
-          ...trackerAdapter.buildWorkerEnvironment(workspace, issue),
+          ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
           SYMPHONY_MAX_TURNS: String(workflow.workflow.runtime.maxTurns),
           SYMPHONY_READ_TIMEOUT_MS: String(
@@ -530,7 +583,7 @@ export class OrchestratorService {
           ),
         },
         detached: true,
-        stdio: "ignore",
+        stdio: ["ignore", "ignore", workerLogFd],
       }
     );
 
@@ -538,12 +591,12 @@ export class OrchestratorService {
 
     return {
       runId,
-      workspaceId: workspace.workspaceId,
-      workspaceSlug: workspace.slug,
+      tenantId: tenant.tenantId,
+      tenantSlug: tenant.slug,
       issueId: issue.id,
       issueSubjectId,
       issueIdentifier: issue.identifier,
-      phase: issue.phase,
+      issueState: issue.state,
       repository: issue.repository,
       status: "running",
       attempt: 1,
@@ -564,10 +617,10 @@ export class OrchestratorService {
   }
 
   private async reconcileRun(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     run: OrchestratorRunRecord,
-    leases: WorkspaceLeaseRecord[]
-  ): Promise<{ leases: WorkspaceLeaseRecord[]; recovered: boolean }> {
+    leases: TenantLeaseRecord[]
+  ): Promise<{ leases: TenantLeaseRecord[]; recovered: boolean }> {
     const now = this.now();
 
     if (run.processId && isProcessRunning(run.processId)) {
@@ -609,7 +662,18 @@ export class OrchestratorService {
       : run;
     const workerSessionId = workerInfo.sessionId;
 
-    if (run.attempt >= this.getWorkspaceMaxAttempts(workspace)) {
+    if (workerInfo.lastError) {
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "worker-error",
+        runId: run.runId,
+        issueIdentifier: run.issueIdentifier,
+        error: workerInfo.lastError,
+        attempt: run.attempt,
+      });
+    }
+
+    if (run.attempt >= this.getTenantMaxAttempts(tenant)) {
       const failedRecord: OrchestratorRunRecord = {
         ...runWithTokens,
         status: "failed",
@@ -634,31 +698,31 @@ export class OrchestratorService {
         };
       }
 
-      return this.restartRun(workspace, run, leases, now, workerSessionId);
+      return this.restartRun(tenant, run, leases, now, workerSessionId);
     }
 
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-        workspace.runtime.workspaceRuntimeDir,
-        workspace.workspaceId,
+        tenant.runtime.workspaceRuntimeDir,
+        tenant.tenantId,
         run.issueWorkspaceKey
       );
 
-      await this.runHook("after_run", run.workingDirectory, run.repository, {
-        workspaceId: run.workspaceId,
+      await this.runHook("after_run", tenant, run.workingDirectory, run.repository, {
+        tenantId: run.tenantId,
         workspaceKey: run.issueWorkspaceKey,
         issueSubjectId: run.issueSubjectId,
         issueIdentifier: run.issueIdentifier,
         workspacePath: issueWorkspacePath,
         repositoryPath: run.workingDirectory,
         runId: run.runId,
-        phase: run.phase,
+        state: run.issueState,
       });
     }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = await this.classifyRetryKind(workspace, run);
-    const retryOptions = await this.loadRetryPolicy(workspace, run.repository);
+    const retryKind = await this.classifyRetryKind(tenant, run);
+    const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
 
     let nextRetryAt: string;
     if (retryKind === "continuation") {
@@ -723,12 +787,12 @@ export class OrchestratorService {
    * Failure applies when we cannot confirm the issue is still actionable.
    */
   private async classifyRetryKind(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     run: OrchestratorRunRecord
   ): Promise<"continuation" | "failure"> {
     try {
-      const trackerAdapter = resolveTrackerAdapter(workspace.tracker);
-      const issues = await trackerAdapter.listIssues(workspace, {
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+      const issues = await trackerAdapter.listIssues(tenant, {
         fetchImpl: this.dependencies.fetchImpl,
       });
       const runIssue = issues.find(
@@ -737,15 +801,13 @@ export class OrchestratorService {
       if (!runIssue) {
         return "failure";
       }
-      const resolution = await this.loadIssueWorkflow(
-        workspace,
+      const resolution = await this.loadTenantWorkflow(
+        tenant,
         run.repository
       );
-      const phase = resolveWorkflowExecutionPhase(
-        runIssue.state,
-        resolution.lifecycle
-      );
-      return isWorkflowPhaseActionable(phase) ? "continuation" : "failure";
+      return isStateActive(runIssue.state, resolution.lifecycle)
+        ? "continuation"
+        : "failure";
     } catch {
       return "failure";
     }
@@ -760,6 +822,7 @@ export class OrchestratorService {
   ): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    lastError: string | null;
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -770,6 +833,7 @@ export class OrchestratorService {
     return {
       tokenUsage: persistedTokenUsage,
       sessionId: liveState.sessionId,
+      lastError: liveState.lastError,
     };
   }
 
@@ -778,9 +842,10 @@ export class OrchestratorService {
   ): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    lastError: string | null;
   }> {
     if (!run.port) {
-      return { tokenUsage: null, sessionId: null };
+      return { tokenUsage: null, sessionId: null, lastError: null };
     }
 
     try {
@@ -789,7 +854,7 @@ export class OrchestratorService {
         `http://127.0.0.1:${run.port}/api/v1/state`
       );
       if (!response.ok) {
-        return { tokenUsage: null, sessionId: null };
+        return { tokenUsage: null, sessionId: null, lastError: null };
       }
 
       const state = (await response.json()) as {
@@ -802,6 +867,7 @@ export class OrchestratorService {
           threadId: string | null;
           turnCount: number;
         } | null;
+        run?: { lastError: string | null } | null;
       };
 
       const tokenUsage = hasTokenUsage(state.tokenUsage) ? state.tokenUsage : null;
@@ -809,10 +875,11 @@ export class OrchestratorService {
         state.sessionInfo?.threadId && state.sessionInfo.turnCount > 0
           ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnCount}`
           : null;
+      const lastError = state.run?.lastError ?? null;
 
-      return { tokenUsage, sessionId };
+      return { tokenUsage, sessionId, lastError };
     } catch {
-      return { tokenUsage: null, sessionId: null };
+      return { tokenUsage: null, sessionId: null, lastError: null };
     }
   }
 
@@ -843,28 +910,26 @@ export class OrchestratorService {
    */
   private async runHook(
     kind: "after_create" | "before_run" | "after_run" | "before_remove",
+    tenant: OrchestratorTenantConfig,
     repositoryDirectory: string,
     repository: RepositoryRef,
     context: {
-      workspaceId: string;
+      tenantId: string;
       workspaceKey: string;
       issueSubjectId: string;
       issueIdentifier: string;
       workspacePath: string;
       repositoryPath: string;
       runId?: string;
-      phase?: string;
+      state?: string;
     }
   ): Promise<HookResult | null> {
     try {
-      const workflow = await loadRepositoryWorkflow(
-        repositoryDirectory,
-        repository
-      );
+      const resolution = await this.loadTenantWorkflow(tenant, repository);
       const hookEnv = buildHookEnv(context);
       return executeWorkspaceHook({
         kind,
-        hooks: workflow.workflow.runtime.hooks,
+        hooks: resolution.workflow.runtime.hooks,
         repositoryPath: repositoryDirectory,
         env: hookEnv,
       });
@@ -875,12 +940,12 @@ export class OrchestratorService {
   }
 
   private async restartRun(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     run: OrchestratorRunRecord,
-    leases: WorkspaceLeaseRecord[],
+    leases: TenantLeaseRecord[],
     now: Date,
     sessionId?: string | null
-  ): Promise<{ leases: WorkspaceLeaseRecord[]; recovered: boolean }> {
+  ): Promise<{ leases: TenantLeaseRecord[]; recovered: boolean }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
     // and isActiveRunStatus() picks it up on every tick, calling restartRun()
@@ -894,11 +959,11 @@ export class OrchestratorService {
     };
     await this.store.saveRun(supersededRecord);
 
-    const issue = resolveTrackerAdapter(workspace.tracker).reviveIssue(
-      workspace,
+    const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
+      tenant,
       run
     );
-    const restarted = await this.startRun(workspace, issue);
+    const restarted = await this.startRun(tenant, issue);
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
@@ -921,7 +986,6 @@ export class OrchestratorService {
         runId: recoveredRecord.runId,
         issueId: recoveredRecord.issueId,
         issueIdentifier: recoveredRecord.issueIdentifier,
-        phase: recoveredRecord.phase,
         status: "active",
         updatedAt: now.toISOString(),
       }),
@@ -929,12 +993,12 @@ export class OrchestratorService {
     };
   }
 
-  private async loadWorkspacePollInterval(
-    workspace: OrchestratorWorkspaceConfig
+  private async loadTenantPollInterval(
+    tenant: OrchestratorTenantConfig
   ): Promise<number> {
     const intervals = await Promise.all(
-      workspace.repositories.map(async (repository) => {
-        const resolution = await this.loadIssueWorkflow(workspace, repository);
+      tenant.repositories.map(async (repository) => {
+        const resolution = await this.loadTenantWorkflow(tenant, repository);
         return resolution.workflow.scheduler.pollIntervalMs;
       })
     );
@@ -946,14 +1010,14 @@ export class OrchestratorService {
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
-  private async loadWorkspaceMaxConcurrentByPhase(
-    workspace: OrchestratorWorkspaceConfig
+  private async loadTenantMaxConcurrentByState(
+    tenant: OrchestratorTenantConfig
   ): Promise<Record<string, number>> {
     const result: Record<string, number> = {};
     const resolutions = await Promise.all(
-      workspace.repositories.map(async (repository) => {
+      tenant.repositories.map(async (repository) => {
         try {
-          return await this.loadIssueWorkflow(workspace, repository);
+          return await this.loadTenantWorkflow(tenant, repository);
         } catch {
           return null;
         }
@@ -962,12 +1026,12 @@ export class OrchestratorService {
 
     for (const resolution of resolutions) {
       if (!resolution) continue;
-      const phaseLimits = resolution.workflow.maxConcurrentByPhase;
-      for (const [phase, limit] of Object.entries(phaseLimits)) {
-        const existing = result[phase];
+      const stateLimits = resolution.workflow.maxConcurrentByState;
+      for (const [state, limit] of Object.entries(stateLimits)) {
+        const existing = result[state];
         const numLimit = typeof limit === "number" ? limit : Number(limit);
         // Use the minimum limit across all repository workflows
-        result[phase] =
+        result[state] =
           existing === undefined ? numLimit : Math.min(existing, numLimit);
       }
     }
@@ -976,7 +1040,7 @@ export class OrchestratorService {
   }
 
   private async loadRetryPolicy(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     repository: RepositoryRef
   ): Promise<{ baseDelayMs: number; maxDelayMs: number } | null> {
     if (this.dependencies.retryBackoffMs) {
@@ -987,35 +1051,35 @@ export class OrchestratorService {
     }
 
     try {
-      const resolution = await this.loadIssueWorkflow(workspace, repository);
+      const resolution = await this.loadTenantWorkflow(tenant, repository);
       return resolution.workflow.retry;
     } catch {
       return null;
     }
   }
 
-  private getWorkspaceConcurrency(
-    workspace: OrchestratorWorkspaceConfig
+  private getTenantConcurrency(
+    tenant: OrchestratorTenantConfig
   ): number {
     return (
-      workspace.orchestrator?.concurrency ??
+      tenant.orchestrator?.concurrency ??
       this.dependencies.concurrency ??
       DEFAULT_CONCURRENCY
     );
   }
 
-  private getWorkspaceMaxAttempts(
-    workspace: OrchestratorWorkspaceConfig
+  private getTenantMaxAttempts(
+    tenant: OrchestratorTenantConfig
   ): number {
     return (
-      workspace.orchestrator?.maxAttempts ??
+      tenant.orchestrator?.maxAttempts ??
       this.dependencies.maxAttempts ??
       DEFAULT_MAX_ATTEMPTS
     );
   }
 
   /**
-   * Clean up the issue workspace for a terminal (completed) issue.
+   * Clean up the issue workspace for a terminal issue.
    *
    * Runs the `before_remove` hook if configured. If the hook fails,
    * the workspace transitions to `cleanup_blocked` (fail-closed per design
@@ -1023,19 +1087,19 @@ export class OrchestratorService {
    * the record set to `removed`. Orchestration records (runs) are preserved.
    */
   private async cleanupTerminalIssueWorkspace(
-    workspace: OrchestratorWorkspaceConfig,
+    tenant: OrchestratorTenantConfig,
     issue: TrackedIssue,
     now: Date
   ): Promise<void> {
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      workspaceId: workspace.workspaceId,
+      tenantId: tenant.tenantId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
     const workspaceKey = deriveIssueWorkspaceKey(identity);
     const workspaceRecord = await this.store.loadIssueWorkspace(
-      workspace.workspaceId,
+      tenant.tenantId,
       workspaceKey
     );
 
@@ -1058,10 +1122,11 @@ export class OrchestratorService {
     // Run before_remove hook (fail-closed)
     const hookResult = await this.runHook(
       "before_remove",
+      tenant,
       workspaceRecord.repositoryPath,
       issue.repository,
       {
-        workspaceId: workspace.workspaceId,
+        tenantId: tenant.tenantId,
         workspaceKey,
         issueSubjectId,
         issueIdentifier: issue.identifier,
@@ -1150,11 +1215,11 @@ function wait(ms: number): Promise<void> {
 
 function createRunId(
   now: Date,
-  workspaceId: string,
+  tenantId: string,
   issueIdentifier: string
 ): string {
   return [
-    workspaceId,
+    tenantId,
     issueIdentifier.replace(/[^a-zA-Z0-9]+/g, "-"),
     now.getTime().toString(36),
   ].join("-");
@@ -1162,17 +1227,16 @@ function createRunId(
 
 function buildLeaseKey(
   record:
-    | Pick<TrackedIssue, "id" | "phase">
-    | Pick<OrchestratorRunRecord, "issueId" | "phase">
+    | Pick<TrackedIssue, "id">
+    | Pick<OrchestratorRunRecord, "issueId">
 ): string {
-  const issueId = "id" in record ? record.id : record.issueId;
-  return `${issueId}:${record.phase}`;
+  return "id" in record ? record.id : record.issueId;
 }
 
 function upsertLease(
-  leases: WorkspaceLeaseRecord[],
-  nextLease: WorkspaceLeaseRecord
-): WorkspaceLeaseRecord[] {
+  leases: TenantLeaseRecord[],
+  nextLease: TenantLeaseRecord
+): TenantLeaseRecord[] {
   const remaining = leases.filter(
     (lease) => lease.leaseKey !== nextLease.leaseKey
   );
@@ -1180,10 +1244,10 @@ function upsertLease(
 }
 
 function releaseLease(
-  leases: WorkspaceLeaseRecord[],
+  leases: TenantLeaseRecord[],
   leaseKey: string,
   now: Date
-): WorkspaceLeaseRecord[] {
+): TenantLeaseRecord[] {
   return leases.map((lease) =>
     lease.leaseKey === leaseKey
       ? {
@@ -1213,11 +1277,11 @@ function isProcessRunning(processId: number): boolean {
   }
 }
 
-function applyWorkspaceWorkflowOverrides(
-  workspace: OrchestratorWorkspaceConfig,
+function applyTenantWorkflowOverrides(
+  tenant: OrchestratorTenantConfig,
   resolution: WorkflowResolution
 ): WorkflowResolution {
-  const overrides = workspace.workflow;
+  const overrides = tenant.workflow;
   if (!overrides) {
     return resolution;
   }
@@ -1233,8 +1297,8 @@ function applyWorkspaceWorkflowOverrides(
       ...resolution.workflow.retry,
       ...(overrides.retry ?? {}),
     },
-    maxConcurrentByPhase:
-      overrides.maxConcurrentByPhase ?? resolution.workflow.maxConcurrentByPhase,
+    maxConcurrentByState:
+      overrides.maxConcurrentByState ?? resolution.workflow.maxConcurrentByState,
   };
 
   return {

@@ -11,7 +11,7 @@ import { vi } from "vitest";
 describe("resolveLocalRuntimeLaunchConfig", () => {
   it("builds a direct-launch config from environment variables", () => {
     const config = resolveLocalRuntimeLaunchConfig({
-      WORKSPACE_ID: "workspace-local",
+      TENANT_ID: "workspace-local",
       WORKING_DIRECTORY: "/tmp/workspace-local",
       GITHUB_GRAPHQL_TOKEN: "ghp_direct_token",
       GITHUB_PROJECT_ID: "project-123",
@@ -19,7 +19,7 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     });
 
     expect(config).toMatchObject({
-      workspaceId: "workspace-local",
+      tenantId: "workspace-local",
       workingDirectory: "/tmp/workspace-local",
       githubToken: "ghp_direct_token",
       githubProjectId: "project-123",
@@ -29,20 +29,20 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     });
   });
 
-  it("accepts CODEX_WORKSPACE_ID as a fallback identifier", () => {
+  it("accepts CODEX_TENANT_ID as a fallback identifier", () => {
     const config = resolveLocalRuntimeLaunchConfig({
-      CODEX_WORKSPACE_ID: "workspace-fallback",
+      CODEX_TENANT_ID: "workspace-fallback",
       WORKING_DIRECTORY: "/tmp/workspace-fallback",
       OPENAI_API_KEY: "sk-fallback-runtime",
     });
 
-    expect(config.workspaceId).toBe("workspace-fallback");
+    expect(config.tenantId).toBe("workspace-fallback");
   });
 
   it("fails when the working directory is missing", () => {
     expect(() =>
       resolveLocalRuntimeLaunchConfig({
-        WORKSPACE_ID: "workspace-missing-dir",
+        TENANT_ID: "workspace-missing-dir",
       })
     ).toThrow(LocalRuntimeLauncherError);
   });
@@ -52,12 +52,12 @@ describe("loadLauncherEnvironment", () => {
   it("keeps explicit environment values ahead of .env defaults", () => {
     const env = loadLauncherEnvironment(
       {
-        WORKSPACE_ID: "workspace-explicit",
+        TENANT_ID: "workspace-explicit",
       },
       "/tmp/does-not-exist"
     );
 
-    expect(env.WORKSPACE_ID).toBe("workspace-explicit");
+    expect(env.TENANT_ID).toBe("workspace-explicit");
   });
 });
 
@@ -101,7 +101,7 @@ describe("runLocalRuntimeLauncher", () => {
     });
 
     await runLocalRuntimeLauncher({
-      WORKSPACE_ID: "workspace-local",
+      TENANT_ID: "workspace-local",
       WORKING_DIRECTORY: "/tmp/workspace-local",
       GITHUB_PROJECT_ID: "project-123",
       GITHUB_GRAPHQL_TOKEN: "ghp_direct_token",

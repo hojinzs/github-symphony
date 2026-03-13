@@ -1,11 +1,11 @@
 import type { GlobalOptions } from "../index.js";
-import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
+import type { TenantStatusSnapshot } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   resolveRuntimeRoot,
-  resolveWorkspaceConfig,
-  syncWorkspaceToRuntime,
+  resolveTenantConfig,
+  syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
 
 // ANSI color helpers
@@ -33,9 +33,7 @@ function cyan(s: string): string {
   return `\x1b[36m${s}\x1b[0m`;
 }
 
-function white(s: string): string {
-  return `\x1b[37m${s}\x1b[0m`;
-}
+
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
@@ -71,7 +69,7 @@ function truncate(s: string, len: number): string {
 }
 
 function renderDashboard(
-  snapshot: WorkspaceStatusSnapshot,
+  snapshot: TenantStatusSnapshot,
   noColor: boolean
 ): string {
   const apply = noColor ? (s: string) => stripAnsi(s) : (s: string) => s;
@@ -121,17 +119,7 @@ function renderDashboard(
     lines.push("  Active Runs:");
     for (const run of snapshot.activeRuns) {
       const runIdDisplay = truncate(run.runId, 12);
-      const phaseColor =
-        run.phase === "planning"
-          ? cyan
-          : run.phase === "human-review"
-            ? yellow
-            : run.phase === "implementation"
-              ? cyan
-              : run.phase === "awaiting-merge"
-                ? yellow
-                : white;
-      const phaseStr = apply(phaseColor(run.phase));
+      const stateStr = apply(cyan(run.issueState));
       const statusColor =
         run.status === "running"
           ? green
@@ -142,7 +130,7 @@ function renderDashboard(
               : dim;
       const statusStr = apply(statusColor(run.status));
       lines.push(
-        `    ${runIdDisplay}  ${run.issueIdentifier}  ${phaseStr}  ${statusStr}`
+        `    ${runIdDisplay}  ${run.issueIdentifier}  ${stateStr}  ${statusStr}`
       );
     }
     lines.push("");
@@ -187,16 +175,16 @@ function renderDashboard(
 
 function parseStatusArgs(args: string[]): {
   watch: boolean;
-  workspaceId?: string;
+  tenantId?: string;
 } {
-  const parsed: { watch: boolean; workspaceId?: string } = { watch: false };
+  const parsed: { watch: boolean; tenantId?: string } = { watch: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
     }
-    if (arg === "--workspace" || arg === "--workspace-id") {
-      parsed.workspaceId = args[i + 1];
+    if (arg === "--tenant" || arg === "--tenant-id") {
+      parsed.tenantId = args[i + 1];
       i += 1;
     }
   }
@@ -205,18 +193,18 @@ function parseStatusArgs(args: string[]): {
 
 async function readStatusSnapshot(
   runtimeRoot: string,
-  workspaceId: string
-): Promise<WorkspaceStatusSnapshot | null> {
+  tenantId: string
+): Promise<TenantStatusSnapshot | null> {
   try {
     const statusPath = join(
       runtimeRoot,
       "orchestrator",
-      "workspaces",
-      workspaceId,
+      "tenants",
+      tenantId,
       "status.json"
     );
     const content = await readFile(statusPath, "utf-8");
-    return JSON.parse(content) as WorkspaceStatusSnapshot;
+    return JSON.parse(content) as TenantStatusSnapshot;
   } catch {
     return null;
   }
@@ -228,28 +216,28 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseStatusArgs(args);
 
-  const wsConfig = await resolveWorkspaceConfig(
+  const tenantConfig = await resolveTenantConfig(
     options.configDir,
-    parsed.workspaceId
+    parsed.tenantId
   );
-  if (!wsConfig) {
+  if (!tenantConfig) {
     process.stderr.write(
-      "No workspace configured. Run 'gh-symphony init' first.\n"
+      "No tenant configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const workspaceId = wsConfig.workspaceId;
-  await syncWorkspaceToRuntime(options.configDir, wsConfig);
+  const tenantId = tenantConfig.tenantId;
+  await syncTenantToRuntime(options.configDir, tenantConfig);
 
   if (parsed.watch) {
     // Watch mode: poll every 2 seconds
     const clear = () => process.stdout.write("\x1b[2J\x1b[H");
     const run = async () => {
       clear();
-      const snapshot = await readStatusSnapshot(runtimeRoot, workspaceId);
+      const snapshot = await readStatusSnapshot(runtimeRoot, tenantId);
       if (snapshot) {
         if (options.json) {
           process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
@@ -277,7 +265,7 @@ const handler = async (
   }
 
   // Single status query
-  const snapshot = await readStatusSnapshot(runtimeRoot, workspaceId);
+  const snapshot = await readStatusSnapshot(runtimeRoot, tenantId);
   if (snapshot) {
     if (options.json) {
       process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");

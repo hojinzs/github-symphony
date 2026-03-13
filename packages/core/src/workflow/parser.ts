@@ -51,20 +51,58 @@ export function parseWorkflowMarkdown(
   const runtimeConfig = readObject(frontMatter, "runtime");
   const hooksConfig = readObject(frontMatter, "hooks");
   const lifecycleConfig = readObject(frontMatter, "lifecycle");
-  const transitionsConfig = readObject(lifecycleConfig, "transitions");
   const schedulerConfig = readObject(frontMatter, "scheduler");
   const retryConfig = readObject(frontMatter, "retry");
-  const maxConcurrentByPhaseRaw = readObject(frontMatter, "max_concurrent_by_phase");
-  const maxConcurrentByPhase: Record<string, number> = {};
-  for (const [phaseKey, phaseVal] of Object.entries(maxConcurrentByPhaseRaw)) {
-    if (typeof phaseVal === "number") {
-      maxConcurrentByPhase[phaseKey] = phaseVal;
+  const maxConcurrentByStateRaw = readObject(frontMatter, "max_concurrent_by_state");
+  const maxConcurrentByState: Record<string, number> = {};
+  for (const [stateKey, stateVal] of Object.entries(maxConcurrentByStateRaw)) {
+    if (typeof stateVal === "number") {
+      maxConcurrentByState[stateKey] = stateVal;
     }
   }
   const agentCommand =
     readOptionalString(runtimeConfig, "agent_command", env) ?? DEFAULT_AGENT_COMMAND;
   const hookPath =
     readOptionalString(hooksConfig, "after_create", env) ?? DEFAULT_HOOK_PATH;
+
+  // Read new active_states/terminal_states keys
+  const activeStates = readStringArray(lifecycleConfig, "active_states");
+  const terminalStates = readStringArray(lifecycleConfig, "terminal_states");
+  const blockerCheckStates = readStringArray(lifecycleConfig, "blocker_check_states");
+
+  // Fallback: if new keys are absent, try legacy phase-based keys and merge
+  let resolvedActiveStates: string[];
+  let resolvedTerminalStates: string[];
+  let resolvedBlockerCheckStates: string[];
+
+  if (activeStates) {
+    resolvedActiveStates = activeStates;
+  } else {
+    const planningActive = readStringArray(lifecycleConfig, "planning_active");
+    const implementationActive = readStringArray(lifecycleConfig, "implementation_active");
+    if (planningActive || implementationActive) {
+      resolvedActiveStates = [
+        ...(planningActive ?? []),
+        ...(implementationActive ?? []),
+      ];
+    } else {
+      resolvedActiveStates = DEFAULT_WORKFLOW_LIFECYCLE.activeStates;
+    }
+  }
+
+  if (terminalStates) {
+    resolvedTerminalStates = terminalStates;
+  } else {
+    const completed = readStringArray(lifecycleConfig, "completed");
+    resolvedTerminalStates = completed ?? DEFAULT_WORKFLOW_LIFECYCLE.terminalStates;
+  }
+
+  if (blockerCheckStates) {
+    resolvedBlockerCheckStates = blockerCheckStates;
+  } else {
+    // Default blocker check to first active state (planning-like)
+    resolvedBlockerCheckStates = DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates;
+  }
 
   return {
     githubProjectId,
@@ -101,32 +139,11 @@ export function parseWorkflowMarkdown(
       stateFieldName:
         readOptionalString(lifecycleConfig, "state_field", env) ??
         DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
-      planningStates:
-        readStringArray(lifecycleConfig, "planning_active") ??
-        DEFAULT_WORKFLOW_LIFECYCLE.planningStates,
-      humanReviewStates:
-        readStringArray(lifecycleConfig, "human_review") ??
-        DEFAULT_WORKFLOW_LIFECYCLE.humanReviewStates,
-      implementationStates:
-        readStringArray(lifecycleConfig, "implementation_active") ??
-        DEFAULT_WORKFLOW_LIFECYCLE.implementationStates,
-      awaitingMergeStates:
-        readStringArray(lifecycleConfig, "awaiting_merge") ??
-        DEFAULT_WORKFLOW_LIFECYCLE.awaitingMergeStates,
-      completedStates:
-        readStringArray(lifecycleConfig, "completed") ??
-        DEFAULT_WORKFLOW_LIFECYCLE.completedStates,
-      planningCompleteState:
-        readOptionalString(transitionsConfig, "planning_complete", env) ??
-        DEFAULT_WORKFLOW_LIFECYCLE.planningCompleteState,
-      implementationCompleteState:
-        readOptionalString(transitionsConfig, "implementation_complete", env) ??
-        DEFAULT_WORKFLOW_LIFECYCLE.implementationCompleteState,
-      mergeCompleteState:
-        readOptionalString(transitionsConfig, "merge_complete", env) ??
-        DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState
+      activeStates: resolvedActiveStates,
+      terminalStates: resolvedTerminalStates,
+      blockerCheckStates: resolvedBlockerCheckStates,
     },
-    maxConcurrentByPhase,
+    maxConcurrentByState,
     format: "front-matter",
     agentCommand,
     hookPath
@@ -204,44 +221,24 @@ function parseWorkflowLifecycle(markdown: string) {
     return DEFAULT_WORKFLOW_LIFECYCLE;
   }
 
+  const stateFieldName =
+    matchOptional(section, /State field:\s*(.+)/) ??
+    DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName;
+
+  // Read legacy phase-based lists and merge into active/terminal
+  const planningStates = readLegacyLifecycleList(section, "Planning-active states", []);
+  const implementationStates = readLegacyLifecycleList(section, "Implementation-active states", []);
+  const completedStates = readLegacyLifecycleList(section, "Completed states", []);
+
+  const activeStates = [...planningStates, ...implementationStates];
+  const terminalStates = completedStates;
+  const blockerCheckStates = planningStates.length > 0 ? planningStates : DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates;
+
   return {
-    stateFieldName:
-      matchOptional(section, /State field:\s*(.+)/) ??
-      DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
-    planningStates: readLegacyLifecycleList(
-      section,
-      "Planning-active states",
-      DEFAULT_WORKFLOW_LIFECYCLE.planningStates
-    ),
-    humanReviewStates: readLegacyLifecycleList(
-      section,
-      "Human-review states",
-      DEFAULT_WORKFLOW_LIFECYCLE.humanReviewStates
-    ),
-    implementationStates: readLegacyLifecycleList(
-      section,
-      "Implementation-active states",
-      DEFAULT_WORKFLOW_LIFECYCLE.implementationStates
-    ),
-    awaitingMergeStates: readLegacyLifecycleList(
-      section,
-      "Awaiting-merge states",
-      DEFAULT_WORKFLOW_LIFECYCLE.awaitingMergeStates
-    ),
-    completedStates: readLegacyLifecycleList(
-      section,
-      "Completed states",
-      DEFAULT_WORKFLOW_LIFECYCLE.completedStates
-    ),
-    planningCompleteState:
-      matchOptional(section, /Planning complete ->\s*(.+)/) ??
-      DEFAULT_WORKFLOW_LIFECYCLE.planningCompleteState,
-    implementationCompleteState:
-      matchOptional(section, /Implementation complete ->\s*(.+)/) ??
-      DEFAULT_WORKFLOW_LIFECYCLE.implementationCompleteState,
-    mergeCompleteState:
-      matchOptional(section, /Merge complete ->\s*(.+)/) ??
-      DEFAULT_WORKFLOW_LIFECYCLE.mergeCompleteState
+    stateFieldName,
+    activeStates: activeStates.length > 0 ? activeStates : DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
+    terminalStates: terminalStates.length > 0 ? terminalStates : DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
+    blockerCheckStates,
   };
 }
 

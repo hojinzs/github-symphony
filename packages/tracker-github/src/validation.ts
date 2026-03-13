@@ -6,15 +6,15 @@ type RepositoryAlias = {
   name: string;
 };
 
-type FieldMappingValidationError = {
-  phase: string;
-  expectedState: string;
+type StateValidationError = {
+  state: string;
+  category: "active" | "terminal" | "blocker_check";
   message: string;
 };
 
 export type FieldMappingValidationResult = {
   valid: boolean;
-  errors: FieldMappingValidationError[];
+  errors: StateValidationError[];
 };
 
 export type PlacementIntegrityResult = Array<{
@@ -44,41 +44,28 @@ export function validateWorkflowFieldMapping(options: {
   const normalizedAvailableOptions = new Set(
     options.availableOptions.map((option) => normalize(option))
   );
-  const requiredStatesByPhase: Array<{
-    phase: string;
+
+  const stateCategories: Array<{
+    category: "active" | "terminal" | "blocker_check";
     states: readonly string[];
   }> = [
-    { phase: "planning", states: options.lifecycle.planningStates },
-    { phase: "human-review", states: options.lifecycle.humanReviewStates },
-    { phase: "implementation", states: options.lifecycle.implementationStates },
-    { phase: "awaiting-merge", states: options.lifecycle.awaitingMergeStates },
-    { phase: "completed", states: options.lifecycle.completedStates },
-    {
-      phase: "planning-complete",
-      states: [options.lifecycle.planningCompleteState],
-    },
-    {
-      phase: "implementation-complete",
-      states: [options.lifecycle.implementationCompleteState],
-    },
-    {
-      phase: "merge-complete",
-      states: [options.lifecycle.mergeCompleteState],
-    },
+    { category: "active", states: options.lifecycle.activeStates },
+    { category: "terminal", states: options.lifecycle.terminalStates },
+    { category: "blocker_check", states: options.lifecycle.blockerCheckStates },
   ];
 
-  const errors: FieldMappingValidationError[] = [];
+  const errors: StateValidationError[] = [];
 
-  for (const { phase, states } of requiredStatesByPhase) {
+  for (const { category, states } of stateCategories) {
     for (const expectedState of states) {
       if (normalizedAvailableOptions.has(normalize(expectedState))) {
         continue;
       }
 
       errors.push({
-        phase,
-        expectedState,
-        message: `Missing status option "${expectedState}" required for workflow phase "${phase}".`,
+        state: expectedState,
+        category,
+        message: `Missing status option "${expectedState}" required for ${category} states.`,
       });
     }
   }

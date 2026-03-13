@@ -1,16 +1,17 @@
 # GitHub Symphony
 
-GitHub Symphony is a multi-tenant AI coding agent platform built on top of the Symphony specification. It now separates orchestration from operator UX: a CLI-first orchestrator polls tracker state and assigns runs, the control plane remains an optional workspace-management extension, and workers execute one assigned issue run at a time while keeping agent-side tracker mutation inside the `github_graphql` tool contract.
+GitHub Symphony is a multi-tenant AI coding agent platform built on top of the Symphony specification. It separates orchestration from operator UX: a CLI-first orchestrator polls tracker state and assigns runs, the control plane remains an optional extension, and workers execute one assigned issue run at a time while keeping agent-side tracker mutation inside the `github_graphql` tool contract.
 
-The repository now includes a buildable local worker image instead of assuming a published `ghcr.io/openai/symphony` image exists.
+The repository includes a buildable local worker image instead of assuming a published upstream image.
 
 ## What is in this repository
 
-- `apps/control-plane`: Next.js App Router control plane
+- `apps/control-plane`: Next.js App Router control plane (optional UI)
+- `packages/cli`: interactive CLI for tenant setup (`gh-symphony tenant add`) and daemon lifecycle (`start`, `stop`, `status`)
 - `packages/orchestrator`: headless CLI orchestrator with filesystem-backed leases, run snapshots, and recovery
 - `packages/worker`: Symphony runtime integration, hooks, tracker adapter, runtime launch plan
-- `packages/shared`: shared types and labels
-- `prisma`: PostgreSQL schema for GitHub integration state, workspaces, repositories, and runtime instances
+- `packages/shared`: shared types and re-exports
+- `prisma`: PostgreSQL schema for GitHub integration state
 - `docs`: local-development, rollout, and self-hosting guides
 - `openspec`: product change history and implementation artifacts
 
@@ -36,32 +37,148 @@ This project is released under the [MIT License](/home/ubuntu/projects/github-sy
 7. Open `http://localhost:3000/sign-in`, authenticate as a trusted operator, and complete the first-run machine-user PAT setup flow.
  Use a classic PAT issued for the dedicated machine user with these scopes:
  `repo`, `read:org`, `project`
-8. Create a workspace from the control plane. That persists workspace metadata and emits orchestrator config under `.runtime/orchestrator/workspaces/<workspace-id>/config.json`.
+8. Create a tenant from the control plane. That persists tenant metadata and emits orchestrator config under `.runtime/orchestrator/tenants/<tenant-id>/config.json`.
 9. Start the headless orchestrator with `pnpm --filter @gh-symphony/orchestrator build` followed by `pnpm --filter @gh-symphony/orchestrator start -- run`.
- The long-running `run` command also exposes the orchestrator status API on `http://127.0.0.1:4680` by default. Override it with `--status-host`, `--status-port`, or `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts.
+ The long-running `run` command exposes the orchestrator status API on `http://127.0.0.1:4680` by default. Override it with `--status-host`, `--status-port`, or `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts.
+
+## CLI-first setup
+
+The CLI provides an interactive setup flow that registers a tenant and generates a `WORKFLOW.md` without requiring the control-plane web app.
+
+**Concepts:**
+
+- **Tenant** — one GitHub Project bound to one set of repositories. Each tenant gets its own config, leases, and status snapshot. A single orchestrator can manage multiple tenants.
+- **WORKFLOW.md** — the per-tenant (or per-repository) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
+
+### Quick start
+
+```bash
+pnpm --filter @gh-symphony/cli build
+gh-symphony tenant add  # register a GitHub Project as a new tenant
+gh-symphony start       # start the orchestrator daemon
+gh-symphony status      # check orchestration status
+gh-symphony stop        # stop the daemon
+```
+
+### Registering a tenant
+
+`gh-symphony tenant add` walks through PAT validation, GitHub Project selection, repository selection, status column mapping, and runtime configuration. On completion it writes:
+
+- `~/.gh-symphony/tenants/<tenant-id>/tenant.json` — orchestrator config for this tenant
+- `~/.gh-symphony/tenants/<tenant-id>/workflow-mapping.json` — status column → role mappings
+- `~/.gh-symphony/tenants/<tenant-id>/WORKFLOW.md` — scaffolded workflow policy (tenant-level fallback)
+
+Non-interactive mode:
+
+```bash
+gh-symphony tenant add --non-interactive --token ghp_xxx --project PVT_xxx --runtime codex
+```
+
+Managing tenants:
+
+```bash
+gh-symphony tenant list            # list registered tenants
+gh-symphony tenant remove <id>     # remove a tenant and its config
+```
+
+### Generating WORKFLOW.md
+
+`gh-symphony init` generates a `WORKFLOW.md` in the current directory.
+
+**With a tenant already registered** — it reads the active tenant's lifecycle config and produces a pre-filled `WORKFLOW.md` ready to commit to a repository:
+
+```bash
+cd my-repo
+gh-symphony init        # generates ./WORKFLOW.md from active tenant config
+```
+
+**Without a tenant** — it runs a 3-step flow (PAT → Project → status mapping) and generates `WORKFLOW.md` without writing any config files. Useful for creating a per-repository policy before running `tenant add`:
+
+```bash
+gh-symphony init --non-interactive --token ghp_xxx --project PVT_xxx --output WORKFLOW.md
+```
+
+### WORKFLOW.md
+
+`WORKFLOW.md` contains YAML front matter for lifecycle configuration and a Markdown body used as the agent prompt template.
+
+The generated file includes:
+
+- **Lifecycle**: `active_states`, `terminal_states`, `blocker_check_states` derived from the status column mapping
+- **Runtime**: `agent_command` based on the selected runtime
+- **Hooks**: `after_create` hook path
+- **Scheduler**: `poll_interval_ms`
+- **Retry**: `base_delay_ms`, `max_delay_ms`
+- **Status Map**: visual mapping of status columns to roles
+- **Agent Instructions**: prompt template with `{{issue.*}}` and `{{guidelines}}` variables
+
+Edit the file to customize your team's coding policy and agent behavior. Available template variables:
+
+| Variable | Description |
+|----------|-------------|
+| `{{issue.identifier}}` | e.g. `acme/platform#42` |
+| `{{issue.title}}` | Issue title |
+| `{{issue.state}}` | Current tracker state |
+| `{{issue.description}}` | Issue body |
+| `{{issue.url}}` | Issue URL |
+| `{{issue.repository}}` | `owner/name` |
+| `{{issue.number}}` | Issue number |
+| `{{attempt}}` | Retry attempt number (null on first run) |
+| `{{guidelines}}` | Tenant-level prompt guidelines |
+
+### WORKFLOW.md resolution order
+
+The orchestrator resolves the workflow policy using this fallback chain:
+
+1. **Repository WORKFLOW.md** — if the target repository has a `WORKFLOW.md` at its root and its lifecycle states match the tenant config, use it.
+2. **Tenant WORKFLOW.md** — if the repository has no `WORKFLOW.md`, or it references states unknown to the tenant, fall back to the tenant-level `WORKFLOW.md`.
+3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal).
+
+This means you can:
+- Run without any `WORKFLOW.md` and rely on defaults
+- Use a single tenant-level `WORKFLOW.md` for all repositories
+- Override per-repository by committing a `WORKFLOW.md` to the repo root
+
+When a repository `WORKFLOW.md` references states not in the tenant lifecycle, the orchestrator logs a warning and falls back to the tenant file.
 
 ## Headless orchestration
 
-The orchestrator is the authoritative dispatch loop. It can run without the control-plane web app as long as workspace config already exists under `.runtime/orchestrator`.
+The orchestrator is the authoritative dispatch loop. It can run without the control-plane web app as long as tenant config exists under `.runtime/orchestrator/tenants/`.
 
-- `pnpm --filter @gh-symphony/orchestrator start -- run`: continuous polling loop plus the status API on `127.0.0.1:4680` by default
-- `pnpm --filter @gh-symphony/orchestrator start -- run-once`: single reconciliation tick
-- `pnpm --filter @gh-symphony/orchestrator start -- dispatch --workspace-id <workspace-id>`: targeted workspace reconciliation
-- `pnpm --filter @gh-symphony/orchestrator start -- run-issue --workspace-id <workspace-id> --issue <owner/repo#number>`: targeted issue dispatch
-- `pnpm --filter @gh-symphony/orchestrator start -- recover`: reconcile filesystem state with live tracker state after a crash
-- `pnpm --filter @gh-symphony/orchestrator start -- status`: print machine-readable orchestration status
+```bash
+# Continuous polling loop (+ status API on 127.0.0.1:4680)
+pnpm --filter @gh-symphony/orchestrator start -- run
 
-Runtime state lives under `.runtime/orchestrator`:
+# Single reconciliation tick
+pnpm --filter @gh-symphony/orchestrator start -- run-once
 
-- `workspaces/<workspace-id>/config.json`: persisted workspace metadata used by the orchestrator
-- `workspaces/<workspace-id>/leases.json`: active or released issue-phase leases
-- `workspaces/<workspace-id>/status.json`: latest machine-readable workspace status snapshot
-- `runs/<run-id>/run.json`: run snapshot, retry state, and worker assignment
-- `runs/<run-id>/events.ndjson`: structured orchestration events
+# Target a specific tenant
+pnpm --filter @gh-symphony/orchestrator start -- dispatch --tenant-id <tenant-id>
 
-Each assigned worker run clones the target repository, reloads lifecycle semantics from that repository's `WORKFLOW.md`, and serves `/api/v1/state` so the orchestrator and control-plane extension can aggregate worker state when it is available.
+# Target a specific issue
+pnpm --filter @gh-symphony/orchestrator start -- run-issue --tenant-id <tenant-id> --issue <owner/repo#number>
 
-Optional extensions should read orchestration state from the orchestrator status API instead of reading `.runtime/orchestrator/.../status.json` directly. Set `ORCHESTRATOR_STATUS_BASE_URL` on control-plane hosts when the orchestrator runs on a different host or port.
+# Reconcile filesystem state after a crash
+pnpm --filter @gh-symphony/orchestrator start -- recover
+
+# Print machine-readable orchestration status
+pnpm --filter @gh-symphony/orchestrator start -- status
+```
+
+Runtime state lives under `.runtime/orchestrator/`:
+
+| Path | Contents |
+|------|----------|
+| `tenants/<tenant-id>/config.json` | Tenant metadata used by the orchestrator |
+| `tenants/<tenant-id>/WORKFLOW.md` | Tenant-level workflow policy (repo fallback) |
+| `tenants/<tenant-id>/leases.json` | Active or released issue-phase leases |
+| `tenants/<tenant-id>/status.json` | Latest machine-readable tenant status snapshot |
+| `runs/<run-id>/run.json` | Run snapshot, retry state, and worker assignment |
+| `runs/<run-id>/events.ndjson` | Structured orchestration events |
+
+Each worker run clones the target repository, reloads lifecycle semantics from that repository's `WORKFLOW.md`, and serves `/api/v1/state` so the orchestrator and control-plane extension can aggregate worker state.
+
+Read orchestration state via the status API (`/api/v1/tenants/<tenant-id>/status`) rather than reading `.runtime/orchestrator/tenants/.../status.json` directly. Set `ORCHESTRATOR_STATUS_BASE_URL` when the orchestrator runs on a different host or port.
 
 ## Self-hosting with Docker Compose
 
@@ -82,12 +199,12 @@ It also mounts `/var/run/docker.sock` so the control plane can provision isolate
 
 ## GitHub bootstrap
 
-The control plane starts with trusted-operator GitHub OAuth sign-in, then bootstraps its system GitHub integration from the UI. On first run it redirects setup, workspace, and issue flows through `/sign-in`, guides the operator through machine-user PAT setup, validates the token against organization repository and Project access, and stores the encrypted PAT metadata in PostgreSQL. GitHub Project binding and issue creation remain control-plane extension flows; core orchestration happens in the CLI service.
+The control plane starts with trusted-operator GitHub OAuth sign-in, then bootstraps its system GitHub integration from the UI. On first run it redirects setup and issue flows through `/sign-in`, guides the operator through machine-user PAT setup, validates the token against organization repository and Project access, and stores the encrypted PAT metadata in PostgreSQL. GitHub Project binding and issue creation remain control-plane extension flows; core orchestration happens in the CLI service.
 
 Required non-GitHub secrets:
 
 - `PLATFORM_SECRETS_KEY`: encryption key for stored PAT and agent runtime credentials
-- `WORKSPACE_RUNTIME_AUTH_SECRET`: derives workspace-scoped secrets for runtime token refresh
+- `WORKSPACE_RUNTIME_AUTH_SECRET`: derives tenant-scoped secrets for runtime token refresh
 - `OPERATOR_SESSION_SECRET`: optional dedicated session-signing secret; when unset, the control plane reuses `PLATFORM_SECRETS_KEY`
 
 Required GitHub OAuth settings for trusted operator sign-in:
@@ -123,7 +240,7 @@ Required classic PAT scopes for the default setup path:
 
 Required GitHub settings for merge-driven completion:
 
-- The workspace project must expose `Todo`, `Plan Review`, `In Progress`, `In Review`, and `Done` statuses, or equivalent mapped values in `WORKFLOW.md`. Issues in any other status (e.g. `Draft`) are ignored by the orchestrator.
+- The GitHub Project must expose `Todo`, `Plan Review`, `In Progress`, `In Review`, and `Done` statuses, or equivalent mapped values in `WORKFLOW.md`. Issues in any other status (e.g. `Draft`) are ignored by the orchestrator.
 - Linked issue auto-close must remain enabled so PR bodies that include `Fixes #<issue-number>` close the tracked issue on merge.
 - GitHub Projects built-in automation should move closed issues into the completed state.
 
@@ -131,19 +248,19 @@ If the stored PAT is revoked or loses Project capability, the control plane mark
 
 ## Agent credential setup
 
-The control plane now manages the service credential used to start `codex app-server` inside each worker runtime.
+The control plane manages the service credential used to start `codex app-server` inside each worker runtime.
 
 1. Open `/workspaces/new`.
 2. Register an agent credential with an OpenAI-compatible API key.
-3. Mark one ready credential as the platform default, or leave it available only for workspace overrides.
-4. Create a workspace by choosing either `Platform default` or `Workspace override`.
+3. Mark one ready credential as the platform default, or leave it available only for tenant overrides.
+4. Create a tenant by choosing either `Platform default` or `Tenant override`.
 
 Runtime behavior:
 
 - Worker runtimes fetch the effective agent credential from the control plane immediately before launch.
 - The worker stores only the brokered environment contract needed for the current run.
 - Rotating the platform default or an override changes subsequent runs automatically; workflow files and repositories are not rewritten with long-lived agent secrets.
-- If the effective credential is missing, revoked, or degraded, workspace creation and new runtime launches are blocked until the credential is repaired or reassigned.
+- If the effective credential is missing, revoked, or degraded, tenant creation and new runtime launches are blocked until the credential is repaired or reassigned.
 
 ## Worker image
 

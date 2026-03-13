@@ -10,7 +10,7 @@ export {
   type GitHubTrackerConfig
 } from "@gh-symphony/tracker-github";
 
-import { isWorkflowPhaseActionable } from "@gh-symphony/core";
+import { isStateActive, type WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type {
   GitHubTrackedIssue,
   GitHubTrackerConfig
@@ -25,13 +25,13 @@ export function isActionableState(state: string, activeStates: string[]): boolea
 }
 
 export function isTrackedIssueActionable(
-  issue: Pick<GitHubTrackedIssue, "state" | "phase">,
+  issue: Pick<GitHubTrackedIssue, "state">,
   config: Pick<GitHubTrackerConfig, "lifecycle"> & {
     activeStates?: string[];
   }
 ): boolean {
   if (config.lifecycle) {
-    return isWorkflowPhaseActionable(issue.phase);
+    return isStateActive(issue.state, config.lifecycle as WorkflowLifecycleConfig);
   }
 
   return isActionableState(issue.state, config.activeStates ?? []);

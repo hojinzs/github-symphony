@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { saveGitHubIntegration } from "../../../../lib/github-integration";
 import { loadGitHubSecretProtectorFromEnv } from "../../../../lib/github-integration-secrets";
 import {
-  GitHubPatValidationError,
   validateGitHubPat
 } from "../../../../lib/github-pat-api";
 import {

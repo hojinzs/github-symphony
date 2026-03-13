@@ -1,41 +1,32 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
-import type { ColumnRole, HumanReviewMode } from "../config.js";
+import type { StateRole, StateMapping } from "../config.js";
 
 // ── 3.1: Smart defaults pattern matching ─────────────────────────────────────
 
-const ROLE_PATTERNS: Array<{ role: ColumnRole; pattern: RegExp }> = [
+const ROLE_PATTERNS: Array<{ role: StateRole; pattern: RegExp }> = [
   {
-    role: "trigger",
-    pattern: /^(todo|to.do|to-do|ready|queued|open|new|triage)$/i,
-  },
-  {
-    role: "working",
+    role: "active",
     pattern:
-      /^(in.progress|working|active|doing|in.development|developing|wip)$/i,
+      /^(todo|to.do|to-do|ready|queued|open|new|triage|in.progress|working|active|doing|in.development|developing|wip)$/i,
   },
   {
-    role: "human-review",
+    role: "wait",
     pattern:
-      /^(review|in.review|pr.review|needs.review|plan.review|awaiting.review|code.review)$/i,
+      /^(review|in.review|pr.review|needs.review|plan.review|awaiting.review|code.review|icebox|someday|later|blocked|on.hold|paused|deferred|draft|backlog)$/i,
   },
   {
-    role: "done",
-    pattern: /^(done|completed?|closed|merged|shipped|resolved|finished)$/i,
-  },
-  {
-    role: "ignored",
-    pattern:
-      /^(icebox|someday|later|blocked|on.hold|paused|won.?t.do|cancelled|deferred|draft|backlog)$/i,
+    role: "terminal",
+    pattern: /^(done|completed?|closed|merged|shipped|resolved|finished|won.?t.do|cancelled)$/i,
   },
 ];
 
-export type ColumnMapping = {
+export type StateRoleMapping = {
   columnName: string;
-  role: ColumnRole | null;
+  role: StateRole | null;
   confidence: "high" | "low";
 };
 
-export function inferColumnRole(columnName: string): ColumnMapping {
+export function inferStateRole(columnName: string): StateRoleMapping {
   const normalized = columnName.trim();
 
   for (const { role, pattern } of ROLE_PATTERNS) {
@@ -47,142 +38,54 @@ export function inferColumnRole(columnName: string): ColumnMapping {
   return { columnName: normalized, role: null, confidence: "low" };
 }
 
-export function inferAllColumnRoles(columnNames: string[]): ColumnMapping[] {
-  return columnNames.map(inferColumnRole);
+export function inferAllStateRoles(columnNames: string[]): StateRoleMapping[] {
+  return columnNames.map(inferStateRole);
 }
 
-// ── 3.2: Human-review mode logic ─────────────────────────────────────────────
+// ── 3.2: Blocked-by field inference ─────────────────────────────────────────
 
-export type PhaseMapping = {
-  planningStates: string[];
-  humanReviewStates: string[];
-  implementationStates: string[];
-  awaitingMergeStates: string[];
-  completedStates: string[];
-};
+const BLOCKED_BY_PATTERNS =
+  /^(blocked.?by|depends.?on|dependencies|blocking|blockers?|requires?)$/i;
 
-/**
- * Map column roles to Symphony execution phases based on the human-review mode.
- *
- * Modes:
- * - plan-and-pr: Human reviews both plans and PRs (full review pipeline)
- * - plan-only: Human reviews plans, PRs auto-merge
- * - pr-only: No plan review, human reviews PRs
- * - none: No human review at all (full auto)
- */
-export function buildPhaseMapping(
-  roles: Record<string, ColumnRole>,
-  mode: HumanReviewMode
-): PhaseMapping {
-  const planningStates: string[] = [];
-  const humanReviewStates: string[] = [];
-  const implementationStates: string[] = [];
-  const awaitingMergeStates: string[] = [];
-  const completedStates: string[] = [];
-
-  for (const [columnName, role] of Object.entries(roles)) {
-    switch (role) {
-      case "trigger":
-        planningStates.push(columnName);
-        break;
-      case "working":
-        implementationStates.push(columnName);
-        break;
-      case "human-review":
-        switch (mode) {
-          case "plan-and-pr":
-            humanReviewStates.push(columnName);
-            break;
-          case "plan-only":
-            humanReviewStates.push(columnName);
-            break;
-          case "pr-only":
-            awaitingMergeStates.push(columnName);
-            break;
-          case "none":
-            // In "none" mode, review columns are treated as implementation
-            implementationStates.push(columnName);
-            break;
-        }
-        break;
-      case "done":
-        completedStates.push(columnName);
-        break;
-      case "ignored":
-        // Ignored columns don't map to any phase
-        break;
-    }
-  }
-
-  return {
-    planningStates,
-    humanReviewStates,
-    implementationStates,
-    awaitingMergeStates,
-    completedStates,
-  };
+export function inferBlockedByFieldName(fieldNames: string[]): string | null {
+  return fieldNames.find((name) => BLOCKED_BY_PATTERNS.test(name.trim())) ?? null;
 }
 
 // ── 3.3: Mapping → WorkflowLifecycleConfig conversion ───────────────────────
 
 export function toWorkflowLifecycleConfig(
   stateFieldName: string,
-  roles: Record<string, ColumnRole>,
-  mode: HumanReviewMode
+  mappings: Record<string, StateMapping>
 ): WorkflowLifecycleConfig {
-  const phases = buildPhaseMapping(roles, mode);
+  const activeStates: string[] = [];
+  const terminalStates: string[] = [];
+  const blockerCheckStates: string[] = [];
 
-  // Transition targets: where issues move when a phase completes
-  const planningCompleteState = resolveTransitionTarget(
-    phases,
-    "planning",
-    mode
-  );
-  const implementationCompleteState = resolveTransitionTarget(
-    phases,
-    "implementation",
-    mode
-  );
-  const mergeCompleteState =
-    phases.completedStates[0] ?? phases.awaitingMergeStates[0] ?? "Done";
+  for (const [columnName, mapping] of Object.entries(mappings)) {
+    switch (mapping.role) {
+      case "active":
+        activeStates.push(columnName);
+        break;
+      case "terminal":
+        terminalStates.push(columnName);
+        break;
+      case "wait":
+        // Wait states are neither active nor terminal
+        break;
+    }
+  }
+
+  // Default blocker check: first active state (typically "Todo"-like)
+  if (activeStates.length > 0) {
+    blockerCheckStates.push(activeStates[0]!);
+  }
 
   return {
     stateFieldName,
-    planningStates: phases.planningStates,
-    humanReviewStates: phases.humanReviewStates,
-    implementationStates: phases.implementationStates,
-    awaitingMergeStates: phases.awaitingMergeStates,
-    completedStates: phases.completedStates,
-    planningCompleteState,
-    implementationCompleteState,
-    mergeCompleteState,
+    activeStates,
+    terminalStates,
+    blockerCheckStates,
   };
-}
-
-function resolveTransitionTarget(
-  phases: PhaseMapping,
-  fromPhase: "planning" | "implementation",
-  mode: HumanReviewMode
-): string {
-  if (fromPhase === "planning") {
-    // After planning: go to human-review (if exists) or implementation
-    if (
-      (mode === "plan-and-pr" || mode === "plan-only") &&
-      phases.humanReviewStates.length > 0
-    ) {
-      return phases.humanReviewStates[0]!;
-    }
-    return phases.implementationStates[0] ?? "In Progress";
-  }
-
-  // After implementation: go to awaiting-merge (if exists) or completed
-  if (
-    (mode === "plan-and-pr" || mode === "pr-only") &&
-    phases.awaitingMergeStates.length > 0
-  ) {
-    return phases.awaitingMergeStates[0]!;
-  }
-  return phases.completedStates[0] ?? "Done";
 }
 
 // ── 3.4: Mapping validation ─────────────────────────────────────────────────
@@ -193,54 +96,51 @@ export type MappingValidationResult = {
   warnings: string[];
 };
 
-export function validateMapping(
-  roles: Record<string, ColumnRole>
+export function validateStateMapping(
+  mappings: Record<string, StateMapping>
 ): MappingValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const roleEntries = Object.entries(roles);
-  const triggerColumns = roleEntries.filter(([, r]) => r === "trigger");
-  const workingColumns = roleEntries.filter(([, r]) => r === "working");
-  const doneColumns = roleEntries.filter(([, r]) => r === "done");
-  const reviewColumns = roleEntries.filter(([, r]) => r === "human-review");
+  const entries = Object.entries(mappings);
+  const activeEntries = entries.filter(([, m]) => m.role === "active");
+  const terminalEntries = entries.filter(([, m]) => m.role === "terminal");
 
-  // Required roles
-  if (triggerColumns.length === 0) {
+  // Required: at least one active and one terminal
+  if (activeEntries.length === 0) {
     errors.push(
-      "Missing required role: 'trigger' — at least one column must trigger work."
+      "Missing required role: 'active' — at least one state must be active."
     );
   }
-  if (workingColumns.length === 0) {
+  if (terminalEntries.length === 0) {
     errors.push(
-      "Missing required role: 'working' — at least one column must represent active work."
-    );
-  }
-  if (doneColumns.length === 0) {
-    errors.push(
-      "Missing required role: 'done' — at least one column must represent completion."
+      "Missing required role: 'terminal' — at least one state must be terminal."
     );
   }
 
-  // Warnings for unusual setups
-  if (triggerColumns.length > 1) {
+  // Warnings
+  if (terminalEntries.length > 1) {
     warnings.push(
-      `Multiple trigger columns: ${triggerColumns.map(([n]) => n).join(", ")}. ` +
-        "All will be treated as planning states."
-    );
-  }
-  if (doneColumns.length > 1) {
-    warnings.push(
-      `Multiple done columns: ${doneColumns.map(([n]) => n).join(", ")}. ` +
-        "All will be treated as completed states."
-    );
-  }
-  if (reviewColumns.length > 2) {
-    warnings.push(
-      `${reviewColumns.length} review columns detected. ` +
-        "Consider simplifying to one or two review stages."
+      `Multiple terminal states: ${terminalEntries.map(([n]) => n).join(", ")}. ` +
+        "All will be treated as terminal states."
     );
   }
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// ── 3.5: Status Map generation ──────────────────────────────────────────────
+
+export function generateStatusMap(
+  mappings: Record<string, StateMapping>
+): string {
+  const lines: string[] = ["## Status Map", ""];
+
+  for (const [columnName, mapping] of Object.entries(mappings)) {
+    const rolePart = `[${mapping.role}]`;
+    const goalPart = mapping.goal ? ` — ${mapping.goal}` : "";
+    lines.push(`- **${columnName}** ${rolePart}${goalPart}`);
+  }
+
+  return lines.join("\n");
 }

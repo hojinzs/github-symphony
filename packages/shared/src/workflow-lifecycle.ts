@@ -1,9 +1,8 @@
 export {
   DEFAULT_WORKFLOW_LIFECYCLE,
-  isWorkflowPhaseActionable,
-  isWorkflowStateActionable,
+  isStateActive,
+  isStateTerminal,
   matchesWorkflowState,
   normalizeWorkflowState,
-  resolveWorkflowExecutionPhase
 } from "@gh-symphony/core";
-export type { WorkflowExecutionPhase, WorkflowLifecycleConfig } from "@gh-symphony/core";
+export type { WorkflowLifecycleConfig } from "@gh-symphony/core";

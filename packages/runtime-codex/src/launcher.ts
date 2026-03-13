@@ -12,12 +12,12 @@ export class LocalRuntimeLauncherError extends Error {}
 export function resolveLocalRuntimeLaunchConfig(
   env: NodeJS.ProcessEnv = process.env
 ): CodexRuntimeConfig {
-  const workspaceId = env.WORKSPACE_ID ?? env.CODEX_WORKSPACE_ID;
+  const tenantId = env.TENANT_ID ?? env.CODEX_TENANT_ID;
   const workingDirectory = env.WORKING_DIRECTORY;
 
-  if (!workspaceId) {
+  if (!tenantId) {
     throw new LocalRuntimeLauncherError(
-      "WORKSPACE_ID or CODEX_WORKSPACE_ID is required."
+      "TENANT_ID or CODEX_TENANT_ID is required."
     );
   }
 
@@ -26,7 +26,7 @@ export function resolveLocalRuntimeLaunchConfig(
   }
 
   return {
-    workspaceId,
+    tenantId,
     workingDirectory,
     githubToken: env.GITHUB_GRAPHQL_TOKEN,
     githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
@@ -163,7 +163,7 @@ function emitLaunchSummary(config: CodexRuntimeConfig) {
   process.stdout.write(
     [
       "[worker] starting local codex runtime",
-      `[worker] workspace: ${config.workspaceId}`,
+      `[worker] tenant: ${config.tenantId}`,
       `[worker] cwd: ${config.workingDirectory}`,
       `[worker] github project: ${config.githubProjectId ?? "(unset)"}`,
       `[worker] github auth: ${githubAuthMode}`,

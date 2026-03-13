@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type {
-  OrchestratorWorkspaceConfig,
+  OrchestratorTenantConfig,
   WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
 
@@ -12,30 +12,25 @@ export const DAEMON_PID_FILE = "daemon.pid";
 export const LOGS_DIR = "logs";
 
 export type CliGlobalConfig = {
-  activeWorkspace: string | null;
+  activeTenant: string | null;
   token: string | null;
-  workspaces: string[];
+  tenants: string[];
 };
 
-export type CliWorkspaceConfig = OrchestratorWorkspaceConfig & {
-  workflowMapping?: WorkflowMappingConfig;
+export type CliTenantConfig = OrchestratorTenantConfig & {
+  workflowMapping?: WorkflowStateConfig;
 };
 
-export type WorkflowMappingConfig = {
+export type StateRole = "active" | "wait" | "terminal";
+
+export type StateMapping = { role: StateRole; goal?: string };
+
+export type WorkflowStateConfig = {
   stateFieldName: string;
-  columnRoles: Record<string, ColumnRole>;
-  humanReviewMode: HumanReviewMode;
+  mappings: Record<string, StateMapping>;
   lifecycle: WorkflowLifecycleConfig;
+  blockedByFieldName?: string;
 };
-
-export type ColumnRole =
-  | "trigger"
-  | "working"
-  | "human-review"
-  | "done"
-  | "ignored";
-
-export type HumanReviewMode = "plan-and-pr" | "plan-only" | "pr-only" | "none";
 
 export function resolveConfigDir(override?: string): string {
   return override ?? process.env.GH_SYMPHONY_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
@@ -45,26 +40,26 @@ export function configFilePath(configDir: string): string {
   return join(configDir, CONFIG_FILE);
 }
 
-export function workspaceConfigDir(
+export function tenantConfigDir(
   configDir: string,
-  workspaceId: string
+  tenantId: string
 ): string {
-  return join(configDir, "workspaces", workspaceId);
+  return join(configDir, "tenants", tenantId);
 }
 
-export function workspaceConfigPath(
+export function tenantConfigPath(
   configDir: string,
-  workspaceId: string
+  tenantId: string
 ): string {
-  return join(workspaceConfigDir(configDir, workspaceId), "workspace.json");
+  return join(tenantConfigDir(configDir, tenantId), "tenant.json");
 }
 
 export function workflowMappingPath(
   configDir: string,
-  workspaceId: string
+  tenantId: string
 ): string {
   return join(
-    workspaceConfigDir(configDir, workspaceId),
+    tenantConfigDir(configDir, tenantId),
     "workflow-mapping.json"
   );
 }
@@ -94,48 +89,48 @@ export async function saveGlobalConfig(
   await writeJsonFile(configFilePath(configDir), config);
 }
 
-export async function loadWorkspaceConfig(
+export async function loadTenantConfig(
   configDir: string,
-  workspaceId: string
-): Promise<CliWorkspaceConfig | null> {
-  return readJsonFile<CliWorkspaceConfig>(
-    workspaceConfigPath(configDir, workspaceId)
+  tenantId: string
+): Promise<CliTenantConfig | null> {
+  return readJsonFile<CliTenantConfig>(
+    tenantConfigPath(configDir, tenantId)
   );
 }
 
-export async function saveWorkspaceConfig(
+export async function saveTenantConfig(
   configDir: string,
-  workspaceId: string,
-  config: CliWorkspaceConfig
+  tenantId: string,
+  config: CliTenantConfig
 ): Promise<void> {
-  await writeJsonFile(workspaceConfigPath(configDir, workspaceId), config);
+  await writeJsonFile(tenantConfigPath(configDir, tenantId), config);
 }
 
 export async function loadWorkflowMapping(
   configDir: string,
-  workspaceId: string
-): Promise<WorkflowMappingConfig | null> {
-  return readJsonFile<WorkflowMappingConfig>(
-    workflowMappingPath(configDir, workspaceId)
+  tenantId: string
+): Promise<WorkflowStateConfig | null> {
+  return readJsonFile<WorkflowStateConfig>(
+    workflowMappingPath(configDir, tenantId)
   );
 }
 
 export async function saveWorkflowMapping(
   configDir: string,
-  workspaceId: string,
-  mapping: WorkflowMappingConfig
+  tenantId: string,
+  mapping: WorkflowStateConfig
 ): Promise<void> {
-  await writeJsonFile(workflowMappingPath(configDir, workspaceId), mapping);
+  await writeJsonFile(workflowMappingPath(configDir, tenantId), mapping);
 }
 
-export async function loadActiveWorkspaceConfig(
+export async function loadActiveTenantConfig(
   configDir: string
-): Promise<CliWorkspaceConfig | null> {
+): Promise<CliTenantConfig | null> {
   const global = await loadGlobalConfig(configDir);
-  if (!global?.activeWorkspace) {
+  if (!global?.activeTenant) {
     return null;
   }
-  return loadWorkspaceConfig(configDir, global.activeWorkspace);
+  return loadTenantConfig(configDir, global.activeTenant);
 }
 
 async function readJsonFile<T>(path: string): Promise<T | null> {

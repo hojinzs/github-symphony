@@ -7,7 +7,7 @@ describe("verifyHandoff", () => {
     const result = verifyHandoff({
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: null,
       actualState: "Todo",
     });
@@ -20,7 +20,7 @@ describe("verifyHandoff", () => {
     const result = verifyHandoff({
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: "Plan Review",
     });
@@ -33,7 +33,7 @@ describe("verifyHandoff", () => {
     const result = verifyHandoff({
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: "Todo",
     });
@@ -47,7 +47,7 @@ describe("verifyHandoff", () => {
     const result = verifyHandoff({
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: null,
     });
@@ -63,7 +63,7 @@ describe("suggestHandoffRepair", () => {
       verified: true,
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: "Plan Review",
       error: null,
@@ -77,7 +77,7 @@ describe("suggestHandoffRepair", () => {
       verified: false,
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: "Todo",
       error: "mismatch",
@@ -91,7 +91,7 @@ describe("suggestHandoffRepair", () => {
       verified: false,
       runId: "run-1",
       issueIdentifier: "acme/platform#1",
-      phase: "planning",
+      issueState: "Todo",
       expectedTransition: "Plan Review",
       actualState: null,
       error: "unknown state",
@@ -107,13 +107,13 @@ describe("createIntervention", () => {
   it("creates a typed intervention record", () => {
     const intervention = createIntervention("approval", {
       issueIdentifier: "acme/platform#1",
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       now,
     });
 
     expect(intervention.kind).toBe("approval");
     expect(intervention.issueIdentifier).toBe("acme/platform#1");
-    expect(intervention.workspaceId).toBe("ws-1");
+    expect(intervention.tenantId).toBe("ws-1");
     expect(intervention.createdAt).toBe("2026-03-08T00:00:00.000Z");
     expect(intervention.description).toContain("human review");
     expect(intervention.suggestedAction).toBeTruthy();
@@ -133,7 +133,7 @@ describe("createIntervention", () => {
     for (const kind of kinds) {
       const intervention = createIntervention(kind, {
         issueIdentifier: "acme/platform#1",
-        workspaceId: "ws-1",
+        tenantId: "ws-1",
         now,
       });
 

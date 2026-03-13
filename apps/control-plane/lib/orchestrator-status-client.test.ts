@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  fetchWorkspaceOrchestratorStatus,
+  fetchTenantOrchestratorStatus,
   resolveOrchestratorStatusBaseUrl
 } from "./orchestrator-status-client";
 
 describe("orchestrator status client", () => {
-  it("uses the configured base URL and parses workspace snapshots", async () => {
+  it("uses the configured base URL and parses tenant snapshots", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          workspaceId: "workspace-1",
-          slug: "workspace-1",
+          tenantId: "tenant-1",
+          slug: "tenant-1",
           tracker: {
             adapter: "github-project",
             bindingId: "project-123"
@@ -31,21 +31,21 @@ describe("orchestrator status client", () => {
       )
     );
 
-    const snapshot = await fetchWorkspaceOrchestratorStatus("workspace-1", {
+    const snapshot = await fetchTenantOrchestratorStatus("tenant-1", {
       fetchImpl: fetchImpl as typeof fetch,
       baseUrl: "http://orchestrator.test:4680"
     });
 
-    expect(snapshot?.workspaceId).toBe("workspace-1");
+    expect(snapshot?.tenantId).toBe("tenant-1");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://orchestrator.test:4680/api/v1/workspaces/workspace-1/status"
+      "http://orchestrator.test:4680/api/v1/tenants/tenant-1/status"
     );
   });
 
   it("returns null for 404 responses", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
 
-    const snapshot = await fetchWorkspaceOrchestratorStatus("missing", {
+    const snapshot = await fetchTenantOrchestratorStatus("missing", {
       fetchImpl: fetchImpl as typeof fetch
     });
 

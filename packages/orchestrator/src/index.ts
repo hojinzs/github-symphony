@@ -31,16 +31,16 @@ export async function runCli(
       (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
         host: statusHost,
         port: statusPort,
-        getWorkspaceStatus: {
+        getTenantStatus: {
           all: () => service.status(),
-          byWorkspaceId: async (workspaceId) => {
-            const [snapshot] = await service.status(workspaceId);
+          byTenantId: async (tenantId) => {
+            const [snapshot] = await service.status(tenantId);
             return snapshot ?? null;
           }
         }
       });
       await service.run({
-        workspaceId: parsed.workspaceId,
+        tenantId: parsed.tenantId,
         issueIdentifier: parsed.issueIdentifier
       });
       return;
@@ -48,31 +48,31 @@ export async function runCli(
     case "run-once":
     case "dispatch": {
       const result = await service.runOnce({
-        workspaceId: parsed.workspaceId,
+        tenantId: parsed.tenantId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "run-issue": {
-      if (!parsed.workspaceId || !parsed.issueIdentifier) {
-        throw new Error("run-issue requires --workspace-id and --issue.");
+      if (!parsed.tenantId || !parsed.issueIdentifier) {
+        throw new Error("run-issue requires --tenant-id and --issue.");
       }
 
       const result = await service.runOnce({
-        workspaceId: parsed.workspaceId,
+        tenantId: parsed.tenantId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "recover": {
-      const result = await service.recover(parsed.workspaceId);
+      const result = await service.recover(parsed.tenantId);
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "status": {
-      const result = await service.status(parsed.workspaceId);
+      const result = await service.status(parsed.tenantId);
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
@@ -87,14 +87,14 @@ async function main(): Promise<void> {
 
 function parseArgs(args: string[]): {
   runtimeRoot?: string;
-  workspaceId?: string;
+  tenantId?: string;
   issueIdentifier?: string;
   statusHost?: string;
   statusPort?: number;
 } {
   const parsed: {
     runtimeRoot?: string;
-    workspaceId?: string;
+    tenantId?: string;
     issueIdentifier?: string;
     statusHost?: string;
     statusPort?: number;
@@ -113,9 +113,9 @@ function parseArgs(args: string[]): {
         parsed.runtimeRoot = value;
         index += 1;
         break;
-      case "--workspace":
-      case "--workspace-id":
-        parsed.workspaceId = value;
+      case "--tenant":
+      case "--tenant-id":
+        parsed.tenantId = value;
         index += 1;
         break;
       case "--issue":

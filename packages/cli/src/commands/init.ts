@@ -1,5 +1,8 @@
 import * as p from "@clack/prompts";
 import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
 import {
   createClient,
@@ -8,32 +11,35 @@ import {
   listUserProjects,
   getProjectDetail,
   type GitHubClient,
-  type ViewerInfo,
   type ProjectSummary,
   type ProjectDetail,
+  type ProjectTextField,
   type LinkedRepository,
 } from "../github/client.js";
 import {
-  inferAllColumnRoles,
+  inferAllStateRoles,
+  inferBlockedByFieldName,
   toWorkflowLifecycleConfig,
-  validateMapping,
+  validateStateMapping,
 } from "../mapping/smart-defaults.js";
+import { generateWorkflowMarkdown } from "../workflow/generate-workflow-md.js";
 import {
   loadGlobalConfig,
+  loadTenantConfig,
   saveGlobalConfig,
-  saveWorkspaceConfig,
+  saveTenantConfig,
   saveWorkflowMapping,
   type CliGlobalConfig,
-  type CliWorkspaceConfig,
-  type ColumnRole,
-  type HumanReviewMode,
-  type WorkflowMappingConfig,
+  type CliTenantConfig,
+  type StateRole,
+  type StateMapping,
+  type WorkflowStateConfig,
 } from "../config.js";
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 
 // ── Cancellation utility ─────────────────────────────────────────────────────
 
-async function abortIfCancelled<T>(
+export async function abortIfCancelled<T>(
   input: T | Promise<T>
 ): Promise<Exclude<T, symbol>> {
   const result = await input;
@@ -46,15 +52,15 @@ async function abortIfCancelled<T>(
 
 // ── Non-interactive flag parsing ─────────────────────────────────────────────
 
-type NonInteractiveFlags = {
+type InitFlags = {
   nonInteractive: boolean;
   token?: string;
   project?: string;
-  runtime?: string;
+  output?: string;
 };
 
-function parseInitFlags(args: string[]): NonInteractiveFlags {
-  const flags: NonInteractiveFlags = { nonInteractive: false };
+function parseInitFlags(args: string[]): InitFlags {
+  const flags: InitFlags = { nonInteractive: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -71,8 +77,8 @@ function parseInitFlags(args: string[]): NonInteractiveFlags {
         flags.project = next;
         i += 1;
         break;
-      case "--runtime":
-        flags.runtime = next;
+      case "--output":
+        flags.output = next;
         i += 1;
         break;
     }
@@ -99,10 +105,10 @@ const handler = async (
 
 export default handler;
 
-// ── 4.8: Non-interactive mode ────────────────────────────────────────────────
+// ── Non-interactive mode: WORKFLOW.md only ───────────────────────────────────
 
 async function runNonInteractive(
-  flags: NonInteractiveFlags,
+  flags: InitFlags,
   options: GlobalOptions
 ): Promise<void> {
   if (!flags.token) {
@@ -140,7 +146,7 @@ async function runNonInteractive(
 
   if (flags.project) {
     const match = projects.find(
-      (p) => p.id === flags.project || p.url === flags.project
+      (proj) => proj.id === flags.project || proj.url === flags.project
     );
     if (!match) {
       process.stderr.write(`Error: Project not found: ${flags.project}\n`);
@@ -170,15 +176,15 @@ async function runNonInteractive(
   }
 
   const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllColumnRoles(columnNames);
-  const roles: Record<string, ColumnRole> = {};
+  const inferred = inferAllStateRoles(columnNames);
+  const mappings: Record<string, StateMapping> = {};
   for (const mapping of inferred) {
     if (mapping.role) {
-      roles[mapping.columnName] = mapping.role;
+      mappings[mapping.columnName] = { role: mapping.role };
     }
   }
 
-  const validation = validateMapping(roles);
+  const validation = validateStateMapping(mappings);
   if (!validation.valid) {
     process.stderr.write(
       `Error: Cannot auto-map columns. ${validation.errors.join("; ")}\nRun without --non-interactive for manual mapping.\n`
@@ -187,62 +193,146 @@ async function runNonInteractive(
     return;
   }
 
-  const runtime = flags.runtime ?? "codex";
-  const workspaceId = generateWorkspaceId(project.title, project.id);
+  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const textFieldNames = project.textFields.map((f) => f.name);
+  const blockedByFieldName = inferBlockedByFieldName(textFieldNames) ?? undefined;
+  const outputPath = resolve(flags.output ?? "WORKFLOW.md");
 
-  await writeConfig(options.configDir, {
-    workspaceId,
-    token: flags.token,
-    project,
-    repos: project.linkedRepositories,
-    statusField,
-    roles,
-    humanReviewMode: "plan-and-pr",
-    runtime,
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: project.id,
+    stateFieldName: statusField.name,
+    mappings,
+    lifecycle: lifecycleConfig,
+    repositories: project.linkedRepositories.map((r) => ({
+      owner: r.owner,
+      name: r.name,
+    })),
+    runtime: "codex",
+    blockedByFieldName,
   });
+
+  await writeFile(outputPath, workflowMd, "utf8");
 
   if (options.json) {
     process.stdout.write(
-      JSON.stringify({ workspaceId, status: "created" }) + "\n"
+      JSON.stringify({ output: outputPath, status: "created" }) + "\n"
     );
   } else {
-    process.stdout.write(`Workspace created: ${workspaceId}\n`);
-    process.stdout.write(`Run 'gh-symphony start' to begin orchestration.\n`);
+    process.stdout.write(`WORKFLOW.md generated at ${outputPath}\n`);
+    process.stdout.write(
+      `Run 'gh-symphony tenant add' to register a tenant and connect this configuration.\n`
+    );
   }
 }
 
-// ── Interactive mode ─────────────────────────────────────────────────────────
+// ── Interactive mode: WORKFLOW.md generation ─────────────────────────────────
 
 async function runInteractive(options: GlobalOptions): Promise<void> {
-  p.intro("gh-symphony — Workspace Setup");
+  p.intro("gh-symphony — WORKFLOW.md Setup");
 
-  // 4.7: Detect existing config
-  const existingConfig = await loadGlobalConfig(options.configDir);
-  if (existingConfig) {
-    const action = await abortIfCancelled(
-      p.select({
-        message: "Existing configuration detected. What would you like to do?",
-        options: [
-          { value: "add", label: "Add a new workspace" },
-          { value: "overwrite", label: "Start fresh (overwrite)" },
-        ],
-      })
-    );
-    if (action === "overwrite") {
-      // Continue with fresh setup — will overwrite config
-    }
-    // "add" continues to create a new workspace alongside existing ones
+  // Case A: tenant(s) already configured
+  const globalConfig = await loadGlobalConfig(options.configDir);
+  if (globalConfig?.tenants?.length) {
+    await runInteractiveFromTenant(globalConfig, options);
+    return;
   }
 
-  // ── Step 1: PAT input with async validation (4.1) ─────────────────────────
-  let token: string;
-  let viewer: ViewerInfo;
-  let client: GitHubClient;
+  // Case B: no tenants — standalone WORKFLOW.md generation
+  await runInteractiveStandalone(options);
+}
+
+// ── Case A: Generate WORKFLOW.md from existing tenant config ─────────────────
+
+async function runInteractiveFromTenant(
+  globalConfig: CliGlobalConfig,
+  options: GlobalOptions
+): Promise<void> {
+  const tenants = globalConfig.tenants;
+
+  let tenantId: string;
+  if (tenants.length === 1) {
+    tenantId = tenants[0]!;
+  } else {
+    // Multiple tenants: ask which one to base WORKFLOW.md on
+    const tenantConfigs = await Promise.all(
+      tenants.map(async (id) => {
+        const cfg = await loadTenantConfig(options.configDir, id);
+        return { id, label: cfg?.slug ?? id };
+      })
+    );
+
+    tenantId = await abortIfCancelled(
+      p.select({
+        message: "Select a tenant to base WORKFLOW.md on:",
+        options: tenantConfigs.map((t) => ({
+          value: t.id,
+          label: t.label,
+          hint: globalConfig.activeTenant === t.id ? "active" : undefined,
+        })),
+      })
+    );
+  }
+
+  const tenantConfig = await loadTenantConfig(options.configDir, tenantId);
+  if (!tenantConfig) {
+    p.log.error(`Tenant config not found for "${tenantId}".`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const lifecycle = tenantConfig.workflow?.lifecycle;
+  if (!lifecycle) {
+    p.log.error(
+      `Tenant "${tenantId}" has no workflow lifecycle config. Run 'gh-symphony tenant add' first.`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const mappings: Record<string, StateMapping> = {};
+  const workflowMapping = tenantConfig.workflowMapping;
+  if (workflowMapping) {
+    Object.assign(mappings, workflowMapping.mappings);
+  }
+
+  const repositories = tenantConfig.repositories.map((r) => ({
+    owner: r.owner,
+    name: r.name,
+  }));
+
+  const projectId = tenantConfig.tracker.settings?.projectId as
+    | string
+    | undefined;
+  const stateFieldName =
+    workflowMapping?.stateFieldName ?? lifecycle.stateFieldName;
+  const runtime = tenantConfig.runtime.workerCommand ?? "codex";
+
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: projectId ?? "",
+    stateFieldName,
+    mappings,
+    lifecycle,
+    repositories,
+    runtime,
+    pollIntervalMs: tenantConfig.workflow?.scheduler?.pollIntervalMs,
+  });
+
+  const outputPath = resolve("WORKFLOW.md");
+  await writeFile(outputPath, workflowMd, "utf8");
+
+  p.outro(`WORKFLOW.md generated at ${outputPath}`);
+}
+
+// ── Case B: Standalone WORKFLOW.md generation (no tenant) ────────────────────
+
+async function runInteractiveStandalone(_options: GlobalOptions): Promise<void> {
+  // Step 1: PAT input
+  let client!: GitHubClient;
 
   while (true) {
     const rawToken = await abortIfCancelled(
       p.password({
-        message: "Step 1/6 — Enter your GitHub Personal Access Token:",
+        message: "Step 1/3 — Enter your GitHub Personal Access Token:",
         validate: (v) => {
           if (!v) return "Token is required.";
           if (v.length < 40) return "Token too short.";
@@ -255,7 +345,7 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
     s.start("Validating token...");
 
     try {
-      viewer = await validateToken(client);
+      const viewer = await validateToken(client);
       const scopeCheck = checkRequiredScopes(viewer.scopes);
 
       if (!scopeCheck.valid) {
@@ -271,7 +361,6 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
       s.stop(
         `Authenticated as ${viewer.login}${viewer.name ? ` (${viewer.name})` : ""}`
       );
-      token = rawToken;
       break;
     } catch (error) {
       s.stop(
@@ -281,8 +370,7 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
     }
   }
 
-  // ── Step 2: Project selection (4.2) ────────────────────────────────────────
-
+  // Step 2: Project selection
   const s2 = p.spinner();
   s2.start("Loading projects...");
   let projects: ProjectSummary[];
@@ -300,7 +388,7 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
 
   if (projects.length === 0) {
     p.log.error(
-      "No GitHub Projects found. Create a project at https://github.com/orgs/YOUR_ORG/projects and re-run init."
+      "No GitHub Projects found. Create a project at https://github.com/orgs/YOUR_ORG/projects and re-run."
     );
     process.exitCode = 1;
     return;
@@ -308,7 +396,7 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 2/6 — Select a GitHub Project:",
+      message: "Step 2/3 — Select a GitHub Project:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -331,29 +419,7 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  // ── Step 3: Repository selection (4.3) ─────────────────────────────────────
-
-  if (projectDetail.linkedRepositories.length === 0) {
-    p.log.warn(
-      "No linked repositories found in this project. Add issues from repositories to the project first."
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const selectedRepos = await abortIfCancelled(
-    p.multiselect({
-      message: "Step 3/6 — Select repositories to orchestrate:",
-      options: projectDetail.linkedRepositories.map((repo) => ({
-        value: repo,
-        label: `${repo.owner}/${repo.name}`,
-      })),
-      required: true,
-    })
-  );
-
-  // ── Step 4: Status column mapping (4.4) ────────────────────────────────────
-
+  // Step 3: Status column mapping
   const statusField =
     projectDetail.statusFields.find((f) => f.name.toLowerCase() === "status") ??
     projectDetail.statusFields[0];
@@ -367,25 +433,21 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
   }
 
   const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllColumnRoles(columnNames);
+  const inferred = inferAllStateRoles(columnNames);
 
   p.log.info(
     `Found ${columnNames.length} status columns on field "${statusField.name}".`
   );
 
-  // Show smart defaults and let user adjust
-  const roles: Record<string, ColumnRole> = {};
+  const mappings: Record<string, StateMapping> = {};
   for (const mapping of inferred) {
-    const roleOptions: Array<{ value: ColumnRole | "skip"; label: string }> = [
-      { value: "trigger", label: "Trigger (starts work)" },
-      { value: "working", label: "Working (implementation)" },
-      { value: "human-review", label: "Review (human approval)" },
-      { value: "done", label: "Done (completed)" },
-      { value: "ignored", label: "Ignored (skip)" },
+    const roleOptions: Array<{ value: StateRole | "skip"; label: string }> = [
+      { value: "active", label: "Active (agent works on this)" },
+      { value: "wait", label: "Wait (human review / hold)" },
+      { value: "terminal", label: "Terminal (completed)" },
     ];
 
-    const defaultRole = mapping.role ?? "ignored";
-    // Put default first
+    const defaultRole = mapping.role ?? "wait";
     const sortedOptions = [
       roleOptions.find((o) => o.value === defaultRole)!,
       ...roleOptions.filter((o) => o.value !== defaultRole),
@@ -393,17 +455,17 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
 
     const selectedRole = await abortIfCancelled(
       p.select({
-        message: `Step 4/6 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
+        message: `Step 3/3 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
         options: sortedOptions,
       })
     );
 
     if (selectedRole !== "skip") {
-      roles[mapping.columnName] = selectedRole as ColumnRole;
+      mappings[mapping.columnName] = { role: selectedRole as StateRole };
     }
   }
 
-  const validation = validateMapping(roles);
+  const validation = validateStateMapping(mappings);
   if (!validation.valid) {
     p.log.error("Mapping validation failed:");
     for (const err of validation.errors) {
@@ -416,218 +478,97 @@ async function runInteractive(options: GlobalOptions): Promise<void> {
     p.log.warn(`  ⚠ ${warn}`);
   }
 
-  // Human review mode selection
-  const humanReviewMode = await abortIfCancelled(
-    p.select<HumanReviewMode>({
-      message: "Human review mode:",
-      options: [
-        {
-          value: "plan-and-pr" as HumanReviewMode,
-          label: "Plan & PR review",
-          hint: "Human reviews both plans and PRs",
-        },
-        {
-          value: "plan-only" as HumanReviewMode,
-          label: "Plan review only",
-          hint: "Human reviews plans, PRs auto-merge",
-        },
-        {
-          value: "pr-only" as HumanReviewMode,
-          label: "PR review only",
-          hint: "No plan review, human reviews PRs",
-        },
-        {
-          value: "none" as HumanReviewMode,
-          label: "None (full auto)",
-          hint: "No human review at all",
-        },
-      ],
-    })
-  );
+  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
 
-  // Show visual flow summary
-  const lifecycleConfig = toWorkflowLifecycleConfig(
-    statusField.name,
-    roles,
-    humanReviewMode
-  );
+  // Step 4: Blocker field selection (optional)
+  const blockedByFieldName = await promptBlockedByField(projectDetail.textFields);
 
-  const flowParts: string[] = [];
-  if (lifecycleConfig.planningStates.length)
-    flowParts.push(`[Planning: ${lifecycleConfig.planningStates.join(", ")}]`);
-  if (lifecycleConfig.humanReviewStates.length)
-    flowParts.push(`[Review: ${lifecycleConfig.humanReviewStates.join(", ")}]`);
-  if (lifecycleConfig.implementationStates.length)
-    flowParts.push(
-      `[Implementation: ${lifecycleConfig.implementationStates.join(", ")}]`
-    );
-  if (lifecycleConfig.awaitingMergeStates.length)
-    flowParts.push(
-      `[Awaiting Merge: ${lifecycleConfig.awaitingMergeStates.join(", ")}]`
-    );
-  if (lifecycleConfig.completedStates.length)
-    flowParts.push(`[Done: ${lifecycleConfig.completedStates.join(", ")}]`);
+  // Generate WORKFLOW.md only — no config files written
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: projectDetail.id,
+    stateFieldName: statusField.name,
+    mappings,
+    lifecycle: lifecycleConfig,
+    repositories: projectDetail.linkedRepositories.map((r) => ({
+      owner: r.owner,
+      name: r.name,
+    })),
+    runtime: "codex",
+    blockedByFieldName,
+  });
 
-  p.note(flowParts.join(" → "), "Workflow Flow");
-
-  // ── Step 5: Runtime selection (4.5) ────────────────────────────────────────
-
-  const runtime = await abortIfCancelled(
-    p.select({
-      message: "Step 5/6 — Select AI runtime:",
-      options: [
-        { value: "codex", label: "OpenAI Codex", hint: "recommended" },
-        { value: "claude-code", label: "Claude Code" },
-        { value: "custom", label: "Custom command" },
-      ],
-    })
-  );
-
-  let workerCommand: string | undefined;
-  if (runtime === "custom") {
-    workerCommand = await abortIfCancelled(
-      p.text({
-        message: "Custom worker command:",
-        placeholder: "node packages/worker/dist/index.js",
-      })
-    );
-  }
-
-  // ── Step 6: Options (4.5) ──────────────────────────────────────────────────
-
-  const advancedOptions = await abortIfCancelled(
-    p.confirm({
-      message:
-        "Step 6/6 — Configure advanced options? (poll interval, concurrency)",
-      initialValue: false,
-    })
-  );
-
-  let pollIntervalMs = 30_000;
-  let concurrency = 3;
-  let maxAttempts = 3;
-
-  if (advancedOptions) {
-    const pollStr = await abortIfCancelled(
-      p.text({
-        message: "Poll interval (seconds):",
-        placeholder: "30",
-        initialValue: "30",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 5) return "Must be at least 5 seconds.";
-        },
-      })
-    );
-    pollIntervalMs = Number(pollStr) * 1000;
-
-    const concurrencyStr = await abortIfCancelled(
-      p.text({
-        message: "Max concurrent workers:",
-        placeholder: "3",
-        initialValue: "3",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 1) return "Must be at least 1.";
-        },
-      })
-    );
-    concurrency = Number(concurrencyStr);
-
-    const attemptsStr = await abortIfCancelled(
-      p.text({
-        message: "Max retry attempts per issue:",
-        placeholder: "3",
-        initialValue: "3",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 1) return "Must be at least 1.";
-        },
-      })
-    );
-    maxAttempts = Number(attemptsStr);
-  }
-
-  // ── Confirmation ───────────────────────────────────────────────────────────
-
-  p.note(
-    [
-      `User:       ${viewer.login}`,
-      `Project:    ${projectDetail.title}`,
-      `Repos:      ${selectedRepos.map((r) => `${r.owner}/${r.name}`).join(", ")}`,
-      `Runtime:    ${runtime}`,
-      `Review:     ${humanReviewMode}`,
-      `Poll:       ${pollIntervalMs / 1000}s`,
-      `Concurrency: ${concurrency}`,
-      `Max retries: ${maxAttempts}`,
-    ].join("\n"),
-    "Configuration Summary"
-  );
-
-  const confirmed = await abortIfCancelled(
-    p.confirm({ message: "Apply this configuration?" })
-  );
-
-  if (!confirmed) {
-    p.cancel("Setup cancelled.");
-    process.exitCode = 130;
-    return;
-  }
-
-  // ── Write config files (4.6) ───────────────────────────────────────────────
-
-  const workspaceId = generateWorkspaceId(projectDetail.title, projectDetail.id);
-
-  const s6 = p.spinner();
-  s6.start("Writing configuration...");
-
-  try {
-    await writeConfig(options.configDir, {
-      workspaceId,
-      token,
-      project: projectDetail,
-      repos: selectedRepos,
-      statusField: {
-        name: statusField.name,
-        options: statusField.options,
-      },
-      roles,
-      humanReviewMode,
-      runtime,
-      workerCommand,
-      pollIntervalMs,
-      concurrency,
-      maxAttempts,
-    });
-    s6.stop("Configuration saved.");
-  } catch (error) {
-    s6.stop("Failed to write configuration.");
-    p.log.error(error instanceof Error ? error.message : "Unknown error");
-    process.exitCode = 1;
-    return;
-  }
+  const outputPath = resolve("WORKFLOW.md");
+  await writeFile(outputPath, workflowMd, "utf8");
 
   p.outro(
-    `Workspace "${workspaceId}" created!\n  Run 'gh-symphony start' to begin orchestration.`
+    `WORKFLOW.md generated at ${outputPath}\n  Run 'gh-symphony tenant add' to register a tenant and connect this configuration.`
   );
 }
 
-// ── Config writing (4.6) ─────────────────────────────────────────────────────
+async function promptBlockedByField(
+  textFields: ProjectTextField[]
+): Promise<string | undefined> {
+  if (textFields.length === 0) {
+    return undefined;
+  }
+
+  const autoDetected = inferBlockedByFieldName(textFields.map((f) => f.name));
+  const IGNORE_VALUE = "__ignore__";
+
+  const options: Array<{ value: string; label: string; hint?: string }> = [
+    { value: IGNORE_VALUE, label: "Ignore (no blocker field)" },
+    ...textFields.map((f) => ({
+      value: f.name,
+      label: f.name,
+      hint: f.name === autoDetected ? "auto-detected" : f.dataType.toLowerCase(),
+    })),
+  ];
+
+  // Move auto-detected to top of field options
+  if (autoDetected) {
+    const idx = options.findIndex((o) => o.value === autoDetected);
+    if (idx > 1) {
+      const [item] = options.splice(idx, 1);
+      options.splice(1, 0, item!);
+    }
+  }
+
+  const selected = await abortIfCancelled(
+    p.select({
+      message: `Step 4/4 — Select a custom field for "Blocked By" (optional):${autoDetected ? ` "${autoDetected}" auto-detected` : ""}`,
+      options,
+      initialValue: autoDetected ?? IGNORE_VALUE,
+    })
+  );
+
+  return selected === IGNORE_VALUE ? undefined : selected;
+}
+
+// ── Config writing (used by tenant.ts via import) ─────────────────────────────
 
 type WriteConfigInput = {
-  workspaceId: string;
+  tenantId: string;
   token: string;
   project: ProjectDetail;
   repos: LinkedRepository[];
   statusField: { name: string; options: Array<{ name: string }> };
-  roles: Record<string, ColumnRole>;
-  humanReviewMode: HumanReviewMode;
+  mappings: Record<string, StateMapping>;
   runtime: string;
   workerCommand?: string;
   pollIntervalMs?: number;
   concurrency?: number;
   maxAttempts?: number;
+  blockedByFieldName?: string;
 };
+
+function resolveWorkerCommand(): string | undefined {
+  try {
+    const url = import.meta.resolve("@gh-symphony/worker/dist/index.js");
+    return `node ${fileURLToPath(url)}`;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function writeConfig(
   configDir: string,
@@ -635,24 +576,23 @@ export async function writeConfig(
 ): Promise<void> {
   const lifecycleConfig = toWorkflowLifecycleConfig(
     input.statusField.name,
-    input.roles,
-    input.humanReviewMode
+    input.mappings
   );
 
   // Save workflow mapping
-  const mappingConfig: WorkflowMappingConfig = {
+  const mappingConfig: WorkflowStateConfig = {
     stateFieldName: input.statusField.name,
-    columnRoles: input.roles,
-    humanReviewMode: input.humanReviewMode,
+    mappings: input.mappings,
     lifecycle: lifecycleConfig,
+    blockedByFieldName: input.blockedByFieldName,
   };
-  await saveWorkflowMapping(configDir, input.workspaceId, mappingConfig);
+  await saveWorkflowMapping(configDir, input.tenantId, mappingConfig);
 
-  // Save workspace config (OrchestratorWorkspaceConfig shape)
-  const runtimeDir = `${configDir}/workspaces/${input.workspaceId}/runtime`;
-  await saveWorkspaceConfig(configDir, input.workspaceId, {
-    workspaceId: input.workspaceId,
-    slug: input.workspaceId,
+  // Save tenant config (OrchestratorTenantConfig shape)
+  const runtimeDir = `${configDir}/tenants/${input.tenantId}/runtime`;
+  await saveTenantConfig(configDir, input.tenantId, {
+    tenantId: input.tenantId,
+    slug: input.tenantId,
     promptGuidelines: "",
     repositories: input.repos.map((r) => ({
       owner: r.owner,
@@ -665,13 +605,14 @@ export async function writeConfig(
       settings: {
         projectId: input.project.id,
         token: input.token,
+        ...(input.blockedByFieldName && { blockedByFieldName: input.blockedByFieldName }),
       },
     },
     runtime: {
       driver: "local",
       workspaceRuntimeDir: runtimeDir,
       projectRoot: process.cwd(),
-      workerCommand: input.workerCommand,
+      workerCommand: input.workerCommand ?? resolveWorkerCommand(),
     },
     workflow: buildWorkflowOverrides(lifecycleConfig, input),
     orchestrator: {
@@ -684,20 +625,40 @@ export async function writeConfig(
   // Save/update global config
   const existing = await loadGlobalConfig(configDir);
   const globalConfig: CliGlobalConfig = {
-    activeWorkspace: input.workspaceId,
+    activeTenant: input.tenantId,
     token: input.token,
-    workspaces: [
-      ...(existing?.workspaces ?? []).filter((w) => w !== input.workspaceId),
-      input.workspaceId,
+    tenants: [
+      ...(existing?.tenants ?? []).filter((t) => t !== input.tenantId),
+      input.tenantId,
     ],
   };
   await saveGlobalConfig(configDir, globalConfig);
+
+  // Generate WORKFLOW.md for tenant-level fallback
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: input.project.id,
+    stateFieldName: input.statusField.name,
+    mappings: input.mappings,
+    lifecycle: lifecycleConfig,
+    repositories: input.repos.map((r) => ({ owner: r.owner, name: r.name })),
+    runtime: input.runtime,
+    pollIntervalMs: input.pollIntervalMs,
+    concurrency: input.concurrency,
+    blockedByFieldName: input.blockedByFieldName,
+  });
+  const workflowMdPath = join(
+    configDir,
+    "tenants",
+    input.tenantId,
+    "WORKFLOW.md"
+  );
+  await writeFile(workflowMdPath, workflowMd, "utf8");
 }
 
 function buildWorkflowOverrides(
   lifecycle: WorkflowLifecycleConfig,
   input: WriteConfigInput
-): NonNullable<CliWorkspaceConfig["workflow"]> {
+): NonNullable<CliTenantConfig["workflow"]> {
   return {
     lifecycle,
     scheduler: {
@@ -706,7 +667,7 @@ function buildWorkflowOverrides(
   };
 }
 
-export function generateWorkspaceId(
+export function generateTenantId(
   projectTitle: string,
   uniqueKey: string
 ): string {
@@ -716,5 +677,5 @@ export function generateWorkspaceId(
     .replace(/^-|-$/g, "")
     .slice(0, 32);
   const suffix = createHash("sha1").update(uniqueKey).digest("hex").slice(0, 8);
-  return [slug || "workspace", suffix].join("-");
+  return [slug || "tenant", suffix].join("-");
 }

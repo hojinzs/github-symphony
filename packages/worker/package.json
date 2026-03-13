@@ -1,11 +1,19 @@
 {
   "name": "@gh-symphony/worker",
-  "private": true,
   "version": "0.0.1",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Symphony worker runtime for executing single issue runs",
   "type": "module",
+  "main": "./dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/worker"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --watch src/index.ts",

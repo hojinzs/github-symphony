@@ -7,7 +7,7 @@ import { sortCandidatesForDispatch, OrchestratorService } from "./service.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
-  OrchestratorWorkspaceConfig,
+  OrchestratorTenantConfig,
   TrackedIssue,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -40,7 +40,6 @@ function makeIssue(
       bindingId: "proj-1",
       itemId: "item-1",
     },
-    phase: "planning",
     metadata: {},
     ...overrides,
   };
@@ -135,7 +134,7 @@ describe("sortCandidatesForDispatch", () => {
   });
 });
 
-describe("per-phase concurrency limits", () => {
+describe("per-state concurrency limits", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
 
   afterEach(() => {
@@ -146,7 +145,7 @@ describe("per-phase concurrency limits", () => {
     }
   });
 
-  it("dispatches only one planning issue when planning limit is 1", async () => {
+  it("dispatches only one issue in Todo state when Todo limit is 1", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
     const repository = await createRepositoryFixture(
@@ -154,14 +153,14 @@ describe("per-phase concurrency limits", () => {
       "acme",
       "platform",
       {
-        maxConcurrentByPhase: {
-          planning: 1,
+        maxConcurrentByState: {
+          Todo: 1,
         },
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveWorkspaceConfig(
-      createWorkspaceConfig(
+    await store.saveTenantConfig(
+      createTenantConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -186,7 +185,7 @@ describe("per-phase concurrency limits", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("dispatches all three planning issues when planning limit is 3", async () => {
+  it("dispatches all three issues in Todo state when Todo limit is 3", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatch-"));
     const repository = await createRepositoryFixture(
@@ -194,14 +193,14 @@ describe("per-phase concurrency limits", () => {
       "acme",
       "platform",
       {
-        maxConcurrentByPhase: {
-          planning: 3,
+        maxConcurrentByState: {
+          Todo: 3,
         },
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveWorkspaceConfig(
-      createWorkspaceConfig(
+    await store.saveTenantConfig(
+      createTenantConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -232,7 +231,7 @@ describe("blocker eligibility", () => {
     vi.restoreAllMocks();
   });
 
-  it("dispatches unblocked planning issue and skips issue blocked by non-terminal blocker", async () => {
+  it("dispatches unblocked issue and skips issue blocked by non-terminal blocker", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-blocker-"));
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -240,8 +239,8 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveWorkspaceConfig(
-      createWorkspaceConfig(
+    await store.saveTenantConfig(
+      createTenantConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -288,12 +287,13 @@ describe("blocker eligibility", () => {
       listIssues,
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
-        _workspace: OrchestratorWorkspaceConfig,
+        _tenant: OrchestratorTenantConfig,
         run: OrchestratorRunRecord
       ) =>
         makeIssue({
           id: run.issueId,
           identifier: run.issueIdentifier,
+          state: run.issueState,
           repository: {
             owner: repository.owner,
             name: repository.name,
@@ -304,7 +304,6 @@ describe("blocker eligibility", () => {
             bindingId: "project-123",
             itemId: run.issueId,
           },
-          phase: run.phase,
         }),
     };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
@@ -338,8 +337,8 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveWorkspaceConfig(
-      createWorkspaceConfig(
+    await store.saveTenantConfig(
+      createTenantConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -386,12 +385,13 @@ describe("blocker eligibility", () => {
       listIssues,
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
-        _workspace: OrchestratorWorkspaceConfig,
+        _tenant: OrchestratorTenantConfig,
         run: OrchestratorRunRecord
       ) =>
         makeIssue({
           id: run.issueId,
           identifier: run.issueIdentifier,
+          state: run.issueState,
           repository: {
             owner: repository.owner,
             name: repository.name,
@@ -402,7 +402,6 @@ describe("blocker eligibility", () => {
             bindingId: "project-123",
             itemId: run.issueId,
           },
-          phase: run.phase,
         }),
     };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
@@ -434,7 +433,7 @@ async function createRepositoryFixture(
   owner: string,
   name: string,
   options: {
-    maxConcurrentByPhase?: Record<string, number>;
+    maxConcurrentByState?: Record<string, number>;
   } = {}
 ): Promise<{
   owner: string;
@@ -468,12 +467,12 @@ async function createRepositoryFixture(
 async function writeWorkflowFixture(
   repositoryRoot: string,
   options: {
-    maxConcurrentByPhase?: Record<string, number>;
+    maxConcurrentByState?: Record<string, number>;
   } = {}
 ): Promise<void> {
-  const maxConcurrentByPhase = options.maxConcurrentByPhase
-    ? `max_concurrent_by_phase:\n${Object.entries(options.maxConcurrentByPhase)
-        .map(([phase, limit]) => `  ${phase}: ${limit}`)
+  const maxConcurrentByState = options.maxConcurrentByState
+    ? `max_concurrent_by_state:\n${Object.entries(options.maxConcurrentByState)
+        .map(([state, limit]) => `  ${state}: ${limit}`)
         .join("\n")}\n`
     : "";
 
@@ -483,21 +482,14 @@ async function writeWorkflowFixture(
 github_project_id: project-123
 lifecycle:
   state_field: Status
-  planning_active:
+  active_states:
     - Todo
-  human_review:
-    - Plan Review
-  implementation_active:
     - In Progress
-  awaiting_merge:
-    - In Review
-  completed:
+  terminal_states:
     - Done
-  transitions:
-    planning_complete: Plan Review
-    implementation_complete: In Review
-    merge_complete: Done
-${maxConcurrentByPhase}runtime:
+  blocker_check_states:
+    - Todo
+${maxConcurrentByState}runtime:
   agent_command: bash -lc codex app-server
 hooks:
   after_create: hooks/after_create.sh
@@ -513,15 +505,15 @@ Prefer focused changes.
   );
 }
 
-function createWorkspaceConfig(
+function createTenantConfig(
   tempRoot: string,
   cloneUrl: string,
   owner: string,
   name: string
 ) {
   return {
-    workspaceId: "workspace-1",
-    slug: "workspace-1",
+    tenantId: "tenant-1",
+    slug: "tenant-1",
     promptGuidelines: "Prefer focused changes.",
     repositories: [
       {
@@ -539,7 +531,7 @@ function createWorkspaceConfig(
     },
     runtime: {
       driver: "local" as const,
-      workspaceRuntimeDir: join(tempRoot, "workspaces", "workspace-1"),
+      workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
       projectRoot: process.cwd(),
       workerCommand: "node packages/worker/dist/index.js",
     },

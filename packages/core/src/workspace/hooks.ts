@@ -156,17 +156,17 @@ export async function executeHook(
  * Build the standard hook environment variables for a workspace lifecycle hook.
  */
 export function buildHookEnv(context: {
-  workspaceId: string;
+  tenantId: string;
   workspaceKey: string;
   issueSubjectId: string;
   issueIdentifier: string;
   workspacePath: string;
   repositoryPath: string;
   runId?: string;
-  phase?: string;
+  state?: string;
 }): Record<string, string> {
   const env: Record<string, string> = {
-    SYMPHONY_WORKSPACE_ID: context.workspaceId,
+    SYMPHONY_TENANT_ID: context.tenantId,
     SYMPHONY_ISSUE_WORKSPACE_KEY: context.workspaceKey,
     SYMPHONY_ISSUE_SUBJECT_ID: context.issueSubjectId,
     SYMPHONY_ISSUE_IDENTIFIER: context.issueIdentifier,
@@ -177,8 +177,8 @@ export function buildHookEnv(context: {
   if (context.runId) {
     env.SYMPHONY_RUN_ID = context.runId;
   }
-  if (context.phase) {
-    env.SYMPHONY_RUN_PHASE = context.phase;
+  if (context.state) {
+    env.SYMPHONY_ISSUE_STATE = context.state;
   }
 
   return env;

@@ -2,16 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   buildHookEnv,
   buildPromptVariables,
-  buildWorkspaceSnapshot,
+  buildTenantSnapshot,
   calculateRetryDelay,
   DEFAULT_WORKFLOW_LIFECYCLE,
   deriveIssueWorkspaceKey,
-  isWorkflowPhaseActionable,
-  isWorkflowPhaseTerminal,
+  isStateActive,
+  isStateTerminal,
   renderPrompt,
   resolveIssueRepositoryPath,
   resolveIssueWorkspaceDirectory,
-  resolveWorkflowExecutionPhase,
   scheduleRetryAt,
 } from "./index.js";
 import type { RunDispatchedEvent } from "./observability/structured-events.js";
@@ -19,7 +18,7 @@ import type { RunDispatchedEvent } from "./observability/structured-events.js";
 describe("deriveIssueWorkspaceKey", () => {
   it("produces a stable deterministic key", () => {
     const identity = {
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-abc",
     };
@@ -34,17 +33,17 @@ describe("deriveIssueWorkspaceKey", () => {
 
   it("produces different keys for different identities", () => {
     const keyA = deriveIssueWorkspaceKey({
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
     const keyB = deriveIssueWorkspaceKey({
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-2",
     });
     const keyC = deriveIssueWorkspaceKey({
-      workspaceId: "ws-2",
+      tenantId: "ws-2",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
@@ -83,7 +82,7 @@ describe("resolveIssueRepositoryPath", () => {
 describe("buildHookEnv", () => {
   it("produces the standard hook environment variables", () => {
     const env = buildHookEnv({
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
@@ -91,30 +90,30 @@ describe("buildHookEnv", () => {
       repositoryPath: "/workspace/repository",
     });
 
-    expect(env.SYMPHONY_WORKSPACE_ID).toBe("ws-1");
+    expect(env.SYMPHONY_TENANT_ID).toBe("ws-1");
     expect(env.SYMPHONY_ISSUE_WORKSPACE_KEY).toBe("key-abc");
     expect(env.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
     expect(env.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#42");
     expect(env.SYMPHONY_WORKSPACE_PATH).toBe("/workspace");
     expect(env.SYMPHONY_REPOSITORY_PATH).toBe("/workspace/repository");
     expect(env.SYMPHONY_RUN_ID).toBeUndefined();
-    expect(env.SYMPHONY_RUN_PHASE).toBeUndefined();
+    expect(env.SYMPHONY_ISSUE_STATE).toBeUndefined();
   });
 
   it("includes run-level variables when provided", () => {
     const env = buildHookEnv({
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
       workspacePath: "/workspace",
       repositoryPath: "/workspace/repository",
       runId: "run-1",
-      phase: "planning",
+      state: "Todo",
     });
 
     expect(env.SYMPHONY_RUN_ID).toBe("run-1");
-    expect(env.SYMPHONY_RUN_PHASE).toBe("planning");
+    expect(env.SYMPHONY_ISSUE_STATE).toBe("Todo");
   });
 });
 
@@ -145,7 +144,6 @@ describe("renderPrompt", () => {
           bindingId: "project-123",
           itemId: "item-1",
         },
-        phase: "planning",
         metadata: {},
       },
       { attempt: null, guidelines: "Be concise." }
@@ -185,7 +183,6 @@ describe("renderPrompt", () => {
           bindingId: "project-123",
           itemId: "item-1",
         },
-        phase: "planning",
         metadata: {},
       },
       { attempt: null, guidelines: "" }
@@ -220,7 +217,6 @@ describe("renderPrompt", () => {
           bindingId: "project-123",
           itemId: "item-1",
         },
-        phase: "planning",
         metadata: {},
       },
       { attempt: null, guidelines: "" }
@@ -260,7 +256,6 @@ describe("renderPrompt", () => {
           bindingId: "project-123",
           itemId: "item-1",
         },
-        phase: "planning",
         metadata: {},
       },
       { attempt: null, guidelines: "Be concise." }
@@ -270,50 +265,74 @@ describe("renderPrompt", () => {
       renderPrompt("Fix {{issue.title}} — {{guidelines}}", variables)
     ).not.toThrow();
   });
+
+  it("renders null variables as empty string in strict mode", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Fix the bug",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: null, guidelines: "" }
+    );
+
+    // null description → empty string, no template_render_error
+    expect(renderPrompt("Title: {{issue.title}}\nDesc: {{issue.description}}", variables)).toBe(
+      "Title: Fix the bug\nDesc: "
+    );
+    // null url → empty string
+    expect(renderPrompt("URL: {{issue.url}}", variables)).toBe("URL: ");
+    // null attempt → empty string
+    expect(renderPrompt("Attempt: {{attempt}}", variables)).toBe("Attempt: ");
+  });
 });
 
-describe("resolveWorkflowExecutionPhase", () => {
+describe("isStateActive", () => {
   const lifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
 
-  it("maps planning states to the planning phase", () => {
-    expect(resolveWorkflowExecutionPhase("Todo", lifecycle)).toBe("planning");
+  it("treats configured active states as active", () => {
+    expect(isStateActive("Todo", lifecycle)).toBe(true);
+    expect(isStateActive("In Progress", lifecycle)).toBe(true);
   });
 
-  it("maps human review states correctly", () => {
-    expect(resolveWorkflowExecutionPhase("Plan Review", lifecycle)).toBe(
-      "human-review"
-    );
-  });
-
-  it("maps implementation states correctly", () => {
-    expect(resolveWorkflowExecutionPhase("In Progress", lifecycle)).toBe(
-      "implementation"
-    );
-  });
-
-  it("returns unknown for unmapped states", () => {
-    expect(resolveWorkflowExecutionPhase("Backlog", lifecycle)).toBe("unknown");
+  it("treats non-active states as inactive", () => {
+    expect(isStateActive("Done", lifecycle)).toBe(false);
+    expect(isStateActive("Backlog", lifecycle)).toBe(false);
   });
 });
 
-describe("isWorkflowPhaseActionable", () => {
-  it("treats planning and implementation as actionable", () => {
-    expect(isWorkflowPhaseActionable("planning")).toBe(true);
-    expect(isWorkflowPhaseActionable("implementation")).toBe(true);
+describe("isStateTerminal", () => {
+  const lifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
+
+  it("treats configured terminal states as terminal", () => {
+    expect(isStateTerminal("Done", lifecycle)).toBe(true);
   });
 
-  it("treats other phases as non-actionable", () => {
-    expect(isWorkflowPhaseActionable("human-review")).toBe(false);
-    expect(isWorkflowPhaseActionable("completed")).toBe(false);
-    expect(isWorkflowPhaseActionable("unknown")).toBe(false);
-  });
-});
-
-describe("isWorkflowPhaseTerminal", () => {
-  it("treats only completed as terminal", () => {
-    expect(isWorkflowPhaseTerminal("completed")).toBe(true);
-    expect(isWorkflowPhaseTerminal("planning")).toBe(false);
-    expect(isWorkflowPhaseTerminal("unknown")).toBe(false);
+  it("treats non-terminal states as non-terminal", () => {
+    expect(isStateTerminal("Todo", lifecycle)).toBe(false);
+    expect(isStateTerminal("In Progress", lifecycle)).toBe(false);
+    expect(isStateTerminal("Backlog", lifecycle)).toBe(false);
   });
 });
 
@@ -362,9 +381,9 @@ describe("calculateRetryDelay", () => {
   });
 });
 
-describe("buildWorkspaceSnapshot", () => {
+describe("buildTenantSnapshot", () => {
   const baseWorkspace = {
-    workspaceId: "ws-1",
+    tenantId: "ws-1",
     slug: "ws-1",
     promptGuidelines: "",
     repositories: [],
@@ -380,8 +399,8 @@ describe("buildWorkspaceSnapshot", () => {
   };
 
   it("produces idle health when no runs or errors", () => {
-    const snapshot = buildWorkspaceSnapshot({
-      workspace: baseWorkspace,
+    const snapshot = buildTenantSnapshot({
+      tenant: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -393,17 +412,17 @@ describe("buildWorkspaceSnapshot", () => {
   });
 
   it("produces running health when active runs exist", () => {
-    const snapshot = buildWorkspaceSnapshot({
-      workspace: baseWorkspace,
+    const snapshot = buildTenantSnapshot({
+      tenant: baseWorkspace,
       activeRuns: [
         {
           runId: "run-1",
-          workspaceId: "ws-1",
-          workspaceSlug: "ws-1",
+          tenantId: "ws-1",
+          tenantSlug: "ws-1",
           issueId: "issue-1",
           issueSubjectId: "issue-1",
           issueIdentifier: "acme/platform#1",
-          phase: "planning",
+          issueState: "Todo",
           repository: { owner: "acme", name: "platform", cloneUrl: "" },
           status: "running",
           attempt: 1,
@@ -434,8 +453,8 @@ describe("buildWorkspaceSnapshot", () => {
   });
 
   it("produces degraded health when lastError is present", () => {
-    const snapshot = buildWorkspaceSnapshot({
-      workspace: baseWorkspace,
+    const snapshot = buildTenantSnapshot({
+      tenant: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -452,7 +471,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       issueIdentifier: "acme/repo#1",
       issueId: "issue-node-id",
       sessionId: "thread-1-turn-1",
@@ -466,7 +485,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      workspaceId: "ws-1",
+      tenantId: "ws-1",
       issueIdentifier: "acme/repo#1",
     };
 
@@ -475,11 +494,11 @@ describe("structured event field enrichment", () => {
   });
 });
 
-describe("token accounting - buildWorkspaceSnapshot", () => {
+describe("token accounting - buildTenantSnapshot", () => {
   it("includes codexTotals from run tokenUsage data", () => {
-    const snapshot = buildWorkspaceSnapshot({
-      workspace: {
-        workspaceId: "ws-1",
+    const snapshot = buildTenantSnapshot({
+      tenant: {
+        tenantId: "ws-1",
         slug: "test",
         promptGuidelines: "",
         repositories: [],
@@ -490,12 +509,12 @@ describe("token accounting - buildWorkspaceSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          workspaceId: "ws-1",
-          workspaceSlug: "test",
+          tenantId: "ws-1",
+          tenantSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
-          phase: "planning",
+          issueState: "Todo",
           repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
           status: "succeeded",
           attempt: 1,
@@ -526,9 +545,9 @@ describe("token accounting - buildWorkspaceSnapshot", () => {
   });
 
   it("aggregates tokens across multiple runs", () => {
-    const snapshot = buildWorkspaceSnapshot({
-      workspace: {
-        workspaceId: "ws-1",
+    const snapshot = buildTenantSnapshot({
+      tenant: {
+        tenantId: "ws-1",
         slug: "test",
         promptGuidelines: "",
         repositories: [],
@@ -539,12 +558,12 @@ describe("token accounting - buildWorkspaceSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          workspaceId: "ws-1",
-          workspaceSlug: "test",
+          tenantId: "ws-1",
+          tenantSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
-          phase: "planning",
+          issueState: "Todo",
           repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
           status: "succeeded",
           attempt: 1,
@@ -565,12 +584,12 @@ describe("token accounting - buildWorkspaceSnapshot", () => {
         },
         {
           runId: "run-2",
-          workspaceId: "ws-1",
-          workspaceSlug: "test",
+          tenantId: "ws-1",
+          tenantSlug: "test",
           issueId: "i2",
           issueSubjectId: "s2",
           issueIdentifier: "acme/repo#2",
-          phase: "planning",
+          issueState: "Todo",
           repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
           status: "succeeded",
           attempt: 1,

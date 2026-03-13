@@ -2,24 +2,24 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveWorkspaceConfig,
-  syncWorkspaceToRuntime,
+  resolveTenantConfig,
+  syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
 
 function parseRunArgs(args: string[]): {
   issue?: string;
   watch: boolean;
-  workspaceId?: string;
+  tenantId?: string;
 } {
-  const parsed: { issue?: string; watch: boolean; workspaceId?: string } = {
+  const parsed: { issue?: string; watch: boolean; tenantId?: string } = {
     watch: false,
   };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
-    } else if (arg === "--workspace" || arg === "--workspace-id") {
-      parsed.workspaceId = args[i + 1];
+    } else if (arg === "--tenant" || arg === "--tenant-id") {
+      parsed.tenantId = args[i + 1];
       i += 1;
     } else if (!arg?.startsWith("--")) {
       // Positional arg = issue identifier
@@ -41,31 +41,31 @@ const handler = async (
     return;
   }
 
-  const wsConfig = await resolveWorkspaceConfig(
+  const tenantConfig = await resolveTenantConfig(
     options.configDir,
-    parsed.workspaceId
+    parsed.tenantId
   );
-  if (!wsConfig) {
+  if (!tenantConfig) {
     process.stderr.write(
-      "No workspace configured. Run 'gh-symphony init' first.\n"
+      "No tenant configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const workspaceId = wsConfig.workspaceId;
-  await syncWorkspaceToRuntime(options.configDir, wsConfig);
+  const tenantId = tenantConfig.tenantId;
+  await syncTenantToRuntime(options.configDir, tenantConfig);
 
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
   if (
     repoSpec &&
-    !wsConfig.repositories.some((r) => `${r.owner}/${r.name}` === repoSpec)
+    !tenantConfig.repositories.some((r) => `${r.owner}/${r.name}` === repoSpec)
   ) {
     process.stderr.write(
-      `Repository "${repoSpec}" is not configured in this workspace.\n` +
-        `Configured repos: ${wsConfig.repositories.map((r) => `${r.owner}/${r.name}`).join(", ")}\n`
+      `Repository "${repoSpec}" is not configured in this tenant.\n` +
+        `Configured repos: ${tenantConfig.repositories.map((r) => `${r.owner}/${r.name}`).join(", ")}\n`
     );
     process.exitCode = 1;
     return;
@@ -77,8 +77,8 @@ const handler = async (
     "run-issue",
     "--runtime-root",
     runtimeRoot,
-    "--workspace-id",
-    workspaceId,
+    "--tenant-id",
+    tenantId,
     "--issue",
     parsed.issue,
   ]);
@@ -89,8 +89,8 @@ const handler = async (
       "status",
       "--runtime-root",
       runtimeRoot,
-      "--workspace-id",
-      workspaceId,
+      "--tenant-id",
+      tenantId,
     ]);
   }
 };

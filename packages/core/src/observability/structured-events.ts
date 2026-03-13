@@ -1,7 +1,5 @@
-import type { TrackedIssue } from "../contracts/tracker-adapter.js";
-
 /**
- * Structured orchestration events emitted during workspace reconciliation.
+ * Structured orchestration events emitted during tenant reconciliation.
  *
  * Each event includes a UTC timestamp (`at`), a discriminated `event` field,
  * and payload fields specific to that event kind. Events are appended to the
@@ -12,9 +10,9 @@ import type { TrackedIssue } from "../contracts/tracker-adapter.js";
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
-  workspaceId: string;
+  tenantId: string;
   issueIdentifier: string;
-  phase?: TrackedIssue["phase"];
+  issueState?: string;
   issueId?: string;
   sessionId?: string;
 };
@@ -82,6 +80,15 @@ export type WorkspaceCleanupEvent = {
   error?: string | null;
 };
 
+export type WorkerErrorEvent = {
+  at: string;
+  event: "worker-error";
+  runId: string;
+  issueIdentifier: string;
+  error: string;
+  attempt: number;
+};
+
 /**
  * Union of all structured orchestration events. Discriminated on `event`.
  */
@@ -93,4 +100,5 @@ export type OrchestratorEvent =
   | RunSuppressedEvent
   | HookExecutedEvent
   | HookFailedEvent
-  | WorkspaceCleanupEvent;
+  | WorkspaceCleanupEvent
+  | WorkerErrorEvent;

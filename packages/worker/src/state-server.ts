@@ -14,7 +14,7 @@ export type WorkerRuntimeState = {
     runId: string;
     issueId: string | null;
     issueIdentifier: string | null;
-    phase: string | null;
+    state: string | null;
     processId: number | null;
     repository: {
       owner: string | null;
@@ -39,14 +39,9 @@ export type WorkerRuntimeState = {
     hookPath: string;
     lifecycle: {
       stateFieldName: string;
-      planningStates: string[];
-      humanReviewStates: string[];
-      implementationStates: string[];
-      awaitingMergeStates: string[];
-      completedStates: string[];
-      planningCompleteState: string;
-      implementationCompleteState: string;
-      mergeCompleteState: string;
+      activeStates: string[];
+      terminalStates: string[];
+      blockerCheckStates: string[];
     };
   };
 };
@@ -67,7 +62,7 @@ export async function buildWorkerRuntimeState(
           runId: env.SYMPHONY_RUN_ID,
           issueId: env.SYMPHONY_ISSUE_ID ?? null,
           issueIdentifier: env.SYMPHONY_ISSUE_IDENTIFIER ?? null,
-          phase: env.SYMPHONY_RUN_PHASE ?? null,
+          state: env.SYMPHONY_ISSUE_STATE ?? null,
           processId: null,
           repository: {
             owner: env.TARGET_REPOSITORY_OWNER ?? null,

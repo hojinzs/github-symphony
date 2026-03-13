@@ -1,7 +1,7 @@
 import type { RepositoryRef } from "../domain/workspace.js";
 import type { WorkflowDefinition } from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
-import type { TrackedIssue, TrackerAdapterKind } from "./tracker-adapter.js";
+import type { TrackerAdapterKind } from "./tracker-adapter.js";
 
 export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
@@ -10,20 +10,20 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, string>;
 };
 
-export type WorkspaceWorkflowOverrides = {
+export type TenantWorkflowOverrides = {
   lifecycle?: WorkflowLifecycleConfig;
   scheduler?: Partial<WorkflowDefinition["scheduler"]>;
   retry?: Partial<WorkflowDefinition["retry"]>;
-  maxConcurrentByPhase?: Record<string, number>;
+  maxConcurrentByState?: Record<string, number>;
 };
 
-export type WorkspaceOrchestratorConfig = {
+export type TenantOrchestratorConfig = {
   concurrency?: number;
   maxAttempts?: number;
 };
 
-export type OrchestratorWorkspaceConfig = {
-  workspaceId: string;
+export type OrchestratorTenantConfig = {
+  tenantId: string;
   slug: string;
   promptGuidelines: string;
   repositories: RepositoryRef[];
@@ -34,9 +34,20 @@ export type OrchestratorWorkspaceConfig = {
     projectRoot: string;
     workerCommand?: string;
   };
-  workflow?: WorkspaceWorkflowOverrides;
-  orchestrator?: WorkspaceOrchestratorConfig;
+  workflow?: TenantWorkflowOverrides;
+  orchestrator?: TenantOrchestratorConfig;
 };
+
+/** @deprecated Use TenantWorkflowOverrides */
+export type WorkspaceWorkflowOverrides = TenantWorkflowOverrides;
+/** @deprecated Use TenantOrchestratorConfig */
+export type WorkspaceOrchestratorConfig = TenantOrchestratorConfig;
+/** @deprecated Use OrchestratorTenantConfig */
+export type OrchestratorWorkspaceConfig = OrchestratorTenantConfig;
+/** @deprecated Use TenantLeaseRecord */
+export type WorkspaceLeaseRecord = TenantLeaseRecord;
+/** @deprecated Use TenantStatusSnapshot */
+export type WorkspaceStatusSnapshot = TenantStatusSnapshot;
 
 export type RetryKind = "continuation" | "failure" | "recovery";
 
@@ -51,12 +62,12 @@ export type OrchestratorRunStatus =
 
 export type OrchestratorRunRecord = {
   runId: string;
-  workspaceId: string;
-  workspaceSlug: string;
+  tenantId: string;
+  tenantSlug: string;
   issueId: string;
   issueSubjectId: string;
   issueIdentifier: string;
-  phase: TrackedIssue["phase"];
+  issueState: string;
   repository: RepositoryRef;
   status: OrchestratorRunStatus;
   attempt: number;
@@ -81,12 +92,11 @@ export type OrchestratorRunRecord = {
   };
 };
 
-export type WorkspaceLeaseRecord = {
+export type TenantLeaseRecord = {
   leaseKey: string;
   runId: string;
   issueId: string;
   issueIdentifier: string;
-  phase: TrackedIssue["phase"];
   status: "active" | "released";
   updatedAt: string;
 };
@@ -100,8 +110,8 @@ export type RuntimeSessionRow = {
   exitClassification: string | null;
 };
 
-export type WorkspaceStatusSnapshot = {
-  workspaceId: string;
+export type TenantStatusSnapshot = {
+  tenantId: string;
   slug: string;
   tracker: {
     adapter: TrackerAdapterKind;
@@ -118,7 +128,7 @@ export type WorkspaceStatusSnapshot = {
   activeRuns: Array<{
     runId: string;
     issueIdentifier: string;
-    phase: TrackedIssue["phase"];
+    issueState: string;
     status: OrchestratorRunStatus;
     retryKind: RetryKind | null;
     port: number | null;

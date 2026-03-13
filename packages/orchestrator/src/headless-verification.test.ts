@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { fetchWorkspaceOrchestratorStatus } from "../../../apps/control-plane/lib/orchestrator-status-client.ts";
+import { fetchTenantOrchestratorStatus } from "../../../apps/control-plane/lib/orchestrator-status-client.ts";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { runCli } from "./index.js";
 import { OrchestratorService } from "./service.js";
@@ -22,9 +22,9 @@ describe("headless orchestration verification", () => {
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
-      await store.saveWorkspaceConfig({
-        workspaceId: "workspace-1",
-        slug: "workspace-1",
+      await store.saveTenantConfig({
+        tenantId: "tenant-1",
+        slug: "tenant-1",
         promptGuidelines: "Prefer focused changes.",
         repositories: [repository],
         tracker: {
@@ -36,7 +36,7 @@ describe("headless orchestration verification", () => {
         },
         runtime: {
           driver: "local",
-          workspaceRuntimeDir: join(tempRoot, "workspaces", "workspace-1"),
+          workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
           projectRoot: process.cwd(),
           workerCommand: "node packages/worker/dist/index.js",
         },
@@ -64,15 +64,15 @@ describe("headless orchestration verification", () => {
       });
 
       const cliStatus = JSON.parse(stdout) as Array<{
-        workspaceId: string;
+        tenantId: string;
         summary: {
           dispatched: number;
         };
       }>;
-      expect(cliStatus[0]?.workspaceId).toBe("workspace-1");
+      expect(cliStatus[0]?.tenantId).toBe("tenant-1");
       expect(cliStatus[0]?.summary.dispatched).toBe(1);
 
-      const snapshot = await fetchWorkspaceOrchestratorStatus("workspace-1", {
+      const snapshot = await fetchTenantOrchestratorStatus("tenant-1", {
         baseUrl: "http://orchestrator.test",
         fetchImpl: (async (input) => {
           const requestUrl =
@@ -81,13 +81,17 @@ describe("headless orchestration verification", () => {
               : input instanceof URL
                 ? input.toString()
                 : input.url;
+          const pathname = new URL(requestUrl).pathname.replace(
+            "/api/v1/workspaces/",
+            "/api/v1/tenants/"
+          );
           const resolved = await resolveOrchestratorStatusResponse(
-            new URL(requestUrl).pathname,
+            pathname,
             "GET",
             {
               all: () => service.status(),
-              byWorkspaceId: async (workspaceId) => {
-                const [status] = await service.status(workspaceId);
+              byTenantId: async (tenantId) => {
+                const [status] = await service.status(tenantId);
                 return status ?? null;
               },
             }
@@ -103,7 +107,7 @@ describe("headless orchestration verification", () => {
       });
 
       expect(snapshot).toMatchObject({
-        workspaceId: "workspace-1",
+        tenantId: "tenant-1",
         health: "running",
         tracker: {
           adapter: "github-project",
@@ -121,13 +125,13 @@ describe("headless orchestration verification", () => {
     }
   });
 
-  it("applies workspace workflow overrides on top of repository workflows", async () => {
+  it("applies tenant workflow overrides on top of repository workflows", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const repository = await createRepositoryFixture(tempRoot, "acme", "cli");
     const service = new OrchestratorService(new OrchestratorFsStore(tempRoot));
-    const workspace = {
-      workspaceId: "workspace-cli",
-      slug: "workspace-cli",
+    const tenant = {
+      tenantId: "tenant-cli",
+      slug: "tenant-cli",
       promptGuidelines: "Prefer focused changes.",
       repositories: [repository],
       tracker: {
@@ -135,12 +139,12 @@ describe("headless orchestration verification", () => {
         bindingId: "project-456",
         settings: {
           projectId: "project-456",
-          token: "workspace-token",
+          token: "tenant-token",
         },
       },
       runtime: {
         driver: "local" as const,
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "workspace-cli"),
+        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-cli"),
         projectRoot: process.cwd(),
         workerCommand: "node packages/worker/dist/index.js",
       },
@@ -164,8 +168,8 @@ describe("headless orchestration verification", () => {
 
     const resolution = await (
       service as unknown as {
-        loadIssueWorkflow: (
-          workspaceConfig: typeof workspace,
+        loadTenantWorkflow: (
+          tenantConfig: typeof tenant,
           repositoryConfig: typeof repository
         ) => Promise<{
           lifecycle: {
@@ -178,7 +182,7 @@ describe("headless orchestration verification", () => {
           };
         }>;
       }
-    ).loadIssueWorkflow(workspace, repository);
+    ).loadTenantWorkflow(tenant, repository);
 
     expect(resolution.lifecycle.planningStates).toEqual(["Queued"]);
     expect(resolution.workflow.scheduler.pollIntervalMs).toBe(15_000);

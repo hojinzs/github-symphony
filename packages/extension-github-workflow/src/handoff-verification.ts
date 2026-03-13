@@ -1,9 +1,7 @@
-import type { WorkflowExecutionPhase } from "@gh-symphony/core";
-
 export type HandoffVerificationInput = {
   runId: string;
   issueIdentifier: string;
-  phase: WorkflowExecutionPhase;
+  issueState: string;
   expectedTransition: string | null;
   actualState: string | null;
 };
@@ -12,7 +10,7 @@ export type HandoffVerificationResult = {
   verified: boolean;
   runId: string;
   issueIdentifier: string;
-  phase: WorkflowExecutionPhase;
+  issueState: string;
   expectedTransition: string | null;
   actualState: string | null;
   error: string | null;
@@ -35,7 +33,7 @@ export function verifyHandoff(
       verified: true,
       runId: input.runId,
       issueIdentifier: input.issueIdentifier,
-      phase: input.phase,
+      issueState: input.issueState,
       expectedTransition: null,
       actualState: input.actualState,
       error: null,
@@ -47,7 +45,7 @@ export function verifyHandoff(
       verified: false,
       runId: input.runId,
       issueIdentifier: input.issueIdentifier,
-      phase: input.phase,
+      issueState: input.issueState,
       expectedTransition: input.expectedTransition,
       actualState: null,
       error: `Handoff verification failed: expected transition to "${input.expectedTransition}" but actual state is unknown.`,
@@ -59,7 +57,7 @@ export function verifyHandoff(
     verified,
     runId: input.runId,
     issueIdentifier: input.issueIdentifier,
-    phase: input.phase,
+    issueState: input.issueState,
     expectedTransition: input.expectedTransition,
     actualState: input.actualState,
     error: verified

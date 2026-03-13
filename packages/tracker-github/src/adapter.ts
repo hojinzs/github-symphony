@@ -1,7 +1,5 @@
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
-  isWorkflowPhaseActionable,
-  resolveWorkflowExecutionPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig
 } from "@gh-symphony/core";
@@ -15,6 +13,7 @@ export type GitHubTrackerConfig = {
   apiUrl?: string;
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
+  blockedByFieldName?: string;
 };
 
 export type GitHubRepositoryRef = {
@@ -101,10 +100,19 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
 
 export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
+function parseBlockedBy(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\s,\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function normalizeProjectItem(
   projectId: string,
   item: GraphQLProjectItem,
-  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
+  blockedByFieldName?: string
 ): GitHubTrackedIssue | null {
   if (item.content?.__typename !== "Issue") {
     return null;
@@ -113,6 +121,9 @@ export function normalizeProjectItem(
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
   const repository = item.content.repository;
+  const blockedBy = parseBlockedBy(
+    blockedByFieldName ? fieldValues[blockedByFieldName] : undefined
+  );
 
   return {
     id: item.content.id,
@@ -127,7 +138,7 @@ export function normalizeProjectItem(
     labels: (item.content.labels?.nodes ?? [])
       .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
       .sort(),
-    blockedBy: [],
+    blockedBy,
     createdAt: item.content.createdAt,
     updatedAt: item.content.updatedAt ?? item.updatedAt,
     repository: {
@@ -141,7 +152,6 @@ export function normalizeProjectItem(
       bindingId: projectId,
       itemId: item.id
     },
-    phase: resolveWorkflowExecutionPhase(state, lifecycle),
     metadata: fieldValues
   };
 }
@@ -157,7 +167,9 @@ export async function fetchProjectIssues(
     const page = await fetchProjectItemsPage(config, cursor, fetchImpl);
     const pageIssues = (page.nodes ?? [])
       .flatMap((item) =>
-        item ? [normalizeProjectItem(config.projectId, item, config.lifecycle)] : []
+        item
+          ? [normalizeProjectItem(config.projectId, item, config.lifecycle, config.blockedByFieldName)]
+          : []
       )
       .flatMap((issue) => (issue ? [issue] : []));
 
@@ -173,7 +185,13 @@ export async function fetchActionableIssues(
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[]> {
   const issues = await fetchProjectIssues(config, fetchImpl);
-  return issues.filter((issue) => isWorkflowPhaseActionable(issue.phase));
+  const lifecycle = config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE;
+  return issues.filter((issue) => {
+    const normalized = issue.state.trim().toLowerCase();
+    return lifecycle.activeStates.some(
+      (s) => s.trim().toLowerCase() === normalized
+    );
+  });
 }
 
 async function fetchProjectItemsPage(

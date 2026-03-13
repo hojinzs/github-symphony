@@ -40,7 +40,7 @@ export type WorkflowDefinition = {
   scheduler: WorkflowSchedulerConfig;
   retry: WorkflowRetryConfig;
   lifecycle: WorkflowLifecycleConfig;
-  maxConcurrentByPhase: Record<string, number>;
+  maxConcurrentByState: Record<string, number>;
   format: WorkflowSourceFormat;
 };
 
@@ -94,5 +94,5 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   format: "default",
   agentCommand: DEFAULT_AGENT_COMMAND,
   hookPath: DEFAULT_HOOK_PATH,
-  maxConcurrentByPhase: {},
+  maxConcurrentByState: {},
 };

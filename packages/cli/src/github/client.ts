@@ -45,11 +45,18 @@ export type LinkedRepository = {
   cloneUrl: string;
 };
 
+export type ProjectTextField = {
+  id: string;
+  name: string;
+  dataType: string;
+};
+
 export type ProjectDetail = {
   id: string;
   title: string;
   url: string;
   statusFields: ProjectStatusField[];
+  textFields: ProjectTextField[];
   linkedRepositories: LinkedRepository[];
 };
 
@@ -195,18 +202,23 @@ export async function getProjectDetail(
   }
 
   const statusFields: ProjectStatusField[] = [];
+  const textFields: ProjectTextField[] = [];
   for (const field of project.fields?.nodes ?? []) {
-    if (!field || field.__typename !== "ProjectV2SingleSelectField") continue;
-    statusFields.push({
-      id: field.id,
-      name: field.name,
-      options: (field.options ?? []).map((opt) => ({
-        id: opt.id,
-        name: opt.name,
-        description: opt.description ?? null,
-        color: opt.color ?? null,
-      })),
-    });
+    if (!field) continue;
+    if (field.__typename === "ProjectV2SingleSelectField") {
+      statusFields.push({
+        id: field.id,
+        name: field.name,
+        options: (field.options ?? []).map((opt) => ({
+          id: opt.id,
+          name: opt.name,
+          description: opt.description ?? null,
+          color: opt.color ?? null,
+        })),
+      });
+    } else if (field.__typename === "ProjectV2Field" && field.dataType) {
+      textFields.push({ id: field.id, name: field.name, dataType: field.dataType });
+    }
   }
 
   const repoMap = new Map<string, LinkedRepository>();
@@ -265,6 +277,7 @@ export async function getProjectDetail(
     title: project.title,
     url: project.url,
     statusFields,
+    textFields,
     linkedRepositories: [...repoMap.values()],
   };
 }
@@ -345,6 +358,7 @@ type ProjectDetailResponse = {
         __typename: string;
         id: string;
         name: string;
+        dataType?: string;
         options?: Array<{
           id: string;
           name: string;
@@ -446,6 +460,11 @@ const PROJECT_DETAIL_QUERY = `
                 description
                 color
               }
+            }
+            ... on ProjectV2Field {
+              id
+              name
+              dataType
             }
           }
         }

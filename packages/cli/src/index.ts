@@ -71,6 +71,7 @@ const COMMANDS: Record<string, () => Promise<{ default: CommandHandler }>> = {
   logs: () => import("./commands/logs.js"),
   project: () => import("./commands/project.js"),
   repo: () => import("./commands/repo.js"),
+  tenant: () => import("./commands/tenant.js"),
   config: () => import("./commands/config-cmd.js"),
   help: () => import("./commands/help.js"),
   version: () => import("./commands/version.js"),

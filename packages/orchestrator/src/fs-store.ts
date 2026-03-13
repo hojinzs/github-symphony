@@ -13,16 +13,16 @@ import type {
   OrchestratorEvent,
   OrchestratorRunRecord,
   OrchestratorStateStore,
-  OrchestratorWorkspaceConfig,
-  WorkspaceLeaseRecord,
-  WorkspaceStatusSnapshot,
+  OrchestratorTenantConfig,
+  TenantLeaseRecord,
+  TenantStatusSnapshot,
 } from "@gh-symphony/core";
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
   constructor(readonly runtimeRoot: string) {}
 
-  workspaceDir(workspaceId: string): string {
-    return join(this.runtimeRoot, "orchestrator", "workspaces", workspaceId);
+  tenantDir(tenantId: string): string {
+    return join(this.runtimeRoot, "orchestrator", "tenants", tenantId);
   }
 
   runsDir(): string {
@@ -33,65 +33,65 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     return join(this.runsDir(), runId);
   }
 
-  async loadWorkspaceConfigs(): Promise<OrchestratorWorkspaceConfig[]> {
-    const baseDir = join(this.runtimeRoot, "orchestrator", "workspaces");
+  async loadTenantConfigs(): Promise<OrchestratorTenantConfig[]> {
+    const baseDir = join(this.runtimeRoot, "orchestrator", "tenants");
     const entries = await safeReadDir(baseDir);
     const configs = await Promise.all(
       entries.map(async (entry) => {
-        const config = await readJsonFile<OrchestratorWorkspaceConfig>(
+        const config = await readJsonFile<OrchestratorTenantConfig>(
           join(baseDir, entry, "config.json")
         );
         return config;
       })
     );
 
-    return configs.filter((config): config is OrchestratorWorkspaceConfig =>
+    return configs.filter((config): config is OrchestratorTenantConfig =>
       Boolean(config)
     );
   }
 
-  async saveWorkspaceConfig(
-    config: OrchestratorWorkspaceConfig
+  async saveTenantConfig(
+    config: OrchestratorTenantConfig
   ): Promise<void> {
     await writeJsonFile(
-      join(this.workspaceDir(config.workspaceId), "config.json"),
+      join(this.tenantDir(config.tenantId), "config.json"),
       config
     );
   }
 
-  async loadWorkspaceLeases(
-    workspaceId: string
-  ): Promise<WorkspaceLeaseRecord[]> {
+  async loadTenantLeases(
+    tenantId: string
+  ): Promise<TenantLeaseRecord[]> {
     return (
-      (await readJsonFile<WorkspaceLeaseRecord[]>(
-        join(this.workspaceDir(workspaceId), "leases.json")
+      (await readJsonFile<TenantLeaseRecord[]>(
+        join(this.tenantDir(tenantId), "leases.json")
       )) ?? []
     );
   }
 
-  async saveWorkspaceLeases(
-    workspaceId: string,
-    leases: WorkspaceLeaseRecord[]
+  async saveTenantLeases(
+    tenantId: string,
+    leases: TenantLeaseRecord[]
   ): Promise<void> {
     await writeJsonFile(
-      join(this.workspaceDir(workspaceId), "leases.json"),
+      join(this.tenantDir(tenantId), "leases.json"),
       leases
     );
   }
 
-  async saveWorkspaceStatus(status: WorkspaceStatusSnapshot): Promise<void> {
+  async saveTenantStatus(status: TenantStatusSnapshot): Promise<void> {
     await writeJsonFile(
-      join(this.workspaceDir(status.workspaceId), "status.json"),
+      join(this.tenantDir(status.tenantId), "status.json"),
       status
     );
   }
 
-  async loadWorkspaceStatus(
-    workspaceId: string
-  ): Promise<WorkspaceStatusSnapshot | null> {
+  async loadTenantStatus(
+    tenantId: string
+  ): Promise<TenantStatusSnapshot | null> {
     return (
-      (await readJsonFile<WorkspaceStatusSnapshot>(
-        join(this.workspaceDir(workspaceId), "status.json")
+      (await readJsonFile<TenantStatusSnapshot>(
+        join(this.tenantDir(tenantId), "status.json")
       )) ?? null
     );
   }
@@ -120,18 +120,18 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     await appendFile(path, JSON.stringify(event) + "\n", "utf8");
   }
 
-  issueWorkspaceDir(workspaceId: string, workspaceKey: string): string {
-    return join(this.workspaceDir(workspaceId), "issues", workspaceKey);
+  issueWorkspaceDir(tenantId: string, workspaceKey: string): string {
+    return join(this.tenantDir(tenantId), "issues", workspaceKey);
   }
 
   async loadIssueWorkspace(
-    workspaceId: string,
+    tenantId: string,
     workspaceKey: string
   ): Promise<IssueWorkspaceRecord | null> {
     return (
       (await readJsonFile<IssueWorkspaceRecord>(
         join(
-          this.issueWorkspaceDir(workspaceId, workspaceKey),
+          this.issueWorkspaceDir(tenantId, workspaceKey),
           "workspace.json"
         )
       )) ?? null
@@ -139,12 +139,12 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadIssueWorkspaces(
-    workspaceId: string
+    tenantId: string
   ): Promise<IssueWorkspaceRecord[]> {
-    const issuesDir = join(this.workspaceDir(workspaceId), "issues");
+    const issuesDir = join(this.tenantDir(tenantId), "issues");
     const entries = await safeReadDir(issuesDir);
     const records = await Promise.all(
-      entries.map((entry) => this.loadIssueWorkspace(workspaceId, entry))
+      entries.map((entry) => this.loadIssueWorkspace(tenantId, entry))
     );
     return records.filter((record): record is IssueWorkspaceRecord =>
       Boolean(record)
@@ -154,7 +154,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   async saveIssueWorkspace(record: IssueWorkspaceRecord): Promise<void> {
     await writeJsonFile(
       join(
-        this.issueWorkspaceDir(record.workspaceId, record.workspaceKey),
+        this.issueWorkspaceDir(record.tenantId, record.workspaceKey),
         "workspace.json"
       ),
       record
@@ -162,10 +162,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async removeIssueWorkspace(
-    workspaceId: string,
+    tenantId: string,
     workspaceKey: string
   ): Promise<void> {
-    const dir = this.issueWorkspaceDir(workspaceId, workspaceKey);
+    const dir = this.issueWorkspaceDir(tenantId, workspaceKey);
     await rm(dir, { recursive: true, force: true });
   }
 }

@@ -13,7 +13,7 @@ export type PromptIssueVariables = {
   title: string;
   description: string | null;
   url: string | null;
-  phase: string;
+  state: string;
   repository: string;
 };
 
@@ -48,7 +48,7 @@ export function buildPromptVariables(
       title: issue.title,
       description: issue.description,
       url: issue.url,
-      phase: issue.phase,
+      state: issue.state,
       repository: `${issue.repository.owner}/${issue.repository.name}`,
     },
     attempt: options.attempt,
@@ -93,8 +93,11 @@ export function renderPrompt(
     /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g,
     (match, key: string) => {
       const value = flatVars.get(key);
-      if (value === undefined || value === null) {
+      if (value === undefined) {
         return match;
+      }
+      if (value === null) {
+        return "";
       }
       return String(value);
     }

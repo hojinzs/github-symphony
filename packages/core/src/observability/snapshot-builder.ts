@@ -1,5 +1,5 @@
 /**
- * Builds a machine-readable `WorkspaceStatusSnapshot` from orchestration state.
+ * Builds a machine-readable `TenantStatusSnapshot` from orchestration state.
  *
  * This centralizes snapshot construction so the orchestrator service and any
  * future status surface consumers use consistent logic for deriving health,
@@ -8,12 +8,12 @@
 
 import type {
   OrchestratorRunRecord,
-  OrchestratorWorkspaceConfig,
-  WorkspaceStatusSnapshot,
+  OrchestratorTenantConfig,
+  TenantStatusSnapshot,
 } from "../contracts/status-surface.js";
 
 export type SnapshotInput = {
-  workspace: OrchestratorWorkspaceConfig;
+  tenant: OrchestratorTenantConfig;
   activeRuns: OrchestratorRunRecord[];
   allRuns?: OrchestratorRunRecord[];
   summary: {
@@ -27,22 +27,22 @@ export type SnapshotInput = {
 };
 
 /**
- * Construct a `WorkspaceStatusSnapshot` from reconciliation state.
+ * Construct a `TenantStatusSnapshot` from reconciliation state.
  *
  * Active runs are partitioned into active execution rows and retry queue rows.
  * Health is derived from the presence of errors and active runs.
  */
-export function buildWorkspaceSnapshot(
+export function buildTenantSnapshot(
   input: SnapshotInput
-): WorkspaceStatusSnapshot {
-  const { workspace, activeRuns, allRuns, summary, lastTickAt, lastError, rateLimits } = input;
+): TenantStatusSnapshot {
+  const { tenant, activeRuns, allRuns, summary, lastTickAt, lastError, rateLimits } = input;
 
   return {
-    workspaceId: workspace.workspaceId,
-    slug: workspace.slug,
+    tenantId: tenant.tenantId,
+    slug: tenant.slug,
     tracker: {
-      adapter: workspace.tracker.adapter,
-      bindingId: workspace.tracker.bindingId,
+      adapter: tenant.tracker.adapter,
+      bindingId: tenant.tracker.bindingId,
     },
     lastTickAt,
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
@@ -55,7 +55,7 @@ export function buildWorkspaceSnapshot(
     activeRuns: activeRuns.map((run) => ({
       runId: run.runId,
       issueIdentifier: run.issueIdentifier,
-      phase: run.phase,
+      issueState: run.issueState,
       status: run.status,
       retryKind: run.retryKind,
       port: run.port,
@@ -83,7 +83,7 @@ export function buildWorkspaceSnapshot(
 function aggregateTokenUsage(
   runs: OrchestratorRunRecord[],
   lastTickAt: string
-): WorkspaceStatusSnapshot["codexTotals"] {
+): TenantStatusSnapshot["codexTotals"] {
   let inputTokens = 0;
   let outputTokens = 0;
   let totalTokens = 0;

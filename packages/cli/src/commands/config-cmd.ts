@@ -54,11 +54,11 @@ async function configShow(options: GlobalOptions): Promise<void> {
 
   process.stdout.write(`Config: ${configFilePath(options.configDir)}\n\n`);
   process.stdout.write(
-    `Active workspace: ${config.activeWorkspace ?? "none"}\n`
+    `Active tenant:    ${config.activeTenant ?? "none"}\n`
   );
   process.stdout.write(`Token:            ${display.token ?? "not set"}\n`);
   process.stdout.write(
-    `Workspaces:       ${config.workspaces.join(", ") || "none"}\n`
+    `Tenants:          ${config.tenants.join(", ") || "none"}\n`
   );
 }
 
@@ -70,7 +70,7 @@ function maskToken(token: string): string {
 // ── 7.2: config set ──────────────────────────────────────────────────────────
 
 const VALID_KEYS: Record<string, { type: "string" | "number" }> = {
-  "active-workspace": { type: "string" },
+  "active-tenant": { type: "string" },
   token: { type: "string" },
 };
 
@@ -98,21 +98,21 @@ async function configSet(
   const config =
     (await loadGlobalConfig(options.configDir)) ??
     ({
-      activeWorkspace: null,
+      activeTenant: null,
       token: null,
-      workspaces: [],
+      tenants: [],
     } satisfies CliGlobalConfig);
 
   switch (key) {
-    case "active-workspace":
-      if (!config.workspaces.includes(value)) {
+    case "active-tenant":
+      if (!config.tenants.includes(value)) {
         process.stderr.write(
-          `Workspace "${value}" not found. Available: ${config.workspaces.join(", ")}\n`
+          `Tenant "${value}" not found. Available: ${config.tenants.join(", ")}\n`
         );
         process.exitCode = 1;
         return;
       }
-      config.activeWorkspace = value;
+      config.activeTenant = value;
       break;
     case "token":
       config.token = value;

@@ -1,91 +1,90 @@
 import { describe, it, expect } from "vitest";
 import {
-  inferColumnRole,
-  inferAllColumnRoles,
-  buildPhaseMapping,
+  inferStateRole,
+  inferAllStateRoles,
   toWorkflowLifecycleConfig,
-  validateMapping,
+  validateStateMapping,
 } from "./smart-defaults.js";
-import type { ColumnRole } from "../config.js";
+import type { StateMapping } from "../config.js";
 
 // ── 3.5: Smart defaults unit tests ──────────────────────────────────────────
 
-describe("inferColumnRole", () => {
+describe("inferStateRole", () => {
   it("maps standard column names with high confidence", () => {
-    expect(inferColumnRole("Todo")).toEqual({
+    expect(inferStateRole("Todo")).toEqual({
       columnName: "Todo",
-      role: "trigger",
+      role: "active",
       confidence: "high",
     });
-    expect(inferColumnRole("In Progress")).toEqual({
+    expect(inferStateRole("In Progress")).toEqual({
       columnName: "In Progress",
-      role: "working",
+      role: "active",
       confidence: "high",
     });
-    expect(inferColumnRole("In Review")).toEqual({
+    expect(inferStateRole("In Review")).toEqual({
       columnName: "In Review",
-      role: "human-review",
+      role: "wait",
       confidence: "high",
     });
-    expect(inferColumnRole("Done")).toEqual({
+    expect(inferStateRole("Done")).toEqual({
       columnName: "Done",
-      role: "done",
+      role: "terminal",
       confidence: "high",
     });
-    expect(inferColumnRole("Backlog")).toEqual({
+    expect(inferStateRole("Backlog")).toEqual({
       columnName: "Backlog",
-      role: "ignored",
+      role: "wait",
       confidence: "high",
     });
   });
 
   it("is case-insensitive", () => {
-    expect(inferColumnRole("TODO")).toMatchObject({ role: "trigger" });
-    expect(inferColumnRole("in progress")).toMatchObject({ role: "working" });
-    expect(inferColumnRole("DONE")).toMatchObject({ role: "done" });
+    expect(inferStateRole("TODO")).toMatchObject({ role: "active" });
+    expect(inferStateRole("in progress")).toMatchObject({ role: "active" });
+    expect(inferStateRole("DONE")).toMatchObject({ role: "terminal" });
   });
 
   it("returns null role for unknown column names", () => {
-    expect(inferColumnRole("Custom Stage")).toEqual({
+    expect(inferStateRole("Custom Stage")).toEqual({
       columnName: "Custom Stage",
       role: null,
       confidence: "low",
     });
-    expect(inferColumnRole("Stakeholder Sign-off")).toMatchObject({
+    expect(inferStateRole("Stakeholder Sign-off")).toMatchObject({
       role: null,
       confidence: "low",
     });
   });
 
   it("handles variant spellings", () => {
-    expect(inferColumnRole("To Do")).toMatchObject({ role: "trigger" });
-    expect(inferColumnRole("To-Do")).toMatchObject({ role: "trigger" });
-    expect(inferColumnRole("Ready")).toMatchObject({ role: "trigger" });
-    expect(inferColumnRole("Queued")).toMatchObject({ role: "trigger" });
-    expect(inferColumnRole("Active")).toMatchObject({ role: "working" });
-    expect(inferColumnRole("WIP")).toMatchObject({ role: "working" });
-    expect(inferColumnRole("Needs Review")).toMatchObject({
-      role: "human-review",
+    expect(inferStateRole("To Do")).toMatchObject({ role: "active" });
+    expect(inferStateRole("To-Do")).toMatchObject({ role: "active" });
+    expect(inferStateRole("Ready")).toMatchObject({ role: "active" });
+    expect(inferStateRole("Queued")).toMatchObject({ role: "active" });
+    expect(inferStateRole("Active")).toMatchObject({ role: "active" });
+    expect(inferStateRole("WIP")).toMatchObject({ role: "active" });
+    expect(inferStateRole("Needs Review")).toMatchObject({
+      role: "wait",
     });
-    expect(inferColumnRole("PR Review")).toMatchObject({
-      role: "human-review",
+    expect(inferStateRole("PR Review")).toMatchObject({
+      role: "wait",
     });
-    expect(inferColumnRole("Completed")).toMatchObject({ role: "done" });
-    expect(inferColumnRole("Merged")).toMatchObject({ role: "done" });
-    expect(inferColumnRole("Shipped")).toMatchObject({ role: "done" });
-    expect(inferColumnRole("Icebox")).toMatchObject({ role: "ignored" });
-    expect(inferColumnRole("On Hold")).toMatchObject({ role: "ignored" });
-    expect(inferColumnRole("Won't Do")).toMatchObject({ role: "ignored" });
+    expect(inferStateRole("Completed")).toMatchObject({ role: "terminal" });
+    expect(inferStateRole("Merged")).toMatchObject({ role: "terminal" });
+    expect(inferStateRole("Shipped")).toMatchObject({ role: "terminal" });
+    expect(inferStateRole("Icebox")).toMatchObject({ role: "wait" });
+    expect(inferStateRole("On Hold")).toMatchObject({ role: "wait" });
+    expect(inferStateRole("Won't Do")).toMatchObject({ role: "terminal" });
   });
 });
 
-describe("inferAllColumnRoles", () => {
+describe("inferAllStateRoles", () => {
   it("maps a minimal 3-column board", () => {
-    const result = inferAllColumnRoles(["Todo", "In Progress", "Done"]);
+    const result = inferAllStateRoles(["Todo", "In Progress", "Done"]);
     expect(result).toHaveLength(3);
-    expect(result[0]).toMatchObject({ role: "trigger" });
-    expect(result[1]).toMatchObject({ role: "working" });
-    expect(result[2]).toMatchObject({ role: "done" });
+    expect(result[0]).toMatchObject({ role: "active" });
+    expect(result[1]).toMatchObject({ role: "active" });
+    expect(result[2]).toMatchObject({ role: "terminal" });
   });
 
   it("maps a detailed 7-column board", () => {
@@ -98,21 +97,21 @@ describe("inferAllColumnRoles", () => {
       "Done",
       "Icebox",
     ];
-    const result = inferAllColumnRoles(columns);
+    const result = inferAllStateRoles(columns);
     expect(result).toEqual([
-      { columnName: "Backlog", role: "ignored", confidence: "high" },
-      { columnName: "Todo", role: "trigger", confidence: "high" },
-      { columnName: "In Progress", role: "working", confidence: "high" },
-      { columnName: "Plan Review", role: "human-review", confidence: "high" },
-      { columnName: "In Review", role: "human-review", confidence: "high" },
-      { columnName: "Done", role: "done", confidence: "high" },
-      { columnName: "Icebox", role: "ignored", confidence: "high" },
+      { columnName: "Backlog", role: "wait", confidence: "high" },
+      { columnName: "Todo", role: "active", confidence: "high" },
+      { columnName: "In Progress", role: "active", confidence: "high" },
+      { columnName: "Plan Review", role: "wait", confidence: "high" },
+      { columnName: "In Review", role: "wait", confidence: "high" },
+      { columnName: "Done", role: "terminal", confidence: "high" },
+      { columnName: "Icebox", role: "wait", confidence: "high" },
     ]);
   });
 
   it("handles boards with custom/unknown names", () => {
     const columns = ["Requested", "Building", "QA", "Released"];
-    const result = inferAllColumnRoles(columns);
+    const result = inferAllStateRoles(columns);
     // None of these are standard names, so all should be low confidence
     expect(result[0]).toMatchObject({ role: null, confidence: "low" });
     expect(result[1]).toMatchObject({ role: null, confidence: "low" });
@@ -121,158 +120,91 @@ describe("inferAllColumnRoles", () => {
   });
 });
 
-describe("buildPhaseMapping", () => {
-  const roles: Record<string, ColumnRole> = {
-    Todo: "trigger",
-    "In Progress": "working",
-    "Plan Review": "human-review",
-    "In Review": "human-review",
-    Done: "done",
-    Backlog: "ignored",
-  };
-
-  it("maps plan-and-pr mode correctly", () => {
-    const result = buildPhaseMapping(roles, "plan-and-pr");
-    expect(result.planningStates).toEqual(["Todo"]);
-    expect(result.humanReviewStates).toEqual(["Plan Review", "In Review"]);
-    expect(result.implementationStates).toEqual(["In Progress"]);
-    expect(result.completedStates).toEqual(["Done"]);
-  });
-
-  it("maps plan-only mode: review columns to humanReview", () => {
-    const result = buildPhaseMapping(roles, "plan-only");
-    expect(result.humanReviewStates).toEqual(["Plan Review", "In Review"]);
-    expect(result.awaitingMergeStates).toEqual([]);
-  });
-
-  it("maps pr-only mode: review columns to awaitingMerge", () => {
-    const result = buildPhaseMapping(roles, "pr-only");
-    expect(result.humanReviewStates).toEqual([]);
-    expect(result.awaitingMergeStates).toEqual(["Plan Review", "In Review"]);
-  });
-
-  it("maps none mode: review columns to implementation", () => {
-    const result = buildPhaseMapping(roles, "none");
-    expect(result.humanReviewStates).toEqual([]);
-    expect(result.awaitingMergeStates).toEqual([]);
-    expect(result.implementationStates).toContain("Plan Review");
-    expect(result.implementationStates).toContain("In Review");
-  });
-
-  it("excludes ignored columns from all phases", () => {
-    const result = buildPhaseMapping(roles, "plan-and-pr");
-    const allStates = [
-      ...result.planningStates,
-      ...result.humanReviewStates,
-      ...result.implementationStates,
-      ...result.awaitingMergeStates,
-      ...result.completedStates,
-    ];
-    expect(allStates).not.toContain("Backlog");
-  });
-});
-
 describe("toWorkflowLifecycleConfig", () => {
-  it("produces a valid WorkflowLifecycleConfig for plan-and-pr", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      "In Progress": "working",
-      "Plan Review": "human-review",
-      Done: "done",
+  it("produces a valid WorkflowLifecycleConfig from state mappings", () => {
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
+      "Plan Review": { role: "wait" },
+      Done: { role: "terminal" },
     };
 
-    const config = toWorkflowLifecycleConfig("Status", roles, "plan-and-pr");
+    const config = toWorkflowLifecycleConfig("Status", mappings);
     expect(config.stateFieldName).toBe("Status");
-    expect(config.planningStates).toEqual(["Todo"]);
-    expect(config.humanReviewStates).toEqual(["Plan Review"]);
-    expect(config.implementationStates).toEqual(["In Progress"]);
-    expect(config.completedStates).toEqual(["Done"]);
-    expect(config.planningCompleteState).toBe("Plan Review");
-    expect(config.implementationCompleteState).toBe("Done");
-    expect(config.mergeCompleteState).toBe("Done");
+    expect(config.activeStates).toEqual(["Todo", "In Progress"]);
+    expect(config.terminalStates).toEqual(["Done"]);
+    expect(config.blockerCheckStates).toEqual(["Todo"]);
   });
 
-  it("produces correct transitions for none mode", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      "In Progress": "working",
-      Done: "done",
+  it("produces correct config with only active and terminal states", () => {
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
+      Done: { role: "terminal" },
     };
 
-    const config = toWorkflowLifecycleConfig("Status", roles, "none");
-    expect(config.humanReviewStates).toEqual([]);
-    expect(config.awaitingMergeStates).toEqual([]);
-    expect(config.planningCompleteState).toBe("In Progress");
-    expect(config.implementationCompleteState).toBe("Done");
+    const config = toWorkflowLifecycleConfig("Status", mappings);
+    expect(config.activeStates).toEqual(["Todo", "In Progress"]);
+    expect(config.terminalStates).toEqual(["Done"]);
+    expect(config.blockerCheckStates).toEqual(["Todo"]);
   });
 });
 
-describe("validateMapping", () => {
+describe("validateStateMapping", () => {
   it("passes for a valid minimal mapping", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      "In Progress": "working",
-      Done: "done",
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
+      Done: { role: "terminal" },
     };
-    const result = validateMapping(roles);
+    const result = validateStateMapping(mappings);
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
 
-  it("fails when trigger is missing", () => {
-    const roles: Record<string, ColumnRole> = {
-      "In Progress": "working",
-      Done: "done",
+  it("fails when active is missing", () => {
+    const mappings: Record<string, StateMapping> = {
+      Done: { role: "terminal" },
     };
-    const result = validateMapping(roles);
+    const result = validateStateMapping(mappings);
     expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain("trigger");
+    expect(result.errors[0]).toContain("active");
   });
 
-  it("fails when working is missing", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      Done: "done",
+  it("fails when terminal is missing", () => {
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
     };
-    const result = validateMapping(roles);
+    const result = validateStateMapping(mappings);
     expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain("working");
+    expect(result.errors[0]).toContain("terminal");
   });
 
-  it("fails when done is missing", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      "In Progress": "working",
+  it("warns for multiple terminal states", () => {
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
+      Done: { role: "terminal" },
+      Cancelled: { role: "terminal" },
     };
-    const result = validateMapping(roles);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain("done");
-  });
-
-  it("warns for multiple trigger columns", () => {
-    const roles: Record<string, ColumnRole> = {
-      Todo: "trigger",
-      Ready: "trigger",
-      "In Progress": "working",
-      Done: "done",
-    };
-    const result = validateMapping(roles);
+    const result = validateStateMapping(mappings);
     expect(result.valid).toBe(true);
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("Multiple trigger");
+    expect(result.warnings[0]).toContain("Multiple terminal");
   });
 
   it("passes for a full board with all roles", () => {
-    const roles: Record<string, ColumnRole> = {
-      Backlog: "ignored",
-      Todo: "trigger",
-      "In Progress": "working",
-      "Plan Review": "human-review",
-      "In Review": "human-review",
-      Done: "done",
-      Icebox: "ignored",
+    const mappings: Record<string, StateMapping> = {
+      Backlog: { role: "wait" },
+      Todo: { role: "active" },
+      "In Progress": { role: "active" },
+      "Plan Review": { role: "wait" },
+      "In Review": { role: "wait" },
+      Done: { role: "terminal" },
+      Icebox: { role: "wait" },
     };
-    const result = validateMapping(roles);
+    const result = validateStateMapping(mappings);
     expect(result.valid).toBe(true);
   });
 });

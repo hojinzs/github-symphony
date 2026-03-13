@@ -4,63 +4,63 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import type { WorkspaceStatusSnapshot } from "@gh-symphony/core";
+import type { TenantStatusSnapshot } from "@gh-symphony/core";
 
 let refreshPending = false;
 
-type WorkspaceStatusReader = {
-  all: () => Promise<WorkspaceStatusSnapshot[]>;
-  byWorkspaceId: (
-    workspaceId: string
-  ) => Promise<WorkspaceStatusSnapshot | null>;
+type TenantStatusReader = {
+  all: () => Promise<TenantStatusSnapshot[]>;
+  byTenantId: (
+    tenantId: string
+  ) => Promise<TenantStatusSnapshot | null>;
 };
 
-function isWorkspaceStatusReader(
+function isTenantStatusReader(
   value: unknown
-): value is WorkspaceStatusReader {
+): value is TenantStatusReader {
   return Boolean(
     value &&
     typeof value === "object" &&
     "all" in value &&
     typeof value.all === "function" &&
-    "byWorkspaceId" in value &&
-    typeof value.byWorkspaceId === "function"
+    "byTenantId" in value &&
+    typeof value.byTenantId === "function"
   );
 }
 
 export async function resolveOrchestratorStatusResponse(
   pathname: string,
-  methodOrGetWorkspaceStatus: string | WorkspaceStatusReader,
-  getWorkspaceStatusOrOnRefresh?: WorkspaceStatusReader | (() => void),
+  methodOrGetTenantStatus: string | TenantStatusReader,
+  getTenantStatusOrOnRefresh?: TenantStatusReader | (() => void),
   onRefresh?: () => void
 ): Promise<{
   status: number;
   payload: unknown;
 }> {
   const method =
-    typeof methodOrGetWorkspaceStatus === "string"
-      ? methodOrGetWorkspaceStatus
+    typeof methodOrGetTenantStatus === "string"
+      ? methodOrGetTenantStatus
       : "GET";
-  const getWorkspaceStatus = isWorkspaceStatusReader(methodOrGetWorkspaceStatus)
-    ? methodOrGetWorkspaceStatus
-    : isWorkspaceStatusReader(getWorkspaceStatusOrOnRefresh)
-      ? getWorkspaceStatusOrOnRefresh
+  const getTenantStatus = isTenantStatusReader(methodOrGetTenantStatus)
+    ? methodOrGetTenantStatus
+    : isTenantStatusReader(getTenantStatusOrOnRefresh)
+      ? getTenantStatusOrOnRefresh
       : null;
   const refreshCallback =
-    typeof methodOrGetWorkspaceStatus === "string"
+    typeof methodOrGetTenantStatus === "string"
       ? typeof onRefresh === "function"
         ? onRefresh
         : undefined
-      : typeof getWorkspaceStatusOrOnRefresh === "function"
-        ? getWorkspaceStatusOrOnRefresh
+      : typeof getTenantStatusOrOnRefresh === "function"
+        ? getTenantStatusOrOnRefresh
         : typeof onRefresh === "function"
           ? onRefresh
           : undefined;
 
-  if (!getWorkspaceStatus) {
+  if (!getTenantStatus) {
     return {
       status: 500,
-      payload: { error: "Workspace status reader not configured." },
+      payload: { error: "Tenant status reader not configured." },
     };
   }
 
@@ -74,7 +74,7 @@ export async function resolveOrchestratorStatusResponse(
   if (pathname === "/api/v1/status") {
     return {
       status: 200,
-      payload: await getWorkspaceStatus.all(),
+      payload: await getTenantStatus.all(),
     };
   }
   if (pathname === "/api/v1/refresh") {
@@ -102,20 +102,20 @@ export async function resolveOrchestratorStatusResponse(
     };
   }
 
-  const workspaceMatch = pathname.match(
-    /^\/api\/v1\/workspaces\/([^/]+)\/status$/
+  const tenantMatch = pathname.match(
+    /^\/api\/v1\/tenants\/([^/]+)\/status$/
   );
 
-  if (workspaceMatch) {
-    const workspaceId = decodeURIComponent(workspaceMatch[1] ?? "");
-    const snapshot = await getWorkspaceStatus.byWorkspaceId(workspaceId);
+  if (tenantMatch) {
+    const tenantId = decodeURIComponent(tenantMatch[1] ?? "");
+    const snapshot = await getTenantStatus.byTenantId(tenantId);
 
     if (!snapshot) {
       return {
         status: 404,
         payload: {
-          error: "Workspace status not found.",
-          workspaceId,
+          error: "Tenant status not found.",
+          tenantId,
         },
       };
     }
@@ -133,11 +133,11 @@ export async function resolveOrchestratorStatusResponse(
 }
 
 export function createOrchestratorRequestHandler(
-  getWorkspaceStatus: {
-    all: () => Promise<WorkspaceStatusSnapshot[]>;
-    byWorkspaceId: (
-      workspaceId: string
-    ) => Promise<WorkspaceStatusSnapshot | null>;
+  getTenantStatus: {
+    all: () => Promise<TenantStatusSnapshot[]>;
+    byTenantId: (
+      tenantId: string
+    ) => Promise<TenantStatusSnapshot | null>;
   },
   onRefresh?: () => void
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
@@ -146,7 +146,7 @@ export function createOrchestratorRequestHandler(
     const resolved = await resolveOrchestratorStatusResponse(
       url.pathname,
       request.method ?? "GET",
-      getWorkspaceStatus,
+      getTenantStatus,
       onRefresh
     );
     respondJson(response, resolved.status, resolved.payload);
@@ -156,17 +156,17 @@ export function createOrchestratorRequestHandler(
 export function startOrchestratorStatusServer(options: {
   host: string;
   port: number;
-  getWorkspaceStatus: {
-    all: () => Promise<WorkspaceStatusSnapshot[]>;
-    byWorkspaceId: (
-      workspaceId: string
-    ) => Promise<WorkspaceStatusSnapshot | null>;
+  getTenantStatus: {
+    all: () => Promise<TenantStatusSnapshot[]>;
+    byTenantId: (
+      tenantId: string
+    ) => Promise<TenantStatusSnapshot | null>;
   };
   onRefresh?: () => void;
 }): Server {
   const server = createServer((request, response) => {
     void createOrchestratorRequestHandler(
-      options.getWorkspaceStatus,
+      options.getTenantStatus,
       options.onRefresh
     )(request, response);
   });

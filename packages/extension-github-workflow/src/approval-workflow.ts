@@ -1,7 +1,6 @@
 import {
-  isWorkflowPhaseActionable,
+  isStateActive,
   matchesWorkflowState,
-  resolveWorkflowExecutionPhase,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
 
@@ -98,16 +97,13 @@ export type ApprovalWorkflowResult = {
   pullRequest?: ApprovalWorkflowPullRequest;
 };
 
-export function executePhaseGuard(
+export function executeStateGuard(
   state: string,
-  phase: "planning" | "implementation",
   lifecycle: WorkflowLifecycleConfig
 ): void {
-  const resolvedPhase = resolveWorkflowExecutionPhase(state, lifecycle);
-
-  if (resolvedPhase !== phase || !isWorkflowPhaseActionable(resolvedPhase)) {
+  if (!isStateActive(state, lifecycle)) {
     throw new Error(
-      `Issue is no longer actionable for ${phase}; current tracker phase is ${resolvedPhase}.`
+      `Issue is no longer actionable; current tracker state is "${state}".`
     );
   }
 }
@@ -117,10 +113,11 @@ export async function executePlanningPhase(
     issue: ApprovalWorkflowIssue;
     lifecycle: WorkflowLifecycleConfig;
     report: PlanningPhaseReport;
+    transitionTo: string;
   },
   client: ApprovalWorkflowClient
 ): Promise<ApprovalWorkflowResult> {
-  executePhaseGuard(input.issue.state, "planning", input.lifecycle);
+  executeStateGuard(input.issue.state, input.lifecycle);
 
   const marker = buildPhaseMarker("planning", input.issue.id);
   const body = buildPlanningCommentBody(input.issue, input.report);
@@ -135,22 +132,20 @@ export async function executePlanningPhase(
     ? ["updated planning comment"]
     : ["posted planning comment"];
 
-  if (
-    !matchesWorkflowState(input.issue.state, input.lifecycle.humanReviewStates)
-  ) {
+  if (!matchesWorkflowState(input.issue.state, [input.transitionTo])) {
     await client.updateProjectItemState({
       projectId: input.issue.projectId,
       projectItemId: input.issue.projectItemId,
       fieldName: input.lifecycle.stateFieldName,
-      state: input.lifecycle.planningCompleteState,
+      state: input.transitionTo,
     });
     operations.push(
-      `transitioned item to ${input.lifecycle.planningCompleteState}`
+      `transitioned item to ${input.transitionTo}`
     );
   }
 
   return {
-    nextState: input.lifecycle.planningCompleteState,
+    nextState: input.transitionTo,
     operations,
     comment,
   };
@@ -161,10 +156,11 @@ export async function executeImplementationPhase(
     issue: ApprovalWorkflowIssue;
     lifecycle: WorkflowLifecycleConfig;
     report: ImplementationPhaseReport;
+    transitionTo: string;
   },
   client: ApprovalWorkflowClient
 ): Promise<ApprovalWorkflowResult> {
-  executePhaseGuard(input.issue.state, "implementation", input.lifecycle);
+  executeStateGuard(input.issue.state, input.lifecycle);
 
   const branchName =
     input.report.branchName ?? buildImplementationBranchName(input.issue);
@@ -214,25 +210,20 @@ export async function executeImplementationPhase(
     existingComment ? "updated completion comment" : "posted completion comment"
   );
 
-  if (
-    !matchesWorkflowState(
-      input.issue.state,
-      input.lifecycle.awaitingMergeStates
-    )
-  ) {
+  if (!matchesWorkflowState(input.issue.state, [input.transitionTo])) {
     await client.updateProjectItemState({
       projectId: input.issue.projectId,
       projectItemId: input.issue.projectItemId,
       fieldName: input.lifecycle.stateFieldName,
-      state: input.lifecycle.implementationCompleteState,
+      state: input.transitionTo,
     });
     operations.push(
-      `transitioned item to ${input.lifecycle.implementationCompleteState}`
+      `transitioned item to ${input.transitionTo}`
     );
   }
 
   return {
-    nextState: input.lifecycle.implementationCompleteState,
+    nextState: input.transitionTo,
     operations,
     comment,
     pullRequest,
@@ -310,29 +301,24 @@ export function buildImplementationBranchName(
 }
 
 export function buildPhaseMarker(
-  phase: "planning" | "implementation",
+  label: string,
   issueId: string
 ): string {
-  return `<!-- github-symphony:${phase} issue=${issueId} -->`;
+  return `<!-- github-symphony:${label} issue=${issueId} -->`;
 }
 
-export function isIssueStillActionableForPhase(
+export function isIssueStillActionable(
   state: string,
-  phase: "planning" | "implementation",
   lifecycle: WorkflowLifecycleConfig
 ): boolean {
-  return resolveWorkflowExecutionPhase(state, lifecycle) === phase;
+  return isStateActive(state, lifecycle);
 }
 
 export function hasMergedCompletionSignal(
   state: string,
   lifecycle: WorkflowLifecycleConfig
 ): boolean {
-  const phase = resolveWorkflowExecutionPhase(state, lifecycle);
-  return (
-    phase === "completed" ||
-    matchesWorkflowState(state, [lifecycle.mergeCompleteState])
-  );
+  return matchesWorkflowState(state, lifecycle.terminalStates);
 }
 
 function renderList(values: string[] | undefined, fallback: string): string[] {

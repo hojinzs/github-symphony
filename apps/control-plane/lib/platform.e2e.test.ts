@@ -267,6 +267,7 @@ describe("Platform end-to-end flow", () => {
       {
         issue: approvalIssue,
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "Plan Review",
         report: {
           summary: "Outlined the implementation before code changes.",
           steps: ["Inspect the repository", "Prepare the implementation plan"],
@@ -286,6 +287,7 @@ describe("Platform end-to-end flow", () => {
           state: "In Progress"
         },
         lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+        transitionTo: "In Review",
         report: {
           summary: "Implemented the approval-gated delivery flow.",
           validation: ["pnpm test --filter control-plane"],
