@@ -159,6 +159,15 @@ function isWorkerBootstrapCommand(command: string): boolean {
   );
 }
 
+function isMissingAgentEnvError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes(
+      "Workflow front matter requires environment variable"
+    )
+  );
+}
+
 export async function resolveTenantRuntime(
   configDir: string,
   tenantId: string,
@@ -176,7 +185,7 @@ export async function resolveTenantRuntime(
     }
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err.code !== "ENOENT") {
+    if (err.code !== "ENOENT" && !isMissingAgentEnvError(error)) {
       throw error;
     }
   }

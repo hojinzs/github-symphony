@@ -220,6 +220,32 @@ Prompt body
     ).resolves.toBe("codex");
   });
 
+  it("falls back to worker-command inference when tenant agent command depends on env", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-env-runtime-"));
+    const tenantDir = join(configDir, "tenants", "tenant-env-runtime");
+
+    await mkdir(tenantDir, { recursive: true });
+
+    await writeFile(
+      join(tenantDir, "WORKFLOW.md"),
+      `---
+runtime:
+  agent_command: env:OPENAI_AGENT_COMMAND
+---
+Prompt body
+`,
+      "utf8"
+    );
+
+    await expect(
+      resolveTenantRuntime(
+        configDir,
+        "tenant-env-runtime",
+        "bash -lc claude-code"
+      )
+    ).resolves.toBe("claude-code");
+  });
+
   it("derives unique tenant IDs from the project identity, not only the title", () => {
     expect(generateTenantId("Roadmap", "project-a")).not.toBe(
       generateTenantId("Roadmap", "project-b")
