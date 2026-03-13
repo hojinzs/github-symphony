@@ -559,7 +559,9 @@ async function runInteractiveFromTenant(
   let token: string | undefined;
   try {
     token = getGhToken();
-  } catch {}
+  } catch (e) {
+    void e;
+  }
   if (token && projId) {
     try {
       const client = createClient(token);

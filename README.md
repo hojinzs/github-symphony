@@ -4,19 +4,19 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| `packages/cli` | Interactive CLI for tenant setup (`gh-symphony tenant add`) and daemon lifecycle (`start`, `stop`, `status`) |
-| `packages/orchestrator` | Headless orchestrator with filesystem-backed leases, run snapshots, and recovery |
-| `packages/worker` | Single-issue runner with runtime integration, hooks, and tracker adapter |
-| `packages/core` | Domain types, contracts, workflow lifecycle, and observability snapshots |
-| `packages/tracker-github` | GitHub Project tracker adapter |
-| `packages/runtime-codex` | Codex AI runtime integration |
-| `packages/extension-github-workflow` | GitHub Actions workflow extension |
-| `packages/shared` | Shared types and re-exports |
-| `apps/control-plane` | Optional web UI (work in progress — being redesigned) |
-| `docs` | Local-development, rollout, and self-hosting guides |
-| `openspec` | Product change history and implementation artifacts |
+| Package                              | Description                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `packages/cli`                       | Interactive CLI for tenant setup (`gh-symphony tenant add`) and daemon lifecycle (`start`, `stop`, `status`) |
+| `packages/orchestrator`              | Headless orchestrator with filesystem-backed leases, run snapshots, and recovery                             |
+| `packages/worker`                    | Single-issue runner with runtime integration, hooks, and tracker adapter                                     |
+| `packages/core`                      | Domain types, contracts, workflow lifecycle, and observability snapshots                                     |
+| `packages/tracker-github`            | GitHub Project tracker adapter                                                                               |
+| `packages/runtime-codex`             | Codex AI runtime integration                                                                                 |
+| `packages/extension-github-workflow` | GitHub Actions workflow extension                                                                            |
+| `packages/shared`                    | Shared types and re-exports                                                                                  |
+| `apps/control-plane`                 | Optional web UI (work in progress — being redesigned)                                                        |
+| `docs`                               | Local-development, rollout, and self-hosting guides                                                          |
+| `openspec`                           | Product change history and implementation artifacts                                                          |
 
 ## Quick start
 
@@ -45,7 +45,7 @@ gh-symphony stop
 
 ## Registering a tenant
 
-`gh-symphony tenant add` walks through PAT validation, GitHub Project selection, repository selection, status column mapping, and runtime configuration. On completion it writes:
+`gh-symphony tenant add` walks through gh CLI authentication, GitHub Project selection, repository selection, status column mapping, and runtime configuration. On completion it writes:
 
 - `~/.gh-symphony/tenants/<tenant-id>/tenant.json` — orchestrator config
 - `~/.gh-symphony/tenants/<tenant-id>/workflow-mapping.json` — status column to role mappings
@@ -54,7 +54,7 @@ gh-symphony stop
 Non-interactive mode:
 
 ```bash
-gh-symphony tenant add --non-interactive --token ghp_xxx --project PVT_xxx --runtime codex
+gh-symphony tenant add --non-interactive --project PVT_xxx --runtime codex
 ```
 
 Managing tenants:
@@ -64,11 +64,27 @@ gh-symphony tenant list            # list registered tenants
 gh-symphony tenant remove <id>     # remove a tenant and its config
 ```
 
-Required classic PAT scopes:
+## Authentication
 
-- `repo`: repository access, issue creation, git push, pull request workflows
-- `read:org`: organization-scoped access checks
-- `project`: GitHub Project v2 lookup and mutation
+GitHub Symphony uses the `gh` CLI for authentication. Run once:
+
+```bash
+gh auth login --scopes repo,read:org,project
+```
+
+Or if you need to add scopes to an existing login:
+
+```bash
+gh auth refresh --scopes repo,read:org,project
+```
+
+For CI/CD pipelines (where `gh` CLI is not available), set:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+```
+
+The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
 
 ## WORKFLOW.md
 
@@ -86,17 +102,17 @@ The generated file includes:
 
 Available template variables:
 
-| Variable | Description |
-|----------|-------------|
-| `{{issue.identifier}}` | e.g. `acme/platform#42` |
-| `{{issue.title}}` | Issue title |
-| `{{issue.state}}` | Current tracker state |
-| `{{issue.description}}` | Issue body |
-| `{{issue.url}}` | Issue URL |
-| `{{issue.repository}}` | `owner/name` |
-| `{{issue.number}}` | Issue number |
-| `{{attempt}}` | Retry attempt number (null on first run) |
-| `{{guidelines}}` | Prompt guidelines from WORKFLOW.md |
+| Variable                | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `{{issue.identifier}}`  | e.g. `acme/platform#42`                  |
+| `{{issue.title}}`       | Issue title                              |
+| `{{issue.state}}`       | Current tracker state                    |
+| `{{issue.description}}` | Issue body                               |
+| `{{issue.url}}`         | Issue URL                                |
+| `{{issue.repository}}`  | `owner/name`                             |
+| `{{issue.number}}`      | Issue number                             |
+| `{{attempt}}`           | Retry attempt number (null on first run) |
+| `{{guidelines}}`        | Prompt guidelines from WORKFLOW.md       |
 
 ### Generating WORKFLOW.md
 
@@ -112,7 +128,7 @@ gh-symphony init        # generates ./WORKFLOW.md from active tenant config
 Without a tenant (standalone):
 
 ```bash
-gh-symphony init --non-interactive --token ghp_xxx --project PVT_xxx --output WORKFLOW.md
+gh-symphony init --non-interactive --project PVT_xxx --output WORKFLOW.md
 ```
 
 ### Resolution order
@@ -149,14 +165,14 @@ pnpm --filter @gh-symphony/orchestrator start -- status
 
 Runtime state lives under `.runtime/orchestrator/`:
 
-| Path | Contents |
-|------|----------|
-| `tenants/<id>/config.json` | Tenant metadata |
-| `tenants/<id>/WORKFLOW.md` | Tenant-level workflow policy (repo fallback) |
-| `tenants/<id>/leases.json` | Active or released issue-phase leases |
-| `tenants/<id>/status.json` | Latest tenant status snapshot |
-| `runs/<run-id>/run.json` | Run snapshot, retry state, worker assignment |
-| `runs/<run-id>/events.ndjson` | Structured orchestration events |
+| Path                          | Contents                                     |
+| ----------------------------- | -------------------------------------------- |
+| `tenants/<id>/config.json`    | Tenant metadata                              |
+| `tenants/<id>/WORKFLOW.md`    | Tenant-level workflow policy (repo fallback) |
+| `tenants/<id>/leases.json`    | Active or released issue-phase leases        |
+| `tenants/<id>/status.json`    | Latest tenant status snapshot                |
+| `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment |
+| `runs/<run-id>/events.ndjson` | Structured orchestration events              |
 
 Read orchestration state via the status API (`/api/v1/tenants/<id>/status`) rather than reading status files directly.
 
