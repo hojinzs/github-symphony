@@ -4,7 +4,6 @@ export type ReferenceWorkflowInput = {
     name: string;
     role: "active" | "wait" | "terminal" | null;
   }>;
-  repositories: Array<{ owner: string; name: string }>;
   projectId: string;
   blockedByFieldName?: string;
 };
@@ -30,18 +29,10 @@ export function generateReferenceWorkflow(
   );
   lines.push("");
 
-  lines.push(`github_project_id: ${input.projectId}`);
-  lines.push("");
-
-  if (input.repositories.length > 0) {
-    lines.push("allowed_repositories:");
-    for (const repo of input.repositories) {
-      lines.push(`  - ${repo.owner}/${repo.name}`);
-    }
-  } else {
-    lines.push("allowed_repositories:");
-    lines.push("  - {owner}/{name}");
-  }
+  lines.push("tracker:");
+  lines.push("  kind: github-project");
+  lines.push(`  project_id: ${input.projectId}`);
+  lines.push("  state_field: Status");
   lines.push("");
 
   const activeColumns = input.statusColumns.filter((c) => c.role === "active");
@@ -50,9 +41,6 @@ export function generateReferenceWorkflow(
     (c) => c.role === "terminal"
   );
   const firstActive = activeColumns[0];
-
-  lines.push("lifecycle:");
-  lines.push("  state_field: Status");
 
   if (activeColumns.length > 0) {
     lines.push("  active_states:");
@@ -87,28 +75,35 @@ export function generateReferenceWorkflow(
   lines.push("");
 
   const agentCommand = resolveAgentCommand(input.runtime);
-  lines.push("runtime:");
-  lines.push(`  agent_command: ${agentCommand}`);
-  lines.push("  max_turns: 20");
-  lines.push("  read_timeout_ms: 5000");
-  lines.push("  turn_timeout_ms: 3600000");
+  const hookComment = resolveHookComment(input.runtime);
+  lines.push("polling:");
+  lines.push("  interval_ms: 30000");
   lines.push("");
 
-  const hookComment = resolveHookComment(input.runtime);
+  lines.push("workspace:");
+  lines.push("  root: .runtime/symphony-workspaces");
+  lines.push("");
+
   lines.push("hooks:");
   lines.push(`  after_create: hooks/after_create.sh  # ${hookComment}`);
   lines.push("  before_run: null");
   lines.push("  after_run: null");
   lines.push("  before_remove: null");
+  lines.push("  timeout_ms: 60000");
   lines.push("");
 
-  lines.push("scheduler:");
-  lines.push("  poll_interval_ms: 30000");
+  lines.push("agent:");
+  lines.push("  max_concurrent_agents: 10");
+  lines.push("  max_retry_backoff_ms: 30000");
+  lines.push("  retry_base_delay_ms: 1000");
+  lines.push("  max_turns: 20");
   lines.push("");
 
-  lines.push("retry:");
-  lines.push("  base_delay_ms: 1000");
-  lines.push("  max_delay_ms: 30000");
+  lines.push("codex:");
+  lines.push(`  command: ${agentCommand}`);
+  lines.push("  read_timeout_ms: 5000");
+  lines.push("  turn_timeout_ms: 3600000");
+  lines.push("  stall_timeout_ms: 300000");
   lines.push("");
 
   lines.push("---");
@@ -329,9 +324,9 @@ export function generateReferenceWorkflow(
 function resolveAgentCommand(runtime: string): string {
   switch (runtime) {
     case "codex":
-      return "bash -lc codex app-server";
+      return "codex app-server";
     case "claude-code":
-      return "bash -lc claude-code";
+      return "claude-code";
     default:
       return runtime;
   }

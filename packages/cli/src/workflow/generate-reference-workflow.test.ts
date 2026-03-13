@@ -12,24 +12,32 @@ const defaultInput: ReferenceWorkflowInput = {
     { name: "In Review", role: "wait" },
     { name: "Done", role: "terminal" },
   ],
-  repositories: [{ owner: "acme", name: "platform" }],
   projectId: "PVT_abc123",
 };
 
 describe("generateReferenceWorkflow", () => {
-  it("codex runtime produces agent_command containing codex", () => {
-    const output = generateReferenceWorkflow({ ...defaultInput, runtime: "codex" });
-    expect(output).toContain("agent_command: bash -lc codex app-server");
+  it("codex runtime produces codex.command containing codex", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      runtime: "codex",
+    });
+    expect(output).toContain("command: codex app-server");
   });
 
-  it("claude-code runtime produces agent_command containing claude-code", () => {
-    const output = generateReferenceWorkflow({ ...defaultInput, runtime: "claude-code" });
-    expect(output).toContain("agent_command: bash -lc claude-code");
+  it("claude-code runtime produces codex.command containing claude-code", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      runtime: "claude-code",
+    });
+    expect(output).toContain("command: claude-code");
   });
 
-  it("custom runtime string is used as agent_command verbatim", () => {
-    const output = generateReferenceWorkflow({ ...defaultInput, runtime: "node worker.js" });
-    expect(output).toContain("agent_command: node worker.js");
+  it("custom runtime string is used as codex.command verbatim", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      runtime: "node worker.js",
+    });
+    expect(output).toContain("command: node worker.js");
   });
 
   it("contains all required section headers", () => {
@@ -64,7 +72,9 @@ describe("generateReferenceWorkflow", () => {
   it("Status Map contains role action descriptions", () => {
     const output = generateReferenceWorkflow(defaultInput);
 
-    expect(output).toContain("에이전트가 즉시 작업 시작. 워크패드 생성 후 구현 진행.");
+    expect(output).toContain(
+      "에이전트가 즉시 작업 시작. 워크패드 생성 후 구현 진행."
+    );
     expect(output).toContain("PR 생성 완료. 사람 리뷰 대기 중. 에이전트 대기.");
     expect(output).toContain("완료 상태. 에이전트 종료.");
   });
@@ -74,17 +84,29 @@ describe("generateReferenceWorkflow", () => {
 
     expect(output).toContain("1. 이것은 무인 오케스트레이션 세션입니다.");
     expect(output).toContain("2. 진짜 블로커");
-    expect(output).toContain("3. 최종 메시지에는 완료된 작업과 블로커만 보고하세요.");
-    expect(output).toContain("4. 이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요.");
-    expect(output).toContain("5. terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요.");
+    expect(output).toContain(
+      "3. 최종 메시지에는 완료된 작업과 블로커만 보고하세요."
+    );
+    expect(output).toContain(
+      "4. 이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요."
+    );
+    expect(output).toContain(
+      "5. terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요."
+    );
     expect(output).toContain("6. 범위 밖 개선사항을 발견하면");
     expect(output).toContain("7. 모든 커밋은 논리적 단위로 분리하고");
     expect(output).toContain("8. 테스트가 깨지는 중간 커밋을 하지 마세요.");
-    expect(output).toContain("9. PR 생성 전 모든 기존 테스트가 통과하는지 확인하세요.");
+    expect(output).toContain(
+      "9. PR 생성 전 모든 기존 테스트가 통과하는지 확인하세요."
+    );
     expect(output).toContain("10. 워크패드를 이슈 코멘트로 생성하여");
-    expect(output).toContain("11. gh-project 스킬을 사용하여 이슈 상태를 관리하세요.");
+    expect(output).toContain(
+      "11. gh-project 스킬을 사용하여 이슈 상태를 관리하세요."
+    );
     expect(output).toContain("12. 블로커 발견 시 이슈에 코멘트로 기록하고");
-    expect(output).toContain("13. 작업 완료 후 PR이 머지되면 이슈를 Done 상태로 전이하세요.");
+    expect(output).toContain(
+      "13. 작업 완료 후 PR이 머지되면 이슈를 Done 상태로 전이하세요."
+    );
   });
 
   it("does NOT contain double-brace template patterns", () => {
@@ -94,23 +116,22 @@ describe("generateReferenceWorkflow", () => {
 
   it("includes projectId in front matter", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("github_project_id: PVT_abc123");
+    expect(output).toContain("project_id: PVT_abc123");
   });
 
-  it("includes repositories in front matter", () => {
+  it("does not include allowed_repositories in front matter", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("allowed_repositories:");
-    expect(output).toContain("  - acme/platform");
+    expect(output).not.toContain("allowed_repositories:");
   });
 
-  it("includes active states in lifecycle section", () => {
+  it("includes active states in tracker section", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("active_states:");
     expect(output).toContain("    - Todo");
     expect(output).toContain("    - In Progress");
   });
 
-  it("includes terminal states in lifecycle section", () => {
+  it("includes terminal states in tracker section", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("terminal_states:");
     expect(output).toContain("    - Done");
@@ -144,16 +165,9 @@ describe("generateReferenceWorkflow", () => {
       ],
     });
     expect(output).toContain("Backlog");
-    expect(output).toContain("역할 미정. WORKFLOW.md에서 명시적으로 설정 필요.");
-  });
-
-  it("handles empty repositories array with placeholder", () => {
-    const output = generateReferenceWorkflow({
-      ...defaultInput,
-      repositories: [],
-    });
-    expect(output).toContain("allowed_repositories:");
-    expect(output).toContain("  - {owner}/{name}");
+    expect(output).toContain(
+      "역할 미정. WORKFLOW.md에서 명시적으로 설정 필요."
+    );
   });
 
   it("includes standard runtime fields", () => {
@@ -161,9 +175,9 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("max_turns: 20");
     expect(output).toContain("read_timeout_ms: 5000");
     expect(output).toContain("turn_timeout_ms: 3600000");
-    expect(output).toContain("poll_interval_ms: 30000");
-    expect(output).toContain("base_delay_ms: 1000");
-    expect(output).toContain("max_delay_ms: 30000");
+    expect(output).toContain("interval_ms: 30000");
+    expect(output).toContain("retry_base_delay_ms: 1000");
+    expect(output).toContain("max_retry_backoff_ms: 30000");
   });
 
   it("includes hooks section with after_create", () => {
@@ -172,5 +186,6 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("before_run: null");
     expect(output).toContain("after_run: null");
     expect(output).toContain("before_remove: null");
+    expect(output).toContain("timeout_ms: 60000");
   });
 });

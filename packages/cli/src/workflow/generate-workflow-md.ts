@@ -6,7 +6,6 @@ export type GenerateWorkflowInput = {
   stateFieldName: string;
   mappings: Record<string, StateMapping>;
   lifecycle: WorkflowLifecycleConfig;
-  repositories: Array<{ owner: string; name: string }>;
   runtime: string;
   pollIntervalMs?: number;
   concurrency?: number;
@@ -22,16 +21,9 @@ export function generateWorkflowMarkdown(input: GenerateWorkflowInput): string {
 function buildFrontMatter(input: GenerateWorkflowInput): string {
   const lines: string[] = [];
 
-  lines.push(`github_project_id: ${input.projectId}`);
-
-  if (input.repositories.length > 0) {
-    lines.push("allowed_repositories:");
-    for (const repo of input.repositories) {
-      lines.push(`  - ${repo.owner}/${repo.name}`);
-    }
-  }
-
-  lines.push("lifecycle:");
+  lines.push("tracker:");
+  lines.push("  kind: github-project");
+  lines.push(`  project_id: ${input.projectId}`);
   lines.push(`  state_field: ${input.stateFieldName}`);
 
   if (input.lifecycle.activeStates.length > 0) {
@@ -60,18 +52,24 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   }
 
   const agentCommand = resolveAgentCommand(input.runtime);
-  lines.push("runtime:");
-  lines.push(`  agent_command: ${agentCommand}`);
+  lines.push("polling:");
+  lines.push(`  interval_ms: ${input.pollIntervalMs ?? 30000}`);
+
+  lines.push("workspace:");
+  lines.push("  root: .runtime/symphony-workspaces");
 
   lines.push("hooks:");
   lines.push("  after_create: hooks/after_create.sh");
 
-  lines.push("scheduler:");
-  lines.push(`  poll_interval_ms: ${input.pollIntervalMs ?? 30000}`);
+  lines.push("agent:");
+  lines.push("  max_concurrent_agents: 10");
+  lines.push("  max_retry_backoff_ms: 30000");
+  lines.push("  retry_base_delay_ms: 1000");
 
-  lines.push("retry:");
-  lines.push("  base_delay_ms: 1000");
-  lines.push("  max_delay_ms: 30000");
+  lines.push("codex:");
+  lines.push(`  command: ${agentCommand}`);
+  lines.push("  read_timeout_ms: 5000");
+  lines.push("  turn_timeout_ms: 3600000");
 
   return lines.join("\n") + "\n";
 }
@@ -79,9 +77,9 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
 function resolveAgentCommand(runtime: string): string {
   switch (runtime) {
     case "codex":
-      return "bash -lc codex app-server";
+      return "codex app-server";
     case "claude-code":
-      return "bash -lc claude-code";
+      return "claude-code";
     default:
       return runtime;
   }
@@ -104,47 +102,47 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 ### Default Posture
 
-1. 이것은 무인 오케스트레이션 세션입니다. 사람에게 후속 작업을 요청하지 마세요.
-2. 진짜 블로커(필수 권한/시크릿 누락)일 때만 조기 중단하세요.
-3. 최종 메시지에는 완료된 작업과 블로커만 보고하세요. "다음 단계"를 포함하지 마세요.
+1. This is an unattended orchestration session. Do not ask humans for follow-up actions.
+2. Only abort early if there is a genuine blocker (missing required credentials or secrets).
+3. In your final message, report only what was completed and any blockers. Do not include "next steps".
 
 ### Workflow
 
-1. 이슈 설명을 읽고 요구사항을 이해하세요.
-2. 코드베이스를 탐색하여 관련 코드 구조를 파악하세요.
-3. 프로젝트의 코딩 컨벤션을 따라 변경을 구현하세요.
-4. 변경 사항을 커버하는 테스트를 작성하거나 업데이트하세요.
-5. 모든 기존 테스트가 통과하는지 확인하세요.
-6. 변경 사항에 대한 명확한 설명과 함께 PR을 생성하세요.
+1. Read the issue description and understand the requirements.
+2. Explore the codebase to understand the relevant code structure.
+3. Implement the changes following the project's coding conventions.
+4. Write or update tests to cover the changes.
+5. Verify that all existing tests pass.
+6. Create a PR with a clear description of the changes.
 
 ### Guardrails
 
-- 이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요.
-- terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요.
-- 범위 밖 개선사항을 발견하면 현재 범위를 확장하지 말고 별도 이슈를 생성하세요.
+- Do not edit the issue body for planning or progress tracking.
+- If the issue is in a terminal state, do nothing and exit.
+- If you find out-of-scope improvements, open a separate issue rather than expanding the current scope.
 
 ### Workpad Template
 
-이슈 코멘트에 아래 구조의 워크패드를 생성하여 진행 상황을 추적하세요:
+Create a workpad comment on the issue with the following structure to track progress:
 
 \`\`\`md
 ## Workpad
 
 ### Plan
 
-- [ ] 1. 작업 항목
+- [ ] 1. Task item
 
 ### Acceptance Criteria
 
-- [ ] 기준 1
+- [ ] Criterion 1
 
 ### Validation
 
-- [ ] 테스트: \`명령어\`
+- [ ] Test: \`command\`
 
 ### Notes
 
-- 진행 메모
+- Progress notes
 \`\`\``;
 
   return template;
@@ -154,9 +152,9 @@ function generateStatusMapWithDescriptions(
   mappings: Record<string, StateMapping>
 ): string {
   const roleDescriptions: Record<string, string> = {
-    active: "에이전트가 즉시 작업 시작",
-    wait: "PR 생성 완료, 사람 리뷰 대기",
-    terminal: "완료, 에이전트 종료",
+    active: "Agent starts work immediately",
+    wait: "PR created, awaiting human review",
+    terminal: "Completed, agent exits",
   };
 
   const lines: string[] = ["## Status Map", ""];

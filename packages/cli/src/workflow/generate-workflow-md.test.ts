@@ -18,10 +18,6 @@ describe("generateWorkflowMarkdown", () => {
       terminalStates: ["Done"],
       blockerCheckStates: ["Queued"],
     },
-    repositories: [
-      { owner: "acme", name: "platform" },
-      { owner: "acme", name: "api" },
-    ],
     runtime: "codex",
   };
 
@@ -51,11 +47,10 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("**Done** [terminal]");
   });
 
-  it("includes allowed_repositories from input", () => {
+  it("does not emit allowed_repositories", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
-    const parsed = parseWorkflowMarkdown(markdown, {});
 
-    expect(parsed.allowedRepositories).toEqual(["acme/platform", "acme/api"]);
+    expect(markdown).not.toContain("allowed_repositories:");
   });
 
   it("uses custom poll interval when provided", () => {
@@ -65,13 +60,13 @@ describe("generateWorkflowMarkdown", () => {
     });
     const parsed = parseWorkflowMarkdown(markdown, {});
 
-    expect(parsed.scheduler.pollIntervalMs).toBe(15000);
+    expect(parsed.polling.intervalMs).toBe(15000);
   });
 
   it("resolves runtime agent command for codex", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
-    expect(markdown).toContain("agent_command: bash -lc codex app-server");
+    expect(markdown).toContain("command: codex app-server");
   });
 
   it("resolves runtime agent command for claude-code", () => {
@@ -80,7 +75,7 @@ describe("generateWorkflowMarkdown", () => {
       runtime: "claude-code",
     });
 
-    expect(markdown).toContain("agent_command: bash -lc claude-code");
+    expect(markdown).toContain("command: claude-code");
   });
 
   it("uses custom runtime string as agent command", () => {
@@ -89,7 +84,7 @@ describe("generateWorkflowMarkdown", () => {
       runtime: "node worker.js",
     });
 
-    expect(markdown).toContain("agent_command: node worker.js");
+    expect(markdown).toContain("command: node worker.js");
   });
 
   it("includes template variables that resolve without errors", () => {
@@ -108,8 +103,8 @@ describe("generateWorkflowMarkdown", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
     expect(markdown).toContain("### Default Posture");
-    expect(markdown).toContain("무인 오케스트레이션 세션");
-    expect(markdown).toContain("진짜 블로커");
+    expect(markdown).toContain("unattended orchestration session");
+    expect(markdown).toContain("genuine blocker");
   });
 
   it("includes Guardrails section", () => {
@@ -117,10 +112,10 @@ describe("generateWorkflowMarkdown", () => {
 
     expect(markdown).toContain("### Guardrails");
     expect(markdown).toContain(
-      "이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요"
+      "Do not edit the issue body for planning or progress tracking"
     );
     expect(markdown).toContain(
-      "terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요"
+      "If the issue is in a terminal state, do nothing and exit"
     );
   });
 
@@ -137,9 +132,9 @@ describe("generateWorkflowMarkdown", () => {
   it("includes role descriptions in Status Map", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
-    expect(markdown).toContain("에이전트가 즉시 작업 시작");
-    expect(markdown).toContain("PR 생성 완료, 사람 리뷰 대기");
-    expect(markdown).toContain("완료, 에이전트 종료");
+    expect(markdown).toContain("Agent starts work immediately");
+    expect(markdown).toContain("PR created, awaiting human review");
+    expect(markdown).toContain("Completed, agent exits");
   });
 
   it("round-trips through parseWorkflowMarkdown and renderPrompt with strict mode", () => {
@@ -148,6 +143,7 @@ describe("generateWorkflowMarkdown", () => {
 
     const mockVars = {
       issue: {
+        id: "test-id-1",
         identifier: "owner/repo#1",
         title: "Test issue",
         state: "Queued",
@@ -180,6 +176,5 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.lifecycle.stateFieldName).toBe("Stage");
     expect(parsed.lifecycle.activeStates).toEqual(["Queued", "Doing"]);
     expect(parsed.lifecycle.terminalStates).toEqual(["Done"]);
-    expect(parsed.allowedRepositories).toEqual(["acme/platform", "acme/api"]);
   });
 });
