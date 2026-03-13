@@ -1,0 +1,159 @@
+TASK 2: Add Snapshot Builder Baseline Tests
+============================================
+
+OBJECTIVE:
+Create comprehensive tests for buildTenantSnapshot() function covering idle, running, degraded, 
+retry queue, token aggregation, and missing optional fields.
+
+TEST FILE CREATED:
+packages/core/src/observability/snapshot-builder.test.ts
+
+TEST EXECUTION RESULTS:
+======================
+
+Command: npx vitest run packages/core/src/observability/snapshot-builder.test.ts
+
+Output:
+ RUN  v3.2.4 /Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/playful-star
+
+ ✓ packages/core/src/observability/snapshot-builder.test.ts (18 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  13:48:16
+   Duration  191ms (transform 27ms, setup 0ms, collect 26ms, tests 4ms, environment 0ms, prepare 39ms)
+
+EXIT CODE: 0 (SUCCESS)
+
+TEST COVERAGE:
+==============
+
+✓ Test 1: Idle state
+  - No active runs → health === "idle"
+  - activeRuns.length === 0
+  - retryQueue.length === 0
+  - summary.activeRuns === 0
+
+✓ Test 2: Running state
+  - Active runs present → health === "running"
+  - activeRuns.length === 1
+  - Correct run mapping (runId, issueIdentifier, status)
+  - summary.activeRuns === 1
+
+✓ Test 3: Degraded state
+  - lastError present → health === "degraded"
+  - lastError preserved in snapshot
+
+✓ Test 4: Degraded prioritized over running
+  - When both error and active runs present
+  - health === "degraded" (error takes priority)
+
+✓ Test 5: Retry queue partitioning
+  - Runs with status="retrying" && retryKind != null appear in retryQueue
+  - Running runs excluded from retryQueue
+  - Multiple retry kinds handled (failure, recovery)
+
+✓ Test 6: Token aggregation
+  - Multiple runs with tokenUsage aggregated correctly
+  - inputTokens summed: 1000 + 2000 = 3000
+  - outputTokens summed: 500 + 1000 = 1500
+  - totalTokens summed: 1500 + 3000 = 4500
+  - secondsRunning calculated from startedAt/completedAt
+
+✓ Test 7: Missing tokenUsage handling
+  - Runs without tokenUsage don't crash
+  - Graceful defaults (0 for missing runs)
+  - Partial aggregation works correctly
+
+✓ Test 8: Missing runtimeSession handling
+  - Runs without runtimeSession don't crash
+  - runtimeSession defaults to null
+  - Runs with session preserve session data
+
+✓ Test 9: Tenant metadata preservation
+  - tenantId preserved
+  - slug preserved
+  - tracker.adapter preserved
+  - tracker.bindingId preserved
+
+✓ Test 10: Summary counts
+  - dispatched count preserved
+  - suppressed count preserved
+  - recovered count preserved
+
+✓ Test 11: allRuns vs activeRuns fallback
+  - When allRuns provided, uses allRuns for aggregation
+  - Includes completed runs in token totals
+  - Correctly sums across both active and completed
+
+✓ Test 12: activeRuns fallback
+  - When allRuns not provided, falls back to activeRuns
+  - Token aggregation still works correctly
+
+✓ Test 13: rateLimits handling
+  - When rateLimits provided, preserved in snapshot
+  - Complex rate limit objects handled correctly
+
+✓ Test 14: rateLimits null default
+  - When rateLimits not provided, defaults to null
+  - No errors on missing rateLimits
+
+✓ Test 15: activeRun field mapping
+  - All required fields mapped: runId, issueIdentifier, issueState, status, retryKind, port
+  - runtimeSession mapped correctly
+  - No field loss in transformation
+
+✓ Test 16: secondsRunning calculation
+  - Correctly calculates duration from startedAt to completedAt
+  - 10 minute duration = 600 seconds
+  - Math.max(0, ...) prevents negative values
+
+✓ Test 17: lastTickAt as end time
+  - When completedAt is null, uses lastTickAt as end time
+  - 5 minute duration = 300 seconds
+  - Handles ongoing runs correctly
+
+✓ Test 18: Retrying without retryKind
+  - Runs with status="retrying" but retryKind=null excluded from retryQueue
+  - Only runs with both status="retrying" AND retryKind appear in queue
+
+HELPER FUNCTIONS CREATED:
+==========================
+
+mockTenant(overrides?: Partial<OrchestratorTenantConfig>): OrchestratorTenantConfig
+  - Creates minimal tenant config for testing
+  - Supports partial overrides for customization
+  - Includes default tracker, runtime, and repository config
+
+mockRun(overrides?: Partial<OrchestratorRunRecord>): OrchestratorRunRecord
+  - Creates minimal run record for testing
+  - Supports partial overrides for customization
+  - Includes all required fields with sensible defaults
+  - Supports optional fields (tokenUsage, runtimeSession, etc.)
+
+ACCEPTANCE CRITERIA MET:
+========================
+
+✓ packages/core/src/observability/snapshot-builder.test.ts exists
+✓ Contains 18 test cases (exceeds minimum of 6)
+✓ Tests cover all required scenarios:
+  - Idle state
+  - Running state
+  - Degraded state
+  - Retry queue partitioning
+  - Token aggregation
+  - Missing optional fields
+✓ npx vitest run packages/core/src/observability/snapshot-builder.test.ts passes
+✓ All tests pass with exit code 0
+✓ No modifications to snapshot-builder.ts itself
+✓ Tests validate current implementation behavior
+
+NOTES:
+======
+
+- Tests use Vitest (already in project dependencies)
+- Import style matches existing test patterns (workflow-loader.test.ts)
+- Helper functions reduce test boilerplate and improve maintainability
+- Tests are comprehensive and cover edge cases
+- All tests pass on first run (no regressions)
+- Ready for Task 6 (snapshot builder modifications) to extend with live worker field tests

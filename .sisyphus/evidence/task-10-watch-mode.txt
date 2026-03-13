@@ -1,0 +1,27 @@
+Task 10: Integrate Elixir-parity dashboard into status --watch
+==============================================================
+
+Commit: a45b7c6
+Message: feat(cli): integrate Elixir-parity dashboard into status --watch
+File changed: packages/cli/src/commands/status.ts (+54 -16)
+
+Changes Made:
+1. Renamed old renderDashboard() -> renderLegacyStatus() (used by single-query mode)
+2. Added imports: renderDashboard from ../dashboard/renderer.js
+3. Added imports: clearScreen, showCursor, hideCursor from ../ansi.js
+4. Added readAllStatusSnapshots() — reads ALL tenant status.json files (multi-tenant)
+5. Rewrote watch mode block:
+   - Non-TTY detection: falls back to JSON output
+   - SIGWINCH handler updates terminalWidth for next render
+   - SIGINT/SIGTERM cleanup: showCursor() + newline + clearInterval + exit
+   - hideCursor() on TTY watch start
+   - Uses clearScreen() from ansi.ts (not raw escape codes)
+   - Calls renderDashboard() from renderer.ts with DashboardOptions
+
+Verification:
+- pnpm --filter @gh-symphony/cli typecheck: PASS (0 errors)
+- pnpm --filter @gh-symphony/cli build: PASS
+- pnpm lint: PASS (1 pre-existing warning in ansi.ts, not our change)
+- pnpm --filter @gh-symphony/cli test: PASS (35/35 tests, 5 files)
+- LSP diagnostics: 0 errors
+- apps/control-plane test failures: pre-existing (missing .prisma/client/default), unrelated

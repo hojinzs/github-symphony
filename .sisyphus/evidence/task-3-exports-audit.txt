@@ -1,0 +1,65 @@
+TASK 3: AUDIT CORE BARREL EXPORTS
+==================================
+
+AUDIT DATE: 2026-03-13
+STATUS: ✅ PASSED - All required types are properly exported
+
+EXPORT CHAIN VERIFICATION
+==========================
+
+Main Barrel (packages/core/src/index.ts):
+  ✅ export * from "./contracts/status-surface.js"
+  ✅ export * from "./observability/index.js"
+
+Observability Sub-Barrel (packages/core/src/observability/index.ts):
+  ✅ export * from "./snapshot-builder.js"
+
+REQUIRED TYPES VERIFICATION
+============================
+
+From status-surface.ts (via contracts/status-surface.js):
+  ✅ TenantStatusSnapshot - EXPORTED
+  ✅ OrchestratorRunRecord - EXPORTED
+  ✅ RuntimeSessionRow - EXPORTED
+  ✅ OrchestratorRunStatus - EXPORTED
+  ✅ RetryKind - EXPORTED
+
+From snapshot-builder.ts (via observability/snapshot-builder.js):
+  ✅ buildTenantSnapshot - EXPORTED
+  ✅ SnapshotInput - EXPORTED
+
+IMPORT ACCESSIBILITY TEST
+==========================
+
+All types are accessible via:
+  import { TenantStatusSnapshot } from "@gh-symphony/core"
+  import { OrchestratorRunRecord } from "@gh-symphony/core"
+  import { RuntimeSessionRow } from "@gh-symphony/core"
+  import { OrchestratorRunStatus } from "@gh-symphony/core"
+  import { RetryKind } from "@gh-symphony/core"
+  import { buildTenantSnapshot } from "@gh-symphony/core"
+  import { SnapshotInput } from "@gh-symphony/core"
+
+BUILD VERIFICATION
+===================
+
+Command: pnpm --filter @gh-symphony/core build
+Result: ✅ SUCCESS (no errors)
+
+TypeScript Declaration Files Generated:
+  ✅ packages/core/dist/index.d.ts
+  ✅ packages/core/dist/contracts/status-surface.d.ts
+  ✅ packages/core/dist/observability/index.d.ts
+  ✅ packages/core/dist/observability/snapshot-builder.d.ts
+
+CONCLUSION
+==========
+
+All required types for the dashboard are properly exported from @gh-symphony/core.
+No missing exports detected. No changes needed.
+
+The barrel export structure is correct:
+  core/index.ts → contracts/status-surface.ts (direct export)
+  core/index.ts → observability/index.ts → snapshot-builder.ts (transitive export)
+
+This enables clean imports for dashboard consumers without exposing internal structure.

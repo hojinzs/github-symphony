@@ -1,0 +1,11 @@
+F1 VERDICT: REJECT
+
+Checks:
+1. Symphony spec unmodified: PASS — `git diff HEAD -- docs/symphony-spec.md` returned empty output.
+2. turn_count spec-aligned: FAIL — `packages/core/src/contracts/status-surface.ts` adds `LiveWorkerState.turnCount: number` (line 109), so `turnCount` is not optional everywhere in the contract file even though `packages/orchestrator/src/service.ts` reads `state.sessionInfo?.turnCount ?? null` and surfaces `turnCount: liveState.turnCount ?? undefined`, and `packages/cli/src/dashboard/renderer.ts` reads `run.turnCount ?? 0`.
+3. No required new fields: FAIL — `git diff HEAD~10 -- packages/core/src/contracts/status-surface.ts` adds required fields in new `LiveWorkerState` (`tokenUsage`, `sessionId`, `turnCount`, `lastError`, `lastEvent`, `lastEventAt`, `status`) rather than making every added field optional.
+4. No TUI dependencies: PASS — `grep -E "blessed|ink|terminal-kit|ncurses|charm|bubbletea" packages/cli/package.json` found no matches.
+5. start command unchanged: FAIL — `git log --oneline HEAD~10..HEAD -- packages/cli/src/commands/start.ts` shows only `1af54d5 refactor(cli): extract shared ANSI utilities to ansi.ts`, but `git show 1af54d5 -- packages/cli/src/commands/start.ts` changes handler code from `noColor = options.noColor;` to `setNoColor(options.noColor);` plus formatting, so the change is not import-only.
+6. All deliverables present: PASS — all requested files exist: `packages/cli/src/ansi.ts`, `packages/cli/src/dashboard/renderer.ts`, `packages/cli/src/dashboard/renderer.test.ts`, `packages/core/src/observability/snapshot-builder.test.ts`, and the four snapshot fixtures under `packages/cli/src/dashboard/__tests__/fixtures/`.
+
+Summary: The spec file stays untouched, no external TUI library was added, and all deliverables are present. But this implementation does not pass the audit as written because `status-surface.ts` now contains required live-worker fields and `start.ts` changed by more than a pure import rewrite.

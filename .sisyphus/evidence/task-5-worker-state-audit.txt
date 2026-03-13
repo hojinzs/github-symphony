@@ -1,0 +1,201 @@
+TASK 5: WORKER STATE SERVER RESPONSE SHAPE AUDIT
+================================================
+
+AUDIT DATE: 2026-03-13
+SOURCE FILES:
+  - packages/worker/src/state-server.ts (lines 6-103)
+  - packages/worker/src/index.ts (lines 1-813)
+
+EXACT /api/v1/state RESPONSE SHAPE
+==================================
+
+The endpoint /api/v1/state returns a JSON object of type WorkerRuntimeState:
+
+```typescript
+type WorkerRuntimeState = {
+  package: string;                    // Always "@gh-symphony/worker"
+  runtime: "self-hosted-sample";      // Fixed string
+  status: "idle" | "starting" | "running" | "failed" | "completed";
+  projectId: string | null;
+  workspaceRuntimeDir: string;
+  allowedRepositories: string[];
+  run: null | {
+    runId: string;
+    issueId: string | null;
+    issueIdentifier: string | null;
+    state: string | null;
+    processId: number | null;         // ← CRITICAL: Set at runtime (line 125 in index.ts)
+    repository: {
+      owner: string | null;
+      name: string | null;
+      cloneUrl: string | null;
+      url: string | null;
+    };
+    lastError: string | null;
+  };
+  tokenUsage: {
+    inputTokens: number;              // ← Updated from codex events (lines 475-478)
+    outputTokens: number;
+    totalTokens: number;
+  };
+  sessionInfo?: {                      // ← OPTIONAL (can be null)
+    threadId: string | null;
+    turnCount: number;                // ← Updated at runtime (line 593)
+  } | null;
+  workflow: null | {
+    githubProjectId: string | null;
+    agentCommand: string;
+    hookPath: string;
+    lifecycle: {
+      stateFieldName: string;
+      activeStates: string[];
+      terminalStates: string[];
+      blockerCheckStates: string[];
+    };
+  };
+};
+```
+
+FIELD MAPPING FOR DASHBOARD
+============================
+
+1. TOKEN USAGE
+   ✓ PRESENT: runtimeState.tokenUsage
+   - inputTokens: number (updated from codex "thread/tokenUsage/updated" or "total_token_usage" events)
+   - outputTokens: number
+   - totalTokens: number
+   - DEFAULT: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+   - LOCATION: index.ts lines 64-68 (initialization), lines 475-478 (runtime updates)
+
+2. SESSION INFO / TURN COUNT
+   ✓ PRESENT: runtimeState.sessionInfo.turnCount
+   - Type: number
+   - DEFAULT: 0 (initialized at line 71 in index.ts)
+   - UPDATED: At line 593 in index.ts during multi-turn loop
+   - OPTIONAL: sessionInfo can be null (line 100 in state-server.ts)
+   - STRUCTURE: { threadId: string | null, turnCount: number }
+
+3. LAST EVENT
+   ✗ NOT PRESENT: No "lastEvent" field in WorkerRuntimeState
+   - FALLBACK STRATEGY: Use runtimeState.status field instead
+   - STATUS VALUES: "idle" | "starting" | "running" | "failed" | "completed"
+   - ALTERNATIVE: Use runtimeState.run.lastError for error details
+
+4. PROCESS ID
+   ✓ PRESENT: runtimeState.run.processId
+   - Type: number | null
+   - SET AT: line 125 in index.ts when childProcess launches
+   - AVAILABLE: Only when run is active (not null)
+   - STRUCTURE: runtimeState.run.processId
+
+RUNTIME STATE INITIALIZATION
+=============================
+
+In index.ts (lines 21-73), runtimeState is initialized as:
+
+```typescript
+const runtimeState = {
+  status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
+  run: launcherEnv.SYMPHONY_RUN_ID ? { ... } : null,
+  tokenUsage: {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  },
+  sessionInfo: {
+    threadId: null,
+    turnCount: 0,
+  },
+};
+```
+
+RUNTIME UPDATES
+===============
+
+1. STATUS TRANSITIONS (index.ts):
+   - Line 122: status = "running" (when childProcess launches)
+   - Line 134: status = "completed" or "failed" (on process exit)
+   - Line 145: status = "failed" (on process error)
+   - Line 152: status = "failed" (on startup exception)
+   - Line 429: status = "failed" (on user input required)
+
+2. PROCESS ID (index.ts):
+   - Line 125: runtimeState.run.processId = childProcess.pid ?? null
+
+3. TOKEN USAGE (index.ts):
+   - Lines 475-478: Updated from codex events
+   - Event methods: "thread/tokenUsage/updated" or "total_token_usage"
+   - Params: input_tokens, output_tokens, total_tokens
+
+4. TURN COUNT (index.ts):
+   - Line 593: runtimeState.sessionInfo.turnCount = turnCount
+   - Updated in multi-turn loop (lines 591-653)
+
+5. LAST ERROR (index.ts):
+   - Line 137-140: Set on process exit with signal/code
+   - Line 148: Set on process error
+   - Line 156: Set on startup exception
+   - Line 432: Set on user input required
+
+API RESPONSE FLOW
+=================
+
+1. Worker starts state server (line 75-79):
+   ```typescript
+   const server = startWorkerStateServer({
+     port,
+     getState: async () =>
+       buildWorkerRuntimeState(launcherEnv, undefined, runtimeState),
+   });
+   ```
+
+2. On GET /api/v1/state (state-server.ts lines 117-124):
+   - Calls getState() which returns buildWorkerRuntimeState()
+   - buildWorkerRuntimeState() merges:
+     - Environment variables (SYMPHONY_RUN_ID, etc.)
+     - Parsed workflow.md
+     - Runtime state object (tokenUsage, sessionInfo, status, run)
+   - Returns complete WorkerRuntimeState object
+   - Serializes to JSON and sends with 200 status
+
+GAPS & FALLBACKS FOR DASHBOARD
+===============================
+
+1. NO "lastEvent" FIELD
+   - FALLBACK: Use status field to infer state
+   - FALLBACK: Use run.lastError for error messages
+   - RECOMMENDATION: Dashboard should check status first, then lastError
+
+2. sessionInfo CAN BE NULL
+   - FALLBACK: Treat null as { threadId: null, turnCount: 0 }
+   - SAFE ACCESS: runtimeState.sessionInfo?.turnCount ?? 0
+
+3. run CAN BE NULL
+   - FALLBACK: When run is null, no active issue
+   - SAFE ACCESS: runtimeState.run?.processId ?? null
+
+4. processId CAN BE NULL
+   - FALLBACK: When null, process not yet launched
+   - SAFE ACCESS: runtimeState.run?.processId ?? null
+
+VERIFICATION CHECKLIST
+======================
+
+✓ tokenUsage: Present, updated from codex events
+✓ sessionInfo.turnCount: Present, updated in multi-turn loop
+✓ lastEvent: NOT present (use status + lastError instead)
+✓ processId: Present in run object, set at runtime
+✓ status: Present, transitions through lifecycle
+✓ run: Can be null (no active issue) or object with full details
+✓ sessionInfo: Can be null (optional field)
+
+READY FOR TASK 8
+================
+
+Task 8 (Live Worker Polling) can now safely:
+1. Call /api/v1/state endpoint
+2. Extract tokenUsage.inputTokens, outputTokens, totalTokens
+3. Extract sessionInfo?.turnCount ?? 0
+4. Use status field instead of lastEvent
+5. Extract run?.processId ?? null
+6. Handle null values gracefully with fallbacks
