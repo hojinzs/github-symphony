@@ -1,10 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type {
-  ProjectDetail,
-  ProjectStatusField,
-  ProjectTextField,
-} from "../github/client.js";
+import type { ProjectDetail, ProjectStatusField } from "../github/client.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import { inferStateRole } from "../mapping/smart-defaults.js";
 import type { ContextYaml } from "./context-types.js";
@@ -18,7 +14,7 @@ export type BuildContextYamlParams = {
 };
 
 function yamlQuote(value: string): string {
-  const specialChars = /[:#{'\"\[\]{}()\\]|\n/;
+  const specialChars = /[:#{'"\]{}()\\[]|\n/;
   if (specialChars.test(value)) {
     return `"${value.replace(/"/g, '\\"')}"`;
   }

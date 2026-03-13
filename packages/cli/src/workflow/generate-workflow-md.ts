@@ -1,5 +1,4 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
-import { generateStatusMap } from "../mapping/smart-defaults.js";
 import type { StateMapping } from "../config.js";
 
 export type GenerateWorkflowInput = {
