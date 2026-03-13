@@ -1,0 +1,129 @@
+[
+  {
+    "tenantId": "tenant-4",
+    "slug": "delta-labs",
+    "tracker": { "adapter": "github", "bindingId": "PVT_aaa" },
+    "lastTickAt": "2026-03-13T04:00:00Z",
+    "health": "running",
+    "summary": {
+      "dispatched": 5,
+      "suppressed": 0,
+      "recovered": 0,
+      "activeRuns": 2
+    },
+    "activeRuns": [
+      {
+        "runId": "run-ggg-001",
+        "issueIdentifier": "delta-labs/api#88",
+        "issueState": "in-progress",
+        "status": "running",
+        "retryKind": null,
+        "port": 4684,
+        "processId": 12348,
+        "turnCount": 4,
+        "startedAt": "2026-03-13T03:56:00Z",
+        "lastEvent": "turn_completed",
+        "lastEventAt": "2026-03-13T03:59:00Z",
+        "tokenUsage": {
+          "inputTokens": 5500,
+          "outputTokens": 1800,
+          "totalTokens": 7300
+        }
+      },
+      {
+        "runId": "run-hhh-002",
+        "issueIdentifier": "delta-labs/api#91",
+        "issueState": "in-progress",
+        "status": "running",
+        "retryKind": null,
+        "port": 4685,
+        "processId": 12349,
+        "turnCount": 1,
+        "startedAt": "2026-03-13T03:59:30Z",
+        "lastEvent": "task_started",
+        "lastEventAt": "2026-03-13T03:59:35Z",
+        "tokenUsage": {
+          "inputTokens": 1200,
+          "outputTokens": 400,
+          "totalTokens": 1600
+        }
+      }
+    ],
+    "retryQueue": [],
+    "codexTotals": {
+      "inputTokens": 6700,
+      "outputTokens": 2200,
+      "totalTokens": 8900,
+      "secondsRunning": 240
+    },
+    "rateLimits": null,
+    "lastError": null
+  },
+  {
+    "tenantId": "tenant-5",
+    "slug": "epsilon-tech",
+    "tracker": { "adapter": "github", "bindingId": "PVT_bbb" },
+    "lastTickAt": "2026-03-13T04:00:00Z",
+    "health": "degraded",
+    "summary": {
+      "dispatched": 3,
+      "suppressed": 1,
+      "recovered": 0,
+      "activeRuns": 2
+    },
+    "activeRuns": [
+      {
+        "runId": "run-iii-001",
+        "issueIdentifier": "epsilon-tech/web#33",
+        "issueState": "in-progress",
+        "status": "running",
+        "retryKind": null,
+        "port": 4686,
+        "processId": 12350,
+        "turnCount": 6,
+        "startedAt": "2026-03-13T03:54:00Z",
+        "lastEvent": "turn_completed",
+        "lastEventAt": "2026-03-13T03:59:50Z",
+        "tokenUsage": {
+          "inputTokens": 8100,
+          "outputTokens": 2700,
+          "totalTokens": 10800
+        }
+      },
+      {
+        "runId": "run-jjj-002",
+        "issueIdentifier": "epsilon-tech/web#37",
+        "issueState": "in-progress",
+        "status": "retrying",
+        "retryKind": "failure",
+        "port": null,
+        "processId": null,
+        "turnCount": 2,
+        "startedAt": "2026-03-13T03:57:00Z",
+        "lastEvent": "run_failed",
+        "lastEventAt": "2026-03-13T03:58:30Z",
+        "tokenUsage": {
+          "inputTokens": 3300,
+          "outputTokens": 1100,
+          "totalTokens": 4400
+        }
+      }
+    ],
+    "retryQueue": [
+      {
+        "runId": "run-jjj-002",
+        "issueIdentifier": "epsilon-tech/web#37",
+        "retryKind": "failure",
+        "nextRetryAt": "2026-03-13T04:03:30Z"
+      }
+    ],
+    "codexTotals": {
+      "inputTokens": 11400,
+      "outputTokens": 3800,
+      "totalTokens": 15200,
+      "secondsRunning": 360
+    },
+    "rateLimits": null,
+    "lastError": "Run run-jjj-002 failed after 2 turns: timeout waiting for worker response"
+  }
+]

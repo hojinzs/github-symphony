@@ -35,7 +35,15 @@ export type SnapshotInput = {
 export function buildTenantSnapshot(
   input: SnapshotInput
 ): TenantStatusSnapshot {
-  const { tenant, activeRuns, allRuns, summary, lastTickAt, lastError, rateLimits } = input;
+  const {
+    tenant,
+    activeRuns,
+    allRuns,
+    summary,
+    lastTickAt,
+    lastError,
+    rateLimits,
+  } = input;
 
   return {
     tenantId: tenant.tenantId,
@@ -60,6 +68,13 @@ export function buildTenantSnapshot(
       retryKind: run.retryKind,
       port: run.port,
       runtimeSession: run.runtimeSession ?? null,
+      // New fields from live worker data
+      processId: run.processId ?? null,
+      turnCount: run.turnCount,
+      startedAt: run.startedAt ?? null,
+      lastEvent: run.lastEvent ?? null,
+      lastEventAt: run.lastEventAt ?? null,
+      tokenUsage: run.tokenUsage,
     })),
     retryQueue: activeRuns
       .filter((run) => run.status === "retrying" && run.retryKind)
@@ -74,7 +89,6 @@ export function buildTenantSnapshot(
     rateLimits: rateLimits ?? null,
   };
 }
-
 
 /**
  * Aggregate token usage across all run records that have token data.

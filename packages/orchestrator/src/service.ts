@@ -104,9 +104,7 @@ export class OrchestratorService {
   async status(tenantId?: string): Promise<TenantStatusSnapshot[]> {
     const tenants = await this.loadTargetTenants(tenantId);
     const statuses = await Promise.all(
-      tenants.map((tenant) =>
-        this.store.loadTenantStatus(tenant.tenantId)
-      )
+      tenants.map((tenant) => this.store.loadTenantStatus(tenant.tenantId))
     );
 
     return statuses.filter((status): status is TenantStatusSnapshot =>
@@ -125,9 +123,9 @@ export class OrchestratorService {
       return this.dependencies.pollIntervalMs;
     }
 
-    const configuredIntervals = [
-      ...this.tenantPollIntervals.values(),
-    ].filter((value) => Number.isFinite(value) && value > 0);
+    const configuredIntervals = [...this.tenantPollIntervals.values()].filter(
+      (value) => Number.isFinite(value) && value > 0
+    );
     return configuredIntervals.length
       ? Math.min(...configuredIntervals)
       : DEFAULT_POLL_INTERVAL_MS;
@@ -321,7 +319,10 @@ export class OrchestratorService {
   private async resolveActionableCandidates(
     tenant: OrchestratorTenantConfig,
     issues: TrackedIssue[]
-  ): Promise<{ candidates: TrackedIssue[]; lifecycle: WorkflowLifecycleConfig }> {
+  ): Promise<{
+    candidates: TrackedIssue[];
+    lifecycle: WorkflowLifecycleConfig;
+  }> {
     const candidates: TrackedIssue[] = [];
     let lifecycle: WorkflowLifecycleConfig | null = null;
 
@@ -340,7 +341,10 @@ export class OrchestratorService {
 
       // Blocker eligibility: skip blocker-check-state issues with non-terminal blockers
       if (
-        matchesWorkflowState(issue.state, resolution.lifecycle.blockerCheckStates) &&
+        matchesWorkflowState(
+          issue.state,
+          resolution.lifecycle.blockerCheckStates
+        ) &&
         issue.blockedBy.length > 0
       ) {
         const hasNonTerminalBlocker = issue.blockedBy.some(
@@ -394,7 +398,10 @@ export class OrchestratorService {
     });
 
     // 1. Try loading from the repository
-    const repoResolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
+    const repoResolution = await loadRepositoryWorkflow(
+      repositoryDirectory,
+      repository
+    );
 
     if (repoResolution.workflowPath !== null) {
       return repoResolution;
@@ -517,16 +524,22 @@ export class OrchestratorService {
     );
 
     // Run before_run hook before spawning the worker
-    await this.runHook("before_run", tenant, repositoryDirectory, issue.repository, {
-      tenantId: tenant.tenantId,
-      workspaceKey,
-      issueSubjectId,
-      issueIdentifier: issue.identifier,
-      workspacePath: issueWorkspacePath,
-      repositoryPath: repositoryDirectory,
-      runId,
-      state: issue.state,
-    });
+    await this.runHook(
+      "before_run",
+      tenant,
+      repositoryDirectory,
+      issue.repository,
+      {
+        tenantId: tenant.tenantId,
+        workspaceKey,
+        issueSubjectId,
+        issueIdentifier: issue.identifier,
+        workspacePath: issueWorkspacePath,
+        repositoryPath: repositoryDirectory,
+        runId,
+        state: issue.state,
+      }
+    );
 
     mkdirSync(runDir, { recursive: true });
     const workerLogFd = openSync(join(runDir, "worker.log"), "a");
@@ -629,10 +642,15 @@ export class OrchestratorService {
         }
         // Fall through: treat as a normal exit and retry.
       } else {
+        const liveState = await this.fetchLiveWorkerState(run);
         const runningRecord: OrchestratorRunRecord = {
           ...run,
           status: "running",
           updatedAt: now.toISOString(),
+          turnCount: liveState.turnCount ?? undefined,
+          tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
+          lastEvent: liveState.lastEvent ?? undefined,
+          lastEventAt: liveState.lastEventAt ?? undefined,
         };
         await this.store.saveRun(runningRecord);
         return {
@@ -696,16 +714,22 @@ export class OrchestratorService {
         run.issueWorkspaceKey
       );
 
-      await this.runHook("after_run", tenant, run.workingDirectory, run.repository, {
-        tenantId: run.tenantId,
-        workspaceKey: run.issueWorkspaceKey,
-        issueSubjectId: run.issueSubjectId,
-        issueIdentifier: run.issueIdentifier,
-        workspacePath: issueWorkspacePath,
-        repositoryPath: run.workingDirectory,
-        runId: run.runId,
-        state: run.issueState,
-      });
+      await this.runHook(
+        "after_run",
+        tenant,
+        run.workingDirectory,
+        run.repository,
+        {
+          tenantId: run.tenantId,
+          workspaceKey: run.issueWorkspaceKey,
+          issueSubjectId: run.issueSubjectId,
+          issueIdentifier: run.issueIdentifier,
+          workspacePath: issueWorkspacePath,
+          repositoryPath: run.workingDirectory,
+          runId: run.runId,
+          state: run.issueState,
+        }
+      );
     }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
@@ -789,10 +813,7 @@ export class OrchestratorService {
       if (!runIssue) {
         return "failure";
       }
-      const resolution = await this.loadTenantWorkflow(
-        tenant,
-        run.repository
-      );
+      const resolution = await this.loadTenantWorkflow(tenant, run.repository);
       return isStateActive(runIssue.state, resolution.lifecycle)
         ? "continuation"
         : "failure";
@@ -805,12 +826,13 @@ export class OrchestratorService {
    * Attempt to fetch final token usage from the worker state API.
    * Returns the token usage object or null if the worker is unreachable.
    */
-  private async fetchWorkerRunInfo(
-    run: OrchestratorRunRecord
-  ): Promise<{
+  private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    turnCount: number | null;
     lastError: string | null;
+    lastEvent: string | null;
+    lastEventAt: string | null;
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -821,31 +843,51 @@ export class OrchestratorService {
     return {
       tokenUsage: persistedTokenUsage,
       sessionId: liveState.sessionId,
+      turnCount: liveState.turnCount,
       lastError: liveState.lastError,
+      lastEvent: liveState.lastEvent,
+      lastEventAt: liveState.lastEventAt,
     };
   }
 
-  private async fetchLiveWorkerState(
-    run: OrchestratorRunRecord
-  ): Promise<{
+  private async fetchLiveWorkerState(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    turnCount: number | null;
     lastError: string | null;
+    lastEvent: string | null;
+    lastEventAt: string | null;
   }> {
     if (!run.port) {
-      return { tokenUsage: null, sessionId: null, lastError: null };
+      return {
+        tokenUsage: null,
+        sessionId: null,
+        turnCount: null,
+        lastError: null,
+        lastEvent: null,
+        lastEventAt: null,
+      };
     }
 
     try {
       const fetchImpl = this.dependencies.fetchImpl ?? fetch;
       const response = await fetchImpl(
-        `http://127.0.0.1:${run.port}/api/v1/state`
+        `http://127.0.0.1:${run.port}/api/v1/state`,
+        { signal: AbortSignal.timeout(2000) }
       );
       if (!response.ok) {
-        return { tokenUsage: null, sessionId: null, lastError: null };
+        return {
+          tokenUsage: null,
+          sessionId: null,
+          turnCount: null,
+          lastError: null,
+          lastEvent: null,
+          lastEventAt: null,
+        };
       }
 
       const state = (await response.json()) as {
+        status?: string;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -858,16 +900,35 @@ export class OrchestratorService {
         run?: { lastError: string | null } | null;
       };
 
-      const tokenUsage = hasTokenUsage(state.tokenUsage) ? state.tokenUsage : null;
+      const tokenUsage = hasTokenUsage(state.tokenUsage)
+        ? state.tokenUsage
+        : null;
       const sessionId =
         state.sessionInfo?.threadId && state.sessionInfo.turnCount > 0
           ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnCount}`
           : null;
+      const turnCount = state.sessionInfo?.turnCount ?? null;
       const lastError = state.run?.lastError ?? null;
+      const lastEvent = state.status ?? null;
+      const lastEventAt: string | null = null; // worker doesn't emit event timestamps
 
-      return { tokenUsage, sessionId, lastError };
+      return {
+        tokenUsage,
+        sessionId,
+        turnCount,
+        lastError,
+        lastEvent,
+        lastEventAt,
+      };
     } catch {
-      return { tokenUsage: null, sessionId: null, lastError: null };
+      return {
+        tokenUsage: null,
+        sessionId: null,
+        turnCount: null,
+        lastError: null,
+        lastEvent: null,
+        lastEventAt: null,
+      };
     }
   }
 
@@ -1046,15 +1107,11 @@ export class OrchestratorService {
     }
   }
 
-  private getTenantConcurrency(
-    _tenant: OrchestratorTenantConfig
-  ): number {
+  private getTenantConcurrency(_tenant: OrchestratorTenantConfig): number {
     return this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
   }
 
-  private getTenantMaxAttempts(
-    _tenant: OrchestratorTenantConfig
-  ): number {
+  private getTenantMaxAttempts(_tenant: OrchestratorTenantConfig): number {
     return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
@@ -1206,9 +1263,7 @@ function createRunId(
 }
 
 function buildLeaseKey(
-  record:
-    | Pick<TrackedIssue, "id">
-    | Pick<OrchestratorRunRecord, "issueId">
+  record: Pick<TrackedIssue, "id"> | Pick<OrchestratorRunRecord, "issueId">
 ): string {
   return "id" in record ? record.id : record.issueId;
 }
@@ -1256,4 +1311,3 @@ function isProcessRunning(processId: number): boolean {
     return false;
   }
 }
-

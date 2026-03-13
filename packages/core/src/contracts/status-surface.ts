@@ -10,7 +10,6 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, string>;
 };
 
-
 export type OrchestratorTenantConfig = {
   tenantId: string;
   slug: string;
@@ -72,6 +71,14 @@ export type OrchestratorRunRecord = {
     outputTokens: number;
     totalTokens: number;
   };
+  /** Turn count from live worker polling (Symphony spec 4.1.6) */
+  turnCount?: number;
+  /** Worker start time for AGE calculation (milliseconds since epoch) */
+  startedAtMs?: number;
+  /** Last event description from worker */
+  lastEvent?: string | null;
+  /** Last event timestamp */
+  lastEventAt?: string | null;
 };
 
 export type TenantLeaseRecord = {
@@ -90,6 +97,20 @@ export type RuntimeSessionRow = {
   startedAt: string | null;
   updatedAt: string | null;
   exitClassification: string | null;
+};
+
+export type LiveWorkerState = {
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  } | null;
+  sessionId: string | null;
+  turnCount: number;
+  lastError: string | null;
+  lastEvent: string | null;
+  lastEventAt: string | null;
+  status: "idle" | "starting" | "running" | "failed" | "completed";
 };
 
 export type TenantStatusSnapshot = {
@@ -114,6 +135,16 @@ export type TenantStatusSnapshot = {
     status: OrchestratorRunStatus;
     retryKind: RetryKind | null;
     port: number | null;
+    processId?: number | null;
+    turnCount?: number;
+    startedAt?: string | null;
+    lastEvent?: string | null;
+    lastEventAt?: string | null;
+    tokenUsage?: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    };
   }>;
   runtimeSession?: RuntimeSessionRow | null;
   retryQueue: Array<{

@@ -1,0 +1,111 @@
+{
+  "tenantId": "tenant-3",
+  "slug": "gamma-inc",
+  "tracker": { "adapter": "github", "bindingId": "PVT_zzz" },
+  "lastTickAt": "2026-03-13T04:00:00Z",
+  "health": "degraded",
+  "summary": {
+    "dispatched": 12,
+    "suppressed": 2,
+    "recovered": 1,
+    "activeRuns": 4
+  },
+  "activeRuns": [
+    {
+      "runId": "run-ccc-001",
+      "issueIdentifier": "gamma-inc/core#10",
+      "issueState": "in-progress",
+      "status": "running",
+      "retryKind": null,
+      "port": 4683,
+      "processId": 12347,
+      "turnCount": 5,
+      "startedAt": "2026-03-13T03:55:00Z",
+      "lastEvent": "turn_completed",
+      "lastEventAt": "2026-03-13T03:59:30Z",
+      "tokenUsage": {
+        "inputTokens": 7200,
+        "outputTokens": 2400,
+        "totalTokens": 9600
+      }
+    },
+    {
+      "runId": "run-ddd-002",
+      "issueIdentifier": "gamma-inc/core#11",
+      "issueState": "in-progress",
+      "status": "retrying",
+      "retryKind": "failure",
+      "port": null,
+      "processId": null,
+      "turnCount": 3,
+      "startedAt": "2026-03-13T03:50:00Z",
+      "lastEvent": "run_failed",
+      "lastEventAt": "2026-03-13T03:58:00Z",
+      "tokenUsage": {
+        "inputTokens": 4100,
+        "outputTokens": 1300,
+        "totalTokens": 5400
+      }
+    },
+    {
+      "runId": "run-eee-003",
+      "issueIdentifier": "gamma-inc/core#15",
+      "issueState": "in-progress",
+      "status": "retrying",
+      "retryKind": "continuation",
+      "port": null,
+      "processId": null,
+      "turnCount": 1,
+      "startedAt": "2026-03-13T03:52:00Z",
+      "lastEvent": "turn_limit_reached",
+      "lastEventAt": "2026-03-13T03:53:00Z",
+      "tokenUsage": {
+        "inputTokens": 1800,
+        "outputTokens": 600,
+        "totalTokens": 2400
+      }
+    },
+    {
+      "runId": "run-fff-004",
+      "issueIdentifier": "gamma-inc/core#20",
+      "issueState": "in-progress",
+      "status": "retrying",
+      "retryKind": "recovery",
+      "port": null,
+      "processId": null,
+      "turnCount": 0,
+      "startedAt": null,
+      "lastEvent": "worker_crashed",
+      "lastEventAt": "2026-03-13T03:56:00Z",
+      "tokenUsage": { "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }
+    }
+  ],
+  "retryQueue": [
+    {
+      "runId": "run-ddd-002",
+      "issueIdentifier": "gamma-inc/core#11",
+      "retryKind": "failure",
+      "nextRetryAt": "2026-03-13T04:03:00Z"
+    },
+    {
+      "runId": "run-eee-003",
+      "issueIdentifier": "gamma-inc/core#15",
+      "retryKind": "continuation",
+      "nextRetryAt": "2026-03-13T04:01:00Z"
+    },
+    {
+      "runId": "run-fff-004",
+      "issueIdentifier": "gamma-inc/core#20",
+      "retryKind": "recovery",
+      "nextRetryAt": "2026-03-13T04:05:00Z"
+    }
+  ],
+  "codexTotals": {
+    "inputTokens": 13100,
+    "outputTokens": 4300,
+    "totalTokens": 17400,
+    "secondsRunning": 300
+  },
+  "rateLimits": null,
+  "lastError": "Worker process exited unexpectedly (exit code 1) for run run-fff-004"
+}

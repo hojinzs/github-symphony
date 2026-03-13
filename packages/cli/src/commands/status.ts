@@ -7,38 +7,9 @@ import {
   resolveTenantConfig,
   syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
-
-// ANSI color helpers
-function bold(s: string): string {
-  return `\x1b[1m${s}\x1b[0m`;
-}
-
-function dim(s: string): string {
-  return `\x1b[2m${s}\x1b[0m`;
-}
-
-function green(s: string): string {
-  return `\x1b[32m${s}\x1b[0m`;
-}
-
-function red(s: string): string {
-  return `\x1b[31m${s}\x1b[0m`;
-}
-
-function yellow(s: string): string {
-  return `\x1b[33m${s}\x1b[0m`;
-}
-
-function cyan(s: string): string {
-  return `\x1b[36m${s}\x1b[0m`;
-}
-
-
-
-function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
+import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
+import { clearScreen, showCursor, hideCursor } from "../ansi.js";
+import { renderDashboard } from "../dashboard/renderer.js";
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
@@ -68,7 +39,7 @@ function truncate(s: string, len: number): string {
   return s.slice(0, len - 3) + "...";
 }
 
-function renderDashboard(
+function renderLegacyStatus(
   snapshot: TenantStatusSnapshot,
   noColor: boolean
 ): string {
@@ -210,6 +181,30 @@ async function readStatusSnapshot(
   }
 }
 
+async function readAllStatusSnapshots(
+  runtimeRoot: string
+): Promise<TenantStatusSnapshot[]> {
+  try {
+    const tenantsDir = join(runtimeRoot, "orchestrator", "tenants");
+    const { readdir } = await import("node:fs/promises");
+    const entries = await readdir(tenantsDir, { withFileTypes: true });
+    const snapshots: TenantStatusSnapshot[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const statusPath = join(tenantsDir, entry.name, "status.json");
+      try {
+        const content = await readFile(statusPath, "utf-8");
+        snapshots.push(JSON.parse(content) as TenantStatusSnapshot);
+      } catch {
+        // skip missing/invalid files
+      }
+    }
+    return snapshots;
+  } catch {
+    return [];
+  }
+}
+
 const handler = async (
   args: string[],
   options: GlobalOptions
@@ -233,34 +228,44 @@ const handler = async (
   await syncTenantToRuntime(options.configDir, tenantConfig);
 
   if (parsed.watch) {
-    // Watch mode: poll every 2 seconds
-    const clear = () => process.stdout.write("\x1b[2J\x1b[H");
+    const isTTY = process.stdout.isTTY === true;
+    let terminalWidth = process.stdout.columns ?? 115;
+
     const run = async () => {
-      clear();
-      const snapshot = await readStatusSnapshot(runtimeRoot, tenantId);
-      if (snapshot) {
-        if (options.json) {
-          process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
-        } else {
-          process.stdout.write(
-            renderDashboard(snapshot, options.noColor) + "\n"
-          );
-        }
+      const snapshots = await readAllStatusSnapshots(runtimeRoot);
+      if (options.json || !isTTY) {
+        process.stdout.write(JSON.stringify(snapshots, null, 2) + "\n");
       } else {
-        process.stdout.write("Unable to read status snapshot.\n");
+        process.stdout.write(
+          clearScreen() +
+            renderDashboard(snapshots, {
+              terminalWidth,
+              noColor: options.noColor,
+            }) +
+            "\n"
+        );
       }
     };
+
+    if (isTTY) {
+      process.stdout.write(hideCursor());
+    }
+
     await run();
     const interval = setInterval(() => void run(), 2000);
 
+    process.on("SIGWINCH", () => {
+      terminalWidth = process.stdout.columns ?? terminalWidth;
+    });
+
     const shutdown = () => {
       clearInterval(interval);
+      process.stdout.write(showCursor() + "\n");
       process.exit(0);
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
 
-    // Keep alive
     await new Promise(() => {});
   }
 
@@ -270,7 +275,9 @@ const handler = async (
     if (options.json) {
       process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
     } else {
-      process.stdout.write(renderDashboard(snapshot, options.noColor) + "\n");
+      process.stdout.write(
+        renderLegacyStatus(snapshot, options.noColor) + "\n"
+      );
     }
   } else {
     process.stderr.write("Unable to read status snapshot.\n");
