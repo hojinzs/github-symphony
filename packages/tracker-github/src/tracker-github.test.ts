@@ -29,7 +29,7 @@ describe("resolveTrackerAdapter", () => {
     ).toThrow("Unsupported tracker adapter: jira");
   });
 
-  it("falls back to the tenant token when no env token is set", async () => {
+  it("uses dependencies.token when no env token is set", async () => {
     const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
     delete process.env.GITHUB_GRAPHQL_TOKEN;
 
@@ -39,11 +39,13 @@ describe("resolveTrackerAdapter", () => {
         bindingId: "project-123",
         settings: {
           projectId: "project-123",
-          token: "workspace-token",
         },
       });
 
-      const fetchImpl = async (_url: string | URL | Request, _init?: RequestInit) =>
+      const fetchImpl = async (
+        _url: string | URL | Request,
+        _init?: RequestInit
+      ) =>
         ({
           ok: true,
           json: async () => ({
@@ -72,7 +74,6 @@ describe("resolveTrackerAdapter", () => {
             bindingId: "project-123",
             settings: {
               projectId: "project-123",
-              token: "workspace-token",
             },
           },
           runtime: {
@@ -82,9 +83,12 @@ describe("resolveTrackerAdapter", () => {
           },
         },
         {
+          token: "dependencies-token",
           fetchImpl: async (url, init) => {
             const headers = new Headers(init?.headers);
-            expect(headers.get("authorization")).toBe("Bearer workspace-token");
+            expect(headers.get("authorization")).toBe(
+              "Bearer dependencies-token"
+            );
             return fetchImpl(url, init);
           },
         }
@@ -103,11 +107,7 @@ describe("validateWorkflowFieldMapping", () => {
   it("returns valid when all lifecycle states are present", () => {
     const result = validateWorkflowFieldMapping({
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
-      availableOptions: [
-        "Todo",
-        "In Progress",
-        "Done",
-      ],
+      availableOptions: ["Todo", "In Progress", "Done"],
     });
 
     expect(result.valid).toBe(true);
@@ -128,11 +128,7 @@ describe("validateWorkflowFieldMapping", () => {
   it("matches case-insensitively", () => {
     const result = validateWorkflowFieldMapping({
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
-      availableOptions: [
-        "todo",
-        "in progress",
-        "done",
-      ],
+      availableOptions: ["todo", "in progress", "done"],
     });
 
     expect(result.valid).toBe(true);

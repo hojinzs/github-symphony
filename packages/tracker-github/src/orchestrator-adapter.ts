@@ -6,14 +6,11 @@ import { fetchProjectIssues } from "./adapter.js";
 
 export const githubProjectAdapter: OrchestratorTrackerAdapter = {
   async listIssues(tenant, dependencies = {}) {
-    const token =
-      dependencies.token ??
-      tenant.tracker.settings?.token ??
-      process.env.GITHUB_GRAPHQL_TOKEN;
+    const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
 
     if (!token) {
       throw new Error(
-        "GITHUB_GRAPHQL_TOKEN is required for orchestrator polling."
+        "GITHUB_GRAPHQL_TOKEN environment variable is required. Run 'gh auth token' or set the variable."
       );
     }
 
