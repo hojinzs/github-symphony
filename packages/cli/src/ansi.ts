@@ -46,7 +46,6 @@ export function blue(s: string): string {
 }
 
 export function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
 }
 
