@@ -471,16 +471,19 @@ async function writeWorkflowFixture(
   } = {}
 ): Promise<void> {
   const maxConcurrentByState = options.maxConcurrentByState
-    ? `max_concurrent_by_state:\n${Object.entries(options.maxConcurrentByState)
-        .map(([state, limit]) => `  ${state}: ${limit}`)
+    ? `  max_concurrent_agents_by_state:\n${Object.entries(
+        options.maxConcurrentByState
+      )
+        .map(([state, limit]) => `    ${state}: ${limit}`)
         .join("\n")}\n`
     : "";
 
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
     `---
-github_project_id: project-123
-lifecycle:
+tracker:
+  kind: github-project
+  project_id: project-123
   state_field: Status
   active_states:
     - Todo
@@ -489,15 +492,19 @@ lifecycle:
     - Done
   blocker_check_states:
     - Todo
-${maxConcurrentByState}runtime:
-  agent_command: bash -lc codex app-server
 hooks:
   after_create: hooks/after_create.sh
-scheduler:
-  poll_interval_ms: 30000
-retry:
-  base_delay_ms: 1000
-  max_delay_ms: 30000
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+${maxConcurrentByState}codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
 `,

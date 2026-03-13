@@ -273,7 +273,7 @@ describe("OrchestratorService", () => {
       repository,
       status: "running",
       attempt: 1,
-      processId: 999999,
+      processId: null,
       port: 4601,
       workingDirectory: join(tempRoot, "stale-run"),
       issueWorkspaceKey: null,
@@ -411,7 +411,7 @@ describe("OrchestratorService", () => {
     ).rejects.toThrow();
   });
 
-  it("falls back to tenant WORKFLOW.md when repo has none", async () => {
+  it("rejects dispatch when repo WORKFLOW.md is missing even if tenant fallback exists", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-ws-fallback-"));
     const repository = await createBareRepositoryFixture(
@@ -440,13 +440,13 @@ describe("OrchestratorService", () => {
       },
     });
 
-    // Write tenant-level WORKFLOW.md
     const tenantDir = store.tenantDir("tenant-1");
     await writeFile(
       join(tenantDir, "WORKFLOW.md"),
       `---
-github_project_id: project-123
-lifecycle:
+tracker:
+  kind: github-project
+  project_id: project-123
   state_field: Status
   active_states:
     - Open
@@ -454,15 +454,17 @@ lifecycle:
     - Closed
   blocker_check_states:
     - Open
-runtime:
-  agent_command: bash -lc codex app-server
 hooks:
   after_create: hooks/after_create.sh
-scheduler:
-  poll_interval_ms: 15000
-retry:
-  base_delay_ms: 1000
-  max_delay_ms: 30000
+polling:
+  interval_ms: 15000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
 ---
 Workspace prompt.
 `,
@@ -474,18 +476,17 @@ Workspace prompt.
       unref: vi.fn(),
     });
     const service = new OrchestratorService(store, {
-      fetchImpl: vi.fn().mockResolvedValue(
-        createTrackerResponseWithState(repository, "Open")
-      ),
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Open")),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
     const result = await service.runOnce();
 
-    // The tenant WORKFLOW.md has "Open" as active, so it should dispatch
-    expect(result[0]?.summary.dispatched).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(result[0]?.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("uses repo WORKFLOW.md when it is valid", async () => {
@@ -545,20 +546,9 @@ Workspace prompt.
       "platform",
       {
         includeAfterRunHook: true,
+        afterRunCommand:
+          'printf "%s" "$SYMPHONY_WORKSPACE_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_workspace_path"\nprintf "%s" "$SYMPHONY_REPOSITORY_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_repository_path"',
       }
-    );
-    execSync(`mkdir -p ${shell(join(repository.path, "hooks"))}`);
-    await writeFile(
-      join(repository.path, "hooks", "after_run.sh"),
-      '#!/usr/bin/env bash\nset -eu\nprintf \'%s\' "$SYMPHONY_WORKSPACE_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_workspace_path"\nprintf \'%s\' "$SYMPHONY_REPOSITORY_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_repository_path"\n',
-      "utf8"
-    );
-    execSync(`git -C ${shell(repository.path)} add hooks/after_run.sh`, {
-      stdio: "ignore",
-    });
-    execSync(
-      `git -C ${shell(repository.path)} commit -m add-after-run-env-hook`,
-      { stdio: "ignore" }
     );
 
     const store = new OrchestratorFsStore(tempRoot);
@@ -701,6 +691,7 @@ async function commitWorkflowFixture(
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
     includeAfterRunHook?: boolean;
+    afterRunCommand?: string;
   } = {}
 ): Promise<void> {
   await writeWorkflowFixture(repositoryRoot, options);
@@ -719,13 +710,15 @@ async function writeWorkflowFixture(
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
     includeAfterRunHook?: boolean;
+    afterRunCommand?: string;
   } = {}
 ): Promise<void> {
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
     `---
-github_project_id: project-123
-lifecycle:
+tracker:
+  kind: github-project
+  project_id: project-123
   state_field: Status
   active_states:
     - Todo
@@ -734,16 +727,20 @@ lifecycle:
     - Done
   blocker_check_states:
     - Todo
-runtime:
-  agent_command: bash -lc codex app-server
 hooks:
   after_create: hooks/after_create.sh
-${options.includeAfterRunHook ? "  after_run: hooks/after_run.sh" : ""}
-scheduler:
-  poll_interval_ms: ${options.schedulerPollIntervalMs ?? 30000}
-retry:
-  base_delay_ms: ${options.retryBaseDelayMs ?? 1000}
-  max_delay_ms: ${options.retryMaxDelayMs ?? 30000}
+${options.includeAfterRunHook ? `  after_run: |\n    ${(options.afterRunCommand ?? "hooks/after_run.sh").replace(/\n/g, "\n    ")}` : ""}
+polling:
+  interval_ms: ${options.schedulerPollIntervalMs ?? 30000}
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_retry_backoff_ms: ${options.retryMaxDelayMs ?? 30000}
+  retry_base_delay_ms: ${options.retryBaseDelayMs ?? 1000}
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
 `,

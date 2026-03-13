@@ -15,7 +15,6 @@ import {
   renderPrompt,
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
-  WorkflowConfigStore,
   type HookResult,
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
@@ -25,14 +24,12 @@ import {
   type RepositoryRef,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
-  type WorkflowResolution,
   type TenantLeaseRecord,
   type TenantStatusSnapshot,
 } from "@gh-symphony/core";
 import {
   cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,
-  isMissingFileError,
   loadRepositoryWorkflow,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -54,7 +51,6 @@ type SpawnLike = (
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly tenantPollIntervals = new Map<string, number>();
-  private readonly tenantWorkflowStore = new WorkflowConfigStore();
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -331,6 +327,9 @@ export class OrchestratorService {
         tenant,
         issue.repository
       );
+      if (!resolution.isValid) {
+        continue;
+      }
       if (!lifecycle) {
         lifecycle = resolution.lifecycle;
       }
@@ -368,7 +367,9 @@ export class OrchestratorService {
         tenant,
         tenant.repositories[0]!
       );
-      lifecycle = resolution.lifecycle;
+      if (resolution.isValid) {
+        lifecycle = resolution.lifecycle;
+      }
     }
 
     return {
@@ -397,41 +398,7 @@ export class OrchestratorService {
       targetDirectory: cacheRoot,
     });
 
-    // 1. Try loading from the repository
-    const repoResolution = await loadRepositoryWorkflow(
-      repositoryDirectory,
-      repository
-    );
-
-    if (repoResolution.workflowPath !== null) {
-      return repoResolution;
-    }
-
-    // 2. Try loading from tenant WORKFLOW.md
-    const tenantResolution = await this.loadTenantFallbackWorkflow(tenant);
-    if (tenantResolution) {
-      return tenantResolution;
-    }
-
-    // 3. Fall back to hardcoded defaults (original behavior)
-    return repoResolution;
-  }
-
-  private async loadTenantFallbackWorkflow(
-    tenant: OrchestratorTenantConfig
-  ): Promise<WorkflowResolution | null> {
-    const workflowPath = join(
-      this.store.tenantDir(tenant.tenantId),
-      "WORKFLOW.md"
-    );
-    try {
-      return await this.tenantWorkflowStore.load(workflowPath);
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return null;
-      }
-      throw error;
-    }
+    return await loadRepositoryWorkflow(repositoryDirectory, repository);
   }
 
   private async startRun(
@@ -512,6 +479,11 @@ export class OrchestratorService {
     }
 
     const workflow = await this.loadTenantWorkflow(tenant, issue.repository);
+    if (!workflow.isValid) {
+      throw new Error(
+        workflow.validationError ?? "Invalid repository WORKFLOW.md"
+      );
+    }
     const port = this.allocatePort();
 
     // Render the issue prompt from the workflow template
@@ -554,9 +526,6 @@ export class OrchestratorService {
           TENANT_ID: tenant.tenantId,
           WORKING_DIRECTORY: repositoryDirectory,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-          WORKSPACE_ALLOWED_REPOSITORIES: tenant.repositories
-            .map((repository) => repository.cloneUrl)
-            .join(","),
           PORT: String(port),
           SYMPHONY_PORT: String(port),
           SYMPHONY_RUN_ID: runId,
@@ -574,13 +543,13 @@ export class OrchestratorService {
           TARGET_REPOSITORY_URL: issue.repository.url,
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
-          SYMPHONY_AGENT_COMMAND: workflow.workflow.runtime.agentCommand,
-          SYMPHONY_MAX_TURNS: String(workflow.workflow.runtime.maxTurns),
+          SYMPHONY_AGENT_COMMAND: workflow.workflow.codex.command,
+          SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
           SYMPHONY_READ_TIMEOUT_MS: String(
-            workflow.workflow.runtime.readTimeoutMs
+            workflow.workflow.codex.readTimeoutMs
           ),
           SYMPHONY_TURN_TIMEOUT_MS: String(
-            workflow.workflow.runtime.turnTimeoutMs
+            workflow.workflow.codex.turnTimeoutMs
           ),
         },
         detached: true,
@@ -814,6 +783,9 @@ export class OrchestratorService {
         return "failure";
       }
       const resolution = await this.loadTenantWorkflow(tenant, run.repository);
+      if (!resolution.isValid) {
+        return "failure";
+      }
       return isStateActive(runIssue.state, resolution.lifecycle)
         ? "continuation"
         : "failure";
@@ -975,12 +947,16 @@ export class OrchestratorService {
   ): Promise<HookResult | null> {
     try {
       const resolution = await this.loadTenantWorkflow(tenant, repository);
+      if (!resolution.isValid) {
+        return null;
+      }
       const hookEnv = buildHookEnv(context);
       return executeWorkspaceHook({
         kind,
-        hooks: resolution.workflow.runtime.hooks,
+        hooks: resolution.workflow.hooks,
         repositoryPath: repositoryDirectory,
         env: hookEnv,
+        timeoutMs: resolution.workflow.hooks.timeoutMs,
       });
     } catch {
       // If workflow cannot be loaded, skip hook execution
@@ -1048,7 +1024,9 @@ export class OrchestratorService {
     const intervals = await Promise.all(
       tenant.repositories.map(async (repository) => {
         const resolution = await this.loadTenantWorkflow(tenant, repository);
-        return resolution.workflow.scheduler.pollIntervalMs;
+        return resolution.isValid
+          ? resolution.workflow.polling.intervalMs
+          : NaN;
       })
     );
     const validIntervals = intervals.filter(
@@ -1075,7 +1053,8 @@ export class OrchestratorService {
 
     for (const resolution of resolutions) {
       if (!resolution) continue;
-      const stateLimits = resolution.workflow.maxConcurrentByState;
+      if (!resolution.isValid) continue;
+      const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
       for (const [state, limit] of Object.entries(stateLimits)) {
         const existing = result[state];
         const numLimit = typeof limit === "number" ? limit : Number(limit);
@@ -1101,7 +1080,13 @@ export class OrchestratorService {
 
     try {
       const resolution = await this.loadTenantWorkflow(tenant, repository);
-      return resolution.workflow.retry;
+      if (!resolution.isValid) {
+        return null;
+      }
+      return {
+        baseDelayMs: resolution.workflow.agent.retryBaseDelayMs,
+        maxDelayMs: resolution.workflow.agent.maxRetryBackoffMs,
+      };
     } catch {
       return null;
     }
