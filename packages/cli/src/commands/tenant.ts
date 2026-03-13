@@ -10,7 +10,7 @@ import {
   type ProjectSummary,
   type ProjectDetail,
 } from "../github/client.js";
-import { ensureGhAuth, GhAuthError } from "../github/gh-auth.js";
+import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
 import {
   inferAllStateRoles,
   toWorkflowLifecycleConfig,
@@ -30,7 +30,6 @@ import { writeConfig, generateTenantId, abortIfCancelled } from "./init.js";
 
 type TenantAddFlags = {
   nonInteractive: boolean;
-  token?: string;
   project?: string;
   runtime?: string;
 };
@@ -44,10 +43,6 @@ function parseTenantAddFlags(args: string[]): TenantAddFlags {
     switch (arg) {
       case "--non-interactive":
         flags.nonInteractive = true;
-        break;
-      case "--token":
-        flags.token = next;
-        i += 1;
         break;
       case "--project":
         flags.project = next;
@@ -110,15 +105,18 @@ async function tenantAddNonInteractive(
   flags: TenantAddFlags,
   options: GlobalOptions
 ): Promise<void> {
-  if (!flags.token) {
+  let token: string;
+  try {
+    token = getGhToken();
+  } catch {
     process.stderr.write(
-      "Error: --token is required in non-interactive mode.\n"
+      "Error: GitHub token not found. Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.\n"
     );
     process.exitCode = 1;
     return;
   }
 
-  const client = createClient(flags.token);
+  const client = createClient(token);
 
   // Validate token
   let viewer;
