@@ -1,0 +1,35 @@
+F4: Scope Fidelity Check — APPROVE
+Date: 2026-03-13
+
+## Scenario: Runtime separation (codex)
+Steps: writeEcosystem({ runtime: "codex" }) → check .codex/skills/gh-symphony/SKILL.md exists, .claude/skills/ does NOT exist
+Result: .codex/skills exists: true ✅, .claude/skills exists: false ✅
+PASS
+
+## Scenario: Runtime separation (claude-code)
+Steps: writeEcosystem({ runtime: "claude-code" }) → check .claude/skills/gh-symphony/SKILL.md exists, .codex/skills/ does NOT exist
+Result: .claude/skills exists: true ✅, .codex/skills exists: false ✅
+PASS
+
+## Scenario: Custom runtime skill skip
+Steps: writeEcosystem({ runtime: "custom" }) → .codex/skills/ and .claude/skills/ do NOT exist, .gh-symphony/context.yaml exists
+Result: custom .codex/skills: false ✅, custom .claude/skills: false ✅, context.yaml: true ✅
+PASS
+
+## Scenario: context.yaml field ID inclusion
+Steps: writeEcosystem({ statusField: { id: "PVTSSF_f4", options: [{id:"opt_1",...},{id:"opt_2",...}] } })
+Result: context.yaml contains PVTSSF_f4 ✅, opt_1 ✅, opt_2 ✅
+PASS
+
+Sample context.yaml output confirms:
+  status_field.id: PVTSSF_f4
+  status_field.columns[0].id: opt_1 (inferred_role: active)
+  status_field.columns[1].id: opt_2 (inferred_role: terminal)
+
+## Must NOT Have compliance
+- No {{custom_variable}} beyond 8 PromptVariables: PASS (generate-workflow-md.ts uses only issue.* + attempt)
+- context.yaml has no tokens/secrets: PASS (no token/secret fields in output)
+- CLI does not generate 400-line WORKFLOW.md: PASS (generate-workflow-md.ts is ~175 lines, generates minimal WORKFLOW.md)
+- No yaml library added: PASS (string array pattern only)
+
+VERDICT: APPROVE

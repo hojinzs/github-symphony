@@ -1,0 +1,31 @@
+F3: Integration QA — APPROVE
+Date: 2026-03-13
+
+## Scenario: Ecosystem files exist
+Test: packages/cli/src/commands/init.test.ts "generates context.yaml and reference-workflow.md"
+Result: PASS — context.yaml contains schema_version: 1 and project ID; reference-workflow.md contains "# Reference WORKFLOW.md"
+
+## Scenario: --skip-skills flag
+Test: "–-skip-skills skips skill files"
+Result: PASS — .codex/skills/gh-symphony/SKILL.md not created; context.yaml still created
+
+## Scenario: --skip-context flag
+Test: "--skip-context skips context.yaml"
+Result: PASS — context.yaml not created; reference-workflow.md still created
+
+## Scenario: field ID plumbing
+Test: "context.yaml contains statusField.id and option IDs"
+Result: PASS — PVTSSF_myfield, opt_abc, opt_def all present in output
+
+## Scenario: WORKFLOW.md round-trip strict mode
+Test: generate-workflow-md.test.ts (15 tests)
+Result: PASS — all 15 tests pass including parseWorkflowMarkdown + renderPrompt strict mode
+
+## Scenario: CLI typecheck + build
+Result: PASS — pnpm --filter @gh-symphony/cli typecheck exits 0; pnpm --filter @gh-symphony/cli build exits 0
+
+## Summary
+All 7 init.test.ts tests pass. All 15 workflow-md tests pass.
+Pre-existing failures in control-plane and extension-github-workflow (Prisma schema) are unrelated to our changes.
+
+VERDICT: APPROVE
