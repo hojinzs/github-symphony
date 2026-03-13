@@ -135,8 +135,17 @@ const MOCK_PROJECT_DETAIL = {
   id: "PVT_eco1",
   title: "Ecosystem Test",
   url: "https://github.com/orgs/test/projects/1",
-  statusFields: [],
-  textFields: [],
+  statusFields: [] as Array<{
+    id: string;
+    name: string;
+    options: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      color: string | null;
+    }>;
+  }>,
+  textFields: [] as Array<{ id: string; name: string; dataType: string }>,
   linkedRepositories: [
     {
       owner: "test",
@@ -145,7 +154,7 @@ const MOCK_PROJECT_DETAIL = {
       cloneUrl: "https://github.com/test/repo.git",
     },
   ],
-} as const;
+};
 
 const MOCK_STATUS_FIELD = {
   id: "PVTSSF_eco1",
