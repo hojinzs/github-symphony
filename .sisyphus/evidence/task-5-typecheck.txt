@@ -1,0 +1,1 @@
+No errors in tenant.ts (typecheck passed for this file)
