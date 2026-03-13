@@ -451,3 +451,37 @@ Added 2 new tests (total: 20 tests):
 
 The existing tests pass without modification because test fixtures don't exercise the live worker polling path directly (they mock process IDs but don't run actual HTTP servers). The fetchLiveWorkerState method gracefully returns nulls when no worker is reachable, preserving all existing behavior.
 
+## Task 9: Dashboard Renderer (2026-03-13)
+
+### Changes Made
+
+**Files created**:
+- `packages/cli/src/dashboard/renderer.ts` — Pure function renderer
+- `packages/cli/src/dashboard/renderer.test.ts` — 6 tests using fixtures from Task 7
+
+### Architecture
+
+1. **Pure function**: `renderDashboard(TenantStatusSnapshot[], DashboardOptions) => string`
+2. **No global mutation**: Uses local `Colors` object instead of `setNoColor()` for noColor support
+3. **Deterministic testing**: `now?: number` option overrides `Date.now()` for stable age/retry calculations
+4. **Column separators**: Added explicit 1-space separators between all columns (not in original spec, but needed to prevent columns from running together when values are truncated)
+
+### Column Layout (with separators)
+
+Total fixed width = 2(prefix) + 10(ID_HEADER) + 14(STAGE) + 8(PID) + 12(AGE_TURN) + 10(TOKENS) + 14(SESSION) + 6(separators) = 76
+EVENT column = terminalWidth - 76 (min 5)
+
+### Key Patterns
+
+1. **ActiveRunView extension type**: `runtimeSession` exists per-run in fixtures but NOT in the core `TenantStatusSnapshot.activeRuns[]` type. Used `type ActiveRunView = ... & { runtimeSession?: ... }` to extend at cast site.
+2. **ID truncation**: Long identifiers like `acme-corp/repo-alpha#42` truncate to 8 chars → `acme-cor`. Not ideal, but matches spec "ID=8 chars, truncate if needed".
+3. **Session compaction**: IDs > 10 chars → `first4...last6` (e.g., `abcd...ef0123`)
+4. **Backoff queue error display**: No `attempt` or `lastError` in retryQueue type. Used `retryKind` for kind label, looked up matching activeRun's `lastEvent` for error context.
+
+### Verification
+
+- `npx vitest run packages/cli/src/dashboard/renderer.test.ts` → **6/6 PASSED**
+- `pnpm --filter @gh-symphony/cli typecheck` → **PASSED**
+- LSP diagnostics: **CLEAN** on both files
+- Evidence: task-9-idle-render.txt, task-9-busy-render.txt, task-9-nocolor.txt, task-9-width.txt
+

@@ -1,0 +1,10 @@
+terminalWidth=80, max visible line length: 80
+
+═════════════════════════════════ gh-symphony ══════════════════════════════════
+  Agents  2     Runtime  1h 3m    Tokens  11,700 in / 3,950 out / 15,650 total
+  Rate Limits  standard
+
+── beta-org ────────────────────────────────────────────────────────────────────
+  ID         STAGE          PID      AGE/TURN     TOKENS     SESSION        EVEN
+  ● acme-cor in-progress    12345    1h 3m/7          12,450 abcd...ef0123  turn
+  ● acme-cor in-progress    12346    1h 1m/2           3,200 ef01...567890  task
