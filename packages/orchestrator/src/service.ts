@@ -522,6 +522,7 @@ export class OrchestratorService {
         cwd: tenant.runtime.projectRoot,
         env: {
           ...process.env,
+          GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
           CODEX_TENANT_ID: tenant.tenantId,
           TENANT_ID: tenant.tenantId,
           WORKING_DIRECTORY: repositoryDirectory,

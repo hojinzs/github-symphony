@@ -15,6 +15,7 @@ import {
   syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
+import { getGhToken } from "../github/gh-auth.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -200,6 +201,15 @@ const handler = async (
   }
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
+  if (!process.env.GITHUB_GRAPHQL_TOKEN) {
+    try {
+      process.env.GITHUB_GRAPHQL_TOKEN = getGhToken();
+    } catch {
+      // gh CLI not installed/authenticated — GITHUB_GRAPHQL_TOKEN stays unset
+      // Workers will fail if token is needed but not available
+    }
+  }
+
   const store = createStore(runtimeRoot);
   const service = new OrchestratorService(store);
 
