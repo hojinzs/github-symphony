@@ -22,7 +22,6 @@ import {
   loadTenantConfig,
   tenantConfigDir,
   type CliGlobalConfig,
-  type StateRole,
   type StateMapping,
 } from "../config.js";
 import { writeConfig, generateTenantId, abortIfCancelled } from "./init.js";
@@ -249,7 +248,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
   while (true) {
     const rawToken = await abortIfCancelled(
       p.password({
-        message: "Step 1/6 — Enter your GitHub Personal Access Token:",
+        message: "Step 1/4 — Enter your GitHub Personal Access Token:",
         validate: (v) => {
           if (!v) return "Token is required.";
           if (v.length < 40) return "Token too short.";
@@ -315,7 +314,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 2/6 — Select a GitHub Project:",
+      message: "Step 2/4 — Select a GitHub Project:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -350,7 +349,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedRepos = await abortIfCancelled(
     p.multiselect({
-      message: "Step 3/6 — Select repositories to orchestrate:",
+      message: "Step 3/4 — Select repositories to orchestrate:",
       options: projectDetail.linkedRepositories.map((repo) => ({
         value: repo,
         label: `${repo.owner}/${repo.name}`,
@@ -359,7 +358,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     })
   );
 
-  // ── Step 4: Status column mapping ───────────────────────────────────────────
+  // ── Step 4: Status column auto-detection ─────────────────────────────────────
 
   const statusField =
     projectDetail.statusFields.find((f) => f.name.toLowerCase() === "status") ??
@@ -375,71 +374,33 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const columnNames = statusField.options.map((o) => o.name);
   const inferred = inferAllStateRoles(columnNames);
-
-  p.log.info(
-    `Found ${columnNames.length} status columns on field "${statusField.name}".`
-  );
-
-  // Show smart defaults and let user adjust
   const mappings: Record<string, StateMapping> = {};
   for (const mapping of inferred) {
-    const roleOptions: Array<{ value: StateRole | "skip"; label: string }> = [
-      { value: "active", label: "Active (agent works on this)" },
-      { value: "wait", label: "Wait (human review / hold)" },
-      { value: "terminal", label: "Terminal (completed)" },
-    ];
-
-    const defaultRole = mapping.role ?? "wait";
-    // Put default first
-    const sortedOptions = [
-      roleOptions.find((o) => o.value === defaultRole)!,
-      ...roleOptions.filter((o) => o.value !== defaultRole),
-    ];
-
-    const selectedRole = await abortIfCancelled(
-      p.select({
-        message: `Step 4/6 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
-        options: sortedOptions,
-      })
-    );
-
-    if (selectedRole !== "skip") {
-      mappings[mapping.columnName] = { role: selectedRole as StateRole };
+    if (mapping.role) {
+      mappings[mapping.columnName] = { role: mapping.role };
     }
   }
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
-    p.log.error("Mapping validation failed:");
-    for (const err of validation.errors) {
-      p.log.error(`  • ${err}`);
-    }
+    p.log.error(
+      `Cannot auto-map status columns: ${validation.errors.join("; ")}\nRun 'gh-symphony init' to manually configure WORKFLOW.md.`
+    );
     process.exitCode = 1;
     return;
   }
-  for (const warn of validation.warnings) {
-    p.log.warn(`  ⚠ ${warn}`);
-  }
 
-  // Show visual flow summary
-  const lifecycleConfig = toWorkflowLifecycleConfig(
-    statusField.name,
-    mappings
+  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
+
+  p.log.info(
+    `Auto-detected workflow: Active=[${lifecycleConfig.activeStates.join(", ")}] Terminal=[${lifecycleConfig.terminalStates.join(", ")}]`
   );
 
-  const flowParts: string[] = [];
-  if (lifecycleConfig.activeStates.length)
-    flowParts.push(`[Active: ${lifecycleConfig.activeStates.join(", ")}]`);
-  if (lifecycleConfig.terminalStates.length)
-    flowParts.push(`[Terminal: ${lifecycleConfig.terminalStates.join(", ")}]`);
-
-  p.note(flowParts.join(" → "), "Workflow Flow");
-
-  // ── Step 5: Runtime selection ────────────────────────────────────────────────
+  // ── Step 4: Runtime selection ────────────────────────────────────────────────
 
   const runtime = await abortIfCancelled(
     p.select({
-      message: "Step 5/6 — Select AI runtime:",
+      message: "Step 4/4 — Select AI runtime:",
       options: [
         { value: "codex", label: "OpenAI Codex", hint: "recommended" },
         { value: "claude-code", label: "Claude Code" },
@@ -458,61 +419,6 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     );
   }
 
-  // ── Step 6: Advanced options ─────────────────────────────────────────────────
-
-  const advancedOptions = await abortIfCancelled(
-    p.confirm({
-      message:
-        "Step 6/6 — Configure advanced options? (poll interval, concurrency)",
-      initialValue: false,
-    })
-  );
-
-  let pollIntervalMs = 30_000;
-  let concurrency = 3;
-  let maxAttempts = 3;
-
-  if (advancedOptions) {
-    const pollStr = await abortIfCancelled(
-      p.text({
-        message: "Poll interval (seconds):",
-        placeholder: "30",
-        initialValue: "30",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 5) return "Must be at least 5 seconds.";
-        },
-      })
-    );
-    pollIntervalMs = Number(pollStr) * 1000;
-
-    const concurrencyStr = await abortIfCancelled(
-      p.text({
-        message: "Max concurrent workers:",
-        placeholder: "3",
-        initialValue: "3",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 1) return "Must be at least 1.";
-        },
-      })
-    );
-    concurrency = Number(concurrencyStr);
-
-    const attemptsStr = await abortIfCancelled(
-      p.text({
-        message: "Max retry attempts per issue:",
-        placeholder: "3",
-        initialValue: "3",
-        validate: (v) => {
-          const n = Number(v);
-          if (!v || isNaN(n) || n < 1) return "Must be at least 1.";
-        },
-      })
-    );
-    maxAttempts = Number(attemptsStr);
-  }
-
   // ── Confirmation ─────────────────────────────────────────────────────────────
 
   p.note(
@@ -523,9 +429,6 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       `Runtime:    ${runtime}`,
       `Active:     ${lifecycleConfig.activeStates.join(", ")}`,
       `Terminal:   ${lifecycleConfig.terminalStates.join(", ")}`,
-      `Poll:       ${pollIntervalMs / 1000}s`,
-      `Concurrency: ${concurrency}`,
-      `Max retries: ${maxAttempts}`,
     ].join("\n"),
     "Configuration Summary"
   );
@@ -560,9 +463,6 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       mappings,
       runtime,
       workerCommand,
-      pollIntervalMs,
-      concurrency,
-      maxAttempts,
     });
     s6.stop("Configuration saved.");
   } catch (error) {
