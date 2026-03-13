@@ -26,19 +26,29 @@ export async function runCli(
 
   switch (command) {
     case "run": {
-      const statusHost = parsed.statusHost ?? process.env.ORCHESTRATOR_STATUS_HOST ?? "127.0.0.1";
-      const statusPort = parsed.statusPort ?? parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 4680) ?? 4680;
-      (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
-        host: statusHost,
-        port: statusPort,
-        getTenantStatus: {
-          all: () => service.status(),
-          byTenantId: async (tenantId) => {
-            const [snapshot] = await service.status(tenantId);
-            return snapshot ?? null;
+      if (!parsed.noStatusApi) {
+        const statusHost = parsed.statusHost ?? process.env.ORCHESTRATOR_STATUS_HOST ?? "127.0.0.1";
+        const statusPort = parsed.statusPort ?? parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 4680) ?? 4680;
+        const statusServer = (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
+          host: statusHost,
+          port: statusPort,
+          getTenantStatus: {
+            all: () => service.status(),
+            byTenantId: async (tenantId) => {
+              const [snapshot] = await service.status(tenantId);
+              return snapshot ?? null;
+            }
           }
-        }
-      });
+        });
+        statusServer.on("listening", () => {
+          const addr = statusServer.address();
+          if (addr && typeof addr === "object") {
+            const host = addr.address === "::" || addr.address === "0.0.0.0" ? "localhost" : addr.address;
+            const urlHost = host !== "localhost" && host.includes(":") ? `[${host}]` : host;
+            stdout.write(`Status server listening on http://${urlHost}:${addr.port}\n`);
+          }
+        });
+      }
       await service.run({
         tenantId: parsed.tenantId,
         issueIdentifier: parsed.issueIdentifier
@@ -91,6 +101,7 @@ function parseArgs(args: string[]): {
   issueIdentifier?: string;
   statusHost?: string;
   statusPort?: number;
+  noStatusApi?: boolean;
 } {
   const parsed: {
     runtimeRoot?: string;
@@ -98,6 +109,7 @@ function parseArgs(args: string[]): {
     issueIdentifier?: string;
     statusHost?: string;
     statusPort?: number;
+    noStatusApi?: boolean;
   } = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -129,6 +141,9 @@ function parseArgs(args: string[]): {
       case "--status-port":
         parsed.statusPort = parseInteger(value, undefined);
         index += 1;
+        break;
+      case "--no-status-api":
+        parsed.noStatusApi = true;
         break;
       default:
         throw new Error(`Unknown option: ${argument}`);
