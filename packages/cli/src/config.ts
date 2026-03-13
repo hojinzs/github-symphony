@@ -13,7 +13,6 @@ export const LOGS_DIR = "logs";
 
 export type CliGlobalConfig = {
   activeTenant: string | null;
-  token: string | null;
   tenants: string[];
 };
 
@@ -40,17 +39,11 @@ export function configFilePath(configDir: string): string {
   return join(configDir, CONFIG_FILE);
 }
 
-export function tenantConfigDir(
-  configDir: string,
-  tenantId: string
-): string {
+export function tenantConfigDir(configDir: string, tenantId: string): string {
   return join(configDir, "tenants", tenantId);
 }
 
-export function tenantConfigPath(
-  configDir: string,
-  tenantId: string
-): string {
+export function tenantConfigPath(configDir: string, tenantId: string): string {
   return join(tenantConfigDir(configDir, tenantId), "tenant.json");
 }
 
@@ -58,10 +51,7 @@ export function workflowMappingPath(
   configDir: string,
   tenantId: string
 ): string {
-  return join(
-    tenantConfigDir(configDir, tenantId),
-    "workflow-mapping.json"
-  );
+  return join(tenantConfigDir(configDir, tenantId), "workflow-mapping.json");
 }
 
 export function daemonPidPath(configDir: string): string {
@@ -93,9 +83,7 @@ export async function loadTenantConfig(
   configDir: string,
   tenantId: string
 ): Promise<CliTenantConfig | null> {
-  return readJsonFile<CliTenantConfig>(
-    tenantConfigPath(configDir, tenantId)
-  );
+  return readJsonFile<CliTenantConfig>(tenantConfigPath(configDir, tenantId));
 }
 
 export async function saveTenantConfig(

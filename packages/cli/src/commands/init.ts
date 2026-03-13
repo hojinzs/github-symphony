@@ -825,7 +825,6 @@ async function promptBlockedByField(
 
 type WriteConfigInput = {
   tenantId: string;
-  token: string;
   project: ProjectDetail;
   repos: LinkedRepository[];
   statusField: {
