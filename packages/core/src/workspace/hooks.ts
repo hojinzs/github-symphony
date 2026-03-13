@@ -1,6 +1,4 @@
 import { spawn } from "node:child_process";
-import { access, constants } from "node:fs/promises";
-import { resolve } from "node:path";
 
 /**
  * Hook kinds matching WORKFLOW.md `hooks` configuration keys.
@@ -27,53 +25,27 @@ export type HookResult = {
 };
 
 export type HookExecutionOptions = {
-  /** The hook kind being executed. */
   kind: HookKind;
-  /** Absolute path to the hook script. */
-  scriptPath: string;
-  /** Working directory for the hook process (usually the issue workspace). */
+  command: string;
   cwd: string;
-  /** Environment variables passed to the hook process. */
   env: Record<string, string>;
-  /** Timeout in milliseconds. 0 or negative means no timeout. */
   timeoutMs: number;
 };
 
 const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 
-/**
- * Execute a single workspace lifecycle hook as a child process.
- *
- * The hook script is executed via `bash` with a timeout. If the script
- * exits with a non-zero code, the result is `failure`. If it exceeds the
- * timeout, the process is killed and the result is `timeout`.
- *
- * If the script path does not exist or is not executable, the hook is
- * silently skipped with outcome `skipped`.
- */
 export async function executeHook(
   options: HookExecutionOptions
 ): Promise<HookResult> {
-  const { kind, scriptPath, cwd, env, timeoutMs } = options;
-  const resolvedPath = resolve(scriptPath);
+  const { kind, command, cwd, env, timeoutMs } = options;
   const start = Date.now();
-
-  const accessible = await isExecutable(resolvedPath);
-  if (!accessible) {
-    return {
-      kind,
-      outcome: "skipped",
-      exitCode: null,
-      durationMs: Date.now() - start,
-      error: null,
-    };
-  }
+  const normalizedCommand = normalizeHookCommand(command);
 
   return new Promise<HookResult>((resolveResult) => {
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const child = spawn("bash", [resolvedPath], {
+    const child = spawn("bash", ["-lc", normalizedCommand], {
       cwd,
       env: { ...process.env, ...env },
       stdio: "pipe",
@@ -152,9 +124,6 @@ export async function executeHook(
   });
 }
 
-/**
- * Build the standard hook environment variables for a workspace lifecycle hook.
- */
 export function buildHookEnv(context: {
   tenantId: string;
   workspaceKey: string;
@@ -184,12 +153,7 @@ export function buildHookEnv(context: {
   return env;
 }
 
-/**
- * Resolve the hook script path from the workflow configuration for a given hook kind.
- *
- * Returns `null` if the hook is not configured.
- */
-export function resolveHookScript(
+export function resolveHookCommand(
   hooks: {
     afterCreate: string | null;
     beforeRun: string | null;
@@ -210,12 +174,6 @@ export function resolveHookScript(
   }
 }
 
-/**
- * Execute a workspace lifecycle hook with standard defaults.
- *
- * Returns a `HookResult` describing the outcome. If the hook is not configured
- * (null script path), returns a `skipped` result.
- */
 export async function executeWorkspaceHook(options: {
   kind: HookKind;
   hooks: {
@@ -228,9 +186,9 @@ export async function executeWorkspaceHook(options: {
   env: Record<string, string>;
   timeoutMs?: number;
 }): Promise<HookResult> {
-  const scriptRelative = resolveHookScript(options.hooks, options.kind);
+  const hookCommand = resolveHookCommand(options.hooks, options.kind);
 
-  if (!scriptRelative) {
+  if (!hookCommand) {
     return {
       kind: options.kind,
       outcome: "skipped",
@@ -240,25 +198,25 @@ export async function executeWorkspaceHook(options: {
     };
   }
 
-  const scriptPath = resolve(options.repositoryPath, scriptRelative);
-
   return executeHook({
     kind: options.kind,
-    scriptPath,
+    command: hookCommand,
     cwd: options.repositoryPath,
     env: options.env,
     timeoutMs: options.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
   });
 }
 
-/** Default hook timeout in milliseconds. */
-export { DEFAULT_HOOK_TIMEOUT_MS };
-
-async function isExecutable(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
+function normalizeHookCommand(command: string): string {
+  const trimmed = command.trim();
+  if (
+    trimmed.includes("/") &&
+    !trimmed.startsWith("/") &&
+    !trimmed.startsWith("./") &&
+    !trimmed.startsWith("../") &&
+    !/\s/.test(trimmed)
+  ) {
+    return `bash ./${trimmed}`;
   }
+  return command;
 }
