@@ -1,0 +1,20 @@
+ ✓ src/dashboard/renderer.test.ts (6 tests) 14ms
+ ✓ src/commands/init.test.ts (13 tests) 45ms
+ ✓ src/skills/skill-writer.test.ts (12 tests) 14ms
+ ✓ src/context/generate-context-yaml.test.ts (6 tests) 10ms
+ ✓ src/mapping/smart-defaults.test.ts (14 tests) 9ms
+ ✓ src/github/gh-auth.test.ts (9 tests) 7ms
+ ✓ src/workflow/generate-workflow-md.test.ts (15 tests) 6ms
+ ✓ src/skills/templates/gh-symphony.test.ts (8 tests) 3ms
+ ✓ src/workflow/generate-reference-workflow.test.ts (18 tests) 9ms
+ ✓ src/skills/templates/commit.test.ts (4 tests) 2ms
+ ✓ src/skills/templates/gh-project.test.ts (7 tests) 6ms
+ ✓ src/skills/templates/pull.test.ts (4 tests) 3ms
+ ✓ src/skills/templates/land.test.ts (5 tests) 2ms
+ ✓ src/skills/templates/push.test.ts (4 tests) 2ms
+
+ Test Files  16 passed (16)
+      Tests  147 passed (147)
+   Start at  12:52:20
+   Duration  1.24s (transform 362ms, setup 0ms, collect 643ms, tests 203ms, environment 2ms, prepare 883ms)
+

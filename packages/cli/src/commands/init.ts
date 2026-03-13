@@ -36,6 +36,7 @@ import {
   type StateMapping,
   type WorkflowStateConfig,
 } from "../config.js";
+import { getGhToken, ensureGhAuth, GhAuthError } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import {
   buildContextYaml,
@@ -62,7 +63,6 @@ export async function abortIfCancelled<T>(
 
 type InitFlags = {
   nonInteractive: boolean;
-  token?: string;
   project?: string;
   output?: string;
   skipSkills: boolean;
@@ -82,10 +82,6 @@ function parseInitFlags(args: string[]): InitFlags {
     switch (arg) {
       case "--non-interactive":
         flags.nonInteractive = true;
-        break;
-      case "--token":
-        flags.token = next;
-        i += 1;
         break;
       case "--project":
         flags.project = next;
@@ -344,15 +340,17 @@ async function runNonInteractive(
   flags: InitFlags,
   options: GlobalOptions
 ): Promise<void> {
-  if (!flags.token) {
+  let token: string;
+  try {
+    token = getGhToken();
+  } catch {
     process.stderr.write(
-      "Error: --token is required in non-interactive mode.\n"
+      "Error: GitHub token not found. Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.\n"
     );
     process.exitCode = 1;
     return;
   }
-
-  const client = createClient(flags.token);
+  const client = createClient(token);
 
   // Validate token
   let viewer;
@@ -556,9 +554,12 @@ async function runInteractiveFromTenant(
   const outputPath = resolve("WORKFLOW.md");
   await writeFile(outputPath, workflowMd, "utf8");
 
-  const token = globalConfig.token;
   const projId = tenantConfig.tracker.settings?.projectId as string | undefined;
   let ecosystemResult: EcosystemResult | null = null;
+  let token: string | undefined;
+  try {
+    token = getGhToken();
+  } catch {}
   if (token && projId) {
     try {
       const client = createClient(token);
@@ -594,51 +595,41 @@ async function runInteractiveFromTenant(
 async function runInteractiveStandalone(
   _options: GlobalOptions
 ): Promise<void> {
-  // Step 1: PAT input
-  let client!: GitHubClient;
+  const s1 = p.spinner();
+  s1.start("Checking gh CLI authentication...");
 
-  while (true) {
-    const rawToken = await abortIfCancelled(
-      p.password({
-        message: "Step 1/3 — Enter your GitHub Personal Access Token:",
-        validate: (v) => {
-          if (!v) return "Token is required.";
-          if (v.length < 40) return "Token too short.";
-        },
-      })
-    );
+  let client: GitHubClient;
 
-    client = createClient(rawToken);
-    const s = p.spinner();
-    s.start("Validating token...");
-
-    try {
-      const viewer = await validateToken(client);
-      const scopeCheck = checkRequiredScopes(viewer.scopes);
-
-      if (!scopeCheck.valid) {
-        s.stop(
-          `Token valid (${viewer.login}), but missing scopes: ${scopeCheck.missing.join(", ")}`
+  try {
+    const { token } = ensureGhAuth();
+    client = createClient(token);
+    s1.stop("Authenticated via gh CLI");
+  } catch (error) {
+    s1.stop("Authentication failed.");
+    if (error instanceof GhAuthError) {
+      if (error.code === "not_installed") {
+        p.log.error(
+          "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
         );
-        p.log.warn(
-          "Required scopes: repo, read:org, project. Please create a new token with these scopes."
+      } else if (error.code === "not_authenticated") {
+        p.log.error(
+          "gh auth login --scopes repo,read:org,project 를 실행하세요."
         );
-        continue;
+      } else if (error.code === "missing_scopes") {
+        p.log.error(
+          "gh auth refresh --scopes repo,read:org,project 를 실행하세요."
+        );
+      } else {
+        p.log.error(error.message);
       }
-
-      s.stop(
-        `Authenticated as ${viewer.login}${viewer.name ? ` (${viewer.name})` : ""}`
-      );
-      break;
-    } catch (error) {
-      s.stop(
-        `Token invalid: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      p.log.warn("Please try a different token.");
+    } else {
+      p.log.error(error instanceof Error ? error.message : "Unknown error");
     }
+    process.exitCode = 1;
+    return;
   }
 
-  // Step 2: Project selection
+  // Step 1/2: Project selection
   const s2 = p.spinner();
   s2.start("Loading projects...");
   let projects: ProjectSummary[];
@@ -664,7 +655,7 @@ async function runInteractiveStandalone(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 2/3 — Select a GitHub Project:",
+      message: "Step 1/2 — Select a GitHub Project:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -723,7 +714,7 @@ async function runInteractiveStandalone(
 
     const selectedRole = await abortIfCancelled(
       p.select({
-        message: `Step 3/3 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
+        message: `Step 2/2 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
         options: sortedOptions,
       })
     );
