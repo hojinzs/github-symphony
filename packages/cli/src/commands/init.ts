@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { createHash } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
@@ -134,6 +135,54 @@ type EcosystemOptions = {
   skipSkills: boolean;
   skipContext: boolean;
 };
+
+function inferAgentRuntimeFromCommand(command?: string): string | null {
+  if (!command) {
+    return null;
+  }
+
+  if (command.includes("claude-code")) {
+    return "claude-code";
+  }
+
+  if (command.includes("codex")) {
+    return "codex";
+  }
+
+  return null;
+}
+
+function isWorkerBootstrapCommand(command: string): boolean {
+  return (
+    command.includes("@gh-symphony/worker/dist/index.js") ||
+    command.includes("packages/worker/dist/index.js")
+  );
+}
+
+export async function resolveTenantRuntime(
+  configDir: string,
+  tenantId: string,
+  tenantWorkerCommand?: string
+): Promise<string> {
+  const workflowPath = join(configDir, "tenants", tenantId, "WORKFLOW.md");
+  try {
+    const workflowMarkdown = await readFile(workflowPath, "utf8");
+    const agentCommand = parseWorkflowMarkdown(
+      workflowMarkdown,
+      {}
+    ).agentCommand;
+    if (!isWorkerBootstrapCommand(agentCommand)) {
+      return agentCommand;
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  return inferAgentRuntimeFromCommand(tenantWorkerCommand) ?? "codex";
+}
 
 export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
   const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
@@ -419,7 +468,11 @@ async function runInteractiveFromTenant(
     | undefined;
   const stateFieldName =
     workflowMapping?.stateFieldName ?? lifecycle.stateFieldName;
-  const runtime = tenantConfig.runtime.workerCommand ?? "codex";
+  const runtime = await resolveTenantRuntime(
+    options.configDir,
+    tenantId,
+    tenantConfig.runtime.workerCommand
+  );
 
   const workflowMd = generateWorkflowMarkdown({
     projectId: projectId ?? "",
@@ -710,6 +763,7 @@ type WriteConfigInput = {
   };
   mappings: Record<string, StateMapping>;
   runtime: string;
+  agentCommand?: string;
   workerCommand?: string;
   pollIntervalMs?: number;
   concurrency?: number;
@@ -793,7 +847,7 @@ export async function writeConfig(
     mappings: input.mappings,
     lifecycle: lifecycleConfig,
     repositories: input.repos.map((r) => ({ owner: r.owner, name: r.name })),
-    runtime: input.runtime,
+    runtime: input.agentCommand ?? input.runtime,
     pollIntervalMs: input.pollIntervalMs,
     concurrency: input.concurrency,
     blockedByFieldName: input.blockedByFieldName,

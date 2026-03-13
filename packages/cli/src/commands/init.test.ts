@@ -1,10 +1,15 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import type { CliTenantConfig, WorkflowStateConfig } from "../config.js";
-import { generateTenantId, writeConfig, writeEcosystem } from "./init.js";
+import {
+  generateTenantId,
+  resolveTenantRuntime,
+  writeConfig,
+  writeEcosystem,
+} from "./init.js";
 
 describe("init command config output", () => {
   it("writes workflow and orchestrator overrides for the runtime", async () => {
@@ -124,6 +129,97 @@ describe("init command config output", () => {
     expect(parsed.githubProjectId).toBe("project-456");
   });
 
+  it("writes the custom agent command into WORKFLOW.md", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-custom-"));
+
+    await writeConfig(configDir, {
+      tenantId: "tenant-custom",
+      token: "token-789",
+      project: {
+        id: "project-789",
+        title: "Platform",
+        url: "https://github.com/orgs/acme/projects/3",
+        statusFields: [],
+        textFields: [],
+        linkedRepositories: [],
+      },
+      repos: [
+        {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+      ],
+      statusField: {
+        id: "PVTSSF_status2",
+        name: "Status",
+        options: [
+          { id: "opt_todo", name: "Todo" },
+          { id: "opt_done", name: "Done" },
+        ],
+      },
+      mappings: {
+        Todo: { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "custom",
+      agentCommand: "bash -lc my-agent",
+    });
+
+    const workflowMd = await readFile(
+      join(configDir, "tenants", "tenant-custom", "WORKFLOW.md"),
+      "utf8"
+    );
+    const parsed = parseWorkflowMarkdown(workflowMd, {});
+
+    expect(parsed.agentCommand).toBe("bash -lc my-agent");
+  });
+
+  it("resolves tenant runtime from tenant WORKFLOW.md agent command", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-runtime-"));
+    const tenantDir = join(configDir, "tenants", "tenant-runtime");
+
+    await mkdir(tenantDir, { recursive: true });
+
+    await writeFile(
+      join(tenantDir, "WORKFLOW.md"),
+      `---
+runtime:
+  agent_command: bash -lc claude-code
+---
+Prompt body
+`,
+      "utf8"
+    );
+
+    await expect(
+      resolveTenantRuntime(configDir, "tenant-runtime")
+    ).resolves.toBe("bash -lc claude-code");
+  });
+
+  it("falls back to codex when tenant WORKFLOW agent command is a worker path", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-worker-path-"));
+    const tenantDir = join(configDir, "tenants", "tenant-worker-path");
+
+    await mkdir(tenantDir, { recursive: true });
+
+    await writeFile(
+      join(tenantDir, "WORKFLOW.md"),
+      `---
+runtime:
+  agent_command: node /Users/example/github-symphony/packages/worker/dist/index.js
+---
+Prompt body
+`,
+      "utf8"
+    );
+
+    await expect(
+      resolveTenantRuntime(configDir, "tenant-worker-path")
+    ).resolves.toBe("codex");
+  });
+
   it("derives unique tenant IDs from the project identity, not only the title", () => {
     expect(generateTenantId("Roadmap", "project-a")).not.toBe(
       generateTenantId("Roadmap", "project-b")
@@ -206,6 +302,25 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
     expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+  });
+
+  it("generates codex skills when runtime is the codex agent command", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-codex-cmd-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "bash -lc codex app-server",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const skill = await readFile(
+      join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
+      "utf8"
+    );
+    expect(skill).toContain("gh-symphony");
   });
 
   it("--skip-skills skips skill files", async () => {

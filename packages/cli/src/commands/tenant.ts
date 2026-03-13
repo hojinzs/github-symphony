@@ -407,12 +407,12 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     })
   );
 
-  let workerCommand: string | undefined;
+  let agentCommand: string | undefined;
   if (runtime === "custom") {
-    workerCommand = await abortIfCancelled(
+    agentCommand = await abortIfCancelled(
       p.text({
-        message: "Custom worker command:",
-        placeholder: "node packages/worker/dist/index.js",
+        message: "Custom agent command:",
+        placeholder: "bash -lc my-agent",
       })
     );
   }
@@ -461,7 +461,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       },
       mappings,
       runtime,
-      workerCommand,
+      agentCommand,
     });
     s6.stop("Configuration saved.");
   } catch (error) {
