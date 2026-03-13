@@ -517,4 +517,70 @@ describe("buildTenantSnapshot", () => {
     // retrying status without retryKind should not appear in retryQueue
     expect(snapshot.retryQueue).toHaveLength(0);
   });
+
+  it("passes through processId, turnCount, startedAt, lastEvent, lastEventAt, tokenUsage to activeRuns", () => {
+    const run = mockRun({
+      runId: "run-live-001",
+      processId: 54321,
+      turnCount: 5,
+      startedAt: "2024-01-01T00:01:00Z",
+      lastEvent: "Analyzing code structure",
+      lastEventAt: "2024-01-01T00:04:30Z",
+      tokenUsage: {
+        inputTokens: 2500,
+        outputTokens: 1200,
+        totalTokens: 3700,
+      },
+    });
+
+    const input: SnapshotInput = {
+      tenant: mockTenant(),
+      activeRuns: [run],
+      summary: { dispatched: 1, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    };
+
+    const snapshot = buildTenantSnapshot(input);
+
+    expect(snapshot.activeRuns).toHaveLength(1);
+    expect(snapshot.activeRuns[0].processId).toBe(54321);
+    expect(snapshot.activeRuns[0].turnCount).toBe(5);
+    expect(snapshot.activeRuns[0].startedAt).toBe("2024-01-01T00:01:00Z");
+    expect(snapshot.activeRuns[0].lastEvent).toBe("Analyzing code structure");
+    expect(snapshot.activeRuns[0].lastEventAt).toBe("2024-01-01T00:04:30Z");
+    expect(snapshot.activeRuns[0].tokenUsage?.inputTokens).toBe(2500);
+    expect(snapshot.activeRuns[0].tokenUsage?.outputTokens).toBe(1200);
+    expect(snapshot.activeRuns[0].tokenUsage?.totalTokens).toBe(3700);
+  });
+
+  it("sets live fields to null/undefined when missing from run record", () => {
+    const run = mockRun({
+      runId: "run-live-002",
+      processId: null,
+      turnCount: undefined,
+      startedAt: null,
+      lastEvent: undefined,
+      lastEventAt: null,
+      tokenUsage: undefined,
+    });
+
+    const input: SnapshotInput = {
+      tenant: mockTenant(),
+      activeRuns: [run],
+      summary: { dispatched: 1, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    };
+
+    const snapshot = buildTenantSnapshot(input);
+
+    expect(snapshot.activeRuns).toHaveLength(1);
+    expect(snapshot.activeRuns[0].processId).toBeNull();
+    expect(snapshot.activeRuns[0].turnCount).toBeUndefined();
+    expect(snapshot.activeRuns[0].startedAt).toBeNull();
+    expect(snapshot.activeRuns[0].lastEvent).toBeNull();
+    expect(snapshot.activeRuns[0].lastEventAt).toBeNull();
+    expect(snapshot.activeRuns[0].tokenUsage).toBeUndefined();
+  });
 });
