@@ -514,7 +514,7 @@ function createTenantConfig(
   return {
     tenantId: "tenant-1",
     slug: "tenant-1",
-    promptGuidelines: "Prefer focused changes.",
+
     repositories: [
       {
         owner,

@@ -25,7 +25,7 @@ describe("headless orchestration verification", () => {
       await store.saveTenantConfig({
         tenantId: "tenant-1",
         slug: "tenant-1",
-        promptGuidelines: "Prefer focused changes.",
+
         repositories: [repository],
         tracker: {
           adapter: "github-project",
@@ -125,68 +125,6 @@ describe("headless orchestration verification", () => {
     }
   });
 
-  it("applies tenant workflow overrides on top of repository workflows", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
-    const repository = await createRepositoryFixture(tempRoot, "acme", "cli");
-    const service = new OrchestratorService(new OrchestratorFsStore(tempRoot));
-    const tenant = {
-      tenantId: "tenant-cli",
-      slug: "tenant-cli",
-      promptGuidelines: "Prefer focused changes.",
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project" as const,
-        bindingId: "project-456",
-        settings: {
-          projectId: "project-456",
-          token: "tenant-token",
-        },
-      },
-      runtime: {
-        driver: "local" as const,
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-cli"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
-      },
-      workflow: {
-        lifecycle: {
-          stateFieldName: "Status",
-          planningStates: ["Queued"],
-          humanReviewStates: [],
-          implementationStates: ["Doing"],
-          awaitingMergeStates: [],
-          completedStates: ["Done"],
-          planningCompleteState: "Doing",
-          implementationCompleteState: "Done",
-          mergeCompleteState: "Done",
-        },
-        scheduler: {
-          pollIntervalMs: 15_000,
-        },
-      },
-    };
-
-    const resolution = await (
-      service as unknown as {
-        loadTenantWorkflow: (
-          tenantConfig: typeof tenant,
-          repositoryConfig: typeof repository
-        ) => Promise<{
-          lifecycle: {
-            planningStates: string[];
-          };
-          workflow: {
-            scheduler: {
-              pollIntervalMs: number;
-            };
-          };
-        }>;
-      }
-    ).loadTenantWorkflow(tenant, repository);
-
-    expect(resolution.lifecycle.planningStates).toEqual(["Queued"]);
-    expect(resolution.workflow.scheduler.pollIntervalMs).toBe(15_000);
-  });
 });
 
 async function createRepositoryFixture(

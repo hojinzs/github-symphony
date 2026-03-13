@@ -50,7 +50,7 @@ describe("lifecycle command integration", () => {
       "run-issue",
       "--runtime-root",
       configDir,
-      "--workspace-id",
+      "--tenant-id",
       "tenant-b",
       "--issue",
       "beta/api#42",
@@ -164,7 +164,7 @@ function createTenant(
   return {
     tenantId,
     slug: tenantId,
-    promptGuidelines: "",
+
     repositories: [
       {
         owner,

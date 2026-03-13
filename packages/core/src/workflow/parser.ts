@@ -107,7 +107,6 @@ export function parseWorkflowMarkdown(
   return {
     githubProjectId,
     promptTemplate,
-    promptGuidelines: promptTemplate,
     allowedRepositories,
     runtime: {
       agentCommand,
@@ -175,7 +174,6 @@ function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
     ...DEFAULT_WORKFLOW_DEFINITION,
     githubProjectId,
     promptTemplate: promptGuidelines,
-    promptGuidelines,
     allowedRepositories,
     runtime: {
       ...DEFAULT_WORKFLOW_RUNTIME,

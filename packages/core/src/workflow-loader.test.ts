@@ -48,7 +48,6 @@ Prefer focused changes.
     expect(workflow).toMatchObject({
       githubProjectId: "project-123",
       promptTemplate: "Prefer focused changes.",
-      promptGuidelines: "Prefer focused changes.",
       allowedRepositories: ["https://github.com/acme/platform.git"],
       agentCommand: "bash -lc codex app-server",
       hookPath: "hooks/after_create.sh",

@@ -103,7 +103,6 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("{{issue.state}}");
     expect(markdown).toContain("{{issue.description}}");
     expect(markdown).toContain("{{issue.repository}}");
-    expect(markdown).toContain("{{guidelines}}");
     // Must NOT include unsupported variables
     expect(markdown).not.toContain("{{issue.labels}}");
   });

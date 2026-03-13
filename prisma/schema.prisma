@@ -89,7 +89,7 @@ model Workspace {
   id                    String                         @id @default(cuid())
   slug                  String                         @unique
   name                  String
-  promptGuidelines      String
+  promptGuidelines      String?
   status                WorkspaceStatus                @default(draft)
   githubOwnerLogin      String
   githubProjectId       String?                        @unique

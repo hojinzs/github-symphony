@@ -146,15 +146,15 @@ describe("renderPrompt", () => {
         },
         metadata: {},
       },
-      { attempt: null, guidelines: "Be concise." }
+      { attempt: null }
     );
 
     const rendered = renderPrompt(
-      "Fix {{issue.title}} in {{issue.repository}}. {{guidelines}}",
+      "Fix {{issue.title}} in {{issue.repository}}.",
       variables
     );
 
-    expect(rendered).toBe("Fix Fix the bug in acme/platform. Be concise.");
+    expect(rendered).toBe("Fix Fix the bug in acme/platform.");
   });
 
   it("leaves unresolved variables as-is in non-strict mode", () => {
@@ -185,7 +185,7 @@ describe("renderPrompt", () => {
         },
         metadata: {},
       },
-      { attempt: null, guidelines: "" }
+      { attempt: null }
     );
 
     expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe("{{unknown.var}}");
@@ -219,7 +219,7 @@ describe("renderPrompt", () => {
         },
         metadata: {},
       },
-      { attempt: null, guidelines: "" }
+      { attempt: null }
     );
 
     expect(() => renderPrompt("{{unknown.var}}", variables)).toThrow(
@@ -258,11 +258,11 @@ describe("renderPrompt", () => {
         },
         metadata: {},
       },
-      { attempt: null, guidelines: "Be concise." }
+      { attempt: null }
     );
 
     expect(() =>
-      renderPrompt("Fix {{issue.title}} — {{guidelines}}", variables)
+      renderPrompt("Fix {{issue.title}}", variables)
     ).not.toThrow();
   });
 
@@ -294,7 +294,7 @@ describe("renderPrompt", () => {
         },
         metadata: {},
       },
-      { attempt: null, guidelines: "" }
+      { attempt: null }
     );
 
     // null description → empty string, no template_render_error
@@ -500,7 +500,7 @@ describe("token accounting - buildTenantSnapshot", () => {
       tenant: {
         tenantId: "ws-1",
         slug: "test",
-        promptGuidelines: "",
+
         repositories: [],
         tracker: { adapter: "github-project", bindingId: "proj-1" },
         runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },
@@ -549,7 +549,7 @@ describe("token accounting - buildTenantSnapshot", () => {
       tenant: {
         tenantId: "ws-1",
         slug: "test",
-        promptGuidelines: "",
+
         repositories: [],
         tracker: { adapter: "github-project", bindingId: "proj-1" },
         runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },

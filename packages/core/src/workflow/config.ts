@@ -34,7 +34,6 @@ export type WorkflowSourceFormat = "front-matter" | "legacy-sectioned" | "defaul
 export type WorkflowDefinition = {
   githubProjectId: string | null;
   promptTemplate: string;
-  promptGuidelines: string;
   allowedRepositories: string[];
   runtime: WorkflowRuntimeConfig;
   scheduler: WorkflowSchedulerConfig;
@@ -85,7 +84,6 @@ export const DEFAULT_WORKFLOW_RETRY: WorkflowRetryConfig = {
 export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   githubProjectId: null,
   promptTemplate: "",
-  promptGuidelines: "",
   allowedRepositories: [],
   runtime: DEFAULT_WORKFLOW_RUNTIME,
   scheduler: DEFAULT_WORKFLOW_SCHEDULER,

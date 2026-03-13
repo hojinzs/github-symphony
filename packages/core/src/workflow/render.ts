@@ -22,12 +22,10 @@ export type PromptIssueVariables = {
  *
  * - `issue` — normalized issue payload
  * - `attempt` — null for first execution, attempt number for retries
- * - `guidelines` — workspace-level prompt guidelines
  */
 export type PromptVariables = {
   issue: PromptIssueVariables;
   attempt: number | null;
-  guidelines: string;
 };
 
 /**
@@ -37,7 +35,6 @@ export function buildPromptVariables(
   issue: TrackedIssue,
   options: {
     attempt: number | null;
-    guidelines: string;
   }
 ): PromptVariables {
   return {
@@ -52,7 +49,6 @@ export function buildPromptVariables(
       repository: `${issue.repository.owner}/${issue.repository.name}`,
     },
     attempt: options.attempt,
-    guidelines: options.guidelines,
   };
 }
 

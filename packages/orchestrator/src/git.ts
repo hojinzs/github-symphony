@@ -4,10 +4,8 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import {
   createDefaultWorkflowResolution,
-  normalizeWorkflowState,
   WorkflowConfigStore,
   type RepositoryRef,
-  type WorkflowLifecycleConfig,
   type WorkflowResolution,
 } from "@gh-symphony/core";
 
@@ -92,58 +90,3 @@ export function isMissingFileError(error: unknown): boolean {
   );
 }
 
-export type WorkflowValidationResult = {
-  valid: boolean;
-  warnings: string[];
-};
-
-export function validateRepoWorkflow(
-  repoResolution: WorkflowResolution,
-  tenantLifecycle: WorkflowLifecycleConfig | undefined
-): WorkflowValidationResult {
-  if (!tenantLifecycle) {
-    return { valid: true, warnings: [] };
-  }
-
-  const warnings: string[] = [];
-  const repoLifecycle = repoResolution.lifecycle;
-  const tenantActive = tenantLifecycle.activeStates ?? [];
-  const tenantTerminal = tenantLifecycle.terminalStates ?? [];
-
-  for (const state of repoLifecycle.activeStates) {
-    const normalizedState = normalizeWorkflowState(state);
-    const knownInTenant =
-      tenantActive.some(
-        (s) => normalizeWorkflowState(s) === normalizedState
-      ) ||
-      tenantTerminal.some(
-        (s) => normalizeWorkflowState(s) === normalizedState
-      );
-    if (!knownInTenant) {
-      warnings.push(
-        `Repository WORKFLOW.md references active state "${state}" not found in tenant lifecycle.`
-      );
-    }
-  }
-
-  for (const state of repoLifecycle.terminalStates) {
-    const normalizedState = normalizeWorkflowState(state);
-    const knownInTenant =
-      tenantActive.some(
-        (s) => normalizeWorkflowState(s) === normalizedState
-      ) ||
-      tenantTerminal.some(
-        (s) => normalizeWorkflowState(s) === normalizedState
-      );
-    if (!knownInTenant) {
-      warnings.push(
-        `Repository WORKFLOW.md references terminal state "${state}" not found in tenant lifecycle.`
-      );
-    }
-  }
-
-  return {
-    valid: warnings.length === 0,
-    warnings,
-  };
-}

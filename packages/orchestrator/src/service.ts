@@ -34,7 +34,6 @@ import {
   ensureIssueWorkspaceRepository,
   isMissingFileError,
   loadRepositoryWorkflow,
-  validateRepoWorkflow,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
@@ -398,28 +397,17 @@ export class OrchestratorService {
     const repoResolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
 
     if (repoResolution.workflowPath !== null) {
-      // Repo has a WORKFLOW.md — validate against tenant lifecycle
-      const validation = validateRepoWorkflow(
-        repoResolution,
-        tenant.workflow?.lifecycle
-      );
-      if (validation.valid) {
-        return applyTenantWorkflowOverrides(tenant, repoResolution);
-      }
-      // Invalid — log warnings and fall through to tenant fallback
-      for (const warning of validation.warnings) {
-        process.stderr.write(`[orchestrator] workflow warning: ${warning}\n`);
-      }
+      return repoResolution;
     }
 
     // 2. Try loading from tenant WORKFLOW.md
     const tenantResolution = await this.loadTenantFallbackWorkflow(tenant);
     if (tenantResolution) {
-      return applyTenantWorkflowOverrides(tenant, tenantResolution);
+      return tenantResolution;
     }
 
     // 3. Fall back to hardcoded defaults (original behavior)
-    return applyTenantWorkflowOverrides(tenant, repoResolution);
+    return repoResolution;
   }
 
   private async loadTenantFallbackWorkflow(
@@ -522,7 +510,6 @@ export class OrchestratorService {
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
-      guidelines: tenant.promptGuidelines,
     });
     const renderedPrompt = renderPrompt(
       workflow.promptTemplate,
@@ -1060,23 +1047,15 @@ export class OrchestratorService {
   }
 
   private getTenantConcurrency(
-    tenant: OrchestratorTenantConfig
+    _tenant: OrchestratorTenantConfig
   ): number {
-    return (
-      tenant.orchestrator?.concurrency ??
-      this.dependencies.concurrency ??
-      DEFAULT_CONCURRENCY
-    );
+    return this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
   }
 
   private getTenantMaxAttempts(
-    tenant: OrchestratorTenantConfig
+    _tenant: OrchestratorTenantConfig
   ): number {
-    return (
-      tenant.orchestrator?.maxAttempts ??
-      this.dependencies.maxAttempts ??
-      DEFAULT_MAX_ATTEMPTS
-    );
+    return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
   /**
@@ -1278,33 +1257,3 @@ function isProcessRunning(processId: number): boolean {
   }
 }
 
-function applyTenantWorkflowOverrides(
-  tenant: OrchestratorTenantConfig,
-  resolution: WorkflowResolution
-): WorkflowResolution {
-  const overrides = tenant.workflow;
-  if (!overrides) {
-    return resolution;
-  }
-
-  const workflow = {
-    ...resolution.workflow,
-    lifecycle: overrides.lifecycle ?? resolution.workflow.lifecycle,
-    scheduler: {
-      ...resolution.workflow.scheduler,
-      ...(overrides.scheduler ?? {}),
-    },
-    retry: {
-      ...resolution.workflow.retry,
-      ...(overrides.retry ?? {}),
-    },
-    maxConcurrentByState:
-      overrides.maxConcurrentByState ?? resolution.workflow.maxConcurrentByState,
-  };
-
-  return {
-    ...resolution,
-    workflow,
-    lifecycle: workflow.lifecycle,
-  };
-}

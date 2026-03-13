@@ -30,12 +30,10 @@ import {
   saveTenantConfig,
   saveWorkflowMapping,
   type CliGlobalConfig,
-  type CliTenantConfig,
   type StateRole,
   type StateMapping,
   type WorkflowStateConfig,
 } from "../config.js";
-import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 
 // ── Cancellation utility ─────────────────────────────────────────────────────
 
@@ -280,7 +278,7 @@ async function runInteractiveFromTenant(
     return;
   }
 
-  const lifecycle = tenantConfig.workflow?.lifecycle;
+  const lifecycle = tenantConfig.workflowMapping?.lifecycle;
   if (!lifecycle) {
     p.log.error(
       `Tenant "${tenantId}" has no workflow lifecycle config. Run 'gh-symphony tenant add' first.`
@@ -314,7 +312,6 @@ async function runInteractiveFromTenant(
     lifecycle,
     repositories,
     runtime,
-    pollIntervalMs: tenantConfig.workflow?.scheduler?.pollIntervalMs,
   });
 
   const outputPath = resolve("WORKFLOW.md");
@@ -593,7 +590,6 @@ export async function writeConfig(
   await saveTenantConfig(configDir, input.tenantId, {
     tenantId: input.tenantId,
     slug: input.tenantId,
-    promptGuidelines: "",
     repositories: input.repos.map((r) => ({
       owner: r.owner,
       name: r.name,
@@ -613,11 +609,6 @@ export async function writeConfig(
       workspaceRuntimeDir: runtimeDir,
       projectRoot: process.cwd(),
       workerCommand: input.workerCommand ?? resolveWorkerCommand(),
-    },
-    workflow: buildWorkflowOverrides(lifecycleConfig, input),
-    orchestrator: {
-      concurrency: input.concurrency,
-      maxAttempts: input.maxAttempts,
     },
     workflowMapping: mappingConfig,
   });
@@ -655,17 +646,6 @@ export async function writeConfig(
   await writeFile(workflowMdPath, workflowMd, "utf8");
 }
 
-function buildWorkflowOverrides(
-  lifecycle: WorkflowLifecycleConfig,
-  input: WriteConfigInput
-): NonNullable<CliTenantConfig["workflow"]> {
-  return {
-    lifecycle,
-    scheduler: {
-      pollIntervalMs: input.pollIntervalMs ?? 30_000,
-    },
-  };
-}
 
 export function generateTenantId(
   projectTitle: string,

@@ -81,7 +81,6 @@ function toWorkflowResolution(
     workflowPath,
     workflow,
     lifecycle: workflow.lifecycle,
-    promptGuidelines: workflow.promptGuidelines,
     promptTemplate: workflow.promptTemplate,
     agentCommand: workflow.agentCommand,
     hookPath: workflow.hookPath,

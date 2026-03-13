@@ -15,6 +15,5 @@ export type RepositoryRef = {
 
 export type WorkspaceDraft = {
   name: string;
-  promptGuidelines: string;
   repositories: RepositoryRef[];
 };

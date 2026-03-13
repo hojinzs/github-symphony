@@ -49,15 +49,10 @@ describe("init command config output", () => {
         "utf8"
       )
     ) as CliTenantConfig;
-    expect(tenant.workflow?.lifecycle).toMatchObject({
+    expect(tenant.workflowMapping?.lifecycle).toMatchObject({
       stateFieldName: "Stage",
       activeStates: ["Queued", "Doing"],
       terminalStates: ["Done"],
-    });
-    expect(tenant.workflow?.scheduler?.pollIntervalMs).toBe(15_000);
-    expect(tenant.orchestrator).toEqual({
-      concurrency: 1,
-      maxAttempts: 2,
     });
 
     const mapping = JSON.parse(

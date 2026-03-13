@@ -33,7 +33,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -101,7 +101,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -181,7 +181,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -236,7 +236,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -336,7 +336,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -423,7 +423,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -500,7 +500,7 @@ Workspace prompt.
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -530,120 +530,6 @@ Workspace prompt.
     const result = await service.runOnce();
 
     // Repo WORKFLOW.md defines Todo as active, issue is in "Todo" → dispatched
-    expect(result[0]?.summary.dispatched).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to tenant WORKFLOW.md when repo references unknown states", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-invalid-repo-wf-")
-    );
-    const repository = await createBareRepositoryFixture(
-      tempRoot,
-      "acme",
-      "mismatched-repo"
-    );
-    // Add a WORKFLOW.md with states not in the tenant lifecycle
-    await writeFile(
-      join(repository.path, "WORKFLOW.md"),
-      `---
-lifecycle:
-  state_field: Status
-  active_states:
-    - UnknownState
-  terminal_states:
-    - AlsoUnknown
-runtime:
-  agent_command: bash -lc codex app-server
-scheduler:
-  poll_interval_ms: 30000
-retry:
-  base_delay_ms: 1000
-  max_delay_ms: 30000
----
-Repo prompt.
-`,
-      "utf8"
-    );
-    execSync(`git -C ${shell(repository.path)} add WORKFLOW.md`, {
-      stdio: "ignore",
-    });
-    execSync(
-      `git -C ${shell(repository.path)} commit -m add-bad-workflow`,
-      { stdio: "ignore" }
-    );
-
-    const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
-      slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
-      },
-      workflow: {
-        lifecycle: {
-          stateFieldName: "Status",
-          activeStates: ["Ready"],
-          terminalStates: ["Shipped"],
-          blockerCheckStates: ["Ready"],
-        },
-      },
-    });
-
-    // Write tenant WORKFLOW.md that matches the tenant lifecycle
-    const tenantDir = store.tenantDir("tenant-1");
-    await writeFile(
-      join(tenantDir, "WORKFLOW.md"),
-      `---
-lifecycle:
-  state_field: Status
-  active_states:
-    - Ready
-  terminal_states:
-    - Shipped
-  blocker_check_states:
-    - Ready
-runtime:
-  agent_command: bash -lc codex app-server
-scheduler:
-  poll_interval_ms: 30000
-retry:
-  base_delay_ms: 1000
-  max_delay_ms: 30000
----
-Workspace prompt.
-`,
-      "utf8"
-    );
-
-    const spawnImpl = vi.fn().mockReturnValue({
-      pid: 4303,
-      unref: vi.fn(),
-    });
-    const service = new OrchestratorService(store, {
-      fetchImpl: vi.fn().mockResolvedValue(
-        createTrackerResponseWithState(repository, "Ready")
-      ),
-      spawnImpl: spawnImpl as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
-    });
-
-    const result = await service.runOnce();
-
-    // Falls back to tenant WORKFLOW.md → Ready is active → dispatches
     expect(result[0]?.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
@@ -680,7 +566,7 @@ Workspace prompt.
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-      promptGuidelines: "Prefer focused changes.",
+
       repositories: [repository],
       tracker: {
         adapter: "github-project",

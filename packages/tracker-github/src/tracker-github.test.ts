@@ -65,7 +65,7 @@ describe("resolveTrackerAdapter", () => {
         {
           tenantId: "workspace-1",
           slug: "workspace-1",
-          promptGuidelines: "",
+
           repositories: [],
           tracker: {
             adapter: "github-project",

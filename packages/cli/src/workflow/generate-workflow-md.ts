@@ -105,10 +105,6 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 {{issue.description}}
 
-### Guidelines
-
-{{guidelines}}
-
 ### Workflow
 
 1. Read the issue description carefully and understand the requirements.

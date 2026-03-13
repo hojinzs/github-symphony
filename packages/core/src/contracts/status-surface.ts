@@ -10,22 +10,10 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, string>;
 };
 
-export type TenantWorkflowOverrides = {
-  lifecycle?: WorkflowLifecycleConfig;
-  scheduler?: Partial<WorkflowDefinition["scheduler"]>;
-  retry?: Partial<WorkflowDefinition["retry"]>;
-  maxConcurrentByState?: Record<string, number>;
-};
-
-export type TenantOrchestratorConfig = {
-  concurrency?: number;
-  maxAttempts?: number;
-};
 
 export type OrchestratorTenantConfig = {
   tenantId: string;
   slug: string;
-  promptGuidelines: string;
   repositories: RepositoryRef[];
   tracker: OrchestratorTrackerConfig;
   runtime: {
@@ -34,14 +22,8 @@ export type OrchestratorTenantConfig = {
     projectRoot: string;
     workerCommand?: string;
   };
-  workflow?: TenantWorkflowOverrides;
-  orchestrator?: TenantOrchestratorConfig;
 };
 
-/** @deprecated Use TenantWorkflowOverrides */
-export type WorkspaceWorkflowOverrides = TenantWorkflowOverrides;
-/** @deprecated Use TenantOrchestratorConfig */
-export type WorkspaceOrchestratorConfig = TenantOrchestratorConfig;
 /** @deprecated Use OrchestratorTenantConfig */
 export type OrchestratorWorkspaceConfig = OrchestratorTenantConfig;
 /** @deprecated Use TenantLeaseRecord */
@@ -154,7 +136,6 @@ export type WorkflowResolution = {
   workflowPath: string | null;
   workflow: WorkflowDefinition;
   lifecycle: WorkflowLifecycleConfig;
-  promptGuidelines: string;
   promptTemplate: string;
   agentCommand: string;
   hookPath: string;
