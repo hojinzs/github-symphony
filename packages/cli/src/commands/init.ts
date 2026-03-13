@@ -884,7 +884,6 @@ export async function writeConfig(
       bindingId: input.project.id,
       settings: {
         projectId: input.project.id,
-        token: input.token,
         ...(input.blockedByFieldName && {
           blockedByFieldName: input.blockedByFieldName,
         }),
@@ -903,7 +902,6 @@ export async function writeConfig(
   const existing = await loadGlobalConfig(configDir);
   const globalConfig: CliGlobalConfig = {
     activeTenant: input.tenantId,
-    token: input.token,
     tenants: [
       ...(existing?.tenants ?? []).filter((t) => t !== input.tenantId),
       input.tenantId,

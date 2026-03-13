@@ -197,7 +197,6 @@ async function tenantAddNonInteractive(
 
   await writeConfig(options.configDir, {
     tenantId,
-    token: flags.token,
     project,
     repos: project.linkedRepositories,
     statusField,
@@ -451,7 +450,6 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
   try {
     await writeConfig(options.configDir, {
       tenantId,
-      token,
       project: projectDetail,
       repos: selectedRepos,
       statusField: {
