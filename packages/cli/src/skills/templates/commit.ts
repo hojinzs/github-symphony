@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generateCommitSkill(_ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -42,5 +43,10 @@ export function generateCommitSkill(_ctx: SkillTemplateContext): string {
   lines.push("test(worker): add retry exhaustion coverage");
   lines.push("```");
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "commit",
+    description:
+      "Create clean, logically scoped commits that keep the repository in a shippable state.",
+    bodyLines: lines,
+  });
 }

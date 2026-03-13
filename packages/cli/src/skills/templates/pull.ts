@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generatePullSkill(_ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -42,5 +43,10 @@ export function generatePullSkill(_ctx: SkillTemplateContext): string {
   lines.push("- Always pull at the start of a new work session");
   lines.push("- Record the pull evidence in the workpad before proceeding");
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "pull",
+    description:
+      "Sync the current branch with the latest remote base before implementation or review handoff.",
+    bodyLines: lines,
+  });
 }

@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generatePushSkill(_ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -35,5 +36,10 @@ export function generatePushSkill(_ctx: SkillTemplateContext): string {
   lines.push("- Verify CI starts after push (check GitHub Actions tab)");
   lines.push("- Do not push directly to `main` or `master`");
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "push",
+    description:
+      "Publish verified local commits to the remote branch without unsafe force pushes.",
+    bodyLines: lines,
+  });
 }

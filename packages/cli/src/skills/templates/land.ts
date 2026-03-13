@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generateLandSkill(_ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -68,5 +69,10 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   );
   lines.push("- Record all merge attempts and outcomes in the workpad");
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "land",
+    description:
+      "Merge approved pull requests safely after verifying approvals, CI, and branch freshness.",
+    bodyLines: lines,
+  });
 }

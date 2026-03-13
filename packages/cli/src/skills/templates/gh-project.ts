@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -107,5 +108,10 @@ export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
     "- Do not transition issues to terminal states without explicit completion verification"
   );
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "gh-project",
+    description:
+      "Manage GitHub Project v2 issue states, workpad comments, and related follow-up actions.",
+    bodyLines: lines,
+  });
 }

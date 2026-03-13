@@ -1,4 +1,5 @@
 import type { SkillTemplateContext } from "../types.js";
+import { renderSkillDocument } from "./document.js";
 
 export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -80,30 +81,34 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("## Supported Front Matter Fields");
   lines.push("");
   lines.push("```yaml");
-  lines.push("github_project_id: PVT_xxx");
-  lines.push("allowed_repositories:");
-  lines.push("  - owner/repo");
-  lines.push("lifecycle:");
+  lines.push("tracker:");
+  lines.push("  kind: github-project");
+  lines.push("  project_id: PVT_xxx");
   lines.push("  state_field: Status");
   lines.push("  active_states: [Todo, In Progress]");
   lines.push("  terminal_states: [Done, Cancelled]");
   lines.push("  blocker_check_states: [Blocked]");
-  lines.push("runtime:");
-  lines.push("  agent_command: bash -lc codex app-server");
-  lines.push("  max_turns: 20");
-  lines.push("  read_timeout_ms: 5000");
-  lines.push("  turn_timeout_ms: 3600000");
+  lines.push("polling:");
+  lines.push("  interval_ms: 30000");
+  lines.push("workspace:");
+  lines.push("  root: .runtime/symphony-workspaces");
   lines.push("hooks:");
   lines.push("  after_create: |");
   lines.push("    git clone --depth 1 https://github.com/owner/repo .");
   lines.push("  before_run: null");
   lines.push("  after_run: null");
   lines.push("  before_remove: null");
-  lines.push("scheduler:");
-  lines.push("  poll_interval_ms: 30000");
-  lines.push("retry:");
-  lines.push("  base_delay_ms: 1000");
-  lines.push("  max_delay_ms: 30000");
+  lines.push("  timeout_ms: 60000");
+  lines.push("agent:");
+  lines.push("  max_concurrent_agents: 10");
+  lines.push("  max_retry_backoff_ms: 30000");
+  lines.push("  retry_base_delay_ms: 1000");
+  lines.push("  max_turns: 20");
+  lines.push("codex:");
+  lines.push("  command: codex app-server");
+  lines.push("  read_timeout_ms: 5000");
+  lines.push("  turn_timeout_ms: 3600000");
+  lines.push("  stall_timeout_ms: 300000");
   lines.push("```");
   lines.push("");
   lines.push("## Supported Template Variables");
@@ -138,5 +143,10 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("- `/pull` — sync branch with latest origin/main before handoff");
   lines.push("- `/land` — merge approved PR and transition issue to Done");
 
-  return lines.join("\n");
+  return renderSkillDocument({
+    name: "gh-symphony",
+    description:
+      "Design, refine, and validate repository WORKFLOW.md files for GitHub Symphony projects.",
+    bodyLines: lines,
+  });
 }
