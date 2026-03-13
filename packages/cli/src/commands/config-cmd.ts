@@ -41,37 +41,22 @@ async function configShow(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  // Mask token for display
-  const display = {
-    ...config,
-    token: config.token ? maskToken(config.token) : null,
-  };
-
   if (options.json) {
-    process.stdout.write(JSON.stringify(display, null, 2) + "\n");
+    process.stdout.write(JSON.stringify(config, null, 2) + "\n");
     return;
   }
 
   process.stdout.write(`Config: ${configFilePath(options.configDir)}\n\n`);
-  process.stdout.write(
-    `Active tenant:    ${config.activeTenant ?? "none"}\n`
-  );
-  process.stdout.write(`Token:            ${display.token ?? "not set"}\n`);
+  process.stdout.write(`Active tenant:    ${config.activeTenant ?? "none"}\n`);
   process.stdout.write(
     `Tenants:          ${config.tenants.join(", ") || "none"}\n`
   );
-}
-
-function maskToken(token: string): string {
-  if (token.length <= 8) return "****";
-  return token.slice(0, 4) + "..." + token.slice(-4);
 }
 
 // ── 7.2: config set ──────────────────────────────────────────────────────────
 
 const VALID_KEYS: Record<string, { type: "string" | "number" }> = {
   "active-tenant": { type: "string" },
-  token: { type: "string" },
 };
 
 async function configSet(
@@ -99,7 +84,6 @@ async function configSet(
     (await loadGlobalConfig(options.configDir)) ??
     ({
       activeTenant: null,
-      token: null,
       tenants: [],
     } satisfies CliGlobalConfig);
 
@@ -114,15 +98,10 @@ async function configSet(
       }
       config.activeTenant = value;
       break;
-    case "token":
-      config.token = value;
-      break;
   }
 
   await saveGlobalConfig(options.configDir, config);
-  process.stdout.write(
-    `Set ${key} = ${key === "token" ? maskToken(value) : value}\n`
-  );
+  process.stdout.write(`Set ${key} = ${value}\n`);
 }
 
 // ── 7.3: config edit ─────────────────────────────────────────────────────────
