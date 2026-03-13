@@ -1,0 +1,10 @@
+## F2 Check 5: No Empty Catch Blocks — PASS
+
+$ grep -rn "catch {}" \
+  packages/cli/src/detection/ \
+  packages/cli/src/context/ \
+  packages/cli/src/skills/ \
+  packages/cli/src/workflow/generate-reference-workflow.ts \
+  packages/cli/src/commands/init.ts
+
+Result: zero matches (exit code 1 = no matches)

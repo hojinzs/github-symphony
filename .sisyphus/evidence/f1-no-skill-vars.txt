@@ -1,0 +1,10 @@
+Template search: grep -rn '{{' packages/cli/src/skills/templates/
+Result: no matches.
+
+Additional runtime-dir check:
+- packages/cli/src/skills/skill-writer.ts: resolveSkillsDir() returns only one path for a given runtime:
+  - claude-code -> .claude/skills
+  - codex -> .codex/skills
+- packages/cli/src/commands/init.ts calls resolveSkillsDir(cwd, runtime) once, then writeAllSkills(cwd, runtime, ...).
+
+Conclusion: Skill templates are static markdown with no {{...}} placeholders, and init writes skills to only one runtime directory per invocation.

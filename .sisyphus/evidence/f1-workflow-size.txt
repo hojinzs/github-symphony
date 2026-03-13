@@ -1,0 +1,11 @@
+File inspected: packages/cli/src/workflow/generate-workflow-md.ts
+
+Sizing notes:
+- buildFrontMatter() is a compact string-array renderer with only project/lifecycle/runtime/hooks/scheduler/retry fields.
+- buildPromptBody() spans roughly the content represented by lines 93-149 in the source, about 57 lines including section spacing and the fenced workpad example.
+- A typical generated front matter for the test fixture in packages/cli/src/workflow/generate-workflow-md.test.ts adds about 19 lines, plus 2 delimiter lines.
+
+Approximate generated WORKFLOW.md size for the representative fixture:
+- about 78 total lines
+
+Conclusion: The generated WORKFLOW.md is a compact scaffold, well under 100 lines in the representative case and far from a 400-line rich prompt.

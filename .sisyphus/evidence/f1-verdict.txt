@@ -1,0 +1,25 @@
+## F1 Plan Compliance Audit — VERDICT: APPROVE
+
+### Check 1: core/orchestrator/worker unchanged — PASS
+`git log --oneline --name-only HEAD~8..HEAD | grep -E '^packages/(core|orchestrator|worker)/'` returned no output, so the recent implementation history does not touch `packages/core/`, `packages/orchestrator/`, or `packages/worker/`.
+
+### Check 2: No new {{variable}} patterns — PASS
+In `packages/cli/src/workflow/generate-workflow-md.ts`, `buildPromptBody()` contains only `{{issue.identifier}}`, `{{issue.title}}`, `{{issue.repository}}`, `{{issue.state}}`, and `{{issue.description}}`. Each is within the allowed supported variable set; no new prompt variables were introduced.
+
+### Check 3: No tokens/secrets in context.yaml — PASS
+`packages/cli/src/context/generate-context-yaml.ts` serializes project metadata, status/text fields, repositories, detected environment, and runtime only. The token/secret search matched only test assertions in `packages/cli/src/context/generate-context-yaml.test.ts`, not production YAML output code.
+
+### Check 4: No {{...}} in skill files — PASS
+`packages/cli/src/skills/templates/` contains no `{{...}}` placeholders. Also, `packages/cli/src/skills/skill-writer.ts` resolves exactly one runtime-specific skills directory per invocation, so init does not create both `.claude/skills/` and `.codex/skills/` simultaneously.
+
+### Check 5: No new template engine/library — PASS
+`packages/cli/package.json` contains no `yaml`, `handlebars`, `mustache`, `ejs`, `nunjucks`, or `liquid` dependency entries.
+
+### Check 6: WORKFLOW.md is minimal — PASS
+`packages/cli/src/workflow/generate-workflow-md.ts` generates a concise scaffold. The prompt body is about 57 lines, and a representative full output is about 78 lines total, which is well under 100 and nowhere near a 400-line rich template.
+
+### Check 7: No GraphQL mutations — PASS
+No GraphQL mutation calls were found in `packages/cli/src/context/`, `packages/cli/src/detection/`, `packages/cli/src/workflow/generate-reference-workflow.ts`, or `packages/cli/src/skills/`. The only match was a comment in `packages/cli/src/skills/types.ts` mentioning mutation-related IDs.
+
+### Final Verdict: APPROVE
+All audited hard constraints pass. The implementation stays within the CLI-only ecosystem/init scope, keeps `context.yaml` commit-safe, emits a minimal `WORKFLOW.md`, writes static skill markdown, avoids new templating dependencies, and does not perform GraphQL mutations during init.

@@ -1,0 +1,9 @@
+## F2 Check 4: No `as any` / `@ts-ignore` / `@ts-nocheck` — PASS
+
+$ grep -rn "as any\|@ts-ignore\|@ts-nocheck" \
+  packages/cli/src/detection/ \
+  packages/cli/src/context/ \
+  packages/cli/src/skills/ \
+  packages/cli/src/workflow/generate-reference-workflow.ts
+
+Result: zero matches (exit code 1 = no matches)

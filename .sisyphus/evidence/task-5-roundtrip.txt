@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/playful-knight
+
+ ✓ packages/cli/src/workflow/generate-workflow-md.test.ts (15 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+   Start at  14:37:22
+   Duration  208ms (transform 41ms, setup 0ms, collect 56ms, tests 3ms, environment 0ms, prepare 35ms)
+

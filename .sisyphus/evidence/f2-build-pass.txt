@@ -1,0 +1,32 @@
+## F2 Check 1: TypeScript + Lint + Build
+
+### Typecheck — PASS
+$ pnpm --filter @gh-symphony/cli typecheck
+> tsc -p tsconfig.json --noEmit
+Exit: 0
+
+### Lint — FAIL
+$ pnpm --filter @gh-symphony/cli lint
+5 errors:
+
+1. packages/cli/src/context/generate-context-yaml.ts:6:3
+   'ProjectTextField' is defined but never used (@typescript-eslint/no-unused-vars)
+
+2. packages/cli/src/context/generate-context-yaml.ts:21:30
+   Unnecessary escape character: \" (no-useless-escape)
+
+3. packages/cli/src/context/generate-context-yaml.ts:21:32
+   Unnecessary escape character: \[ (no-useless-escape)
+
+4. packages/cli/src/skills/skill-writer.ts:2:10
+   'dirname' is defined but never used (@typescript-eslint/no-unused-vars)
+
+5. packages/cli/src/workflow/generate-workflow-md.ts:2:10
+   'generateStatusMap' is defined but never used (@typescript-eslint/no-unused-vars)
+
+Exit: 1
+
+### Build — PASS
+$ pnpm --filter @gh-symphony/cli build
+> tsc -p tsconfig.json
+Exit: 0

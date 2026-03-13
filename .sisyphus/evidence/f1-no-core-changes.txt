@@ -1,0 +1,3 @@
+Check 1 command: git log --oneline --name-only HEAD~8..HEAD | grep -E '^packages/(core|orchestrator|worker)/'
+Result: no output.
+Conclusion: No files under packages/core/, packages/orchestrator/, or packages/worker/ appear in the last 8 commits.

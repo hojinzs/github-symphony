@@ -1,0 +1,25 @@
+## F2 Check 2: Full CLI Test Suite — PASS
+
+$ pnpm --filter @gh-symphony/cli test
+
+ Test Files  14 passed (14)
+      Tests  125 passed (125)
+   Duration  558ms
+
+Files:
+ ✓ src/skills/templates/gh-project.test.ts (7 tests)
+ ✓ src/mapping/smart-defaults.test.ts (14 tests)
+ ✓ src/skills/templates/commit.test.ts (4 tests)
+ ✓ src/skills/templates/push.test.ts (4 tests)
+ ✓ src/skills/templates/gh-symphony.test.ts (8 tests)
+ ✓ src/workflow/generate-reference-workflow.test.ts (19 tests)
+ ✓ src/skills/templates/land.test.ts (5 tests)
+ ✓ src/context/generate-context-yaml.test.ts (6 tests)
+ ✓ src/skills/skill-writer.test.ts (10 tests)
+ ✓ src/commands/lifecycle.test.ts (3 tests)
+ ✓ src/detection/environment-detector.test.ts (19 tests)
+ ✓ src/skills/templates/pull.test.ts (4 tests)
+ ✓ src/workflow/generate-workflow-md.test.ts (15 tests)
+ ✓ src/commands/init.test.ts (7 tests)
+
+Exit: 0

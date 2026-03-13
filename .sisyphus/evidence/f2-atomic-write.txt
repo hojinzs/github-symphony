@@ -1,0 +1,25 @@
+## F2 Check 3: Atomic Write Pattern Compliance — PASS
+
+### generate-context-yaml.ts — writeContextYaml() ✓
+Lines 129-133:
+  const temporaryPath = `${contextPath}.tmp`;
+  const yamlContent = generateContextYamlString(context);
+  await writeFile(temporaryPath, yamlContent, "utf8");
+  const { rename } = await import("node:fs/promises");
+  await rename(temporaryPath, contextPath);
+
+### skill-writer.ts — writeSkillFile() ✓
+Lines 41-44:
+  const temporaryPath = `${filePath}.tmp`;
+  await writeFile(temporaryPath, content, "utf8");
+  const { rename } = await import("node:fs/promises");
+  await rename(temporaryPath, filePath);
+
+### init.ts — writeEcosystem() (reference-workflow.md) ✓
+Lines 179-182:
+  const refPath = join(ghSymphonyDir, "reference-workflow.md");
+  const tmpRef = refPath + ".tmp";
+  await writeFile(tmpRef, refWorkflow, "utf8");
+  await rename(tmpRef, refPath);
+
+All three functions use the atomic tmp+rename pattern correctly.

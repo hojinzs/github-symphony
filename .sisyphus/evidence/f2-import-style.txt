@@ -1,0 +1,15 @@
+## F2 Check 6: Consistent `.js` Import Extensions — PASS (minor issue in test file)
+
+All source files in detection/, context/, skills/, and generate-reference-workflow.ts
+use correct `.js` extensions on relative imports.
+
+Verified imports (all end in .js):
+  - context/generate-context-yaml.ts: "../github/client.js", "../detection/environment-detector.js", "../mapping/smart-defaults.js"
+  - context/context-types.ts: "../detection/environment-detector.js"
+  - skills/templates/*.ts: "../types.js"
+  - skills/templates/index.ts: "../types.js"
+  - All test files in skills/templates/: "../types.js"
+
+One minor issue in test file (not blocking):
+  - detection/environment-detector.test.ts:6: `from "./environment-detector"` (missing .js)
+  - This is a test file only; does not affect build or runtime.

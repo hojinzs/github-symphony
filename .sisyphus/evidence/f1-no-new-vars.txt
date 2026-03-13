@@ -1,0 +1,21 @@
+File inspected: packages/cli/src/workflow/generate-workflow-md.ts
+Function: buildPromptBody()
+
+Double-brace matches found:
+- {{issue.identifier}}
+- {{issue.title}}
+- {{issue.repository}}
+- {{issue.state}}
+- {{issue.description}}
+
+Allowed supported variables for this audit:
+- issue.identifier
+- issue.title
+- issue.state
+- issue.description
+- issue.url
+- issue.repository
+- issue.number
+- attempt
+
+Conclusion: Every {{...}} occurrence in WORKFLOW.md generation is within the supported PromptVariables set. No new template variables were introduced.

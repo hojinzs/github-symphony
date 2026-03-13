@@ -1,0 +1,5 @@
+File inspected: packages/cli/package.json
+Search pattern: "yaml|"handlebars|"mustache|"ejs|"nunjucks|"liquid
+Result: no matches.
+
+Conclusion: No YAML library or template engine dependency was added. The implementation continues using string-array assembly.

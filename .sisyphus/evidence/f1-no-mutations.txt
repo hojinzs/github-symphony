@@ -1,0 +1,13 @@
+Paths searched:
+- packages/cli/src/context/
+- packages/cli/src/skills/
+- packages/cli/src/detection/
+- packages/cli/src/workflow/generate-reference-workflow.ts
+
+Search results for mutation|graphql.*mutation:
+- No matches in packages/cli/src/context/
+- No matches in packages/cli/src/detection/
+- No matches in packages/cli/src/workflow/generate-reference-workflow.ts
+- One comment-only match in packages/cli/src/skills/types.ts: "option ID (needed for GitHub Project mutations)"
+
+Conclusion: No GraphQL mutation calls are present in the audited CLI ecosystem/init code. IDs are stored for downstream agent use only.
