@@ -185,8 +185,10 @@ describe("init command config output", () => {
     await writeFile(
       join(tenantDir, "WORKFLOW.md"),
       `---
-runtime:
-  agent_command: bash -lc claude-code
+tracker:
+  kind: github-project
+codex:
+  command: claude-code
 ---
 Prompt body
 `,
@@ -195,7 +197,7 @@ Prompt body
 
     await expect(
       resolveTenantRuntime(configDir, "tenant-runtime")
-    ).resolves.toBe("bash -lc claude-code");
+    ).resolves.toBe("claude-code");
   });
 
   it("falls back to codex when tenant WORKFLOW agent command is a worker path", async () => {
@@ -207,8 +209,10 @@ Prompt body
     await writeFile(
       join(tenantDir, "WORKFLOW.md"),
       `---
-runtime:
-  agent_command: node /Users/example/github-symphony/packages/worker/dist/index.js
+tracker:
+  kind: github-project
+codex:
+  command: node /Users/example/github-symphony/packages/worker/dist/index.js
 ---
 Prompt body
 `,
@@ -229,8 +233,10 @@ Prompt body
     await writeFile(
       join(tenantDir, "WORKFLOW.md"),
       `---
-runtime:
-  agent_command: env:OPENAI_AGENT_COMMAND
+tracker:
+  kind: github-project
+codex:
+  command: env:OPENAI_AGENT_COMMAND
 ---
 Prompt body
 `,
@@ -346,7 +352,43 @@ describe("init ecosystem generation", () => {
       join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
       "utf8"
     );
+    expect(skill.startsWith("---\n")).toBe(true);
+    expect(skill).toContain("name: gh-symphony");
+    expect(skill).toContain("description: Design, refine, and validate");
     expect(skill).toContain("gh-symphony");
+  });
+
+  it("generates frontmatter for all scaffolded codex skills", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-codex-frontmatter-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const skillNames = [
+      "gh-symphony",
+      "gh-project",
+      "commit",
+      "push",
+      "pull",
+      "land",
+    ];
+
+    for (const skillName of skillNames) {
+      const skill = await readFile(
+        join(cwd, ".codex", "skills", skillName, "SKILL.md"),
+        "utf8"
+      );
+      expect(skill.startsWith("---\n")).toBe(true);
+      expect(skill).toContain(`name: ${skillName}`);
+      expect(skill).toContain("license: MIT");
+      expect(skill).toContain("metadata:");
+    }
   });
 
   it("--skip-skills skips skill files", async () => {

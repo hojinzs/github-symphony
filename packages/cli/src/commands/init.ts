@@ -228,10 +228,6 @@ export async function writeEcosystem(opts: EcosystemOptions): Promise<void> {
       name: o.name,
       role: null as "active" | "wait" | "terminal" | null,
     })),
-    repositories: projectDetail.linkedRepositories.map((r) => ({
-      owner: r.owner,
-      name: r.name,
-    })),
     projectId: projectDetail.id,
   });
   const refPath = join(ghSymphonyDir, "reference-workflow.md");
@@ -363,10 +359,6 @@ async function runNonInteractive(
     stateFieldName: statusField.name,
     mappings,
     lifecycle: lifecycleConfig,
-    repositories: project.linkedRepositories.map((r) => ({
-      owner: r.owner,
-      name: r.name,
-    })),
     runtime: "codex",
     blockedByFieldName,
   });
@@ -467,11 +459,6 @@ async function runInteractiveFromTenant(
     Object.assign(mappings, workflowMapping.mappings);
   }
 
-  const repositories = tenantConfig.repositories.map((r) => ({
-    owner: r.owner,
-    name: r.name,
-  }));
-
   const projectId = tenantConfig.tracker.settings?.projectId as
     | string
     | undefined;
@@ -488,7 +475,6 @@ async function runInteractiveFromTenant(
     stateFieldName,
     mappings,
     lifecycle,
-    repositories,
     runtime,
   });
 
@@ -693,10 +679,6 @@ async function runInteractiveStandalone(
     stateFieldName: statusField.name,
     mappings,
     lifecycle: lifecycleConfig,
-    repositories: projectDetail.linkedRepositories.map((r) => ({
-      owner: r.owner,
-      name: r.name,
-    })),
     runtime: "codex",
     blockedByFieldName,
   });
@@ -855,7 +837,6 @@ export async function writeConfig(
     stateFieldName: input.statusField.name,
     mappings: input.mappings,
     lifecycle: lifecycleConfig,
-    repositories: input.repos.map((r) => ({ owner: r.owner, name: r.name })),
     runtime: input.agentCommand ?? input.runtime,
     pollIntervalMs: input.pollIntervalMs,
     concurrency: input.concurrency,
