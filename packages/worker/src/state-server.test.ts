@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildWorkerRuntimeState,
-  createWorkerRequestHandler
+  createWorkerRequestHandler,
 } from "./state-server.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
 
@@ -10,13 +10,12 @@ describe("buildWorkerRuntimeState", () => {
     const state = await buildWorkerRuntimeState(
       {
         GITHUB_PROJECT_ID: "project-123",
-        WORKSPACE_RUNTIME_DIR: "/workspace-runtime"
+        WORKSPACE_RUNTIME_DIR: "/workspace-runtime",
       },
       vi.fn().mockResolvedValue(`---
-github_project_id: project-123
-allowed_repositories:
-  - https://github.com/acme/platform.git
-lifecycle:
+tracker:
+  kind: github-project
+  project_id: project-123
   state_field: Status
   active_states:
     - Todo
@@ -25,8 +24,8 @@ lifecycle:
     - Done
   blocker_check_states:
     - Todo
-runtime:
-  agent_command: bash -lc codex app-server
+codex:
+  command: codex app-server
 hooks:
   after_create: hooks/after_create.sh
 ---
@@ -36,27 +35,21 @@ Prefer small changes.
 
     expect(state.workflow).toEqual({
       githubProjectId: "project-123",
-      agentCommand: "bash -lc codex app-server",
+      agentCommand: "codex app-server",
       hookPath: "hooks/after_create.sh",
-      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE
+      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
     });
-    expect(state.allowedRepositories).toEqual([
-      "https://github.com/acme/platform.git"
-    ]);
   });
 
   it("falls back to environment metadata when workflow is missing", async () => {
     const state = await buildWorkerRuntimeState(
       {
         GITHUB_PROJECT_ID: "project-123",
-        WORKSPACE_ALLOWED_REPOSITORIES:
-          "https://github.com/acme/platform.git,https://github.com/acme/api.git"
       },
       vi.fn().mockRejectedValue(new Error("missing"))
     );
 
     expect(state.projectId).toBe("project-123");
-    expect(state.allowedRepositories).toHaveLength(2);
     expect(state.workflow).toBeNull();
   });
 
@@ -71,11 +64,13 @@ Prefer small changes.
         SYMPHONY_ISSUE_STATE: "Todo",
         TARGET_REPOSITORY_OWNER: "acme",
         TARGET_REPOSITORY_NAME: "platform",
-        TARGET_REPOSITORY_CLONE_URL: "https://github.com/acme/platform.git"
+        TARGET_REPOSITORY_CLONE_URL: "https://github.com/acme/platform.git",
       },
       vi.fn().mockResolvedValue(`---
-runtime:
-  agent_command: bash -lc codex app-server
+tracker:
+  kind: github-project
+codex:
+  command: codex app-server
 ---
 Prefer small changes.
 `)
@@ -91,9 +86,9 @@ Prefer small changes.
         owner: "acme",
         name: "platform",
         cloneUrl: "https://github.com/acme/platform.git",
-        url: null
+        url: null,
       },
-      lastError: null
+      lastError: null,
     });
   });
 });
@@ -107,14 +102,13 @@ describe("createWorkerRequestHandler", () => {
       status: "idle",
       projectId: "project-123",
       workspaceRuntimeDir: "/workspace-runtime",
-      allowedRepositories: [],
       run: null,
-      workflow: null
+      workflow: null,
     }));
 
     await handler(
       {
-        url: "/api/v1/state"
+        url: "/api/v1/state",
       } as never,
       response as never
     );
@@ -135,6 +129,6 @@ function createMockResponse() {
     },
     end(chunk: string) {
       this.body = chunk;
-    }
+    },
   };
 }

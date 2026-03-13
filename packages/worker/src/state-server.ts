@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseWorkflowMarkdown } from "./workflow-parser.js";
@@ -9,7 +13,6 @@ export type WorkerRuntimeState = {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   projectId: string | null;
   workspaceRuntimeDir: string;
-  allowedRepositories: string[];
   run: null | {
     runId: string;
     issueId: string | null;
@@ -49,12 +52,16 @@ export type WorkerRuntimeState = {
 export async function buildWorkerRuntimeState(
   env: NodeJS.ProcessEnv,
   readFileImpl: typeof readFile = readFile,
-  runtime: Partial<Pick<WorkerRuntimeState, "status" | "run" | "tokenUsage" | "sessionInfo">> = {}
+  runtime: Partial<
+    Pick<WorkerRuntimeState, "status" | "run" | "tokenUsage" | "sessionInfo">
+  > = {}
 ): Promise<WorkerRuntimeState> {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR ?? "/workspace-runtime";
-  const workflowPath = join(env.WORKING_DIRECTORY ?? workspaceRuntimeDir, "WORKFLOW.md");
+  const workflowPath = join(
+    env.WORKING_DIRECTORY ?? workspaceRuntimeDir,
+    "WORKFLOW.md"
+  );
   let workflow: WorkerRuntimeState["workflow"] = null;
-  let allowedRepositories = parseAllowedRepositories(env.WORKSPACE_ALLOWED_REPOSITORIES);
   const assignedRun =
     runtime.run ??
     (env.SYMPHONY_RUN_ID
@@ -68,21 +75,20 @@ export async function buildWorkerRuntimeState(
             owner: env.TARGET_REPOSITORY_OWNER ?? null,
             name: env.TARGET_REPOSITORY_NAME ?? null,
             cloneUrl: env.TARGET_REPOSITORY_CLONE_URL ?? null,
-            url: env.TARGET_REPOSITORY_URL ?? null
+            url: env.TARGET_REPOSITORY_URL ?? null,
           },
-          lastError: null
+          lastError: null,
         }
       : null);
 
   try {
     const workflowMarkdown = await readFileImpl(workflowPath, "utf8");
     const parsedWorkflow = parseWorkflowMarkdown(workflowMarkdown);
-    allowedRepositories = parsedWorkflow.allowedRepositories;
     workflow = {
       githubProjectId: parsedWorkflow.githubProjectId,
       agentCommand: parsedWorkflow.agentCommand,
-      hookPath: parsedWorkflow.hookPath,
-      lifecycle: parsedWorkflow.lifecycle
+      hookPath: parsedWorkflow.hookPath ?? "",
+      lifecycle: parsedWorkflow.lifecycle,
     };
   } catch {
     // Keep serving a minimal state object even when workflow artifacts are not mounted yet.
@@ -94,11 +100,14 @@ export async function buildWorkerRuntimeState(
     status: runtime.status ?? "idle",
     projectId: env.GITHUB_PROJECT_ID ?? workflow?.githubProjectId ?? null,
     workspaceRuntimeDir,
-    allowedRepositories,
     run: assignedRun,
-    tokenUsage: runtime.tokenUsage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    tokenUsage: runtime.tokenUsage ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    },
     sessionInfo: runtime.sessionInfo ?? null,
-    workflow
+    workflow,
   };
 }
 
@@ -108,7 +117,7 @@ export function createWorkerRequestHandler(
   return async (request, response) => {
     if (request.url === "/healthz") {
       response.writeHead(200, {
-        "content-type": "application/json"
+        "content-type": "application/json",
       });
       response.end(JSON.stringify({ ok: true }));
       return;
@@ -117,14 +126,14 @@ export function createWorkerRequestHandler(
     if (request.url === "/api/v1/state") {
       const state = await getState();
       response.writeHead(200, {
-        "content-type": "application/json"
+        "content-type": "application/json",
       });
       response.end(JSON.stringify(state));
       return;
     }
 
     response.writeHead(404, {
-      "content-type": "application/json"
+      "content-type": "application/json",
     });
     response.end(JSON.stringify({ error: "Not found" }));
   };
@@ -140,11 +149,4 @@ export function startWorkerStateServer(options: {
 
   server.listen(options.port);
   return server;
-}
-
-function parseAllowedRepositories(value: string | undefined): string[] {
-  return value
-    ?.split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean) ?? [];
 }

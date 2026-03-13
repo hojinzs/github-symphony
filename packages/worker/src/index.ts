@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -116,7 +117,13 @@ process.on("SIGTERM", shutdown);
 
 async function startAssignedRun() {
   try {
+    const workflowPath = join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
+    const workflow = parseWorkflowMarkdown(
+      await readFile(workflowPath, "utf8"),
+      launcherEnv
+    );
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
+    config.agentCommand = workflow.codex.command;
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";

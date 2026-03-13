@@ -3,15 +3,12 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  assertRepositoryAllowed,
-  resolveWorkspaceDirectory
-} from "@gh-symphony/core";
+import { resolveWorkspaceDirectory } from "@gh-symphony/core";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildAfterCreateHookScript,
-  prepareAfterCreateHook
+  prepareAfterCreateHook,
 } from "./after-create-hook.js";
 
 const execFileAsync = promisify(execFile);
@@ -22,7 +19,7 @@ afterEach(async () => {
     tempPaths.splice(0, tempPaths.length).map((path) =>
       rm(path, {
         recursive: true,
-        force: true
+        force: true,
       })
     )
   );
@@ -30,9 +27,9 @@ afterEach(async () => {
 
 describe("resolveWorkspaceDirectory", () => {
   it("keeps workspaces inside the configured root", () => {
-    expect(resolveWorkspaceDirectory("/tmp/github-symphony", "workspace-1")).toBe(
-      "/tmp/github-symphony/workspace-1"
-    );
+    expect(
+      resolveWorkspaceDirectory("/tmp/github-symphony", "workspace-1")
+    ).toBe("/tmp/github-symphony/workspace-1");
   });
 
   it("rejects path traversal", () => {
@@ -42,22 +39,11 @@ describe("resolveWorkspaceDirectory", () => {
   });
 });
 
-describe("assertRepositoryAllowed", () => {
-  it("rejects repositories outside the workspace allowlist", () => {
-    expect(() =>
-      assertRepositoryAllowed("https://github.com/acme/other.git", [
-        "https://github.com/acme/platform.git"
-      ])
-    ).toThrow("Repository is not in the workspace allowlist");
-  });
-});
-
 describe("buildAfterCreateHookScript", () => {
-  it("contains clone and allowlist guards", () => {
+  it("contains clone command", () => {
     const script = buildAfterCreateHookScript();
 
     expect(script).toContain("git clone");
-    expect(script).toContain("Repository is not allowed");
   });
 });
 
@@ -70,7 +56,7 @@ describe("prepareAfterCreateHook", () => {
     tempPaths.push(root);
 
     await mkdir(workspaceRoot, {
-      recursive: true
+      recursive: true,
     });
 
     await execFileAsync("git", ["init", "--bare", bareRepository]);
@@ -79,16 +65,17 @@ describe("prepareAfterCreateHook", () => {
       workspaceId: "workspace-1",
       workspaceRoot,
       targetRepositoryCloneUrl: bareRepository,
-      allowedRepositoryCloneUrls: [bareRepository]
     });
 
     await execFileAsync("bash", [hook.scriptPath], {
       env: {
         ...process.env,
-        ...hook.env
-      }
+        ...hook.env,
+      },
     });
 
-    expect(existsSync(join(hook.workspaceDirectory, "repository", ".git"))).toBe(true);
+    expect(
+      existsSync(join(hook.workspaceDirectory, "repository", ".git"))
+    ).toBe(true);
   });
 });
