@@ -1,17 +1,18 @@
 import {
   DEFAULT_AGENT_COMMAND,
-  DEFAULT_HOOK_PATH,
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_HOOK_TIMEOUT_MS,
+  DEFAULT_MAX_CONCURRENT_AGENTS,
+  DEFAULT_MAX_RETRY_BACKOFF_MS,
   DEFAULT_MAX_TURNS,
+  DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_READ_TIMEOUT_MS,
+  DEFAULT_STALL_TIMEOUT_MS,
   DEFAULT_TURN_TIMEOUT_MS,
   DEFAULT_WORKFLOW_DEFINITION,
-  DEFAULT_WORKFLOW_HOOKS,
-  DEFAULT_WORKFLOW_RETRY,
-  DEFAULT_WORKFLOW_RUNTIME,
-  DEFAULT_WORKFLOW_SCHEDULER,
-  type ParsedWorkflow
+  DEFAULT_WORKFLOW_TRACKER,
+  type ParsedWorkflow,
 } from "./config.js";
-import { DEFAULT_WORKFLOW_LIFECYCLE } from "./lifecycle.js";
 
 type WorkflowFrontMatterNode =
   | string
@@ -21,266 +22,147 @@ type WorkflowFrontMatterNode =
   | WorkflowFrontMatterNode[]
   | { [key: string]: WorkflowFrontMatterNode };
 
-/**
- * Parse a WORKFLOW.md file into a typed workflow definition.
- *
- * Supports two formats:
- *  1. **YAML front matter + prompt body** (canonical) — `format: "front-matter"`
- *  2. **Legacy sectioned markdown** (compatibility) — `format: "legacy-sectioned"`
- *
- * The legacy format is auto-detected when no YAML front matter delimiter (`---`)
- * is found. Existing workspaces with section-based WORKFLOW.md files continue to
- * work without modification. Operators should migrate to the YAML front matter
- * format; the legacy parser will be removed in a future version.
- */
+export type ParseWorkflowOptions = {
+  compatibilityMode?: "strict" | "legacy";
+};
+
 export function parseWorkflowMarkdown(
   markdown: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  options: ParseWorkflowOptions = {}
 ): ParsedWorkflow {
+  const compatibilityMode = options.compatibilityMode ?? "strict";
   const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
 
   if (!frontMatterMatch) {
-    return parseLegacyWorkflowMarkdown(markdown);
+    if (compatibilityMode === "legacy") {
+      return parseLegacyWorkflowMarkdown(markdown);
+    }
+    throw new Error("WORKFLOW.md must use YAML front matter.");
   }
 
   const [, rawFrontMatter, rawPromptTemplate = ""] = frontMatterMatch;
   const frontMatter = parseFrontMatter(rawFrontMatter);
-  const allowedRepositories = readStringArray(frontMatter, "allowed_repositories") ?? [];
-  const githubProjectId = readOptionalString(frontMatter, "github_project_id", env);
   const promptTemplate = rawPromptTemplate.trim();
-  const runtimeConfig = readObject(frontMatter, "runtime");
-  const hooksConfig = readObject(frontMatter, "hooks");
-  const lifecycleConfig = readObject(frontMatter, "lifecycle");
-  const schedulerConfig = readObject(frontMatter, "scheduler");
-  const retryConfig = readObject(frontMatter, "retry");
-  const maxConcurrentByStateRaw = readObject(frontMatter, "max_concurrent_by_state");
-  const maxConcurrentByState: Record<string, number> = {};
-  for (const [stateKey, stateVal] of Object.entries(maxConcurrentByStateRaw)) {
-    if (typeof stateVal === "number") {
-      maxConcurrentByState[stateKey] = stateVal;
-    }
-  }
-  const agentCommand =
-    readOptionalString(runtimeConfig, "agent_command", env) ?? DEFAULT_AGENT_COMMAND;
-  const hookPath =
-    readOptionalString(hooksConfig, "after_create", env) ?? DEFAULT_HOOK_PATH;
 
-  // Read new active_states/terminal_states keys
-  const activeStates = readStringArray(lifecycleConfig, "active_states");
-  const terminalStates = readStringArray(lifecycleConfig, "terminal_states");
-  const blockerCheckStates = readStringArray(lifecycleConfig, "blocker_check_states");
+  const tracker = readRequiredObject(frontMatter, "tracker");
+  const polling = readObject(frontMatter, "polling");
+  const workspace = readObject(frontMatter, "workspace");
+  const hooks = readObject(frontMatter, "hooks");
+  const agent = readObject(frontMatter, "agent");
+  const codex = readRequiredObject(frontMatter, "codex");
 
-  // Fallback: if new keys are absent, try legacy phase-based keys and merge
-  let resolvedActiveStates: string[];
-  let resolvedTerminalStates: string[];
-  let resolvedBlockerCheckStates: string[];
+  const trackerKind = readRequiredString(tracker, "kind", env);
+  const activeStates =
+    readStringList(tracker, "active_states") ??
+    DEFAULT_WORKFLOW_TRACKER.activeStates;
+  const terminalStates =
+    readStringList(tracker, "terminal_states") ??
+    DEFAULT_WORKFLOW_TRACKER.terminalStates;
+  const blockerCheckStates =
+    readStringList(tracker, "blocker_check_states") ??
+    DEFAULT_WORKFLOW_TRACKER.blockerCheckStates;
 
-  if (activeStates) {
-    resolvedActiveStates = activeStates;
-  } else {
-    const planningActive = readStringArray(lifecycleConfig, "planning_active");
-    const implementationActive = readStringArray(lifecycleConfig, "implementation_active");
-    if (planningActive || implementationActive) {
-      resolvedActiveStates = [
-        ...(planningActive ?? []),
-        ...(implementationActive ?? []),
-      ];
-    } else {
-      resolvedActiveStates = DEFAULT_WORKFLOW_LIFECYCLE.activeStates;
-    }
-  }
+  const maxConcurrentAgentsByState = readNumberMap(
+    agent,
+    "max_concurrent_agents_by_state"
+  );
 
-  if (terminalStates) {
-    resolvedTerminalStates = terminalStates;
-  } else {
-    const completed = readStringArray(lifecycleConfig, "completed");
-    resolvedTerminalStates = completed ?? DEFAULT_WORKFLOW_LIFECYCLE.terminalStates;
-  }
+  const command =
+    readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND;
 
-  if (blockerCheckStates) {
-    resolvedBlockerCheckStates = blockerCheckStates;
-  } else {
-    // Default blocker check to first active state (planning-like)
-    resolvedBlockerCheckStates = DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates;
-  }
-
-  return {
-    githubProjectId,
+  const parsed: ParsedWorkflow = {
     promptTemplate,
-    allowedRepositories,
-    runtime: {
-      agentCommand,
-      hooks: {
-        afterCreate: hookPath,
-        beforeRun: readOptionalString(hooksConfig, "before_run", env),
-        afterRun: readOptionalString(hooksConfig, "after_run", env),
-        beforeRemove: readOptionalString(hooksConfig, "before_remove", env)
-      },
+    tracker: {
+      kind: trackerKind,
+      endpoint: readOptionalString(tracker, "endpoint", env),
+      apiKey: readOptionalString(tracker, "api_key", env),
+      projectSlug: readOptionalString(tracker, "project_slug", env),
+      activeStates,
+      terminalStates,
+      projectId: readOptionalString(tracker, "project_id", env),
+      stateFieldName:
+        readOptionalString(tracker, "state_field", env) ??
+        DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+      blockerCheckStates,
+    },
+    polling: {
+      intervalMs:
+        readOptionalIntegerLike(polling, "interval_ms") ??
+        DEFAULT_POLL_INTERVAL_MS,
+    },
+    workspace: {
+      root: readOptionalString(workspace, "root", env),
+    },
+    hooks: {
+      afterCreate: readOptionalString(hooks, "after_create", env),
+      beforeRun: readOptionalString(hooks, "before_run", env),
+      afterRun: readOptionalString(hooks, "after_run", env),
+      beforeRemove: readOptionalString(hooks, "before_remove", env),
+      timeoutMs:
+        readOptionalIntegerLike(hooks, "timeout_ms") ?? DEFAULT_HOOK_TIMEOUT_MS,
+    },
+    agent: {
+      maxConcurrentAgents:
+        readOptionalIntegerLike(agent, "max_concurrent_agents") ??
+        DEFAULT_MAX_CONCURRENT_AGENTS,
+      maxRetryBackoffMs:
+        readOptionalIntegerLike(agent, "max_retry_backoff_ms") ??
+        DEFAULT_MAX_RETRY_BACKOFF_MS,
+      maxConcurrentAgentsByState,
       maxTurns:
-        readOptionalNumber(runtimeConfig, "max_turns") ?? DEFAULT_MAX_TURNS,
-      readTimeoutMs:
-        readOptionalNumber(runtimeConfig, "read_timeout_ms") ?? DEFAULT_READ_TIMEOUT_MS,
+        readOptionalIntegerLike(agent, "max_turns") ?? DEFAULT_MAX_TURNS,
+      retryBaseDelayMs:
+        readOptionalIntegerLike(agent, "retry_base_delay_ms") ??
+        DEFAULT_BASE_DELAY_MS,
+    },
+    codex: {
+      command,
+      approvalPolicy: readOptionalString(codex, "approval_policy", env),
+      threadSandbox: readOptionalString(codex, "thread_sandbox", env),
+      turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
       turnTimeoutMs:
-        readOptionalNumber(runtimeConfig, "turn_timeout_ms") ?? DEFAULT_TURN_TIMEOUT_MS,
-    },
-    scheduler: {
-      pollIntervalMs:
-        readOptionalNumber(schedulerConfig, "poll_interval_ms") ??
-        DEFAULT_WORKFLOW_SCHEDULER.pollIntervalMs
-    },
-    retry: {
-      baseDelayMs:
-        readOptionalNumber(retryConfig, "base_delay_ms") ?? DEFAULT_WORKFLOW_RETRY.baseDelayMs,
-      maxDelayMs:
-        readOptionalNumber(retryConfig, "max_delay_ms") ?? DEFAULT_WORKFLOW_RETRY.maxDelayMs
+        readOptionalIntegerLike(codex, "turn_timeout_ms") ??
+        DEFAULT_TURN_TIMEOUT_MS,
+      readTimeoutMs:
+        readOptionalIntegerLike(codex, "read_timeout_ms") ??
+        DEFAULT_READ_TIMEOUT_MS,
+      stallTimeoutMs:
+        readOptionalIntegerLike(codex, "stall_timeout_ms") ??
+        DEFAULT_STALL_TIMEOUT_MS,
     },
     lifecycle: {
       stateFieldName:
-        readOptionalString(lifecycleConfig, "state_field", env) ??
-        DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
-      activeStates: resolvedActiveStates,
-      terminalStates: resolvedTerminalStates,
-      blockerCheckStates: resolvedBlockerCheckStates,
+        readOptionalString(tracker, "state_field", env) ??
+        DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+      activeStates,
+      terminalStates,
+      blockerCheckStates,
     },
-    maxConcurrentByState,
     format: "front-matter",
-    agentCommand,
-    hookPath
+    githubProjectId: readOptionalString(tracker, "project_id", env),
+    agentCommand: command,
+    hookPath: readOptionalString(hooks, "after_create", env),
+    maxConcurrentByState: maxConcurrentAgentsByState,
   };
+
+  return parsed;
 }
 
-/**
- * @deprecated Legacy compatibility parser for section-based WORKFLOW.md files.
- *
- * This parser handles the original section-based format (## Prompt Guidelines,
- * ## Repository Allowlist, ## Approval Lifecycle, etc.). It is invoked
- * automatically by `parseWorkflowMarkdown` when no YAML front matter is detected.
- *
- * Migrate existing WORKFLOW.md files to YAML front matter format and remove this
- * fallback once all workspaces have been transitioned.
- */
 function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
-  const githubProjectId = matchOptional(markdown, /Project ID:\s*(.+)/);
-  const promptGuidelines = matchOptionalSection(markdown, "Prompt Guidelines") ?? "";
-  const allowedRepositories = parseAllowedRepositories(markdown);
-  const agentCommand =
-    stripCode(matchOptional(markdown, /Agent command:\s*`([^`]+)`/)) ??
-    DEFAULT_AGENT_COMMAND;
-  const hookPath =
-    stripCode(matchOptional(markdown, /Hook:\s*`([^`]+)`/)) ?? DEFAULT_HOOK_PATH;
-  const lifecycle = parseWorkflowLifecycle(markdown);
+  const promptGuidelines =
+    matchOptionalSection(markdown, "Prompt Guidelines") ?? "";
 
   return {
     ...DEFAULT_WORKFLOW_DEFINITION,
-    githubProjectId,
     promptTemplate: promptGuidelines,
-    allowedRepositories,
-    runtime: {
-      ...DEFAULT_WORKFLOW_RUNTIME,
-      agentCommand,
-      hooks: {
-        ...DEFAULT_WORKFLOW_HOOKS,
-        afterCreate: hookPath
-      }
-    },
-    lifecycle,
     format: "legacy-sectioned",
-    agentCommand,
-    hookPath
   };
 }
 
-function parseAllowedRepositories(markdown: string): string[] {
-  const section = matchOptionalSection(markdown, "Repository Allowlist");
-
-  if (!section) {
-    return [];
-  }
-
-  return section
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim());
-}
-
-function stripCode(value: string | null): string | null {
-  if (!value) {
-    return value;
-  }
-
-  return value.replace(/^`|`$/g, "").trim();
-}
-
-function parseWorkflowLifecycle(markdown: string) {
-  const section = matchOptionalSection(markdown, "Approval Lifecycle");
-
-  if (!section) {
-    return DEFAULT_WORKFLOW_LIFECYCLE;
-  }
-
-  const stateFieldName =
-    matchOptional(section, /State field:\s*(.+)/) ??
-    DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName;
-
-  // Read legacy phase-based lists and merge into active/terminal
-  const planningStates = readLegacyLifecycleList(section, "Planning-active states", []);
-  const implementationStates = readLegacyLifecycleList(section, "Implementation-active states", []);
-  const completedStates = readLegacyLifecycleList(section, "Completed states", []);
-
-  const activeStates = [...planningStates, ...implementationStates];
-  const terminalStates = completedStates;
-  const blockerCheckStates = planningStates.length > 0 ? planningStates : DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates;
-
-  return {
-    stateFieldName,
-    activeStates: activeStates.length > 0 ? activeStates : DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
-    terminalStates: terminalStates.length > 0 ? terminalStates : DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
-    blockerCheckStates,
-  };
-}
-
-function readLegacyLifecycleList(
-  section: string,
-  label: string,
-  fallback: string[]
-): string[] {
-  const block = matchOptional(
-    section,
-    new RegExp(`${escapeForPattern(label)}:\\n([\\s\\S]*?)(?=\\n- |$)`)
-  );
-
-  if (!block) {
-    return fallback;
-  }
-
-  const values = block
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim());
-
-  return values.length ? values : fallback;
-}
-
-function matchOptional(markdown: string, pattern: RegExp): string | null {
-  const match = markdown.match(pattern);
-  return match?.[1]?.trim() ?? null;
-}
-
-function escapeForPattern(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function matchOptionalSection(markdown: string, heading: string): string | null {
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`## ${escapedHeading}\\n\\n([\\s\\S]*?)(?=\\n## |$)`);
-  const match = markdown.match(pattern);
-
-  return match?.[1]?.trim() ?? null;
-}
-
-function parseFrontMatter(frontMatter: string): Record<string, WorkflowFrontMatterNode> {
+function parseFrontMatter(
+  frontMatter: string
+): Record<string, WorkflowFrontMatterNode> {
   const lines = frontMatter.replace(/\r\n/g, "\n").split("\n");
   const [value] = parseBlock(lines, 0, 0);
 
@@ -313,16 +195,32 @@ function parseBlock(
       break;
     }
     if (lineIndent > indent) {
-      throw new Error(`Invalid workflow front matter indentation near "${line.trim()}".`);
+      throw new Error(
+        `Invalid workflow front matter indentation near "${line.trim()}".`
+      );
     }
 
     const trimmed = line.trim();
     if (trimmed.startsWith("- ")) {
       if (collectionType === "object") {
-        throw new Error("Cannot mix array and object values in workflow front matter.");
+        throw new Error(
+          "Cannot mix array and object values in workflow front matter."
+        );
       }
       collectionType = "array";
       const itemText = trimmed.slice(2).trim();
+
+      if (itemText === "|" || itemText === "|-") {
+        const [multiline, nextIndex] = parseMultilineScalar(
+          lines,
+          index + 1,
+          indent + 2
+        );
+        arrayValues.push(multiline);
+        index = nextIndex;
+        continue;
+      }
+
       if (itemText) {
         arrayValues.push(parseScalar(itemText));
         index += 1;
@@ -336,7 +234,9 @@ function parseBlock(
     }
 
     if (collectionType === "array") {
-      throw new Error("Cannot mix object and array values in workflow front matter.");
+      throw new Error(
+        "Cannot mix object and array values in workflow front matter."
+      );
     }
     collectionType = "object";
     const separatorIndex = trimmed.indexOf(":");
@@ -346,6 +246,16 @@ function parseBlock(
 
     const key = trimmed.slice(0, separatorIndex).trim();
     const remainder = trimmed.slice(separatorIndex + 1).trim();
+    if (remainder === "|" || remainder === "|-") {
+      const [multiline, nextIndex] = parseMultilineScalar(
+        lines,
+        index + 1,
+        indent + 2
+      );
+      objectValues[key] = multiline;
+      index = nextIndex;
+      continue;
+    }
     if (remainder) {
       objectValues[key] = parseScalar(remainder);
       index += 1;
@@ -360,23 +270,43 @@ function parseBlock(
   return [collectionType === "array" ? arrayValues : objectValues, index];
 }
 
+function parseMultilineScalar(
+  lines: string[],
+  startIndex: number,
+  indent: number
+): [string, number] {
+  let index = startIndex;
+  const collected: string[] = [];
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      collected.push("");
+      index += 1;
+      continue;
+    }
+
+    const lineIndent = countIndent(line);
+    if (lineIndent < indent) {
+      break;
+    }
+
+    collected.push(line.slice(indent));
+    index += 1;
+  }
+
+  return [collected.join("\n").trimEnd(), index];
+}
+
 function countIndent(line: string): number {
   return line.match(/^ */)?.[0].length ?? 0;
 }
 
 function parseScalar(value: string): WorkflowFrontMatterNode {
-  if (value === "null") {
-    return null;
-  }
-  if (value === "true") {
-    return true;
-  }
-  if (value === "false") {
-    return false;
-  }
-  if (/^-?\d+$/.test(value)) {
-    return Number.parseInt(value, 10);
-  }
+  if (value === "null") return null;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
     (value.startsWith("'") && value.endsWith("'"))
@@ -400,18 +330,14 @@ function readObject(
   return value as Record<string, WorkflowFrontMatterNode>;
 }
 
-function readStringArray(
+function readRequiredObject(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string
-): string[] | undefined {
-  const value = input[key];
-  if (value === undefined || value === null) {
-    return undefined;
+): Record<string, WorkflowFrontMatterNode> {
+  if (!(key in input)) {
+    throw new Error(`Workflow front matter field "${key}" is required.`);
   }
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new Error(`Workflow front matter field "${key}" must be an array of strings.`);
-  }
-  return value as string[];
+  return readObject(input, key);
 }
 
 function readOptionalString(
@@ -426,11 +352,47 @@ function readOptionalString(
   if (typeof value !== "string") {
     throw new Error(`Workflow front matter field "${key}" must be a string.`);
   }
-
   return resolveEnvironmentValue(value, env);
 }
 
-function readOptionalNumber(
+function readRequiredString(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  env: NodeJS.ProcessEnv
+): string {
+  const value = readOptionalString(input, key, env);
+  if (!value) {
+    throw new Error(`Workflow front matter field "${key}" is required.`);
+  }
+  return value;
+}
+
+function readStringList(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string
+): string[] | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(
+      `Workflow front matter field "${key}" must be an array of strings or comma-separated string.`
+    );
+  }
+  return value as string[];
+}
+
+function readOptionalIntegerLike(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string
 ): number | null {
@@ -438,10 +400,42 @@ function readOptionalNumber(
   if (value === undefined || value === null) {
     return null;
   }
-  if (typeof value !== "number") {
-    throw new Error(`Workflow front matter field "${key}" must be a number.`);
+  if (typeof value === "number") {
+    return value;
   }
-  return value;
+  if (typeof value === "string" && /^-?\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+  throw new Error(`Workflow front matter field "${key}" must be an integer.`);
+}
+
+function readNumberMap(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string
+): Record<string, number> {
+  const value = input[key];
+  if (value === undefined || value === null) {
+    return {};
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Workflow front matter field "${key}" must be an object.`);
+  }
+
+  const result: Record<string, number> = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    if (typeof entryValue === "number") {
+      result[entryKey] = entryValue;
+      continue;
+    }
+    if (typeof entryValue === "string" && /^\d+$/.test(entryValue)) {
+      result[entryKey] = Number.parseInt(entryValue, 10);
+      continue;
+    }
+    throw new Error(
+      `Workflow front matter field "${key}.${entryKey}" must be an integer.`
+    );
+  }
+  return result;
 }
 
 function resolveEnvironmentValue(
@@ -452,7 +446,9 @@ function resolveEnvironmentValue(
   if (value.startsWith("env:") && envTokenMatch) {
     const resolved = env[envTokenMatch[1]];
     if (!resolved) {
-      throw new Error(`Workflow front matter requires environment variable ${envTokenMatch[1]}.`);
+      throw new Error(
+        `Workflow front matter requires environment variable ${envTokenMatch[1]}.`
+      );
     }
     return resolved;
   }
@@ -460,8 +456,23 @@ function resolveEnvironmentValue(
   return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => {
     const resolved = env[name];
     if (!resolved) {
-      throw new Error(`Workflow front matter requires environment variable ${name}.`);
+      throw new Error(
+        `Workflow front matter requires environment variable ${name}.`
+      );
     }
     return resolved;
   });
+}
+
+function matchOptionalSection(
+  markdown: string,
+  heading: string
+): string | null {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `## ${escapedHeading}\\n\\n([\\s\\S]*?)(?=\\n## |$)`
+  );
+  const match = markdown.match(pattern);
+
+  return match?.[1]?.trim() ?? null;
 }

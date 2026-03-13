@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 import { access, readFile, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import {
-  DEFAULT_WORKFLOW_DEFINITION,
-  type ParsedWorkflow
-} from "./config.js";
+import { DEFAULT_WORKFLOW_DEFINITION, type ParsedWorkflow } from "./config.js";
 import { parseWorkflowMarkdown } from "./parser.js";
 import type { WorkflowResolution } from "../contracts/status-surface.js";
 
@@ -28,8 +25,9 @@ export class WorkflowConfigStore {
 
     if (cached && cached.fingerprint === fingerprint) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
+        isValid: true,
         usedLastKnownGood: false,
-        validationError: null
+        validationError: null,
       });
     }
 
@@ -40,17 +38,22 @@ export class WorkflowConfigStore {
       this.cache.set(workflowPath, {
         fingerprint,
         workflow,
-        loadedAt: new Date().toISOString()
+        loadedAt: new Date().toISOString(),
       });
       return toWorkflowResolution(workflowPath, workflow, {
+        isValid: true,
         usedLastKnownGood: false,
-        validationError: null
+        validationError: null,
       });
     } catch (error) {
       if (cached) {
         return toWorkflowResolution(workflowPath, cached.workflow, {
+          isValid: false,
           usedLastKnownGood: true,
-          validationError: error instanceof Error ? error.message : "Invalid workflow definition."
+          validationError:
+            error instanceof Error
+              ? error.message
+              : "Invalid workflow definition.",
         });
       }
       throw error;
@@ -59,9 +62,17 @@ export class WorkflowConfigStore {
 }
 
 export function createDefaultWorkflowResolution(): WorkflowResolution {
-  return toWorkflowResolution(null, DEFAULT_WORKFLOW_DEFINITION, {
+  return createInvalidWorkflowResolution(null, "missing_workflow_file");
+}
+
+export function createInvalidWorkflowResolution(
+  workflowPath: string | null,
+  validationError: string
+): WorkflowResolution {
+  return toWorkflowResolution(workflowPath, DEFAULT_WORKFLOW_DEFINITION, {
+    isValid: false,
     usedLastKnownGood: false,
-    validationError: null
+    validationError,
   });
 }
 
@@ -73,6 +84,7 @@ function toWorkflowResolution(
   workflowPath: string | null,
   workflow: ParsedWorkflow,
   metadata: {
+    isValid: boolean;
     usedLastKnownGood: boolean;
     validationError: string | null;
   }
@@ -83,8 +95,9 @@ function toWorkflowResolution(
     lifecycle: workflow.lifecycle,
     promptTemplate: workflow.promptTemplate,
     agentCommand: workflow.agentCommand,
-    hookPath: workflow.hookPath,
+    hookPath: workflow.hookPath ?? "",
+    isValid: metadata.isValid,
     usedLastKnownGood: metadata.usedLastKnownGood,
-    validationError: metadata.validationError
+    validationError: metadata.validationError,
   };
 }

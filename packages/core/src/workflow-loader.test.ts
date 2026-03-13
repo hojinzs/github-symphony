@@ -9,66 +9,104 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    tempDirs.splice(0, tempDirs.length).map((path) =>
-      rm(path, { recursive: true, force: true })
-    )
+    tempDirs
+      .splice(0, tempDirs.length)
+      .map((path) => rm(path, { recursive: true, force: true }))
   );
 });
 
-describe("parseWorkflowMarkdown", () => {
-  it("parses yaml front matter and prompt body", () => {
-    const workflow = parseWorkflowMarkdown(`---
-github_project_id: project-123
-allowed_repositories:
-  - https://github.com/acme/platform.git
-runtime:
-  agent_command: bash -lc codex app-server
+const SAMPLE_WORKFLOW = `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Done
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/workspaces
 hooks:
   after_create: hooks/after_create.sh
-lifecycle:
-  state_field: Status
-  planning_active:
-    - Needs Plan
-  human_review:
-    - Human Review
-  implementation_active:
-    - Approved
-  awaiting_merge:
-    - Await Merge
-  completed:
-    - Done
-  transitions:
-    planning_complete: Human Review
-    implementation_complete: Await Merge
-    merge_complete: Done
+agent:
+  max_retry_backoff_ms: 30000
+  max_turns: 20
+  max_concurrent_agents_by_state:
+    Todo: 1
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  turn_timeout_ms: 3600000
+custom_extension:
+  enabled: true
 ---
 Prefer focused changes.
-`);
+`;
+
+describe("parseWorkflowMarkdown", () => {
+  it("parses spec-shaped yaml front matter and prompt body", () => {
+    const workflow = parseWorkflowMarkdown(SAMPLE_WORKFLOW);
 
     expect(workflow).toMatchObject({
       githubProjectId: "project-123",
       promptTemplate: "Prefer focused changes.",
-      allowedRepositories: ["https://github.com/acme/platform.git"],
-      agentCommand: "bash -lc codex app-server",
+      agentCommand: "codex app-server",
       hookPath: "hooks/after_create.sh",
-      format: "front-matter"
+      format: "front-matter",
     });
+    expect(workflow.tracker.kind).toBe("github-project");
+    expect(workflow.polling.intervalMs).toBe(30000);
+    expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
   });
 
   it("resolves environment indirection from yaml front matter", () => {
     const workflow = parseWorkflowMarkdown(
       `---
-runtime:
-  agent_command: \${TEST_AGENT_COMMAND}
+tracker:
+  kind: github-project
+codex:
+  command: \${TEST_AGENT_COMMAND}
 ---
 Render with env indirection.
 `,
       {
-        TEST_AGENT_COMMAND: "bash -lc custom-app-server"
+        TEST_AGENT_COMMAND: "custom-app-server",
       } as NodeJS.ProcessEnv
     );
 
-    expect(workflow.agentCommand).toBe("bash -lc custom-app-server");
+    expect(workflow.agentCommand).toBe("custom-app-server");
+  });
+
+  it("rejects old schema in strict mode", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+runtime:
+  agent_command: codex app-server
+---
+Old schema.
+`)
+    ).toThrow(/tracker/);
+  });
+
+  it("preserves multiline hook bodies", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  command: codex app-server
+hooks:
+  before_run: |
+    echo "hello"
+    pwd
+---
+Prompt body.
+`);
+
+    expect(workflow.hooks.beforeRun).toBe('echo "hello"\npwd');
+    expect(workflow.promptTemplate).toBe("Prompt body.");
   });
 });
 
@@ -79,23 +117,16 @@ describe("WorkflowConfigStore", () => {
     const workflowPath = join(root, "WORKFLOW.md");
     const store = new WorkflowConfigStore();
 
-    await writeFile(
-      workflowPath,
-      `---
-runtime:
-  agent_command: bash -lc codex app-server
----
-Initial prompt.
-`,
-      "utf8"
-    );
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
 
     const first = await store.load(workflowPath);
     await writeFile(
       workflowPath,
       `---
-runtime:
-  agent_command:
+tracker:
+  kind: github-project
+codex:
+  command:
 ---
 Broken prompt.
 `,
@@ -104,9 +135,10 @@ Broken prompt.
 
     const second = await store.load(workflowPath);
 
-    expect(first.promptTemplate).toBe("Initial prompt.");
-    expect(second.promptTemplate).toBe("Initial prompt.");
+    expect(first.isValid).toBe(true);
+    expect(second.promptTemplate).toBe("Prefer focused changes.");
+    expect(second.isValid).toBe(false);
     expect(second.usedLastKnownGood).toBe(true);
-    expect(second.validationError).toContain("agent_command");
+    expect(second.validationError).toContain("command");
   });
 });

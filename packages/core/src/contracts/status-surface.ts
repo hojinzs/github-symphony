@@ -170,6 +170,7 @@ export type WorkflowResolution = {
   promptTemplate: string;
   agentCommand: string;
   hookPath: string;
+  isValid: boolean;
   usedLastKnownGood: boolean;
   validationError: string | null;
 };
