@@ -1,15 +1,28 @@
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
+
+function normalizeRuntimeForSkills(
+  runtime: string
+): "claude-code" | "codex" | null {
+  if (runtime === "claude-code" || runtime.includes("claude-code")) {
+    return "claude-code";
+  }
+  if (runtime === "codex" || runtime.includes("codex")) {
+    return "codex";
+  }
+  return null;
+}
 
 export function resolveSkillsDir(
   repoRoot: string,
   runtime: string
 ): string | null {
-  if (runtime === "claude-code") {
+  const normalizedRuntime = normalizeRuntimeForSkills(runtime);
+  if (normalizedRuntime === "claude-code") {
     return join(repoRoot, ".claude", "skills");
   }
-  if (runtime === "codex") {
+  if (normalizedRuntime === "codex") {
     return join(repoRoot, ".codex", "skills");
   }
   return null;

@@ -21,6 +21,16 @@ describe("skill-writer", () => {
       expect(result).toBe(join("/repo", ".codex", "skills"));
     });
 
+    it("resolves codex agent command to .codex/skills", () => {
+      const result = resolveSkillsDir("/repo", "bash -lc codex app-server");
+      expect(result).toBe(join("/repo", ".codex", "skills"));
+    });
+
+    it("resolves claude-code agent command to .claude/skills", () => {
+      const result = resolveSkillsDir("/repo", "bash -lc claude-code");
+      expect(result).toBe(join("/repo", ".claude", "skills"));
+    });
+
     it("returns null for unknown runtime", () => {
       const result = resolveSkillsDir("/repo", "unknown");
       expect(result).toBeNull();
