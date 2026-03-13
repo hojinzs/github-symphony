@@ -37,6 +37,8 @@ export type CodexRuntimeConfig = {
   githubProjectId?: string;
   githubGraphqlApiUrl?: string;
   extraEnv?: NodeJS.ProcessEnv;
+  /** Shell command to launch codex app-server. Leading "bash -lc " is stripped if present, since the runtime always wraps in bash -lc. */
+  agentCommand?: string;
 };
 
 export type CodexRuntimePlan = {
@@ -129,10 +131,15 @@ export function buildCodexRuntimePlan(
   const tool = createGitHubGraphQLToolDefinition(config);
   const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
 
+  const shellCmd = (() => {
+    const cmd = config.agentCommand ?? "codex app-server";
+    return cmd.startsWith("bash -lc ") ? cmd.slice("bash -lc ".length) : cmd;
+  })();
+
   return {
     cwd: config.workingDirectory,
     command: "bash",
-    args: ["-lc", "codex app-server"],
+    args: ["-lc", shellCmd],
     env: {
       ...process.env,
       ...config.extraEnv,

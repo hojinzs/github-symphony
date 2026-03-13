@@ -200,6 +200,17 @@ async function runCodexClientProtocol(
   // Buffer to accumulate incomplete lines from codex stdout
   let lineBuffer = "";
 
+  // Accumulate streaming delta events so they log as a single line
+  let deltaBuffer: { itemId: string; text: string } | null = null;
+
+  function flushDeltaBuffer(): void {
+    if (!deltaBuffer) return;
+    process.stderr.write(
+      `[worker] codex → agent_message [accumulated] ${JSON.stringify({ text: deltaBuffer.text }).slice(0, 500)}\n`
+    );
+    deltaBuffer = null;
+  }
+
   const pendingRequests = new Map<
     string,
     { resolve: (v: unknown) => void; reject: (e: Error) => void }
@@ -437,6 +448,7 @@ async function runCodexClientProtocol(
 
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
+      flushDeltaBuffer();
       process.stderr.write("[worker] codex turn/completed\n");
       if (turnCompletedResolve) {
         turnCompletedResolve();
@@ -468,8 +480,28 @@ async function runCodexClientProtocol(
       return;
     }
 
-    // Log all server notifications for observability
+    // Accumulate streaming delta events into a single log line per message
+    if (
+      typeof msg.method === "string" &&
+      (msg.method === "codex/event/agent_message_content_delta" ||
+        msg.method === "codex/event/agent_message_delta" ||
+        msg.method === "item/agentMessage/delta")
+    ) {
+      const params = (msg.params ?? {}) as Record<string, unknown>;
+      const delta = typeof params.delta === "string" ? params.delta : "";
+      const itemId = typeof params.item_id === "string" ? params.item_id : "";
+      if (deltaBuffer?.itemId !== itemId) {
+        flushDeltaBuffer();
+        deltaBuffer = { itemId, text: delta };
+      } else {
+        deltaBuffer.text += delta;
+      }
+      return;
+    }
+
+    // Log all other server notifications for observability
     if (typeof msg.method === "string") {
+      flushDeltaBuffer();
       process.stderr.write(
         `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );

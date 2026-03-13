@@ -38,6 +38,7 @@ export function resolveLocalRuntimeLaunchConfig(
     agentCredentialCachePath: env.AGENT_CREDENTIAL_CACHE_PATH,
     githubProjectId: env.GITHUB_PROJECT_ID,
     githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
+    agentCommand: env.SYMPHONY_AGENT_COMMAND,
   };
 }
 

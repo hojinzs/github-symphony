@@ -574,6 +574,7 @@ export class OrchestratorService {
           TARGET_REPOSITORY_URL: issue.repository.url,
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
+          SYMPHONY_AGENT_COMMAND: workflow.workflow.runtime.agentCommand,
           SYMPHONY_MAX_TURNS: String(workflow.workflow.runtime.maxTurns),
           SYMPHONY_READ_TIMEOUT_MS: String(
             workflow.workflow.runtime.readTimeoutMs
