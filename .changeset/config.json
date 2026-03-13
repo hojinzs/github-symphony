@@ -10,5 +10,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["control-plane", "@gh-symphony/worker"]
+  "ignore": ["control-plane"]
 }
