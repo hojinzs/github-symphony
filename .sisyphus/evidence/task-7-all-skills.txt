@@ -1,0 +1,13 @@
+
+ RUN  v3.2.4 /Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/playful-knight
+
+ ✓ packages/cli/src/skills/templates/pull.test.ts (4 tests) 2ms
+ ✓ packages/cli/src/skills/templates/commit.test.ts (4 tests) 2ms
+ ✓ packages/cli/src/skills/templates/land.test.ts (5 tests) 2ms
+ ✓ packages/cli/src/skills/templates/push.test.ts (4 tests) 2ms
+
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   Start at  15:16:03
+   Duration  195ms (transform 37ms, setup 0ms, collect 60ms, tests 7ms, environment 0ms, prepare 159ms)
+
