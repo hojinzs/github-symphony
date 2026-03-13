@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/playful-knight
+
+ ✓ packages/cli/src/skills/templates/gh-symphony.test.ts (8 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  15:11:29
+   Duration  195ms (transform 22ms, setup 0ms, collect 20ms, tests 2ms, environment 0ms, prepare 35ms)
+

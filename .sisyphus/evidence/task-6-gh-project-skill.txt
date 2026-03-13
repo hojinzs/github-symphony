@@ -1,0 +1,10 @@
+
+ RUN  v3.2.4 /Users/stevelee/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/playful-knight
+
+ ✓ packages/cli/src/skills/templates/gh-project.test.ts (7 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  15:11:30
+   Duration  179ms (transform 23ms, setup 0ms, collect 18ms, tests 2ms, environment 0ms, prepare 33ms)
+
