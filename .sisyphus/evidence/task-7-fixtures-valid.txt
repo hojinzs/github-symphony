@@ -1,0 +1,30 @@
+Task 7: Dashboard Renderer Test Fixtures — Validation Evidence
+==============================================================
+Date: 2026-03-13
+
+Validation command:
+  node -e "for (const f of ['idle','busy','backoff','multi-tenant']) { JSON.parse(require('fs').readFileSync('packages/cli/src/dashboard/__tests__/fixtures/' + f + '.snapshot.json', 'utf8')); console.log(f + ': OK'); }"
+
+Output:
+  idle: OK
+  busy: OK
+  backoff: OK
+  multi-tenant: OK
+
+Files created:
+  packages/cli/src/dashboard/__tests__/fixtures/idle.snapshot.json
+    - Single TenantStatusSnapshot, health: "idle", 0 active runs
+  packages/cli/src/dashboard/__tests__/fixtures/busy.snapshot.json
+    - Single TenantStatusSnapshot, health: "running", 2 active runs with full live data
+    - Includes processId, turnCount, startedAt, lastEvent, lastEventAt, tokenUsage, runtimeSession
+    - sessionId values are 20 chars for compaction testing
+  packages/cli/src/dashboard/__tests__/fixtures/backoff.snapshot.json
+    - Single TenantStatusSnapshot, health: "degraded", 1 running + 3 retrying
+    - retryKind variants: failure, continuation, recovery
+    - retryQueue populated with 3 entries
+  packages/cli/src/dashboard/__tests__/fixtures/multi-tenant.snapshot.json
+    - Array of 2 TenantStatusSnapshots
+    - First: 2 active runs (health: running)
+    - Second: 1 active run + 1 retrying (health: degraded)
+
+All fixtures are valid JSON and match TenantStatusSnapshot shape.

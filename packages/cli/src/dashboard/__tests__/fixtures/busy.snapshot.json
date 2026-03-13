@@ -1,0 +1,70 @@
+{
+  "tenantId": "tenant-2",
+  "slug": "beta-org",
+  "tracker": { "adapter": "github", "bindingId": "PVT_yyy" },
+  "lastTickAt": "2026-03-13T04:00:00Z",
+  "health": "running",
+  "summary": {
+    "dispatched": 9,
+    "suppressed": 1,
+    "recovered": 0,
+    "activeRuns": 2
+  },
+  "activeRuns": [
+    {
+      "runId": "run-aaa-001",
+      "issueIdentifier": "acme-corp/repo-alpha#42",
+      "issueState": "in-progress",
+      "status": "running",
+      "retryKind": null,
+      "port": 4681,
+      "processId": 12345,
+      "turnCount": 7,
+      "startedAt": "2026-03-13T03:57:00Z",
+      "lastEvent": "turn_completed",
+      "lastEventAt": "2026-03-13T03:59:45Z",
+      "tokenUsage": {
+        "inputTokens": 9300,
+        "outputTokens": 3150,
+        "totalTokens": 12450
+      },
+      "runtimeSession": {
+        "sessionId": "abcd1234567890ef0123",
+        "threadId": "thread-001",
+        "status": "active"
+      }
+    },
+    {
+      "runId": "run-bbb-002",
+      "issueIdentifier": "acme-corp/repo-alpha#57",
+      "issueState": "in-progress",
+      "status": "running",
+      "retryKind": null,
+      "port": 4682,
+      "processId": 12346,
+      "turnCount": 2,
+      "startedAt": "2026-03-13T03:59:00Z",
+      "lastEvent": "task_started",
+      "lastEventAt": "2026-03-13T03:59:10Z",
+      "tokenUsage": {
+        "inputTokens": 2400,
+        "outputTokens": 800,
+        "totalTokens": 3200
+      },
+      "runtimeSession": {
+        "sessionId": "ef0123abcd1234567890",
+        "threadId": "thread-002",
+        "status": "active"
+      }
+    }
+  ],
+  "retryQueue": [],
+  "codexTotals": {
+    "inputTokens": 11700,
+    "outputTokens": 3950,
+    "totalTokens": 15650,
+    "secondsRunning": 180
+  },
+  "rateLimits": null,
+  "lastError": null
+}

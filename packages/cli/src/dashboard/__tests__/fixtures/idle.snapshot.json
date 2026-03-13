@@ -1,0 +1,23 @@
+{
+  "tenantId": "tenant-1",
+  "slug": "acme-corp",
+  "tracker": { "adapter": "github", "bindingId": "PVT_xxx" },
+  "lastTickAt": "2026-03-13T04:00:00Z",
+  "health": "idle",
+  "summary": {
+    "dispatched": 0,
+    "suppressed": 0,
+    "recovered": 0,
+    "activeRuns": 0
+  },
+  "activeRuns": [],
+  "retryQueue": [],
+  "codexTotals": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "secondsRunning": 0
+  },
+  "rateLimits": null,
+  "lastError": null
+}
