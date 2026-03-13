@@ -1,4 +1,4 @@
-import type { execFileSync } from "node:child_process";
+import type { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GhAuthError,
@@ -10,6 +10,7 @@ import {
 } from "./gh-auth.js";
 
 type ExecMock = ReturnType<typeof vi.fn> & typeof execFileSync;
+type SpawnMock = ReturnType<typeof vi.fn> & typeof spawnSync;
 
 function buildExitError(status: number, stderr = "", stdout = ""): Error {
   const error = new Error("exec failed") as Error & {
@@ -24,6 +25,17 @@ function buildExitError(status: number, stderr = "", stdout = ""): Error {
 }
 
 const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
+
+function buildSpawnResult(status: number, stderr = "", stdout = "") {
+  return {
+    status,
+    stdout,
+    stderr,
+    pid: 1,
+    signal: null,
+    output: [null, stdout, stderr],
+  };
+}
 
 afterEach(() => {
   if (originalGraphQlToken === undefined) {
@@ -47,25 +59,28 @@ describe("checkGhInstalled", () => {
 
 describe("checkGhAuthenticated", () => {
   it("returns authenticated login from stderr output", () => {
-    const execImpl = vi.fn(() =>
-      [
-        "github.com",
-        "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
-      ].join("\n")
-    ) as ExecMock;
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        [
+          "github.com",
+          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
+        ].join("\n")
+      )
+    ) as SpawnMock;
 
-    expect(checkGhAuthenticated({ execImpl })).toEqual({
+    expect(checkGhAuthenticated({ spawnImpl })).toEqual({
       authenticated: true,
       login: "testuser",
     });
   });
 
   it("returns unauthenticated when gh auth status exits 1", () => {
-    const execImpl = vi.fn(() => {
-      throw buildExitError(1, "You are not logged into any GitHub hosts.");
-    }) as ExecMock;
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(1, "You are not logged into any GitHub hosts.")
+    ) as SpawnMock;
 
-    expect(checkGhAuthenticated({ execImpl })).toEqual({
+    expect(checkGhAuthenticated({ spawnImpl })).toEqual({
       authenticated: false,
     });
   });
@@ -73,11 +88,14 @@ describe("checkGhAuthenticated", () => {
 
 describe("checkGhScopes", () => {
   it("returns missing scope when project scope is absent", () => {
-    const execImpl = vi.fn(() =>
-      ["github.com", "  - Token scopes: 'repo', 'read:org'"].join("\n")
-    ) as ExecMock;
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        ["github.com", "  - Token scopes: 'repo', 'read:org'"].join("\n")
+      )
+    ) as SpawnMock;
 
-    expect(checkGhScopes({ execImpl })).toEqual({
+    expect(checkGhScopes({ spawnImpl })).toEqual({
       valid: false,
       missing: ["project"],
       scopes: ["repo", "read:org"],
@@ -106,13 +124,6 @@ describe("ensureGhAuth", () => {
       if (argKey === "--version") {
         return "gh version 2.0.0";
       }
-      if (argKey === "auth status") {
-        return [
-          "github.com",
-          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
-          "  - Token scopes: 'repo', 'read:org', 'project'",
-        ].join("\n");
-      }
       if (argKey === "auth token") {
         return "ghp_test123\n";
       }
@@ -120,7 +131,18 @@ describe("ensureGhAuth", () => {
       throw new Error(`unexpected args: ${argKey}`);
     }) as ExecMock;
 
-    expect(ensureGhAuth({ execImpl })).toEqual({
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        [
+          "github.com",
+          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
+          "  - Token scopes: 'repo', 'read:org', 'project'",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    expect(ensureGhAuth({ execImpl, spawnImpl })).toEqual({
       login: "testuser",
       token: "ghp_test123",
     });
@@ -154,13 +176,14 @@ describe("ensureGhAuth", () => {
       if (argKey === "--version") {
         return "gh version 2.0.0";
       }
-      if (argKey === "auth status") {
-        throw buildExitError(1, "You are not logged into any GitHub hosts.");
-      }
       throw new Error(`unexpected args: ${argKey}`);
     }) as ExecMock;
 
-    expect(() => ensureGhAuth({ execImpl })).toThrowError(
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(1, "You are not logged into any GitHub hosts.")
+    ) as SpawnMock;
+
+    expect(() => ensureGhAuth({ execImpl, spawnImpl })).toThrowError(
       expect.objectContaining({ code: "not_authenticated" })
     );
   });
@@ -174,20 +197,24 @@ describe("ensureGhAuth", () => {
       if (argKey === "--version") {
         return "gh version 2.0.0";
       }
-      if (argKey === "auth status") {
-        return [
-          "github.com",
-          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
-          "  - Token scopes: 'repo', 'read:org'",
-        ].join("\n");
-      }
       throw new Error(`unexpected args: ${argKey}`);
     }) as ExecMock;
 
-    expect(() => ensureGhAuth({ execImpl })).toThrowError(
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        [
+          "github.com",
+          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
+          "  - Token scopes: 'repo', 'read:org'",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    expect(() => ensureGhAuth({ execImpl, spawnImpl })).toThrowError(
       expect.objectContaining({ code: "missing_scopes" })
     );
-    expect(() => ensureGhAuth({ execImpl })).toThrowError(
+    expect(() => ensureGhAuth({ execImpl, spawnImpl })).toThrowError(
       "gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: project)"
     );
   });

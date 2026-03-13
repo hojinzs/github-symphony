@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 
 type ExecImpl = typeof execFileSync;
+type SpawnImpl = typeof spawnSync;
 
 type ExecError = Error & {
   code?: string;
@@ -40,39 +41,36 @@ export function checkGhInstalled(opts?: { execImpl?: ExecImpl }): boolean {
   }
 }
 
-export function checkGhAuthenticated(opts?: { execImpl?: ExecImpl }): {
+export function checkGhAuthenticated(opts?: { spawnImpl?: SpawnImpl }): {
   authenticated: boolean;
   login?: string;
 } {
-  const execImpl = opts?.execImpl ?? execFileSync;
+  const spawnImpl = opts?.spawnImpl ?? spawnSync;
+  const result = spawnImpl("gh", ["auth", "status"], {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 
-  try {
-    const output = execImpl("gh", ["auth", "status"], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const login = parseLogin(output.toString());
-    return { authenticated: true, login };
-  } catch (error) {
-    const execError = error as ExecError;
-    if (execError.status === 1) {
-      return { authenticated: false };
-    }
-    throw error;
+  if ((result.status ?? 1) !== 0) {
+    return { authenticated: false };
   }
+
+  const login = parseLogin((result.stderr ?? "").toString());
+  return { authenticated: true, login };
 }
 
-export function checkGhScopes(opts?: { execImpl?: ExecImpl }): {
+export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
   valid: boolean;
   missing: string[];
   scopes: string[];
 } {
-  const execImpl = opts?.execImpl ?? execFileSync;
-
-  const output = execImpl("gh", ["auth", "status"], {
+  const spawnImpl = opts?.spawnImpl ?? spawnSync;
+  const result = spawnImpl("gh", ["auth", "status"], {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
-  }).toString();
+  });
+
+  const output = (result.stderr ?? "").toString();
 
   const scopes = parseScopes(output);
   if (scopes.length === 0) {
@@ -125,11 +123,15 @@ export function getGhToken(opts?: { execImpl?: ExecImpl }): string {
   }
 }
 
-export function ensureGhAuth(opts?: { execImpl?: ExecImpl }): {
+export function ensureGhAuth(opts?: {
+  execImpl?: ExecImpl;
+  spawnImpl?: SpawnImpl;
+}): {
   login: string;
   token: string;
 } {
   const execImpl = opts?.execImpl ?? execFileSync;
+  const spawnImpl = opts?.spawnImpl ?? spawnSync;
 
   if (!checkGhInstalled({ execImpl })) {
     throw new GhAuthError(
@@ -138,7 +140,7 @@ export function ensureGhAuth(opts?: { execImpl?: ExecImpl }): {
     );
   }
 
-  const auth = checkGhAuthenticated({ execImpl });
+  const auth = checkGhAuthenticated({ spawnImpl });
   if (!auth.authenticated) {
     throw new GhAuthError(
       "not_authenticated",
@@ -146,7 +148,7 @@ export function ensureGhAuth(opts?: { execImpl?: ExecImpl }): {
     );
   }
 
-  const scopeCheck = checkGhScopes({ execImpl });
+  const scopeCheck = checkGhScopes({ spawnImpl });
   if (!scopeCheck.valid) {
     throw new GhAuthError(
       "missing_scopes",
