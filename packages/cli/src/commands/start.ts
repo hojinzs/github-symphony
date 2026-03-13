@@ -14,24 +14,7 @@ import {
   resolveRuntimeRoot,
   syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
-
-// ── ANSI helpers ──────────────────────────────────────────────────────────────
-
-const ESC = "\x1b[";
-const _bold = (s: string) => `${ESC}1m${s}${ESC}0m`;
-const _dim = (s: string) => `${ESC}2m${s}${ESC}0m`;
-const _green = (s: string) => `${ESC}32m${s}${ESC}0m`;
-const _red = (s: string) => `${ESC}31m${s}${ESC}0m`;
-const _yellow = (s: string) => `${ESC}33m${s}${ESC}0m`;
-const _cyan = (s: string) => `${ESC}36m${s}${ESC}0m`;
-
-let noColor = false;
-const bold = (s: string) => (noColor ? s : _bold(s));
-const dim = (s: string) => (noColor ? s : _dim(s));
-const green = (s: string) => (noColor ? s : _green(s));
-const red = (s: string) => (noColor ? s : _red(s));
-const yellow = (s: string) => (noColor ? s : _yellow(s));
-const cyan = (s: string) => (noColor ? s : _cyan(s));
+import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -192,7 +175,7 @@ const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  noColor = options.noColor;
+  setNoColor(options.noColor);
   const parsed = parseStartArgs(args);
 
   const tenantConfig = await resolveTenantConfig(
@@ -262,7 +245,11 @@ const handler = async (
           const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
           for (const prevRun of prev?.activeRuns ?? []) {
             if (!currentRunIds.has(prevRun.runId)) {
-              await tailWorkerLog(runtimeRoot, prevRun.runId, prevRun.issueIdentifier);
+              await tailWorkerLog(
+                runtimeRoot,
+                prevRun.runId,
+                prevRun.issueIdentifier
+              );
             }
           }
         }
@@ -290,7 +277,13 @@ async function tailWorkerLog(
   issueIdentifier: string
 ): Promise<void> {
   try {
-    const logPath = join(runtimeRoot, "orchestrator", "runs", runId, "worker.log");
+    const logPath = join(
+      runtimeRoot,
+      "orchestrator",
+      "runs",
+      runId,
+      "worker.log"
+    );
     const content = await readFile(logPath, "utf8");
     const lines = content.split("\n").filter((l) => l.trim());
     if (lines.length === 0) return;

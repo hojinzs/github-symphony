@@ -7,38 +7,7 @@ import {
   resolveTenantConfig,
   syncTenantToRuntime,
 } from "../orchestrator-runtime.js";
-
-// ANSI color helpers
-function bold(s: string): string {
-  return `\x1b[1m${s}\x1b[0m`;
-}
-
-function dim(s: string): string {
-  return `\x1b[2m${s}\x1b[0m`;
-}
-
-function green(s: string): string {
-  return `\x1b[32m${s}\x1b[0m`;
-}
-
-function red(s: string): string {
-  return `\x1b[31m${s}\x1b[0m`;
-}
-
-function yellow(s: string): string {
-  return `\x1b[33m${s}\x1b[0m`;
-}
-
-function cyan(s: string): string {
-  return `\x1b[36m${s}\x1b[0m`;
-}
-
-
-
-function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, "");
-}
+import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
