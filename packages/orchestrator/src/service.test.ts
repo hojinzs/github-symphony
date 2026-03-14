@@ -33,7 +33,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -41,12 +41,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -75,7 +69,7 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringContaining("packages/worker/dist/index.js")],
       expect.objectContaining({
         env: expect.objectContaining({
           GITHUB_PROJECT_ID: "project-123",
@@ -101,7 +95,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -109,12 +103,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
     await store.saveTenantLeases("tenant-1", [
@@ -181,7 +169,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -189,12 +177,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -236,7 +218,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -244,12 +226,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
     await store.saveTenantLeases("tenant-1", [
@@ -332,11 +308,11 @@ describe("OrchestratorService", () => {
     });
 
     const store = new OrchestratorFsStore(tempRoot);
-    const workspaceRuntimeDir = join(tempRoot, "workspace-runtime-root");
+    const workspaceDir = join(tempRoot, "workspace-runtime-root");
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir,
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -344,12 +320,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir,
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -424,7 +394,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -432,12 +402,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
     await store.saveTenantLeases("tenant-1", [
@@ -537,7 +501,7 @@ describe("OrchestratorService", () => {
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -545,12 +509,6 @@ describe("OrchestratorService", () => {
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -615,7 +573,7 @@ Workspace prompt.
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -623,12 +581,6 @@ Workspace prompt.
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -666,11 +618,11 @@ Workspace prompt.
     );
 
     const store = new OrchestratorFsStore(tempRoot);
-    const workspaceRuntimeDir = join(tempRoot, "workspace-runtime-root");
+    const workspaceDir = join(tempRoot, "workspace-runtime-root");
     await store.saveTenantConfig({
       tenantId: "tenant-1",
       slug: "tenant-1",
-
+      workspaceDir,
       repositories: [repository],
       tracker: {
         adapter: "github-project",
@@ -678,12 +630,6 @@ Workspace prompt.
         settings: {
           projectId: "project-123",
         },
-      },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir,
-        projectRoot: process.cwd(),
-        workerCommand: "node packages/worker/dist/index.js",
       },
     });
 
@@ -693,7 +639,7 @@ Workspace prompt.
       issueSubjectId: "issue-1",
     });
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(
-      workspaceRuntimeDir,
+      workspaceDir,
       "tenant-1",
       workspaceKey
     );

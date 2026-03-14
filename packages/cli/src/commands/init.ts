@@ -2,7 +2,6 @@ import * as p from "@clack/prompts";
 import { createHash } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
 import {
   createClient,
@@ -27,11 +26,9 @@ import {
   loadGlobalConfig,
   saveGlobalConfig,
   saveTenantConfig,
-  saveWorkflowMapping,
   type CliGlobalConfig,
   type StateRole,
   type StateMapping,
-  type WorkflowStateConfig,
 } from "../config.js";
 import { getGhToken, ensureGhAuth, GhAuthError } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
@@ -615,52 +612,19 @@ type WriteConfigInput = {
   tenantId: string;
   project: ProjectDetail;
   repos: LinkedRepository[];
-  statusField: {
-    id: string;
-    name: string;
-    options: Array<{ id: string; name: string; color?: string | null }>;
-  };
-  mappings: Record<string, StateMapping>;
-  runtime: string;
-  agentCommand?: string;
-  workerCommand?: string;
-  pollIntervalMs?: number;
-  concurrency?: number;
+  workspaceDir: string;
   maxAttempts?: number;
   assignedOnly?: boolean;
 };
-
-function resolveWorkerCommand(): string | undefined {
-  try {
-    const url = import.meta.resolve("@gh-symphony/worker/dist/index.js");
-    return `node ${fileURLToPath(url)}`;
-  } catch {
-    return undefined;
-  }
-}
 
 export async function writeConfig(
   configDir: string,
   input: WriteConfigInput
 ): Promise<void> {
-  const lifecycleConfig = toWorkflowLifecycleConfig(
-    input.statusField.name,
-    input.mappings
-  );
-
-  // Save workflow mapping
-  const mappingConfig: WorkflowStateConfig = {
-    stateFieldName: input.statusField.name,
-    mappings: input.mappings,
-    lifecycle: lifecycleConfig,
-  };
-  await saveWorkflowMapping(configDir, input.tenantId, mappingConfig);
-
-  // Save tenant config (OrchestratorTenantConfig shape)
-  const runtimeDir = `${configDir}/tenants/${input.tenantId}/runtime`;
   await saveTenantConfig(configDir, input.tenantId, {
     tenantId: input.tenantId,
     slug: input.tenantId,
+    workspaceDir: input.workspaceDir,
     repositories: input.repos.map((r) => ({
       owner: r.owner,
       name: r.name,
@@ -674,13 +638,6 @@ export async function writeConfig(
         ...(input.assignedOnly ? { assignedOnly: true } : {}),
       },
     },
-    runtime: {
-      driver: "local",
-      workspaceRuntimeDir: runtimeDir,
-      projectRoot: process.cwd(),
-      workerCommand: input.workerCommand ?? resolveWorkerCommand(),
-    },
-    workflowMapping: mappingConfig,
   });
 
   // Save/update global config
@@ -693,24 +650,6 @@ export async function writeConfig(
     ],
   };
   await saveGlobalConfig(configDir, globalConfig);
-
-  // Generate WORKFLOW.md for tenant-level fallback
-  const workflowMd = generateWorkflowMarkdown({
-    projectId: input.project.id,
-    stateFieldName: input.statusField.name,
-    mappings: input.mappings,
-    lifecycle: lifecycleConfig,
-    runtime: input.agentCommand ?? input.runtime,
-    pollIntervalMs: input.pollIntervalMs,
-    concurrency: input.concurrency,
-  });
-  const workflowMdPath = join(
-    configDir,
-    "tenants",
-    input.tenantId,
-    "WORKFLOW.md"
-  );
-  await writeFile(workflowMdPath, workflowMd, "utf8");
 }
 
 export function generateTenantId(

@@ -61,8 +61,8 @@ The interactive wizard will:
 1. Authenticate via `gh` CLI
 2. Let you select a **GitHub Project**
 3. Select repositories to orchestrate
-4. Auto-detect workflow column mappings
-5. Choose an AI runtime (Codex / Claude Code / custom)
+4. Optionally limit processing to issues assigned to the authenticated user
+5. Configure the workspace root directory
 6. Write tenant configuration to `~/.gh-symphony/`
 
 ### Tenant Management

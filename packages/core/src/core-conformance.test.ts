@@ -386,15 +386,11 @@ describe("buildTenantSnapshot", () => {
     tenantId: "ws-1",
     slug: "ws-1",
     promptGuidelines: "",
+    workspaceDir: "/runtime",
     repositories: [],
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
-    },
-    runtime: {
-      driver: "local" as const,
-      workspaceRuntimeDir: "/runtime",
-      projectRoot: "/project",
     },
   };
 
@@ -500,10 +496,9 @@ describe("token accounting - buildTenantSnapshot", () => {
       tenant: {
         tenantId: "ws-1",
         slug: "test",
-
+        workspaceDir: "/tmp",
         repositories: [],
         tracker: { adapter: "github-project", bindingId: "proj-1" },
-        runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },
       },
       activeRuns: [],
       allRuns: [
@@ -549,10 +544,9 @@ describe("token accounting - buildTenantSnapshot", () => {
       tenant: {
         tenantId: "ws-1",
         slug: "test",
-
+        workspaceDir: "/tmp",
         repositories: [],
         tracker: { adapter: "github-project", bindingId: "proj-1" },
-        runtime: { driver: "local", workspaceRuntimeDir: "/tmp", projectRoot: "/tmp" },
       },
       activeRuns: [],
       allRuns: [

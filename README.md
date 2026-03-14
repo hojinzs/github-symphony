@@ -67,14 +67,14 @@ The interactive wizard will:
 1. Authenticate via `gh` CLI
 2. Let you select a **GitHub Project**
 3. Select repositories to orchestrate
-4. Auto-detect workflow column mappings
-5. Choose an AI runtime (Codex / Claude Code / custom)
+4. Optionally limit processing to issues assigned to the authenticated user
+5. Configure the workspace root directory
 6. Write tenant configuration to `~/.gh-symphony/`
 
 Non-interactive mode:
 
 ```bash
-gh-symphony tenant add --non-interactive --project PVT_xxx --runtime codex
+gh-symphony tenant add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
 ```
 
 Managing tenants:
@@ -148,7 +148,7 @@ The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
 The generated file includes:
 
 - **Lifecycle**: `active_states`, `terminal_states`, `blocker_check_states` derived from the status column mapping
-- **Runtime**: `agent_command` based on the selected runtime
+- **Runtime**: `agent_command` derived from `gh-symphony init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`
 - **Retry**: `base_delay_ms`, `max_delay_ms`
