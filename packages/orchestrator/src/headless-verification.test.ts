@@ -146,27 +146,30 @@ async function createRepositoryFixture(
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
     `---
-github_project_id: project-123
-lifecycle:
+tracker:
+  kind: github-project
+  project_id: project-123
   state_field: Status
-  planning_active:
+  active_states:
     - Todo
-  human_review:
-    - Plan Review
-  implementation_active:
     - In Progress
-  awaiting_merge:
-    - In Review
-  completed:
+  terminal_states:
     - Done
-  transitions:
-    planning_complete: Plan Review
-    implementation_complete: In Review
-    merge_complete: Done
-runtime:
-  agent_command: bash -lc codex app-server
+  blocker_check_states:
+    - Todo
 hooks:
   after_create: hooks/after_create.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
 `,

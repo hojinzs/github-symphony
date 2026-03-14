@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
@@ -16,6 +16,7 @@ import {
   buildWorkerRuntimeState,
   startWorkerStateServer,
 } from "./state-server.js";
+import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -92,24 +93,32 @@ console.log(
 );
 
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
+let shutdownPromise: Promise<void> | null = null;
 
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
 }
 
 function shutdown(signal: NodeJS.Signals) {
-  if (childProcess?.pid) {
-    try {
-      process.kill(childProcess.pid, "SIGTERM");
-    } catch {
-      // Ignore shutdown races.
-    }
+  if (shutdownPromise) {
+    return;
   }
 
-  server.close(() => {
-    console.log(`Worker state server stopped on ${signal}`);
-    process.exit(0);
-  });
+  shutdownPromise = (async () => {
+    if (childProcess?.pid) {
+      try {
+        process.kill(childProcess.pid, "SIGTERM");
+      } catch {
+        // Ignore shutdown races.
+      }
+    }
+
+    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    server.close(() => {
+      console.log(`Worker state server stopped on ${signal}`);
+      process.exit(0);
+    });
+  })();
 }
 
 process.on("SIGINT", shutdown);
@@ -146,6 +155,7 @@ async function startAssignedRun() {
               ? null
               : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
         }
+        void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
       }
     );
     childProcess.once("error", (error: Error) => {
@@ -154,6 +164,7 @@ async function startAssignedRun() {
       if (runtimeState.run) {
         runtimeState.run.lastError = error.message;
       }
+      void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
     });
   } catch (error) {
     runtimeState.status = "failed";
@@ -162,6 +173,7 @@ async function startAssignedRun() {
       runtimeState.run.lastError =
         error instanceof Error ? error.message : "Unknown worker startup error";
     }
+    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
   }
 }
 
@@ -695,50 +707,6 @@ async function runCodexClientProtocol(
       server.close(() => process.exit(1));
     }, 1500);
   }
-}
-
-async function persistTokenUsageArtifact(
-  env: NodeJS.ProcessEnv,
-  tokenUsage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  }
-): Promise<void> {
-  const artifactPath = resolveTokenUsageArtifactPath(env);
-  if (!artifactPath) {
-    return;
-  }
-
-  try {
-    await mkdir(dirname(artifactPath), { recursive: true });
-    await writeFile(
-      artifactPath,
-      JSON.stringify(tokenUsage, null, 2) + "\n",
-      "utf8"
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(
-      `[worker] failed to persist token usage artifact: ${message}\n`
-    );
-  }
-}
-
-function resolveTokenUsageArtifactPath(env: NodeJS.ProcessEnv): string | null {
-  const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR;
-  const runId = env.SYMPHONY_RUN_ID;
-  if (!workspaceRuntimeDir || !runId) {
-    return null;
-  }
-
-  return join(
-    workspaceRuntimeDir,
-    ".orchestrator",
-    "runs",
-    runId,
-    "token-usage.json"
-  );
 }
 
 /**

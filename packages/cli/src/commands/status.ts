@@ -10,6 +10,7 @@ import {
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
+import { requestOrchestratorRefresh } from "./status-refresh.js";
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
@@ -230,8 +231,10 @@ const handler = async (
   if (parsed.watch) {
     const isTTY = process.stdout.isTTY === true;
     let terminalWidth = process.stdout.columns ?? 115;
+    let runPromise: Promise<void> | null = null;
 
     const run = async () => {
+      await requestOrchestratorRefresh();
       const snapshots = await readAllStatusSnapshots(runtimeRoot);
       if (options.json || !isTTY) {
         process.stdout.write(JSON.stringify(snapshots, null, 2) + "\n");
@@ -246,13 +249,22 @@ const handler = async (
         );
       }
     };
+    const tick = () => {
+      if (runPromise) {
+        return;
+      }
+      runPromise = run().finally(() => {
+        runPromise = null;
+      });
+    };
 
     if (isTTY) {
       process.stdout.write(hideCursor());
     }
 
-    await run();
-    const interval = setInterval(() => void run(), 2000);
+    tick();
+    await runPromise;
+    const interval = setInterval(tick, 2000);
 
     process.on("SIGWINCH", () => {
       terminalWidth = process.stdout.columns ?? terminalWidth;

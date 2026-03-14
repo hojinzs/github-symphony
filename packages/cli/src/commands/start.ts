@@ -224,6 +224,9 @@ const handler = async (
         return snapshot ?? null;
       },
     },
+    onRefresh: async () => {
+      await service.runOnce({ tenantId });
+    },
   });
 
   logLine(

@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import type { TenantStatusSnapshot } from "@gh-symphony/core";
 
-let refreshPending = false;
+let refreshInFlight: Promise<void> | null = null;
 
 type TenantStatusReader = {
   all: () => Promise<TenantStatusSnapshot[]>;
@@ -31,8 +31,8 @@ function isTenantStatusReader(
 export async function resolveOrchestratorStatusResponse(
   pathname: string,
   methodOrGetTenantStatus: string | TenantStatusReader,
-  getTenantStatusOrOnRefresh?: TenantStatusReader | (() => void),
-  onRefresh?: () => void
+  getTenantStatusOrOnRefresh?: TenantStatusReader | (() => void | Promise<void>),
+  onRefresh?: () => void | Promise<void>
 ): Promise<{
   status: number;
   payload: unknown;
@@ -84,17 +84,18 @@ export async function resolveOrchestratorStatusResponse(
         payload: { error: "Method not allowed" },
       };
     }
-    if (refreshPending) {
+    if (refreshInFlight) {
       return {
         status: 202,
         payload: { queued: true, coalesced: true },
       };
     }
-    refreshPending = true;
+
+    refreshInFlight = Promise.resolve(refreshCallback?.());
     try {
-      refreshCallback?.();
+      await refreshInFlight;
     } finally {
-      refreshPending = false;
+      refreshInFlight = null;
     }
     return {
       status: 202,
@@ -139,7 +140,7 @@ export function createOrchestratorRequestHandler(
       tenantId: string
     ) => Promise<TenantStatusSnapshot | null>;
   },
-  onRefresh?: () => void
+  onRefresh?: () => void | Promise<void>
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -162,7 +163,7 @@ export function startOrchestratorStatusServer(options: {
       tenantId: string
     ) => Promise<TenantStatusSnapshot | null>;
   };
-  onRefresh?: () => void;
+  onRefresh?: () => void | Promise<void>;
 }): Server {
   const server = createServer((request, response) => {
     void createOrchestratorRequestHandler(
