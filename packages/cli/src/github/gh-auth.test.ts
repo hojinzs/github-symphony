@@ -58,10 +58,11 @@ describe("checkGhInstalled", () => {
 });
 
 describe("checkGhAuthenticated", () => {
-  it("returns authenticated login from stderr output", () => {
+  it("returns authenticated login from stdout output", () => {
     const spawnImpl = vi.fn(() =>
       buildSpawnResult(
         0,
+        "",
         [
           "github.com",
           "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
@@ -91,6 +92,7 @@ describe("checkGhScopes", () => {
     const spawnImpl = vi.fn(() =>
       buildSpawnResult(
         0,
+        "",
         ["github.com", "  - Token scopes: 'repo', 'read:org'"].join("\n")
       )
     ) as SpawnMock;
@@ -115,6 +117,8 @@ describe("getGhToken", () => {
 
 describe("ensureGhAuth", () => {
   it("returns login and token on success", () => {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+
     const execImpl = vi.fn((command: string, args?: string[]) => {
       if (command !== "gh") {
         throw new Error("unexpected command");
@@ -134,6 +138,7 @@ describe("ensureGhAuth", () => {
     const spawnImpl = vi.fn(() =>
       buildSpawnResult(
         0,
+        "",
         [
           "github.com",
           "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
@@ -203,6 +208,7 @@ describe("ensureGhAuth", () => {
     const spawnImpl = vi.fn(() =>
       buildSpawnResult(
         0,
+        "",
         [
           "github.com",
           "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",

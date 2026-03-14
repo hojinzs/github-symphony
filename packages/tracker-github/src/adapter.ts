@@ -13,6 +13,7 @@ export type GitHubTrackerConfig = {
   apiUrl?: string;
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
+  assignedOnly?: boolean;
 };
 
 export type GitHubRepositoryRef = {
@@ -53,6 +54,7 @@ type GraphQLIssueNode = {
   createdAt: string | null;
   updatedAt: string | null;
   labels: { nodes: Array<{ name: string | null } | null> | null } | null;
+  assignees: { nodes: Array<{ login: string | null } | null> | null } | null;
   repository: {
     name: string;
     url: string;
@@ -166,20 +168,51 @@ export async function fetchProjectIssues(
 ): Promise<GitHubTrackedIssue[]> {
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
+  const currentUserLogin = config.assignedOnly
+    ? await fetchCurrentUserLogin(config, fetchImpl)
+    : null;
+  let excludedCount = 0;
 
   do {
     const page = await fetchProjectItemsPage(config, cursor, fetchImpl);
     const pageIssues = (page.nodes ?? [])
-      .flatMap((item) =>
-        item
-          ? [normalizeProjectItem(config.projectId, item, config.lifecycle)]
-          : []
-      )
-      .flatMap((issue) => (issue ? [issue] : []));
+      .flatMap((item) => {
+        if (!item) {
+          return [];
+        }
+
+        const normalized = normalizeProjectItem(
+          config.projectId,
+          item,
+          config.lifecycle
+        );
+        if (!normalized) {
+          return [];
+        }
+
+        if (
+          currentUserLogin &&
+          !isIssueAssignedToLogin(item, currentUserLogin)
+        ) {
+          excludedCount += 1;
+          return [];
+        }
+
+        return [normalized];
+      });
 
     issues.push(...pageIssues);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
+
+  if (currentUserLogin) {
+    emitAssignedOnlyFilterEvent({
+      projectId: config.projectId,
+      currentUserLogin,
+      includedCount: issues.length,
+      excludedCount,
+    });
+  }
 
   return issues;
 }
@@ -247,6 +280,68 @@ async function fetchProjectItemsPage(
   return items;
 }
 
+async function fetchCurrentUserLogin(
+  config: GitHubTrackerConfig,
+  fetchImpl: FetchLike
+): Promise<string> {
+  const response = await fetchImpl(resolveRestUserApiUrl(config.apiUrl), {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${config.token}`,
+      "user-agent": "gh-symphony",
+      accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new GitHubTrackerHttpError(
+      `GitHub REST request failed with status ${response.status}`,
+      response.status,
+      details
+    );
+  }
+
+  const payload = (await response.json()) as { login?: string };
+  if (!payload.login) {
+    throw new GitHubTrackerQueryError(
+      "GitHub REST response did not include the authenticated user login."
+    );
+  }
+
+  return payload.login;
+}
+
+function isIssueAssignedToLogin(
+  item: GraphQLProjectItem,
+  login: string
+): boolean {
+  if (item.content?.__typename !== "Issue") {
+    return false;
+  }
+
+  return (item.content.assignees?.nodes ?? []).some(
+    (assignee) => assignee?.login === login
+  );
+}
+
+function emitAssignedOnlyFilterEvent(input: {
+  projectId: string;
+  currentUserLogin: string;
+  includedCount: number;
+  excludedCount: number;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "tracker-assigned-only-filtered",
+      projectId: input.projectId,
+      currentUserLogin: input.currentUserLogin,
+      includedCount: input.includedCount,
+      excludedCount: input.excludedCount,
+    })
+  );
+}
+
 function extractFieldValues(
   nodes: Array<GraphQLFieldValue | null>
 ): Record<string, string> {
@@ -278,6 +373,20 @@ function deriveCloneUrl(repositoryUrl: string): string {
   }
 
   return `${repositoryUrl}.git`;
+}
+
+function resolveRestUserApiUrl(apiUrl?: string): string {
+  const parsed = new URL(apiUrl ?? DEFAULT_API_URL);
+  const pathSegments = parsed.pathname.split("/").filter(Boolean);
+
+  if (pathSegments.at(-1) === "graphql") {
+    pathSegments.pop();
+  }
+
+  parsed.pathname = `/${pathSegments.join("/")}/user`.replace(/\/{2,}/g, "/");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
 }
 
 const PROJECT_ITEMS_QUERY = `
@@ -323,6 +432,11 @@ const PROJECT_ITEMS_QUERY = `
                 labels(first: 20) {
                   nodes {
                     name
+                  }
+                }
+                assignees(first: 20) {
+                  nodes {
+                    login
                   }
                 }
                 repository {

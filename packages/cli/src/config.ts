@@ -16,7 +16,15 @@ export type CliGlobalConfig = {
   tenants: string[];
 };
 
-export type CliTenantConfig = OrchestratorTenantConfig & {
+export type CliTenantTrackerSettings = Record<string, string | boolean> & {
+  projectId?: string;
+  assignedOnly?: boolean;
+};
+
+export type CliTenantConfig = Omit<OrchestratorTenantConfig, "tracker"> & {
+  tracker: Omit<OrchestratorTenantConfig["tracker"], "settings"> & {
+    settings?: CliTenantTrackerSettings;
+  };
   workflowMapping?: WorkflowStateConfig;
 };
 

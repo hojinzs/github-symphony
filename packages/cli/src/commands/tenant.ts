@@ -57,10 +57,11 @@ type TenantAddFlags = {
   nonInteractive: boolean;
   project?: string;
   runtime?: string;
+  assignedOnly: boolean;
 };
 
 function parseTenantAddFlags(args: string[]): TenantAddFlags {
-  const flags: TenantAddFlags = { nonInteractive: false };
+  const flags: TenantAddFlags = { nonInteractive: false, assignedOnly: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -76,6 +77,9 @@ function parseTenantAddFlags(args: string[]): TenantAddFlags {
       case "--runtime":
         flags.runtime = next;
         i += 1;
+        break;
+      case "--assigned-only":
+        flags.assignedOnly = true;
         break;
     }
   }
@@ -225,6 +229,7 @@ async function tenantAddNonInteractive(
     statusField,
     mappings,
     runtime,
+    assignedOnly: flags.assignedOnly,
   });
 
   if (options.json) {
@@ -328,7 +333,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/3 — Select a GitHub Project:",
+      message: "Step 1/4 — Select a GitHub Project:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -363,7 +368,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedRepos = await abortIfCancelled(
     p.multiselect({
-      message: "Step 2/3 — Select repositories to orchestrate:",
+      message: "Step 2/4 — Select repositories to orchestrate:",
       options: projectDetail.linkedRepositories.map((repo) => ({
         value: repo,
         label: `${repo.owner}/${repo.name}`,
@@ -410,11 +415,20 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     `Auto-detected workflow: Active=[${lifecycleConfig.activeStates.join(", ")}] Terminal=[${lifecycleConfig.terminalStates.join(", ")}]`
   );
 
-  // ── Step 4: Runtime selection ────────────────────────────────────────────────
+  // ── Step 4: Assignment filter ────────────────────────────────────────────────
+
+  const assignedOnly = await abortIfCancelled(
+    p.confirm({
+      message: `Step 3/4 — Only process issues assigned to the authenticated GitHub user?`,
+      initialValue: false,
+    })
+  );
+
+  // ── Step 5: Runtime selection ────────────────────────────────────────────────
 
   const runtime = await abortIfCancelled(
     p.select({
-      message: "Step 3/3 — Select AI runtime:",
+      message: "Step 4/4 — Select AI runtime:",
       options: [
         { value: "codex", label: "OpenAI Codex", hint: "recommended" },
         { value: "claude-code", label: "Claude Code" },
@@ -440,6 +454,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       `User:       ${login}`,
       `Project:    ${projectDetail.title}`,
       `Repos:      ${selectedRepos.map((r) => `${r.owner}/${r.name}`).join(", ")}`,
+      `Assigned:   ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
       `Runtime:    ${runtime}`,
       `Active:     ${lifecycleConfig.activeStates.join(", ")}`,
       `Terminal:   ${lifecycleConfig.terminalStates.join(", ")}`,
@@ -477,6 +492,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       mappings,
       runtime,
       agentCommand,
+      assignedOnly,
     });
     s6.stop("Configuration saved.");
   } catch (error) {
