@@ -1,7 +1,6 @@
 import * as p from "@clack/prompts";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
@@ -26,7 +25,6 @@ import {
 import { generateWorkflowMarkdown } from "../workflow/generate-workflow-md.js";
 import {
   loadGlobalConfig,
-  loadTenantConfig,
   saveGlobalConfig,
   saveTenantConfig,
   saveWorkflowMapping,
@@ -165,63 +163,6 @@ export type EcosystemResult = {
   skillsWritten: string[];
   skillsSkipped: string[];
 };
-
-function inferAgentRuntimeFromCommand(command?: string): string | null {
-  if (!command) {
-    return null;
-  }
-
-  if (command.includes("claude-code")) {
-    return "claude-code";
-  }
-
-  if (command.includes("codex")) {
-    return "codex";
-  }
-
-  return null;
-}
-
-function isWorkerBootstrapCommand(command: string): boolean {
-  return (
-    command.includes("@gh-symphony/worker/dist/index.js") ||
-    command.includes("packages/worker/dist/index.js")
-  );
-}
-
-function isMissingAgentEnvError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes(
-      "Workflow front matter requires environment variable"
-    )
-  );
-}
-
-export async function resolveTenantRuntime(
-  configDir: string,
-  tenantId: string,
-  tenantWorkerCommand?: string
-): Promise<string> {
-  const workflowPath = join(configDir, "tenants", tenantId, "WORKFLOW.md");
-  try {
-    const workflowMarkdown = await readFile(workflowPath, "utf8");
-    const agentCommand = parseWorkflowMarkdown(
-      workflowMarkdown,
-      {}
-    ).agentCommand;
-    if (!isWorkerBootstrapCommand(agentCommand)) {
-      return agentCommand;
-    }
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException;
-    if (err.code !== "ENOENT" && !isMissingAgentEnvError(error)) {
-      throw error;
-    }
-  }
-
-  return inferAgentRuntimeFromCommand(tenantWorkerCommand) ?? "codex";
-}
 
 export async function writeEcosystem(
   opts: EcosystemOptions
@@ -485,133 +426,10 @@ async function runNonInteractive(
 
 async function runInteractive(options: GlobalOptions): Promise<void> {
   p.intro("gh-symphony — WORKFLOW.md Setup");
-
-  // Case A: tenant(s) already configured
-  const globalConfig = await loadGlobalConfig(options.configDir);
-  if (globalConfig?.tenants?.length) {
-    await runInteractiveFromTenant(globalConfig, options);
-    return;
-  }
-
-  // Case B: no tenants — standalone WORKFLOW.md generation
   await runInteractiveStandalone(options);
 }
 
-// ── Case A: Generate WORKFLOW.md from existing tenant config ─────────────────
-
-async function runInteractiveFromTenant(
-  globalConfig: CliGlobalConfig,
-  options: GlobalOptions
-): Promise<void> {
-  const tenants = globalConfig.tenants;
-
-  let tenantId: string;
-  if (tenants.length === 1) {
-    tenantId = tenants[0]!;
-  } else {
-    // Multiple tenants: ask which one to base WORKFLOW.md on
-    const tenantConfigs = await Promise.all(
-      tenants.map(async (id) => {
-        const cfg = await loadTenantConfig(options.configDir, id);
-        return { id, label: cfg?.slug ?? id };
-      })
-    );
-
-    tenantId = await abortIfCancelled(
-      p.select({
-        message: "Select a tenant to base WORKFLOW.md on:",
-        options: tenantConfigs.map((t) => ({
-          value: t.id,
-          label: t.label,
-          hint: globalConfig.activeTenant === t.id ? "active" : undefined,
-        })),
-      })
-    );
-  }
-
-  const tenantConfig = await loadTenantConfig(options.configDir, tenantId);
-  if (!tenantConfig) {
-    p.log.error(`Tenant config not found for "${tenantId}".`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const lifecycle = tenantConfig.workflowMapping?.lifecycle;
-  if (!lifecycle) {
-    p.log.error(
-      `Tenant "${tenantId}" has no workflow lifecycle config. Run 'gh-symphony tenant add' first.`
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const mappings: Record<string, StateMapping> = {};
-  const workflowMapping = tenantConfig.workflowMapping;
-  if (workflowMapping) {
-    Object.assign(mappings, workflowMapping.mappings);
-  }
-
-  const projectId = tenantConfig.tracker.settings?.projectId as
-    | string
-    | undefined;
-  const stateFieldName =
-    workflowMapping?.stateFieldName ?? lifecycle.stateFieldName;
-  const runtime = await resolveTenantRuntime(
-    options.configDir,
-    tenantId,
-    tenantConfig.runtime.workerCommand
-  );
-
-  const workflowMd = generateWorkflowMarkdown({
-    projectId: projectId ?? "",
-    stateFieldName,
-    mappings,
-    lifecycle,
-    runtime,
-  });
-
-  const outputPath = resolve("WORKFLOW.md");
-  await writeFile(outputPath, workflowMd, "utf8");
-
-  const projId = tenantConfig.tracker.settings?.projectId as string | undefined;
-  let ecosystemResult: EcosystemResult | null = null;
-  let token: string | undefined;
-  try {
-    token = getGhToken();
-  } catch {
-    // getGhToken failed — token stays undefined; ecosystem write proceeds best-effort
-  }
-  if (token && projId) {
-    try {
-      const client = createClient(token);
-      const fullProject = await getProjectDetail(client, projId);
-      const sf =
-        fullProject.statusFields.find(
-          (f) => f.name.toLowerCase() === stateFieldName.toLowerCase()
-        ) ?? fullProject.statusFields[0];
-      if (sf) {
-        ecosystemResult = await writeEcosystem({
-          cwd: process.cwd(),
-          projectDetail: fullProject,
-          statusField: sf,
-          runtime,
-          skipSkills: false,
-          skipContext: false,
-        });
-      }
-    } catch {
-      // best-effort: don't fail init if GitHub API is unreachable
-    }
-  }
-
-  if (ecosystemResult) {
-    printEcosystemSummary(ecosystemResult, outputPath, { interactive: true });
-  } else {
-    p.outro(`WORKFLOW.md generated at ${outputPath}`);
-  }
-}
-
-// ── Case B: Standalone WORKFLOW.md generation (no tenant) ────────────────────
+// ── Interactive WORKFLOW.md generation ────────────────────────────────────────
 
 async function runInteractiveStandalone(
   _options: GlobalOptions

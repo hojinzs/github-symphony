@@ -1,15 +1,10 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import type { CliTenantConfig, WorkflowStateConfig } from "../config.js";
-import {
-  generateTenantId,
-  resolveTenantRuntime,
-  writeConfig,
-  writeEcosystem,
-} from "./init.js";
+import { generateTenantId, writeConfig, writeEcosystem } from "./init.js";
 
 describe("init command config output", () => {
   it("writes workflow and orchestrator overrides for the runtime", async () => {
@@ -174,82 +169,6 @@ describe("init command config output", () => {
     const parsed = parseWorkflowMarkdown(workflowMd, {});
 
     expect(parsed.agentCommand).toBe("bash -lc my-agent");
-  });
-
-  it("resolves tenant runtime from tenant WORKFLOW.md agent command", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-runtime-"));
-    const tenantDir = join(configDir, "tenants", "tenant-runtime");
-
-    await mkdir(tenantDir, { recursive: true });
-
-    await writeFile(
-      join(tenantDir, "WORKFLOW.md"),
-      `---
-tracker:
-  kind: github-project
-codex:
-  command: claude-code
----
-Prompt body
-`,
-      "utf8"
-    );
-
-    await expect(
-      resolveTenantRuntime(configDir, "tenant-runtime")
-    ).resolves.toBe("claude-code");
-  });
-
-  it("falls back to codex when tenant WORKFLOW agent command is a worker path", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-worker-path-"));
-    const tenantDir = join(configDir, "tenants", "tenant-worker-path");
-
-    await mkdir(tenantDir, { recursive: true });
-
-    await writeFile(
-      join(tenantDir, "WORKFLOW.md"),
-      `---
-tracker:
-  kind: github-project
-codex:
-  command: node /Users/example/github-symphony/packages/worker/dist/index.js
----
-Prompt body
-`,
-      "utf8"
-    );
-
-    await expect(
-      resolveTenantRuntime(configDir, "tenant-worker-path")
-    ).resolves.toBe("codex");
-  });
-
-  it("falls back to worker-command inference when tenant agent command depends on env", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-env-runtime-"));
-    const tenantDir = join(configDir, "tenants", "tenant-env-runtime");
-
-    await mkdir(tenantDir, { recursive: true });
-
-    await writeFile(
-      join(tenantDir, "WORKFLOW.md"),
-      `---
-tracker:
-  kind: github-project
-codex:
-  command: env:OPENAI_AGENT_COMMAND
----
-Prompt body
-`,
-      "utf8"
-    );
-
-    await expect(
-      resolveTenantRuntime(
-        configDir,
-        "tenant-env-runtime",
-        "bash -lc claude-code"
-      )
-    ).resolves.toBe("claude-code");
   });
 
   it("derives unique tenant IDs from the project identity, not only the title", () => {
