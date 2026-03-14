@@ -419,7 +419,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const assignedOnly = await abortIfCancelled(
     p.confirm({
-      message: `Step 3/4 — Only process issues assigned to ${login}?`,
+      message: `Step 3/4 — Only process issues assigned to the authenticated GitHub user?`,
       initialValue: false,
     })
   );

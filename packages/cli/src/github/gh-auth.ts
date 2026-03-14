@@ -55,7 +55,7 @@ export function checkGhAuthenticated(opts?: { spawnImpl?: SpawnImpl }): {
     return { authenticated: false };
   }
 
-  const login = parseLogin((result.stderr ?? "").toString());
+  const login = parseLogin((result.stdout ?? "").toString());
   return { authenticated: true, login };
 }
 
@@ -70,7 +70,7 @@ export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  const output = (result.stderr ?? "").toString();
+  const output = (result.stdout ?? "").toString();
 
   const scopes = parseScopes(output);
   if (scopes.length === 0) {
