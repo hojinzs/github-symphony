@@ -1,6 +1,6 @@
 {
   "name": "@gh-symphony/tracker-github",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "license": "MIT",
   "author": "hojinzs",
   "description": "GitHub Project tracker adapter implementing the Symphony tracker contract",
