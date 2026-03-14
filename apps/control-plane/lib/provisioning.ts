@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
-import { fetchTenantOrchestratorStatus } from "./orchestrator-status-client";
+import { fetchProjectOrchestratorStatus } from "./orchestrator-status-client";
 import { type RuntimeDriver, resolveRuntimeDriver } from "./runtime-config";
 import { buildWorkspaceAgentCredentialBrokerUrl } from "./runtime-agent-credentials";
 import {
@@ -250,7 +250,7 @@ export async function syncWorkspaceRuntimeStatus(
     docker?: unknown;
   }
 ): Promise<"running" | "stopped" | "failed"> {
-  const status = await fetchTenantOrchestratorStatus(input.workspaceId, {
+  const status = await fetchProjectOrchestratorStatus(input.workspaceId, {
     fetchImpl: options.fetchImpl,
   });
   const nextStatus =

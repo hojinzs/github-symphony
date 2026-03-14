@@ -5,7 +5,7 @@ import type {
 import { fetchProjectIssues } from "./adapter.js";
 
 export const githubProjectAdapter: OrchestratorTrackerAdapter = {
-  async listIssues(tenant, dependencies = {}) {
+  async listIssues(project, dependencies = {}) {
     const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
 
     if (!token) {
@@ -14,26 +14,26 @@ export const githubProjectAdapter: OrchestratorTrackerAdapter = {
       );
     }
 
-    const projectId = requireTrackerSetting(tenant.tracker, "projectId");
+    const projectId = requireTrackerSetting(project.tracker, "projectId");
 
     return fetchProjectIssues(
       {
         projectId,
         token,
-        apiUrl: tenant.tracker.apiUrl,
-        assignedOnly: readBooleanTrackerSetting(tenant.tracker, "assignedOnly"),
+        apiUrl: project.tracker.apiUrl,
+        assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
       },
       dependencies.fetchImpl
     );
   },
 
-  buildWorkerEnvironment(tenant) {
+  buildWorkerEnvironment(project) {
     return {
-      GITHUB_PROJECT_ID: requireTrackerSetting(tenant.tracker, "projectId"),
+      GITHUB_PROJECT_ID: requireTrackerSetting(project.tracker, "projectId"),
     };
   },
 
-  reviveIssue(tenant, run) {
+  reviveIssue(project, run) {
     return {
       id: run.issueId,
       identifier: run.issueIdentifier,
@@ -51,7 +51,7 @@ export const githubProjectAdapter: OrchestratorTrackerAdapter = {
       repository: run.repository,
       tracker: {
         adapter: "github-project",
-        bindingId: tenant.tracker.bindingId,
+        bindingId: project.tracker.bindingId,
         itemId: run.issueId,
       },
       metadata: {},

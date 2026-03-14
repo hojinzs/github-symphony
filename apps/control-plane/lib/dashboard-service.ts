@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { readWorkspaceAgentCredentialStatus } from "./agent-credentials";
-import { fetchWorkspaceOrchestratorStatus } from "./orchestrator-status-client";
+import { fetchProjectOrchestratorStatus } from "./orchestrator-status-client";
 import { syncWorkspaceRuntimeStatus } from "./provisioning";
 
 export async function loadWorkspaceDashboard(
@@ -57,7 +57,7 @@ export async function loadWorkspaceDashboard(
             fetchImpl
           }
         );
-        const orchestratorState = await fetchWorkspaceOrchestratorStatus(workspace.id, {
+        const orchestratorState = await fetchProjectOrchestratorStatus(workspace.id, {
           fetchImpl
         });
         const activeRun = orchestratorState?.activeRuns?.[0];

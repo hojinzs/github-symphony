@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildHookEnv,
   buildPromptVariables,
-  buildTenantSnapshot,
+  buildProjectSnapshot,
   deriveIssueWorkspaceKey,
   executeWorkspaceHook,
   isStateActive,
@@ -21,12 +21,12 @@ import {
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
-  type OrchestratorTenantConfig,
+  type OrchestratorProjectConfig,
   type RepositoryRef,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
-  type TenantLeaseRecord,
-  type TenantStatusSnapshot,
+  type ProjectLeaseRecord,
+  type ProjectStatusSnapshot,
 } from "@gh-symphony/core";
 import {
   cloneRepositoryForRun,
@@ -51,7 +51,7 @@ type SpawnLike = (
 
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
-  private readonly tenantPollIntervals = new Map<string, number>();
+  private readonly projectPollIntervals = new Map<string, number>();
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -68,7 +68,7 @@ export class OrchestratorService {
 
   async run(
     options: {
-      tenantId?: string;
+      projectId?: string;
       issueIdentifier?: string;
       once?: boolean;
     } = {}
@@ -86,32 +86,32 @@ export class OrchestratorService {
 
   async runOnce(
     options: {
-      tenantId?: string;
+      projectId?: string;
       issueIdentifier?: string;
     } = {}
-  ): Promise<TenantStatusSnapshot[]> {
-    const tenants = await this.loadTargetTenants(options.tenantId);
+  ): Promise<ProjectStatusSnapshot[]> {
+    const projects = await this.loadTargetProjects(options.projectId);
     return Promise.all(
-      tenants.map((tenant) =>
-        this.reconcileTenant(tenant, options.issueIdentifier)
+      projects.map((tenant) =>
+        this.reconcileProject(tenant, options.issueIdentifier)
       )
     );
   }
 
-  async status(tenantId?: string): Promise<TenantStatusSnapshot[]> {
-    const tenants = await this.loadTargetTenants(tenantId);
+  async status(projectId?: string): Promise<ProjectStatusSnapshot[]> {
+    const projects = await this.loadTargetProjects(projectId);
     const statuses = await Promise.all(
-      tenants.map((tenant) => this.store.loadTenantStatus(tenant.tenantId))
+      projects.map((tenant) => this.store.loadProjectStatus(tenant.projectId))
     );
 
-    return statuses.filter((status): status is TenantStatusSnapshot =>
+    return statuses.filter((status): status is ProjectStatusSnapshot =>
       Boolean(status)
     );
   }
 
-  async recover(tenantId?: string): Promise<TenantStatusSnapshot[]> {
+  async recover(projectId?: string): Promise<ProjectStatusSnapshot[]> {
     return this.runOnce({
-      tenantId,
+      projectId,
     });
   }
 
@@ -120,7 +120,7 @@ export class OrchestratorService {
       return this.dependencies.pollIntervalMs;
     }
 
-    const configuredIntervals = [...this.tenantPollIntervals.values()].filter(
+    const configuredIntervals = [...this.projectPollIntervals.values()].filter(
       (value) => Number.isFinite(value) && value > 0
     );
     return configuredIntervals.length
@@ -128,19 +128,19 @@ export class OrchestratorService {
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
-  private async loadTargetTenants(
-    tenantId?: string
-  ): Promise<OrchestratorTenantConfig[]> {
-    const tenants = await this.store.loadTenantConfigs();
-    return tenantId
-      ? tenants.filter((tenant) => tenant.tenantId === tenantId)
-      : tenants;
+  private async loadTargetProjects(
+    projectId?: string
+  ): Promise<OrchestratorProjectConfig[]> {
+    const projects = await this.store.loadProjectConfigs();
+    return projectId
+      ? projects.filter((tenant) => tenant.projectId === projectId)
+      : projects;
   }
 
-  private async reconcileTenant(
-    tenant: OrchestratorTenantConfig,
+  private async reconcileProject(
+    tenant: OrchestratorProjectConfig,
     issueIdentifier?: string
-  ): Promise<TenantStatusSnapshot> {
+  ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     let lastError: string | null = null;
@@ -149,9 +149,9 @@ export class OrchestratorService {
     let recovered = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 
-    let leases = await this.store.loadTenantLeases(tenant.tenantId);
+    let leases = await this.store.loadProjectLeases(tenant.projectId);
     const allRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.tenantId === tenant.tenantId
+      (run) => run.projectId === tenant.projectId
     );
     const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
     this.initializePortFrom(allRuns);
@@ -165,7 +165,7 @@ export class OrchestratorService {
     }
 
     try {
-      pollIntervalMs = await this.loadTenantPollInterval(tenant);
+      pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const issues = await trackerAdapter.listIssues(tenant, {
         fetchImpl: this.dependencies.fetchImpl,
       });
@@ -176,7 +176,7 @@ export class OrchestratorService {
         : issues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
-      const concurrency = this.getTenantConcurrency(tenant);
+      const concurrency = this.getProjectConcurrency(tenant);
       const currentlyActive = leases.filter(
         (lease) => lease.status === "active"
       ).length;
@@ -202,7 +202,7 @@ export class OrchestratorService {
 
       // Load per-state concurrency limits from workflow config
       const maxConcurrentByState =
-        await this.loadTenantMaxConcurrentByState(tenant);
+        await this.loadProjectMaxConcurrentByState(tenant);
 
       let slotsRemaining = availableSlots;
       for (const issue of sortedCandidates) {
@@ -231,7 +231,7 @@ export class OrchestratorService {
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
           event: "run-dispatched",
-          tenantId: tenant.tenantId,
+          projectId: tenant.projectId,
           issueIdentifier: issue.identifier,
           issueId: run.issueId,
           issueState: issue.state,
@@ -292,16 +292,16 @@ export class OrchestratorService {
         error instanceof Error ? error.message : "Unknown orchestration error";
     }
 
-    this.tenantPollIntervals.set(tenant.tenantId, pollIntervalMs);
-    await this.store.saveTenantLeases(tenant.tenantId, leases);
+    this.projectPollIntervals.set(tenant.projectId, pollIntervalMs);
+    await this.store.saveProjectLeases(tenant.projectId, leases);
 
     const allTenantRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.tenantId === tenant.tenantId
+      (run) => run.projectId === tenant.projectId
     );
     const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunStatus(run.status)
     );
-    const status = buildTenantSnapshot({
+    const status = buildProjectSnapshot({
       tenant,
       activeRuns: latestRuns,
       allRuns: allTenantRuns,
@@ -309,12 +309,12 @@ export class OrchestratorService {
       lastTickAt: now.toISOString(),
       lastError,
     });
-    await this.store.saveTenantStatus(status);
+    await this.store.saveProjectStatus(status);
     return status;
   }
 
   private async resolveActionableCandidates(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     issues: TrackedIssue[]
   ): Promise<{
     candidates: TrackedIssue[];
@@ -324,7 +324,7 @@ export class OrchestratorService {
     let lifecycle: WorkflowLifecycleConfig | null = null;
 
     for (const issue of issues) {
-      const resolution = await this.loadTenantWorkflow(
+      const resolution = await this.loadProjectWorkflow(
         tenant,
         issue.repository
       );
@@ -364,7 +364,7 @@ export class OrchestratorService {
 
     // If no issues were processed, load lifecycle from first repo
     if (!lifecycle && tenant.repositories.length > 0) {
-      const resolution = await this.loadTenantWorkflow(
+      const resolution = await this.loadProjectWorkflow(
         tenant,
         tenant.repositories[0]!
       );
@@ -384,8 +384,8 @@ export class OrchestratorService {
     };
   }
 
-  private async loadTenantWorkflow(
-    tenant: OrchestratorTenantConfig,
+  private async loadProjectWorkflow(
+    tenant: OrchestratorProjectConfig,
     repository: RepositoryRef
   ) {
     const cacheRoot = join(
@@ -403,25 +403,25 @@ export class OrchestratorService {
   }
 
   private async startRun(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
-    const runId = createRunId(now, tenant.tenantId, issue.identifier);
+    const runId = createRunId(now, tenant.projectId, issue.identifier);
     const runDir = this.store.runDir(runId);
     const workspaceRuntimeDir = join(runDir, "workspace-runtime");
 
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      tenantId: tenant.tenantId,
+      projectId: tenant.projectId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
     const workspaceKey = deriveIssueWorkspaceKey(identity);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
       tenant.workspaceDir,
-      tenant.tenantId,
+      tenant.projectId,
       workspaceKey
     );
 
@@ -431,13 +431,13 @@ export class OrchestratorService {
     });
 
     const existingWorkspaceRecord = await this.store.loadIssueWorkspace(
-      tenant.tenantId,
+      tenant.projectId,
       workspaceKey
     );
     if (!existingWorkspaceRecord) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
-        tenantId: tenant.tenantId,
+        projectId: tenant.projectId,
         adapter: issue.tracker.adapter,
         issueSubjectId,
         issueIdentifier: issue.identifier,
@@ -457,7 +457,7 @@ export class OrchestratorService {
         repositoryDirectory,
         issue.repository,
         {
-          tenantId: tenant.tenantId,
+          projectId: tenant.projectId,
           workspaceKey,
           issueSubjectId,
           issueIdentifier: issue.identifier,
@@ -479,7 +479,7 @@ export class OrchestratorService {
       }
     }
 
-    const workflow = await this.loadTenantWorkflow(tenant, issue.repository);
+    const workflow = await this.loadProjectWorkflow(tenant, issue.repository);
     if (!workflow.isValid) {
       throw new Error(
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
@@ -503,7 +503,7 @@ export class OrchestratorService {
       repositoryDirectory,
       issue.repository,
       {
-        tenantId: tenant.tenantId,
+        projectId: tenant.projectId,
         workspaceKey,
         issueSubjectId,
         issueIdentifier: issue.identifier,
@@ -524,8 +524,8 @@ export class OrchestratorService {
         env: {
           ...process.env,
           GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
-          CODEX_TENANT_ID: tenant.tenantId,
-          TENANT_ID: tenant.tenantId,
+          CODEX_PROJECT_ID: tenant.projectId,
+          PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
           PORT: String(port),
@@ -563,8 +563,8 @@ export class OrchestratorService {
 
     return {
       runId,
-      tenantId: tenant.tenantId,
-      tenantSlug: tenant.slug,
+      projectId: tenant.projectId,
+      projectSlug: tenant.slug,
       issueId: issue.id,
       issueSubjectId,
       issueIdentifier: issue.identifier,
@@ -589,10 +589,10 @@ export class OrchestratorService {
   }
 
   private async reconcileRun(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    leases: TenantLeaseRecord[]
-  ): Promise<{ leases: TenantLeaseRecord[]; recovered: boolean }> {
+    leases: ProjectLeaseRecord[]
+  ): Promise<{ leases: ProjectLeaseRecord[]; recovered: boolean }> {
     const now = this.now();
 
     if (run.processId && isProcessRunning(run.processId)) {
@@ -650,7 +650,7 @@ export class OrchestratorService {
       });
     }
 
-    if (run.attempt >= this.getTenantMaxAttempts(tenant)) {
+    if (run.attempt >= this.getProjectMaxAttempts(tenant)) {
       const failedRecord: OrchestratorRunRecord = {
         ...runWithTokens,
         status: "failed",
@@ -681,7 +681,7 @@ export class OrchestratorService {
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
         tenant.workspaceDir,
-        tenant.tenantId,
+        tenant.projectId,
         run.issueWorkspaceKey
       );
 
@@ -691,7 +691,7 @@ export class OrchestratorService {
         run.workingDirectory,
         run.repository,
         {
-          tenantId: run.tenantId,
+          projectId: run.projectId,
           workspaceKey: run.issueWorkspaceKey,
           issueSubjectId: run.issueSubjectId,
           issueIdentifier: run.issueIdentifier,
@@ -770,7 +770,7 @@ export class OrchestratorService {
    * Failure applies when we cannot confirm the issue is still actionable.
    */
   private async classifyRetryKind(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): Promise<"continuation" | "failure"> {
     try {
@@ -784,7 +784,7 @@ export class OrchestratorService {
       if (!runIssue) {
         return "failure";
       }
-      const resolution = await this.loadTenantWorkflow(tenant, run.repository);
+      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!resolution.isValid) {
         return "failure";
       }
@@ -933,11 +933,11 @@ export class OrchestratorService {
    */
   private async runHook(
     kind: "after_create" | "before_run" | "after_run" | "before_remove",
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     repositoryDirectory: string,
     repository: RepositoryRef,
     context: {
-      tenantId: string;
+      projectId: string;
       workspaceKey: string;
       issueSubjectId: string;
       issueIdentifier: string;
@@ -948,7 +948,7 @@ export class OrchestratorService {
     }
   ): Promise<HookResult | null> {
     try {
-      const resolution = await this.loadTenantWorkflow(tenant, repository);
+      const resolution = await this.loadProjectWorkflow(tenant, repository);
       if (!resolution.isValid) {
         return null;
       }
@@ -967,12 +967,12 @@ export class OrchestratorService {
   }
 
   private async restartRun(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    leases: TenantLeaseRecord[],
+    leases: ProjectLeaseRecord[],
     now: Date,
     sessionId?: string | null
-  ): Promise<{ leases: TenantLeaseRecord[]; recovered: boolean }> {
+  ): Promise<{ leases: ProjectLeaseRecord[]; recovered: boolean }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
     // and isActiveRunStatus() picks it up on every tick, calling restartRun()
@@ -1020,12 +1020,12 @@ export class OrchestratorService {
     };
   }
 
-  private async loadTenantPollInterval(
-    tenant: OrchestratorTenantConfig
+  private async loadProjectPollInterval(
+    tenant: OrchestratorProjectConfig
   ): Promise<number> {
     const intervals = await Promise.all(
       tenant.repositories.map(async (repository) => {
-        const resolution = await this.loadTenantWorkflow(tenant, repository);
+        const resolution = await this.loadProjectWorkflow(tenant, repository);
         return resolution.isValid
           ? resolution.workflow.polling.intervalMs
           : NaN;
@@ -1039,14 +1039,14 @@ export class OrchestratorService {
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
-  private async loadTenantMaxConcurrentByState(
-    tenant: OrchestratorTenantConfig
+  private async loadProjectMaxConcurrentByState(
+    tenant: OrchestratorProjectConfig
   ): Promise<Record<string, number>> {
     const result: Record<string, number> = {};
     const resolutions = await Promise.all(
       tenant.repositories.map(async (repository) => {
         try {
-          return await this.loadTenantWorkflow(tenant, repository);
+          return await this.loadProjectWorkflow(tenant, repository);
         } catch {
           return null;
         }
@@ -1070,7 +1070,7 @@ export class OrchestratorService {
   }
 
   private async loadRetryPolicy(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     repository: RepositoryRef
   ): Promise<{ baseDelayMs: number; maxDelayMs: number } | null> {
     if (this.dependencies.retryBackoffMs) {
@@ -1081,7 +1081,7 @@ export class OrchestratorService {
     }
 
     try {
-      const resolution = await this.loadTenantWorkflow(tenant, repository);
+      const resolution = await this.loadProjectWorkflow(tenant, repository);
       if (!resolution.isValid) {
         return null;
       }
@@ -1094,11 +1094,11 @@ export class OrchestratorService {
     }
   }
 
-  private getTenantConcurrency(_tenant: OrchestratorTenantConfig): number {
+  private getProjectConcurrency(_tenant: OrchestratorProjectConfig): number {
     return this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
   }
 
-  private getTenantMaxAttempts(_tenant: OrchestratorTenantConfig): number {
+  private getProjectMaxAttempts(_tenant: OrchestratorProjectConfig): number {
     return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
@@ -1111,19 +1111,19 @@ export class OrchestratorService {
    * the record set to `removed`. Orchestration records (runs) are preserved.
    */
   private async cleanupTerminalIssueWorkspace(
-    tenant: OrchestratorTenantConfig,
+    tenant: OrchestratorProjectConfig,
     issue: TrackedIssue,
     now: Date
   ): Promise<void> {
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      tenantId: tenant.tenantId,
+      projectId: tenant.projectId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
     const workspaceKey = deriveIssueWorkspaceKey(identity);
     const workspaceRecord = await this.store.loadIssueWorkspace(
-      tenant.tenantId,
+      tenant.projectId,
       workspaceKey
     );
 
@@ -1150,7 +1150,7 @@ export class OrchestratorService {
       workspaceRecord.repositoryPath,
       issue.repository,
       {
-        tenantId: tenant.tenantId,
+        projectId: tenant.projectId,
         workspaceKey,
         issueSubjectId,
         issueIdentifier: issue.identifier,
@@ -1248,11 +1248,11 @@ function wait(ms: number): Promise<void> {
 
 function createRunId(
   now: Date,
-  tenantId: string,
+  projectId: string,
   issueIdentifier: string
 ): string {
   return [
-    tenantId,
+    projectId,
     issueIdentifier.replace(/[^a-zA-Z0-9]+/g, "-"),
     now.getTime().toString(36),
   ].join("-");
@@ -1265,9 +1265,9 @@ function buildLeaseKey(
 }
 
 function upsertLease(
-  leases: TenantLeaseRecord[],
-  nextLease: TenantLeaseRecord
-): TenantLeaseRecord[] {
+  leases: ProjectLeaseRecord[],
+  nextLease: ProjectLeaseRecord
+): ProjectLeaseRecord[] {
   const remaining = leases.filter(
     (lease) => lease.leaseKey !== nextLease.leaseKey
   );
@@ -1275,10 +1275,10 @@ function upsertLease(
 }
 
 function releaseLease(
-  leases: TenantLeaseRecord[],
+  leases: ProjectLeaseRecord[],
   leaseKey: string,
   now: Date
-): TenantLeaseRecord[] {
+): ProjectLeaseRecord[] {
   return leases.map((lease) =>
     lease.leaseKey === leaseKey
       ? {

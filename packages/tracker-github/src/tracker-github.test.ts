@@ -65,7 +65,7 @@ describe("resolveTrackerAdapter", () => {
 
       await adapter.listIssues(
         {
-          tenantId: "workspace-1",
+          projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
           repositories: [],
@@ -112,7 +112,7 @@ describe("resolveTrackerAdapter", () => {
 
       const issues = await adapter.listIssues(
         {
-          tenantId: "workspace-1",
+          projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
           repositories: [],
@@ -201,7 +201,7 @@ describe("resolveTrackerAdapter", () => {
 
     await adapter.listIssues(
       {
-        tenantId: "workspace-1",
+        projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
         repositories: [],

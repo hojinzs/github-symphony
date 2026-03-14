@@ -4,63 +4,63 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import type { TenantStatusSnapshot } from "@gh-symphony/core";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 
 let refreshInFlight: Promise<void> | null = null;
 
-type TenantStatusReader = {
-  all: () => Promise<TenantStatusSnapshot[]>;
-  byTenantId: (
-    tenantId: string
-  ) => Promise<TenantStatusSnapshot | null>;
+type ProjectStatusReader = {
+  all: () => Promise<ProjectStatusSnapshot[]>;
+  byProjectId: (
+    projectId: string
+  ) => Promise<ProjectStatusSnapshot | null>;
 };
 
-function isTenantStatusReader(
+function isProjectStatusReader(
   value: unknown
-): value is TenantStatusReader {
+): value is ProjectStatusReader {
   return Boolean(
     value &&
     typeof value === "object" &&
     "all" in value &&
     typeof value.all === "function" &&
-    "byTenantId" in value &&
-    typeof value.byTenantId === "function"
+    "byProjectId" in value &&
+    typeof value.byProjectId === "function"
   );
 }
 
 export async function resolveOrchestratorStatusResponse(
   pathname: string,
-  methodOrGetTenantStatus: string | TenantStatusReader,
-  getTenantStatusOrOnRefresh?: TenantStatusReader | (() => void | Promise<void>),
+  methodOrGetProjectStatus: string | ProjectStatusReader,
+  getProjectStatusOrOnRefresh?: ProjectStatusReader | (() => void | Promise<void>),
   onRefresh?: () => void | Promise<void>
 ): Promise<{
   status: number;
   payload: unknown;
 }> {
   const method =
-    typeof methodOrGetTenantStatus === "string"
-      ? methodOrGetTenantStatus
+    typeof methodOrGetProjectStatus === "string"
+      ? methodOrGetProjectStatus
       : "GET";
-  const getTenantStatus = isTenantStatusReader(methodOrGetTenantStatus)
-    ? methodOrGetTenantStatus
-    : isTenantStatusReader(getTenantStatusOrOnRefresh)
-      ? getTenantStatusOrOnRefresh
+  const getProjectStatus = isProjectStatusReader(methodOrGetProjectStatus)
+    ? methodOrGetProjectStatus
+    : isProjectStatusReader(getProjectStatusOrOnRefresh)
+      ? getProjectStatusOrOnRefresh
       : null;
   const refreshCallback =
-    typeof methodOrGetTenantStatus === "string"
+    typeof methodOrGetProjectStatus === "string"
       ? typeof onRefresh === "function"
         ? onRefresh
         : undefined
-      : typeof getTenantStatusOrOnRefresh === "function"
-        ? getTenantStatusOrOnRefresh
+      : typeof getProjectStatusOrOnRefresh === "function"
+        ? getProjectStatusOrOnRefresh
         : typeof onRefresh === "function"
           ? onRefresh
           : undefined;
 
-  if (!getTenantStatus) {
+  if (!getProjectStatus) {
     return {
       status: 500,
-      payload: { error: "Tenant status reader not configured." },
+      payload: { error: "Project status reader not configured." },
     };
   }
 
@@ -74,7 +74,7 @@ export async function resolveOrchestratorStatusResponse(
   if (pathname === "/api/v1/status") {
     return {
       status: 200,
-      payload: await getTenantStatus.all(),
+      payload: await getProjectStatus.all(),
     };
   }
   if (pathname === "/api/v1/refresh") {
@@ -113,20 +113,20 @@ export async function resolveOrchestratorStatusResponse(
     };
   }
 
-  const tenantMatch = pathname.match(
-    /^\/api\/v1\/tenants\/([^/]+)\/status$/
+  const projectMatch = pathname.match(
+    /^\/api\/v1\/projects\/([^/]+)\/status$/
   );
 
-  if (tenantMatch) {
-    const tenantId = decodeURIComponent(tenantMatch[1] ?? "");
-    const snapshot = await getTenantStatus.byTenantId(tenantId);
+  if (projectMatch) {
+    const projectId = decodeURIComponent(projectMatch[1] ?? "");
+    const snapshot = await getProjectStatus.byProjectId(projectId);
 
     if (!snapshot) {
       return {
         status: 404,
         payload: {
-          error: "Tenant status not found.",
-          tenantId,
+          error: "Project status not found.",
+          projectId,
         },
       };
     }
@@ -144,11 +144,11 @@ export async function resolveOrchestratorStatusResponse(
 }
 
 export function createOrchestratorRequestHandler(
-  getTenantStatus: {
-    all: () => Promise<TenantStatusSnapshot[]>;
-    byTenantId: (
-      tenantId: string
-    ) => Promise<TenantStatusSnapshot | null>;
+  getProjectStatus: {
+    all: () => Promise<ProjectStatusSnapshot[]>;
+    byProjectId: (
+      projectId: string
+    ) => Promise<ProjectStatusSnapshot | null>;
   },
   onRefresh?: () => void | Promise<void>
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
@@ -157,7 +157,7 @@ export function createOrchestratorRequestHandler(
     const resolved = await resolveOrchestratorStatusResponse(
       url.pathname,
       request.method ?? "GET",
-      getTenantStatus,
+      getProjectStatus,
       onRefresh
     );
     respondJson(response, resolved.status, resolved.payload);
@@ -167,17 +167,17 @@ export function createOrchestratorRequestHandler(
 export function startOrchestratorStatusServer(options: {
   host: string;
   port: number;
-  getTenantStatus: {
-    all: () => Promise<TenantStatusSnapshot[]>;
-    byTenantId: (
-      tenantId: string
-    ) => Promise<TenantStatusSnapshot | null>;
+  getProjectStatus: {
+    all: () => Promise<ProjectStatusSnapshot[]>;
+    byProjectId: (
+      projectId: string
+    ) => Promise<ProjectStatusSnapshot | null>;
   };
   onRefresh?: () => void | Promise<void>;
 }): Server {
   const server = createServer((request, response) => {
     void createOrchestratorRequestHandler(
-      options.getTenantStatus,
+      options.getProjectStatus,
       options.onRefresh
     )(request, response);
   });

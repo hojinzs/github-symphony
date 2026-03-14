@@ -89,17 +89,19 @@ export async function provisionWorkspace(
     {
       workspaceId: workspace.id,
       slug: workspace.slug,
-      promptGuidelines: workspace.promptGuidelines,
+      promptGuidelines: workspace.promptGuidelines ?? "",
       githubProjectId: project.id,
       agentCredentialSource: workspace.agentCredentialSource,
       repositories: workspace.repositories.map((repository: {
         owner: string;
         name: string;
-        cloneUrl: string;
+        cloneUrl: string | null;
       }) => ({
         owner: repository.owner,
         name: repository.name,
-        cloneUrl: repository.cloneUrl
+        cloneUrl:
+          repository.cloneUrl ??
+          `https://github.com/${repository.owner}/${repository.name}.git`
       }))
     },
     {

@@ -5,7 +5,7 @@ describe("POST /api/v1/refresh", () => {
   it("triggers onRefresh callback on POST", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
     const onRefresh = vi.fn();
 
@@ -24,7 +24,7 @@ describe("POST /api/v1/refresh", () => {
   it("returns 405 for GET on /api/v1/refresh", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -40,7 +40,7 @@ describe("POST /api/v1/refresh", () => {
   it("returns 405 for PUT on /api/v1/refresh", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -56,7 +56,7 @@ describe("POST /api/v1/refresh", () => {
   it("works when onRefresh is not provided", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
 
     const result = await resolveOrchestratorStatusResponse(
@@ -72,7 +72,7 @@ describe("POST /api/v1/refresh", () => {
   it("awaits async refresh completion before returning", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
     let released = false;
     const onRefresh = vi.fn().mockImplementation(
@@ -99,7 +99,7 @@ describe("POST /api/v1/refresh", () => {
   it("coalesces concurrent refresh requests while one is running", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
     let resolveRefresh: (() => void) | null = null;
     const onRefresh = vi.fn().mockImplementation(
@@ -138,7 +138,7 @@ describe("POST /api/v1/refresh", () => {
   it("returns 500 when refresh callback rejects and clears the in-flight state", async () => {
     const mockStatus = {
       all: vi.fn().mockResolvedValue([]),
-      byTenantId: vi.fn().mockResolvedValue(null),
+      byProjectId: vi.fn().mockResolvedValue(null),
     };
     const onRefresh = vi
       .fn()
@@ -173,7 +173,7 @@ describe("POST /api/v1/refresh", () => {
 
   it("keeps the legacy GET signature working for tenant status lookups", async () => {
     const snapshot = {
-      tenantId: "tenant-1",
+      projectId: "tenant-1",
       slug: "tenant-1",
       tracker: {
         adapter: "github-project",
@@ -193,16 +193,16 @@ describe("POST /api/v1/refresh", () => {
     } as const;
     const mockStatus = {
       all: vi.fn().mockResolvedValue([snapshot]),
-      byTenantId: vi.fn().mockResolvedValue(snapshot),
+      byProjectId: vi.fn().mockResolvedValue(snapshot),
     };
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/tenants/tenant-1/status",
+      "/api/v1/projects/tenant-1/status",
       mockStatus
     );
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
-    expect(mockStatus.byTenantId).toHaveBeenCalledWith("tenant-1");
+    expect(mockStatus.byProjectId).toHaveBeenCalledWith("tenant-1");
   });
 });

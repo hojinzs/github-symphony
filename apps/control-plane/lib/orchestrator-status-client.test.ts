@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  fetchTenantOrchestratorStatus,
+  fetchProjectOrchestratorStatus,
   resolveOrchestratorStatusBaseUrl
 } from "./orchestrator-status-client";
 
@@ -9,7 +9,7 @@ describe("orchestrator status client", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          tenantId: "tenant-1",
+          projectId: "tenant-1",
           slug: "tenant-1",
           tracker: {
             adapter: "github-project",
@@ -31,21 +31,21 @@ describe("orchestrator status client", () => {
       )
     );
 
-    const snapshot = await fetchTenantOrchestratorStatus("tenant-1", {
+    const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
       fetchImpl: fetchImpl as typeof fetch,
       baseUrl: "http://orchestrator.test:4680"
     });
 
-    expect(snapshot?.tenantId).toBe("tenant-1");
+    expect(snapshot?.projectId).toBe("tenant-1");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://orchestrator.test:4680/api/v1/tenants/tenant-1/status"
+      "http://orchestrator.test:4680/api/v1/projects/tenant-1/status"
     );
   });
 
   it("returns null for 404 responses", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
 
-    const snapshot = await fetchTenantOrchestratorStatus("missing", {
+    const snapshot = await fetchProjectOrchestratorStatus("missing", {
       fetchImpl: fetchImpl as typeof fetch
     });
 

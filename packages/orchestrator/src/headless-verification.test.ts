@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { fetchTenantOrchestratorStatus } from "../../../apps/control-plane/lib/orchestrator-status-client.ts";
+import { fetchProjectOrchestratorStatus } from "../../../apps/control-plane/lib/orchestrator-status-client.ts";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { runCli } from "./index.js";
 import { OrchestratorService } from "./service.js";
@@ -22,8 +22,8 @@ describe("headless orchestration verification", () => {
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
-      await store.saveTenantConfig({
-        tenantId: "tenant-1",
+      await store.saveProjectConfig({
+        projectId: "tenant-1",
         slug: "tenant-1",
         workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
         repositories: [repository],
@@ -58,15 +58,15 @@ describe("headless orchestration verification", () => {
       });
 
       const cliStatus = JSON.parse(stdout) as Array<{
-        tenantId: string;
+        projectId: string;
         summary: {
           dispatched: number;
         };
       }>;
-      expect(cliStatus[0]?.tenantId).toBe("tenant-1");
+      expect(cliStatus[0]?.projectId).toBe("tenant-1");
       expect(cliStatus[0]?.summary.dispatched).toBe(1);
 
-      const snapshot = await fetchTenantOrchestratorStatus("tenant-1", {
+      const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
         baseUrl: "http://orchestrator.test",
         fetchImpl: (async (input) => {
           const requestUrl =
@@ -77,15 +77,15 @@ describe("headless orchestration verification", () => {
                 : input.url;
           const pathname = new URL(requestUrl).pathname.replace(
             "/api/v1/workspaces/",
-            "/api/v1/tenants/"
+            "/api/v1/projects/"
           );
           const resolved = await resolveOrchestratorStatusResponse(
             pathname,
             "GET",
             {
               all: () => service.status(),
-              byTenantId: async (tenantId) => {
-                const [status] = await service.status(tenantId);
+              byProjectId: async (projectId) => {
+                const [status] = await service.status(projectId);
                 return status ?? null;
               },
             }
@@ -101,7 +101,7 @@ describe("headless orchestration verification", () => {
       });
 
       expect(snapshot).toMatchObject({
-        tenantId: "tenant-1",
+        projectId: "tenant-1",
         health: "running",
         tracker: {
           adapter: "github-project",

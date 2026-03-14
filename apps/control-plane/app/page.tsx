@@ -1,5 +1,7 @@
 import { loadGitHubIntegrationSummary } from "../lib/github-integration";
 
+export const dynamic = "force-dynamic";
+
 const previewItems = [
   {
     title: "Workspace provisioning",

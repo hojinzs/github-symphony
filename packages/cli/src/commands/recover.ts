@@ -4,8 +4,8 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveTenantConfig,
-  syncTenantToRuntime,
+  resolveProjectConfig,
+  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 
 type RecoverCandidate = {
@@ -17,16 +17,16 @@ type RecoverCandidate = {
 
 function parseRecoverArgs(args: string[]): {
   dryRun: boolean;
-  tenantId?: string;
+  projectId?: string;
 } {
-  const parsed: { dryRun: boolean; tenantId?: string } = { dryRun: false };
+  const parsed: { dryRun: boolean; projectId?: string } = { dryRun: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--dry-run") {
       parsed.dryRun = true;
     }
-    if (arg === "--tenant" || arg === "--tenant-id") {
-      parsed.tenantId = args[i + 1];
+    if (arg === "--project" || arg === "--project-id") {
+      parsed.projectId = args[i + 1];
       i += 1;
     }
   }
@@ -39,25 +39,25 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseRecoverArgs(args);
 
-  const tenantConfig = await resolveTenantConfig(
+  const projectConfig = await resolveProjectConfig(
     options.configDir,
-    parsed.tenantId
+    parsed.projectId
   );
-  if (!tenantConfig) {
+  if (!projectConfig) {
     process.stderr.write(
-      "No tenant configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const tenantId = tenantConfig.tenantId;
-  await syncTenantToRuntime(options.configDir, tenantConfig);
+  const projectId = projectConfig.projectId;
+  await syncProjectToRuntime(options.configDir, projectConfig);
 
   if (parsed.dryRun) {
     process.stdout.write("Dry run — scanning for stalled runs...\n");
-    const candidates = await listRecoverCandidates(runtimeRoot, tenantId);
+    const candidates = await listRecoverCandidates(runtimeRoot, projectId);
     if (options.json) {
       process.stdout.write(JSON.stringify(candidates, null, 2) + "\n");
       return;
@@ -79,8 +79,8 @@ const handler = async (
     "recover",
     "--runtime-root",
     runtimeRoot,
-    "--tenant-id",
-    tenantId,
+    "--project-id",
+    projectId,
   ]);
 };
 
@@ -88,7 +88,7 @@ export default handler;
 
 async function listRecoverCandidates(
   runtimeRoot: string,
-  tenantId: string
+  projectId: string
 ): Promise<RecoverCandidate[]> {
   const runsDir = join(runtimeRoot, "orchestrator", "runs");
   const candidates: RecoverCandidate[] = [];
@@ -106,7 +106,7 @@ async function listRecoverCandidates(
       const raw = await readFile(runPath, "utf8");
       const run = JSON.parse(raw) as {
         runId: string;
-        tenantId: string;
+        projectId: string;
         issueIdentifier: string;
         status: string;
         processId: number | null;
@@ -114,7 +114,7 @@ async function listRecoverCandidates(
         nextRetryAt: string | null;
       };
 
-      if (run.tenantId !== tenantId) {
+      if (run.projectId !== projectId) {
         continue;
       }
 

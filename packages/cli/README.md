@@ -53,7 +53,7 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 On the machine where you want the orchestrator to run, register a tenant:
 
 ```bash
-gh-symphony tenant add
+gh-symphony project add
 ```
 
 The interactive wizard will:
@@ -65,11 +65,11 @@ The interactive wizard will:
 5. Configure the workspace root directory
 6. Write tenant configuration to `~/.gh-symphony/`
 
-### Tenant Management
+### Project Management
 
 ```bash
-gh-symphony tenant list             # List all configured tenants
-gh-symphony tenant remove <id>      # Remove a tenant
+gh-symphony project list             # List all configured projects
+gh-symphony project remove <id>      # Remove a tenant
 ```
 
 ## 4. Run the Orchestrator
@@ -127,10 +127,10 @@ Orchestration:
   recover             Recover stalled runs
   logs                View orchestrator logs
 
-Tenant Management:
-  tenant add          Add a new tenant (interactive wizard)
-  tenant list         List all configured tenants
-  tenant remove       Remove a tenant
+Project Management:
+  project add          Add a new tenant (interactive wizard)
+  project list         List all configured projects
+  project remove       Remove a tenant
 
 Global Options:
   --config <dir>      Config directory (default: ~/.gh-symphony)

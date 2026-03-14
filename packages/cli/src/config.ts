@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type { OrchestratorTenantConfig } from "@gh-symphony/core";
+import type { OrchestratorProjectConfig } from "@gh-symphony/core";
 
 export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
@@ -9,18 +9,18 @@ export const DAEMON_PID_FILE = "daemon.pid";
 export const LOGS_DIR = "logs";
 
 export type CliGlobalConfig = {
-  activeTenant: string | null;
-  tenants: string[];
+  activeProject: string | null;
+  projects: string[];
 };
 
-export type CliTenantTrackerSettings = Record<string, string | boolean> & {
+export type CliProjectTrackerSettings = Record<string, string | boolean> & {
   projectId?: string;
   assignedOnly?: boolean;
 };
 
-export type CliTenantConfig = Omit<OrchestratorTenantConfig, "tracker"> & {
-  tracker: Omit<OrchestratorTenantConfig["tracker"], "settings"> & {
-    settings?: CliTenantTrackerSettings;
+export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {
+  tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
+    settings?: CliProjectTrackerSettings;
   };
 };
 
@@ -36,12 +36,12 @@ export function configFilePath(configDir: string): string {
   return join(configDir, CONFIG_FILE);
 }
 
-export function tenantConfigDir(configDir: string, tenantId: string): string {
-  return join(configDir, "tenants", tenantId);
+export function projectConfigDir(configDir: string, projectId: string): string {
+  return join(configDir, "projects", projectId);
 }
 
-export function tenantConfigPath(configDir: string, tenantId: string): string {
-  return join(tenantConfigDir(configDir, tenantId), "tenant.json");
+export function projectConfigPath(configDir: string, projectId: string): string {
+  return join(projectConfigDir(configDir, projectId), "project.json");
 }
 
 export function daemonPidPath(configDir: string): string {
@@ -69,29 +69,29 @@ export async function saveGlobalConfig(
   await writeJsonFile(configFilePath(configDir), config);
 }
 
-export async function loadTenantConfig(
+export async function loadProjectConfig(
   configDir: string,
-  tenantId: string
-): Promise<CliTenantConfig | null> {
-  return readJsonFile<CliTenantConfig>(tenantConfigPath(configDir, tenantId));
+  projectId: string
+): Promise<CliProjectConfig | null> {
+  return readJsonFile<CliProjectConfig>(projectConfigPath(configDir, projectId));
 }
 
-export async function saveTenantConfig(
+export async function saveProjectConfig(
   configDir: string,
-  tenantId: string,
-  config: CliTenantConfig
+  projectId: string,
+  config: CliProjectConfig
 ): Promise<void> {
-  await writeJsonFile(tenantConfigPath(configDir, tenantId), config);
+  await writeJsonFile(projectConfigPath(configDir, projectId), config);
 }
 
-export async function loadActiveTenantConfig(
+export async function loadActiveProjectConfig(
   configDir: string
-): Promise<CliTenantConfig | null> {
+): Promise<CliProjectConfig | null> {
   const global = await loadGlobalConfig(configDir);
-  if (!global?.activeTenant) {
+  if (!global?.activeProject) {
     return null;
   }
-  return loadTenantConfig(configDir, global.activeTenant);
+  return loadProjectConfig(configDir, global.activeProject);
 }
 
 async function readJsonFile<T>(path: string): Promise<T | null> {

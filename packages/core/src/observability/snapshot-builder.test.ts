@@ -1,18 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { buildTenantSnapshot, type SnapshotInput } from "./snapshot-builder.js";
+import { buildProjectSnapshot, type SnapshotInput } from "./snapshot-builder.js";
 import type {
-  OrchestratorTenantConfig,
+  OrchestratorProjectConfig,
   OrchestratorRunRecord,
 } from "../contracts/status-surface.js";
 
 /**
- * Helper to create a minimal OrchestratorTenantConfig for testing
+ * Helper to create a minimal OrchestratorProjectConfig for testing
  */
-function mockTenant(
-  overrides?: Partial<OrchestratorTenantConfig>
-): OrchestratorTenantConfig {
+function mockProject(
+  overrides?: Partial<OrchestratorProjectConfig>
+): OrchestratorProjectConfig {
   return {
-    tenantId: "tenant-123",
+    projectId: "tenant-123",
     slug: "test-tenant",
     workspaceDir: "/tmp/runtime",
     repositories: [
@@ -38,8 +38,8 @@ function mockRun(
 ): OrchestratorRunRecord {
   return {
     runId: "run-001",
-    tenantId: "tenant-123",
-    tenantSlug: "test-tenant",
+    projectId: "tenant-123",
+    projectSlug: "test-tenant",
     issueId: "issue-001",
     issueSubjectId: "subject-001",
     issueIdentifier: "acme/platform#42",
@@ -68,17 +68,17 @@ function mockRun(
   };
 }
 
-describe("buildTenantSnapshot", () => {
+describe("buildProjectSnapshot", () => {
   it("returns idle health when no active runs and no error", () => {
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.health).toBe("idle");
     expect(snapshot.activeRuns).toHaveLength(0);
@@ -89,14 +89,14 @@ describe("buildTenantSnapshot", () => {
   it("returns running health when active runs present", () => {
     const run = mockRun({ status: "running" });
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.health).toBe("running");
     expect(snapshot.activeRuns).toHaveLength(1);
@@ -107,14 +107,14 @@ describe("buildTenantSnapshot", () => {
 
   it("returns degraded health when lastError is present", () => {
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: "Worker process crashed unexpectedly",
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.health).toBe("degraded");
     expect(snapshot.lastError).toBe("Worker process crashed unexpectedly");
@@ -123,14 +123,14 @@ describe("buildTenantSnapshot", () => {
   it("prioritizes degraded over running when both error and active runs present", () => {
     const run = mockRun({ status: "running" });
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: "Critical error occurred",
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.health).toBe("degraded");
   });
@@ -155,14 +155,14 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [runningRun, retryingRun, anotherRetrying],
       summary: { dispatched: 3, suppressed: 0, recovered: 1 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.activeRuns).toHaveLength(3);
     expect(snapshot.retryQueue).toHaveLength(2);
@@ -195,7 +195,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run1, run2],
       allRuns: [run1, run2],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -203,7 +203,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.codexTotals!.inputTokens).toBe(3000);
     expect(snapshot.codexTotals!.outputTokens).toBe(1500);
@@ -226,7 +226,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [runWithTokens, runWithoutTokens],
       allRuns: [runWithTokens, runWithoutTokens],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -234,7 +234,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.codexTotals!.inputTokens).toBe(1000);
     expect(snapshot.codexTotals!.outputTokens).toBe(500);
@@ -259,22 +259,22 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [runWithSession, runWithoutSession],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     // Verify no crash when runs have/lack runtimeSession
     expect(snapshot.activeRuns).toHaveLength(2);
   });
 
-  it("preserves tenant metadata in snapshot", () => {
-    const tenant = mockTenant({
-      tenantId: "custom-tenant-id",
+  it("preserves project metadata in snapshot", () => {
+    const tenant = mockProject({
+      projectId: "custom-project-id",
       slug: "custom-slug",
       tracker: {
         adapter: "github",
@@ -290,9 +290,9 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
-    expect(snapshot.tenantId).toBe("custom-tenant-id");
+    expect(snapshot.projectId).toBe("custom-project-id");
     expect(snapshot.slug).toBe("custom-slug");
     expect(snapshot.tracker.adapter).toBe("github");
     expect(snapshot.tracker.bindingId).toBe("custom-binding");
@@ -300,14 +300,14 @@ describe("buildTenantSnapshot", () => {
 
   it("includes summary counts in snapshot", () => {
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [],
       summary: { dispatched: 5, suppressed: 2, recovered: 1 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.summary.dispatched).toBe(5);
     expect(snapshot.summary.suppressed).toBe(2);
@@ -335,7 +335,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [activeRun],
       allRuns: [activeRun, completedRun],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -343,7 +343,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     // Should aggregate from allRuns, not just activeRuns
     expect(snapshot.codexTotals!.inputTokens).toBe(3000);
@@ -361,7 +361,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       // allRuns not provided
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -369,7 +369,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.codexTotals!.inputTokens).toBe(1000);
     expect(snapshot.codexTotals!.outputTokens).toBe(500);
@@ -378,7 +378,7 @@ describe("buildTenantSnapshot", () => {
 
   it("handles rateLimits when provided", () => {
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -390,7 +390,7 @@ describe("buildTenantSnapshot", () => {
       },
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.rateLimits).toEqual({
       remaining: 4500,
@@ -401,7 +401,7 @@ describe("buildTenantSnapshot", () => {
 
   it("defaults rateLimits to null when not provided", () => {
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -409,7 +409,7 @@ describe("buildTenantSnapshot", () => {
       // rateLimits not provided
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.rateLimits).toBeNull();
   });
@@ -433,14 +433,14 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.activeRuns[0]).toMatchObject({
       runId: "run-123",
@@ -459,7 +459,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       allRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -467,7 +467,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     // 10 minutes = 600 seconds
     expect(snapshot.codexTotals!.secondsRunning).toBe(600);
@@ -480,7 +480,7 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       allRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -488,7 +488,7 @@ describe("buildTenantSnapshot", () => {
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     // 5 minutes = 300 seconds
     expect(snapshot.codexTotals!.secondsRunning).toBe(300);
@@ -501,14 +501,14 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     // retrying status without retryKind should not appear in retryQueue
     expect(snapshot.retryQueue).toHaveLength(0);
@@ -530,14 +530,14 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.activeRuns).toHaveLength(1);
     expect(snapshot.activeRuns[0].processId).toBe(54321);
@@ -562,14 +562,14 @@ describe("buildTenantSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockTenant(),
+      tenant: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
 
-    const snapshot = buildTenantSnapshot(input);
+    const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.activeRuns).toHaveLength(1);
     expect(snapshot.activeRuns[0].processId).toBeNull();

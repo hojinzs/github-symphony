@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CliTenantConfig } from "../config.js";
+import type { CliProjectConfig } from "../config.js";
 
 const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
@@ -34,15 +34,15 @@ afterEach(() => {
 describe("lifecycle command integration", () => {
   it("syncs the selected tenant config before single-issue dispatch", async () => {
     const configDir = await createConfigFixture({
-      activeTenant: "tenant-a",
-      tenants: [
+      activeProject: "tenant-a",
+      projects: [
         createTenant("tenant-a", "acme", "platform"),
         createTenant("tenant-b", "beta", "api"),
       ],
     });
 
     await runModule.default(
-      ["--tenant", "tenant-b", "beta/api#42"],
+      ["--project", "tenant-b", "beta/api#42"],
       baseOptions(configDir)
     );
 
@@ -50,7 +50,7 @@ describe("lifecycle command integration", () => {
       "run-issue",
       "--runtime-root",
       configDir,
-      "--tenant-id",
+      "--project-id",
       "tenant-b",
       "--issue",
       "beta/api#42",
@@ -61,14 +61,14 @@ describe("lifecycle command integration", () => {
         join(
           configDir,
           "orchestrator",
-          "tenants",
+          "projects",
           "tenant-b",
           "config.json"
         ),
         "utf8"
       )
-    ) as CliTenantConfig;
-    expect(synced.tenantId).toBe("tenant-b");
+    ) as CliProjectConfig;
+    expect(synced.projectId).toBe("tenant-b");
     expect(synced.repositories[0]).toMatchObject({
       owner: "beta",
       name: "api",
@@ -77,8 +77,8 @@ describe("lifecycle command integration", () => {
 
   it("starts the requested tenant in daemon mode", async () => {
     const configDir = await createConfigFixture({
-      activeTenant: "tenant-a",
-      tenants: [
+      activeProject: "tenant-a",
+      projects: [
         createTenant("tenant-a", "acme", "platform"),
         createTenant("tenant-b", "beta", "api"),
       ],
@@ -92,13 +92,13 @@ describe("lifecycle command integration", () => {
     });
 
     await startModule.default(
-      ["--tenant", "tenant-b", "--daemon"],
+      ["--project", "tenant-b", "--daemon"],
       baseOptions(configDir)
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "start", "--tenant", "tenant-b"],
+      [process.argv[1], "start", "--project", "tenant-b"],
       expect.objectContaining({
         env: expect.objectContaining({
           GH_SYMPHONY_CONFIG_DIR: configDir,
@@ -109,8 +109,8 @@ describe("lifecycle command integration", () => {
 
   it("reports recoverable runs without invoking recovery in dry-run mode", async () => {
     const configDir = await createConfigFixture({
-      activeTenant: "tenant-a",
-      tenants: [createTenant("tenant-a", "acme", "platform")],
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
     });
     const runDir = join(configDir, "orchestrator", "runs", "run-1");
     await mkdir(runDir, { recursive: true });
@@ -119,7 +119,7 @@ describe("lifecycle command integration", () => {
       JSON.stringify(
         {
           runId: "run-1",
-          tenantId: "tenant-a",
+          projectId: "tenant-a",
           issueIdentifier: "acme/platform#7",
           status: "running",
           processId: 999_999,
@@ -157,14 +157,14 @@ function baseOptions(configDir: string) {
 }
 
 function createTenant(
-  tenantId: string,
+  projectId: string,
   owner: string,
   name: string
-): CliTenantConfig {
+): CliProjectConfig {
   return {
-    tenantId,
-    slug: tenantId,
-    workspaceDir: join("/tmp", tenantId),
+    projectId,
+    slug: projectId,
+    workspaceDir: join("/tmp", projectId),
     repositories: [
       {
         owner,
@@ -174,27 +174,27 @@ function createTenant(
     ],
     tracker: {
       adapter: "github-project",
-      bindingId: `${tenantId}-project`,
+      bindingId: `${projectId}-project`,
       settings: {
-        projectId: `${tenantId}-project`,
-        token: `${tenantId}-token`,
+        projectId: `${projectId}-project`,
+        token: `${projectId}-token`,
       },
     },
   };
 }
 
 async function createConfigFixture(input: {
-  activeTenant: string;
-  tenants: CliTenantConfig[];
+  activeProject: string;
+  projects: CliProjectConfig[];
 }): Promise<string> {
   const configDir = await mkdtemp(join(tmpdir(), "cli-lifecycle-"));
   await writeFile(
     join(configDir, "config.json"),
     JSON.stringify(
       {
-        activeTenant: input.activeTenant,
-        token: `${input.activeTenant}-token`,
-        tenants: input.tenants.map((tenant) => tenant.tenantId),
+        activeProject: input.activeProject,
+        token: `${input.activeProject}-token`,
+        projects: input.projects.map((tenant) => tenant.projectId),
       },
       null,
       2
@@ -202,11 +202,11 @@ async function createConfigFixture(input: {
     "utf8"
   );
 
-  for (const tenant of input.tenants) {
-    const tenantDir = join(configDir, "tenants", tenant.tenantId);
-    await mkdir(tenantDir, { recursive: true });
+  for (const tenant of input.projects) {
+    const projectDir = join(configDir, "projects", tenant.projectId);
+    await mkdir(projectDir, { recursive: true });
     await writeFile(
-      join(tenantDir, "tenant.json"),
+      join(projectDir, "project.json"),
       JSON.stringify(tenant, null, 2) + "\n",
       "utf8"
     );

@@ -1,5 +1,5 @@
 {
-  "tenantId": "tenant-1",
+  "projectId": "tenant-1",
   "slug": "acme-corp",
   "tracker": { "adapter": "github", "bindingId": "PVT_xxx" },
   "lastTickAt": "2026-03-13T04:00:00Z",

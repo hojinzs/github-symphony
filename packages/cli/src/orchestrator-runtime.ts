@@ -2,54 +2,54 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   loadGlobalConfig,
-  loadTenantConfig,
-  type CliTenantConfig,
+  loadProjectConfig,
+  type CliProjectConfig,
 } from "./config.js";
 
 export function resolveRuntimeRoot(configDir: string): string {
   return resolve(configDir);
 }
 
-export async function resolveTenantConfig(
+export async function resolveProjectConfig(
   configDir: string,
-  requestedTenantId?: string
-): Promise<CliTenantConfig | null> {
-  if (requestedTenantId) {
-    return loadTenantConfig(configDir, requestedTenantId);
+  requestedProjectId?: string
+): Promise<CliProjectConfig | null> {
+  if (requestedProjectId) {
+    return loadProjectConfig(configDir, requestedProjectId);
   }
 
   const global = await loadGlobalConfig(configDir);
-  if (!global?.activeTenant) {
+  if (!global?.activeProject) {
     return null;
   }
 
-  return loadTenantConfig(configDir, global.activeTenant);
+  return loadProjectConfig(configDir, global.activeProject);
 }
 
-export function orchestratorTenantConfigPath(
+export function orchestratorProjectConfigPath(
   runtimeRoot: string,
-  tenantId: string
+  projectId: string
 ): string {
   return join(
     runtimeRoot,
     "orchestrator",
-    "tenants",
-    tenantId,
+    "projects",
+    projectId,
     "config.json"
   );
 }
 
-export async function syncTenantToRuntime(
+export async function syncProjectToRuntime(
   configDir: string,
-  tenantConfig: CliTenantConfig
+  projectConfig: CliProjectConfig
 ): Promise<string> {
   const runtimeRoot = resolveRuntimeRoot(configDir);
-  const configPath = orchestratorTenantConfigPath(
+  const configPath = orchestratorProjectConfigPath(
     runtimeRoot,
-    tenantConfig.tenantId
+    projectConfig.projectId
   );
   await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(tenantConfig, null, 2) + "\n");
+  await writeFile(configPath, JSON.stringify(projectConfig, null, 2) + "\n");
 
   return runtimeRoot;
 }

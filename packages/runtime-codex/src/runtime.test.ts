@@ -13,7 +13,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -25,7 +25,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
       GITHUB_TOKEN_BROKER_URL:
-        "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
       GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
@@ -36,10 +36,10 @@ describe("createGitHubGraphQLToolDefinition", () => {
 describe("buildCodexRuntimePlan", () => {
   it("prepares the codex app-server launch contract", () => {
     const plan = buildCodexRuntimePlan({
-      tenantId: "workspace-123",
+      projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -55,7 +55,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.args).toEqual(["-lc", "codex app-server"]);
     expect(plan.cwd).toBe("/tmp/workspace-123");
     expect(plan.tools).toHaveLength(1);
-    expect(plan.env.CODEX_TENANT_ID).toBe("workspace-123");
+    expect(plan.env.CODEX_PROJECT_ID).toBe("workspace-123");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_NAME).toBe("github_graphql");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_COMMAND).toContain(
       "github-graphql-mcp-server.js"
@@ -71,7 +71,7 @@ describe("createGitCredentialHelperEnvironment", () => {
   it("configures git to use a renewable credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
     });
@@ -91,10 +91,10 @@ describe("launchCodexAppServer", () => {
     });
 
     const plan = buildCodexRuntimePlan({
-      tenantId: "workspace-123",
+      projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
     });
 
@@ -132,7 +132,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
     const env = await resolveAgentRuntimeEnvironment(
       {
         agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/tenants/workspace-123/agent-credentials",
+          "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
         agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
       },
@@ -153,7 +153,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
       new Response(
         JSON.stringify({
           error:
-            "A ready platform-default agent credential must be configured before this tenant can run.",
+            "A ready platform-default agent credential must be configured before this project can run.",
         }),
         { status: 503 }
       )
@@ -163,7 +163,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
       resolveAgentRuntimeEnvironment(
         {
           agentCredentialBrokerUrl:
-            "http://host.docker.internal:3000/api/tenants/workspace-123/agent-credentials",
+            "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
           agentCredentialBrokerSecret: "runtime-secret",
         },
         {
@@ -178,13 +178,13 @@ describe("prepareCodexRuntimePlan", () => {
   it("assembles the runtime environment after resolving agent credentials", async () => {
     const plan = await prepareCodexRuntimePlan(
       {
-        tenantId: "workspace-123",
+        projectId: "workspace-123",
         workingDirectory: "/tmp/workspace-123",
         githubTokenBrokerUrl:
-          "http://host.docker.internal:3000/api/tenants/workspace-123/runtime-credentials",
+          "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
         githubTokenBrokerSecret: "runtime-secret",
         agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/tenants/workspace-123/agent-credentials",
+          "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
       },
       {

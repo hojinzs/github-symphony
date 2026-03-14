@@ -24,7 +24,7 @@ export type RuntimeToolDefinition = {
 };
 
 export type CodexRuntimeConfig = {
-  tenantId: string;
+  projectId: string;
   workingDirectory: string;
   githubToken?: string;
   githubTokenBrokerUrl?: string;
@@ -144,7 +144,7 @@ export function buildCodexRuntimePlan(
       ...process.env,
       ...config.extraEnv,
       ...config.agentEnv,
-      CODEX_TENANT_ID: config.tenantId,
+      CODEX_PROJECT_ID: config.projectId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       GITHUB_GRAPHQL_TOOL_NAME: tool.name,
       GITHUB_GRAPHQL_TOOL_COMMAND: [tool.command, ...tool.args].join(" "),

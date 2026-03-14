@@ -1,11 +1,11 @@
 import type { GlobalOptions } from "../index.js";
-import type { TenantStatusSnapshot } from "@gh-symphony/core";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   resolveRuntimeRoot,
-  resolveTenantConfig,
-  syncTenantToRuntime,
+  resolveProjectConfig,
+  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
@@ -43,7 +43,7 @@ function truncate(s: string, len: number): string {
 }
 
 function renderLegacyStatus(
-  snapshot: TenantStatusSnapshot,
+  snapshot: ProjectStatusSnapshot,
   noColor: boolean
 ): string {
   const apply = noColor ? (s: string) => stripAnsi(s) : (s: string) => s;
@@ -149,16 +149,16 @@ function renderLegacyStatus(
 
 function parseStatusArgs(args: string[]): {
   watch: boolean;
-  tenantId?: string;
+  projectId?: string;
 } {
-  const parsed: { watch: boolean; tenantId?: string } = { watch: false };
+  const parsed: { watch: boolean; projectId?: string } = { watch: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
     }
-    if (arg === "--tenant" || arg === "--tenant-id") {
-      parsed.tenantId = args[i + 1];
+    if (arg === "--project" || arg === "--project-id") {
+      parsed.projectId = args[i + 1];
       i += 1;
     }
   }
@@ -167,18 +167,18 @@ function parseStatusArgs(args: string[]): {
 
 async function readStatusSnapshot(
   runtimeRoot: string,
-  tenantId: string
-): Promise<TenantStatusSnapshot | null> {
+  projectId: string
+): Promise<ProjectStatusSnapshot | null> {
   try {
     const statusPath = join(
       runtimeRoot,
       "orchestrator",
-      "tenants",
-      tenantId,
+      "projects",
+      projectId,
       "status.json"
     );
     const content = await readFile(statusPath, "utf-8");
-    return JSON.parse(content) as TenantStatusSnapshot;
+    return JSON.parse(content) as ProjectStatusSnapshot;
   } catch {
     return null;
   }
@@ -186,18 +186,18 @@ async function readStatusSnapshot(
 
 async function readAllStatusSnapshots(
   runtimeRoot: string
-): Promise<TenantStatusSnapshot[]> {
+): Promise<ProjectStatusSnapshot[]> {
   try {
-    const tenantsDir = join(runtimeRoot, "orchestrator", "tenants");
+    const tenantsDir = join(runtimeRoot, "orchestrator", "projects");
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(tenantsDir, { withFileTypes: true });
-    const snapshots: TenantStatusSnapshot[] = [];
+    const snapshots: ProjectStatusSnapshot[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const statusPath = join(tenantsDir, entry.name, "status.json");
       try {
         const content = await readFile(statusPath, "utf-8");
-        snapshots.push(JSON.parse(content) as TenantStatusSnapshot);
+        snapshots.push(JSON.parse(content) as ProjectStatusSnapshot);
       } catch {
         // skip missing/invalid files
       }
@@ -214,21 +214,21 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseStatusArgs(args);
 
-  const tenantConfig = await resolveTenantConfig(
+  const projectConfig = await resolveProjectConfig(
     options.configDir,
-    parsed.tenantId
+    parsed.projectId
   );
-  if (!tenantConfig) {
+  if (!projectConfig) {
     process.stderr.write(
-      "No tenant configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const tenantId = tenantConfig.tenantId;
-  await syncTenantToRuntime(options.configDir, tenantConfig);
+  const projectId = projectConfig.projectId;
+  await syncProjectToRuntime(options.configDir, projectConfig);
 
   if (parsed.watch) {
     const isTTY = process.stdout.isTTY === true;
@@ -286,7 +286,7 @@ const handler = async (
   }
 
   // Single status query
-  const snapshot = await readStatusSnapshot(runtimeRoot, tenantId);
+  const snapshot = await readStatusSnapshot(runtimeRoot, projectId);
   if (snapshot) {
     if (options.json) {
       process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");

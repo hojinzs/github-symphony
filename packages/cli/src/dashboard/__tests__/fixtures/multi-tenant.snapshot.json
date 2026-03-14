@@ -1,6 +1,6 @@
 [
   {
-    "tenantId": "tenant-4",
+    "projectId": "tenant-4",
     "slug": "delta-labs",
     "tracker": { "adapter": "github", "bindingId": "PVT_aaa" },
     "lastTickAt": "2026-03-13T04:00:00Z",
@@ -60,7 +60,7 @@
     "lastError": null
   },
   {
-    "tenantId": "tenant-5",
+    "projectId": "tenant-5",
     "slug": "epsilon-tech",
     "tracker": { "adapter": "github", "bindingId": "PVT_bbb" },
     "lastTickAt": "2026-03-13T04:00:00Z",

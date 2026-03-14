@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildHookEnv,
   buildPromptVariables,
-  buildTenantSnapshot,
+  buildProjectSnapshot,
   calculateRetryDelay,
   DEFAULT_WORKFLOW_LIFECYCLE,
   deriveIssueWorkspaceKey,
@@ -18,7 +18,7 @@ import type { RunDispatchedEvent } from "./observability/structured-events.js";
 describe("deriveIssueWorkspaceKey", () => {
   it("produces a stable deterministic key", () => {
     const identity = {
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-abc",
     };
@@ -33,17 +33,17 @@ describe("deriveIssueWorkspaceKey", () => {
 
   it("produces different keys for different identities", () => {
     const keyA = deriveIssueWorkspaceKey({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
     const keyB = deriveIssueWorkspaceKey({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-2",
     });
     const keyC = deriveIssueWorkspaceKey({
-      tenantId: "ws-2",
+      projectId: "ws-2",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
@@ -82,7 +82,7 @@ describe("resolveIssueRepositoryPath", () => {
 describe("buildHookEnv", () => {
   it("produces the standard hook environment variables", () => {
     const env = buildHookEnv({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
@@ -90,7 +90,7 @@ describe("buildHookEnv", () => {
       repositoryPath: "/workspace/repository",
     });
 
-    expect(env.SYMPHONY_TENANT_ID).toBe("ws-1");
+    expect(env.SYMPHONY_PROJECT_ID).toBe("ws-1");
     expect(env.SYMPHONY_ISSUE_WORKSPACE_KEY).toBe("key-abc");
     expect(env.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
     expect(env.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#42");
@@ -102,7 +102,7 @@ describe("buildHookEnv", () => {
 
   it("includes run-level variables when provided", () => {
     const env = buildHookEnv({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
@@ -381,9 +381,9 @@ describe("calculateRetryDelay", () => {
   });
 });
 
-describe("buildTenantSnapshot", () => {
+describe("buildProjectSnapshot", () => {
   const baseWorkspace = {
-    tenantId: "ws-1",
+    projectId: "ws-1",
     slug: "ws-1",
     promptGuidelines: "",
     workspaceDir: "/runtime",
@@ -395,7 +395,7 @@ describe("buildTenantSnapshot", () => {
   };
 
   it("produces idle health when no runs or errors", () => {
-    const snapshot = buildTenantSnapshot({
+    const snapshot = buildProjectSnapshot({
       tenant: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
@@ -408,13 +408,13 @@ describe("buildTenantSnapshot", () => {
   });
 
   it("produces running health when active runs exist", () => {
-    const snapshot = buildTenantSnapshot({
+    const snapshot = buildProjectSnapshot({
       tenant: baseWorkspace,
       activeRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "ws-1",
+          projectId: "ws-1",
+          projectSlug: "ws-1",
           issueId: "issue-1",
           issueSubjectId: "issue-1",
           issueIdentifier: "acme/platform#1",
@@ -449,7 +449,7 @@ describe("buildTenantSnapshot", () => {
   });
 
   it("produces degraded health when lastError is present", () => {
-    const snapshot = buildTenantSnapshot({
+    const snapshot = buildProjectSnapshot({
       tenant: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
@@ -467,7 +467,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      tenantId: "ws-1",
+      projectId: "ws-1",
       issueIdentifier: "acme/repo#1",
       issueId: "issue-node-id",
       sessionId: "thread-1-turn-1",
@@ -481,7 +481,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      tenantId: "ws-1",
+      projectId: "ws-1",
       issueIdentifier: "acme/repo#1",
     };
 
@@ -490,11 +490,11 @@ describe("structured event field enrichment", () => {
   });
 });
 
-describe("token accounting - buildTenantSnapshot", () => {
+describe("token accounting - buildProjectSnapshot", () => {
   it("includes codexTotals from run tokenUsage data", () => {
-    const snapshot = buildTenantSnapshot({
+    const snapshot = buildProjectSnapshot({
       tenant: {
-        tenantId: "ws-1",
+        projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
         repositories: [],
@@ -504,8 +504,8 @@ describe("token accounting - buildTenantSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
@@ -540,9 +540,9 @@ describe("token accounting - buildTenantSnapshot", () => {
   });
 
   it("aggregates tokens across multiple runs", () => {
-    const snapshot = buildTenantSnapshot({
+    const snapshot = buildProjectSnapshot({
       tenant: {
-        tenantId: "ws-1",
+        projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
         repositories: [],
@@ -552,8 +552,8 @@ describe("token accounting - buildTenantSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
@@ -578,8 +578,8 @@ describe("token accounting - buildTenantSnapshot", () => {
         },
         {
           runId: "run-2",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i2",
           issueSubjectId: "s2",
           issueIdentifier: "acme/repo#2",

@@ -2,24 +2,24 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveTenantConfig,
-  syncTenantToRuntime,
+  resolveProjectConfig,
+  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 
 function parseRunArgs(args: string[]): {
   issue?: string;
   watch: boolean;
-  tenantId?: string;
+  projectId?: string;
 } {
-  const parsed: { issue?: string; watch: boolean; tenantId?: string } = {
+  const parsed: { issue?: string; watch: boolean; projectId?: string } = {
     watch: false,
   };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
-    } else if (arg === "--tenant" || arg === "--tenant-id") {
-      parsed.tenantId = args[i + 1];
+    } else if (arg === "--project" || arg === "--project-id") {
+      parsed.projectId = args[i + 1];
       i += 1;
     } else if (!arg?.startsWith("--")) {
       // Positional arg = issue identifier
@@ -41,31 +41,31 @@ const handler = async (
     return;
   }
 
-  const tenantConfig = await resolveTenantConfig(
+  const projectConfig = await resolveProjectConfig(
     options.configDir,
-    parsed.tenantId
+    parsed.projectId
   );
-  if (!tenantConfig) {
+  if (!projectConfig) {
     process.stderr.write(
-      "No tenant configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony init' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const tenantId = tenantConfig.tenantId;
-  await syncTenantToRuntime(options.configDir, tenantConfig);
+  const projectId = projectConfig.projectId;
+  await syncProjectToRuntime(options.configDir, projectConfig);
 
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
   if (
     repoSpec &&
-    !tenantConfig.repositories.some((r) => `${r.owner}/${r.name}` === repoSpec)
+    !projectConfig.repositories.some((r) => `${r.owner}/${r.name}` === repoSpec)
   ) {
     process.stderr.write(
-      `Repository "${repoSpec}" is not configured in this tenant.\n` +
-        `Configured repos: ${tenantConfig.repositories.map((r) => `${r.owner}/${r.name}`).join(", ")}\n`
+      `Repository "${repoSpec}" is not configured in this project.\n` +
+        `Configured repos: ${projectConfig.repositories.map((r) => `${r.owner}/${r.name}`).join(", ")}\n`
     );
     process.exitCode = 1;
     return;
@@ -77,8 +77,8 @@ const handler = async (
     "run-issue",
     "--runtime-root",
     runtimeRoot,
-    "--tenant-id",
-    tenantId,
+    "--project-id",
+    projectId,
     "--issue",
     parsed.issue,
   ]);
@@ -89,8 +89,8 @@ const handler = async (
       "status",
       "--runtime-root",
       runtimeRoot,
-      "--tenant-id",
-      tenantId,
+      "--project-id",
+      projectId,
     ]);
   }
 };

@@ -1,8 +1,8 @@
 import type { GlobalOptions } from "../index.js";
 import {
-  loadActiveTenantConfig,
+  loadActiveProjectConfig,
   loadGlobalConfig,
-  saveTenantConfig,
+  saveProjectConfig,
 } from "../config.js";
 
 const handler = async (
@@ -34,9 +34,9 @@ export default handler;
 // ── 6.4: repo list / add / remove ────────────────────────────────────────────
 
 async function repoList(options: GlobalOptions): Promise<void> {
-  const ws = await loadActiveTenantConfig(options.configDir);
+  const ws = await loadActiveProjectConfig(options.configDir);
   if (!ws) {
-    process.stderr.write("No tenant configured.\n");
+    process.stderr.write("No project configured.\n");
     process.exitCode = 1;
     return;
   }
@@ -61,15 +61,15 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
   }
 
   const global = await loadGlobalConfig(options.configDir);
-  if (!global?.activeTenant) {
-    process.stderr.write("No active tenant.\n");
+  if (!global?.activeProject) {
+    process.stderr.write("No active project.\n");
     process.exitCode = 1;
     return;
   }
 
-  const ws = await loadActiveTenantConfig(options.configDir);
+  const ws = await loadActiveProjectConfig(options.configDir);
   if (!ws) {
-    process.stderr.write("Tenant config missing.\n");
+    process.stderr.write("Project config missing.\n");
     process.exitCode = 1;
     return;
   }
@@ -92,7 +92,7 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
     cloneUrl: `https://github.com/${owner}/${name}.git`,
   });
 
-  await saveTenantConfig(options.configDir, global.activeTenant, ws);
+  await saveProjectConfig(options.configDir, global.activeProject, ws);
   process.stdout.write(`Added repository: ${repoSpec}\n`);
 }
 
@@ -108,15 +108,15 @@ async function repoRemove(
   }
 
   const global = await loadGlobalConfig(options.configDir);
-  if (!global?.activeTenant) {
-    process.stderr.write("No active tenant.\n");
+  if (!global?.activeProject) {
+    process.stderr.write("No active project.\n");
     process.exitCode = 1;
     return;
   }
 
-  const ws = await loadActiveTenantConfig(options.configDir);
+  const ws = await loadActiveProjectConfig(options.configDir);
   if (!ws) {
-    process.stderr.write("Tenant config missing.\n");
+    process.stderr.write("Project config missing.\n");
     process.exitCode = 1;
     return;
   }
@@ -133,6 +133,6 @@ async function repoRemove(
   }
 
   ws.repositories.splice(idx, 1);
-  await saveTenantConfig(options.configDir, global.activeTenant, ws);
+  await saveProjectConfig(options.configDir, global.activeProject, ws);
   process.stdout.write(`Removed repository: ${repoSpec}\n`);
 }

@@ -1,5 +1,5 @@
 {
-  "tenantId": "tenant-2",
+  "projectId": "tenant-2",
   "slug": "beta-org",
   "tracker": { "adapter": "github", "bindingId": "PVT_yyy" },
   "lastTickAt": "2026-03-13T04:00:00Z",
