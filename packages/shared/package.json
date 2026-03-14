@@ -1,6 +1,6 @@
 {
   "name": "@gh-symphony/shared",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Shared re-exports combining Symphony core and tracker-github packages",
