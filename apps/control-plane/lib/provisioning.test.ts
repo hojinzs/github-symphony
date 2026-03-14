@@ -140,6 +140,18 @@ describe("provisionWorkspaceRuntime", () => {
         "utf8"
       )
     ).toContain('git -C "$repository_dir" pull --ff-only');
+    expect(
+      readFileSync(
+        join(runtime.workspaceRuntimeDir, "hooks", "after_create.sh"),
+        "utf8"
+      )
+    ).toContain('git -C "$repository_dir" rev-parse --is-inside-work-tree');
+    expect(
+      readFileSync(
+        join(runtime.workspaceRuntimeDir, "hooks", "after_create.sh"),
+        "utf8"
+      )
+    ).toContain('git -C "$repository_dir" remote get-url origin');
     expect(docker.createContainer).not.toHaveBeenCalled();
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);
   });
