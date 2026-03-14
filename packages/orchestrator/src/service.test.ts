@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -409,6 +409,120 @@ describe("OrchestratorService", () => {
     await expect(
       readFile(join(repository.path, ".after_run_called"), "utf8")
     ).rejects.toThrow();
+  });
+
+  it("falls back to persisted token usage when the worker state API is unavailable", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-token-usage-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRuntimeDir = join(tempRoot, "stale-run", "workspace-runtime");
+    await store.saveTenantConfig({
+      tenantId: "tenant-1",
+      slug: "tenant-1",
+
+      repositories: [repository],
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+      runtime: {
+        driver: "local",
+        workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
+        projectRoot: process.cwd(),
+        workerCommand: "node packages/worker/dist/index.js",
+      },
+    });
+    await store.saveTenantLeases("tenant-1", [
+      {
+        leaseKey: "issue-1",
+        runId: "run-1",
+        issueId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        status: "active",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      tenantId: "tenant-1",
+      tenantSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir,
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    await mkdir(
+      join(workspaceRuntimeDir, ".orchestrator", "runs", "run-1"),
+      { recursive: true }
+    );
+    await writeFile(
+      join(
+        workspaceRuntimeDir,
+        ".orchestrator",
+        "runs",
+        "run-1",
+        "token-usage.json"
+      ),
+      JSON.stringify(
+        {
+          inputTokens: 120,
+          outputTokens: 30,
+          totalTokens: 150,
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker offline");
+      }
+      return createEmptyTrackerResponse();
+    });
+    const service = new OrchestratorService(store, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4203,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(updatedRun?.tokenUsage).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+    });
   });
 
   it("rejects dispatch when repo WORKFLOW.md is missing even if tenant fallback exists", async () => {

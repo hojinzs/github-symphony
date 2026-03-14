@@ -47,7 +47,7 @@ type Colors = {
 
 // ── Column widths (from Elixir spec) ─────────────────────────────────────────
 
-const COL_ID = 8;
+const COL_ID = 24;
 const COL_STAGE = 14;
 const COL_PID = 8;
 const COL_AGE_TURN = 12;
@@ -239,7 +239,7 @@ function activeRunRow(
 ): string {
   const dot = statusDot(run, c);
   const id = pad(run.issueIdentifier, COL_ID);
-  const stage = pad(run.issueState, COL_STAGE);
+  const stage = pad(run.issueState || "\u2014", COL_STAGE);
   const pid = pad(
     run.processId != null ? String(run.processId) : "\u2014",
     COL_PID

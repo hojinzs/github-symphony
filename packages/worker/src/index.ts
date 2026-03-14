@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
@@ -16,6 +16,7 @@ import {
   buildWorkerRuntimeState,
   startWorkerStateServer,
 } from "./state-server.js";
+import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -92,28 +93,36 @@ console.log(
 );
 
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
+let shutdownPromise: Promise<void> | null = null;
 
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
 }
 
 function shutdown(signal: NodeJS.Signals) {
-  if (childProcess?.pid) {
-    try {
-      process.kill(childProcess.pid, "SIGTERM");
-    } catch {
-      // Ignore shutdown races.
-    }
+  if (shutdownPromise) {
+    return;
   }
 
-  server.close(() => {
-    console.log(`Worker state server stopped on ${signal}`);
-    process.exit(0);
-  });
+  shutdownPromise = (async () => {
+    if (childProcess?.pid) {
+      try {
+        process.kill(childProcess.pid, "SIGTERM");
+      } catch {
+        // Ignore shutdown races.
+      }
+    }
+
+    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    server.close(() => {
+      console.log(`Worker state server stopped on ${signal}`);
+      process.exit(0);
+    });
+  })();
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 async function startAssignedRun() {
   try {
@@ -146,6 +155,7 @@ async function startAssignedRun() {
               ? null
               : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
         }
+        void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
       }
     );
     childProcess.once("error", (error: Error) => {
@@ -154,6 +164,7 @@ async function startAssignedRun() {
       if (runtimeState.run) {
         runtimeState.run.lastError = error.message;
       }
+      void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
     });
   } catch (error) {
     runtimeState.status = "failed";
@@ -162,6 +173,7 @@ async function startAssignedRun() {
       runtimeState.run.lastError =
         error instanceof Error ? error.message : "Unknown worker startup error";
     }
+    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
   }
 }
 
@@ -456,6 +468,26 @@ async function runCodexClientProtocol(
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
       flushDeltaBuffer();
+      // Extract token usage from turn completion params if present
+      const turnParams = (msg.params ?? {}) as Record<string, unknown>;
+      const usage = turnParams.usage as Record<string, unknown> | undefined;
+      if (usage) {
+        const inputTokens =
+          typeof usage.input_tokens === "number" ? usage.input_tokens :
+          typeof usage.inputTokens === "number" ? usage.inputTokens : 0;
+        const outputTokens =
+          typeof usage.output_tokens === "number" ? usage.output_tokens :
+          typeof usage.outputTokens === "number" ? usage.outputTokens : 0;
+        const totalTokens =
+          typeof usage.total_tokens === "number" ? usage.total_tokens :
+          typeof usage.totalTokens === "number" ? usage.totalTokens :
+          inputTokens + outputTokens;
+        if (inputTokens > 0 || outputTokens > 0 || totalTokens > 0) {
+          runtimeState.tokenUsage.inputTokens = inputTokens;
+          runtimeState.tokenUsage.outputTokens = outputTokens;
+          runtimeState.tokenUsage.totalTokens = totalTokens || inputTokens + outputTokens;
+        }
+      }
       process.stderr.write("[worker] codex turn/completed\n");
       if (turnCompletedResolve) {
         turnCompletedResolve();
@@ -467,15 +499,26 @@ async function runCodexClientProtocol(
     // Token usage events — track cumulative totals
     if (
       msg.method === "thread/tokenUsage/updated" ||
-      msg.method === "total_token_usage"
+      msg.method === "total_token_usage" ||
+      msg.method === "codex/event/token_count"
     ) {
       const params = (msg.params ?? {}) as Record<string, unknown>;
+
+      // codex/event/token_count: { msg: { info: { total_token_usage: { input_tokens, output_tokens, total_tokens } } } }
+      const codexMsg = params.msg as Record<string, unknown> | undefined;
+      const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
+      const codexTotals = codexInfo?.total_token_usage as Record<string, unknown> | undefined;
+      const source = codexTotals ?? params;
+
       const inputTokens =
-        typeof params.input_tokens === "number" ? params.input_tokens : 0;
+        typeof source.input_tokens === "number" ? source.input_tokens :
+        typeof source.inputTokens === "number" ? source.inputTokens : 0;
       const outputTokens =
-        typeof params.output_tokens === "number" ? params.output_tokens : 0;
+        typeof source.output_tokens === "number" ? source.output_tokens :
+        typeof source.outputTokens === "number" ? source.outputTokens : 0;
       const totalTokens =
-        typeof params.total_tokens === "number" ? params.total_tokens : 0;
+        typeof source.total_tokens === "number" ? source.total_tokens :
+        typeof source.totalTokens === "number" ? source.totalTokens : 0;
 
       // Prefer absolute totals from the event
       if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
@@ -695,50 +738,6 @@ async function runCodexClientProtocol(
       server.close(() => process.exit(1));
     }, 1500);
   }
-}
-
-async function persistTokenUsageArtifact(
-  env: NodeJS.ProcessEnv,
-  tokenUsage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  }
-): Promise<void> {
-  const artifactPath = resolveTokenUsageArtifactPath(env);
-  if (!artifactPath) {
-    return;
-  }
-
-  try {
-    await mkdir(dirname(artifactPath), { recursive: true });
-    await writeFile(
-      artifactPath,
-      JSON.stringify(tokenUsage, null, 2) + "\n",
-      "utf8"
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(
-      `[worker] failed to persist token usage artifact: ${message}\n`
-    );
-  }
-}
-
-function resolveTokenUsageArtifactPath(env: NodeJS.ProcessEnv): string | null {
-  const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR;
-  const runId = env.SYMPHONY_RUN_ID;
-  if (!workspaceRuntimeDir || !runId) {
-    return null;
-  }
-
-  return join(
-    workspaceRuntimeDir,
-    ".orchestrator",
-    "runs",
-    runId,
-    "token-usage.json"
-  );
 }
 
 /**

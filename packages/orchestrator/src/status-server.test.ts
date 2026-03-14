@@ -69,6 +69,108 @@ describe("POST /api/v1/refresh", () => {
     expect(result.payload).toEqual({ queued: true });
   });
 
+  it("awaits async refresh completion before returning", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byTenantId: vi.fn().mockResolvedValue(null),
+    };
+    let released = false;
+    const onRefresh = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            released = true;
+            resolve();
+          }, 0);
+        })
+    );
+
+    const result = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "POST",
+      mockStatus,
+      onRefresh
+    );
+
+    expect(released).toBe(true);
+    expect(result.status).toBe(202);
+  });
+
+  it("coalesces concurrent refresh requests while one is running", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byTenantId: vi.fn().mockResolvedValue(null),
+    };
+    let resolveRefresh: (() => void) | null = null;
+    const onRefresh = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+
+    const first = resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "POST",
+      mockStatus,
+      onRefresh
+    );
+    const second = await resolveOrchestratorStatusResponse(
+      "/api/v1/refresh",
+      "POST",
+      mockStatus,
+      onRefresh
+    );
+
+    expect(second).toEqual({
+      status: 202,
+      payload: { queued: true, coalesced: true },
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    resolveRefresh?.();
+    await expect(first).resolves.toEqual({
+      status: 202,
+      payload: { queued: true },
+    });
+  });
+
+  it("returns 500 when refresh callback rejects and clears the in-flight state", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byTenantId: vi.fn().mockResolvedValue(null),
+    };
+    const onRefresh = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("refresh failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      resolveOrchestratorStatusResponse(
+        "/api/v1/refresh",
+        "POST",
+        mockStatus,
+        onRefresh
+      )
+    ).resolves.toEqual({
+      status: 500,
+      payload: { error: "refresh failed" },
+    });
+
+    await expect(
+      resolveOrchestratorStatusResponse(
+        "/api/v1/refresh",
+        "POST",
+        mockStatus,
+        onRefresh
+      )
+    ).resolves.toEqual({
+      status: 202,
+      payload: { queued: true },
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the legacy GET signature working for tenant status lookups", async () => {
     const snapshot = {
       tenantId: "tenant-1",

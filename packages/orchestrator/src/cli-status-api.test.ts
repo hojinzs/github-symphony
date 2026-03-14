@@ -63,11 +63,40 @@ describe("CLI --no-status-api flag", () => {
       expect.objectContaining({
         host: "127.0.0.1",
         port: 4680,
+        onRefresh: expect.any(Function),
       })
     );
     expect(stdout.output()).toContain(
       "Status server listening on http://127.0.0.1:4680"
     );
+  });
+
+  it("wires the refresh endpoint to service.runOnce", async () => {
+    const emitter = new EventEmitter();
+    const fakeServer = Object.assign(emitter, {
+      address: () => ({ address: "127.0.0.1", port: 4680, family: "IPv4" }),
+    });
+    const startStatusServer = vi.fn().mockReturnValue(fakeServer);
+    const service = createMockService();
+    (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      emitter.emit("listening");
+    });
+
+    await runCli(["run", "--tenant-id", "tenant-1", "--issue", "acme/repo#1"], {
+      createService: () => service,
+      startStatusServer: startStatusServer as never,
+      stdout: createStdoutCapture(),
+    });
+
+    const options = startStatusServer.mock.calls[0]?.[0] as {
+      onRefresh: () => Promise<void>;
+    };
+    await options.onRefresh();
+
+    expect(service.runOnce).toHaveBeenCalledWith({
+      tenantId: "tenant-1",
+      issueIdentifier: "acme/repo#1",
+    });
   });
 
   it("normalises wildcard addresses to localhost in the log line", async () => {

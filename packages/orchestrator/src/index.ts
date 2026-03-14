@@ -38,7 +38,13 @@ export async function runCli(
               const [snapshot] = await service.status(tenantId);
               return snapshot ?? null;
             }
-          }
+          },
+          onRefresh: async () => {
+            await service.runOnce({
+              tenantId: parsed.tenantId,
+              issueIdentifier: parsed.issueIdentifier,
+            });
+          },
         });
         statusServer.on("listening", () => {
           const addr = statusServer.address();
