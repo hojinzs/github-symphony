@@ -13,14 +13,9 @@ export type OrchestratorTrackerConfig = {
 export type OrchestratorTenantConfig = {
   tenantId: string;
   slug: string;
+  workspaceDir: string;
   repositories: RepositoryRef[];
   tracker: OrchestratorTrackerConfig;
-  runtime: {
-    driver: "local";
-    workspaceRuntimeDir: string;
-    projectRoot: string;
-    workerCommand?: string;
-  };
 };
 
 /** @deprecated Use OrchestratorTenantConfig */

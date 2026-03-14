@@ -521,7 +521,7 @@ function createTenantConfig(
   return {
     tenantId: "tenant-1",
     slug: "tenant-1",
-
+    workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
     repositories: [
       {
         owner,
@@ -535,12 +535,6 @@ function createTenantConfig(
       settings: {
         projectId: "project-123",
       },
-    },
-    runtime: {
-      driver: "local" as const,
-      workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-      projectRoot: process.cwd(),
-      workerCommand: "node packages/worker/dist/index.js",
     },
   };
 }

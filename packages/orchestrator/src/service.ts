@@ -3,6 +3,7 @@ import { mkdirSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildHookEnv,
   buildPromptVariables,
@@ -388,7 +389,7 @@ export class OrchestratorService {
     repository: RepositoryRef
   ) {
     const cacheRoot = join(
-      tenant.runtime.workspaceRuntimeDir,
+      tenant.workspaceDir,
       "workflow-cache",
       repository.owner,
       repository.name
@@ -419,7 +420,7 @@ export class OrchestratorService {
     };
     const workspaceKey = deriveIssueWorkspaceKey(identity);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      tenant.runtime.workspaceRuntimeDir,
+      tenant.workspaceDir,
       tenant.tenantId,
       workspaceKey
     );
@@ -517,9 +518,9 @@ export class OrchestratorService {
     const workerLogFd = openSync(join(runDir, "worker.log"), "a");
     const child = (this.dependencies.spawnImpl ?? spawn)(
       "bash",
-      ["-lc", tenant.runtime.workerCommand ?? DEFAULT_WORKER_COMMAND],
+      ["-lc", resolveWorkerCommand()],
       {
-        cwd: tenant.runtime.projectRoot,
+        cwd: process.cwd(),
         env: {
           ...process.env,
           GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
@@ -679,7 +680,7 @@ export class OrchestratorService {
 
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-        tenant.runtime.workspaceRuntimeDir,
+        tenant.workspaceDir,
         tenant.tenantId,
         run.issueWorkspaceKey
       );
@@ -1201,6 +1202,15 @@ function hasTokenUsage(
       tokenUsage.outputTokens > 0 ||
       tokenUsage.totalTokens > 0)
   );
+}
+
+function resolveWorkerCommand(): string {
+  try {
+    const workerUrl = import.meta.resolve("@gh-symphony/worker/dist/index.js");
+    return `node ${fileURLToPath(workerUrl)}`;
+  } catch {
+    return DEFAULT_WORKER_COMMAND;
+  }
 }
 
 export function createStore(runtimeRoot = ".runtime") {

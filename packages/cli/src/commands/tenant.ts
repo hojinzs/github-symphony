@@ -13,17 +13,11 @@ import {
 } from "../github/client.js";
 import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
 import {
-  inferAllStateRoles,
-  toWorkflowLifecycleConfig,
-  validateStateMapping,
-} from "../mapping/smart-defaults.js";
-import {
   loadGlobalConfig,
   saveGlobalConfig,
   loadTenantConfig,
   tenantConfigDir,
   type CliGlobalConfig,
-  type StateMapping,
 } from "../config.js";
 import { writeConfig, generateTenantId, abortIfCancelled } from "./init.js";
 
@@ -56,7 +50,7 @@ function displayScopeError(
 type TenantAddFlags = {
   nonInteractive: boolean;
   project?: string;
-  runtime?: string;
+  workspaceDir?: string;
   assignedOnly: boolean;
 };
 
@@ -74,8 +68,8 @@ function parseTenantAddFlags(args: string[]): TenantAddFlags {
         flags.project = next;
         i += 1;
         break;
-      case "--runtime":
-        flags.runtime = next;
+      case "--workspace-dir":
+        flags.workspaceDir = next;
         i += 1;
         break;
       case "--assigned-only":
@@ -190,45 +184,14 @@ async function tenantAddNonInteractive(
     return;
   }
 
-  // Auto-map with smart defaults
-  const statusField =
-    project.statusFields.find((f) => f.name.toLowerCase() === "status") ??
-    project.statusFields[0];
-
-  if (!statusField) {
-    process.stderr.write("Error: No status field found on the project.\n");
-    process.exitCode = 1;
-    return;
-  }
-
-  const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllStateRoles(columnNames);
-  const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferred) {
-    if (mapping.role) {
-      mappings[mapping.columnName] = { role: mapping.role };
-    }
-  }
-
-  const validation = validateStateMapping(mappings);
-  if (!validation.valid) {
-    process.stderr.write(
-      `Error: Cannot auto-map columns. ${validation.errors.join("; ")}\nRun without --non-interactive for manual mapping.\n`
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const runtime = flags.runtime ?? "codex";
   const tenantId = generateTenantId(project.title, project.id);
+  const workspaceDir = flags.workspaceDir ?? `${options.configDir}/workspaces`;
 
   await writeConfig(options.configDir, {
     tenantId,
     project,
     repos: project.linkedRepositories,
-    statusField,
-    mappings,
-    runtime,
+    workspaceDir,
     assignedOnly: flags.assignedOnly,
   });
 
@@ -377,75 +340,27 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     })
   );
 
-  // ── Step 4: Status column auto-detection ─────────────────────────────────────
-
-  const statusField =
-    projectDetail.statusFields.find((f) => f.name.toLowerCase() === "status") ??
-    projectDetail.statusFields[0];
-
-  if (!statusField) {
-    p.log.error(
-      "No status field found on the project. The project needs a single-select 'Status' field."
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllStateRoles(columnNames);
-  const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferred) {
-    if (mapping.role) {
-      mappings[mapping.columnName] = { role: mapping.role };
-    }
-  }
-
-  const validation = validateStateMapping(mappings);
-  if (!validation.valid) {
-    p.log.error(
-      `Cannot auto-map status columns: ${validation.errors.join("; ")}\nRun 'gh-symphony init' to manually configure WORKFLOW.md.`
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
-
-  p.log.info(
-    `Auto-detected workflow: Active=[${lifecycleConfig.activeStates.join(", ")}] Terminal=[${lifecycleConfig.terminalStates.join(", ")}]`
-  );
-
   // ── Step 4: Assignment filter ────────────────────────────────────────────────
 
   const assignedOnly = await abortIfCancelled(
     p.confirm({
-      message: `Step 3/4 — Only process issues assigned to the authenticated GitHub user?`,
+      message: "Step 3/4 — Only process issues assigned to the authenticated GitHub user?",
       initialValue: false,
     })
   );
 
-  // ── Step 5: Runtime selection ────────────────────────────────────────────────
-
-  const runtime = await abortIfCancelled(
-    p.select({
-      message: "Step 4/4 — Select AI runtime:",
-      options: [
-        { value: "codex", label: "OpenAI Codex", hint: "recommended" },
-        { value: "claude-code", label: "Claude Code" },
-        { value: "custom", label: "Custom command" },
-      ],
+  const workspaceDir = await abortIfCancelled(
+    p.text({
+      message: "Step 4/4 — Workspace root directory:",
+      placeholder: `${options.configDir}/workspaces`,
+      defaultValue: `${options.configDir}/workspaces`,
+      validate(value: string) {
+        return value.trim().length > 0
+          ? undefined
+          : "Workspace directory is required.";
+      },
     })
   );
-
-  let agentCommand: string | undefined;
-  if (runtime === "custom") {
-    agentCommand = await abortIfCancelled(
-      p.text({
-        message: "Custom agent command:",
-        placeholder: "bash -lc my-agent",
-      })
-    );
-  }
 
   // ── Confirmation ─────────────────────────────────────────────────────────────
 
@@ -455,9 +370,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       `Project:    ${projectDetail.title}`,
       `Repos:      ${selectedRepos.map((r) => `${r.owner}/${r.name}`).join(", ")}`,
       `Assigned:   ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
-      `Runtime:    ${runtime}`,
-      `Active:     ${lifecycleConfig.activeStates.join(", ")}`,
-      `Terminal:   ${lifecycleConfig.terminalStates.join(", ")}`,
+      `Workspace:  ${workspaceDir}`,
     ].join("\n"),
     "Configuration Summary"
   );
@@ -484,14 +397,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
       tenantId,
       project: projectDetail,
       repos: selectedRepos,
-      statusField: {
-        id: statusField.id,
-        name: statusField.name,
-        options: statusField.options,
-      },
-      mappings,
-      runtime,
-      agentCommand,
+      workspaceDir,
       assignedOnly,
     });
     s6.stop("Configuration saved.");
@@ -502,9 +408,6 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  p.log.info(
-    `WORKFLOW.md generated at ${tenantId}/WORKFLOW.md — edit it to customize your team policy.`
-  );
   p.outro(
     `Tenant "${tenantId}" created!\n  Run 'gh-symphony start' to begin orchestration.`
   );

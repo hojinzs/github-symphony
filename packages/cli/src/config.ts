@@ -1,10 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type {
-  OrchestratorTenantConfig,
-  WorkflowLifecycleConfig,
-} from "@gh-symphony/core";
+import type { OrchestratorTenantConfig } from "@gh-symphony/core";
 
 export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
@@ -25,18 +22,11 @@ export type CliTenantConfig = Omit<OrchestratorTenantConfig, "tracker"> & {
   tracker: Omit<OrchestratorTenantConfig["tracker"], "settings"> & {
     settings?: CliTenantTrackerSettings;
   };
-  workflowMapping?: WorkflowStateConfig;
 };
 
 export type StateRole = "active" | "wait" | "terminal";
 
 export type StateMapping = { role: StateRole; goal?: string };
-
-export type WorkflowStateConfig = {
-  stateFieldName: string;
-  mappings: Record<string, StateMapping>;
-  lifecycle: WorkflowLifecycleConfig;
-};
 
 export function resolveConfigDir(override?: string): string {
   return override ?? process.env.GH_SYMPHONY_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
@@ -52,13 +42,6 @@ export function tenantConfigDir(configDir: string, tenantId: string): string {
 
 export function tenantConfigPath(configDir: string, tenantId: string): string {
   return join(tenantConfigDir(configDir, tenantId), "tenant.json");
-}
-
-export function workflowMappingPath(
-  configDir: string,
-  tenantId: string
-): string {
-  return join(tenantConfigDir(configDir, tenantId), "workflow-mapping.json");
 }
 
 export function daemonPidPath(configDir: string): string {
@@ -99,23 +82,6 @@ export async function saveTenantConfig(
   config: CliTenantConfig
 ): Promise<void> {
   await writeJsonFile(tenantConfigPath(configDir, tenantId), config);
-}
-
-export async function loadWorkflowMapping(
-  configDir: string,
-  tenantId: string
-): Promise<WorkflowStateConfig | null> {
-  return readJsonFile<WorkflowStateConfig>(
-    workflowMappingPath(configDir, tenantId)
-  );
-}
-
-export async function saveWorkflowMapping(
-  configDir: string,
-  tenantId: string,
-  mapping: WorkflowStateConfig
-): Promise<void> {
-  await writeJsonFile(workflowMappingPath(configDir, tenantId), mapping);
 }
 
 export async function loadActiveTenantConfig(

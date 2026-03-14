@@ -164,7 +164,7 @@ function createTenant(
   return {
     tenantId,
     slug: tenantId,
-
+    workspaceDir: join("/tmp", tenantId),
     repositories: [
       {
         owner,
@@ -179,11 +179,6 @@ function createTenant(
         projectId: `${tenantId}-project`,
         token: `${tenantId}-token`,
       },
-    },
-    runtime: {
-      driver: "local",
-      workspaceRuntimeDir: join("/tmp", tenantId),
-      projectRoot: process.cwd(),
     },
   };
 }

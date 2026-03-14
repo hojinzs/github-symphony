@@ -25,7 +25,7 @@ describe("headless orchestration verification", () => {
       await store.saveTenantConfig({
         tenantId: "tenant-1",
         slug: "tenant-1",
-
+        workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
         repositories: [repository],
         tracker: {
           adapter: "github-project",
@@ -33,12 +33,6 @@ describe("headless orchestration verification", () => {
           settings: {
             projectId: "project-123",
           },
-        },
-        runtime: {
-          driver: "local",
-          workspaceRuntimeDir: join(tempRoot, "workspaces", "tenant-1"),
-          projectRoot: process.cwd(),
-          workerCommand: "node packages/worker/dist/index.js",
         },
       });
 
