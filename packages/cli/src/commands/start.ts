@@ -185,7 +185,7 @@ const handler = async (
   );
   if (!projectConfig) {
     process.stderr.write(
-      "No project configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony project add' first.\n"
     );
     process.exitCode = 1;
     return;
@@ -254,7 +254,9 @@ const handler = async (
 
       if (!isFirst) {
         for (const snap of snapshots) {
-          const prev = prevSnapshots.find((p) => p.projectId === snap.projectId);
+          const prev = prevSnapshots.find(
+            (p) => p.projectId === snap.projectId
+          );
           const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
           for (const prevRun of prev?.activeRuns ?? []) {
             if (!currentRunIds.has(prevRun.runId)) {

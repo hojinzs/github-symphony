@@ -66,7 +66,11 @@ describe("resolveIssueWorkspaceDirectory", () => {
 
   it("rejects path traversal that escapes the root", () => {
     expect(() =>
-      resolveIssueWorkspaceDirectory("/runtime/workspaces", "../../../../../../tmp", "key")
+      resolveIssueWorkspaceDirectory(
+        "/runtime/workspaces",
+        "../../../../../../tmp",
+        "key"
+      )
     ).toThrow("escapes");
   });
 });
@@ -188,7 +192,9 @@ describe("renderPrompt", () => {
       { attempt: null }
     );
 
-    expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe("{{unknown.var}}");
+    expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe(
+      "{{unknown.var}}"
+    );
   });
 
   it("throws template_render_error for unresolved variables in strict mode (default)", () => {
@@ -225,9 +231,9 @@ describe("renderPrompt", () => {
     expect(() => renderPrompt("{{unknown.var}}", variables)).toThrow(
       "template_render_error"
     );
-    expect(() => renderPrompt("{{unknown.var}}", variables, { strict: true })).toThrow(
-      "template_render_error"
-    );
+    expect(() =>
+      renderPrompt("{{unknown.var}}", variables, { strict: true })
+    ).toThrow("template_render_error");
   });
 
   it("does not throw in strict mode when all variables resolve", () => {
@@ -261,9 +267,7 @@ describe("renderPrompt", () => {
       { attempt: null }
     );
 
-    expect(() =>
-      renderPrompt("Fix {{issue.title}}", variables)
-    ).not.toThrow();
+    expect(() => renderPrompt("Fix {{issue.title}}", variables)).not.toThrow();
   });
 
   it("renders null variables as empty string in strict mode", () => {
@@ -298,9 +302,12 @@ describe("renderPrompt", () => {
     );
 
     // null description → empty string, no template_render_error
-    expect(renderPrompt("Title: {{issue.title}}\nDesc: {{issue.description}}", variables)).toBe(
-      "Title: Fix the bug\nDesc: "
-    );
+    expect(
+      renderPrompt(
+        "Title: {{issue.title}}\nDesc: {{issue.description}}",
+        variables
+      )
+    ).toBe("Title: Fix the bug\nDesc: ");
     // null url → empty string
     expect(renderPrompt("URL: {{issue.url}}", variables)).toBe("URL: ");
     // null attempt → empty string
@@ -396,7 +403,7 @@ describe("buildProjectSnapshot", () => {
 
   it("produces idle health when no runs or errors", () => {
     const snapshot = buildProjectSnapshot({
-      tenant: baseWorkspace,
+      project: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -409,7 +416,7 @@ describe("buildProjectSnapshot", () => {
 
   it("produces running health when active runs exist", () => {
     const snapshot = buildProjectSnapshot({
-      tenant: baseWorkspace,
+      project: baseWorkspace,
       activeRuns: [
         {
           runId: "run-1",
@@ -450,7 +457,7 @@ describe("buildProjectSnapshot", () => {
 
   it("produces degraded health when lastError is present", () => {
     const snapshot = buildProjectSnapshot({
-      tenant: baseWorkspace,
+      project: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -493,7 +500,7 @@ describe("structured event field enrichment", () => {
 describe("token accounting - buildProjectSnapshot", () => {
   it("includes codexTotals from run tokenUsage data", () => {
     const snapshot = buildProjectSnapshot({
-      tenant: {
+      project: {
         projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
@@ -510,7 +517,11 @@ describe("token accounting - buildProjectSnapshot", () => {
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,
@@ -541,7 +552,7 @@ describe("token accounting - buildProjectSnapshot", () => {
 
   it("aggregates tokens across multiple runs", () => {
     const snapshot = buildProjectSnapshot({
-      tenant: {
+      project: {
         projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
@@ -558,7 +569,11 @@ describe("token accounting - buildProjectSnapshot", () => {
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,
@@ -584,7 +599,11 @@ describe("token accounting - buildProjectSnapshot", () => {
           issueSubjectId: "s2",
           issueIdentifier: "acme/repo#2",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,

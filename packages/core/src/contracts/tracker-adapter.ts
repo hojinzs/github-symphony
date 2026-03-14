@@ -36,18 +36,18 @@ export type TrackedIssue = {
 
 export type OrchestratorTrackerAdapter = {
   listIssues(
-    tenant: OrchestratorProjectConfig,
+    project: OrchestratorProjectConfig,
     dependencies?: {
       fetchImpl?: typeof fetch;
       token?: string;
     }
   ): Promise<TrackedIssue[]>;
   buildWorkerEnvironment(
-    tenant: OrchestratorProjectConfig,
+    project: OrchestratorProjectConfig,
     issue: TrackedIssue
   ): Record<string, string>;
   reviveIssue(
-    tenant: OrchestratorProjectConfig,
+    project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
 };

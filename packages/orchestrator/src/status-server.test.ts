@@ -171,7 +171,7 @@ describe("POST /api/v1/refresh", () => {
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the legacy GET signature working for tenant status lookups", async () => {
+  it("keeps the legacy GET signature working for project status lookups", async () => {
     const snapshot = {
       projectId: "tenant-1",
       slug: "tenant-1",

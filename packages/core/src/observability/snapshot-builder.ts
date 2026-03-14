@@ -13,7 +13,7 @@ import type {
 } from "../contracts/status-surface.js";
 
 export type SnapshotInput = {
-  tenant: OrchestratorProjectConfig;
+  project: OrchestratorProjectConfig;
   activeRuns: OrchestratorRunRecord[];
   allRuns?: OrchestratorRunRecord[];
   summary: {
@@ -36,7 +36,7 @@ export function buildProjectSnapshot(
   input: SnapshotInput
 ): ProjectStatusSnapshot {
   const {
-    tenant,
+    project,
     activeRuns,
     allRuns,
     summary,
@@ -46,11 +46,11 @@ export function buildProjectSnapshot(
   } = input;
 
   return {
-    projectId: tenant.projectId,
-    slug: tenant.slug,
+    projectId: project.projectId,
+    slug: project.slug,
     tracker: {
-      adapter: tenant.tracker.adapter,
-      bindingId: tenant.tracker.bindingId,
+      adapter: project.tracker.adapter,
+      bindingId: project.tracker.bindingId,
     },
     lastTickAt,
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",

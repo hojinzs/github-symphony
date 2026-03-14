@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildProjectSnapshot, type SnapshotInput } from "./snapshot-builder.js";
+import {
+  buildProjectSnapshot,
+  type SnapshotInput,
+} from "./snapshot-builder.js";
 import type {
   OrchestratorProjectConfig,
   OrchestratorRunRecord,
@@ -71,7 +74,7 @@ function mockRun(
 describe("buildProjectSnapshot", () => {
   it("returns idle health when no active runs and no error", () => {
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -89,7 +92,7 @@ describe("buildProjectSnapshot", () => {
   it("returns running health when active runs present", () => {
     const run = mockRun({ status: "running" });
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -107,7 +110,7 @@ describe("buildProjectSnapshot", () => {
 
   it("returns degraded health when lastError is present", () => {
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -123,7 +126,7 @@ describe("buildProjectSnapshot", () => {
   it("prioritizes degraded over running when both error and active runs present", () => {
     const run = mockRun({ status: "running" });
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -155,7 +158,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [runningRun, retryingRun, anotherRetrying],
       summary: { dispatched: 3, suppressed: 0, recovered: 1 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -195,7 +198,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run1, run2],
       allRuns: [run1, run2],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -226,7 +229,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [runWithTokens, runWithoutTokens],
       allRuns: [runWithTokens, runWithoutTokens],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -259,7 +262,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [runWithSession, runWithoutSession],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -273,7 +276,7 @@ describe("buildProjectSnapshot", () => {
   });
 
   it("preserves project metadata in snapshot", () => {
-    const tenant = mockProject({
+    const project = mockProject({
       projectId: "custom-project-id",
       slug: "custom-slug",
       tracker: {
@@ -283,7 +286,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant,
+      project,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -300,7 +303,7 @@ describe("buildProjectSnapshot", () => {
 
   it("includes summary counts in snapshot", () => {
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [],
       summary: { dispatched: 5, suppressed: 2, recovered: 1 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -335,7 +338,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [activeRun],
       allRuns: [activeRun, completedRun],
       summary: { dispatched: 2, suppressed: 0, recovered: 0 },
@@ -361,7 +364,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       // allRuns not provided
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -378,7 +381,7 @@ describe("buildProjectSnapshot", () => {
 
   it("handles rateLimits when provided", () => {
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -401,7 +404,7 @@ describe("buildProjectSnapshot", () => {
 
   it("defaults rateLimits to null when not provided", () => {
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -433,7 +436,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -459,7 +462,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       allRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -480,7 +483,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       allRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
@@ -501,7 +504,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -530,7 +533,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",
@@ -562,7 +565,7 @@ describe("buildProjectSnapshot", () => {
     });
 
     const input: SnapshotInput = {
-      tenant: mockProject(),
+      project: mockProject(),
       activeRuns: [run],
       summary: { dispatched: 1, suppressed: 0, recovered: 0 },
       lastTickAt: "2024-01-01T00:10:00Z",

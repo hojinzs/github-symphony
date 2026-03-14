@@ -16,9 +16,9 @@ function loadFixture(name: string): ProjectStatusSnapshot {
   return JSON.parse(raw) as ProjectStatusSnapshot;
 }
 
-function loadMultiTenantFixture(): ProjectStatusSnapshot[] {
+function loadMultiProjectFixture(): ProjectStatusSnapshot[] {
   const raw = readFileSync(
-    join(fixturesDir, "multi-tenant.snapshot.json"),
+    join(fixturesDir, "multi-project.snapshot.json"),
     "utf8"
   );
   return JSON.parse(raw) as ProjectStatusSnapshot[];
@@ -90,7 +90,7 @@ describe("renderDashboard", () => {
   });
 
   it("renders multi-project fixture with multiple sections", () => {
-    const snapshots = loadMultiTenantFixture();
+    const snapshots = loadMultiProjectFixture();
     const output = renderDashboard(snapshots, {
       terminalWidth: 115,
       noColor: true,

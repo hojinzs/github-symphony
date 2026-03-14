@@ -12,9 +12,10 @@ vi.mock("@gh-symphony/orchestrator", () => ({
 }));
 
 vi.mock("node:child_process", async () => {
-  const actual = await vi.importActual<typeof import("node:child_process")>(
-    "node:child_process"
-  );
+  const actual =
+    await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process"
+    );
   return {
     ...actual,
     spawn: spawnMock,
@@ -32,7 +33,7 @@ afterEach(() => {
 });
 
 describe("lifecycle command integration", () => {
-  it("syncs the selected tenant config before single-issue dispatch", async () => {
+  it("syncs the selected project config before single-issue dispatch", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -58,13 +59,7 @@ describe("lifecycle command integration", () => {
 
     const synced = JSON.parse(
       await readFile(
-        join(
-          configDir,
-          "orchestrator",
-          "projects",
-          "tenant-b",
-          "config.json"
-        ),
+        join(configDir, "orchestrator", "projects", "tenant-b", "config.json"),
         "utf8"
       )
     ) as CliProjectConfig;
@@ -75,7 +70,7 @@ describe("lifecycle command integration", () => {
     });
   });
 
-  it("starts the requested tenant in daemon mode", async () => {
+  it("starts the requested project in daemon mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -194,7 +189,7 @@ async function createConfigFixture(input: {
       {
         activeProject: input.activeProject,
         token: `${input.activeProject}-token`,
-        projects: input.projects.map((tenant) => tenant.projectId),
+        projects: input.projects.map((project) => project.projectId),
       },
       null,
       2
@@ -202,12 +197,12 @@ async function createConfigFixture(input: {
     "utf8"
   );
 
-  for (const tenant of input.projects) {
-    const projectDir = join(configDir, "projects", tenant.projectId);
+  for (const project of input.projects) {
+    const projectDir = join(configDir, "projects", project.projectId);
     await mkdir(projectDir, { recursive: true });
     await writeFile(
       join(projectDir, "project.json"),
-      JSON.stringify(tenant, null, 2) + "\n",
+      JSON.stringify(project, null, 2) + "\n",
       "utf8"
     );
   }

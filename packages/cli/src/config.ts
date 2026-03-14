@@ -40,7 +40,10 @@ export function projectConfigDir(configDir: string, projectId: string): string {
   return join(configDir, "projects", projectId);
 }
 
-export function projectConfigPath(configDir: string, projectId: string): string {
+export function projectConfigPath(
+  configDir: string,
+  projectId: string
+): string {
   return join(projectConfigDir(configDir, projectId), "project.json");
 }
 
@@ -59,7 +62,22 @@ export function orchestratorLogPath(configDir: string): string {
 export async function loadGlobalConfig(
   configDir: string
 ): Promise<CliGlobalConfig | null> {
-  return readJsonFile<CliGlobalConfig>(configFilePath(configDir));
+  const raw = await readJsonFile<Partial<CliGlobalConfig>>(
+    configFilePath(configDir)
+  );
+  if (!raw) {
+    return null;
+  }
+
+  return {
+    activeProject:
+      typeof raw.activeProject === "string" ? raw.activeProject : null,
+    projects: Array.isArray(raw.projects)
+      ? raw.projects.filter(
+          (projectId): projectId is string => typeof projectId === "string"
+        )
+      : [],
+  };
 }
 
 export async function saveGlobalConfig(
@@ -73,7 +91,9 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  return readJsonFile<CliProjectConfig>(projectConfigPath(configDir, projectId));
+  return readJsonFile<CliProjectConfig>(
+    projectConfigPath(configDir, projectId)
+  );
 }
 
 export async function saveProjectConfig(

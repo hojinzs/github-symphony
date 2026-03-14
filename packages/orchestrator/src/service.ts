@@ -302,7 +302,7 @@ export class OrchestratorService {
       isActiveRunStatus(run.status)
     );
     const status = buildProjectSnapshot({
-      tenant,
+      project: tenant,
       activeRuns: latestRuns,
       allRuns: allTenantRuns,
       summary: { dispatched, suppressed, recovered },
@@ -1094,11 +1094,11 @@ export class OrchestratorService {
     }
   }
 
-  private getProjectConcurrency(_tenant: OrchestratorProjectConfig): number {
+  private getProjectConcurrency(_project: OrchestratorProjectConfig): number {
     return this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
   }
 
-  private getProjectMaxAttempts(_tenant: OrchestratorProjectConfig): number {
+  private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {
     return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 

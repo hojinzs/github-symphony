@@ -48,9 +48,9 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
-## 3. Set Orchestrator Runner (Tenant)
+## 3. Set Orchestrator Runner (Project)
 
-On the machine where you want the orchestrator to run, register a tenant:
+On the machine where you want the orchestrator to run, register a project:
 
 ```bash
 gh-symphony project add
@@ -63,13 +63,13 @@ The interactive wizard will:
 3. Select repositories to orchestrate
 4. Optionally limit processing to issues assigned to the authenticated user
 5. Configure the workspace root directory
-6. Write tenant configuration to `~/.gh-symphony/`
+6. Write project configuration to `~/.gh-symphony/`
 
 ### Project Management
 
 ```bash
 gh-symphony project list             # List all configured projects
-gh-symphony project remove <id>      # Remove a tenant
+gh-symphony project remove <id>      # Remove a project
 ```
 
 ## 4. Run the Orchestrator
@@ -128,9 +128,9 @@ Orchestration:
   logs                View orchestrator logs
 
 Project Management:
-  project add          Add a new tenant (interactive wizard)
+  project add          Add a new project (interactive wizard)
   project list         List all configured projects
-  project remove       Remove a tenant
+  project remove       Remove a project
 
 Global Options:
   --config <dir>      Config directory (default: ~/.gh-symphony)

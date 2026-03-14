@@ -47,7 +47,7 @@ const handler = async (
   const projectConfig = await loadActiveProjectConfig(options.configDir);
   if (!projectConfig) {
     process.stderr.write(
-      "No project configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony project add' first.\n"
     );
     process.exitCode = 1;
     return;

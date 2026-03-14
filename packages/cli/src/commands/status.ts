@@ -188,13 +188,13 @@ async function readAllStatusSnapshots(
   runtimeRoot: string
 ): Promise<ProjectStatusSnapshot[]> {
   try {
-    const tenantsDir = join(runtimeRoot, "orchestrator", "projects");
+    const projectsDir = join(runtimeRoot, "orchestrator", "projects");
     const { readdir } = await import("node:fs/promises");
-    const entries = await readdir(tenantsDir, { withFileTypes: true });
+    const entries = await readdir(projectsDir, { withFileTypes: true });
     const snapshots: ProjectStatusSnapshot[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const statusPath = join(tenantsDir, entry.name, "status.json");
+      const statusPath = join(projectsDir, entry.name, "status.json");
       try {
         const content = await readFile(statusPath, "utf-8");
         snapshots.push(JSON.parse(content) as ProjectStatusSnapshot);
@@ -220,7 +220,7 @@ const handler = async (
   );
   if (!projectConfig) {
     process.stderr.write(
-      "No project configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony project add' first.\n"
     );
     process.exitCode = 1;
     return;

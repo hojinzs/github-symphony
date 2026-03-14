@@ -13,7 +13,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -25,7 +25,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
       GITHUB_TOKEN_BROKER_URL:
-        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
       GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
@@ -39,7 +39,7 @@ describe("buildCodexRuntimePlan", () => {
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -71,7 +71,7 @@ describe("createGitCredentialHelperEnvironment", () => {
   it("configures git to use a renewable credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
     });
@@ -94,7 +94,7 @@ describe("launchCodexAppServer", () => {
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
     });
 
@@ -132,7 +132,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
     const env = await resolveAgentRuntimeEnvironment(
       {
         agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
         agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
       },
@@ -163,7 +163,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
       resolveAgentRuntimeEnvironment(
         {
           agentCredentialBrokerUrl:
-            "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
+            "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
           agentCredentialBrokerSecret: "runtime-secret",
         },
         {
@@ -181,10 +181,10 @@ describe("prepareCodexRuntimePlan", () => {
         projectId: "workspace-123",
         workingDirectory: "/tmp/workspace-123",
         githubTokenBrokerUrl:
-          "http://host.docker.internal:3000/api/projects/workspace-123/runtime-credentials",
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
         githubTokenBrokerSecret: "runtime-secret",
         agentCredentialBrokerUrl:
-          "http://host.docker.internal:3000/api/projects/workspace-123/agent-credentials",
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
       },
       {
