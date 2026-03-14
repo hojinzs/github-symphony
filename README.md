@@ -1,6 +1,6 @@
 # GitHub Symphony
 
-GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [Symphony specification](docs/symphony-spec.md). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves all workflow policy from each repository's `WORKFLOW.md` at runtime.
+GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [OpenAI Symphony specification](https://github.com/openai/symphony). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves all workflow policy from each repository's `WORKFLOW.md` at runtime.
 
 ## Packages
 
@@ -16,7 +16,6 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 | `packages/shared`                    | Shared types and re-exports                                                                                  |
 | `apps/control-plane`                 | Optional web UI (work in progress — being redesigned)                                                        |
 | `docs`                               | Local-development, rollout, and self-hosting guides                                                          |
-| `openspec`                           | Product change history and implementation artifacts                                                          |
 
 ## Quick start
 

@@ -1,0 +1,120 @@
+schema_version: 1
+collected_at: 2026-03-14T04:59:53.689Z
+
+project:
+  id: PVT_kwHOAPiKdM4BRs_j
+  title: Github Symphony Project
+  url: https://github.com/users/hojinzs/projects/4
+
+status_field:
+  id: PVTSSF_lAHOAPiKdM4BRs_jzg_dCKk
+  name: Status
+  columns:
+    - id: f75ad846
+      name: Backlog
+      color: GREEN
+      inferred_role: wait
+      confidence: high
+    - id: 61e4505c
+      name: Ready
+      color: BLUE
+      inferred_role: active
+      confidence: high
+    - id: 47fc9ee4
+      name: In progress
+      color: YELLOW
+      inferred_role: active
+      confidence: high
+    - id: df73e18b
+      name: In review
+      color: PURPLE
+      inferred_role: wait
+      confidence: high
+    - id: 98236657
+      name: Done
+      color: ORANGE
+      inferred_role: terminal
+      confidence: high
+
+text_fields:
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCKc
+    name: Title
+    data_type: TITLE
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCKg
+    name: Assignees
+    data_type: ASSIGNEES
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCKo
+    name: Labels
+    data_type: LABELS
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCKs
+    name: Linked pull requests
+    data_type: LINKED_PULL_REQUESTS
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCKw
+    name: Milestone
+    data_type: MILESTONE
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCK0
+    name: Repository
+    data_type: REPOSITORY
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCK4
+    name: Reviewers
+    data_type: REVIEWERS
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCK8
+    name: Parent issue
+    data_type: PARENT_ISSUE
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCLA
+    name: Sub-issues progress
+    data_type: SUB_ISSUES_PROGRESS
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCPA
+    name: Estimate
+    data_type: NUMBER
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCPE
+    name: Start date
+    data_type: DATE
+  - id: PVTF_lAHOAPiKdM4BRs_jzg_dCPI
+    name: Target date
+    data_type: DATE
+
+repositories:
+  []
+
+detected_environment:
+  packageManager: pnpm
+  lockfile: pnpm-lock.yaml
+  testCommand: pnpm -r test
+  buildCommand: pnpm -r build
+  lintCommand: pnpm -r lint
+  ciPlatform: github-actions
+  monorepo: true
+  existingSkills:
+    - openspec-apply-change
+    - openspec-archive-change
+    - openspec-bulk-archive-change
+    - openspec-continue-change
+    - openspec-explore
+    - openspec-ff-change
+    - openspec-new-change
+    - openspec-onboard
+    - openspec-propose
+    - openspec-sync-specs
+    - openspec-verify-change
+    - commit
+    - gh-project
+    - gh-symphony
+    - land
+    - openspec-apply-change
+    - openspec-archive-change
+    - openspec-bulk-archive-change
+    - openspec-continue-change
+    - openspec-explore
+    - openspec-ff-change
+    - openspec-new-change
+    - openspec-onboard
+    - openspec-propose
+    - openspec-sync-specs
+    - openspec-verify-change
+    - pull
+    - push
+
+runtime:
+  agent: codex
+  agent_command: bash -lc codex app-server
