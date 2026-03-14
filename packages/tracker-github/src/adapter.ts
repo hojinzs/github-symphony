@@ -199,8 +199,7 @@ export async function fetchProjectIssues(
         }
 
         return [normalized];
-      })
-      .flatMap((issue) => (issue ? [issue] : []));
+      });
 
     issues.push(...pageIssues);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
@@ -377,10 +376,17 @@ function deriveCloneUrl(repositoryUrl: string): string {
 }
 
 function resolveRestUserApiUrl(apiUrl?: string): string {
-  const graphQlUrl = apiUrl ?? DEFAULT_API_URL;
-  return graphQlUrl.endsWith("/graphql")
-    ? `${graphQlUrl.slice(0, -"/graphql".length)}/user`
-    : `${graphQlUrl.replace(/\/$/, "")}/user`;
+  const parsed = new URL(apiUrl ?? DEFAULT_API_URL);
+  const pathSegments = parsed.pathname.split("/").filter(Boolean);
+
+  if (pathSegments.at(-1) === "graphql") {
+    pathSegments.pop();
+  }
+
+  parsed.pathname = `/${pathSegments.join("/")}/user`.replace(/\/{2,}/g, "/");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
 }
 
 const PROJECT_ITEMS_QUERY = `

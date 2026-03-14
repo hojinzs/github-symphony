@@ -111,7 +111,7 @@ describe("resolveTrackerAdapter", () => {
         bindingId: "project-123",
         settings: {
           projectId: "project-123",
-          assignedOnly: true as unknown as string,
+          assignedOnly: true,
         },
       });
 
@@ -125,7 +125,7 @@ describe("resolveTrackerAdapter", () => {
             bindingId: "project-123",
             settings: {
               projectId: "project-123",
-              assignedOnly: true as unknown as string,
+              assignedOnly: true,
             },
           },
           runtime: {
@@ -195,6 +195,70 @@ describe("resolveTrackerAdapter", () => {
     } finally {
       infoSpy.mockRestore();
     }
+  });
+
+  it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      apiUrl: "https://api.github.com/graphql/",
+      settings: {
+        projectId: "project-123",
+        assignedOnly: true,
+      },
+    });
+
+    await adapter.listIssues(
+      {
+        tenantId: "workspace-1",
+        slug: "workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          apiUrl: "https://api.github.com/graphql/",
+          settings: {
+            projectId: "project-123",
+            assignedOnly: true,
+          },
+        },
+        runtime: {
+          driver: "local",
+          workspaceRuntimeDir: "/tmp/workspace-1",
+          projectRoot: "/tmp/workspace-1",
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (url, init) => {
+          if (init?.method === "GET") {
+            expect(String(url)).toBe("https://api.github.com/user");
+            return new Response(JSON.stringify({ login: "machine-user" }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
   });
 });
 

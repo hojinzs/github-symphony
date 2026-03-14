@@ -333,7 +333,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/3 — Select a GitHub Project:",
+      message: "Step 1/4 — Select a GitHub Project:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -368,7 +368,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedRepos = await abortIfCancelled(
     p.multiselect({
-      message: "Step 2/3 — Select repositories to orchestrate:",
+      message: "Step 2/4 — Select repositories to orchestrate:",
       options: projectDetail.linkedRepositories.map((repo) => ({
         value: repo,
         label: `${repo.owner}/${repo.name}`,

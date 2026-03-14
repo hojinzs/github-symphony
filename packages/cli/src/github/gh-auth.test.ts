@@ -115,6 +115,8 @@ describe("getGhToken", () => {
 
 describe("ensureGhAuth", () => {
   it("returns login and token on success", () => {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+
     const execImpl = vi.fn((command: string, args?: string[]) => {
       if (command !== "gh") {
         throw new Error("unexpected command");

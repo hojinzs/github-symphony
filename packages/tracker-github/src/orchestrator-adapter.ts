@@ -94,7 +94,7 @@ function readBooleanTrackerSetting(
   tracker: OrchestratorTrackerConfig,
   key: string
 ): boolean {
-  const value = (tracker.settings as Record<string, unknown> | undefined)?.[key];
+  const value = tracker.settings?.[key];
   return value === true || value === "true";
 }
 
