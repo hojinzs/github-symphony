@@ -21,9 +21,34 @@ set -euo pipefail
 
 workspace_dir="\${WORKSPACE_DIR:?WORKSPACE_DIR is required}"
 target_repo="\${TARGET_REPOSITORY_CLONE_URL:?TARGET_REPOSITORY_CLONE_URL is required}"
+repository_dir="$workspace_dir/repository"
 
 mkdir -p "$workspace_dir"
-git clone "$target_repo" "$workspace_dir/repository"
+if git -C "$repository_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  current_remote="$(git -C "$repository_dir" remote get-url origin 2>/dev/null || true)"
+  if [ -n "$current_remote" ] && [ "$current_remote" != "$target_repo" ]; then
+    rm -rf "$repository_dir"
+  else
+    if [ -n "$current_remote" ]; then
+      git -C "$repository_dir" remote set-url origin "$target_repo"
+    else
+      git -C "$repository_dir" remote add origin "$target_repo"
+    fi
+    if current_branch="$(git -C "$repository_dir" symbolic-ref --quiet --short HEAD 2>/dev/null)"; then
+      git -C "$repository_dir" pull --ff-only origin "$current_branch"
+    else
+      git -C "$repository_dir" fetch --prune origin
+    fi
+  exit 0
+fi
+fi
+
+if [ -e "$repository_dir" ] && [ -n "$(ls -A "$repository_dir" 2>/dev/null)" ]; then
+  echo "repository directory already exists and is not a git checkout: $repository_dir" >&2
+  exit 1
+fi
+
+git clone "$target_repo" "$repository_dir"
 `;
 }
 

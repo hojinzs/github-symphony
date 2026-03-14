@@ -8,7 +8,7 @@ import {
   provisionWorkspaceRuntime,
   renderWorkflowMarkdown,
   syncWorkspaceRuntimeStatus,
-  teardownWorkspaceRuntime
+  teardownWorkspaceRuntime,
 } from "./provisioning";
 
 const tempPaths: string[] = [];
@@ -18,7 +18,7 @@ afterEach(async () => {
     tempPaths.splice(0, tempPaths.length).map((path) =>
       rm(path, {
         recursive: true,
-        force: true
+        force: true,
       })
     )
   );
@@ -37,9 +37,9 @@ describe("renderWorkflowMarkdown", () => {
           {
             owner: "acme",
             name: "platform",
-            cloneUrl: "https://github.com/acme/platform.git"
-          }
-        ]
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+        ],
       })
     ).toContain("Prefer small changes");
     expect(
@@ -53,9 +53,9 @@ describe("renderWorkflowMarkdown", () => {
           {
             owner: "acme",
             name: "platform",
-            cloneUrl: "https://github.com/acme/platform.git"
-          }
-        ]
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+        ],
       })
     ).toContain("lifecycle:");
   });
@@ -75,18 +75,18 @@ describe("provisionWorkspaceRuntime", () => {
         inspect: vi.fn().mockResolvedValue({
           State: {
             Running: true,
-            Status: "running"
-          }
-        })
+            Status: "running",
+          },
+        }),
       }),
-      getContainer: vi.fn()
+      getContainer: vi.fn(),
     };
 
     const db = {
       symphonyInstance: {
         upsert: vi.fn().mockResolvedValue(undefined),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     const runtime = await provisionWorkspaceRuntime(
@@ -100,9 +100,9 @@ describe("provisionWorkspaceRuntime", () => {
           {
             owner: "acme",
             name: "platform",
-            cloneUrl: "https://github.com/acme/platform.git"
-          }
-        ]
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+        ],
       },
       {
         db,
@@ -110,8 +110,8 @@ describe("provisionWorkspaceRuntime", () => {
         runtimeRoot: root,
         portAllocator: async () => 4501,
         runtimeAuthEnv: {
-          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret"
-        }
+          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret",
+        },
       }
     );
 
@@ -119,19 +119,39 @@ describe("provisionWorkspaceRuntime", () => {
     expect(runtime.runtimeId).toBe("workspace-workspace-1");
     expect(runtime.runtimeName).toBe("orchestrator-platform");
     expect(runtime.port).toBe(0);
-    expect(runtime.workflowPath).toBe(join(runtime.workspaceRuntimeDir, "WORKFLOW.md"));
-    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
-      "GITHUB_PROJECT_ID=project-1"
+    expect(runtime.workflowPath).toBe(
+      join(runtime.workspaceRuntimeDir, "WORKFLOW.md")
     );
-    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
-      "GITHUB_TOKEN_BROKER_URL="
-    );
-    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
-      "AGENT_CREDENTIAL_BROKER_URL="
-    );
-    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
-      "SYMPHONY_RUNTIME_DRIVER=docker"
-    );
+    expect(
+      readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")
+    ).toContain("GITHUB_PROJECT_ID=project-1");
+    expect(
+      readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")
+    ).toContain("GITHUB_TOKEN_BROKER_URL=");
+    expect(
+      readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")
+    ).toContain("AGENT_CREDENTIAL_BROKER_URL=");
+    expect(
+      readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")
+    ).toContain("SYMPHONY_RUNTIME_DRIVER=docker");
+    expect(
+      readFileSync(
+        join(runtime.workspaceRuntimeDir, "hooks", "after_create.sh"),
+        "utf8"
+      )
+    ).toContain('git -C "$repository_dir" pull --ff-only');
+    expect(
+      readFileSync(
+        join(runtime.workspaceRuntimeDir, "hooks", "after_create.sh"),
+        "utf8"
+      )
+    ).toContain('git -C "$repository_dir" rev-parse --is-inside-work-tree');
+    expect(
+      readFileSync(
+        join(runtime.workspaceRuntimeDir, "hooks", "after_create.sh"),
+        "utf8"
+      )
+    ).toContain('git -C "$repository_dir" remote get-url origin');
     expect(docker.createContainer).not.toHaveBeenCalled();
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);
   });
@@ -142,13 +162,13 @@ describe("provisionWorkspaceRuntime", () => {
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4321,
-      unref: vi.fn()
+      unref: vi.fn(),
     });
     const db = {
       symphonyInstance: {
         upsert: vi.fn().mockResolvedValue(undefined),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     const runtime = await provisionWorkspaceRuntime(
@@ -162,9 +182,9 @@ describe("provisionWorkspaceRuntime", () => {
           {
             owner: "acme",
             name: "platform",
-            cloneUrl: "https://github.com/acme/platform.git"
-          }
-        ]
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+        ],
       },
       {
         db,
@@ -172,20 +192,20 @@ describe("provisionWorkspaceRuntime", () => {
         runtimeRoot: root,
         portAllocator: async () => 4502,
         runtimeAuthEnv: {
-          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret"
+          WORKSPACE_RUNTIME_AUTH_SECRET: "runtime-auth-secret",
         },
         workerCommand: "node packages/worker/dist/index.js",
         projectRoot: "/tmp/github-symphony",
-        spawnImpl
+        spawnImpl,
       }
     );
 
     expect(runtime.runtimeDriver).toBe("local");
     expect(runtime.runtimeId).toBe("workspace-workspace-2");
     expect(runtime.processId).toBeNull();
-    expect(readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")).toContain(
-      "SYMPHONY_RUNTIME_DRIVER=local"
-    );
+    expect(
+      readFileSync(join(runtime.workspaceRuntimeDir, "worker.env"), "utf8")
+    ).toContain("SYMPHONY_RUNTIME_DRIVER=local");
     expect(spawnImpl).not.toHaveBeenCalled();
     expect(db.symphonyInstance.upsert).toHaveBeenCalledTimes(1);
   });
@@ -195,31 +215,31 @@ describe("provisionWorkspaceRuntime", () => {
       inspect: vi.fn().mockResolvedValue({
         State: {
           Running: true,
-          Status: "running"
-        }
+          Status: "running",
+        },
       }),
       start: vi.fn(),
       stop: vi.fn(),
-      remove: vi.fn()
+      remove: vi.fn(),
     };
 
     const docker = {
       createContainer: vi.fn(),
-      getContainer: vi.fn().mockReturnValue(container)
+      getContainer: vi.fn().mockReturnValue(container),
     };
 
     const db = {
       symphonyInstance: {
         upsert: vi.fn(),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     const status = await syncWorkspaceRuntimeStatus(
       {
         workspaceId: "workspace-1",
         runtimeDriver: "docker",
-        runtimeId: "container-1"
+        runtimeId: "container-1",
       },
       {
         db,
@@ -231,7 +251,7 @@ describe("provisionWorkspaceRuntime", () => {
               slug: "workspace-1",
               tracker: {
                 adapter: "github-project",
-                bindingId: "project-1"
+                bindingId: "project-1",
               },
               lastTickAt: "2026-03-09T00:00:00.000Z",
               health: "running",
@@ -239,7 +259,7 @@ describe("provisionWorkspaceRuntime", () => {
                 dispatched: 1,
                 suppressed: 0,
                 recovered: 0,
-                activeRuns: 1
+                activeRuns: 1,
               },
               activeRuns: [
                 {
@@ -248,15 +268,15 @@ describe("provisionWorkspaceRuntime", () => {
                   phase: "planning",
                   status: "running",
                   retryKind: null,
-                  port: 4501
-                }
+                  port: 4501,
+                },
               ],
               retryQueue: [],
-              lastError: null
+              lastError: null,
             }),
             { status: 200 }
           )
-        ) as typeof fetch
+        ) as typeof fetch,
       }
     );
 
@@ -269,30 +289,30 @@ describe("provisionWorkspaceRuntime", () => {
       inspect: vi.fn(),
       start: vi.fn(),
       stop: vi.fn().mockResolvedValue(undefined),
-      remove: vi.fn().mockResolvedValue(undefined)
+      remove: vi.fn().mockResolvedValue(undefined),
     };
 
     const docker = {
       createContainer: vi.fn(),
-      getContainer: vi.fn().mockReturnValue(container)
+      getContainer: vi.fn().mockReturnValue(container),
     };
 
     const db = {
       symphonyInstance: {
         upsert: vi.fn(),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     await teardownWorkspaceRuntime(
       {
         workspaceId: "workspace-1",
         runtimeDriver: "docker",
-        runtimeId: "container-1"
+        runtimeId: "container-1",
       },
       {
         db,
-        docker
+        docker,
       }
     );
 
@@ -306,30 +326,30 @@ describe("provisionWorkspaceRuntime", () => {
       inspect: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
-      remove: vi.fn().mockResolvedValue(undefined)
+      remove: vi.fn().mockResolvedValue(undefined),
     };
 
     const docker = {
       createContainer: vi.fn(),
-      getContainer: vi.fn().mockReturnValue(container)
+      getContainer: vi.fn().mockReturnValue(container),
     };
 
     const db = {
       symphonyInstance: {
         upsert: vi.fn(),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     await reconcileProvisioningFailure(
       {
         workspaceId: "workspace-1",
         runtimeDriver: "docker",
-        runtimeId: "container-1"
+        runtimeId: "container-1",
       },
       {
         db,
-        docker
+        docker,
       }
     );
 
@@ -341,8 +361,8 @@ describe("provisionWorkspaceRuntime", () => {
     const db = {
       symphonyInstance: {
         upsert: vi.fn(),
-        update: vi.fn().mockResolvedValue(undefined)
-      }
+        update: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     const status = await syncWorkspaceRuntimeStatus(
@@ -350,7 +370,7 @@ describe("provisionWorkspaceRuntime", () => {
         workspaceId: "workspace-2",
         runtimeDriver: "local",
         runtimeId: "local-workspace-2",
-        processId: 4321
+        processId: 4321,
       },
       {
         db,
@@ -361,7 +381,7 @@ describe("provisionWorkspaceRuntime", () => {
               slug: "workspace-2",
               tracker: {
                 adapter: "github-project",
-                bindingId: "project-2"
+                bindingId: "project-2",
               },
               lastTickAt: "2026-03-09T00:00:00.000Z",
               health: "running",
@@ -369,7 +389,7 @@ describe("provisionWorkspaceRuntime", () => {
                 dispatched: 0,
                 suppressed: 0,
                 recovered: 0,
-                activeRuns: 1
+                activeRuns: 1,
               },
               activeRuns: [
                 {
@@ -378,15 +398,15 @@ describe("provisionWorkspaceRuntime", () => {
                   phase: "planning",
                   status: "running",
                   retryKind: null,
-                  port: 4502
-                }
+                  port: 4502,
+                },
               ],
               retryQueue: [],
-              lastError: null
+              lastError: null,
             }),
             { status: 200 }
           )
-        ) as typeof fetch
+        ) as typeof fetch,
       }
     );
 
