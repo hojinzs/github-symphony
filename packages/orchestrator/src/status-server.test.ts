@@ -135,6 +135,42 @@ describe("POST /api/v1/refresh", () => {
     });
   });
 
+  it("returns 500 when refresh callback rejects and clears the in-flight state", async () => {
+    const mockStatus = {
+      all: vi.fn().mockResolvedValue([]),
+      byTenantId: vi.fn().mockResolvedValue(null),
+    };
+    const onRefresh = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("refresh failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      resolveOrchestratorStatusResponse(
+        "/api/v1/refresh",
+        "POST",
+        mockStatus,
+        onRefresh
+      )
+    ).resolves.toEqual({
+      status: 500,
+      payload: { error: "refresh failed" },
+    });
+
+    await expect(
+      resolveOrchestratorStatusResponse(
+        "/api/v1/refresh",
+        "POST",
+        mockStatus,
+        onRefresh
+      )
+    ).resolves.toEqual({
+      status: 202,
+      payload: { queued: true },
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the legacy GET signature working for tenant status lookups", async () => {
     const snapshot = {
       tenantId: "tenant-1",

@@ -44,6 +44,18 @@ describe("requestOrchestratorRefresh", () => {
     );
   });
 
+  it("uses the provided timeout when creating the abort signal", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+    await requestOrchestratorRefresh({
+      fetchImpl: fetchImpl as typeof fetch,
+      timeoutMs: 1_500,
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(1_500);
+  });
+
   it("swallows network failures and falls back to filesystem status", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("offline"));
 

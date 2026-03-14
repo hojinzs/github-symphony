@@ -121,8 +121,8 @@ function shutdown(signal: NodeJS.Signals) {
   })();
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 async function startAssignedRun() {
   try {

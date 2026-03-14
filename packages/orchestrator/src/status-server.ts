@@ -94,6 +94,16 @@ export async function resolveOrchestratorStatusResponse(
     refreshInFlight = Promise.resolve(refreshCallback?.());
     try {
       await refreshInFlight;
+    } catch (error) {
+      return {
+        status: 500,
+        payload: {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to refresh orchestrator status.",
+        },
+      };
     } finally {
       refreshInFlight = null;
     }
