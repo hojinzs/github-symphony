@@ -21,9 +21,20 @@ set -euo pipefail
 
 workspace_dir="\${WORKSPACE_DIR:?WORKSPACE_DIR is required}"
 target_repo="\${TARGET_REPOSITORY_CLONE_URL:?TARGET_REPOSITORY_CLONE_URL is required}"
+repository_dir="$workspace_dir/repository"
 
 mkdir -p "$workspace_dir"
-git clone "$target_repo" "$workspace_dir/repository"
+if [ -d "$repository_dir/.git" ]; then
+  git -C "$repository_dir" pull --ff-only
+  exit 0
+fi
+
+if [ -e "$repository_dir" ] && [ -n "$(ls -A "$repository_dir" 2>/dev/null)" ]; then
+  echo "repository directory already exists and is not a git checkout: $repository_dir" >&2
+  exit 1
+fi
+
+git clone "$target_repo" "$repository_dir"
 `;
 }
 

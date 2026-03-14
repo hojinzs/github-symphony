@@ -3,12 +3,10 @@ import { dirname, join, resolve } from "node:path";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
 import { fetchTenantOrchestratorStatus } from "./orchestrator-status-client";
 import { type RuntimeDriver, resolveRuntimeDriver } from "./runtime-config";
-import {
-  buildWorkspaceAgentCredentialBrokerUrl
-} from "./runtime-agent-credentials";
+import { buildWorkspaceAgentCredentialBrokerUrl } from "./runtime-agent-credentials";
 import {
   buildWorkspaceRuntimeTokenBrokerUrl,
-  deriveWorkspaceRuntimeAuthSecret
+  deriveWorkspaceRuntimeAuthSecret,
 } from "./runtime-github-credentials";
 
 const DEFAULT_RUNTIME_ROOT = ".runtime/workspaces";
@@ -113,11 +111,12 @@ export async function provisionWorkspaceRuntime(
     ...options.runtimeAuthEnv,
     ...(options.controlPlaneRuntimeUrl
       ? {
-          CONTROL_PLANE_RUNTIME_URL: options.controlPlaneRuntimeUrl
+          CONTROL_PLANE_RUNTIME_URL: options.controlPlaneRuntimeUrl,
         }
-      : {})
+      : {}),
   };
-  const runtimeDriver = options.runtimeDriver ?? resolveRuntimeDriver(runtimeEnvironment);
+  const runtimeDriver =
+    options.runtimeDriver ?? resolveRuntimeDriver(runtimeEnvironment);
   const runtimeTokenBrokerUrl = buildWorkspaceRuntimeTokenBrokerUrl(
     input.workspaceId,
     runtimeEnvironment
@@ -140,28 +139,25 @@ export async function provisionWorkspaceRuntime(
     runtimeTokenBrokerSecret,
     agentCredentialBrokerUrl
   );
-  await writeOrchestratorWorkspaceConfig(
-    resolve(runtimeRoot, ".."),
-    {
-      workspaceId: input.workspaceId,
-      slug: input.slug,
-      promptGuidelines: input.promptGuidelines,
-      repositories: input.repositories,
-      tracker: {
-        adapter: "github-project",
-        bindingId: input.githubProjectId,
-        settings: {
-          projectId: input.githubProjectId
-        }
+  await writeOrchestratorWorkspaceConfig(resolve(runtimeRoot, ".."), {
+    workspaceId: input.workspaceId,
+    slug: input.slug,
+    promptGuidelines: input.promptGuidelines,
+    repositories: input.repositories,
+    tracker: {
+      adapter: "github-project",
+      bindingId: input.githubProjectId,
+      settings: {
+        projectId: input.githubProjectId,
       },
-      runtime: {
-        driver: "local",
-        workspaceRuntimeDir,
-        projectRoot: options.projectRoot ?? process.cwd(),
-        workerCommand: options.workerCommand
-      }
-    }
-  );
+    },
+    runtime: {
+      driver: "local",
+      workspaceRuntimeDir,
+      projectRoot: options.projectRoot ?? process.cwd(),
+      workerCommand: options.workerCommand,
+    },
+  });
 
   const runtimeId = `workspace-${input.workspaceId}`;
   const runtimeName = `orchestrator-${input.slug}`;
@@ -173,12 +169,12 @@ export async function provisionWorkspaceRuntime(
     port: 0,
     workflowPath,
     workspaceRuntimeDir,
-    processId: null
+    processId: null,
   } satisfies ProvisionedWorkspaceRuntime;
 
   await options.db.symphonyInstance.upsert({
     where: {
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
     },
     update: {
       runtimeDriver: runtime.runtimeDriver,
@@ -189,7 +185,7 @@ export async function provisionWorkspaceRuntime(
       workflowPath: runtime.workflowPath,
       runtimePath: runtime.workspaceRuntimeDir,
       processId: runtime.processId,
-      status: "stopped"
+      status: "stopped",
     },
     create: {
       workspaceId: input.workspaceId,
@@ -201,8 +197,8 @@ export async function provisionWorkspaceRuntime(
       workflowPath: runtime.workflowPath,
       runtimePath: runtime.workspaceRuntimeDir,
       processId: runtime.processId,
-      status: "stopped"
-    }
+      status: "stopped",
+    },
   });
 
   return runtime;
@@ -255,7 +251,7 @@ export async function syncWorkspaceRuntimeStatus(
   }
 ): Promise<"running" | "stopped" | "failed"> {
   const status = await fetchTenantOrchestratorStatus(input.workspaceId, {
-    fetchImpl: options.fetchImpl
+    fetchImpl: options.fetchImpl,
   });
   const nextStatus =
     status?.health === "running"
@@ -266,7 +262,7 @@ export async function syncWorkspaceRuntimeStatus(
 
   await options.db.symphonyInstance.update({
     where: {
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
     },
     data: {
       status: nextStatus,
@@ -274,8 +270,8 @@ export async function syncWorkspaceRuntimeStatus(
         nextStatus === "failed"
           ? "Orchestrator reported a degraded workspace status."
           : null,
-      lastHeartbeat: nextStatus === "running" ? new Date() : undefined
-    }
+      lastHeartbeat: nextStatus === "running" ? new Date() : undefined,
+    },
   });
 
   return nextStatus;
@@ -290,12 +286,12 @@ export async function teardownWorkspaceRuntime(
 ): Promise<void> {
   await options.db.symphonyInstance.update({
     where: {
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
     },
     data: {
       status: "stopped",
-      degradedReason: null
-    }
+      degradedReason: null,
+    },
   });
 }
 
@@ -308,12 +304,12 @@ export async function reconcileProvisioningFailure(
 ): Promise<void> {
   await options.db.symphonyInstance.update({
     where: {
-      workspaceId: input.workspaceId
+      workspaceId: input.workspaceId,
     },
     data: {
       status: "failed",
-      degradedReason: "Workspace orchestration metadata failed to initialize."
-    }
+      degradedReason: "Workspace orchestration metadata failed to initialize.",
+    },
   });
 }
 
@@ -341,7 +337,7 @@ async function writeWorkspaceRuntimeArtifacts(
   const hookPath = join(hooksDir, "after_create.sh");
 
   await mkdir(hooksDir, {
-    recursive: true
+    recursive: true,
   });
 
   await writeFile(
@@ -357,7 +353,7 @@ async function writeWorkspaceRuntimeArtifacts(
       `SYMPHONY_RUNTIME_DRIVER=${runtimeDriver}`,
       `WORKSPACE_ALLOWED_REPOSITORIES=${input.repositories
         .map((repository) => repository.cloneUrl)
-        .join(",")}`
+        .join(",")}`,
     ].join("\n"),
     "utf8"
   );
@@ -368,12 +364,23 @@ set -euo pipefail
 
 workspace_dir="\${WORKSPACE_DIR:?WORKSPACE_DIR is required}"
 target_repo="\${TARGET_REPOSITORY_CLONE_URL:?TARGET_REPOSITORY_CLONE_URL is required}"
+repository_dir="$workspace_dir/repository"
 
 mkdir -p "$workspace_dir"
-git clone "$target_repo" "$workspace_dir/repository"
+if [ -d "$repository_dir/.git" ]; then
+  git -C "$repository_dir" pull --ff-only
+  exit 0
+fi
+
+if [ -e "$repository_dir" ] && [ -n "$(ls -A "$repository_dir" 2>/dev/null)" ]; then
+  echo "repository directory already exists and is not a git checkout: $repository_dir" >&2
+  exit 1
+fi
+
+git clone "$target_repo" "$repository_dir"
 `,
     {
-      mode: 0o755
+      mode: 0o755,
     }
   );
 }
@@ -407,9 +414,15 @@ async function writeOrchestratorWorkspaceConfig(
     };
   }
 ) {
-  const path = join(runtimeRoot, "orchestrator", "workspaces", config.workspaceId, "config.json");
+  const path = join(
+    runtimeRoot,
+    "orchestrator",
+    "workspaces",
+    config.workspaceId,
+    "config.json"
+  );
   await mkdir(dirname(path), {
-    recursive: true
+    recursive: true,
   });
   await writeFile(path, JSON.stringify(config, null, 2) + "\n", "utf8");
 }

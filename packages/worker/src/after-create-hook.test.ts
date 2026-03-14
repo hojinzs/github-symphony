@@ -44,6 +44,7 @@ describe("buildAfterCreateHookScript", () => {
     const script = buildAfterCreateHookScript();
 
     expect(script).toContain("git clone");
+    expect(script).toContain('git -C "$repository_dir" pull --ff-only');
   });
 });
 
@@ -67,6 +68,68 @@ describe("prepareAfterCreateHook", () => {
       targetRepositoryCloneUrl: bareRepository,
     });
 
+    await execFileAsync("bash", [hook.scriptPath], {
+      env: {
+        ...process.env,
+        ...hook.env,
+      },
+    });
+
+    expect(
+      existsSync(join(hook.workspaceDirectory, "repository", ".git"))
+    ).toBe(true);
+  });
+
+  it("reuses an existing repository checkout on rerun", async () => {
+    const root = mkdtempSync(join(tmpdir(), "github-symphony-hook-reuse-"));
+    const sourceRepository = join(root, "platform");
+    const hooksRoot = join(root, "hooks");
+    const workspaceRoot = join(root, "workspaces");
+    tempPaths.push(root);
+
+    await mkdir(workspaceRoot, {
+      recursive: true,
+    });
+
+    await execFileAsync("git", ["init", sourceRepository]);
+    await execFileAsync("git", [
+      "-C",
+      sourceRepository,
+      "config",
+      "user.email",
+      "tester@example.com",
+    ]);
+    await execFileAsync("git", [
+      "-C",
+      sourceRepository,
+      "config",
+      "user.name",
+      "tester",
+    ]);
+    await execFileAsync("bash", ["-lc", "printf 'seed\\n' > README.md"], {
+      cwd: sourceRepository,
+    });
+    await execFileAsync("git", ["-C", sourceRepository, "add", "README.md"]);
+    await execFileAsync("git", [
+      "-C",
+      sourceRepository,
+      "commit",
+      "-m",
+      "init",
+    ]);
+
+    const hook = await prepareAfterCreateHook(hooksRoot, {
+      workspaceId: "workspace-1",
+      workspaceRoot,
+      targetRepositoryCloneUrl: sourceRepository,
+    });
+
+    await execFileAsync("bash", [hook.scriptPath], {
+      env: {
+        ...process.env,
+        ...hook.env,
+      },
+    });
     await execFileAsync("bash", [hook.scriptPath], {
       env: {
         ...process.env,
