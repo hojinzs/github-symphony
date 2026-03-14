@@ -1,0 +1,1 @@
+config-cmd.ts: No TypeScript errors

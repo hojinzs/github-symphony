@@ -1,0 +1,182 @@
+gh-cli-auth-migration — Final QA Evidence
+Generated: 2026-03-13
+Reviewer: F3 Real Manual QA
+
+═══════════════════════════════════════════════════════════════
+TASK 1 SCENARIOS — packages/cli/src/github/gh-auth.ts
+═══════════════════════════════════════════════════════════════
+
+[PASS] checkGhInstalled returns false when ENOENT
+  → Line 37: if (execError.code === "ENOENT") { return false; }
+  → Test: gh-auth.test.ts line 49-57 confirms behavior
+
+[PASS] ensureGhAuth returns { login, token } on success
+  → Lines 126-161: calls checkGhInstalled → checkGhAuthenticated → checkGhScopes → getGhToken
+  → Returns { login: auth.login ?? "unknown", token }
+  → Test: gh-auth.test.ts line 117-149 confirms { login: "testuser", token: "ghp_test123" }
+
+[PASS] getGhToken returns GITHUB_GRAPHQL_TOKEN without calling gh CLI
+  → Lines 92-94: if (process.env.GITHUB_GRAPHQL_TOKEN) { return process.env.GITHUB_GRAPHQL_TOKEN; }
+  → Test: gh-auth.test.ts line 107-113: execImpl not called, returns "env-token"
+
+[PASS] checkGhScopes returns { valid: false, missing: ["project"] } when project scope missing
+  → Lines 81-85: filters REQUIRED_SCOPES (["repo", "read:org", "project"]) against token scopes
+  → Test: gh-auth.test.ts line 90-103: input "repo", "read:org" → missing: ["project"]
+
+═══════════════════════════════════════════════════════════════
+TASK 3 SCENARIOS — packages/tracker-github/src/orchestrator-adapter.ts
+═══════════════════════════════════════════════════════════════
+
+[PASS] orchestrator-adapter.ts uses process.env.GITHUB_GRAPHQL_TOKEN as fallback
+  → Line 9: const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
+
+[PASS] Error message says "GITHUB_GRAPHQL_TOKEN environment variable is required"
+  → Lines 12-14: throw new Error("GITHUB_GRAPHQL_TOKEN environment variable is required. Run 'gh auth token' or set the variable.")
+
+═══════════════════════════════════════════════════════════════
+TASK 5 SCENARIOS — packages/cli/src/commands/tenant.ts (interactive)
+═══════════════════════════════════════════════════════════════
+
+[PASS] tenantAddInteractive() has no p.password() call
+  → Full file reviewed (533 lines): zero occurrences of p.password()
+  → Grep result: no --token, Token:, maskToken matches in commands dir
+
+[PASS] ensureGhAuth() is called in tenantAddInteractive()
+  → Line 246: const { login: ghLogin, token } = ensureGhAuth();
+
+═══════════════════════════════════════════════════════════════
+TASK 6 SCENARIOS — packages/cli/src/commands/tenant.ts (non-interactive)
+═══════════════════════════════════════════════════════════════
+
+[PASS] tenantAddNonInteractive() has no --token flag parsing
+  → parseTenantAddFlags (lines 37-59): only parses --non-interactive, --project, --runtime
+  → No --token case in switch statement
+
+[PASS] getGhToken() is called in tenantAddNonInteractive()
+  → Line 110: token = getGhToken();
+
+═══════════════════════════════════════════════════════════════
+TASK 7 SCENARIOS — packages/cli/src/commands/init.ts
+═══════════════════════════════════════════════════════════════
+
+[PASS] runInteractiveStandalone() has no p.password() call
+  → Lines 597-775: uses ensureGhAuth() at line 606; zero p.password() calls anywhere in file
+
+[PASS] runNonInteractive() has no flags.token reference
+  → InitFlags type (lines 64-70): nonInteractive, project, output, skipSkills, skipContext — no token
+  → parseInitFlags (lines 72-104): no --token case
+  → runNonInteractive calls getGhToken() at line 345
+
+[PASS] runInteractiveFromTenant() has no globalConfig.token reference
+  → Lines 483-593: reads globalConfig.tenants, globalConfig.activeTenant — no .token property
+  → Token obtained via getGhToken() at line 561
+
+═══════════════════════════════════════════════════════════════
+TASK 8 SCENARIOS — packages/cli/src/commands/config-cmd.ts
+═══════════════════════════════════════════════════════════════
+
+[PASS] configShow() has no Token: output line
+  → Lines 36-54: outputs "Config:", "Active tenant:", "Tenants:" — no "Token:" line
+
+[PASS] configSet() rejects token key with "Unknown config key: token"
+  → VALID_KEYS (lines 58-60): only "active-tenant" is valid
+  → Line 75-80: if (!keyDef) { process.stderr.write(`Unknown config key: ${key}\n...`) }
+  → Passing "token" as key → keyDef is undefined → "Unknown config key: token"
+
+[PASS] maskToken function does not exist
+  → Full config-cmd.ts reviewed (126 lines): no maskToken function
+  → Grep result: no maskToken anywhere in commands dir
+
+═══════════════════════════════════════════════════════════════
+TASK 9 SCENARIOS — packages/orchestrator/src/service.ts
+                    packages/cli/src/commands/start.ts
+═══════════════════════════════════════════════════════════════
+
+[PASS] service.ts worker spawn env has GITHUB_GRAPHQL_TOKEN explicitly
+  → Line 525: GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
+  → This is inside the spawn() env object (lines 522-555)
+
+[PASS] start.ts calls getGhToken() at startup
+  → Lines 204-211:
+    if (!process.env.GITHUB_GRAPHQL_TOKEN) {
+      try {
+        process.env.GITHUB_GRAPHQL_TOKEN = getGhToken();
+      } catch { ... }
+    }
+
+═══════════════════════════════════════════════════════════════
+TASK 10 SCENARIOS — packages/cli/src/commands/help.ts + README.md
+═══════════════════════════════════════════════════════════════
+
+[PASS] help.ts has no --token string
+  → Lines 1-62 reviewed: HELP_TEXT contains no "--token" entry
+  → Grep result: no --token in commands dir
+
+[PASS] README.md has gh auth login command
+  → Line 72: gh auth login --scopes repo,read:org,project
+
+[PASS] README.md has GITHUB_GRAPHQL_TOKEN documentation
+  → Line 84: export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+  → Line 87: The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
+
+═══════════════════════════════════════════════════════════════
+INTEGRATION FLOW VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+Flow: start.ts → getGhToken() → process.env.GITHUB_GRAPHQL_TOKEN → service.ts worker env → orchestrator-adapter.ts
+
+Step 1: start.ts (lines 204-211)
+  → if (!process.env.GITHUB_GRAPHQL_TOKEN) { process.env.GITHUB_GRAPHQL_TOKEN = getGhToken(); }
+  → getGhToken() checks env first, then falls back to `gh auth token` CLI
+
+Step 2: service.ts worker spawn (line 525)
+  → GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? ""
+  → Token from process.env is passed explicitly to worker subprocess env
+
+Step 3: orchestrator-adapter.ts (line 9)
+  → const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
+  → Worker reads GITHUB_GRAPHQL_TOKEN from its env (inherited from service.ts spawn)
+
+[PASS] Integration flow is complete and correct
+
+═══════════════════════════════════════════════════════════════
+EDGE CASES VERIFICATION
+═══════════════════════════════════════════════════════════════
+
+[PASS] gh CLI not installed:
+  → checkGhInstalled (gh-auth.ts line 37): ENOENT → returns false
+  → ensureGhAuth (line 136-141): !checkGhInstalled → throws GhAuthError code "not_installed"
+  → Test confirms: gh-auth.test.ts line 151-167
+
+[PASS] gh CLI not authenticated:
+  → checkGhAuthenticated (gh-auth.ts lines 54-56): status !== 0 → returns { authenticated: false }
+  → ensureGhAuth (lines 143-149): !auth.authenticated → throws GhAuthError code "not_authenticated"
+  → Test confirms: gh-auth.test.ts line 170-188
+
+[PASS] Wrong/missing scopes:
+  → checkGhScopes (gh-auth.ts lines 81-88): filters against REQUIRED_SCOPES, returns { valid: false, missing: [...] }
+  → ensureGhAuth (lines 151-157): !scopeCheck.valid → throws GhAuthError code "missing_scopes"
+  → Test confirms: gh-auth.test.ts line 191-219 (missing: project, error message verified)
+
+[PASS] GITHUB_GRAPHQL_TOKEN set:
+  → getGhToken (gh-auth.ts lines 92-94): env check is first, returns immediately
+  → Test confirms: gh-auth.test.ts line 107-113: execImpl never called
+
+═══════════════════════════════════════════════════════════════
+TEST RUN RESULTS
+═══════════════════════════════════════════════════════════════
+
+Command: pnpm --filter @gh-symphony/cli test
+Result:  16 test files passed, 147 tests passed (0 failed)
+  ✓ src/github/gh-auth.test.ts (9 tests) — covers all Task 1 scenarios
+
+═══════════════════════════════════════════════════════════════
+SUMMARY
+═══════════════════════════════════════════════════════════════
+
+Scenarios:   [22/22 pass]
+Integration: [3/3 pass] (start → getGhToken → env → service spawn → adapter)
+Edge Cases:  [4 tested] (not_installed, not_authenticated, missing_scopes, env_token_priority)
+Test Suite:  147/147 pass
+
+VERDICT: APPROVE

@@ -1,0 +1,7 @@
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/init.ts:87:        flags.token = next;
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/init.ts:347:  if (!flags.token) {
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/init.ts:355:  const client = createClient(flags.token);
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/tenant.ts:49:        flags.token = next;
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/tenant.ts:113:  if (!flags.token) {
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli/src/commands/tenant.ts:121:  const client = createClient(flags.token);
+exit code: 0

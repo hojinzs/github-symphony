@@ -122,3 +122,61 @@
 - GITHUB_GRAPHQL_TOKEN documented as CI/CD fallback
 - Fixed lint error in init.ts (empty catch block) while verifying documentation changes
 - Commit: docs: update auth documentation for gh CLI migration
+
+## Task 11: Full Verification Suite
+
+### Key Findings
+1. **Lint**: Fixed one unused eslint-disable directive in ansi.ts
+   - The `// eslint-disable-next-line no-control-regex` comment was unnecessary
+   - The regex pattern doesn't trigger the rule it was disabling
+
+2. **Test Results**:
+   - All CLI tests pass (147 tests including gh-auth.test.ts with 9 tests)
+   - Control-plane test failures are pre-existing (Docker/runtime integration issues)
+   - Verified by testing on HEAD~1 commit
+
+3. **Typecheck Results**:
+   - All CLI packages typecheck successfully
+   - Control-plane typecheck errors are pre-existing (missing exports, module resolution)
+   - Verified by testing on HEAD~1 commit
+
+4. **Build Results**:
+   - All CLI packages build successfully
+   - Control-plane build fails with pre-existing TypeScript errors
+   - Verified by testing on HEAD~1 commit
+
+### Verification Scope
+The gh-cli-auth-migration project includes:
+- packages/cli (primary)
+- packages/core (dependency)
+- packages/orchestrator (dependency)
+- packages/worker (dependency)
+- packages/shared (dependency)
+- packages/tracker-github (dependency)
+- packages/runtime-codex (dependency)
+- packages/extension-github-workflow (dependency)
+
+All of these pass lint, test, typecheck, and build.
+
+### Control-Plane Status
+The control-plane app has pre-existing failures unrelated to gh-cli-auth-migration:
+- Missing export in orchestrator-status-client
+- Missing module '../../../packages/worker/src/runtime'
+- Type mismatch in workspace-orchestrator
+- Docker/runtime integration test failures
+
+These are separate concerns and should be addressed in a separate task.
+
+### Commit
+- ba6e149: fix: remove unused eslint-disable directive in ansi.ts
+
+
+## F4 Scope Fidelity Audit (2026-03-13)
+
+- Checked commit range `b5f7274..HEAD`; all listed migration commits are present and accounted for.
+- `apps/control-plane/` has no commits in range (`git log --oneline b5f7274..HEAD -- apps/control-plane/` returned empty).
+- No `gh auth setup-git` occurrences in repository.
+- No `execSync(` call changes in migration commits (`git log -G"\bexecSync\s*\(" b5f7274..HEAD -- packages README.md` returned empty).
+- `OrchestratorTrackerAdapter` contract file unchanged: `packages/core/src/contracts/tracker-adapter.ts`.
+- Token broker env var patterns (`GITHUB_TOKEN_BROKER_URL/SECRET`) unchanged in range.
+- Cross-task note: `b2e5f37` briefly touched `init.ts` for lint cleanup; this was corrected by `b41c4e8`, leaving expected net behavior.

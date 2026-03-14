@@ -1,0 +1,19 @@
+
+> @gh-symphony/cli@0.0.1 typecheck /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli
+> tsc -p tsconfig.json --noEmit
+
+src/commands/config-cmd.ts(47,19): error TS2339: Property 'token' does not exist on type 'CliGlobalConfig'.
+src/commands/config-cmd.ts(47,44): error TS2339: Property 'token' does not exist on type 'CliGlobalConfig'.
+src/commands/config-cmd.ts(102,7): error TS2353: Object literal may only specify known properties, and 'token' does not exist in type 'CliGlobalConfig'.
+src/commands/config-cmd.ts(108,36): error TS2345: Argument of type 'string' is not assignable to parameter of type 'never'.
+src/commands/config-cmd.ts(118,14): error TS2339: Property 'token' does not exist on type 'CliGlobalConfig | { activeTenant: null; token: null; tenants: never[]; }'.
+  Property 'token' does not exist on type 'CliGlobalConfig'.
+src/commands/init.ts(559,30): error TS2339: Property 'token' does not exist on type 'CliGlobalConfig'.
+src/commands/init.ts(887,22): error TS2339: Property 'token' does not exist on type 'WriteConfigInput'.
+src/commands/init.ts(906,5): error TS2353: Object literal may only specify known properties, and 'token' does not exist in type 'CliGlobalConfig'.
+src/commands/init.ts(906,18): error TS2339: Property 'token' does not exist on type 'WriteConfigInput'.
+src/commands/tenant.ts(200,5): error TS2353: Object literal may only specify known properties, and 'token' does not exist in type 'WriteConfigInput'.
+src/commands/tenant.ts(454,7): error TS2353: Object literal may only specify known properties, and 'token' does not exist in type 'WriteConfigInput'.
+/home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @gh-symphony/cli@0.0.1 typecheck: `tsc -p tsconfig.json --noEmit`
+Exit status 2

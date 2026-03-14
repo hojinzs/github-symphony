@@ -1,0 +1,33 @@
+
+> @gh-symphony/cli@0.0.1 test /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli
+> vitest run --passWithNoTests
+
+
+ RUN  v3.2.4 /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli
+
+Dispatching issue: beta/api#42
+Orchestrator started in background (PID: 4321).
+Logs: /tmp/cli-lifecycle-ZeXw0a/logs/orchestrator.log
+Stop with: gh-symphony stop
+ ✓ src/commands/lifecycle.test.ts (3 tests) 20ms
+ ✓ src/workflow/generate-workflow-md.test.ts (15 tests) 7ms
+ ✓ src/commands/init.test.ts (13 tests) 32ms
+ ✓ src/skills/skill-writer.test.ts (12 tests) 23ms
+ ✓ src/detection/environment-detector.test.ts (19 tests) 69ms
+ ✓ src/dashboard/renderer.test.ts (6 tests) 13ms
+ ✓ src/context/generate-context-yaml.test.ts (6 tests) 9ms
+ ✓ src/github/gh-auth.test.ts (9 tests) 7ms
+ ✓ src/mapping/smart-defaults.test.ts (14 tests) 7ms
+ ✓ src/skills/templates/gh-symphony.test.ts (8 tests) 3ms
+ ✓ src/workflow/generate-reference-workflow.test.ts (18 tests) 5ms
+ ✓ src/skills/templates/pull.test.ts (4 tests) 3ms
+ ✓ src/skills/templates/commit.test.ts (4 tests) 2ms
+ ✓ src/skills/templates/gh-project.test.ts (7 tests) 3ms
+ ✓ src/skills/templates/land.test.ts (5 tests) 2ms
+ ✓ src/skills/templates/push.test.ts (4 tests) 2ms
+
+ Test Files  16 passed (16)
+      Tests  147 passed (147)
+   Start at  12:33:51
+   Duration  1.26s (transform 336ms, setup 0ms, collect 650ms, tests 208ms, environment 2ms, prepare 860ms)
+

@@ -1,0 +1,15 @@
+=== Task 9: Orchestrator Token Injection Evidence ===
+
+1. service.ts - GITHUB_GRAPHQL_TOKEN explicit injection:
+525:          GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
+
+2. start.ts - getGhToken import and call:
+18:import { getGhToken } from "../github/gh-auth.js";
+206:      process.env.GITHUB_GRAPHQL_TOKEN = getGhToken();
+
+3. CLI typecheck result:
+
+> @gh-symphony/cli@0.0.1 typecheck /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli
+> tsc -p tsconfig.json --noEmit
+
+✓ Typecheck passed (no errors)

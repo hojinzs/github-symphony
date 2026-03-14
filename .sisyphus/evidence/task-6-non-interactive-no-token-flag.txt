@@ -1,0 +1,1 @@
+✓ No flags.token or --token references found in tenant.ts

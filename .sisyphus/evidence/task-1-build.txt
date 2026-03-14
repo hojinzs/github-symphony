@@ -1,0 +1,4 @@
+
+> @gh-symphony/cli@0.0.1 build /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/cli
+> tsc -p tsconfig.json
+

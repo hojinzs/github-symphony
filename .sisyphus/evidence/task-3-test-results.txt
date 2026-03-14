@@ -1,0 +1,14 @@
+
+> @gh-symphony/tracker-github@0.0.1 test /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/tracker-github
+> vitest run --passWithNoTests
+
+
+ RUN  v3.2.4 /home/ubuntu/.local/share/opencode/worktree/a95c26c782b7d0c6d9e3f4fc14d65f7b5bdcb9ea/witty-island/packages/tracker-github
+
+ ✓ src/tracker-github.test.ts (10 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  12:44:19
+   Duration  254ms (transform 62ms, setup 0ms, collect 83ms, tests 6ms, environment 0ms, prepare 49ms)
+
