@@ -67,7 +67,7 @@ describe("resolveTrackerAdapter", () => {
         {
           tenantId: "workspace-1",
           slug: "workspace-1",
-
+          workspaceDir: "/tmp/workspace-1",
           repositories: [],
           tracker: {
             adapter: "github-project",
@@ -75,11 +75,6 @@ describe("resolveTrackerAdapter", () => {
             settings: {
               projectId: "project-123",
             },
-          },
-          runtime: {
-            driver: "local",
-            workspaceRuntimeDir: "/tmp/workspace-1",
-            projectRoot: "/tmp/workspace-1",
           },
         },
         {
@@ -119,6 +114,7 @@ describe("resolveTrackerAdapter", () => {
         {
           tenantId: "workspace-1",
           slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
           repositories: [],
           tracker: {
             adapter: "github-project",
@@ -127,11 +123,6 @@ describe("resolveTrackerAdapter", () => {
               projectId: "project-123",
               assignedOnly: true,
             },
-          },
-          runtime: {
-            driver: "local",
-            workspaceRuntimeDir: "/tmp/workspace-1",
-            projectRoot: "/tmp/workspace-1",
           },
         },
         {
@@ -212,6 +203,7 @@ describe("resolveTrackerAdapter", () => {
       {
         tenantId: "workspace-1",
         slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
         repositories: [],
         tracker: {
           adapter: "github-project",
@@ -221,11 +213,6 @@ describe("resolveTrackerAdapter", () => {
             projectId: "project-123",
             assignedOnly: true,
           },
-        },
-        runtime: {
-          driver: "local",
-          workspaceRuntimeDir: "/tmp/workspace-1",
-          projectRoot: "/tmp/workspace-1",
         },
       },
       {

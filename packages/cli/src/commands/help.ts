@@ -43,7 +43,7 @@ Global Options:
 
 Examples:
   gh-symphony tenant add              # Add a tenant (interactive)
-  gh-symphony tenant add --non-interactive --project <id>
+  gh-symphony tenant add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony tenant list             # List all tenants
   gh-symphony tenant remove <id>      # Remove a tenant
   gh-symphony start                   # Start orchestrator

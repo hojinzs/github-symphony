@@ -2,17 +2,15 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
-import type { CliTenantConfig, WorkflowStateConfig } from "../config.js";
+import type { CliTenantConfig } from "../config.js";
 import { generateTenantId, writeConfig, writeEcosystem } from "./init.js";
 
 describe("init command config output", () => {
-  it("writes workflow and orchestrator overrides for the runtime", async () => {
+  it("writes the simplified tenant config", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-"));
 
     await writeConfig(configDir, {
       tenantId: "tenant-alpha",
-      token: "token-123",
       project: {
         id: "project-123",
         title: "Platform",
@@ -29,24 +27,7 @@ describe("init command config output", () => {
           cloneUrl: "https://github.com/acme/platform.git",
         },
       ],
-      statusField: {
-        id: "PVTSSF_stage1",
-        name: "Stage",
-        options: [
-          { id: "opt_q", name: "Queued" },
-          { id: "opt_d", name: "Doing" },
-          { id: "opt_dn", name: "Done" },
-        ],
-      },
-      mappings: {
-        Queued: { role: "active", goal: "Triage and plan the issue" },
-        Doing: { role: "active", goal: "Implement the solution" },
-        Done: { role: "terminal" },
-      },
-      runtime: "codex",
-      pollIntervalMs: 15_000,
-      concurrency: 1,
-      maxAttempts: 2,
+      workspaceDir: join(configDir, "workspaces"),
     });
 
     const tenant = JSON.parse(
@@ -55,21 +36,17 @@ describe("init command config output", () => {
         "utf8"
       )
     ) as CliTenantConfig;
-    expect(tenant.workflowMapping?.lifecycle).toMatchObject({
-      stateFieldName: "Stage",
-      activeStates: ["Queued", "Doing"],
-      terminalStates: ["Done"],
-    });
-
-    const mapping = JSON.parse(
-      await readFile(
+    expect(tenant.workspaceDir).toBe(join(configDir, "workspaces"));
+    expect(tenant).not.toHaveProperty("runtime");
+    await expect(
+      readFile(
         join(configDir, "tenants", "tenant-alpha", "workflow-mapping.json"),
         "utf8"
       )
-    ) as WorkflowStateConfig;
-    expect(mapping.lifecycle.stateFieldName).toBe("Stage");
-    expect(mapping.lifecycle.activeStates).toContain("Queued");
-    expect(mapping.lifecycle.terminalStates).toContain("Done");
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(configDir, "tenants", "tenant-alpha", "WORKFLOW.md"), "utf8")
+    ).rejects.toThrow();
   });
 
   it("writes assignedOnly into tenant tracker settings when enabled", async () => {
@@ -77,7 +54,6 @@ describe("init command config output", () => {
 
     await writeConfig(configDir, {
       tenantId: "tenant-assigned",
-      token: "token-123",
       project: {
         id: "project-123",
         title: "Platform",
@@ -94,21 +70,7 @@ describe("init command config output", () => {
           cloneUrl: "https://github.com/acme/platform.git",
         },
       ],
-      statusField: {
-        id: "PVTSSF_stage1",
-        name: "Stage",
-        options: [
-          { id: "opt_q", name: "Queued" },
-          { id: "opt_d", name: "Doing" },
-          { id: "opt_dn", name: "Done" },
-        ],
-      },
-      mappings: {
-        Queued: { role: "active" },
-        Doing: { role: "active" },
-        Done: { role: "terminal" },
-      },
-      runtime: "codex",
+      workspaceDir: join(configDir, "workspaces"),
       assignedOnly: true,
     });
 
@@ -121,105 +83,6 @@ describe("init command config output", () => {
 
     expect(tenant.tracker.settings?.assignedOnly).toBe(true);
     expect(tenant.tracker.settings?.projectId).toBe("project-123");
-  });
-
-  it("generates a parseable WORKFLOW.md alongside tenant config", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-wf-"));
-
-    await writeConfig(configDir, {
-      tenantId: "tenant-wf",
-      token: "token-456",
-      project: {
-        id: "project-456",
-        title: "Platform",
-        url: "https://github.com/orgs/acme/projects/2",
-        statusFields: [],
-        textFields: [],
-        linkedRepositories: [],
-      },
-      repos: [
-        {
-          owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-      ],
-      statusField: {
-        id: "PVTSSF_status1",
-        name: "Status",
-        options: [
-          { id: "opt_todo", name: "Todo" },
-          { id: "opt_ip", name: "In Progress" },
-          { id: "opt_done", name: "Done" },
-        ],
-      },
-      mappings: {
-        Todo: { role: "active" },
-        "In Progress": { role: "active" },
-        Done: { role: "terminal" },
-      },
-      runtime: "codex",
-    });
-
-    const workflowMd = await readFile(
-      join(configDir, "tenants", "tenant-wf", "WORKFLOW.md"),
-      "utf8"
-    );
-    const parsed = parseWorkflowMarkdown(workflowMd, {});
-
-    expect(parsed.format).toBe("front-matter");
-    expect(parsed.lifecycle.activeStates).toContain("Todo");
-    expect(parsed.lifecycle.activeStates).toContain("In Progress");
-    expect(parsed.lifecycle.terminalStates).toContain("Done");
-    expect(parsed.githubProjectId).toBe("project-456");
-  });
-
-  it("writes the custom agent command into WORKFLOW.md", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-custom-"));
-
-    await writeConfig(configDir, {
-      tenantId: "tenant-custom",
-      token: "token-789",
-      project: {
-        id: "project-789",
-        title: "Platform",
-        url: "https://github.com/orgs/acme/projects/3",
-        statusFields: [],
-        textFields: [],
-        linkedRepositories: [],
-      },
-      repos: [
-        {
-          owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-      ],
-      statusField: {
-        id: "PVTSSF_status2",
-        name: "Status",
-        options: [
-          { id: "opt_todo", name: "Todo" },
-          { id: "opt_done", name: "Done" },
-        ],
-      },
-      mappings: {
-        Todo: { role: "active" },
-        Done: { role: "terminal" },
-      },
-      runtime: "custom",
-      agentCommand: "bash -lc my-agent",
-    });
-
-    const workflowMd = await readFile(
-      join(configDir, "tenants", "tenant-custom", "WORKFLOW.md"),
-      "utf8"
-    );
-    const parsed = parseWorkflowMarkdown(workflowMd, {});
-
-    expect(parsed.agentCommand).toBe("bash -lc my-agent");
   });
 
   it("derives unique tenant IDs from the project identity, not only the title", () => {

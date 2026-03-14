@@ -14,6 +14,7 @@ function mockTenant(
   return {
     tenantId: "tenant-123",
     slug: "test-tenant",
+    workspaceDir: "/tmp/runtime",
     repositories: [
       {
         owner: "acme",
@@ -24,11 +25,6 @@ function mockTenant(
     tracker: {
       adapter: "github",
       bindingId: "binding-456",
-    },
-    runtime: {
-      driver: "local",
-      workspaceRuntimeDir: "/tmp/runtime",
-      projectRoot: "/tmp/project",
     },
     ...overrides,
   };
