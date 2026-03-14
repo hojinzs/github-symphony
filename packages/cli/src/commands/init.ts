@@ -11,16 +11,15 @@ import {
   checkRequiredScopes,
   listUserProjects,
   getProjectDetail,
+  GitHubScopeError,
   type GitHubClient,
   type ProjectSummary,
   type ProjectDetail,
   type ProjectStatusField,
-  type ProjectTextField,
   type LinkedRepository,
 } from "../github/client.js";
 import {
   inferAllStateRoles,
-  inferBlockedByFieldName,
   toWorkflowLifecycleConfig,
   validateStateMapping,
 } from "../mapping/smart-defaults.js";
@@ -45,6 +44,30 @@ import {
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
 import { resolveSkillsDir, writeAllSkills } from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
+
+// ── Scope error display ───────────────────────────────────────────────────────
+
+const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
+
+function displayScopeError(
+  error: GitHubScopeError,
+  retryCommand: string
+): void {
+  const plural = error.requiredScopes.length === 1 ? "" : "s";
+  p.log.error(
+    `Token is missing required scope${plural}: ${error.requiredScopes.join(", ")}`
+  );
+  const currentSet = new Set(error.currentScopes.map((s) => s.toLowerCase()));
+  const scopesToAdd = KNOWN_REQUIRED_SCOPES.filter((s) => !currentSet.has(s));
+  const scopeArg =
+    scopesToAdd.length > 0
+      ? scopesToAdd.join(",")
+      : error.requiredScopes.join(",");
+  p.note(
+    `gh auth refresh --scopes ${scopeArg}\n\nThen re-run: ${retryCommand}`,
+    "Fix missing scope"
+  );
+}
 
 // ── Cancellation utility ─────────────────────────────────────────────────────
 
@@ -425,9 +448,6 @@ async function runNonInteractive(
   }
 
   const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
-  const textFieldNames = project.textFields.map((f) => f.name);
-  const blockedByFieldName =
-    inferBlockedByFieldName(textFieldNames) ?? undefined;
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
 
   const workflowMd = generateWorkflowMarkdown({
@@ -436,7 +456,6 @@ async function runNonInteractive(
     mappings,
     lifecycle: lifecycleConfig,
     runtime: "codex",
-    blockedByFieldName,
   });
 
   await writeFile(outputPath, workflowMd, "utf8");
@@ -642,7 +661,11 @@ async function runInteractiveStandalone(
     );
   } catch (error) {
     s2.stop("Failed to load projects.");
-    p.log.error(error instanceof Error ? error.message : "Unknown error");
+    if (error instanceof GitHubScopeError) {
+      displayScopeError(error, "gh-symphony init");
+    } else {
+      p.log.error(error instanceof Error ? error.message : "Unknown error");
+    }
     process.exitCode = 1;
     return;
   }
@@ -741,11 +764,6 @@ async function runInteractiveStandalone(
 
   const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
 
-  // Step 4: Blocker field selection (optional)
-  const blockedByFieldName = await promptBlockedByField(
-    projectDetail.textFields
-  );
-
   // Generate WORKFLOW.md only — no config files written
   const workflowMd = generateWorkflowMarkdown({
     projectId: projectDetail.id,
@@ -753,7 +771,6 @@ async function runInteractiveStandalone(
     mappings,
     lifecycle: lifecycleConfig,
     runtime: "codex",
-    blockedByFieldName,
   });
 
   const outputPath = resolve("WORKFLOW.md");
@@ -774,46 +791,6 @@ async function runInteractiveStandalone(
   });
 }
 
-async function promptBlockedByField(
-  textFields: ProjectTextField[]
-): Promise<string | undefined> {
-  if (textFields.length === 0) {
-    return undefined;
-  }
-
-  const autoDetected = inferBlockedByFieldName(textFields.map((f) => f.name));
-  const IGNORE_VALUE = "__ignore__";
-
-  const options: Array<{ value: string; label: string; hint?: string }> = [
-    { value: IGNORE_VALUE, label: "Ignore (no blocker field)" },
-    ...textFields.map((f) => ({
-      value: f.name,
-      label: f.name,
-      hint:
-        f.name === autoDetected ? "auto-detected" : f.dataType.toLowerCase(),
-    })),
-  ];
-
-  // Move auto-detected to top of field options
-  if (autoDetected) {
-    const idx = options.findIndex((o) => o.value === autoDetected);
-    if (idx > 1) {
-      const [item] = options.splice(idx, 1);
-      options.splice(1, 0, item!);
-    }
-  }
-
-  const selected = await abortIfCancelled(
-    p.select({
-      message: `Step 4/4 — Select a custom field for "Blocked By" (optional):${autoDetected ? ` "${autoDetected}" auto-detected` : ""}`,
-      options,
-      initialValue: autoDetected ?? IGNORE_VALUE,
-    })
-  );
-
-  return selected === IGNORE_VALUE ? undefined : selected;
-}
-
 // ── Config writing (used by tenant.ts via import) ─────────────────────────────
 
 type WriteConfigInput = {
@@ -832,7 +809,6 @@ type WriteConfigInput = {
   pollIntervalMs?: number;
   concurrency?: number;
   maxAttempts?: number;
-  blockedByFieldName?: string;
 };
 
 function resolveWorkerCommand(): string | undefined {
@@ -858,7 +834,6 @@ export async function writeConfig(
     stateFieldName: input.statusField.name,
     mappings: input.mappings,
     lifecycle: lifecycleConfig,
-    blockedByFieldName: input.blockedByFieldName,
   };
   await saveWorkflowMapping(configDir, input.tenantId, mappingConfig);
 
@@ -877,9 +852,6 @@ export async function writeConfig(
       bindingId: input.project.id,
       settings: {
         projectId: input.project.id,
-        ...(input.blockedByFieldName && {
-          blockedByFieldName: input.blockedByFieldName,
-        }),
       },
     },
     runtime: {
@@ -911,7 +883,6 @@ export async function writeConfig(
     runtime: input.agentCommand ?? input.runtime,
     pollIntervalMs: input.pollIntervalMs,
     concurrency: input.concurrency,
-    blockedByFieldName: input.blockedByFieldName,
   });
   const workflowMdPath = join(
     configDir,

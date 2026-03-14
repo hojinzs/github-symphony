@@ -96,7 +96,6 @@ describe("generate-context-yaml", () => {
       statusField,
       detectedEnvironment,
       runtime: { agent: "codex", agent_command: "codex run" },
-      blockedByFieldName: "Blocked By",
     });
 
     expect(context.schema_version).toBe(1);
@@ -109,7 +108,6 @@ describe("generate-context-yaml", () => {
     expect(context.status_field.columns[1].inferred_role).toBe("active");
     expect(context.status_field.columns[2].inferred_role).toBe("terminal");
     expect(context.text_fields).toHaveLength(1);
-    expect(context.text_fields[0].inferred_purpose).toBe("blocker");
     expect(context.repositories).toHaveLength(2);
     expect(context.repositories[0].owner).toBe("acme");
     expect(context.repositories[0].name).toBe("api");

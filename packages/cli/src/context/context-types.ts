@@ -23,7 +23,6 @@ export type ContextYaml = {
     id: string;
     name: string;
     data_type: string;
-    inferred_purpose: "blocker" | null;
   }>;
   repositories: Array<{
     owner: string;

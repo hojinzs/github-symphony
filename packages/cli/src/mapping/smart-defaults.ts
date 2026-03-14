@@ -16,7 +16,8 @@ const ROLE_PATTERNS: Array<{ role: StateRole; pattern: RegExp }> = [
   },
   {
     role: "terminal",
-    pattern: /^(done|completed?|closed|merged|shipped|resolved|finished|won.?t.do|cancelled)$/i,
+    pattern:
+      /^(done|completed?|closed|merged|shipped|resolved|finished|won.?t.do|cancelled)$/i,
   },
 ];
 
@@ -42,16 +43,7 @@ export function inferAllStateRoles(columnNames: string[]): StateRoleMapping[] {
   return columnNames.map(inferStateRole);
 }
 
-// ── 3.2: Blocked-by field inference ─────────────────────────────────────────
-
-const BLOCKED_BY_PATTERNS =
-  /^(blocked.?by|depends.?on|dependencies|blocking|blockers?|requires?)$/i;
-
-export function inferBlockedByFieldName(fieldNames: string[]): string | null {
-  return fieldNames.find((name) => BLOCKED_BY_PATTERNS.test(name.trim())) ?? null;
-}
-
-// ── 3.3: Mapping → WorkflowLifecycleConfig conversion ───────────────────────
+// ── 3.2: Mapping → WorkflowLifecycleConfig conversion ───────────────────────
 
 export function toWorkflowLifecycleConfig(
   stateFieldName: string,

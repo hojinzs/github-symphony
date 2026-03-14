@@ -44,8 +44,8 @@ describe("generateReferenceWorkflow", () => {
     const output = generateReferenceWorkflow(defaultInput);
 
     expect(output).toContain("# Reference WORKFLOW.md — gh-symphony");
-    expect(output).toContain("# ═══ FRONT MATTER 필드 참조 ═══");
-    expect(output).toContain("# ═══ PROMPT BODY 참조 ═══");
+    expect(output).toContain("# ═══ FRONT MATTER FIELD REFERENCE ═══");
+    expect(output).toContain("# ═══ PROMPT BODY REFERENCE ═══");
     expect(output).toContain("## Status Map");
     expect(output).toContain("## Default Posture");
     expect(output).toContain("## Related Skills");
@@ -73,39 +73,47 @@ describe("generateReferenceWorkflow", () => {
     const output = generateReferenceWorkflow(defaultInput);
 
     expect(output).toContain(
-      "에이전트가 즉시 작업 시작. 워크패드 생성 후 구현 진행."
+      "Agent starts work immediately. Creates workpad and proceeds with implementation."
     );
-    expect(output).toContain("PR 생성 완료. 사람 리뷰 대기 중. 에이전트 대기.");
-    expect(output).toContain("완료 상태. 에이전트 종료.");
+    expect(output).toContain(
+      "PR created. Awaiting human review. Agent is idle."
+    );
+    expect(output).toContain("Completed state. Agent exits.");
   });
 
   it("contains all 13 Default Posture items", () => {
     const output = generateReferenceWorkflow(defaultInput);
 
-    expect(output).toContain("1. 이것은 무인 오케스트레이션 세션입니다.");
-    expect(output).toContain("2. 진짜 블로커");
+    expect(output).toContain("1. This is an unattended orchestration session.");
+    expect(output).toContain("2. Exit early only for genuine blockers");
     expect(output).toContain(
-      "3. 최종 메시지에는 완료된 작업과 블로커만 보고하세요."
+      "3. In your final message, report only completed work and blockers."
     );
     expect(output).toContain(
-      "4. 이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요."
+      "4. Do not modify the issue body for planning or progress-tracking purposes."
     );
     expect(output).toContain(
-      "5. terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요."
+      "5. If the issue is in a terminal state, do nothing and exit immediately."
     );
-    expect(output).toContain("6. 범위 밖 개선사항을 발견하면");
-    expect(output).toContain("7. 모든 커밋은 논리적 단위로 분리하고");
-    expect(output).toContain("8. 테스트가 깨지는 중간 커밋을 하지 마세요.");
+    expect(output).toContain("6. If you discover out-of-scope improvements");
+    expect(output).toContain("7. Keep all commits as logical units");
     expect(output).toContain(
-      "9. PR 생성 전 모든 기존 테스트가 통과하는지 확인하세요."
+      "8. Do not make commits that break existing tests."
     );
-    expect(output).toContain("10. 워크패드를 이슈 코멘트로 생성하여");
     expect(output).toContain(
-      "11. gh-project 스킬을 사용하여 이슈 상태를 관리하세요."
+      "9. Verify all existing tests pass before creating a PR."
     );
-    expect(output).toContain("12. 블로커 발견 시 이슈에 코멘트로 기록하고");
     expect(output).toContain(
-      "13. 작업 완료 후 PR이 머지되면 이슈를 Done 상태로 전이하세요."
+      "10. Create a workpad as an issue comment to track progress."
+    );
+    expect(output).toContain(
+      "11. Use the gh-project skill to manage issue status."
+    );
+    expect(output).toContain(
+      "12. When a blocker is found, record it in an issue comment"
+    );
+    expect(output).toContain(
+      "13. Once your work is complete and the PR is merged, transition the issue to the Done state."
     );
   });
 
@@ -143,19 +151,6 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("    - Todo");
   });
 
-  it("includes optional blocked_by_field when provided", () => {
-    const output = generateReferenceWorkflow({
-      ...defaultInput,
-      blockedByFieldName: "Blocked By",
-    });
-    expect(output).toContain('blocked_by_field: "Blocked By"');
-  });
-
-  it("shows commented blocked_by_field when not provided", () => {
-    const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain('# blocked_by_field: "Blocked By"');
-  });
-
   it("handles null role columns in Status Map", () => {
     const output = generateReferenceWorkflow({
       ...defaultInput,
@@ -166,7 +161,7 @@ describe("generateReferenceWorkflow", () => {
     });
     expect(output).toContain("Backlog");
     expect(output).toContain(
-      "역할 미정. WORKFLOW.md에서 명시적으로 설정 필요."
+      "Role unset. Must be explicitly configured in WORKFLOW.md."
     );
   });
 

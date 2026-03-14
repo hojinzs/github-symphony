@@ -16,16 +16,11 @@ export const githubProjectAdapter: OrchestratorTrackerAdapter = {
 
     const projectId = requireTrackerSetting(tenant.tracker, "projectId");
 
-    const blockedByFieldName = tenant.tracker.settings?.blockedByFieldName as
-      | string
-      | undefined;
-
     return fetchProjectIssues(
       {
         projectId,
         token,
         apiUrl: tenant.tracker.apiUrl,
-        blockedByFieldName,
       },
       dependencies.fetchImpl
     );

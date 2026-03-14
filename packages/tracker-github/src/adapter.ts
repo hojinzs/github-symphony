@@ -1,7 +1,7 @@
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type TrackedIssue,
-  type WorkflowLifecycleConfig
+  type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
 
 const DEFAULT_API_URL = "https://api.github.com/graphql";
@@ -13,7 +13,6 @@ export type GitHubTrackerConfig = {
   apiUrl?: string;
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
-  blockedByFieldName?: string;
 };
 
 export type GitHubRepositoryRef = {
@@ -59,6 +58,16 @@ type GraphQLIssueNode = {
     url: string;
     owner: { login: string };
   };
+  blockedBy: {
+    nodes: Array<{
+      number: number;
+      state: string;
+      repository: {
+        name: string;
+        owner: { login: string };
+      };
+    } | null> | null;
+  } | null;
 };
 
 type GraphQLProjectItem = {
@@ -100,19 +109,10 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
 
 export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
-function parseBlockedBy(raw: string | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/[\s,\n]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 export function normalizeProjectItem(
   projectId: string,
   item: GraphQLProjectItem,
-  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
-  blockedByFieldName?: string
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
 ): GitHubTrackedIssue | null {
   if (item.content?.__typename !== "Issue") {
     return null;
@@ -121,8 +121,12 @@ export function normalizeProjectItem(
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
   const repository = item.content.repository;
-  const blockedBy = parseBlockedBy(
-    blockedByFieldName ? fieldValues[blockedByFieldName] : undefined
+  const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap((node) =>
+    node
+      ? [
+          `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
+        ]
+      : []
   );
 
   return {
@@ -145,14 +149,14 @@ export function normalizeProjectItem(
       owner: repository.owner.login,
       name: repository.name,
       url: repository.url,
-      cloneUrl: deriveCloneUrl(repository.url)
+      cloneUrl: deriveCloneUrl(repository.url),
     },
     tracker: {
       adapter: "github-project",
       bindingId: projectId,
-      itemId: item.id
+      itemId: item.id,
     },
-    metadata: fieldValues
+    metadata: fieldValues,
   };
 }
 
@@ -168,7 +172,7 @@ export async function fetchProjectIssues(
     const pageIssues = (page.nodes ?? [])
       .flatMap((item) =>
         item
-          ? [normalizeProjectItem(config.projectId, item, config.lifecycle, config.blockedByFieldName)]
+          ? [normalizeProjectItem(config.projectId, item, config.lifecycle)]
           : []
       )
       .flatMap((issue) => (issue ? [issue] : []));
@@ -203,16 +207,16 @@ async function fetchProjectItemsPage(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${config.token}`
+      authorization: `Bearer ${config.token}`,
     },
     body: JSON.stringify({
       query: PROJECT_ITEMS_QUERY,
       variables: {
         projectId: config.projectId,
         cursor,
-        pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE
-      }
-    })
+        pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
+      },
+    }),
   });
 
   if (!response.ok) {
@@ -235,13 +239,17 @@ async function fetchProjectItemsPage(
   const items = payload.data?.node?.items;
 
   if (!items) {
-    throw new GitHubTrackerQueryError("GitHub GraphQL response did not include project items.");
+    throw new GitHubTrackerQueryError(
+      "GitHub GraphQL response did not include project items."
+    );
   }
 
   return items;
 }
 
-function extractFieldValues(nodes: Array<GraphQLFieldValue | null>): Record<string, string> {
+function extractFieldValues(
+  nodes: Array<GraphQLFieldValue | null>
+): Record<string, string> {
   return nodes.reduce<Record<string, string>>((values, node) => {
     const fieldName = node?.field?.name;
 
@@ -249,7 +257,10 @@ function extractFieldValues(nodes: Array<GraphQLFieldValue | null>): Record<stri
       return values;
     }
 
-    if (node.__typename === "ProjectV2ItemFieldSingleSelectValue" && node.name) {
+    if (
+      node.__typename === "ProjectV2ItemFieldSingleSelectValue" &&
+      node.name
+    ) {
       values[fieldName] = node.name;
     }
 
@@ -319,6 +330,18 @@ const PROJECT_ITEMS_QUERY = `
                   url
                   owner {
                     login
+                  }
+                }
+                blockedBy(first: 100) {
+                  nodes {
+                    number
+                    state
+                    repository {
+                      name
+                      owner {
+                        login
+                      }
+                    }
                   }
                 }
               }

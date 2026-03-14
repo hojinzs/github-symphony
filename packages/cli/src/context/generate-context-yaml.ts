@@ -10,7 +10,6 @@ export type BuildContextYamlParams = {
   statusField: ProjectStatusField;
   detectedEnvironment: DetectedEnvironment;
   runtime: { agent: string; agent_command: string };
-  blockedByFieldName?: string | null;
 };
 
 function yamlQuote(value: string): string {
@@ -59,9 +58,6 @@ export function generateContextYamlString(context: ContextYaml): string {
       lines.push(`  - id: ${field.id}`);
       lines.push(`    name: ${yamlQuote(field.name)}`);
       lines.push(`    data_type: ${field.data_type}`);
-      lines.push(
-        `    inferred_purpose: ${field.inferred_purpose === null ? "null" : field.inferred_purpose}`
-      );
     }
   }
   lines.push("");
@@ -142,16 +138,11 @@ export function buildContextYaml(params: BuildContextYamlParams): ContextYaml {
   });
 
   const textFields: ContextYaml["text_fields"] =
-    params.projectDetail.textFields.map((field) => {
-      const isBlocker =
-        params.blockedByFieldName && field.name === params.blockedByFieldName;
-      return {
-        id: field.id,
-        name: field.name,
-        data_type: field.dataType,
-        inferred_purpose: isBlocker ? "blocker" : null,
-      };
-    });
+    params.projectDetail.textFields.map((field) => ({
+      id: field.id,
+      name: field.name,
+      data_type: field.dataType,
+    }));
 
   const repositories = params.projectDetail.linkedRepositories.map((repo) => ({
     owner: repo.owner,

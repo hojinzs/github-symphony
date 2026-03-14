@@ -9,7 +9,6 @@ export type GenerateWorkflowInput = {
   runtime: string;
   pollIntervalMs?: number;
   concurrency?: number;
-  blockedByFieldName?: string;
 };
 
 export function generateWorkflowMarkdown(input: GenerateWorkflowInput): string {
@@ -45,10 +44,6 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     for (const state of input.lifecycle.blockerCheckStates) {
       lines.push(`    - ${state}`);
     }
-  }
-
-  if (input.blockedByFieldName) {
-    lines.push(`  blocked_by_field: "${input.blockedByFieldName}"`);
   }
 
   const agentCommand = resolveAgentCommand(input.runtime);

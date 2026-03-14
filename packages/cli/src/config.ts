@@ -28,7 +28,6 @@ export type WorkflowStateConfig = {
   stateFieldName: string;
   mappings: Record<string, StateMapping>;
   lifecycle: WorkflowLifecycleConfig;
-  blockedByFieldName?: string;
 };
 
 export function resolveConfigDir(override?: string): string {
