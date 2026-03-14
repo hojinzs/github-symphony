@@ -2,53 +2,74 @@
 
 GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [OpenAI Symphony specification](https://github.com/openai/symphony). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves all workflow policy from each repository's `WORKFLOW.md` at runtime.
 
-## Packages
+## Requirements
 
-| Package                              | Description                                                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `packages/cli`                       | Interactive CLI for tenant setup (`gh-symphony tenant add`) and daemon lifecycle (`start`, `stop`, `status`) |
-| `packages/orchestrator`              | Headless orchestrator with filesystem-backed leases, run snapshots, and recovery                             |
-| `packages/worker`                    | Single-issue runner with runtime integration, hooks, and tracker adapter                                     |
-| `packages/core`                      | Domain types, contracts, workflow lifecycle, and observability snapshots                                     |
-| `packages/tracker-github`            | GitHub Project tracker adapter                                                                               |
-| `packages/runtime-codex`             | Codex AI runtime integration                                                                                 |
-| `packages/extension-github-workflow` | GitHub Actions workflow extension                                                                            |
-| `packages/shared`                    | Shared types and re-exports                                                                                  |
-| `apps/control-plane`                 | Optional web UI (work in progress — being redesigned)                                                        |
-| `docs`                               | Local-development, rollout, and self-hosting guides                                                          |
+- **[Node.js](https://nodejs.org/)** (v24+) with npm
+- **[Git](https://git-scm.com/)**
+- **[GitHub CLI (`gh`)](https://cli.github.com/)** — authenticated with required scopes:
+  ```bash
+  gh auth login --scopes repo,read:org,project
+  ```
 
-## Quick start
+## Getting Started
+
+### 1. Install Package
 
 ```bash
-# Prerequisites: Node.js 24+, pnpm 9+
-pnpm install
-pnpm build
-
-# Register a GitHub Project as a new tenant
-gh-symphony tenant add
-
-# Start the orchestrator daemon
-gh-symphony start
-
-# Check orchestration status
-gh-symphony status
-
-# Stop the daemon
-gh-symphony stop
+npm install -g @gh-symphony/cli
 ```
 
-## Concepts
+Verify the installation:
 
-- **Tenant** — one GitHub Project bound to a set of repositories. Each tenant gets its own config, leases, and status snapshot. A single orchestrator manages multiple tenants.
-- **WORKFLOW.md** — the per-repository (or per-tenant fallback) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
+```bash
+gh-symphony --version
+```
 
-## Registering a tenant
+### 2. Set Repository
 
-`gh-symphony tenant add` walks through gh CLI authentication, GitHub Project selection, repository selection, status column mapping, and runtime configuration. On completion it writes:
+Navigate to the repository you want to orchestrate, then run:
 
-- `~/.gh-symphony/tenants/<tenant-id>/tenant.json` — orchestrator config
-- `~/.gh-symphony/tenants/<tenant-id>/workflow-mapping.json` — status column to role mappings
-- `~/.gh-symphony/tenants/<tenant-id>/WORKFLOW.md` — scaffolded workflow policy (tenant-level fallback)
+```bash
+cd your-repo
+gh-symphony init
+```
+
+The interactive wizard will:
+
+1. Authenticate via `gh` CLI
+2. Let you select a **GitHub Project** to bind
+3. Map project status columns to workflow phases (active / wait / terminal)
+4. Generate the following files:
+
+| File | Description |
+| --- | --- |
+| `WORKFLOW.md` | Workflow policy — the agent prompt template with lifecycle config |
+| `.gh-symphony/context.yaml` | Project metadata and environment context |
+| `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+
+#### Customizing Agent Behavior
+
+The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
+
+> Currently supported runtimes: **Codex**, **Claude Code**
+
+### 3. Set Orchestrator Runner (Tenant)
+
+On the machine where you want the orchestrator to run, register a tenant:
+
+```bash
+gh-symphony tenant add
+```
+
+The interactive wizard will:
+
+1. Authenticate via `gh` CLI
+2. Let you select a **GitHub Project**
+3. Select repositories to orchestrate
+4. Auto-detect workflow column mappings
+5. Choose an AI runtime (Codex / Claude Code / custom)
+6. Write tenant configuration to `~/.gh-symphony/`
 
 Non-interactive mode:
 
@@ -59,9 +80,44 @@ gh-symphony tenant add --non-interactive --project PVT_xxx --runtime codex
 Managing tenants:
 
 ```bash
-gh-symphony tenant list            # list registered tenants
-gh-symphony tenant remove <id>     # remove a tenant and its config
+gh-symphony tenant list             # List all configured tenants
+gh-symphony tenant remove <id>      # Remove a tenant
 ```
+
+### 4. Run the Orchestrator
+
+```bash
+gh-symphony start                   # Start (foreground)
+gh-symphony start --daemon          # Start (background)
+gh-symphony stop                    # Stop the daemon
+```
+
+Monitor:
+
+```bash
+gh-symphony status                  # Show current status
+gh-symphony status --watch          # Live dashboard
+gh-symphony logs                    # View event logs
+gh-symphony logs --follow           # Stream logs in real-time
+```
+
+Dispatch a single issue:
+
+```bash
+gh-symphony run org/repo#123
+```
+
+Recover stalled runs:
+
+```bash
+gh-symphony recover                 # Recover stalled runs
+gh-symphony recover --dry-run       # Preview what would be recovered
+```
+
+## Concepts
+
+- **Tenant** — one GitHub Project bound to a set of repositories. Each tenant gets its own config, leases, and status snapshot. A single orchestrator manages multiple tenants.
+- **WORKFLOW.md** — the per-repository (or per-tenant fallback) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
 
 ## Authentication
 
