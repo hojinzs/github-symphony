@@ -6,6 +6,7 @@ import {
   checkRequiredScopes,
   listUserProjects,
   getProjectDetail,
+  GitHubScopeError,
   type GitHubClient,
   type ProjectSummary,
   type ProjectDetail,
@@ -25,6 +26,30 @@ import {
   type StateMapping,
 } from "../config.js";
 import { writeConfig, generateTenantId, abortIfCancelled } from "./init.js";
+
+// ── Scope error display ───────────────────────────────────────────────────────
+
+const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
+
+function displayScopeError(
+  error: GitHubScopeError,
+  retryCommand: string
+): void {
+  const plural = error.requiredScopes.length === 1 ? "" : "s";
+  p.log.error(
+    `Token is missing required scope${plural}: ${error.requiredScopes.join(", ")}`
+  );
+  const currentSet = new Set(error.currentScopes.map((s) => s.toLowerCase()));
+  const scopesToAdd = KNOWN_REQUIRED_SCOPES.filter((s) => !currentSet.has(s));
+  const scopeArg =
+    scopesToAdd.length > 0
+      ? scopesToAdd.join(",")
+      : error.requiredScopes.join(",");
+  p.note(
+    `gh auth refresh --scopes ${scopeArg}\n\nThen re-run: ${retryCommand}`,
+    "Fix missing scope"
+  );
+}
 
 // ── Non-interactive flag parsing ─────────────────────────────────────────────
 
@@ -284,7 +309,11 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     );
   } catch (error) {
     s2.stop("Failed to load projects.");
-    p.log.error(error instanceof Error ? error.message : "Unknown error");
+    if (error instanceof GitHubScopeError) {
+      displayScopeError(error, "gh-symphony tenant add");
+    } else {
+      p.log.error(error instanceof Error ? error.message : "Unknown error");
+    }
     process.exitCode = 1;
     return;
   }

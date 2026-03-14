@@ -70,6 +70,17 @@ export class GitHubApiError extends Error {
   }
 }
 
+export class GitHubScopeError extends GitHubApiError {
+  constructor(
+    message: string,
+    readonly requiredScopes: string[],
+    readonly currentScopes: string[]
+  ) {
+    super(message);
+    this.name = "GitHubScopeError";
+  }
+}
+
 export function createClient(
   token: string,
   options?: { apiUrl?: string; fetchImpl?: typeof fetch }
@@ -217,7 +228,11 @@ export async function getProjectDetail(
         })),
       });
     } else if (field.__typename === "ProjectV2Field" && field.dataType) {
-      textFields.push({ id: field.id, name: field.name, dataType: field.dataType });
+      textFields.push({
+        id: field.id,
+        name: field.name,
+        dataType: field.dataType,
+      });
     }
   }
 
@@ -312,6 +327,38 @@ async function graphql<T>(
   };
 
   if (payload.errors?.length) {
+    const scopeMessages = payload.errors
+      .map((e) => e.message)
+      .filter((m) => m.includes("has not been granted the required scopes"));
+
+    if (scopeMessages.length > 0) {
+      const requiredScopes = new Set<string>();
+      let currentScopes: string[] = [];
+
+      for (const msg of scopeMessages) {
+        for (const match of msg.matchAll(
+          /requires one of the following scopes: \['([^']+)'\]/g
+        )) {
+          requiredScopes.add(match[1]!);
+        }
+        if (currentScopes.length === 0) {
+          const currMatch = /has only been granted the: \[([^\]]+)\]/.exec(msg);
+          if (currMatch) {
+            currentScopes = currMatch[1]!
+              .split(",")
+              .map((s) => s.trim().replace(/'/g, ""))
+              .filter(Boolean);
+          }
+        }
+      }
+
+      throw new GitHubScopeError(
+        "Token is missing required GitHub scopes.",
+        [...requiredScopes],
+        currentScopes
+      );
+    }
+
     throw new GitHubApiError(
       `GraphQL errors: ${payload.errors.map((e) => e.message).join("; ")}`
     );
