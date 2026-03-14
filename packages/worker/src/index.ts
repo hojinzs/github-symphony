@@ -468,6 +468,26 @@ async function runCodexClientProtocol(
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
       flushDeltaBuffer();
+      // Extract token usage from turn completion params if present
+      const turnParams = (msg.params ?? {}) as Record<string, unknown>;
+      const usage = turnParams.usage as Record<string, unknown> | undefined;
+      if (usage) {
+        const inputTokens =
+          typeof usage.input_tokens === "number" ? usage.input_tokens :
+          typeof usage.inputTokens === "number" ? usage.inputTokens : 0;
+        const outputTokens =
+          typeof usage.output_tokens === "number" ? usage.output_tokens :
+          typeof usage.outputTokens === "number" ? usage.outputTokens : 0;
+        const totalTokens =
+          typeof usage.total_tokens === "number" ? usage.total_tokens :
+          typeof usage.totalTokens === "number" ? usage.totalTokens :
+          inputTokens + outputTokens;
+        if (inputTokens > 0 || outputTokens > 0 || totalTokens > 0) {
+          runtimeState.tokenUsage.inputTokens = inputTokens;
+          runtimeState.tokenUsage.outputTokens = outputTokens;
+          runtimeState.tokenUsage.totalTokens = totalTokens || inputTokens + outputTokens;
+        }
+      }
       process.stderr.write("[worker] codex turn/completed\n");
       if (turnCompletedResolve) {
         turnCompletedResolve();
@@ -479,15 +499,26 @@ async function runCodexClientProtocol(
     // Token usage events — track cumulative totals
     if (
       msg.method === "thread/tokenUsage/updated" ||
-      msg.method === "total_token_usage"
+      msg.method === "total_token_usage" ||
+      msg.method === "codex/event/token_count"
     ) {
       const params = (msg.params ?? {}) as Record<string, unknown>;
+
+      // codex/event/token_count: { msg: { info: { total_token_usage: { input_tokens, output_tokens, total_tokens } } } }
+      const codexMsg = params.msg as Record<string, unknown> | undefined;
+      const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
+      const codexTotals = codexInfo?.total_token_usage as Record<string, unknown> | undefined;
+      const source = codexTotals ?? params;
+
       const inputTokens =
-        typeof params.input_tokens === "number" ? params.input_tokens : 0;
+        typeof source.input_tokens === "number" ? source.input_tokens :
+        typeof source.inputTokens === "number" ? source.inputTokens : 0;
       const outputTokens =
-        typeof params.output_tokens === "number" ? params.output_tokens : 0;
+        typeof source.output_tokens === "number" ? source.output_tokens :
+        typeof source.outputTokens === "number" ? source.outputTokens : 0;
       const totalTokens =
-        typeof params.total_tokens === "number" ? params.total_tokens : 0;
+        typeof source.total_tokens === "number" ? source.total_tokens :
+        typeof source.totalTokens === "number" ? source.totalTokens : 0;
 
       // Prefer absolute totals from the event
       if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
