@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
 import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
 import {
@@ -99,6 +99,101 @@ describe("resolveTrackerAdapter", () => {
       } else {
         process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
       }
+    }
+  });
+
+  it("filters to issues assigned to the authenticated user when enabled", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          assignedOnly: true as unknown as string,
+        },
+      });
+
+      const issues = await adapter.listIssues(
+        {
+          tenantId: "workspace-1",
+          slug: "workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+              assignedOnly: true as unknown as string,
+            },
+          },
+          runtime: {
+            driver: "local",
+            workspaceRuntimeDir: "/tmp/workspace-1",
+            projectRoot: "/tmp/workspace-1",
+          },
+        },
+        {
+          token: "dependencies-token",
+          fetchImpl: async (url, init) => {
+            if (String(url).endsWith("/user")) {
+              expect(init?.method).toBe("GET");
+              return new Response(JSON.stringify({ login: "machine-user" }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+
+            const body = JSON.parse(String(init?.body)) as { query: string };
+            expect(body.query).toContain("assignees(first: 20)");
+
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [
+                        makeProjectItem({
+                          itemId: "item-1",
+                          issueId: "issue-1",
+                          number: 1,
+                          title: "Assigned issue",
+                          assignees: ["machine-user"],
+                        }),
+                        makeProjectItem({
+                          itemId: "item-2",
+                          issueId: "issue-2",
+                          number: 2,
+                          title: "Other issue",
+                          assignees: ["someone-else"],
+                        }),
+                      ],
+                      pageInfo: { endCursor: null, hasNextPage: false },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          },
+        }
+      );
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.identifier).toBe("acme/platform#1");
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"excludedCount":1')
+      );
+    } finally {
+      infoSpy.mockRestore();
     }
   });
 });
@@ -240,3 +335,45 @@ describe("detectTransferRebindRequired", () => {
     });
   });
 });
+
+function makeProjectItem(input: {
+  itemId: string;
+  issueId: string;
+  number: number;
+  title: string;
+  assignees: string[];
+}) {
+  return {
+    id: input.itemId,
+    updatedAt: "2026-03-14T00:00:00.000Z",
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
+          name: "Todo",
+          field: { name: "Status" },
+        },
+      ],
+    },
+    content: {
+      __typename: "Issue" as const,
+      id: input.issueId,
+      number: input.number,
+      title: input.title,
+      body: null,
+      url: `https://github.com/acme/platform/issues/${input.number}`,
+      createdAt: "2026-03-14T00:00:00.000Z",
+      updatedAt: "2026-03-14T00:00:00.000Z",
+      labels: { nodes: [] },
+      assignees: {
+        nodes: input.assignees.map((login) => ({ login })),
+      },
+      repository: {
+        name: "platform",
+        url: "https://github.com/acme/platform",
+        owner: { login: "acme" },
+      },
+      blockedBy: { nodes: [] },
+    },
+  };
+}

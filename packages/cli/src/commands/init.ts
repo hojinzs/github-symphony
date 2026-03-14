@@ -627,6 +627,7 @@ type WriteConfigInput = {
   pollIntervalMs?: number;
   concurrency?: number;
   maxAttempts?: number;
+  assignedOnly?: boolean;
 };
 
 function resolveWorkerCommand(): string | undefined {
@@ -670,6 +671,7 @@ export async function writeConfig(
       bindingId: input.project.id,
       settings: {
         projectId: input.project.id,
+        ...(input.assignedOnly ? { assignedOnly: true } : {}),
       },
     },
     runtime: {

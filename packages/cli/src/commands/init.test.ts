@@ -72,6 +72,57 @@ describe("init command config output", () => {
     expect(mapping.lifecycle.terminalStates).toContain("Done");
   });
 
+  it("writes assignedOnly into tenant tracker settings when enabled", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-assigned-"));
+
+    await writeConfig(configDir, {
+      tenantId: "tenant-assigned",
+      token: "token-123",
+      project: {
+        id: "project-123",
+        title: "Platform",
+        url: "https://github.com/orgs/acme/projects/1",
+        statusFields: [],
+        textFields: [],
+        linkedRepositories: [],
+      },
+      repos: [
+        {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+      ],
+      statusField: {
+        id: "PVTSSF_stage1",
+        name: "Stage",
+        options: [
+          { id: "opt_q", name: "Queued" },
+          { id: "opt_d", name: "Doing" },
+          { id: "opt_dn", name: "Done" },
+        ],
+      },
+      mappings: {
+        Queued: { role: "active" },
+        Doing: { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "codex",
+      assignedOnly: true,
+    });
+
+    const tenant = JSON.parse(
+      await readFile(
+        join(configDir, "tenants", "tenant-assigned", "tenant.json"),
+        "utf8"
+      )
+    ) as CliTenantConfig;
+
+    expect(tenant.tracker.settings?.assignedOnly).toBe(true);
+    expect(tenant.tracker.settings?.projectId).toBe("project-123");
+  });
+
   it("generates a parseable WORKFLOW.md alongside tenant config", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-wf-"));
 
