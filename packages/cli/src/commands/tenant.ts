@@ -319,7 +319,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  // ── Step 3: Repository selection ────────────────────────────────────────────
+  // ── Step 2: Repository selection ────────────────────────────────────────────
 
   if (projectDetail.linkedRepositories.length === 0) {
     p.log.warn(
@@ -340,7 +340,7 @@ async function tenantAddInteractive(options: GlobalOptions): Promise<void> {
     })
   );
 
-  // ── Step 4: Assignment filter ────────────────────────────────────────────────
+  // ── Step 3: Assignment filter ────────────────────────────────────────────────
 
   const assignedOnly = await abortIfCancelled(
     p.confirm({
