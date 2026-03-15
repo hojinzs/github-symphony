@@ -1,5 +1,11 @@
 import * as p from "@clack/prompts";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { GlobalOptions } from "../index.js";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+import { stripAnsi } from "../ansi.js";
 import {
   createClient,
   validateToken,
@@ -17,12 +23,34 @@ import {
   saveGlobalConfig,
   loadProjectConfig,
   projectConfigDir,
+  daemonPidPath,
+  orchestratorPortPath,
   type CliGlobalConfig,
+  type CliProjectConfig,
 } from "../config.js";
 import { writeConfig, generateProjectId, abortIfCancelled } from "./init.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
+import {
+  resolveProjectOrchestratorStatusBaseUrl,
+} from "../orchestrator-status-endpoint.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+
+const execFile = promisify(execFileCallback);
+const STATUS_REQUEST_TIMEOUT_MS = 1_500;
+
+type ProjectListRow = {
+  id: string;
+  name: string;
+  status: "running" | "stopped";
+  endpoint: string;
+  health: string;
+  activeRuns: number;
+  lastTick: string;
+  uptime: string;
+  active: boolean;
+};
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
@@ -116,6 +144,246 @@ const handler = async (
 };
 
 export default handler;
+
+function relativeTimeFromNow(isoString: string, now = new Date()): string {
+  const then = new Date(isoString);
+  const diffMs = Math.max(0, now.getTime() - then.getTime());
+  const diffS = Math.floor(diffMs / 1000);
+  const diffM = Math.floor(diffS / 60);
+  const diffH = Math.floor(diffM / 60);
+  const diffD = Math.floor(diffH / 24);
+
+  if (diffS < 60) return `${diffS}s ago`;
+  if (diffM < 60) return `${diffM}m ago`;
+  if (diffH < 24) return `${diffH}h ago`;
+  return `${diffD}d ago`;
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
+function parsePsElapsedTime(raw: string): number | null {
+  const value = raw.trim();
+  if (value.length === 0) {
+    return null;
+  }
+
+  const [dayPart, timePart] = value.includes("-")
+    ? value.split("-", 2)
+    : [null, value];
+  const timeSegments = timePart
+    .split(":")
+    .map((segment) => Number.parseInt(segment, 10));
+  if (timeSegments.some((segment) => !Number.isFinite(segment))) {
+    return null;
+  }
+
+  let seconds = 0;
+  if (timeSegments.length === 3) {
+    seconds += timeSegments[0]! * 3_600;
+    seconds += timeSegments[1]! * 60;
+    seconds += timeSegments[2]!;
+  } else if (timeSegments.length === 2) {
+    seconds += timeSegments[0]! * 60;
+    seconds += timeSegments[1]!;
+  } else {
+    return null;
+  }
+
+  if (dayPart !== null) {
+    const days = Number.parseInt(dayPart, 10);
+    if (!Number.isFinite(days)) {
+      return null;
+    }
+    seconds += days * 86_400;
+  }
+
+  return seconds;
+}
+
+async function readPid(
+  configDir: string,
+  projectId: string
+): Promise<number | null> {
+  try {
+    const raw = await readFile(daemonPidPath(configDir, projectId), "utf8");
+    const pid = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readPort(
+  configDir: string,
+  projectId: string
+): Promise<string | null> {
+  try {
+    const raw = await readFile(orchestratorPortPath(configDir, projectId), "utf8");
+    const port = raw.trim();
+    return port.length > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readPersistedSnapshot(
+  configDir: string,
+  projectId: string
+): Promise<ProjectStatusSnapshot | null> {
+  try {
+    const runtimeRoot = resolveRuntimeRoot(configDir);
+    const content = await readFile(
+      join(runtimeRoot, "orchestrator", "projects", projectId, "status.json"),
+      "utf8"
+    );
+    return JSON.parse(content) as ProjectStatusSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchProjectSnapshot(
+  configDir: string,
+  projectId: string
+): Promise<ProjectStatusSnapshot | null> {
+  const baseUrl = await resolveProjectOrchestratorStatusBaseUrl({
+    configDir,
+    projectId,
+  });
+
+  if (!baseUrl) {
+    return readPersistedSnapshot(configDir, projectId);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STATUS_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/status`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return readPersistedSnapshot(configDir, projectId);
+    }
+    return (await response.json()) as ProjectStatusSnapshot;
+  } catch {
+    return readPersistedSnapshot(configDir, projectId);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readProcessUptime(pid: number): Promise<string> {
+  if (process.platform === "win32") {
+    return "-";
+  }
+
+  try {
+    const { stdout } = await execFile("ps", ["-o", "etime=", "-p", String(pid)]);
+    const seconds = parsePsElapsedTime(stdout);
+    return seconds === null ? "-" : formatDuration(seconds);
+  } catch {
+    return "-";
+  }
+}
+
+function defaultProjectName(
+  config: CliProjectConfig | null,
+  projectId: string
+): string {
+  return config?.displayName ?? config?.slug ?? projectId;
+}
+
+async function collectProjectListRows(
+  configDir: string,
+  global: CliGlobalConfig
+): Promise<ProjectListRow[]> {
+  return Promise.all(
+    global.projects.map(async (projectId) => {
+      const config = await loadProjectConfig(configDir, projectId);
+      const pid = await readPid(configDir, projectId);
+      const running = pid !== null && isProcessRunning(pid);
+      const port = running ? await readPort(configDir, projectId) : null;
+      const endpoint = running && port ? `http://127.0.0.1:${port}` : "-";
+      const snapshot = running
+        ? await fetchProjectSnapshot(configDir, projectId)
+        : null;
+
+      return {
+        id: projectId,
+        name: defaultProjectName(config, projectId),
+        status: running ? "running" : "stopped",
+        endpoint,
+        health: snapshot?.health ?? "-",
+        activeRuns: snapshot?.summary.activeRuns ?? 0,
+        lastTick: snapshot?.lastTickAt
+          ? relativeTimeFromNow(snapshot.lastTickAt)
+          : "-",
+        uptime: pid !== null && running ? await readProcessUptime(pid) : "-",
+        active: global.activeProject === projectId,
+      } satisfies ProjectListRow;
+    })
+  );
+}
+
+function renderTable(headers: string[], rows: string[][]): string {
+  const widths = headers.map((header, index) =>
+    Math.max(
+      stripAnsi(header).length,
+      ...rows.map((row) => stripAnsi(row[index] ?? "").length)
+    )
+  );
+
+  const formatRow = (
+    left: string,
+    sep: string,
+    right: string,
+    values: string[]
+  ) =>
+    left +
+    values
+      .map((value, index) => {
+        const width = widths[index]!;
+        const displayWidth = stripAnsi(value).length;
+        return ` ${value}${" ".repeat(width - displayWidth)} `;
+      })
+      .join(sep) +
+    right;
+
+  const border = (left: string, middle: string, right: string) =>
+    left + widths.map((width) => "─".repeat(width + 2)).join(middle) + right;
+
+  return [
+    border("┌", "┬", "┐"),
+    formatRow("│", "│", "│", headers),
+    border("├", "┼", "┤"),
+    ...rows.map((row) => formatRow("│", "│", "│", row)),
+    border("└", "┴", "┘"),
+  ].join("\n");
+}
 
 async function projectAdd(
   args: string[],
@@ -411,39 +679,36 @@ async function projectList(options: GlobalOptions): Promise<void> {
     return;
   }
 
+  const rows = await collectProjectListRows(options.configDir, global);
+
   if (options.json) {
-    const configs = await Promise.all(
-      global.projects.map((projectId) =>
-        loadProjectConfig(options.configDir, projectId)
-      )
-    );
-    process.stdout.write(
-      JSON.stringify(
-        global.projects.map((projectId, index) => ({
-          id: projectId,
-          active: global.activeProject === projectId,
-          repos: configs[index]?.repositories.length ?? 0,
-        })),
-        null,
-        2
-      ) + "\n"
-    );
+    process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
     return;
   }
 
-  process.stdout.write("Configured projects:\n");
-  const configs = await Promise.all(
-    global.projects.map((projectId) =>
-      loadProjectConfig(options.configDir, projectId)
-    )
+  const table = renderTable(
+    [
+      "ID",
+      "Name",
+      "Status",
+      "Endpoint",
+      "Health",
+      "Active Runs",
+      "Last Tick",
+      "Uptime",
+    ],
+    rows.map((row) => [
+      row.id,
+      row.name,
+      row.status,
+      row.endpoint,
+      row.health,
+      String(row.activeRuns),
+      row.lastTick,
+      row.uptime,
+    ])
   );
-  for (let index = 0; index < global.projects.length; index += 1) {
-    const projectId = global.projects[index]!;
-    const config = configs[index];
-    const active = global.activeProject === projectId ? " (active)" : "";
-    const slug = config?.slug ?? projectId;
-    process.stdout.write(`  ${slug}${active}\n`);
-  }
+  process.stdout.write(`${table}\n`);
 }
 
 async function projectRemove(
