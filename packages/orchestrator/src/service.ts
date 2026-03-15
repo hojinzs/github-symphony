@@ -11,6 +11,7 @@ import {
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
   executeWorkspaceHook,
+  isWorkflowExecutionPhase,
   isStateActive,
   isStateTerminal,
   matchesWorkflowState,
@@ -25,7 +26,6 @@ import {
   type OrchestratorProjectConfig,
   type RepositoryRef,
   type TrackedIssue,
-  type WorkflowExecutionPhase,
   type WorkflowLifecycleConfig,
   type ProjectLeaseRecord,
   type ProjectStatusSnapshot,
@@ -44,13 +44,6 @@ const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
-const WORKFLOW_EXECUTION_PHASES = new Set<WorkflowExecutionPhase>([
-  "planning",
-  "human-review",
-  "implementation",
-  "awaiting-merge",
-  "completed",
-]);
 
 type SpawnLike = (
   command: string,
@@ -58,11 +51,8 @@ type SpawnLike = (
   options: SpawnOptions
 ) => ChildProcess;
 
-function parseExecutionPhase(value: unknown): WorkflowExecutionPhase | null {
-  return typeof value === "string" &&
-    WORKFLOW_EXECUTION_PHASES.has(value as WorkflowExecutionPhase)
-    ? (value as WorkflowExecutionPhase)
-    : null;
+function parseExecutionPhase(value: unknown) {
+  return isWorkflowExecutionPhase(value) ? value : null;
 }
 
 export class OrchestratorService {

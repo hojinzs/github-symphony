@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   access,
   mkdir,
+  readFile,
   rename,
   rm,
   stat,
@@ -139,26 +141,29 @@ async function withRepositoryLock<T>(
   lockDirectory: string,
   fn: () => Promise<T>
 ): Promise<T> {
-  await acquireRepositoryLock(lockDirectory);
+  const ownerToken = await acquireRepositoryLock(lockDirectory);
   try {
     return await fn();
   } finally {
-    await rm(lockDirectory, { recursive: true, force: true });
+    await releaseRepositoryLock(lockDirectory, ownerToken);
   }
 }
 
-async function acquireRepositoryLock(lockDirectory: string): Promise<void> {
+export async function acquireRepositoryLock(
+  lockDirectory: string
+): Promise<string> {
   const startedAt = Date.now();
+  const ownerToken = `${process.pid}:${randomUUID()}`;
 
   for (;;) {
     try {
       await mkdir(lockDirectory);
       await writeFile(
         join(lockDirectory, "owner"),
-        `${process.pid}\n${new Date().toISOString()}\n`,
+        `${ownerToken}\n${new Date().toISOString()}\n`,
         "utf8"
       );
-      return;
+      return ownerToken;
     } catch (error) {
       if (!isAlreadyExistsError(error)) {
         throw error;
@@ -181,6 +186,25 @@ async function acquireRepositoryLock(lockDirectory: string): Promise<void> {
   }
 }
 
+export async function releaseRepositoryLock(
+  lockDirectory: string,
+  ownerToken: string
+): Promise<void> {
+  try {
+    const owner = await readLockOwner(lockDirectory);
+    if (owner !== ownerToken) {
+      return;
+    }
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return;
+    }
+    throw error;
+  }
+
+  await rm(lockDirectory, { recursive: true, force: true });
+}
+
 async function isStaleLock(lockDirectory: string): Promise<boolean> {
   try {
     const details = await stat(lockDirectory);
@@ -200,6 +224,12 @@ function isAlreadyExistsError(error: unknown): boolean {
       "code" in error &&
       error.code === "EEXIST"
   );
+}
+
+async function readLockOwner(lockDirectory: string): Promise<string | null> {
+  await access(join(lockDirectory, "owner"), constants.R_OK);
+  const owner = await readFile(join(lockDirectory, "owner"), "utf8");
+  return owner.split("\n", 1)[0] || null;
 }
 
 function wait(ms: number): Promise<void> {

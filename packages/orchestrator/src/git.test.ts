@@ -1,9 +1,20 @@
 import { execSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { cloneRepositoryForRun } from "./git.js";
+import {
+  acquireRepositoryLock,
+  cloneRepositoryForRun,
+  releaseRepositoryLock,
+} from "./git.js";
 
 describe("cloneRepositoryForRun", () => {
   it("serializes concurrent cache clones for the same repository", async () => {
@@ -47,6 +58,22 @@ describe("cloneRepositoryForRun", () => {
     expect(await readFile(join(clonedDirectory, "WORKFLOW.md"), "utf8")).toContain(
       'project_id: "PVT_test"'
     );
+  });
+
+  it("only releases repository locks owned by the current caller", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-lock-"));
+    const lockDirectory = join(tempRoot, "repository.lock");
+
+    const firstOwner = await acquireRepositoryLock(lockDirectory);
+    await rm(lockDirectory, { recursive: true, force: true });
+
+    const secondOwner = await acquireRepositoryLock(lockDirectory);
+    await releaseRepositoryLock(lockDirectory, firstOwner);
+
+    await expect(access(join(lockDirectory, "owner"))).resolves.toBeUndefined();
+
+    await releaseRepositoryLock(lockDirectory, secondOwner);
+    await expect(access(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
