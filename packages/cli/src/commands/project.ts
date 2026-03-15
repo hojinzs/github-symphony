@@ -21,6 +21,7 @@ import {
 } from "../config.js";
 import { writeConfig, generateProjectId, abortIfCancelled } from "./init.js";
 import startCommand from "./start.js";
+import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
@@ -105,7 +106,7 @@ const handler = async (
       await projectSwitch(options);
       return;
     case "status":
-      await projectStatus(options);
+      await statusCommand(rest, options);
       return;
     default:
       process.stdout.write(
@@ -521,34 +522,4 @@ async function projectSwitch(options: GlobalOptions): Promise<void> {
   global.activeProject = selected;
   await saveGlobalConfig(options.configDir, global);
   process.stdout.write(`Switched to project: ${selected}\n`);
-}
-
-async function projectStatus(options: GlobalOptions): Promise<void> {
-  const global = await loadGlobalConfig(options.configDir);
-  if (!global?.activeProject) {
-    process.stderr.write("No active project.\n");
-    process.exitCode = 1;
-    return;
-  }
-
-  const project = await loadProjectConfig(options.configDir, global.activeProject);
-  if (!project) {
-    process.stderr.write(`Project config missing: ${global.activeProject}\n`);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (options.json) {
-    process.stdout.write(JSON.stringify(project, null, 2) + "\n");
-    return;
-  }
-
-  process.stdout.write(`Project:     ${project.projectId}\n`);
-  process.stdout.write(
-    `Tracker:     ${project.tracker.adapter} (${project.tracker.bindingId})\n`
-  );
-  process.stdout.write("Repositories:\n");
-  for (const repo of project.repositories) {
-    process.stdout.write(`  - ${repo.owner}/${repo.name}\n`);
-  }
 }
