@@ -48,7 +48,7 @@ type Colors = {
 // ── Column widths (from Elixir spec) ─────────────────────────────────────────
 
 const COL_ID = 24;
-const COL_STAGE = 14;
+const COL_STATUS = 14;
 const COL_PID = 8;
 const COL_AGE_TURN = 12;
 const COL_TOKENS = 10;
@@ -133,7 +133,7 @@ function eventColWidth(termWidth: number): number {
   const fixed =
     2 +
     COL_ID_HEADER +
-    COL_STAGE +
+    COL_STATUS +
     COL_PID +
     COL_AGE_TURN +
     COL_TOKENS +
@@ -221,7 +221,7 @@ function buildSummaryLines(
 function tableHeaderRow(c: Colors): string {
   const cols = [
     pad("ID", COL_ID_HEADER),
-    pad("STAGE", COL_STAGE),
+    pad("STATUS", COL_STATUS),
     pad("PID", COL_PID),
     pad("AGE/TURN", COL_AGE_TURN),
     pad("TOKENS", COL_TOKENS),
@@ -239,9 +239,9 @@ function activeRunRow(
 ): string {
   const dot = statusDot(run, c);
   const id = pad(run.issueIdentifier, COL_ID);
-  const stage = pad(
-    run.executionPhase ?? run.issueState ?? "\u2014",
-    COL_STAGE
+  const status = pad(
+    run.issueState ?? run.executionPhase ?? "\u2014",
+    COL_STATUS
   );
   const pid = pad(
     run.processId != null ? String(run.processId) : "\u2014",
@@ -262,7 +262,7 @@ function activeRunRow(
 
   const event = pad(run.lastEvent ?? "\u2014", evtWidth);
 
-  const columns = [id, stage, pid, ageTurn, tokens, session, event].join(" ");
+  const columns = [id, status, pid, ageTurn, tokens, session, event].join(" ");
   return `  ${dot} ${columns}`;
 }
 
