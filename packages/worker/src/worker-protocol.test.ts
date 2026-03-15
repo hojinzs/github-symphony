@@ -266,17 +266,14 @@ async function refreshTrackerState(env: {
   SYMPHONY_ISSUE_IDENTIFIER?: string;
 }): Promise<"active" | "non-actionable" | "unknown"> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const projectId = env.PROJECT_ID;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
 
-  if (!orchestratorUrl || !projectId) {
+  if (!orchestratorUrl) {
     return "unknown";
   }
 
   try {
-    const response = await fetch(
-      `${orchestratorUrl}/api/v1/projects/${encodeURIComponent(projectId)}/status`
-    );
+    const response = await fetch(`${orchestratorUrl}/api/v1/status`);
     if (!response.ok) return "unknown";
 
     const status = (await response.json()) as {
@@ -623,12 +620,12 @@ describe("refreshTrackerState", () => {
     expect(result).toBe("unknown");
   });
 
-  it("returns 'unknown' when project ID is missing", async () => {
+  it("returns 'non-actionable' when project ID is missing", async () => {
     const result = await refreshTrackerState({
       SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
-    expect(result).toBe("unknown");
+    expect(result).toBe("non-actionable");
   });
 
   it("returns 'active' when the issue is in activeRuns", async () => {

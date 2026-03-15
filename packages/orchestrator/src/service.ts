@@ -56,6 +56,7 @@ export class OrchestratorService {
 
   constructor(
     readonly store: OrchestratorStateStore,
+    readonly projectConfig: OrchestratorProjectConfig,
     readonly dependencies: {
       fetchImpl?: typeof fetch;
       spawnImpl?: SpawnLike;
@@ -69,7 +70,6 @@ export class OrchestratorService {
 
   async run(
     options: {
-      projectId?: string;
       issueIdentifier?: string;
       once?: boolean;
     } = {}
@@ -87,33 +87,18 @@ export class OrchestratorService {
 
   async runOnce(
     options: {
-      projectId?: string;
       issueIdentifier?: string;
     } = {}
-  ): Promise<ProjectStatusSnapshot[]> {
-    const projects = await this.loadTargetProjects(options.projectId);
-    return Promise.all(
-      projects.map((tenant) =>
-        this.reconcileProject(tenant, options.issueIdentifier)
-      )
-    );
+  ): Promise<ProjectStatusSnapshot> {
+    return this.reconcileProject(this.projectConfig, options.issueIdentifier);
   }
 
-  async status(projectId?: string): Promise<ProjectStatusSnapshot[]> {
-    const projects = await this.loadTargetProjects(projectId);
-    const statuses = await Promise.all(
-      projects.map((tenant) => this.store.loadProjectStatus(tenant.projectId))
-    );
-
-    return statuses.filter((status): status is ProjectStatusSnapshot =>
-      Boolean(status)
-    );
+  async status(): Promise<ProjectStatusSnapshot | null> {
+    return this.store.loadProjectStatus(this.projectConfig.projectId);
   }
 
-  async recover(projectId?: string): Promise<ProjectStatusSnapshot[]> {
-    return this.runOnce({
-      projectId,
-    });
+  async recover(): Promise<ProjectStatusSnapshot> {
+    return this.runOnce();
   }
 
   getEffectivePollIntervalMs(): number {
@@ -127,15 +112,6 @@ export class OrchestratorService {
     return configuredIntervals.length
       ? Math.min(...configuredIntervals)
       : DEFAULT_POLL_INTERVAL_MS;
-  }
-
-  private async loadTargetProjects(
-    projectId?: string
-  ): Promise<OrchestratorProjectConfig[]> {
-    const projects = await this.store.loadProjectConfigs();
-    return projectId
-      ? projects.filter((tenant) => tenant.projectId === projectId)
-      : projects;
   }
 
   private async reconcileProject(

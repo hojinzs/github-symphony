@@ -33,20 +33,11 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     return join(this.runsDir(), runId);
   }
 
-  async loadProjectConfigs(): Promise<OrchestratorProjectConfig[]> {
-    const baseDir = join(this.runtimeRoot, "orchestrator", "projects");
-    const entries = await safeReadDir(baseDir);
-    const configs = await Promise.all(
-      entries.map(async (entry) => {
-        const config = await readJsonFile<OrchestratorProjectConfig>(
-          join(baseDir, entry, "config.json")
-        );
-        return config;
-      })
-    );
-
-    return configs.filter((config): config is OrchestratorProjectConfig =>
-      Boolean(config)
+  async loadProjectConfig(
+    projectId: string
+  ): Promise<OrchestratorProjectConfig | null> {
+    return readJsonFile<OrchestratorProjectConfig>(
+      join(this.projectDir(projectId), "config.json")
     );
   }
 

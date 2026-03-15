@@ -8,24 +8,12 @@ import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 
 let refreshInFlight: Promise<void> | null = null;
 
-type ProjectStatusReader = {
-  all: () => Promise<ProjectStatusSnapshot[]>;
-  byProjectId: (
-    projectId: string
-  ) => Promise<ProjectStatusSnapshot | null>;
-};
+type ProjectStatusReader = () => Promise<ProjectStatusSnapshot | null>;
 
 function isProjectStatusReader(
   value: unknown
 ): value is ProjectStatusReader {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    "all" in value &&
-    typeof value.all === "function" &&
-    "byProjectId" in value &&
-    typeof value.byProjectId === "function"
-  );
+  return typeof value === "function";
 }
 
 export async function resolveOrchestratorStatusResponse(
@@ -72,9 +60,17 @@ export async function resolveOrchestratorStatusResponse(
   }
 
   if (pathname === "/api/v1/status") {
+    const snapshot = await getProjectStatus();
+    if (!snapshot) {
+      return {
+        status: 404,
+        payload: { error: "Project status not found." },
+      };
+    }
+
     return {
       status: 200,
-      payload: await getProjectStatus.all(),
+      payload: snapshot,
     };
   }
   if (pathname === "/api/v1/refresh") {
@@ -91,7 +87,7 @@ export async function resolveOrchestratorStatusResponse(
       };
     }
 
-    refreshInFlight = Promise.resolve(refreshCallback?.());
+    refreshInFlight = Promise.resolve(refreshCallback?.()).then(() => undefined);
     try {
       await refreshInFlight;
     } catch (error) {
@@ -113,30 +109,6 @@ export async function resolveOrchestratorStatusResponse(
     };
   }
 
-  const projectMatch = pathname.match(
-    /^\/api\/v1\/projects\/([^/]+)\/status$/
-  );
-
-  if (projectMatch) {
-    const projectId = decodeURIComponent(projectMatch[1] ?? "");
-    const snapshot = await getProjectStatus.byProjectId(projectId);
-
-    if (!snapshot) {
-      return {
-        status: 404,
-        payload: {
-          error: "Project status not found.",
-          projectId,
-        },
-      };
-    }
-
-    return {
-      status: 200,
-      payload: snapshot,
-    };
-  }
-
   return {
     status: 404,
     payload: { error: "Not found" },
@@ -144,12 +116,7 @@ export async function resolveOrchestratorStatusResponse(
 }
 
 export function createOrchestratorRequestHandler(
-  getProjectStatus: {
-    all: () => Promise<ProjectStatusSnapshot[]>;
-    byProjectId: (
-      projectId: string
-    ) => Promise<ProjectStatusSnapshot | null>;
-  },
+  getProjectStatus: () => Promise<ProjectStatusSnapshot | null>,
   onRefresh?: () => void | Promise<void>
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
@@ -167,12 +134,7 @@ export function createOrchestratorRequestHandler(
 export function startOrchestratorStatusServer(options: {
   host: string;
   port: number;
-  getProjectStatus: {
-    all: () => Promise<ProjectStatusSnapshot[]>;
-    byProjectId: (
-      projectId: string
-    ) => Promise<ProjectStatusSnapshot | null>;
-  };
+  getProjectStatus: () => Promise<ProjectStatusSnapshot | null>;
   onRefresh?: () => void | Promise<void>;
 }): Server {
   const server = createServer((request, response) => {

@@ -8,7 +8,7 @@ import type { IssueWorkspaceRecord } from "../domain/issue.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
 export type OrchestratorStateStore = {
-  loadProjectConfigs(): Promise<OrchestratorProjectConfig[]>;
+  loadProjectConfig(projectId: string): Promise<OrchestratorProjectConfig | null>;
   saveProjectConfig(config: OrchestratorProjectConfig): Promise<void>;
   loadProjectLeases(projectId: string): Promise<ProjectLeaseRecord[]>;
   saveProjectLeases(projectId: string, leases: ProjectLeaseRecord[]): Promise<void>;

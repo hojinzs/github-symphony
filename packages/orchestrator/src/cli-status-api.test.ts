@@ -6,9 +6,29 @@ import type { OrchestratorService } from "./service.js";
 function createMockService(): OrchestratorService {
   return {
     run: vi.fn().mockResolvedValue(undefined),
-    runOnce: vi.fn().mockResolvedValue([]),
-    status: vi.fn().mockResolvedValue([]),
-    recover: vi.fn().mockResolvedValue([]),
+    runOnce: vi.fn().mockResolvedValue({
+      projectId: "tenant-1",
+      slug: "tenant-1",
+      tracker: { adapter: "github-project", bindingId: "project-123" },
+      lastTickAt: "2026-03-09T00:00:00.000Z",
+      health: "idle",
+      summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+      activeRuns: [],
+      retryQueue: [],
+      lastError: null,
+    }),
+    status: vi.fn().mockResolvedValue(null),
+    recover: vi.fn().mockResolvedValue({
+      projectId: "tenant-1",
+      slug: "tenant-1",
+      tracker: { adapter: "github-project", bindingId: "project-123" },
+      lastTickAt: "2026-03-09T00:00:00.000Z",
+      health: "idle",
+      summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+      activeRuns: [],
+      retryQueue: [],
+      lastError: null,
+    }),
   } as unknown as OrchestratorService;
 }
 
@@ -94,7 +114,6 @@ describe("CLI --no-status-api flag", () => {
     await options.onRefresh();
 
     expect(service.runOnce).toHaveBeenCalledWith({
-      projectId: "tenant-1",
       issueIdentifier: "acme/repo#1",
     });
   });

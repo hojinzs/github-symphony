@@ -184,30 +184,6 @@ async function readStatusSnapshot(
   }
 }
 
-async function readAllStatusSnapshots(
-  runtimeRoot: string
-): Promise<ProjectStatusSnapshot[]> {
-  try {
-    const projectsDir = join(runtimeRoot, "orchestrator", "projects");
-    const { readdir } = await import("node:fs/promises");
-    const entries = await readdir(projectsDir, { withFileTypes: true });
-    const snapshots: ProjectStatusSnapshot[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const statusPath = join(projectsDir, entry.name, "status.json");
-      try {
-        const content = await readFile(statusPath, "utf-8");
-        snapshots.push(JSON.parse(content) as ProjectStatusSnapshot);
-      } catch {
-        // skip missing/invalid files
-      }
-    }
-    return snapshots;
-  } catch {
-    return [];
-  }
-}
-
 const handler = async (
   args: string[],
   options: GlobalOptions
@@ -239,13 +215,17 @@ const handler = async (
       await requestOrchestratorRefresh({
         timeoutMs: WATCH_REFRESH_TIMEOUT_MS,
       });
-      const snapshots = await readAllStatusSnapshots(runtimeRoot);
+      const snapshot = await readStatusSnapshot(runtimeRoot, projectId);
       if (options.json || !isTTY) {
-        process.stdout.write(JSON.stringify(snapshots, null, 2) + "\n");
+        process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
       } else {
+        if (!snapshot) {
+          process.stdout.write(clearScreen() + "Unable to read status snapshot.\n");
+          return;
+        }
         process.stdout.write(
           clearScreen() +
-            renderDashboard(snapshots, {
+            renderDashboard([snapshot], {
               terminalWidth,
               noColor: options.noColor,
             }) +

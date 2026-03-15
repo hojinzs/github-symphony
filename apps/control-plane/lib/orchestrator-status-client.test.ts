@@ -5,7 +5,7 @@ import {
 } from "./orchestrator-status-client";
 
 describe("orchestrator status client", () => {
-  it("uses the configured base URL and parses tenant snapshots", async () => {
+  it("uses the configured base URL and parses project snapshots", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -38,7 +38,7 @@ describe("orchestrator status client", () => {
 
     expect(snapshot?.projectId).toBe("tenant-1");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://orchestrator.test:4680/api/v1/projects/tenant-1/status"
+      "http://orchestrator.test:4680/api/v1/status"
     );
   });
 

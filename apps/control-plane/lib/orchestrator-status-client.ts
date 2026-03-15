@@ -15,7 +15,7 @@ export function resolveOrchestratorStatusBaseUrl(env: NodeJS.ProcessEnv = proces
 }
 
 export async function fetchProjectOrchestratorStatus(
-  projectId: string,
+  _projectId: string,
   dependencies: {
     fetchImpl?: typeof fetch;
     baseUrl?: string;
@@ -23,9 +23,7 @@ export async function fetchProjectOrchestratorStatus(
 ): Promise<OrchestratorProjectStatusSnapshot | null> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const response = await fetchImpl(
-    `${dependencies.baseUrl ?? resolveOrchestratorStatusBaseUrl()}/api/v1/projects/${encodeURIComponent(
-      projectId
-    )}/status`
+    `${dependencies.baseUrl ?? resolveOrchestratorStatusBaseUrl()}/api/v1/status`
   );
 
   if (response.status === 404) {

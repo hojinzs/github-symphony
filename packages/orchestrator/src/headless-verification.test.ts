@@ -22,25 +22,26 @@ describe("headless orchestration verification", () => {
         "platform"
       );
       const store = new OrchestratorFsStore(tempRoot);
-      await store.saveProjectConfig({
+      const projectConfig = {
         projectId: "tenant-1",
         slug: "tenant-1",
         workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
         repositories: [repository],
         tracker: {
-          adapter: "github-project",
+          adapter: "github-project" as const,
           bindingId: "project-123",
           settings: {
             projectId: "project-123",
           },
         },
-      });
+      };
+      await store.saveProjectConfig(projectConfig);
 
       const spawnImpl = vi.fn().mockReturnValue({
         pid: 4101,
         unref: vi.fn(),
       });
-      const service = new OrchestratorService(store, {
+      const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-09T00:00:00.000Z"),
@@ -57,14 +58,14 @@ describe("headless orchestration verification", () => {
         },
       });
 
-      const cliStatus = JSON.parse(stdout) as Array<{
+      const cliStatus = JSON.parse(stdout) as {
         projectId: string;
         summary: {
           dispatched: number;
         };
-      }>;
-      expect(cliStatus[0]?.projectId).toBe("tenant-1");
-      expect(cliStatus[0]?.summary.dispatched).toBe(1);
+      };
+      expect(cliStatus.projectId).toBe("tenant-1");
+      expect(cliStatus.summary.dispatched).toBe(1);
 
       const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
         baseUrl: "http://orchestrator.test",
@@ -75,20 +76,11 @@ describe("headless orchestration verification", () => {
               : input instanceof URL
                 ? input.toString()
                 : input.url;
-          const pathname = new URL(requestUrl).pathname.replace(
-            "/api/v1/workspaces/",
-            "/api/v1/projects/"
-          );
+          const pathname = new URL(requestUrl).pathname;
           const resolved = await resolveOrchestratorStatusResponse(
             pathname,
             "GET",
-            {
-              all: () => service.status(),
-              byProjectId: async (projectId) => {
-                const [status] = await service.status(projectId);
-                return status ?? null;
-              },
-            }
+            () => service.status()
           );
 
           return new Response(JSON.stringify(resolved.payload), {

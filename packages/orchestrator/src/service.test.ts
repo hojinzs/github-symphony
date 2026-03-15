@@ -30,25 +30,14 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4101,
       unref: vi.fn(),
     });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -58,12 +47,12 @@ describe("OrchestratorService", () => {
     const second = await service.runOnce();
     const leases = await store.loadProjectLeases("tenant-1");
 
-    expect(first[0]?.summary.dispatched).toBe(1);
-    expect(first[0]?.tracker).toEqual({
+    expect(first.summary.dispatched).toBe(1);
+    expect(first.tracker).toEqual({
       adapter: "github-project",
       bindingId: "project-123",
     });
-    expect(second[0]?.summary.dispatched).toBe(0);
+    expect(second.summary.dispatched).toBe(0);
     expect(leases).toHaveLength(1);
     expect(leases[0]?.status).toBe("active");
     expect(spawnImpl).toHaveBeenCalledTimes(1);
@@ -92,19 +81,8 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
     await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
@@ -145,7 +123,7 @@ describe("OrchestratorService", () => {
       pid: 4102,
       unref: vi.fn(),
     });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
@@ -153,7 +131,7 @@ describe("OrchestratorService", () => {
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.recovered).toBe(1);
+    expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -166,21 +144,10 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
 
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4103,
@@ -215,19 +182,8 @@ describe("OrchestratorService", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
     await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
@@ -264,7 +220,7 @@ describe("OrchestratorService", () => {
       nextRetryAt: null,
     });
 
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4104,
@@ -309,19 +265,8 @@ describe("OrchestratorService", () => {
 
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceDir = join(tempRoot, "workspace-runtime-root");
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir,
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository, workspaceDir);
+    await store.saveProjectConfig(projectConfig);
 
     const workspaceKey = deriveIssueWorkspaceKey({
       projectId: "tenant-1",
@@ -365,7 +310,7 @@ describe("OrchestratorService", () => {
       nextRetryAt: "2026-03-08T00:00:20.000Z",
     });
 
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4201,
@@ -391,19 +336,8 @@ describe("OrchestratorService", () => {
     );
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceRuntimeDir = join(tempRoot, "stale-run", "workspace-runtime");
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
     await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
@@ -470,7 +404,7 @@ describe("OrchestratorService", () => {
       }
       return createEmptyTrackerResponse();
     });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4203,
@@ -498,19 +432,8 @@ describe("OrchestratorService", () => {
       "bare-repo"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
 
     const projectDir = store.projectDir("tenant-1");
     await writeFile(
@@ -547,7 +470,7 @@ Workspace prompt.
       pid: 4301,
       unref: vi.fn(),
     });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
         .mockResolvedValue(createTrackerResponseWithState(repository, "Open")),
@@ -557,7 +480,7 @@ Workspace prompt.
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.dispatched).toBe(0);
+    expect(result.summary.dispatched).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
@@ -570,25 +493,14 @@ Workspace prompt.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4302,
       unref: vi.fn(),
     });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -597,7 +509,7 @@ Workspace prompt.
     const result = await service.runOnce();
 
     // Repo WORKFLOW.md defines Todo as active, issue is in "Todo" → dispatched
-    expect(result[0]?.summary.dispatched).toBe(1);
+    expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -619,19 +531,8 @@ Workspace prompt.
 
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceDir = join(tempRoot, "workspace-runtime-root");
-    await store.saveProjectConfig({
-      projectId: "tenant-1",
-      slug: "tenant-1",
-      workspaceDir,
-      repositories: [repository],
-      tracker: {
-        adapter: "github-project",
-        bindingId: "project-123",
-        settings: {
-          projectId: "project-123",
-        },
-      },
-    });
+    const projectConfig = createProjectConfig(tempRoot, repository, workspaceDir);
+    await store.saveProjectConfig(projectConfig);
 
     const workspaceKey = deriveIssueWorkspaceKey({
       projectId: "tenant-1",
@@ -680,7 +581,7 @@ Workspace prompt.
       nextRetryAt: null,
     });
 
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4202,
@@ -741,6 +642,30 @@ async function createRepositoryFixture(
     name,
     cloneUrl: repositoryRoot,
     path: repositoryRoot,
+  };
+}
+
+function createProjectConfig(
+  root: string,
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  workspaceDir = join(root, "workspaces", "tenant-1")
+) {
+  return {
+    projectId: "tenant-1",
+    slug: "tenant-1",
+    workspaceDir,
+    repositories: [repository],
+    tracker: {
+      adapter: "github-project" as const,
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    },
   };
 }
 
