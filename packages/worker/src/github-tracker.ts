@@ -3,8 +3,8 @@ export {
   GitHubTrackerHttpError,
   GitHubTrackerQueryError,
   fetchActionableIssues,
-  fetchProjectIssues,
-  normalizeProjectItem,
+  fetchGithubProjectIssues,
+  normalizeGithubProjectItem,
   type GitHubRepositoryRef,
   type GitHubTrackedIssue,
   type GitHubTrackerConfig

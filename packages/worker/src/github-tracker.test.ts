@@ -5,7 +5,7 @@ import {
   GitHubTrackerQueryError,
   isActionableState,
   isTrackedIssueActionable,
-  normalizeProjectItem,
+  normalizeGithubProjectItem,
   normalizeStateName
 } from "./github-tracker.js";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "./workflow-lifecycle.js";
@@ -23,9 +23,9 @@ describe("isActionableState", () => {
   });
 });
 
-describe("normalizeProjectItem", () => {
+describe("normalizeGithubProjectItem", () => {
   it("maps a GitHub project issue into the worker issue model", () => {
-    const issue = normalizeProjectItem("project-123", {
+    const issue = normalizeGithubProjectItem("project-123", {
       id: "item-1",
       updatedAt: "2026-03-07T10:00:00.000Z",
       fieldValues: {

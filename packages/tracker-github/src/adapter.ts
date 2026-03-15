@@ -111,19 +111,22 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
 
 export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
-export function normalizeProjectItem(
-  projectId: string,
-  item: GraphQLProjectItem,
+export function normalizeGithubProjectItem(
+  githubProjectId: string,
+  githubProjectItem: GraphQLProjectItem,
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
 ): GitHubTrackedIssue | null {
-  if (item.content?.__typename !== "Issue") {
+  if (githubProjectItem.content?.__typename !== "Issue") {
     return null;
   }
 
-  const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
+  const fieldValues = extractFieldValues(
+    githubProjectItem.fieldValues?.nodes ?? []
+  );
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
-  const repository = item.content.repository;
-  const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap((node) =>
+  const repository = githubProjectItem.content.repository;
+  const blockedBy = (githubProjectItem.content.blockedBy?.nodes ?? []).flatMap(
+    (node) =>
     node
       ? [
           `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
@@ -132,21 +135,21 @@ export function normalizeProjectItem(
   );
 
   return {
-    id: item.content.id,
-    identifier: `${repository.owner.login}/${repository.name}#${item.content.number}`,
-    number: item.content.number,
-    title: item.content.title,
-    description: item.content.body,
+    id: githubProjectItem.content.id,
+    identifier: `${repository.owner.login}/${repository.name}#${githubProjectItem.content.number}`,
+    number: githubProjectItem.content.number,
+    title: githubProjectItem.content.title,
+    description: githubProjectItem.content.body,
     priority: null,
     state,
     branchName: null,
-    url: item.content.url,
-    labels: (item.content.labels?.nodes ?? [])
+    url: githubProjectItem.content.url,
+    labels: (githubProjectItem.content.labels?.nodes ?? [])
       .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
       .sort(),
     blockedBy,
-    createdAt: item.content.createdAt,
-    updatedAt: item.content.updatedAt ?? item.updatedAt,
+    createdAt: githubProjectItem.content.createdAt,
+    updatedAt: githubProjectItem.content.updatedAt ?? githubProjectItem.updatedAt,
     repository: {
       owner: repository.owner.login,
       name: repository.name,
@@ -155,14 +158,14 @@ export function normalizeProjectItem(
     },
     tracker: {
       adapter: "github-project",
-      bindingId: projectId,
-      itemId: item.id,
+      bindingId: githubProjectId,
+      itemId: githubProjectItem.id,
     },
     metadata: fieldValues,
   };
 }
 
-export async function fetchProjectIssues(
+export async function fetchGithubProjectIssues(
   config: GitHubTrackerConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[]> {
@@ -181,7 +184,7 @@ export async function fetchProjectIssues(
           return [];
         }
 
-        const normalized = normalizeProjectItem(
+        const normalized = normalizeGithubProjectItem(
           config.projectId,
           item,
           config.lifecycle
@@ -221,7 +224,7 @@ export async function fetchActionableIssues(
   config: GitHubTrackerConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[]> {
-  const issues = await fetchProjectIssues(config, fetchImpl);
+  const issues = await fetchGithubProjectIssues(config, fetchImpl);
   const lifecycle = config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE;
   return issues.filter((issue) => {
     const normalized = issue.state.trim().toLowerCase();
