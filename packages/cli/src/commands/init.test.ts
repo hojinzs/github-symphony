@@ -37,6 +37,7 @@ describe("init command config output", () => {
       )
     ) as CliProjectConfig;
     expect(project.workspaceDir).toBe(join(configDir, "workspaces"));
+    expect(project.displayName).toBe("Platform");
     expect(project).not.toHaveProperty("runtime");
     await expect(
       readFile(

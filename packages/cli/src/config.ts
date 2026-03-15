@@ -20,6 +20,7 @@ export type CliProjectTrackerSettings = Record<string, string | boolean> & {
 };
 
 export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {
+  displayName?: string;
   tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
     settings?: CliProjectTrackerSettings;
   };
