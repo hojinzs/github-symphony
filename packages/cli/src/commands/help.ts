@@ -28,7 +28,7 @@ Project Management:
 Project / Repo:
   project list    List projects
   project switch  Switch active project
-  project status  Show active project details
+  project status  Show orchestrator status for a project
   repo list       List configured repositories
   repo add        Add a repository
   repo remove     Remove a repository

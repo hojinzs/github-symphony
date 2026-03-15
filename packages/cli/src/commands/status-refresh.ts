@@ -2,6 +2,7 @@ type RefreshRequestOptions = {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  baseUrl?: string | null;
 };
 
 export function resolveOrchestratorStatusBaseUrl(
@@ -19,15 +20,20 @@ export async function requestOrchestratorRefresh(
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
   const signal = AbortSignal.timeout(timeoutMs);
+  const baseUrl =
+    "baseUrl" in options
+      ? options.baseUrl
+      : resolveOrchestratorStatusBaseUrl(options.env);
+
+  if (!baseUrl) {
+    return false;
+  }
 
   try {
-    const response = await fetchImpl(
-      `${resolveOrchestratorStatusBaseUrl(options.env)}/api/v1/refresh`,
-      {
-        method: "POST",
-        signal,
-      }
-    );
+    const response = await fetchImpl(`${baseUrl}/api/v1/refresh`, {
+      method: "POST",
+      signal,
+    });
     return response.ok;
   } catch {
     return false;

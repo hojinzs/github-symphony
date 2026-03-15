@@ -24,12 +24,15 @@ vi.mock("node:child_process", async () => {
 
 const runModule = await import("./run.js");
 const startModule = await import("./start.js");
+const projectModule = await import("./project.js");
 const recoverModule = await import("./recover.js");
+const stopModule = await import("./stop.js");
 
 afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
   vi.restoreAllMocks();
+  process.exitCode = undefined;
 });
 
 describe("lifecycle command integration", () => {
@@ -100,6 +103,164 @@ describe("lifecycle command integration", () => {
         }),
       })
     );
+
+    expect(
+      await readFile(
+        join(configDir, "projects", "tenant-b", "daemon.pid"),
+        "utf8"
+      )
+    ).toBe("4321");
+  });
+
+  it("supports project start subcommand for explicit project orchestration", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+
+    spawnMock.mockReturnValue({
+      pid: 8765,
+      stdout: { pipe: vi.fn() },
+      stderr: { pipe: vi.fn() },
+      unref: vi.fn(),
+    });
+
+    await projectModule.default(
+      ["start", "--project-id", "tenant-b", "--daemon"],
+      baseOptions(configDir)
+    );
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      process.execPath,
+      [process.argv[1], "start", "--project", "tenant-b"],
+      expect.any(Object)
+    );
+  });
+
+  it("routes project status to the requested project's orchestrator snapshot", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    await writeStatusSnapshot(configDir, "tenant-b", {
+      slug: "tenant-b",
+      health: "running",
+    });
+
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    await projectModule.default(
+      ["status", "--project-id", "tenant-b"],
+      baseOptions(configDir)
+    );
+
+    const output = stdout.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("gh-symphony");
+    expect(output).toContain("tenant-b");
+    expect(output).not.toContain("tenant-a");
+  });
+
+  it("rejects unknown project status flags instead of falling back to the active project", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await projectModule.default(
+      ["status", "--proejct-id", "tenant-b"],
+      baseOptions(configDir)
+    );
+
+    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("Unknown option '--proejct-id'");
+    expect(output).toContain(
+      "Usage: gh-symphony status [--project-id <project-id>] [--watch]"
+    );
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("stops only the requested project's daemon files", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
+    await writeFile(join(configDir, "projects", "tenant-a", "port"), "41001\n");
+    await writeFile(join(configDir, "projects", "tenant-b", "daemon.pid"), "222\n");
+    await writeFile(join(configDir, "projects", "tenant-b", "port"), "41002\n");
+
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+        if (signal === 0) {
+          return true;
+        }
+        if (pid !== 111 || signal !== "SIGTERM") {
+          throw new Error(`unexpected kill ${pid} ${String(signal)}`);
+        }
+        return true;
+      }) as typeof process.kill);
+
+    await stopModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+
+    expect(killSpy).toHaveBeenCalledWith(111, 0);
+    expect(killSpy).toHaveBeenCalledWith(111, "SIGTERM");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(join(configDir, "projects", "tenant-b", "daemon.pid"), "utf8")
+    ).resolves.toContain("222");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-b", "port"), "utf8")
+    ).resolves.toContain("41002");
+  });
+
+  it("rejects unknown project stop flags before touching daemon state", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
+
+    const killSpy = vi.spyOn(process, "kill");
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await stopModule.default(["--proejct-id", "tenant-a"], baseOptions(configDir));
+
+    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("Unknown option '--proejct-id'");
+    expect(output).toContain(
+      "Usage: gh-symphony stop --project-id <project-id> [--force]"
+    );
+    expect(killSpy).not.toHaveBeenCalled();
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).resolves.toContain("111");
+    expect(process.exitCode).toBe(2);
   });
 
   it("reports recoverable runs without invoking recovery in dry-run mode", async () => {
@@ -208,4 +369,36 @@ async function createConfigFixture(input: {
   }
 
   return configDir;
+}
+
+async function writeStatusSnapshot(
+  configDir: string,
+  projectId: string,
+  input: { slug: string; health: "idle" | "running" | "degraded" }
+): Promise<void> {
+  const statusDir = join(configDir, "orchestrator", "projects", projectId);
+  await mkdir(statusDir, { recursive: true });
+  await writeFile(
+    join(statusDir, "status.json"),
+    JSON.stringify(
+      {
+        slug: input.slug,
+        health: input.health,
+        lastTickAt: new Date().toISOString(),
+        summary: {
+          dispatched: 0,
+          activeRuns: 0,
+          suppressed: 0,
+          recovered: 0,
+        },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+        codexTotals: null,
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
 }

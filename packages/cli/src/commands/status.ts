@@ -10,7 +10,9 @@ import {
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
+import { resolveProjectOrchestratorStatusBaseUrl } from "../orchestrator-status-endpoint.js";
 import { requestOrchestratorRefresh } from "./status-refresh.js";
+import { parseCliArgs } from "./parse-cli-args.js";
 
 const WATCH_REFRESH_TIMEOUT_MS = 1_500;
 
@@ -150,19 +152,23 @@ function renderLegacyStatus(
 function parseStatusArgs(args: string[]): {
   watch: boolean;
   projectId?: string;
+  error?: string;
 } {
-  const parsed: { watch: boolean; projectId?: string } = { watch: false };
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === "--watch" || arg === "-w") {
-      parsed.watch = true;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      parsed.projectId = args[i + 1];
-      i += 1;
-    }
+  const parsed = parseCliArgs(args, {
+    watch: { type: "boolean", short: "w" },
+    project: { type: "string" },
+    "project-id": { type: "string" },
+  });
+  if ("error" in parsed) {
+    return { watch: false, error: parsed.error };
   }
-  return parsed;
+
+  return {
+    watch: Boolean(parsed.values.watch),
+    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
+      | string
+      | undefined,
+  };
 }
 
 async function readStatusSnapshot(
@@ -189,6 +195,14 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseStatusArgs(args);
+  if (parsed.error) {
+    process.stderr.write(`${parsed.error}\n`);
+    process.stderr.write(
+      "Usage: gh-symphony status [--project-id <project-id>] [--watch]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   const projectConfig = await resolveProjectConfig(
     options.configDir,
@@ -212,7 +226,12 @@ const handler = async (
     let runPromise: Promise<void> | null = null;
 
     const run = async () => {
+      const baseUrl = await resolveProjectOrchestratorStatusBaseUrl({
+        configDir: options.configDir,
+        projectId,
+      });
       await requestOrchestratorRefresh({
+        baseUrl,
         timeoutMs: WATCH_REFRESH_TIMEOUT_MS,
       });
       const snapshot = await readStatusSnapshot(runtimeRoot, projectId);

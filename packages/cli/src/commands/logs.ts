@@ -3,19 +3,25 @@ import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { GlobalOptions } from "../index.js";
-import { loadActiveProjectConfig, orchestratorLogPath } from "../config.js";
+import {
+  loadActiveProjectConfig,
+  loadProjectConfig,
+  orchestratorLogPath,
+} from "../config.js";
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
   issue?: string;
   run?: string;
   level?: string;
+  projectId?: string;
 } {
   const parsed: {
     follow: boolean;
     issue?: string;
     run?: string;
     level?: string;
+    projectId?: string;
   } = { follow: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -34,6 +40,10 @@ function parseLogsArgs(args: string[]): {
       parsed.level = args[i + 1];
       i += 1;
     }
+    if (arg === "--project" || arg === "--project-id") {
+      parsed.projectId = args[i + 1];
+      i += 1;
+    }
   }
   return parsed;
 }
@@ -44,7 +54,9 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseLogsArgs(args);
 
-  const projectConfig = await loadActiveProjectConfig(options.configDir);
+  const projectConfig = parsed.projectId
+    ? await loadProjectConfig(options.configDir, parsed.projectId)
+    : await loadActiveProjectConfig(options.configDir);
   if (!projectConfig) {
     process.stderr.write(
       "No project configured. Run 'gh-symphony project add' first.\n"
@@ -80,7 +92,10 @@ const handler = async (
 
   // Default: read orchestrator log or scan all events
   if (parsed.follow) {
-    const logPath = orchestratorLogPath(options.configDir);
+    const logPath = orchestratorLogPath(
+      options.configDir,
+      projectConfig.projectId
+    );
     try {
       const stream = createReadStream(logPath, { encoding: "utf8" });
       const rl = createInterface({ input: stream });

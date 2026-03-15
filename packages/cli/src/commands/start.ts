@@ -1,8 +1,14 @@
-import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath, orchestratorLogPath, logsDir } from "../config.js";
+import { parseCliArgs } from "./parse-cli-args.js";
+import {
+  daemonPidPath,
+  orchestratorLogPath,
+  orchestratorPortPath,
+} from "../config.js";
 import {
   OrchestratorService,
   createStore,
@@ -29,24 +35,36 @@ function logLine(icon: string, msg: string): void {
   process.stdout.write(`${timestamp()} ${icon} ${msg}\n`);
 }
 
+type ForegroundShutdownOptions = {
+  configDir: string;
+  projectId: string;
+  statusServer: { close(): void };
+  exit?: (code?: number) => never;
+  removePortFile?: typeof rm;
+};
+
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
 function parseStartArgs(args: string[]): {
   daemon: boolean;
   projectId?: string;
+  error?: string;
 } {
-  const parsed: { daemon: boolean; projectId?: string } = { daemon: false };
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === "--daemon" || arg === "-d") {
-      parsed.daemon = true;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      parsed.projectId = args[i + 1];
-      i += 1;
-    }
+  const parsed = parseCliArgs(args, {
+    daemon: { type: "boolean", short: "d" },
+    project: { type: "string" },
+    "project-id": { type: "string" },
+  });
+  if ("error" in parsed) {
+    return { daemon: false, error: parsed.error };
   }
-  return parsed;
+
+  return {
+    daemon: Boolean(parsed.values.daemon),
+    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
+      | string
+      | undefined,
+  };
 }
 
 // ── Tick logging ──────────────────────────────────────────────────────────────
@@ -166,6 +184,21 @@ const handler = async (
 ): Promise<void> => {
   setNoColor(options.noColor);
   const parsed = parseStartArgs(args);
+  if (parsed.error) {
+    process.stderr.write(`${parsed.error}\n`);
+    process.stderr.write(
+      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
+  if (!parsed.projectId) {
+    process.stderr.write(
+      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   const projectConfig = await resolveProjectConfig(
     options.configDir,
@@ -201,15 +234,15 @@ const handler = async (
   const store = createStore(runtimeRoot);
   const service = new OrchestratorService(store, projectConfig);
 
-  // Start status server
-  startOrchestratorStatusServer({
+  const statusServer = startOrchestratorStatusServer({
     host: "127.0.0.1",
-    port: 4680,
+    port: 0,
     getProjectStatus: () => service.status(),
     onRefresh: async () => {
       await service.runOnce();
     },
   });
+  await persistStatusServerPort(options.configDir, projectId, statusServer);
 
   logLine(
     green("\u25B2"),
@@ -218,13 +251,25 @@ const handler = async (
   logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
   let running = true;
-  const shutdown = () => {
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     running = false;
-    logLine(yellow("\u25BC"), "Shutting down...");
-    process.exit(0);
+    await shutdownForegroundOrchestrator({
+      configDir: options.configDir,
+      projectId,
+      statusServer,
+    });
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => {
+    void shutdown();
+  });
+  process.on("SIGTERM", () => {
+    void shutdown();
+  });
 
   let prevSnapshot: ProjectStatusSnapshot | null = null;
   let isFirst = true;
@@ -263,6 +308,39 @@ const handler = async (
   }
 };
 
+export async function shutdownForegroundOrchestrator(
+  input: ForegroundShutdownOptions
+): Promise<never> {
+  logLine(yellow("\u25BC"), "Shutting down...");
+
+  try {
+    input.statusServer.close();
+  } catch (error) {
+    logLine(
+      red("\u2717"),
+      red(
+        `Failed to close status server: ${error instanceof Error ? error.message : "Unknown error"}`
+      )
+    );
+  }
+
+  try {
+    await (input.removePortFile ?? rm)(
+      orchestratorPortPath(input.configDir, input.projectId),
+      {
+        force: true,
+      }
+    );
+  } catch (error) {
+    logLine(
+      yellow("\u26A0"),
+      `Failed to remove persisted status port: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+
+  return (input.exit ?? process.exit)(0);
+}
+
 async function tailWorkerLog(
   runtimeRoot: string,
   runId: string,
@@ -297,8 +375,8 @@ async function startDaemon(
   options: GlobalOptions,
   projectId: string
 ): Promise<void> {
-  const logPath = orchestratorLogPath(options.configDir);
-  await mkdir(logsDir(options.configDir), { recursive: true });
+  const logPath = orchestratorLogPath(options.configDir, projectId);
+  await mkdir(dirname(logPath), { recursive: true });
 
   const { openSync } = await import("node:fs");
   const logFd = openSync(logPath, "a");
@@ -317,7 +395,7 @@ async function startDaemon(
     }
   );
 
-  const pidPath = daemonPidPath(options.configDir);
+  const pidPath = daemonPidPath(options.configDir, projectId);
   await mkdir(dirname(pidPath), { recursive: true });
   await writeFile(pidPath, String(child.pid), "utf8");
 
@@ -329,6 +407,25 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      `Stop with: gh-symphony stop\n`
+      `Stop with: gh-symphony project stop --project-id ${projectId}\n`
   );
+}
+
+async function persistStatusServerPort(
+  configDir: string,
+  projectId: string,
+  statusServer: ReturnType<typeof startOrchestratorStatusServer>
+): Promise<void> {
+  if (!statusServer.listening) {
+    await once(statusServer, "listening");
+  }
+
+  const address = statusServer.address();
+  if (!address || typeof address !== "object") {
+    return;
+  }
+
+  const portPath = orchestratorPortPath(configDir, projectId);
+  await mkdir(dirname(portPath), { recursive: true });
+  await writeFile(portPath, `${address.port}\n`, "utf8");
 }
