@@ -1,5 +1,6 @@
 import { readFile, rm } from "node:fs/promises";
 import { mkdirSync, openSync } from "node:fs";
+import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
@@ -485,7 +486,7 @@ export class OrchestratorService {
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
       );
     }
-    const port = this.allocatePort();
+    const port = await this.allocatePort();
 
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
@@ -748,7 +749,16 @@ export class OrchestratorService {
     return this.dependencies.now?.() ?? new Date();
   }
 
-  private allocatePort(): number {
+  private async allocatePort(): Promise<number> {
+    // Skip ports that are still in use by lingering worker processes
+    const maxAttempts = 100;
+    for (let i = 0; i < maxAttempts; i++) {
+      this.nextPort += 1;
+      if (await isPortAvailable(this.nextPort)) {
+        return this.nextPort;
+      }
+    }
+    // Fallback: return next port even if availability check exhausted
     this.nextPort += 1;
     return this.nextPort;
   }
@@ -1306,4 +1316,14 @@ function isProcessRunning(processId: number): boolean {
   } catch {
     return false;
   }
+}
+
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, () => {
+      server.close(() => resolve(true));
+    });
+  });
 }
