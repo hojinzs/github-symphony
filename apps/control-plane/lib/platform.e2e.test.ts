@@ -311,7 +311,7 @@ describe("Platform end-to-end flow", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            workspaceId: workspace.id,
+            projectId: workspace.id,
             slug: workspace.slug,
             tracker: {
               adapter: "github-project",
@@ -370,7 +370,7 @@ describe("Platform end-to-end flow", () => {
       port: 4510,
       state: {
         orchestrator: {
-          workspaceId: workspace.id
+          projectId: workspace.id
         },
         worker: {
           issueNumber: 99,

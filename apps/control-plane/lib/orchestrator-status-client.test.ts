@@ -52,6 +52,39 @@ describe("orchestrator status client", () => {
     expect(snapshot).toBeNull();
   });
 
+  it("returns null when the snapshot projectId does not match the requested workspace", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          projectId: "tenant-2",
+          slug: "tenant-2",
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-456"
+          },
+          lastTickAt: "2026-03-09T00:00:00.000Z",
+          health: "running",
+          summary: {
+            dispatched: 0,
+            suppressed: 0,
+            recovered: 0,
+            activeRuns: 0
+          },
+          activeRuns: [],
+          retryQueue: [],
+          lastError: null
+        }),
+        { status: 200 }
+      )
+    );
+
+    const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
+      fetchImpl: fetchImpl as typeof fetch
+    });
+
+    expect(snapshot).toBeNull();
+  });
+
   it("defaults the base URL for colocated control-plane deployments", () => {
     expect(
       resolveOrchestratorStatusBaseUrl({

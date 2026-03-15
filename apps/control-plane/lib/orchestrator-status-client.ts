@@ -15,7 +15,7 @@ export function resolveOrchestratorStatusBaseUrl(env: NodeJS.ProcessEnv = proces
 }
 
 export async function fetchProjectOrchestratorStatus(
-  _projectId: string,
+  projectId: string,
   dependencies: {
     fetchImpl?: typeof fetch;
     baseUrl?: string;
@@ -34,5 +34,6 @@ export async function fetchProjectOrchestratorStatus(
     throw new Error(`Orchestrator status endpoint returned ${response.status}`);
   }
 
-  return (await response.json()) as OrchestratorProjectStatusSnapshot;
+  const snapshot = (await response.json()) as OrchestratorProjectStatusSnapshot;
+  return snapshot.projectId === projectId ? snapshot : null;
 }
