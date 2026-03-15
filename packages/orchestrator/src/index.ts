@@ -32,16 +32,16 @@ export async function runCli(
         const statusServer = (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
           host: statusHost,
           port: statusPort,
-          getTenantStatus: {
+          getProjectStatus: {
             all: () => service.status(),
-            byTenantId: async (tenantId) => {
-              const [snapshot] = await service.status(tenantId);
+            byProjectId: async (projectId) => {
+              const [snapshot] = await service.status(projectId);
               return snapshot ?? null;
             }
           },
           onRefresh: async () => {
             await service.runOnce({
-              tenantId: parsed.tenantId,
+              projectId: parsed.projectId,
               issueIdentifier: parsed.issueIdentifier,
             });
           },
@@ -56,7 +56,7 @@ export async function runCli(
         });
       }
       await service.run({
-        tenantId: parsed.tenantId,
+        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       return;
@@ -64,31 +64,31 @@ export async function runCli(
     case "run-once":
     case "dispatch": {
       const result = await service.runOnce({
-        tenantId: parsed.tenantId,
+        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "run-issue": {
-      if (!parsed.tenantId || !parsed.issueIdentifier) {
-        throw new Error("run-issue requires --tenant-id and --issue.");
+      if (!parsed.projectId || !parsed.issueIdentifier) {
+        throw new Error("run-issue requires --project-id and --issue.");
       }
 
       const result = await service.runOnce({
-        tenantId: parsed.tenantId,
+        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "recover": {
-      const result = await service.recover(parsed.tenantId);
+      const result = await service.recover(parsed.projectId);
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "status": {
-      const result = await service.status(parsed.tenantId);
+      const result = await service.status(parsed.projectId);
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 
 function parseArgs(args: string[]): {
   runtimeRoot?: string;
-  tenantId?: string;
+  projectId?: string;
   issueIdentifier?: string;
   statusHost?: string;
   statusPort?: number;
@@ -111,7 +111,7 @@ function parseArgs(args: string[]): {
 } {
   const parsed: {
     runtimeRoot?: string;
-    tenantId?: string;
+    projectId?: string;
     issueIdentifier?: string;
     statusHost?: string;
     statusPort?: number;
@@ -131,9 +131,9 @@ function parseArgs(args: string[]): {
         parsed.runtimeRoot = value;
         index += 1;
         break;
-      case "--tenant":
-      case "--tenant-id":
-        parsed.tenantId = value;
+      case "--project":
+      case "--project-id":
+        parsed.projectId = value;
         index += 1;
         break;
       case "--issue":

@@ -7,7 +7,7 @@ import { sortCandidatesForDispatch, OrchestratorService } from "./service.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
-  OrchestratorTenantConfig,
+  OrchestratorProjectConfig,
   TrackedIssue,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -159,8 +159,8 @@ describe("per-state concurrency limits", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig(
-      createTenantConfig(
+    await store.saveProjectConfig(
+      createProjectConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -199,8 +199,8 @@ describe("per-state concurrency limits", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig(
-      createTenantConfig(
+    await store.saveProjectConfig(
+      createProjectConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -239,8 +239,8 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig(
-      createTenantConfig(
+    await store.saveProjectConfig(
+      createProjectConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -287,7 +287,7 @@ describe("blocker eligibility", () => {
       listIssues,
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
-        _tenant: OrchestratorTenantConfig,
+        _tenant: OrchestratorProjectConfig,
         run: OrchestratorRunRecord
       ) =>
         makeIssue({
@@ -337,8 +337,8 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig(
-      createTenantConfig(
+    await store.saveProjectConfig(
+      createProjectConfig(
         tempRoot,
         repository.cloneUrl,
         repository.owner,
@@ -385,7 +385,7 @@ describe("blocker eligibility", () => {
       listIssues,
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
-        _tenant: OrchestratorTenantConfig,
+        _tenant: OrchestratorProjectConfig,
         run: OrchestratorRunRecord
       ) =>
         makeIssue({
@@ -512,14 +512,14 @@ Prefer focused changes.
   );
 }
 
-function createTenantConfig(
+function createProjectConfig(
   tempRoot: string,
   cloneUrl: string,
   owner: string,
   name: string
 ) {
   return {
-    tenantId: "tenant-1",
+    projectId: "tenant-1",
     slug: "tenant-1",
     workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
     repositories: [

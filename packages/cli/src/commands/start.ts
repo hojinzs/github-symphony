@@ -8,11 +8,11 @@ import {
   createStore,
   startOrchestratorStatusServer,
 } from "@gh-symphony/orchestrator";
-import type { TenantStatusSnapshot } from "@gh-symphony/core";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import {
-  resolveTenantConfig,
+  resolveProjectConfig,
   resolveRuntimeRoot,
-  syncTenantToRuntime,
+  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
@@ -33,16 +33,16 @@ function logLine(icon: string, msg: string): void {
 
 function parseStartArgs(args: string[]): {
   daemon: boolean;
-  tenantId?: string;
+  projectId?: string;
 } {
-  const parsed: { daemon: boolean; tenantId?: string } = { daemon: false };
+  const parsed: { daemon: boolean; projectId?: string } = { daemon: false };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--daemon" || arg === "-d") {
       parsed.daemon = true;
     }
-    if (arg === "--tenant" || arg === "--tenant-id") {
-      parsed.tenantId = args[i + 1];
+    if (arg === "--project" || arg === "--project-id") {
+      parsed.projectId = args[i + 1];
       i += 1;
     }
   }
@@ -52,12 +52,12 @@ function parseStartArgs(args: string[]): {
 // ── Tick logging ──────────────────────────────────────────────────────────────
 
 function logTickResult(
-  snapshots: TenantStatusSnapshot[],
-  prevSnapshots: TenantStatusSnapshot[],
+  snapshots: ProjectStatusSnapshot[],
+  prevSnapshots: ProjectStatusSnapshot[],
   isFirst: boolean
 ): void {
   for (const snap of snapshots) {
-    const prev = prevSnapshots.find((p) => p.tenantId === snap.tenantId);
+    const prev = prevSnapshots.find((p) => p.projectId === snap.projectId);
 
     if (isFirst) {
       const healthColor =
@@ -68,7 +68,7 @@ function logTickResult(
             : cyan;
       logLine(
         green("\u25CF"),
-        `Tenant ${bold(snap.slug)} connected ${dim("(")}${healthColor(snap.health)}${dim(")")}`
+        `Project ${bold(snap.slug)} connected ${dim("(")}${healthColor(snap.health)}${dim(")")}`
       );
       if (snap.summary.activeRuns > 0) {
         logLine(cyan("\u25B8"), `${snap.summary.activeRuns} active run(s)`);
@@ -179,24 +179,24 @@ const handler = async (
   setNoColor(options.noColor);
   const parsed = parseStartArgs(args);
 
-  const tenantConfig = await resolveTenantConfig(
+  const projectConfig = await resolveProjectConfig(
     options.configDir,
-    parsed.tenantId
+    parsed.projectId
   );
-  if (!tenantConfig) {
+  if (!projectConfig) {
     process.stderr.write(
-      "No tenant configured. Run 'gh-symphony init' first.\n"
+      "No project configured. Run 'gh-symphony project add' first.\n"
     );
     process.exitCode = 1;
     return;
   }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const tenantId = tenantConfig.tenantId;
-  await syncTenantToRuntime(options.configDir, tenantConfig);
+  const projectId = projectConfig.projectId;
+  await syncProjectToRuntime(options.configDir, projectConfig);
 
   if (parsed.daemon) {
-    await startDaemon(options, tenantId);
+    await startDaemon(options, projectId);
     return;
   }
 
@@ -217,21 +217,21 @@ const handler = async (
   startOrchestratorStatusServer({
     host: "127.0.0.1",
     port: 4680,
-    getTenantStatus: {
+    getProjectStatus: {
       all: () => service.status(),
-      byTenantId: async (id) => {
+      byProjectId: async (id) => {
         const [snapshot] = await service.status(id);
         return snapshot ?? null;
       },
     },
     onRefresh: async () => {
-      await service.runOnce({ tenantId });
+      await service.runOnce({ projectId });
     },
   });
 
   logLine(
     green("\u25B2"),
-    `Starting orchestrator for tenant: ${bold(tenantId)}`
+    `Starting orchestrator for project: ${bold(projectId)}`
   );
   logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
@@ -244,17 +244,19 @@ const handler = async (
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  let prevSnapshots: TenantStatusSnapshot[] = [];
+  let prevSnapshots: ProjectStatusSnapshot[] = [];
   let isFirst = true;
 
   while (running) {
     try {
-      const snapshots = await service.runOnce({ tenantId });
+      const snapshots = await service.runOnce({ projectId });
       logTickResult(snapshots, prevSnapshots, isFirst);
 
       if (!isFirst) {
         for (const snap of snapshots) {
-          const prev = prevSnapshots.find((p) => p.tenantId === snap.tenantId);
+          const prev = prevSnapshots.find(
+            (p) => p.projectId === snap.projectId
+          );
           const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
           for (const prevRun of prev?.activeRuns ?? []) {
             if (!currentRunIds.has(prevRun.runId)) {
@@ -316,7 +318,7 @@ export default handler;
 
 async function startDaemon(
   options: GlobalOptions,
-  tenantId: string
+  projectId: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir);
   await mkdir(logsDir(options.configDir), { recursive: true });
@@ -326,7 +328,7 @@ async function startDaemon(
 
   const child = spawn(
     process.execPath,
-    [process.argv[1]!, "start", "--tenant", tenantId],
+    [process.argv[1]!, "start", "--project", projectId],
     {
       cwd: process.cwd(),
       env: {

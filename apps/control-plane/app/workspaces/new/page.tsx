@@ -4,6 +4,8 @@ import { buildGitHubSetupPath } from "../../../lib/github-setup-guard";
 import { requireOperatorPageSession } from "../../../lib/operator-auth-guard";
 import { WorkspaceCreateForm } from "./workspace-create-form";
 
+export const dynamic = "force-dynamic";
+
 export default async function NewWorkspacePage() {
   await requireOperatorPageSession("/workspaces/new");
   const summary = await loadGitHubIntegrationSummary();

@@ -1,6 +1,6 @@
 export type RuntimeSessionSnapshot = {
   runId: string;
-  tenantId: string;
+  projectId: string;
   issueIdentifier: string;
   phase: string;
   attempt: number;

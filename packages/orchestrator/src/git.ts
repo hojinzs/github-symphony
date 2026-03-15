@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, rm } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import {
@@ -18,20 +18,39 @@ export async function cloneRepositoryForRun(input: {
 }): Promise<string> {
   await mkdir(input.targetDirectory, { recursive: true });
   const repositoryDirectory = join(input.targetDirectory, "repository");
+
+  // Check if the repository directory already has a valid .git
+  let hasGit = false;
   try {
     await access(join(repositoryDirectory, ".git"), constants.R_OK);
-    await runCommand("git", ["-C", repositoryDirectory, "pull", "--ff-only"]);
-    return repositoryDirectory;
+    hasGit = true;
   } catch {
-    await runCommand("git", [
-      "clone",
-      "--depth",
-      "1",
-      input.repository.cloneUrl,
-      repositoryDirectory,
-    ]);
-    return repositoryDirectory;
+    // .git not accessible
   }
+
+  if (hasGit) {
+    try {
+      await runCommand("git", [
+        "-C",
+        repositoryDirectory,
+        "pull",
+        "--ff-only",
+      ]);
+      return repositoryDirectory;
+    } catch {
+      // Pull failed — remove the corrupted/stale directory and re-clone
+      await rm(repositoryDirectory, { recursive: true, force: true });
+    }
+  }
+
+  await runCommand("git", [
+    "clone",
+    "--depth",
+    "1",
+    input.repository.cloneUrl,
+    repositoryDirectory,
+  ]);
+  return repositoryDirectory;
 }
 
 export async function ensureIssueWorkspaceRepository(input: {

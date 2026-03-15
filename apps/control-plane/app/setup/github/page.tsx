@@ -1,6 +1,8 @@
 import { loadGitHubIntegrationSummary } from "../../../lib/github-integration";
 import { requireOperatorPageSession } from "../../../lib/operator-auth-guard";
 
+export const dynamic = "force-dynamic";
+
 type SetupPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };

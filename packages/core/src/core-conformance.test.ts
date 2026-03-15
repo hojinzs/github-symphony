@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildHookEnv,
   buildPromptVariables,
-  buildTenantSnapshot,
+  buildProjectSnapshot,
   calculateRetryDelay,
   DEFAULT_WORKFLOW_LIFECYCLE,
   deriveIssueWorkspaceKey,
@@ -18,7 +18,7 @@ import type { RunDispatchedEvent } from "./observability/structured-events.js";
 describe("deriveIssueWorkspaceKey", () => {
   it("produces a stable deterministic key", () => {
     const identity = {
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-abc",
     };
@@ -33,17 +33,17 @@ describe("deriveIssueWorkspaceKey", () => {
 
   it("produces different keys for different identities", () => {
     const keyA = deriveIssueWorkspaceKey({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
     const keyB = deriveIssueWorkspaceKey({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-2",
     });
     const keyC = deriveIssueWorkspaceKey({
-      tenantId: "ws-2",
+      projectId: "ws-2",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
@@ -66,7 +66,11 @@ describe("resolveIssueWorkspaceDirectory", () => {
 
   it("rejects path traversal that escapes the root", () => {
     expect(() =>
-      resolveIssueWorkspaceDirectory("/runtime/workspaces", "../../../../../../tmp", "key")
+      resolveIssueWorkspaceDirectory(
+        "/runtime/workspaces",
+        "../../../../../../tmp",
+        "key"
+      )
     ).toThrow("escapes");
   });
 });
@@ -82,7 +86,7 @@ describe("resolveIssueRepositoryPath", () => {
 describe("buildHookEnv", () => {
   it("produces the standard hook environment variables", () => {
     const env = buildHookEnv({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
@@ -90,7 +94,7 @@ describe("buildHookEnv", () => {
       repositoryPath: "/workspace/repository",
     });
 
-    expect(env.SYMPHONY_TENANT_ID).toBe("ws-1");
+    expect(env.SYMPHONY_PROJECT_ID).toBe("ws-1");
     expect(env.SYMPHONY_ISSUE_WORKSPACE_KEY).toBe("key-abc");
     expect(env.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
     expect(env.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#42");
@@ -102,7 +106,7 @@ describe("buildHookEnv", () => {
 
   it("includes run-level variables when provided", () => {
     const env = buildHookEnv({
-      tenantId: "ws-1",
+      projectId: "ws-1",
       workspaceKey: "key-abc",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#42",
@@ -188,7 +192,9 @@ describe("renderPrompt", () => {
       { attempt: null }
     );
 
-    expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe("{{unknown.var}}");
+    expect(renderPrompt("{{unknown.var}}", variables, { strict: false })).toBe(
+      "{{unknown.var}}"
+    );
   });
 
   it("throws template_render_error for unresolved variables in strict mode (default)", () => {
@@ -225,9 +231,9 @@ describe("renderPrompt", () => {
     expect(() => renderPrompt("{{unknown.var}}", variables)).toThrow(
       "template_render_error"
     );
-    expect(() => renderPrompt("{{unknown.var}}", variables, { strict: true })).toThrow(
-      "template_render_error"
-    );
+    expect(() =>
+      renderPrompt("{{unknown.var}}", variables, { strict: true })
+    ).toThrow("template_render_error");
   });
 
   it("does not throw in strict mode when all variables resolve", () => {
@@ -261,9 +267,7 @@ describe("renderPrompt", () => {
       { attempt: null }
     );
 
-    expect(() =>
-      renderPrompt("Fix {{issue.title}}", variables)
-    ).not.toThrow();
+    expect(() => renderPrompt("Fix {{issue.title}}", variables)).not.toThrow();
   });
 
   it("renders null variables as empty string in strict mode", () => {
@@ -298,9 +302,12 @@ describe("renderPrompt", () => {
     );
 
     // null description → empty string, no template_render_error
-    expect(renderPrompt("Title: {{issue.title}}\nDesc: {{issue.description}}", variables)).toBe(
-      "Title: Fix the bug\nDesc: "
-    );
+    expect(
+      renderPrompt(
+        "Title: {{issue.title}}\nDesc: {{issue.description}}",
+        variables
+      )
+    ).toBe("Title: Fix the bug\nDesc: ");
     // null url → empty string
     expect(renderPrompt("URL: {{issue.url}}", variables)).toBe("URL: ");
     // null attempt → empty string
@@ -381,9 +388,9 @@ describe("calculateRetryDelay", () => {
   });
 });
 
-describe("buildTenantSnapshot", () => {
+describe("buildProjectSnapshot", () => {
   const baseWorkspace = {
-    tenantId: "ws-1",
+    projectId: "ws-1",
     slug: "ws-1",
     promptGuidelines: "",
     workspaceDir: "/runtime",
@@ -395,8 +402,8 @@ describe("buildTenantSnapshot", () => {
   };
 
   it("produces idle health when no runs or errors", () => {
-    const snapshot = buildTenantSnapshot({
-      tenant: baseWorkspace,
+    const snapshot = buildProjectSnapshot({
+      project: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -408,13 +415,13 @@ describe("buildTenantSnapshot", () => {
   });
 
   it("produces running health when active runs exist", () => {
-    const snapshot = buildTenantSnapshot({
-      tenant: baseWorkspace,
+    const snapshot = buildProjectSnapshot({
+      project: baseWorkspace,
       activeRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "ws-1",
+          projectId: "ws-1",
+          projectSlug: "ws-1",
           issueId: "issue-1",
           issueSubjectId: "issue-1",
           issueIdentifier: "acme/platform#1",
@@ -449,8 +456,8 @@ describe("buildTenantSnapshot", () => {
   });
 
   it("produces degraded health when lastError is present", () => {
-    const snapshot = buildTenantSnapshot({
-      tenant: baseWorkspace,
+    const snapshot = buildProjectSnapshot({
+      project: baseWorkspace,
       activeRuns: [],
       summary: { dispatched: 0, suppressed: 0, recovered: 0 },
       lastTickAt: "2026-03-08T00:00:00.000Z",
@@ -467,7 +474,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      tenantId: "ws-1",
+      projectId: "ws-1",
       issueIdentifier: "acme/repo#1",
       issueId: "issue-node-id",
       sessionId: "thread-1-turn-1",
@@ -481,7 +488,7 @@ describe("structured event field enrichment", () => {
     const event: RunDispatchedEvent = {
       at: new Date().toISOString(),
       event: "run-dispatched",
-      tenantId: "ws-1",
+      projectId: "ws-1",
       issueIdentifier: "acme/repo#1",
     };
 
@@ -490,11 +497,11 @@ describe("structured event field enrichment", () => {
   });
 });
 
-describe("token accounting - buildTenantSnapshot", () => {
+describe("token accounting - buildProjectSnapshot", () => {
   it("includes codexTotals from run tokenUsage data", () => {
-    const snapshot = buildTenantSnapshot({
-      tenant: {
-        tenantId: "ws-1",
+    const snapshot = buildProjectSnapshot({
+      project: {
+        projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
         repositories: [],
@@ -504,13 +511,17 @@ describe("token accounting - buildTenantSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,
@@ -540,9 +551,9 @@ describe("token accounting - buildTenantSnapshot", () => {
   });
 
   it("aggregates tokens across multiple runs", () => {
-    const snapshot = buildTenantSnapshot({
-      tenant: {
-        tenantId: "ws-1",
+    const snapshot = buildProjectSnapshot({
+      project: {
+        projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
         repositories: [],
@@ -552,13 +563,17 @@ describe("token accounting - buildTenantSnapshot", () => {
       allRuns: [
         {
           runId: "run-1",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i1",
           issueSubjectId: "s1",
           issueIdentifier: "acme/repo#1",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,
@@ -578,13 +593,17 @@ describe("token accounting - buildTenantSnapshot", () => {
         },
         {
           runId: "run-2",
-          tenantId: "ws-1",
-          tenantSlug: "test",
+          projectId: "ws-1",
+          projectSlug: "test",
           issueId: "i2",
           issueSubjectId: "s2",
           issueIdentifier: "acme/repo#2",
           issueState: "Todo",
-          repository: { owner: "acme", name: "repo", cloneUrl: "https://github.com/acme/repo.git" },
+          repository: {
+            owner: "acme",
+            name: "repo",
+            cloneUrl: "https://github.com/acme/repo.git",
+          },
           status: "succeeded",
           attempt: 1,
           processId: null,

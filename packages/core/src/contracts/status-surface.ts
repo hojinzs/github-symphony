@@ -10,20 +10,13 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, string | boolean>;
 };
 
-export type OrchestratorTenantConfig = {
-  tenantId: string;
+export type OrchestratorProjectConfig = {
+  projectId: string;
   slug: string;
   workspaceDir: string;
   repositories: RepositoryRef[];
   tracker: OrchestratorTrackerConfig;
 };
-
-/** @deprecated Use OrchestratorTenantConfig */
-export type OrchestratorWorkspaceConfig = OrchestratorTenantConfig;
-/** @deprecated Use TenantLeaseRecord */
-export type WorkspaceLeaseRecord = TenantLeaseRecord;
-/** @deprecated Use TenantStatusSnapshot */
-export type WorkspaceStatusSnapshot = TenantStatusSnapshot;
 
 export type RetryKind = "continuation" | "failure" | "recovery";
 
@@ -38,8 +31,8 @@ export type OrchestratorRunStatus =
 
 export type OrchestratorRunRecord = {
   runId: string;
-  tenantId: string;
-  tenantSlug: string;
+  projectId: string;
+  projectSlug: string;
   issueId: string;
   issueSubjectId: string;
   issueIdentifier: string;
@@ -76,7 +69,7 @@ export type OrchestratorRunRecord = {
   lastEventAt?: string | null;
 };
 
-export type TenantLeaseRecord = {
+export type ProjectLeaseRecord = {
   leaseKey: string;
   runId: string;
   issueId: string;
@@ -108,8 +101,8 @@ export type LiveWorkerState = {
   status: "idle" | "starting" | "running" | "failed" | "completed";
 };
 
-export type TenantStatusSnapshot = {
-  tenantId: string;
+export type ProjectStatusSnapshot = {
+  projectId: string;
   slug: string;
   tracker: {
     adapter: TrackerAdapterKind;

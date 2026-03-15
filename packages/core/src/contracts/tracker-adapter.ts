@@ -1,7 +1,7 @@
 import type { RepositoryRef } from "../domain/workspace.js";
 import type {
   OrchestratorRunRecord,
-  OrchestratorTenantConfig,
+  OrchestratorProjectConfig,
 } from "./status-surface.js";
 
 export type TrackerAdapterKind = "github-project" | (string & {});
@@ -36,18 +36,18 @@ export type TrackedIssue = {
 
 export type OrchestratorTrackerAdapter = {
   listIssues(
-    tenant: OrchestratorTenantConfig,
+    project: OrchestratorProjectConfig,
     dependencies?: {
       fetchImpl?: typeof fetch;
       token?: string;
     }
   ): Promise<TrackedIssue[]>;
   buildWorkerEnvironment(
-    tenant: OrchestratorTenantConfig,
+    project: OrchestratorProjectConfig,
     issue: TrackedIssue
   ): Record<string, string>;
   reviveIssue(
-    tenant: OrchestratorTenantConfig,
+    project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
 };

@@ -14,7 +14,7 @@ import { createIssueForWorkspace, parseCreateIssueInput } from "./issue-service"
 import { createMemoryDatabase } from "./test-harness";
 import { parseCreateWorkspaceInput } from "./workspace-service";
 import { provisionWorkspace } from "./workspace-orchestrator";
-import { prepareCodexRuntimePlan } from "../../../packages/worker/src/runtime";
+import { prepareCodexRuntimePlan } from "../../../packages/runtime-codex/src/runtime";
 import {
   executeImplementationPhase,
   executePlanningPhase,
@@ -223,7 +223,7 @@ describe("Platform end-to-end flow", () => {
 
     const runtimePlan = await prepareCodexRuntimePlan(
       {
-        workspaceId: workspace.id,
+        projectId: workspace.id,
         workingDirectory: runtime.workspaceRuntimeDir,
         githubTokenBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-1/runtime-credentials",

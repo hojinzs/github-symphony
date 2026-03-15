@@ -125,7 +125,7 @@ export async function executeHook(
 }
 
 export function buildHookEnv(context: {
-  tenantId: string;
+  projectId: string;
   workspaceKey: string;
   issueSubjectId: string;
   issueIdentifier: string;
@@ -135,7 +135,7 @@ export function buildHookEnv(context: {
   state?: string;
 }): Record<string, string> {
   const env: Record<string, string> = {
-    SYMPHONY_TENANT_ID: context.tenantId,
+    SYMPHONY_PROJECT_ID: context.projectId,
     SYMPHONY_ISSUE_WORKSPACE_KEY: context.workspaceKey,
     SYMPHONY_ISSUE_SUBJECT_ID: context.issueSubjectId,
     SYMPHONY_ISSUE_IDENTIFIER: context.issueIdentifier,

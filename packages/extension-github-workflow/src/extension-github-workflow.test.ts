@@ -107,13 +107,13 @@ describe("createIntervention", () => {
   it("creates a typed intervention record", () => {
     const intervention = createIntervention("approval", {
       issueIdentifier: "acme/platform#1",
-      tenantId: "ws-1",
+      projectId: "ws-1",
       now,
     });
 
     expect(intervention.kind).toBe("approval");
     expect(intervention.issueIdentifier).toBe("acme/platform#1");
-    expect(intervention.tenantId).toBe("ws-1");
+    expect(intervention.projectId).toBe("ws-1");
     expect(intervention.createdAt).toBe("2026-03-08T00:00:00.000Z");
     expect(intervention.description).toContain("human review");
     expect(intervention.suggestedAction).toBeTruthy();
@@ -133,7 +133,7 @@ describe("createIntervention", () => {
     for (const kind of kinds) {
       const intervention = createIntervention(kind, {
         issueIdentifier: "acme/platform#1",
-        tenantId: "ws-1",
+        projectId: "ws-1",
         now,
       });
 

@@ -11,7 +11,7 @@ import {
   blue,
   stripAnsi,
 } from "../ansi.js";
-import type { TenantStatusSnapshot } from "@gh-symphony/core";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export type DashboardOptions = {
 // ── Internal types ───────────────────────────────────────────────────────────
 
 /** Active run with optional live-worker fields not yet in core type */
-type ActiveRunView = TenantStatusSnapshot["activeRuns"][number] & {
+type ActiveRunView = ProjectStatusSnapshot["activeRuns"][number] & {
   runtimeSession?: {
     sessionId: string | null;
     threadId: string | null;
@@ -170,7 +170,7 @@ function sectionDivider(label: string, width: number, c: Colors): string {
 }
 
 function buildSummaryLines(
-  snapshots: TenantStatusSnapshot[],
+  snapshots: ProjectStatusSnapshot[],
   options: DashboardOptions,
   c: Colors
 ): string[] {
@@ -264,8 +264,8 @@ function activeRunRow(
 }
 
 function retryRow(
-  entry: TenantStatusSnapshot["retryQueue"][number],
-  snapshot: TenantStatusSnapshot,
+  entry: ProjectStatusSnapshot["retryQueue"][number],
+  snapshot: ProjectStatusSnapshot,
   now: number,
   c: Colors
 ): string {
@@ -282,7 +282,7 @@ function retryRow(
 // ── Main Renderer ────────────────────────────────────────────────────────────
 
 export function renderDashboard(
-  snapshots: TenantStatusSnapshot[],
+  snapshots: ProjectStatusSnapshot[],
   options: DashboardOptions
 ): string {
   const width = options.terminalWidth || 115;
@@ -313,8 +313,8 @@ export function renderDashboard(
   }
 
   const allRetries: Array<{
-    entry: TenantStatusSnapshot["retryQueue"][number];
-    snapshot: TenantStatusSnapshot;
+    entry: ProjectStatusSnapshot["retryQueue"][number];
+    snapshot: ProjectStatusSnapshot;
   }> = [];
   for (const snap of snapshots) {
     for (const entry of snap.retryQueue) {

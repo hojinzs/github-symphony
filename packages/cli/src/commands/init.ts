@@ -25,7 +25,7 @@ import { generateWorkflowMarkdown } from "../workflow/generate-workflow-md.js";
 import {
   loadGlobalConfig,
   saveGlobalConfig,
-  saveTenantConfig,
+  saveProjectConfig,
   type CliGlobalConfig,
   type StateRole,
   type StateMapping,
@@ -414,7 +414,7 @@ async function runNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony tenant add' to register a tenant.",
+      nextSteps: "Run 'gh-symphony project add' to register a project.",
     });
   }
 }
@@ -602,14 +602,14 @@ async function runInteractiveStandalone(
 
   printEcosystemSummary(ecosystemResult, outputPath, {
     interactive: true,
-    nextSteps: "Run 'gh-symphony tenant add' to register a tenant.",
+    nextSteps: "Run 'gh-symphony project add' to register a project.",
   });
 }
 
-// ── Config writing (used by tenant.ts via import) ─────────────────────────────
+// ── Config writing (used by project.ts via import) ─────────────────────────────
 
 type WriteConfigInput = {
-  tenantId: string;
+  projectId: string;
   project: ProjectDetail;
   repos: LinkedRepository[];
   workspaceDir: string;
@@ -621,9 +621,9 @@ export async function writeConfig(
   configDir: string,
   input: WriteConfigInput
 ): Promise<void> {
-  await saveTenantConfig(configDir, input.tenantId, {
-    tenantId: input.tenantId,
-    slug: input.tenantId,
+  await saveProjectConfig(configDir, input.projectId, {
+    projectId: input.projectId,
+    slug: input.projectId,
     workspaceDir: input.workspaceDir,
     repositories: input.repos.map((r) => ({
       owner: r.owner,
@@ -643,16 +643,16 @@ export async function writeConfig(
   // Save/update global config
   const existing = await loadGlobalConfig(configDir);
   const globalConfig: CliGlobalConfig = {
-    activeTenant: input.tenantId,
-    tenants: [
-      ...(existing?.tenants ?? []).filter((t) => t !== input.tenantId),
-      input.tenantId,
+    activeProject: input.projectId,
+    projects: [
+      ...(existing?.projects ?? []).filter((t) => t !== input.projectId),
+      input.projectId,
     ],
   };
   await saveGlobalConfig(configDir, globalConfig);
 }
 
-export function generateTenantId(
+export function generateProjectId(
   projectTitle: string,
   uniqueKey: string
 ): string {
@@ -662,5 +662,5 @@ export function generateTenantId(
     .replace(/^-|-$/g, "")
     .slice(0, 32);
   const suffix = createHash("sha1").update(uniqueKey).digest("hex").slice(0, 8);
-  return [slug || "tenant", suffix].join("-");
+  return [slug || "project", suffix].join("-");
 }

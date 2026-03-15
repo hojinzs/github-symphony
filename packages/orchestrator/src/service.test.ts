@@ -30,8 +30,8 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -56,7 +56,7 @@ describe("OrchestratorService", () => {
 
     const first = await service.runOnce();
     const second = await service.runOnce();
-    const leases = await store.loadTenantLeases("tenant-1");
+    const leases = await store.loadProjectLeases("tenant-1");
 
     expect(first[0]?.summary.dispatched).toBe(1);
     expect(first[0]?.tracker).toEqual({
@@ -92,8 +92,8 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -105,7 +105,7 @@ describe("OrchestratorService", () => {
         },
       },
     });
-    await store.saveTenantLeases("tenant-1", [
+    await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
         runId: "run-1",
@@ -117,8 +117,8 @@ describe("OrchestratorService", () => {
     ]);
     await store.saveRun({
       runId: "run-1",
-      tenantId: "tenant-1",
-      tenantSlug: "tenant-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
@@ -166,8 +166,8 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -215,8 +215,8 @@ describe("OrchestratorService", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -228,7 +228,7 @@ describe("OrchestratorService", () => {
         },
       },
     });
-    await store.saveTenantLeases("tenant-1", [
+    await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
         runId: "run-1",
@@ -240,8 +240,8 @@ describe("OrchestratorService", () => {
     ]);
     await store.saveRun({
       runId: "run-1",
-      tenantId: "tenant-1",
-      tenantSlug: "tenant-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
@@ -309,8 +309,8 @@ describe("OrchestratorService", () => {
 
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceDir = join(tempRoot, "workspace-runtime-root");
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir,
       repositories: [repository],
@@ -324,12 +324,12 @@ describe("OrchestratorService", () => {
     });
 
     const workspaceKey = deriveIssueWorkspaceKey({
-      tenantId: "tenant-1",
+      projectId: "tenant-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
 
-    await store.saveTenantLeases("tenant-1", [
+    await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
         runId: "run-1",
@@ -341,8 +341,8 @@ describe("OrchestratorService", () => {
     ]);
     await store.saveRun({
       runId: "run-1",
-      tenantId: "tenant-1",
-      tenantSlug: "tenant-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
@@ -391,8 +391,8 @@ describe("OrchestratorService", () => {
     );
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceRuntimeDir = join(tempRoot, "stale-run", "workspace-runtime");
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -404,7 +404,7 @@ describe("OrchestratorService", () => {
         },
       },
     });
-    await store.saveTenantLeases("tenant-1", [
+    await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
         runId: "run-1",
@@ -416,8 +416,8 @@ describe("OrchestratorService", () => {
     ]);
     await store.saveRun({
       runId: "run-1",
-      tenantId: "tenant-1",
-      tenantSlug: "tenant-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
@@ -489,7 +489,7 @@ describe("OrchestratorService", () => {
     });
   });
 
-  it("rejects dispatch when repo WORKFLOW.md is missing even if tenant fallback exists", async () => {
+  it("rejects dispatch when repo WORKFLOW.md is missing even if project fallback exists", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-ws-fallback-"));
     const repository = await createBareRepositoryFixture(
@@ -498,8 +498,8 @@ describe("OrchestratorService", () => {
       "bare-repo"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -512,9 +512,9 @@ describe("OrchestratorService", () => {
       },
     });
 
-    const tenantDir = store.tenantDir("tenant-1");
+    const projectDir = store.projectDir("tenant-1");
     await writeFile(
-      join(tenantDir, "WORKFLOW.md"),
+      join(projectDir, "WORKFLOW.md"),
       `---
 tracker:
   kind: github-project
@@ -570,8 +570,8 @@ Workspace prompt.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
       repositories: [repository],
@@ -619,8 +619,8 @@ Workspace prompt.
 
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceDir = join(tempRoot, "workspace-runtime-root");
-    await store.saveTenantConfig({
-      tenantId: "tenant-1",
+    await store.saveProjectConfig({
+      projectId: "tenant-1",
       slug: "tenant-1",
       workspaceDir,
       repositories: [repository],
@@ -634,7 +634,7 @@ Workspace prompt.
     });
 
     const workspaceKey = deriveIssueWorkspaceKey({
-      tenantId: "tenant-1",
+      projectId: "tenant-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
     });
@@ -644,7 +644,7 @@ Workspace prompt.
       workspaceKey
     );
 
-    await store.saveTenantLeases("tenant-1", [
+    await store.saveProjectLeases("tenant-1", [
       {
         leaseKey: "issue-1",
         runId: "run-1",
@@ -656,8 +656,8 @@ Workspace prompt.
     ]);
     await store.saveRun({
       runId: "run-1",
-      tenantId: "tenant-1",
-      tenantSlug: "tenant-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",

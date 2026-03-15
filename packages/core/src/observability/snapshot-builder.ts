@@ -1,5 +1,5 @@
 /**
- * Builds a machine-readable `TenantStatusSnapshot` from orchestration state.
+ * Builds a machine-readable `ProjectStatusSnapshot` from orchestration state.
  *
  * This centralizes snapshot construction so the orchestrator service and any
  * future status surface consumers use consistent logic for deriving health,
@@ -8,12 +8,12 @@
 
 import type {
   OrchestratorRunRecord,
-  OrchestratorTenantConfig,
-  TenantStatusSnapshot,
+  OrchestratorProjectConfig,
+  ProjectStatusSnapshot,
 } from "../contracts/status-surface.js";
 
 export type SnapshotInput = {
-  tenant: OrchestratorTenantConfig;
+  project: OrchestratorProjectConfig;
   activeRuns: OrchestratorRunRecord[];
   allRuns?: OrchestratorRunRecord[];
   summary: {
@@ -27,16 +27,16 @@ export type SnapshotInput = {
 };
 
 /**
- * Construct a `TenantStatusSnapshot` from reconciliation state.
+ * Construct a `ProjectStatusSnapshot` from reconciliation state.
  *
  * Active runs are partitioned into active execution rows and retry queue rows.
  * Health is derived from the presence of errors and active runs.
  */
-export function buildTenantSnapshot(
+export function buildProjectSnapshot(
   input: SnapshotInput
-): TenantStatusSnapshot {
+): ProjectStatusSnapshot {
   const {
-    tenant,
+    project,
     activeRuns,
     allRuns,
     summary,
@@ -46,11 +46,11 @@ export function buildTenantSnapshot(
   } = input;
 
   return {
-    tenantId: tenant.tenantId,
-    slug: tenant.slug,
+    projectId: project.projectId,
+    slug: project.slug,
     tracker: {
-      adapter: tenant.tracker.adapter,
-      bindingId: tenant.tracker.bindingId,
+      adapter: project.tracker.adapter,
+      bindingId: project.tracker.bindingId,
     },
     lastTickAt,
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
@@ -97,7 +97,7 @@ export function buildTenantSnapshot(
 function aggregateTokenUsage(
   runs: OrchestratorRunRecord[],
   lastTickAt: string
-): TenantStatusSnapshot["codexTotals"] {
+): ProjectStatusSnapshot["codexTotals"] {
   let inputTokens = 0;
   let outputTokens = 0;
   let totalTokens = 0;

@@ -4,6 +4,8 @@ import { buildGitHubSetupPath } from "../../../lib/github-setup-guard";
 import { requireOperatorPageSession } from "../../../lib/operator-auth-guard";
 import { IssueCreateForm } from "./issue-create-form";
 
+export const dynamic = "force-dynamic";
+
 export default async function NewIssuePage() {
   await requireOperatorPageSession("/issues/new");
   const summary = await loadGitHubIntegrationSummary();

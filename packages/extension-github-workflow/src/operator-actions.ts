@@ -51,7 +51,7 @@ export type OperatorInterventionKind =
 export type OperatorIntervention = {
   kind: OperatorInterventionKind;
   issueIdentifier: string;
-  tenantId: string;
+  projectId: string;
   description: string;
   suggestedAction: string;
   createdAt: string;
@@ -64,7 +64,7 @@ export function createIntervention(
   kind: OperatorInterventionKind,
   context: {
     issueIdentifier: string;
-    tenantId: string;
+    projectId: string;
     now: Date;
   }
 ): OperatorIntervention {
@@ -120,7 +120,7 @@ export function createIntervention(
   return {
     kind,
     issueIdentifier: context.issueIdentifier,
-    tenantId: context.tenantId,
+    projectId: context.projectId,
     description: info.description,
     suggestedAction: info.suggestedAction,
     createdAt: context.now.toISOString(),

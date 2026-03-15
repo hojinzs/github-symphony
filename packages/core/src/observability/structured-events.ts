@@ -1,5 +1,5 @@
 /**
- * Structured orchestration events emitted during tenant reconciliation.
+ * Structured orchestration events emitted during project reconciliation.
  *
  * Each event includes a UTC timestamp (`at`), a discriminated `event` field,
  * and payload fields specific to that event kind. Events are appended to the
@@ -10,7 +10,7 @@
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
-  tenantId: string;
+  projectId: string;
   issueIdentifier: string;
   issueState?: string;
   issueId?: string;

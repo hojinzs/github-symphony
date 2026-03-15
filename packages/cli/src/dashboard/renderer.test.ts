@@ -4,24 +4,24 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderDashboard } from "./renderer.js";
 import { stripAnsi } from "../ansi.js";
-import type { TenantStatusSnapshot } from "@gh-symphony/core";
+import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 
 const fixturesDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "__tests__/fixtures"
 );
 
-function loadFixture(name: string): TenantStatusSnapshot {
+function loadFixture(name: string): ProjectStatusSnapshot {
   const raw = readFileSync(join(fixturesDir, `${name}.snapshot.json`), "utf8");
-  return JSON.parse(raw) as TenantStatusSnapshot;
+  return JSON.parse(raw) as ProjectStatusSnapshot;
 }
 
-function loadMultiTenantFixture(): TenantStatusSnapshot[] {
+function loadMultiProjectFixture(): ProjectStatusSnapshot[] {
   const raw = readFileSync(
-    join(fixturesDir, "multi-tenant.snapshot.json"),
+    join(fixturesDir, "multi-project.snapshot.json"),
     "utf8"
   );
-  return JSON.parse(raw) as TenantStatusSnapshot[];
+  return JSON.parse(raw) as ProjectStatusSnapshot[];
 }
 
 const NOW = new Date("2026-03-13T05:00:00Z").getTime();
@@ -89,8 +89,8 @@ describe("renderDashboard", () => {
     expect(output).toContain("\u21BB");
   });
 
-  it("renders multi-tenant fixture with multiple sections", () => {
-    const snapshots = loadMultiTenantFixture();
+  it("renders multi-project fixture with multiple sections", () => {
+    const snapshots = loadMultiProjectFixture();
     const output = renderDashboard(snapshots, {
       terminalWidth: 115,
       noColor: true,

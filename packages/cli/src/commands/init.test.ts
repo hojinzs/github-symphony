@@ -2,15 +2,15 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import type { CliTenantConfig } from "../config.js";
-import { generateTenantId, writeConfig, writeEcosystem } from "./init.js";
+import type { CliProjectConfig } from "../config.js";
+import { generateProjectId, writeConfig, writeEcosystem } from "./init.js";
 
 describe("init command config output", () => {
-  it("writes the simplified tenant config", async () => {
+  it("writes the simplified project config", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-"));
 
     await writeConfig(configDir, {
-      tenantId: "tenant-alpha",
+      projectId: "tenant-alpha",
       project: {
         id: "project-123",
         title: "Platform",
@@ -30,30 +30,33 @@ describe("init command config output", () => {
       workspaceDir: join(configDir, "workspaces"),
     });
 
-    const tenant = JSON.parse(
+    const project = JSON.parse(
       await readFile(
-        join(configDir, "tenants", "tenant-alpha", "tenant.json"),
+        join(configDir, "projects", "tenant-alpha", "project.json"),
         "utf8"
       )
-    ) as CliTenantConfig;
-    expect(tenant.workspaceDir).toBe(join(configDir, "workspaces"));
-    expect(tenant).not.toHaveProperty("runtime");
+    ) as CliProjectConfig;
+    expect(project.workspaceDir).toBe(join(configDir, "workspaces"));
+    expect(project).not.toHaveProperty("runtime");
     await expect(
       readFile(
-        join(configDir, "tenants", "tenant-alpha", "workflow-mapping.json"),
+        join(configDir, "projects", "tenant-alpha", "workflow-mapping.json"),
         "utf8"
       )
     ).rejects.toThrow();
     await expect(
-      readFile(join(configDir, "tenants", "tenant-alpha", "WORKFLOW.md"), "utf8")
+      readFile(
+        join(configDir, "projects", "tenant-alpha", "WORKFLOW.md"),
+        "utf8"
+      )
     ).rejects.toThrow();
   });
 
-  it("writes assignedOnly into tenant tracker settings when enabled", async () => {
+  it("writes assignedOnly into project tracker settings when enabled", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-assigned-"));
 
     await writeConfig(configDir, {
-      tenantId: "tenant-assigned",
+      projectId: "tenant-assigned",
       project: {
         id: "project-123",
         title: "Platform",
@@ -74,20 +77,20 @@ describe("init command config output", () => {
       assignedOnly: true,
     });
 
-    const tenant = JSON.parse(
+    const project = JSON.parse(
       await readFile(
-        join(configDir, "tenants", "tenant-assigned", "tenant.json"),
+        join(configDir, "projects", "tenant-assigned", "project.json"),
         "utf8"
       )
-    ) as CliTenantConfig;
+    ) as CliProjectConfig;
 
-    expect(tenant.tracker.settings?.assignedOnly).toBe(true);
-    expect(tenant.tracker.settings?.projectId).toBe("project-123");
+    expect(project.tracker.settings?.assignedOnly).toBe(true);
+    expect(project.tracker.settings?.projectId).toBe("project-123");
   });
 
-  it("derives unique tenant IDs from the project identity, not only the title", () => {
-    expect(generateTenantId("Roadmap", "project-a")).not.toBe(
-      generateTenantId("Roadmap", "project-b")
+  it("derives unique project IDs from the project identity, not only the title", () => {
+    expect(generateProjectId("Roadmap", "project-a")).not.toBe(
+      generateProjectId("Roadmap", "project-b")
     );
   });
 });

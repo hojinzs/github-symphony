@@ -82,7 +82,7 @@ describe("CLI --no-status-api flag", () => {
       emitter.emit("listening");
     });
 
-    await runCli(["run", "--tenant-id", "tenant-1", "--issue", "acme/repo#1"], {
+    await runCli(["run", "--project-id", "tenant-1", "--issue", "acme/repo#1"], {
       createService: () => service,
       startStatusServer: startStatusServer as never,
       stdout: createStdoutCapture(),
@@ -94,7 +94,7 @@ describe("CLI --no-status-api flag", () => {
     await options.onRefresh();
 
     expect(service.runOnce).toHaveBeenCalledWith({
-      tenantId: "tenant-1",
+      projectId: "tenant-1",
       issueIdentifier: "acme/repo#1",
     });
   });

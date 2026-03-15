@@ -1,5 +1,5 @@
 {
-  "tenantId": "tenant-3",
+  "projectId": "tenant-3",
   "slug": "gamma-inc",
   "tracker": { "adapter": "github", "bindingId": "PVT_zzz" },
   "lastTickAt": "2026-03-13T04:00:00Z",

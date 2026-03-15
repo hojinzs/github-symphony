@@ -47,16 +47,16 @@ async function configShow(options: GlobalOptions): Promise<void> {
   }
 
   process.stdout.write(`Config: ${configFilePath(options.configDir)}\n\n`);
-  process.stdout.write(`Active tenant:    ${config.activeTenant ?? "none"}\n`);
+  process.stdout.write(`Active project:    ${config.activeProject ?? "none"}\n`);
   process.stdout.write(
-    `Tenants:          ${config.tenants.join(", ") || "none"}\n`
+    `Projects:         ${config.projects.join(", ") || "none"}\n`
   );
 }
 
 // ── 7.2: config set ──────────────────────────────────────────────────────────
 
 const VALID_KEYS: Record<string, { type: "string" | "number" }> = {
-  "active-tenant": { type: "string" },
+  "active-project": { type: "string" },
 };
 
 async function configSet(
@@ -83,20 +83,20 @@ async function configSet(
   const config =
     (await loadGlobalConfig(options.configDir)) ??
     ({
-      activeTenant: null,
-      tenants: [],
+      activeProject: null,
+      projects: [],
     } satisfies CliGlobalConfig);
 
   switch (key) {
-    case "active-tenant":
-      if (!config.tenants.includes(value)) {
+    case "active-project":
+      if (!config.projects.includes(value)) {
         process.stderr.write(
-          `Tenant "${value}" not found. Available: ${config.tenants.join(", ")}\n`
+          `Project "${value}" not found. Available: ${config.projects.join(", ")}\n`
         );
         process.exitCode = 1;
         return;
       }
-      config.activeTenant = value;
+      config.activeProject = value;
       break;
   }
 
