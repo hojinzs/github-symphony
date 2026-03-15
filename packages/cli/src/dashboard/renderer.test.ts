@@ -103,4 +103,22 @@ describe("renderDashboard", () => {
     );
     expect(sectionLines.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("prefers executionPhase over issueState in the STAGE column", () => {
+    const snapshot = loadFixture("busy");
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      issueState: "Ready",
+      executionPhase: "implementation",
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).toContain("implementation");
+    expect(output).not.toContain("Ready          ");
+  });
 });

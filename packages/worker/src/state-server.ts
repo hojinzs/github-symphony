@@ -11,6 +11,13 @@ export type WorkerRuntimeState = {
   package: string;
   runtime: "self-hosted-sample";
   status: "idle" | "starting" | "running" | "failed" | "completed";
+  executionPhase:
+    | "planning"
+    | "human-review"
+    | "implementation"
+    | "awaiting-merge"
+    | "completed"
+    | null;
   projectId: string | null;
   workspaceRuntimeDir: string;
   run: null | {
@@ -53,7 +60,10 @@ export async function buildWorkerRuntimeState(
   env: NodeJS.ProcessEnv,
   readFileImpl: typeof readFile = readFile,
   runtime: Partial<
-    Pick<WorkerRuntimeState, "status" | "run" | "tokenUsage" | "sessionInfo">
+    Pick<
+      WorkerRuntimeState,
+      "status" | "executionPhase" | "run" | "tokenUsage" | "sessionInfo"
+    >
   > = {}
 ): Promise<WorkerRuntimeState> {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR ?? "/workspace-runtime";
@@ -98,6 +108,7 @@ export async function buildWorkerRuntimeState(
     package: "@gh-symphony/worker",
     runtime: "self-hosted-sample",
     status: runtime.status ?? "idle",
+    executionPhase: runtime.executionPhase ?? null,
     projectId: env.GITHUB_PROJECT_ID ?? workflow?.githubProjectId ?? null,
     workspaceRuntimeDir,
     run: assignedRun,

@@ -90,7 +90,7 @@ describe("buildProjectSnapshot", () => {
   });
 
   it("returns running health when active runs present", () => {
-    const run = mockRun({ status: "running" });
+    const run = mockRun({ status: "running", executionPhase: "planning" });
     const input: SnapshotInput = {
       project: mockProject(),
       activeRuns: [run],
@@ -105,6 +105,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns).toHaveLength(1);
     expect(snapshot.activeRuns[0].runId).toBe("run-001");
     expect(snapshot.activeRuns[0].issueIdentifier).toBe("acme/platform#42");
+    expect(snapshot.activeRuns[0].executionPhase).toBe("planning");
     expect(snapshot.summary.activeRuns).toBe(1);
   });
 

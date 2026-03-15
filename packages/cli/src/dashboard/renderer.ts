@@ -31,6 +31,7 @@ type ActiveRunView = ProjectStatusSnapshot["activeRuns"][number] & {
     sessionId: string | null;
     threadId: string | null;
   } | null;
+  executionPhase?: string | null;
 };
 
 type ColorFn = (s: string) => string;
@@ -239,7 +240,10 @@ function activeRunRow(
 ): string {
   const dot = statusDot(run, c);
   const id = pad(run.issueIdentifier, COL_ID);
-  const stage = pad(run.issueState || "\u2014", COL_STAGE);
+  const stage = pad(
+    run.executionPhase ?? run.issueState ?? "\u2014",
+    COL_STAGE
+  );
   const pid = pad(
     run.processId != null ? String(run.processId) : "\u2014",
     COL_PID

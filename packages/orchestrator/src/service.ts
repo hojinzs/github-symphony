@@ -599,6 +599,7 @@ export class OrchestratorService {
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
           lastEventAt: liveState.lastEventAt ?? undefined,
+          executionPhase: liveState.executionPhase ?? undefined,
         };
         await this.store.saveRun(runningRecord);
         return {
@@ -611,9 +612,13 @@ export class OrchestratorService {
     // Attempt to capture final token usage and session info from the worker
     // state API before the worker process fully exits.
     const workerInfo = await this.fetchWorkerRunInfo(run);
-    const runWithTokens: OrchestratorRunRecord = workerInfo.tokenUsage
-      ? { ...run, tokenUsage: workerInfo.tokenUsage }
-      : run;
+    const runWithTokens: OrchestratorRunRecord = {
+      ...run,
+      tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
+      lastEvent: workerInfo.lastEvent ?? run.lastEvent,
+      lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
+      executionPhase: workerInfo.executionPhase ?? run.executionPhase,
+    };
     const workerSessionId = workerInfo.sessionId;
 
     if (workerInfo.lastError) {
@@ -793,6 +798,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    executionPhase: string | null;
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -807,6 +813,7 @@ export class OrchestratorService {
       lastError: liveState.lastError,
       lastEvent: liveState.lastEvent,
       lastEventAt: liveState.lastEventAt,
+      executionPhase: liveState.executionPhase,
     };
   }
 
@@ -817,6 +824,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    executionPhase: string | null;
   }> {
     if (!run.port) {
       return {
@@ -826,6 +834,7 @@ export class OrchestratorService {
         lastError: null,
         lastEvent: null,
         lastEventAt: null,
+        executionPhase: null,
       };
     }
 
@@ -843,11 +852,13 @@ export class OrchestratorService {
           lastError: null,
           lastEvent: null,
           lastEventAt: null,
+          executionPhase: null,
         };
       }
 
       const state = (await response.json()) as {
         status?: string;
+        executionPhase?: string | null;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -879,6 +890,7 @@ export class OrchestratorService {
         lastError,
         lastEvent,
         lastEventAt,
+        executionPhase: state.executionPhase ?? null,
       };
     } catch {
       return {
@@ -888,6 +900,7 @@ export class OrchestratorService {
         lastError: null,
         lastEvent: null,
         lastEventAt: null,
+        executionPhase: null,
       };
     }
   }

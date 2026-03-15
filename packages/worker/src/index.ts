@@ -22,6 +22,13 @@ const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
 const launcherEnv = loadLauncherEnvironment(process.env);
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
+  executionPhase:
+    | "planning"
+    | "human-review"
+    | "implementation"
+    | "awaiting-merge"
+    | "completed"
+    | null;
   run: null | {
     runId: string;
     issueId: string | null;
@@ -47,6 +54,7 @@ const runtimeState: {
   };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
+  executionPhase: null,
   run: launcherEnv.SYMPHONY_RUN_ID
     ? {
         runId: launcherEnv.SYMPHONY_RUN_ID,
@@ -95,6 +103,36 @@ console.log(
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 
+function resolveInitialExecutionPhase(input: {
+  issueState: string | null | undefined;
+  blockerCheckStates: string[];
+  activeStates: string[];
+}): "planning" | "implementation" | null {
+  const { issueState, blockerCheckStates, activeStates } = input;
+  if (!issueState) {
+    return null;
+  }
+  if (blockerCheckStates.includes(issueState)) {
+    return "planning";
+  }
+  if (activeStates.includes(issueState)) {
+    return "implementation";
+  }
+  return null;
+}
+
+function resolvePausedExecutionPhase(
+  currentPhase: typeof runtimeState.executionPhase
+): "human-review" | "awaiting-merge" | null {
+  if (currentPhase === "planning") {
+    return "human-review";
+  }
+  if (currentPhase === "implementation") {
+    return "awaiting-merge";
+  }
+  return null;
+}
+
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
 }
@@ -131,6 +169,11 @@ async function startAssignedRun() {
       await readFile(workflowPath, "utf8"),
       launcherEnv
     );
+    runtimeState.executionPhase = resolveInitialExecutionPhase({
+      issueState: runtimeState.run?.state,
+      blockerCheckStates: workflow.lifecycle.blockerCheckStates,
+      activeStates: workflow.lifecycle.activeStates,
+    });
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = workflow.codex.command;
     const plan = await prepareCodexRuntimePlan(config);
@@ -473,19 +516,28 @@ async function runCodexClientProtocol(
       const usage = turnParams.usage as Record<string, unknown> | undefined;
       if (usage) {
         const inputTokens =
-          typeof usage.input_tokens === "number" ? usage.input_tokens :
-          typeof usage.inputTokens === "number" ? usage.inputTokens : 0;
+          typeof usage.input_tokens === "number"
+            ? usage.input_tokens
+            : typeof usage.inputTokens === "number"
+              ? usage.inputTokens
+              : 0;
         const outputTokens =
-          typeof usage.output_tokens === "number" ? usage.output_tokens :
-          typeof usage.outputTokens === "number" ? usage.outputTokens : 0;
+          typeof usage.output_tokens === "number"
+            ? usage.output_tokens
+            : typeof usage.outputTokens === "number"
+              ? usage.outputTokens
+              : 0;
         const totalTokens =
-          typeof usage.total_tokens === "number" ? usage.total_tokens :
-          typeof usage.totalTokens === "number" ? usage.totalTokens :
-          inputTokens + outputTokens;
+          typeof usage.total_tokens === "number"
+            ? usage.total_tokens
+            : typeof usage.totalTokens === "number"
+              ? usage.totalTokens
+              : inputTokens + outputTokens;
         if (inputTokens > 0 || outputTokens > 0 || totalTokens > 0) {
           runtimeState.tokenUsage.inputTokens = inputTokens;
           runtimeState.tokenUsage.outputTokens = outputTokens;
-          runtimeState.tokenUsage.totalTokens = totalTokens || inputTokens + outputTokens;
+          runtimeState.tokenUsage.totalTokens =
+            totalTokens || inputTokens + outputTokens;
         }
       }
       process.stderr.write("[worker] codex turn/completed\n");
@@ -507,18 +559,29 @@ async function runCodexClientProtocol(
       // codex/event/token_count: { msg: { info: { total_token_usage: { input_tokens, output_tokens, total_tokens } } } }
       const codexMsg = params.msg as Record<string, unknown> | undefined;
       const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
-      const codexTotals = codexInfo?.total_token_usage as Record<string, unknown> | undefined;
+      const codexTotals = codexInfo?.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
       const source = codexTotals ?? params;
 
       const inputTokens =
-        typeof source.input_tokens === "number" ? source.input_tokens :
-        typeof source.inputTokens === "number" ? source.inputTokens : 0;
+        typeof source.input_tokens === "number"
+          ? source.input_tokens
+          : typeof source.inputTokens === "number"
+            ? source.inputTokens
+            : 0;
       const outputTokens =
-        typeof source.output_tokens === "number" ? source.output_tokens :
-        typeof source.outputTokens === "number" ? source.outputTokens : 0;
+        typeof source.output_tokens === "number"
+          ? source.output_tokens
+          : typeof source.outputTokens === "number"
+            ? source.outputTokens
+            : 0;
       const totalTokens =
-        typeof source.total_tokens === "number" ? source.total_tokens :
-        typeof source.totalTokens === "number" ? source.totalTokens : 0;
+        typeof source.total_tokens === "number"
+          ? source.total_tokens
+          : typeof source.totalTokens === "number"
+            ? source.totalTokens
+            : 0;
 
       // Prefer absolute totals from the event
       if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
@@ -638,6 +701,8 @@ async function runCodexClientProtocol(
     let turnCount = 0;
     let requestIdCounter = 0;
 
+    let finalTrackerState: "active" | "non-actionable" | "unknown" = "unknown";
+
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
       runtimeState.sessionInfo.turnCount = turnCount;
@@ -690,9 +755,13 @@ async function runCodexClientProtocol(
 
       // Refresh tracker state to decide whether to continue
       const trackerState = await refreshTrackerState(env);
+      finalTrackerState = trackerState;
       process.stderr.write(`[worker] tracker state refresh: ${trackerState}\n`);
 
       if (trackerState === "non-actionable") {
+        runtimeState.executionPhase =
+          resolvePausedExecutionPhase(runtimeState.executionPhase) ??
+          runtimeState.executionPhase;
         process.stderr.write(
           "[worker] issue no longer actionable — exiting multi-turn loop\n"
         );
@@ -706,6 +775,9 @@ async function runCodexClientProtocol(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
     runtimeState.status = userInputRequired ? "failed" : "completed";
+    if (!userInputRequired && finalTrackerState !== "non-actionable") {
+      runtimeState.executionPhase = "completed";
+    }
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
 
     // Brief delay so the state API can serve the final status once.

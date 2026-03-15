@@ -67,6 +67,8 @@ export type OrchestratorRunRecord = {
   lastEvent?: string | null;
   /** Last event timestamp */
   lastEventAt?: string | null;
+  /** Current workflow execution phase reported by the worker */
+  executionPhase?: string | null;
 };
 
 export type ProjectLeaseRecord = {
@@ -98,6 +100,7 @@ export type LiveWorkerState = {
   lastError: string | null;
   lastEvent: string | null;
   lastEventAt: string | null;
+  executionPhase: string | null;
   status: "idle" | "starting" | "running" | "failed" | "completed";
 };
 
@@ -128,6 +131,7 @@ export type ProjectStatusSnapshot = {
     startedAt?: string | null;
     lastEvent?: string | null;
     lastEventAt?: string | null;
+    executionPhase?: string | null;
     tokenUsage?: {
       inputTokens: number;
       outputTokens: number;
