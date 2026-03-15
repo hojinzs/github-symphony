@@ -23,9 +23,7 @@ export async function fetchProjectOrchestratorStatus(
 ): Promise<OrchestratorProjectStatusSnapshot | null> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const response = await fetchImpl(
-    `${dependencies.baseUrl ?? resolveOrchestratorStatusBaseUrl()}/api/v1/projects/${encodeURIComponent(
-      projectId
-    )}/status`
+    `${dependencies.baseUrl ?? resolveOrchestratorStatusBaseUrl()}/api/v1/status`
   );
 
   if (response.status === 404) {
@@ -36,5 +34,6 @@ export async function fetchProjectOrchestratorStatus(
     throw new Error(`Orchestrator status endpoint returned ${response.status}`);
   }
 
-  return (await response.json()) as OrchestratorProjectStatusSnapshot;
+  const snapshot = (await response.json()) as OrchestratorProjectStatusSnapshot;
+  return snapshot.projectId === projectId ? snapshot : null;
 }

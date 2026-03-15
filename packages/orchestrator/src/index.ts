@@ -11,7 +11,10 @@ export async function runCli(
   dependencies: {
     stdout?: Pick<NodeJS.WriteStream, "write">;
     stderr?: Pick<NodeJS.WriteStream, "write">;
-    createService?: (runtimeRoot: string) => OrchestratorService;
+    createService?: (
+      runtimeRoot: string,
+      projectId?: string
+    ) => Promise<OrchestratorService> | OrchestratorService;
     startStatusServer?: typeof startOrchestratorStatusServer;
   } = {}
 ): Promise<void> {
@@ -19,8 +22,8 @@ export async function runCli(
   const parsed = parseArgs(args);
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
   const service =
-    dependencies.createService?.(runtimeRoot) ??
-    new OrchestratorService(createStore(runtimeRoot));
+    (await dependencies.createService?.(runtimeRoot, parsed.projectId)) ??
+    (await createServiceForRuntime(runtimeRoot, parsed.projectId));
   const stdout = dependencies.stdout ?? process.stdout;
   void (dependencies.stderr ?? process.stderr);
 
@@ -32,16 +35,9 @@ export async function runCli(
         const statusServer = (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
           host: statusHost,
           port: statusPort,
-          getProjectStatus: {
-            all: () => service.status(),
-            byProjectId: async (projectId) => {
-              const [snapshot] = await service.status(projectId);
-              return snapshot ?? null;
-            }
-          },
+          getProjectStatus: () => service.status(),
           onRefresh: async () => {
             await service.runOnce({
-              projectId: parsed.projectId,
               issueIdentifier: parsed.issueIdentifier,
             });
           },
@@ -56,7 +52,6 @@ export async function runCli(
         });
       }
       await service.run({
-        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       return;
@@ -64,7 +59,6 @@ export async function runCli(
     case "run-once":
     case "dispatch": {
       const result = await service.runOnce({
-        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -76,25 +70,41 @@ export async function runCli(
       }
 
       const result = await service.runOnce({
-        projectId: parsed.projectId,
         issueIdentifier: parsed.issueIdentifier
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "recover": {
-      const result = await service.recover(parsed.projectId);
+      const result = await service.recover();
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "status": {
-      const result = await service.status(parsed.projectId);
+      const result = await service.status();
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     default:
       throw new Error(`Unsupported command: ${command}`);
   }
+}
+
+async function createServiceForRuntime(
+  runtimeRoot: string,
+  projectId?: string
+): Promise<OrchestratorService> {
+  if (!projectId) {
+    throw new Error("Orchestrator CLI requires --project-id.");
+  }
+
+  const store = createStore(runtimeRoot);
+  const projectConfig = await store.loadProjectConfig(projectId);
+  if (!projectConfig) {
+    throw new Error(`Project config not found for "${projectId}".`);
+  }
+
+  return new OrchestratorService(store, projectConfig);
 }
 
 async function main(): Promise<void> {

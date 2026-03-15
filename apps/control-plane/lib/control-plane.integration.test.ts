@@ -120,7 +120,7 @@ describe("Control-plane integration", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            workspaceId: workspace.id,
+            projectId: workspace.id,
             slug: workspace.slug,
             tracker: {
               adapter: "github-project",
@@ -154,7 +154,7 @@ describe("Control-plane integration", () => {
         new Response(
           JSON.stringify({
             activeTask: issue.number,
-            projectId: workspace.githubProjectId
+            projectId: workspace.id
           }),
           { status: 200 }
         )
@@ -180,7 +180,7 @@ describe("Control-plane integration", () => {
     });
     expect(dashboard[0]?.runtime?.state).toMatchObject({
       orchestrator: {
-        workspaceId: workspace.id
+        projectId: workspace.id
       },
       worker: {
         activeTask: issue.number

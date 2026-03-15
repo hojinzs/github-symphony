@@ -52,121 +52,109 @@ function parseStartArgs(args: string[]): {
 // ── Tick logging ──────────────────────────────────────────────────────────────
 
 function logTickResult(
-  snapshots: ProjectStatusSnapshot[],
-  prevSnapshots: ProjectStatusSnapshot[],
+  snapshot: ProjectStatusSnapshot,
+  prevSnapshot: ProjectStatusSnapshot | null,
   isFirst: boolean
 ): void {
-  for (const snap of snapshots) {
-    const prev = prevSnapshots.find((p) => p.projectId === snap.projectId);
+  if (isFirst) {
+    const healthColor =
+      snapshot.health === "degraded"
+        ? red
+        : snapshot.health === "running"
+          ? green
+          : cyan;
+    logLine(
+      green("\u25CF"),
+      `Project ${bold(snapshot.slug)} connected ${dim("(")}${healthColor(snapshot.health)}${dim(")")}`
+    );
+    if (snapshot.summary.activeRuns > 0) {
+      logLine(cyan("\u25B8"), `${snapshot.summary.activeRuns} active run(s)`);
+    }
+    return;
+  }
 
-    if (isFirst) {
-      const healthColor =
-        snap.health === "degraded"
-          ? red
-          : snap.health === "running"
-            ? green
-            : cyan;
+  if (prevSnapshot && prevSnapshot.health !== snapshot.health) {
+    const icon =
+      snapshot.health === "degraded" ? red("\u25CF") : green("\u25CF");
+    logLine(
+      icon,
+      `Health changed: ${prevSnapshot.health} \u2192 ${bold(snapshot.health)}`
+    );
+  }
+
+  if (snapshot.lastError && snapshot.lastError !== prevSnapshot?.lastError) {
+    logLine(red("\u2717"), red(snapshot.lastError));
+  }
+
+  if (!snapshot.lastError && prevSnapshot?.lastError) {
+    logLine(green("\u2713"), green("Error cleared"));
+  }
+
+  const prevDispatched = prevSnapshot?.summary.dispatched ?? 0;
+  if (snapshot.summary.dispatched > prevDispatched) {
+    const delta = snapshot.summary.dispatched - prevDispatched;
+    logLine(yellow("\u25B8"), `Dispatched ${bold(String(delta))} new run(s)`);
+  }
+
+  const prevRunIds = new Set(
+    prevSnapshot?.activeRuns.map((run) => run.runId) ?? []
+  );
+  for (const run of snapshot.activeRuns) {
+    if (!prevRunIds.has(run.runId)) {
       logLine(
-        green("\u25CF"),
-        `Project ${bold(snap.slug)} connected ${dim("(")}${healthColor(snap.health)}${dim(")")}`
-      );
-      if (snap.summary.activeRuns > 0) {
-        logLine(cyan("\u25B8"), `${snap.summary.activeRuns} active run(s)`);
-      }
-      continue;
-    }
-
-    // Health changes
-    if (prev && prev.health !== snap.health) {
-      const icon = snap.health === "degraded" ? red("\u25CF") : green("\u25CF");
-      logLine(
-        icon,
-        `Health changed: ${prev.health} \u2192 ${bold(snap.health)}`
-      );
-    }
-
-    // New error
-    if (snap.lastError && snap.lastError !== prev?.lastError) {
-      logLine(red("\u2717"), red(snap.lastError));
-    }
-
-    // Error cleared
-    if (!snap.lastError && prev?.lastError) {
-      logLine(green("\u2713"), green("Error cleared"));
-    }
-
-    // Dispatched delta
-    const prevDispatched = prev?.summary.dispatched ?? 0;
-    if (snap.summary.dispatched > prevDispatched) {
-      const delta = snap.summary.dispatched - prevDispatched;
-      logLine(yellow("\u25B8"), `Dispatched ${bold(String(delta))} new run(s)`);
-    }
-
-    // Active run changes
-    const prevRunIds = new Set(prev?.activeRuns.map((r) => r.runId) ?? []);
-    for (const run of snap.activeRuns) {
-      if (!prevRunIds.has(run.runId)) {
-        logLine(
-          cyan("\u25B8"),
-          `Run started: ${bold(run.issueIdentifier)} ${dim("state=")}${run.issueState} ${dim("status=")}${run.status}`
-        );
-      }
-    }
-
-    // Completed runs (were active, now gone)
-    const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
-    for (const prevRun of prev?.activeRuns ?? []) {
-      if (!currentRunIds.has(prevRun.runId)) {
-        logLine(
-          green("\u2713"),
-          `Run finished: ${bold(prevRun.issueIdentifier)} ${dim("(")}${prevRun.status}${dim(")")}`
-        );
-      }
-    }
-
-    // Suppressed delta
-    const prevSuppressed = prev?.summary.suppressed ?? 0;
-    if (snap.summary.suppressed > prevSuppressed) {
-      const delta = snap.summary.suppressed - prevSuppressed;
-      logLine(
-        dim("\u25CB"),
-        dim(`${delta} issue(s) suppressed (already running or at limit)`)
+        cyan("\u25B8"),
+        `Run started: ${bold(run.issueIdentifier)} ${dim("state=")}${run.issueState} ${dim("status=")}${run.status}`
       );
     }
+  }
 
-    // Recovered delta
-    const prevRecovered = prev?.summary.recovered ?? 0;
-    if (snap.summary.recovered > prevRecovered) {
-      const delta = snap.summary.recovered - prevRecovered;
+  const currentRunIds = new Set(snapshot.activeRuns.map((run) => run.runId));
+  for (const prevRun of prevSnapshot?.activeRuns ?? []) {
+    if (!currentRunIds.has(prevRun.runId)) {
       logLine(
-        yellow("\u21BA"),
-        `Recovered ${bold(String(delta))} stalled run(s)`
+        green("\u2713"),
+        `Run finished: ${bold(prevRun.issueIdentifier)} ${dim("(")}${prevRun.status}${dim(")")}`
       );
     }
+  }
 
-    // Retry queue changes
-    const prevRetryCount = prev?.retryQueue.length ?? 0;
-    if (snap.retryQueue.length > prevRetryCount) {
-      const delta = snap.retryQueue.length - prevRetryCount;
-      logLine(yellow("\u25CC"), `${delta} run(s) queued for retry`);
-    }
+  const prevSuppressed = prevSnapshot?.summary.suppressed ?? 0;
+  if (snapshot.summary.suppressed > prevSuppressed) {
+    const delta = snapshot.summary.suppressed - prevSuppressed;
+    logLine(
+      dim("\u25CB"),
+      dim(`${delta} issue(s) suppressed (already running or at limit)`)
+    );
+  }
 
-    // Quiet tick — no changes
-    const changed =
-      snap.health !== prev?.health ||
-      snap.lastError !== prev?.lastError ||
-      snap.summary.dispatched !== prev?.summary.dispatched ||
-      snap.summary.suppressed !== prev?.summary.suppressed ||
-      snap.summary.recovered !== prev?.summary.recovered ||
-      snap.activeRuns.length !== (prev?.activeRuns.length ?? 0) ||
-      snap.retryQueue.length !== (prev?.retryQueue.length ?? 0);
+  const prevRecovered = prevSnapshot?.summary.recovered ?? 0;
+  if (snapshot.summary.recovered > prevRecovered) {
+    const delta = snapshot.summary.recovered - prevRecovered;
+    logLine(yellow("\u21BA"), `Recovered ${bold(String(delta))} stalled run(s)`);
+  }
 
-    if (!changed) {
-      logLine(
-        dim("\u00B7"),
-        dim(`tick \u2014 ${snap.summary.activeRuns} active, ${snap.health}`)
-      );
-    }
+  const prevRetryCount = prevSnapshot?.retryQueue.length ?? 0;
+  if (snapshot.retryQueue.length > prevRetryCount) {
+    const delta = snapshot.retryQueue.length - prevRetryCount;
+    logLine(yellow("\u25CC"), `${delta} run(s) queued for retry`);
+  }
+
+  const changed =
+    snapshot.health !== prevSnapshot?.health ||
+    snapshot.lastError !== prevSnapshot?.lastError ||
+    snapshot.summary.dispatched !== prevSnapshot?.summary.dispatched ||
+    snapshot.summary.suppressed !== prevSnapshot?.summary.suppressed ||
+    snapshot.summary.recovered !== prevSnapshot?.summary.recovered ||
+    snapshot.activeRuns.length !== (prevSnapshot?.activeRuns.length ?? 0) ||
+    snapshot.retryQueue.length !== (prevSnapshot?.retryQueue.length ?? 0);
+
+  if (!changed) {
+    logLine(
+      dim("\u00B7"),
+      dim(
+        `tick \u2014 ${snapshot.summary.activeRuns} active, ${snapshot.health}`
+      )
+    );
   }
 }
 
@@ -211,21 +199,15 @@ const handler = async (
   }
 
   const store = createStore(runtimeRoot);
-  const service = new OrchestratorService(store);
+  const service = new OrchestratorService(store, projectConfig);
 
   // Start status server
   startOrchestratorStatusServer({
     host: "127.0.0.1",
     port: 4680,
-    getProjectStatus: {
-      all: () => service.status(),
-      byProjectId: async (id) => {
-        const [snapshot] = await service.status(id);
-        return snapshot ?? null;
-      },
-    },
+    getProjectStatus: () => service.status(),
     onRefresh: async () => {
-      await service.runOnce({ projectId });
+      await service.runOnce();
     },
   });
 
@@ -244,33 +226,28 @@ const handler = async (
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  let prevSnapshots: ProjectStatusSnapshot[] = [];
+  let prevSnapshot: ProjectStatusSnapshot | null = null;
   let isFirst = true;
 
   while (running) {
     try {
-      const snapshots = await service.runOnce({ projectId });
-      logTickResult(snapshots, prevSnapshots, isFirst);
+      const snapshot = await service.runOnce();
+      logTickResult(snapshot, prevSnapshot, isFirst);
 
       if (!isFirst) {
-        for (const snap of snapshots) {
-          const prev = prevSnapshots.find(
-            (p) => p.projectId === snap.projectId
-          );
-          const currentRunIds = new Set(snap.activeRuns.map((r) => r.runId));
-          for (const prevRun of prev?.activeRuns ?? []) {
-            if (!currentRunIds.has(prevRun.runId)) {
-              await tailWorkerLog(
-                runtimeRoot,
-                prevRun.runId,
-                prevRun.issueIdentifier
-              );
-            }
+        const currentRunIds = new Set(snapshot.activeRuns.map((run) => run.runId));
+        for (const prevRun of prevSnapshot?.activeRuns ?? []) {
+          if (!currentRunIds.has(prevRun.runId)) {
+            await tailWorkerLog(
+              runtimeRoot,
+              prevRun.runId,
+              prevRun.issueIdentifier
+            );
           }
         }
       }
 
-      prevSnapshots = snapshots;
+      prevSnapshot = snapshot;
       isFirst = false;
     } catch (error) {
       logLine(

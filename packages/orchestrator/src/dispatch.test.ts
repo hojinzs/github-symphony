@@ -159,17 +159,16 @@ describe("per-state concurrency limits", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig(
-      createProjectConfig(
-        tempRoot,
-        repository.cloneUrl,
-        repository.owner,
-        repository.name
-      )
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
     );
+    await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5101, unref: vi.fn() });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
         .mockResolvedValue(
@@ -181,7 +180,7 @@ describe("per-state concurrency limits", () => {
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.dispatched).toBe(1);
+    expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -199,17 +198,16 @@ describe("per-state concurrency limits", () => {
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig(
-      createProjectConfig(
-        tempRoot,
-        repository.cloneUrl,
-        repository.owner,
-        repository.name
-      )
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
     );
+    await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5102, unref: vi.fn() });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
         .mockResolvedValue(
@@ -221,7 +219,7 @@ describe("per-state concurrency limits", () => {
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.dispatched).toBe(3);
+    expect(result.summary.dispatched).toBe(3);
     expect(spawnImpl).toHaveBeenCalledTimes(3);
   });
 });
@@ -239,14 +237,13 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig(
-      createProjectConfig(
-        tempRoot,
-        repository.cloneUrl,
-        repository.owner,
-        repository.name
-      )
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
     );
+    await store.saveProjectConfig(projectConfig);
 
     const issueA = makeIssue({
       id: "issue-1",
@@ -309,14 +306,14 @@ describe("blocker eligibility", () => {
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5201, unref: vi.fn() });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.dispatched).toBe(1);
+    expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
@@ -337,14 +334,13 @@ describe("blocker eligibility", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    await store.saveProjectConfig(
-      createProjectConfig(
-        tempRoot,
-        repository.cloneUrl,
-        repository.owner,
-        repository.name
-      )
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
     );
+    await store.saveProjectConfig(projectConfig);
 
     const issueA = makeIssue({
       id: "issue-1",
@@ -407,14 +403,14 @@ describe("blocker eligibility", () => {
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5202, unref: vi.fn() });
-    const service = new OrchestratorService(store, {
+    const service = new OrchestratorService(store, projectConfig, {
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
     const result = await service.runOnce();
 
-    expect(result[0]?.summary.dispatched).toBe(1);
+    expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",

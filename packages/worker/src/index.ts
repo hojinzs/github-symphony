@@ -749,17 +749,14 @@ async function refreshTrackerState(
   env: NodeJS.ProcessEnv
 ): Promise<"active" | "non-actionable" | "unknown"> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const projectId = env.PROJECT_ID ?? env.CODEX_PROJECT_ID;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
 
-  if (!orchestratorUrl || !projectId) {
+  if (!orchestratorUrl) {
     return "unknown";
   }
 
   try {
-    const response = await fetch(
-      `${orchestratorUrl}/api/v1/projects/${encodeURIComponent(projectId)}/status`
-    );
+    const response = await fetch(`${orchestratorUrl}/api/v1/status`);
     if (!response.ok) return "unknown";
 
     const status = (await response.json()) as {

@@ -5,7 +5,7 @@ import {
 } from "./orchestrator-status-client";
 
 describe("orchestrator status client", () => {
-  it("uses the configured base URL and parses tenant snapshots", async () => {
+  it("uses the configured base URL and parses project snapshots", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -38,7 +38,7 @@ describe("orchestrator status client", () => {
 
     expect(snapshot?.projectId).toBe("tenant-1");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://orchestrator.test:4680/api/v1/projects/tenant-1/status"
+      "http://orchestrator.test:4680/api/v1/status"
     );
   });
 
@@ -46,6 +46,39 @@ describe("orchestrator status client", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
 
     const snapshot = await fetchProjectOrchestratorStatus("missing", {
+      fetchImpl: fetchImpl as typeof fetch
+    });
+
+    expect(snapshot).toBeNull();
+  });
+
+  it("returns null when the snapshot projectId does not match the requested workspace", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          projectId: "tenant-2",
+          slug: "tenant-2",
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-456"
+          },
+          lastTickAt: "2026-03-09T00:00:00.000Z",
+          health: "running",
+          summary: {
+            dispatched: 0,
+            suppressed: 0,
+            recovered: 0,
+            activeRuns: 0
+          },
+          activeRuns: [],
+          retryQueue: [],
+          lastError: null
+        }),
+        { status: 200 }
+      )
+    );
+
+    const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
       fetchImpl: fetchImpl as typeof fetch
     });
 

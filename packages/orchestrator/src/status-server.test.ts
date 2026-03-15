@@ -3,10 +3,7 @@ import { resolveOrchestratorStatusResponse } from "./status-server.js";
 
 describe("POST /api/v1/refresh", () => {
   it("triggers onRefresh callback on POST", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
     const onRefresh = vi.fn();
 
     const result = await resolveOrchestratorStatusResponse(
@@ -22,10 +19,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 405 for GET on /api/v1/refresh", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
 
     const result = await resolveOrchestratorStatusResponse(
       "/api/v1/refresh",
@@ -38,10 +32,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 405 for PUT on /api/v1/refresh", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
 
     const result = await resolveOrchestratorStatusResponse(
       "/api/v1/refresh",
@@ -54,10 +45,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("works when onRefresh is not provided", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
 
     const result = await resolveOrchestratorStatusResponse(
       "/api/v1/refresh",
@@ -70,10 +58,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("awaits async refresh completion before returning", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
     let released = false;
     const onRefresh = vi.fn().mockImplementation(
       () =>
@@ -97,10 +82,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("coalesces concurrent refresh requests while one is running", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
     let resolveRefresh: (() => void) | null = null;
     const onRefresh = vi.fn().mockImplementation(
       () =>
@@ -136,10 +118,7 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 500 when refresh callback rejects and clears the in-flight state", async () => {
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([]),
-      byProjectId: vi.fn().mockResolvedValue(null),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(null);
     const onRefresh = vi
       .fn()
       .mockRejectedValueOnce(new Error("refresh failed"))
@@ -171,7 +150,7 @@ describe("POST /api/v1/refresh", () => {
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the legacy GET signature working for project status lookups", async () => {
+  it("returns a single project snapshot from /api/v1/status", async () => {
     const snapshot = {
       projectId: "tenant-1",
       slug: "tenant-1",
@@ -191,18 +170,15 @@ describe("POST /api/v1/refresh", () => {
       retryQueue: [],
       lastError: null,
     } as const;
-    const mockStatus = {
-      all: vi.fn().mockResolvedValue([snapshot]),
-      byProjectId: vi.fn().mockResolvedValue(snapshot),
-    };
+    const mockStatus = vi.fn().mockResolvedValue(snapshot);
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/projects/tenant-1/status",
+      "/api/v1/status",
       mockStatus
     );
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
-    expect(mockStatus.byProjectId).toHaveBeenCalledWith("tenant-1");
+    expect(mockStatus).toHaveBeenCalledOnce();
   });
 });

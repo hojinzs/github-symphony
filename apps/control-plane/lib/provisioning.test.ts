@@ -247,7 +247,7 @@ describe("provisionWorkspaceRuntime", () => {
         fetchImpl: vi.fn().mockResolvedValue(
           new Response(
             JSON.stringify({
-              workspaceId: "workspace-1",
+              projectId: "workspace-1",
               slug: "workspace-1",
               tracker: {
                 adapter: "github-project",
@@ -377,7 +377,7 @@ describe("provisionWorkspaceRuntime", () => {
         fetchImpl: vi.fn().mockResolvedValue(
           new Response(
             JSON.stringify({
-              workspaceId: "workspace-2",
+              projectId: "workspace-2",
               slug: "workspace-2",
               tracker: {
                 adapter: "github-project",
