@@ -20,6 +20,26 @@ export type OrchestratorProjectConfig = {
 
 export type RetryKind = "continuation" | "failure" | "recovery";
 
+export const WORKFLOW_EXECUTION_PHASES = [
+  "planning",
+  "human-review",
+  "implementation",
+  "awaiting-merge",
+  "completed",
+] as const;
+
+export type WorkflowExecutionPhase =
+  (typeof WORKFLOW_EXECUTION_PHASES)[number];
+
+export function isWorkflowExecutionPhase(
+  value: unknown
+): value is WorkflowExecutionPhase {
+  return (
+    typeof value === "string" &&
+    WORKFLOW_EXECUTION_PHASES.includes(value as WorkflowExecutionPhase)
+  );
+}
+
 export type OrchestratorRunStatus =
   | "pending"
   | "starting"
@@ -67,6 +87,8 @@ export type OrchestratorRunRecord = {
   lastEvent?: string | null;
   /** Last event timestamp */
   lastEventAt?: string | null;
+  /** Current workflow execution phase reported by the worker */
+  executionPhase?: WorkflowExecutionPhase | null;
 };
 
 export type ProjectLeaseRecord = {
@@ -98,6 +120,7 @@ export type LiveWorkerState = {
   lastError: string | null;
   lastEvent: string | null;
   lastEventAt: string | null;
+  executionPhase: WorkflowExecutionPhase | null;
   status: "idle" | "starting" | "running" | "failed" | "completed";
 };
 
@@ -128,6 +151,7 @@ export type ProjectStatusSnapshot = {
     startedAt?: string | null;
     lastEvent?: string | null;
     lastEventAt?: string | null;
+    executionPhase?: WorkflowExecutionPhase | null;
     tokenUsage?: {
       inputTokens: number;
       outputTokens: number;

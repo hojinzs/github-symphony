@@ -46,7 +46,7 @@ describe("renderDashboard", () => {
       now: NOW,
     });
     expect(output).toContain("ID");
-    expect(output).toContain("STAGE");
+    expect(output).toContain("STATUS");
     expect(output).toContain("PID");
     expect(output).toContain("AGE/TURN");
     expect(output).toContain("TOKENS");
@@ -102,5 +102,23 @@ describe("renderDashboard", () => {
       (l) => l.includes("\u2500\u2500") && !l.includes("Backoff")
     );
     expect(sectionLines.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("prefers issueState over executionPhase in the STATUS column", () => {
+    const snapshot = loadFixture("busy");
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      issueState: "In Progress",
+      executionPhase: "implementation",
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).toContain("In Progress");
+    expect(output).not.toContain("implementation ");
   });
 });

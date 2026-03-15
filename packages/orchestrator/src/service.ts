@@ -11,6 +11,7 @@ import {
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
   executeWorkspaceHook,
+  isWorkflowExecutionPhase,
   isStateActive,
   isStateTerminal,
   matchesWorkflowState,
@@ -49,6 +50,10 @@ type SpawnLike = (
   args: ReadonlyArray<string>,
   options: SpawnOptions
 ) => ChildProcess;
+
+function parseExecutionPhase(value: unknown) {
+  return isWorkflowExecutionPhase(value) ? value : null;
+}
 
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
@@ -146,6 +151,15 @@ export class OrchestratorService {
       const issues = await trackerAdapter.listIssues(tenant, {
         fetchImpl: this.dependencies.fetchImpl,
       });
+      const currentActiveRuns = (await this.store.loadAllRuns()).filter(
+        (run) =>
+          run.projectId === tenant.projectId && isActiveRunStatus(run.status)
+      );
+      const syncedActiveRuns = await this.syncActiveRunIssueStates(
+        currentActiveRuns,
+        issues,
+        now
+      );
       const filteredIssues = issueIdentifier
         ? issues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
@@ -171,7 +185,7 @@ export class OrchestratorService {
 
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
-      for (const run of activeRuns) {
+      for (const run of syncedActiveRuns) {
         const state = run.issueState;
         const count = activeByState.get(state) ?? 0;
         activeByState.set(state, count + 1);
@@ -565,6 +579,35 @@ export class OrchestratorService {
     };
   }
 
+  private async syncActiveRunIssueStates(
+    activeRuns: OrchestratorRunRecord[],
+    issues: TrackedIssue[],
+    now: Date
+  ): Promise<OrchestratorRunRecord[]> {
+    const issueStateByIdentifier = new Map(
+      issues.map((issue) => [issue.identifier, issue.state])
+    );
+
+    const syncedRuns: OrchestratorRunRecord[] = [];
+    for (const run of activeRuns) {
+      const currentTrackerState = issueStateByIdentifier.get(run.issueIdentifier);
+      if (!currentTrackerState || currentTrackerState === run.issueState) {
+        syncedRuns.push(run);
+        continue;
+      }
+
+      const updatedRun: OrchestratorRunRecord = {
+        ...run,
+        issueState: currentTrackerState,
+        updatedAt: now.toISOString(),
+      };
+      await this.store.saveRun(updatedRun);
+      syncedRuns.push(updatedRun);
+    }
+
+    return syncedRuns;
+  }
+
   private async reconcileRun(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
@@ -599,6 +642,7 @@ export class OrchestratorService {
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
           lastEventAt: liveState.lastEventAt ?? undefined,
+          executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
         };
         await this.store.saveRun(runningRecord);
         return {
@@ -611,9 +655,13 @@ export class OrchestratorService {
     // Attempt to capture final token usage and session info from the worker
     // state API before the worker process fully exits.
     const workerInfo = await this.fetchWorkerRunInfo(run);
-    const runWithTokens: OrchestratorRunRecord = workerInfo.tokenUsage
-      ? { ...run, tokenUsage: workerInfo.tokenUsage }
-      : run;
+    const runWithTokens: OrchestratorRunRecord = {
+      ...run,
+      tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
+      lastEvent: workerInfo.lastEvent ?? run.lastEvent,
+      lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
+      executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
+    };
     const workerSessionId = workerInfo.sessionId;
 
     if (workerInfo.lastError) {
@@ -793,6 +841,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    executionPhase: OrchestratorRunRecord["executionPhase"];
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -807,6 +856,7 @@ export class OrchestratorService {
       lastError: liveState.lastError,
       lastEvent: liveState.lastEvent,
       lastEventAt: liveState.lastEventAt,
+      executionPhase: liveState.executionPhase,
     };
   }
 
@@ -817,6 +867,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    executionPhase: OrchestratorRunRecord["executionPhase"];
   }> {
     if (!run.port) {
       return {
@@ -826,6 +877,7 @@ export class OrchestratorService {
         lastError: null,
         lastEvent: null,
         lastEventAt: null,
+        executionPhase: null,
       };
     }
 
@@ -843,11 +895,13 @@ export class OrchestratorService {
           lastError: null,
           lastEvent: null,
           lastEventAt: null,
+          executionPhase: null,
         };
       }
 
       const state = (await response.json()) as {
         status?: string;
+        executionPhase?: unknown;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -871,6 +925,7 @@ export class OrchestratorService {
       const lastError = state.run?.lastError ?? null;
       const lastEvent = state.status ?? null;
       const lastEventAt: string | null = null; // worker doesn't emit event timestamps
+      const executionPhase = parseExecutionPhase(state.executionPhase);
 
       return {
         tokenUsage,
@@ -879,6 +934,7 @@ export class OrchestratorService {
         lastError,
         lastEvent,
         lastEventAt,
+        executionPhase,
       };
     } catch {
       return {
@@ -888,6 +944,7 @@ export class OrchestratorService {
         lastError: null,
         lastEvent: null,
         lastEventAt: null,
+        executionPhase: null,
       };
     }
   }

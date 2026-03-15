@@ -39,6 +39,7 @@ Prefer small changes.
       hookPath: "hooks/after_create.sh",
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
     });
+    expect(state.executionPhase).toBeNull();
   });
 
   it("falls back to environment metadata when workflow is missing", async () => {
@@ -51,6 +52,7 @@ Prefer small changes.
 
     expect(state.projectId).toBe("project-123");
     expect(state.workflow).toBeNull();
+    expect(state.executionPhase).toBeNull();
   });
 
   it("surfaces assigned run metadata from the orchestrator", async () => {
@@ -90,6 +92,23 @@ Prefer small changes.
       },
       lastError: null,
     });
+    expect(state.executionPhase).toBeNull();
+  });
+
+  it("includes runtime execution phase metadata when provided", async () => {
+    const state = await buildWorkerRuntimeState(
+      {
+        GITHUB_PROJECT_ID: "project-123",
+      },
+      vi.fn().mockRejectedValue(new Error("missing")),
+      {
+        status: "running",
+        executionPhase: "implementation",
+      }
+    );
+
+    expect(state.status).toBe("running");
+    expect(state.executionPhase).toBe("implementation");
   });
 });
 
@@ -100,9 +119,15 @@ describe("createWorkerRequestHandler", () => {
       package: "@gh-symphony/worker",
       runtime: "self-hosted-sample",
       status: "idle",
+      executionPhase: "planning",
       projectId: "project-123",
       workspaceRuntimeDir: "/workspace-runtime",
       run: null,
+      tokenUsage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
       workflow: null,
     }));
 
@@ -115,6 +140,7 @@ describe("createWorkerRequestHandler", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('"projectId":"project-123"');
+    expect(response.body).toContain('"executionPhase":"planning"');
   });
 });
 
