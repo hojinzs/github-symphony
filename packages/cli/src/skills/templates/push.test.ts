@@ -5,7 +5,7 @@ import type { SkillTemplateContext } from "../types.js";
 const mockCtx: SkillTemplateContext = {
   runtime: "claude-code",
   projectId: "PVT_test",
-  projectTitle: "Test",
+  githubProjectTitle: "Test",
   repositories: [{ owner: "acme", name: "platform" }],
   statusColumns: [{ id: "opt_todo", name: "Todo", role: "active" }],
   statusFieldId: "PVTF_field",

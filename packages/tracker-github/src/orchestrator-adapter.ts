@@ -2,9 +2,9 @@ import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerConfig,
 } from "@gh-symphony/core";
-import { fetchProjectIssues } from "./adapter.js";
+import { fetchGithubProjectIssues } from "./adapter.js";
 
-export const githubProjectAdapter: OrchestratorTrackerAdapter = {
+export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
     const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
 
@@ -14,11 +14,11 @@ export const githubProjectAdapter: OrchestratorTrackerAdapter = {
       );
     }
 
-    const projectId = requireTrackerSetting(project.tracker, "projectId");
+    const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
 
-    return fetchProjectIssues(
+    return fetchGithubProjectIssues(
       {
-        projectId,
+        projectId: githubProjectId,
         token,
         apiUrl: project.tracker.apiUrl,
         assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
@@ -60,7 +60,7 @@ export const githubProjectAdapter: OrchestratorTrackerAdapter = {
 };
 
 const trackerAdapters: Record<string, OrchestratorTrackerAdapter> = {
-  "github-project": githubProjectAdapter,
+  "github-project": githubProjectTrackerAdapter,
 };
 
 export function resolveTrackerAdapter(

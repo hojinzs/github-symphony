@@ -257,7 +257,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
   }
 
   const s2 = p.spinner();
-  s2.start("Loading GitHub Projects...");
+  s2.start("Loading GitHub Project boards...");
   let projects: ProjectSummary[];
   try {
     projects = await listUserProjects(client);
@@ -285,7 +285,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/4 - Select a GitHub Project:",
+      message: "Step 1/4 - Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
