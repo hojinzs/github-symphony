@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR Writeup"
+  short_description: "Draft linked GitHub PRs with evidence"
+  default_prompt: "Use $gh-pr-writeup to draft or update a GitHub PR with linked issues, evidence, and a human validation checklist."
