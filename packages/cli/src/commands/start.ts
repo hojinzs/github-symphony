@@ -1,8 +1,13 @@
-import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath, orchestratorLogPath, logsDir } from "../config.js";
+import {
+  daemonPidPath,
+  orchestratorLogPath,
+  orchestratorPortPath,
+} from "../config.js";
 import {
   OrchestratorService,
   createStore,
@@ -166,6 +171,13 @@ const handler = async (
 ): Promise<void> => {
   setNoColor(options.noColor);
   const parsed = parseStartArgs(args);
+  if (!parsed.projectId) {
+    process.stderr.write(
+      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   const projectConfig = await resolveProjectConfig(
     options.configDir,
@@ -201,15 +213,15 @@ const handler = async (
   const store = createStore(runtimeRoot);
   const service = new OrchestratorService(store, projectConfig);
 
-  // Start status server
-  startOrchestratorStatusServer({
+  const statusServer = startOrchestratorStatusServer({
     host: "127.0.0.1",
-    port: 4680,
+    port: 0,
     getProjectStatus: () => service.status(),
     onRefresh: async () => {
       await service.runOnce();
     },
   });
+  await persistStatusServerPort(options.configDir, projectId, statusServer);
 
   logLine(
     green("\u25B2"),
@@ -218,13 +230,19 @@ const handler = async (
   logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
   let running = true;
-  const shutdown = () => {
+  const shutdown = async () => {
     running = false;
     logLine(yellow("\u25BC"), "Shutting down...");
+    statusServer.close();
+    await rm(orchestratorPortPath(options.configDir, projectId), { force: true });
     process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => {
+    void shutdown();
+  });
+  process.on("SIGTERM", () => {
+    void shutdown();
+  });
 
   let prevSnapshot: ProjectStatusSnapshot | null = null;
   let isFirst = true;
@@ -297,8 +315,8 @@ async function startDaemon(
   options: GlobalOptions,
   projectId: string
 ): Promise<void> {
-  const logPath = orchestratorLogPath(options.configDir);
-  await mkdir(logsDir(options.configDir), { recursive: true });
+  const logPath = orchestratorLogPath(options.configDir, projectId);
+  await mkdir(dirname(logPath), { recursive: true });
 
   const { openSync } = await import("node:fs");
   const logFd = openSync(logPath, "a");
@@ -317,7 +335,7 @@ async function startDaemon(
     }
   );
 
-  const pidPath = daemonPidPath(options.configDir);
+  const pidPath = daemonPidPath(options.configDir, projectId);
   await mkdir(dirname(pidPath), { recursive: true });
   await writeFile(pidPath, String(child.pid), "utf8");
 
@@ -329,6 +347,25 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      `Stop with: gh-symphony stop\n`
+      `Stop with: gh-symphony project stop --project-id ${projectId}\n`
   );
+}
+
+async function persistStatusServerPort(
+  configDir: string,
+  projectId: string,
+  statusServer: ReturnType<typeof startOrchestratorStatusServer>
+): Promise<void> {
+  if (!statusServer.listening) {
+    await once(statusServer, "listening");
+  }
+
+  const address = statusServer.address();
+  if (!address || typeof address !== "object") {
+    return;
+  }
+
+  const portPath = orchestratorPortPath(configDir, projectId);
+  await mkdir(dirname(portPath), { recursive: true });
+  await writeFile(portPath, `${address.port}\n`, "utf8");
 }

@@ -65,4 +65,23 @@ describe("requestOrchestratorRefresh", () => {
       })
     ).resolves.toBe(false);
   });
+
+  it("uses an explicit base URL when provided", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+
+    await expect(
+      requestOrchestratorRefresh({
+        fetchImpl: fetchImpl as typeof fetch,
+        baseUrl: "http://127.0.0.1:9999",
+      })
+    ).resolves.toBe(true);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:9999/api/v1/refresh",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      })
+    );
+  });
 });

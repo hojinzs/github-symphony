@@ -24,6 +24,7 @@ vi.mock("node:child_process", async () => {
 
 const runModule = await import("./run.js");
 const startModule = await import("./start.js");
+const projectModule = await import("./project.js");
 const recoverModule = await import("./recover.js");
 
 afterEach(() => {
@@ -99,6 +100,41 @@ describe("lifecycle command integration", () => {
           GH_SYMPHONY_CONFIG_DIR: configDir,
         }),
       })
+    );
+
+    expect(
+      await readFile(
+        join(configDir, "projects", "tenant-b", "daemon.pid"),
+        "utf8"
+      )
+    ).toBe("4321");
+  });
+
+  it("supports project start subcommand for explicit project orchestration", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+
+    spawnMock.mockReturnValue({
+      pid: 8765,
+      stdout: { pipe: vi.fn() },
+      stderr: { pipe: vi.fn() },
+      unref: vi.fn(),
+    });
+
+    await projectModule.default(
+      ["start", "--project-id", "tenant-b", "--daemon"],
+      baseOptions(configDir)
+    );
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      process.execPath,
+      [process.argv[1], "start", "--project", "tenant-b"],
+      expect.any(Object)
     );
   });
 

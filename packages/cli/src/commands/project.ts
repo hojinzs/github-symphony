@@ -20,6 +20,8 @@ import {
   type CliGlobalConfig,
 } from "../config.js";
 import { writeConfig, generateProjectId, abortIfCancelled } from "./init.js";
+import startCommand from "./start.js";
+import stopCommand from "./stop.js";
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
@@ -93,6 +95,12 @@ const handler = async (
     case "remove":
       await projectRemove(rest, options);
       return;
+    case "start":
+      await startCommand(rest, options);
+      return;
+    case "stop":
+      await stopCommand(rest, options);
+      return;
     case "switch":
       await projectSwitch(options);
       return;
@@ -101,7 +109,7 @@ const handler = async (
       return;
     default:
       process.stdout.write(
-        "Usage: gh-symphony project <add|list|remove|switch|status>\n"
+        "Usage: gh-symphony project <add|list|remove|start|stop|switch|status>\n"
       );
   }
 };

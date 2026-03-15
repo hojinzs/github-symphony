@@ -31,7 +31,7 @@ export async function runCli(
     case "run": {
       if (!parsed.noStatusApi) {
         const statusHost = parsed.statusHost ?? process.env.ORCHESTRATOR_STATUS_HOST ?? "127.0.0.1";
-        const statusPort = parsed.statusPort ?? parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 4680) ?? 4680;
+        const statusPort = parsed.statusPort ?? parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 0) ?? 0;
         const statusServer = (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
           host: statusHost,
           port: statusPort,

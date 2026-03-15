@@ -82,7 +82,7 @@ describe("CLI --no-status-api flag", () => {
     expect(startStatusServer).toHaveBeenCalledWith(
       expect.objectContaining({
         host: "127.0.0.1",
-        port: 4680,
+        port: 0,
         onRefresh: expect.any(Function),
       })
     );
