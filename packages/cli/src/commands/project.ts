@@ -24,7 +24,6 @@ import {
   loadProjectConfig,
   projectConfigDir,
   daemonPidPath,
-  orchestratorPortPath,
   type CliGlobalConfig,
   type CliProjectConfig,
 } from "../config.js";
@@ -46,7 +45,7 @@ type ProjectListRow = {
   status: "running" | "stopped";
   endpoint: string;
   health: string;
-  activeRuns: number;
+  activeRuns: number | null;
   lastTick: string;
   uptime: string;
   active: boolean;
@@ -147,6 +146,9 @@ export default handler;
 
 function relativeTimeFromNow(isoString: string, now = new Date()): string {
   const then = new Date(isoString);
+  if (!Number.isFinite(then.getTime())) {
+    return "-";
+  }
   const diffMs = Math.max(0, now.getTime() - then.getTime());
   const diffS = Math.floor(diffMs / 1000);
   const diffM = Math.floor(diffS / 60);
@@ -221,7 +223,7 @@ async function readPid(
   try {
     const raw = await readFile(daemonPidPath(configDir, projectId), "utf8");
     const pid = Number.parseInt(raw.trim(), 10);
-    return Number.isFinite(pid) ? pid : null;
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
   }
@@ -231,21 +233,15 @@ function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "EPERM"
+    ) {
+      return true;
+    }
     return false;
-  }
-}
-
-async function readPort(
-  configDir: string,
-  projectId: string
-): Promise<string | null> {
-  try {
-    const raw = await readFile(orchestratorPortPath(configDir, projectId), "utf8");
-    const port = raw.trim();
-    return port.length > 0 ? port : null;
-  } catch {
-    return null;
   }
 }
 
@@ -267,13 +263,9 @@ async function readPersistedSnapshot(
 
 async function fetchProjectSnapshot(
   configDir: string,
-  projectId: string
+  projectId: string,
+  baseUrl: string | null
 ): Promise<ProjectStatusSnapshot | null> {
-  const baseUrl = await resolveProjectOrchestratorStatusBaseUrl({
-    configDir,
-    projectId,
-  });
-
   if (!baseUrl) {
     return readPersistedSnapshot(configDir, projectId);
   }
@@ -317,6 +309,56 @@ function defaultProjectName(
   return config?.displayName ?? config?.slug ?? projectId;
 }
 
+function isCombiningCodePoint(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0x1ab0 && codePoint <= 0x1aff) ||
+    (codePoint >= 0x1dc0 && codePoint <= 0x1dff) ||
+    (codePoint >= 0x20d0 && codePoint <= 0x20ff) ||
+    (codePoint >= 0xfe20 && codePoint <= 0xfe2f)
+  );
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+  return (
+    codePoint >= 0x1100 &&
+    (codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1f64f) ||
+      (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd))
+  );
+}
+
+function stringDisplayWidth(value: string): number {
+  const visible = stripAnsi(value);
+  let width = 0;
+  for (const char of visible) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint === undefined) {
+      continue;
+    }
+    if (
+      codePoint === 0 ||
+      codePoint < 0x20 ||
+      (codePoint >= 0x7f && codePoint < 0xa0) ||
+      isCombiningCodePoint(codePoint)
+    ) {
+      continue;
+    }
+    width += isWideCodePoint(codePoint) ? 2 : 1;
+  }
+  return width;
+}
+
 async function collectProjectListRows(
   configDir: string,
   global: CliGlobalConfig
@@ -326,10 +368,15 @@ async function collectProjectListRows(
       const config = await loadProjectConfig(configDir, projectId);
       const pid = await readPid(configDir, projectId);
       const running = pid !== null && isProcessRunning(pid);
-      const port = running ? await readPort(configDir, projectId) : null;
-      const endpoint = running && port ? `http://127.0.0.1:${port}` : "-";
+      const endpointBaseUrl = running
+        ? await resolveProjectOrchestratorStatusBaseUrl({
+            configDir,
+            projectId,
+          })
+        : null;
+      const endpoint = endpointBaseUrl ?? "-";
       const snapshot = running
-        ? await fetchProjectSnapshot(configDir, projectId)
+        ? await fetchProjectSnapshot(configDir, projectId, endpointBaseUrl)
         : null;
 
       return {
@@ -338,7 +385,7 @@ async function collectProjectListRows(
         status: running ? "running" : "stopped",
         endpoint,
         health: snapshot?.health ?? "-",
-        activeRuns: snapshot?.summary.activeRuns ?? 0,
+        activeRuns: snapshot?.summary.activeRuns ?? null,
         lastTick: snapshot?.lastTickAt
           ? relativeTimeFromNow(snapshot.lastTickAt)
           : "-",
@@ -352,8 +399,8 @@ async function collectProjectListRows(
 function renderTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((header, index) =>
     Math.max(
-      stripAnsi(header).length,
-      ...rows.map((row) => stripAnsi(row[index] ?? "").length)
+      stringDisplayWidth(header),
+      ...rows.map((row) => stringDisplayWidth(row[index] ?? ""))
     )
   );
 
@@ -367,7 +414,7 @@ function renderTable(headers: string[], rows: string[][]): string {
     values
       .map((value, index) => {
         const width = widths[index]!;
-        const displayWidth = stripAnsi(value).length;
+        const displayWidth = stringDisplayWidth(value);
         return ` ${value}${" ".repeat(width - displayWidth)} `;
       })
       .join(sep) +
@@ -703,7 +750,7 @@ async function projectList(options: GlobalOptions): Promise<void> {
       row.status,
       row.endpoint,
       row.health,
-      String(row.activeRuns),
+      row.activeRuns === null ? "-" : String(row.activeRuns),
       row.lastTick,
       row.uptime,
     ])

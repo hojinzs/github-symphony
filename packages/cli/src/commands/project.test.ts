@@ -86,6 +86,7 @@ async function seedProject(
 
 describe("project list", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
     vi.stubGlobal(
@@ -96,6 +97,9 @@ describe("project list", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.ORCHESTRATOR_STATUS_HOST;
+    delete process.env.ORCHESTRATOR_STATUS_BASE_URL;
+    delete process.env.ORCHESTRATOR_STATUS_PORT;
     vi.useRealTimers();
   });
 
@@ -153,11 +157,13 @@ describe("project list", () => {
     expect(output).toContain("2m ago");
     expect(output).toContain("│ running ");
     expect(output).toContain("│ 2 ");
+    expect(output).toContain("│ - ");
   });
 
-  it("emits structured JSON rows", async () => {
+  it("emits structured JSON rows with resolved endpoint metadata", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "project-list-json-"));
     const stdout = captureWrites(process.stdout);
+    process.env.ORCHESTRATOR_STATUS_HOST = "::1";
 
     await saveGlobalConfig(configDir, {
       activeProject: "infra-e5f6",
@@ -199,7 +205,7 @@ describe("project list", () => {
         id: "infra-e5f6",
         name: "Infra Automation",
         status: "running",
-        endpoint: "http://127.0.0.1:52387",
+        endpoint: "http://[::1]:52387",
         health: "idle",
         activeRuns: 0,
         lastTick: "30s ago",
@@ -207,6 +213,47 @@ describe("project list", () => {
       }),
     ]);
     expect(typeof output[0]?.uptime).toBe("string");
-    expect(output[0]?.uptime).not.toBe("-");
+  });
+
+  it("emits nulls for unknown runtime fields in JSON mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-list-json-stopped-"));
+    const stdout = captureWrites(process.stdout);
+
+    await saveGlobalConfig(configDir, {
+      activeProject: null,
+      projects: ["front-c3d4"],
+    });
+
+    await seedProject(configDir, {
+      projectId: "front-c3d4",
+      displayName: "프론트엔드 기능",
+      pid: 999999,
+    });
+
+    try {
+      await projectCommand(["list"], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = JSON.parse(stdout.output()) as Array<Record<string, unknown>>;
+    expect(output).toEqual([
+      {
+        id: "front-c3d4",
+        name: "프론트엔드 기능",
+        status: "stopped",
+        endpoint: "-",
+        health: "-",
+        activeRuns: null,
+        lastTick: "-",
+        uptime: "-",
+        active: false,
+      },
+    ]);
   });
 });
