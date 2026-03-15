@@ -5,19 +5,14 @@ import {
 } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { WorkflowExecutionPhase } from "@gh-symphony/core";
 import { parseWorkflowMarkdown } from "./workflow-parser.js";
 
 export type WorkerRuntimeState = {
   package: string;
   runtime: "self-hosted-sample";
   status: "idle" | "starting" | "running" | "failed" | "completed";
-  executionPhase:
-    | "planning"
-    | "human-review"
-    | "implementation"
-    | "awaiting-merge"
-    | "completed"
-    | null;
+  executionPhase: WorkflowExecutionPhase | null;
   projectId: string | null;
   workspaceRuntimeDir: string;
   run: null | {

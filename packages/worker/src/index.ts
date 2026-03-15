@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
+import {
+  parseWorkflowMarkdown,
+  type WorkflowExecutionPhase,
+} from "@gh-symphony/core";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -16,19 +19,17 @@ import {
   buildWorkerRuntimeState,
   startWorkerStateServer,
 } from "./state-server.js";
+import {
+  resolveFinalExecutionPhase,
+  resolveInitialExecutionPhase,
+} from "./execution-phase.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
 const launcherEnv = loadLauncherEnvironment(process.env);
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
-  executionPhase:
-    | "planning"
-    | "human-review"
-    | "implementation"
-    | "awaiting-merge"
-    | "completed"
-    | null;
+  executionPhase: WorkflowExecutionPhase | null;
   run: null | {
     runId: string;
     issueId: string | null;
@@ -102,36 +103,6 @@ console.log(
 
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
-
-function resolveInitialExecutionPhase(input: {
-  issueState: string | null | undefined;
-  blockerCheckStates: string[];
-  activeStates: string[];
-}): "planning" | "implementation" | null {
-  const { issueState, blockerCheckStates, activeStates } = input;
-  if (!issueState) {
-    return null;
-  }
-  if (blockerCheckStates.includes(issueState)) {
-    return "planning";
-  }
-  if (activeStates.includes(issueState)) {
-    return "implementation";
-  }
-  return null;
-}
-
-function resolvePausedExecutionPhase(
-  currentPhase: typeof runtimeState.executionPhase
-): "human-review" | "awaiting-merge" | null {
-  if (currentPhase === "planning") {
-    return "human-review";
-  }
-  if (currentPhase === "implementation") {
-    return "awaiting-merge";
-  }
-  return null;
-}
 
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
@@ -701,8 +672,6 @@ async function runCodexClientProtocol(
     let turnCount = 0;
     let requestIdCounter = 0;
 
-    let finalTrackerState: "active" | "non-actionable" | "unknown" = "unknown";
-
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
       runtimeState.sessionInfo.turnCount = turnCount;
@@ -755,13 +724,14 @@ async function runCodexClientProtocol(
 
       // Refresh tracker state to decide whether to continue
       const trackerState = await refreshTrackerState(env);
-      finalTrackerState = trackerState;
       process.stderr.write(`[worker] tracker state refresh: ${trackerState}\n`);
 
       if (trackerState === "non-actionable") {
-        runtimeState.executionPhase =
-          resolvePausedExecutionPhase(runtimeState.executionPhase) ??
-          runtimeState.executionPhase;
+        runtimeState.executionPhase = resolveFinalExecutionPhase({
+          currentPhase: runtimeState.executionPhase,
+          trackerState,
+          userInputRequired: false,
+        });
         process.stderr.write(
           "[worker] issue no longer actionable — exiting multi-turn loop\n"
         );
@@ -775,9 +745,6 @@ async function runCodexClientProtocol(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
     runtimeState.status = userInputRequired ? "failed" : "completed";
-    if (!userInputRequired && finalTrackerState !== "non-actionable") {
-      runtimeState.executionPhase = "completed";
-    }
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
 
     // Brief delay so the state API can serve the final status once.

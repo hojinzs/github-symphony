@@ -25,6 +25,7 @@ import {
   type OrchestratorProjectConfig,
   type RepositoryRef,
   type TrackedIssue,
+  type WorkflowExecutionPhase,
   type WorkflowLifecycleConfig,
   type ProjectLeaseRecord,
   type ProjectStatusSnapshot,
@@ -43,12 +44,26 @@ const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
+const WORKFLOW_EXECUTION_PHASES = new Set<WorkflowExecutionPhase>([
+  "planning",
+  "human-review",
+  "implementation",
+  "awaiting-merge",
+  "completed",
+]);
 
 type SpawnLike = (
   command: string,
   args: ReadonlyArray<string>,
   options: SpawnOptions
 ) => ChildProcess;
+
+function parseExecutionPhase(value: unknown): WorkflowExecutionPhase | null {
+  return typeof value === "string" &&
+    WORKFLOW_EXECUTION_PHASES.has(value as WorkflowExecutionPhase)
+    ? (value as WorkflowExecutionPhase)
+    : null;
+}
 
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
@@ -599,7 +614,7 @@ export class OrchestratorService {
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
           lastEventAt: liveState.lastEventAt ?? undefined,
-          executionPhase: liveState.executionPhase ?? undefined,
+          executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
         };
         await this.store.saveRun(runningRecord);
         return {
@@ -617,7 +632,7 @@ export class OrchestratorService {
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
-      executionPhase: workerInfo.executionPhase ?? run.executionPhase,
+      executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
     };
     const workerSessionId = workerInfo.sessionId;
 
@@ -798,7 +813,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
-    executionPhase: string | null;
+    executionPhase: OrchestratorRunRecord["executionPhase"];
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -824,7 +839,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
-    executionPhase: string | null;
+    executionPhase: OrchestratorRunRecord["executionPhase"];
   }> {
     if (!run.port) {
       return {
@@ -858,7 +873,7 @@ export class OrchestratorService {
 
       const state = (await response.json()) as {
         status?: string;
-        executionPhase?: string | null;
+        executionPhase?: unknown;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -882,6 +897,7 @@ export class OrchestratorService {
       const lastError = state.run?.lastError ?? null;
       const lastEvent = state.status ?? null;
       const lastEventAt: string | null = null; // worker doesn't emit event timestamps
+      const executionPhase = parseExecutionPhase(state.executionPhase);
 
       return {
         tokenUsage,
@@ -890,7 +906,7 @@ export class OrchestratorService {
         lastError,
         lastEvent,
         lastEventAt,
-        executionPhase: state.executionPhase ?? null,
+        executionPhase,
       };
     } catch {
       return {

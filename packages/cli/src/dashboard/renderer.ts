@@ -25,13 +25,12 @@ export type DashboardOptions = {
 
 // ── Internal types ───────────────────────────────────────────────────────────
 
-/** Active run with optional live-worker fields not yet in core type */
+/** Active run plus CLI-only runtime session decoration */
 type ActiveRunView = ProjectStatusSnapshot["activeRuns"][number] & {
   runtimeSession?: {
     sessionId: string | null;
     threadId: string | null;
   } | null;
-  executionPhase?: string | null;
 };
 
 type ColorFn = (s: string) => string;

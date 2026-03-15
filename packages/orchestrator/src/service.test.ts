@@ -523,6 +523,94 @@ describe("OrchestratorService", () => {
     });
   });
 
+  it("drops invalid worker executionPhase values from the live state endpoint", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-phase-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectLeases("tenant-1", [
+      {
+        leaseKey: "issue-1",
+        runId: "run-1",
+        issueId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        status: "active",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "done-ish",
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 4,
+              totalTokens: 14,
+            },
+            sessionInfo: {
+              threadId: "thread-1",
+              turnCount: 2,
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+      return createEmptyTrackerResponse();
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4204,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(snapshot.activeRuns[0]?.executionPhase).toBeNull();
+    expect(updatedRun?.executionPhase).toBeNull();
+  });
+
   it("rejects dispatch when repo WORKFLOW.md is missing even if project fallback exists", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-ws-fallback-"));
