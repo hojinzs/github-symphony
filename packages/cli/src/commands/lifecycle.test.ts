@@ -32,6 +32,7 @@ afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
   vi.restoreAllMocks();
+  process.exitCode = undefined;
 });
 
 describe("lifecycle command integration", () => {
@@ -167,6 +168,32 @@ describe("lifecycle command integration", () => {
     expect(output).not.toContain("tenant-a");
   });
 
+  it("rejects unknown project status flags instead of falling back to the active project", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await projectModule.default(
+      ["status", "--proejct-id", "tenant-b"],
+      baseOptions(configDir)
+    );
+
+    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("Unknown option '--proejct-id'");
+    expect(output).toContain(
+      "Usage: gh-symphony status [--project-id <project-id>] [--watch]"
+    );
+    expect(process.exitCode).toBe(2);
+  });
+
   it("stops only the requested project's daemon files", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -205,6 +232,35 @@ describe("lifecycle command integration", () => {
     await expect(
       readFile(join(configDir, "projects", "tenant-b", "port"), "utf8")
     ).resolves.toContain("41002");
+  });
+
+  it("rejects unknown project stop flags before touching daemon state", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
+
+    const killSpy = vi.spyOn(process, "kill");
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await stopModule.default(["--proejct-id", "tenant-a"], baseOptions(configDir));
+
+    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("Unknown option '--proejct-id'");
+    expect(output).toContain(
+      "Usage: gh-symphony stop --project-id <project-id> [--force]"
+    );
+    expect(killSpy).not.toHaveBeenCalled();
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).resolves.toContain("111");
+    expect(process.exitCode).toBe(2);
   });
 
   it("reports recoverable runs without invoking recovery in dry-run mode", async () => {

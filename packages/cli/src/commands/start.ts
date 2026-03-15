@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import type { GlobalOptions } from "../index.js";
+import { parseCliArgs } from "./parse-cli-args.js";
 import {
   daemonPidPath,
   orchestratorLogPath,
@@ -47,19 +48,23 @@ type ForegroundShutdownOptions = {
 function parseStartArgs(args: string[]): {
   daemon: boolean;
   projectId?: string;
+  error?: string;
 } {
-  const parsed: { daemon: boolean; projectId?: string } = { daemon: false };
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === "--daemon" || arg === "-d") {
-      parsed.daemon = true;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      parsed.projectId = args[i + 1];
-      i += 1;
-    }
+  const parsed = parseCliArgs(args, {
+    daemon: { type: "boolean", short: "d" },
+    project: { type: "string" },
+    "project-id": { type: "string" },
+  });
+  if ("error" in parsed) {
+    return { daemon: false, error: parsed.error };
   }
-  return parsed;
+
+  return {
+    daemon: Boolean(parsed.values.daemon),
+    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
+      | string
+      | undefined,
+  };
 }
 
 // ── Tick logging ──────────────────────────────────────────────────────────────
@@ -179,6 +184,14 @@ const handler = async (
 ): Promise<void> => {
   setNoColor(options.noColor);
   const parsed = parseStartArgs(args);
+  if (parsed.error) {
+    process.stderr.write(`${parsed.error}\n`);
+    process.stderr.write(
+      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
   if (!parsed.projectId) {
     process.stderr.write(
       "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
