@@ -152,7 +152,7 @@ type EcosystemOptions = {
 
 export type EcosystemResult = {
   projectId: string;
-  projectTitle: string;
+  githubProjectTitle: string;
   runtime: string;
   skillsDir: string | null;
   contextYamlWritten: boolean;
@@ -215,7 +215,7 @@ export async function writeEcosystem(
     const result = await writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, {
       runtime,
       projectId: projectDetail.id,
-      projectTitle: projectDetail.title,
+      githubProjectTitle: projectDetail.title,
       repositories: projectDetail.linkedRepositories.map((r) => ({
         owner: r.owner,
         name: r.name,
@@ -235,7 +235,7 @@ export async function writeEcosystem(
 
   return {
     projectId: projectDetail.id,
-    projectTitle: projectDetail.title,
+    githubProjectTitle: projectDetail.title,
     runtime,
     skillsDir,
     contextYamlWritten,
@@ -256,7 +256,7 @@ function printEcosystemSummary(
   const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
 
   const lines: string[] = [];
-  lines.push(`Project   ${result.projectTitle}  (${result.projectId})`);
+  lines.push(`GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`);
   lines.push(`Runtime   ${result.runtime}`);
   lines.push("");
   lines.push("Generated files");
@@ -334,7 +334,7 @@ async function runNonInteractive(
 
   // Find project
   const projects = await listUserProjects(client);
-  let project: ProjectDetail | undefined;
+  let githubProject: ProjectDetail | undefined;
 
   if (flags.project) {
     const match = projects.find(
@@ -345,9 +345,9 @@ async function runNonInteractive(
       process.exitCode = 1;
       return;
     }
-    project = await getProjectDetail(client, match.id);
+    githubProject = await getProjectDetail(client, match.id);
   } else if (projects.length === 1) {
-    project = await getProjectDetail(client, projects[0]!.id);
+    githubProject = await getProjectDetail(client, projects[0]!.id);
   } else {
     process.stderr.write(
       "Error: --project is required when multiple projects exist.\n"
@@ -358,8 +358,8 @@ async function runNonInteractive(
 
   // Auto-map with smart defaults
   const statusField =
-    project.statusFields.find((f) => f.name.toLowerCase() === "status") ??
-    project.statusFields[0];
+    githubProject.statusFields.find((f) => f.name.toLowerCase() === "status") ??
+    githubProject.statusFields[0];
 
   if (!statusField) {
     process.stderr.write("Error: No status field found on the project.\n");
@@ -389,7 +389,7 @@ async function runNonInteractive(
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
 
   const workflowMd = generateWorkflowMarkdown({
-    projectId: project.id,
+    projectId: githubProject.id,
     stateFieldName: statusField.name,
     mappings,
     lifecycle: lifecycleConfig,
@@ -400,7 +400,7 @@ async function runNonInteractive(
 
   const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
-    projectDetail: project,
+    projectDetail: githubProject,
     statusField,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -493,9 +493,9 @@ async function runInteractiveStandalone(
     return;
   }
 
-  const selectedProjectId = await abortIfCancelled(
+  const selectedGithubProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/2 — Select a GitHub Project:",
+      message: "Step 1/2 — Select a GitHub Project board:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -509,7 +509,7 @@ async function runInteractiveStandalone(
   s2d.start("Loading project details...");
   let projectDetail: ProjectDetail;
   try {
-    projectDetail = await getProjectDetail(client, selectedProjectId);
+    projectDetail = await getProjectDetail(client, selectedGithubProjectId);
     s2d.stop(`Loaded: ${projectDetail.title}`);
   } catch (error) {
     s2d.stop("Failed to load project details.");
@@ -653,10 +653,10 @@ export async function writeConfig(
 }
 
 export function generateProjectId(
-  projectTitle: string,
+  githubProjectTitle: string,
   uniqueKey: string
 ): string {
-  const slug = projectTitle
+  const slug = githubProjectTitle
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")

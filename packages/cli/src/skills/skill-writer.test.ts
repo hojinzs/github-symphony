@@ -51,7 +51,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "claude-code",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [{ owner: "acme", name: "platform" }],
         statusColumns: [
           { id: "col-1", name: "Todo", role: "active" },
@@ -84,7 +84,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "claude-code",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
@@ -118,7 +118,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "claude-code",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
@@ -159,7 +159,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "claude-code",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
@@ -194,7 +194,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "codex",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
@@ -222,7 +222,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "unknown",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
@@ -260,7 +260,7 @@ describe("skill-writer", () => {
       const context: SkillTemplateContext = {
         runtime: "claude-code",
         projectId: "proj-123",
-        projectTitle: "Test Project",
+        githubProjectTitle: "Test Project",
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",

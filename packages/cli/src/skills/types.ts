@@ -3,7 +3,7 @@ export type SkillRuntime = "claude-code" | "codex";
 export type SkillTemplateContext = {
   runtime: SkillRuntime | string; // string for custom
   projectId: string;
-  projectTitle: string;
+  githubProjectTitle: string;
   repositories: Array<{ owner: string; name: string }>;
   statusColumns: Array<{
     id: string; // option ID (needed for GitHub Project mutations)
