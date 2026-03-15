@@ -34,6 +34,14 @@ function logLine(icon: string, msg: string): void {
   process.stdout.write(`${timestamp()} ${icon} ${msg}\n`);
 }
 
+type ForegroundShutdownOptions = {
+  configDir: string;
+  projectId: string;
+  statusServer: { close(): void };
+  exit?: (code?: number) => never;
+  removePortFile?: typeof rm;
+};
+
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
 function parseStartArgs(args: string[]): {
@@ -230,12 +238,18 @@ const handler = async (
   logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
   let running = true;
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     running = false;
-    logLine(yellow("\u25BC"), "Shutting down...");
-    statusServer.close();
-    await rm(orchestratorPortPath(options.configDir, projectId), { force: true });
-    process.exit(0);
+    await shutdownForegroundOrchestrator({
+      configDir: options.configDir,
+      projectId,
+      statusServer,
+    });
   };
   process.on("SIGINT", () => {
     void shutdown();
@@ -280,6 +294,39 @@ const handler = async (
     await new Promise((r) => setTimeout(r, 30_000));
   }
 };
+
+export async function shutdownForegroundOrchestrator(
+  input: ForegroundShutdownOptions
+): Promise<never> {
+  logLine(yellow("\u25BC"), "Shutting down...");
+
+  try {
+    input.statusServer.close();
+  } catch (error) {
+    logLine(
+      red("\u2717"),
+      red(
+        `Failed to close status server: ${error instanceof Error ? error.message : "Unknown error"}`
+      )
+    );
+  }
+
+  try {
+    await (input.removePortFile ?? rm)(
+      orchestratorPortPath(input.configDir, input.projectId),
+      {
+        force: true,
+      }
+    );
+  } catch (error) {
+    logLine(
+      yellow("\u26A0"),
+      `Failed to remove persisted status port: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+
+  return (input.exit ?? process.exit)(0);
+}
 
 async function tailWorkerLog(
   runtimeRoot: string,

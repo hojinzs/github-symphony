@@ -84,4 +84,17 @@ describe("requestOrchestratorRefresh", () => {
       })
     );
   });
+
+  it("skips refresh when an explicit null base URL is provided", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      requestOrchestratorRefresh({
+        fetchImpl: fetchImpl as typeof fetch,
+        baseUrl: null,
+      })
+    ).resolves.toBe(false);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

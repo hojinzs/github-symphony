@@ -2,7 +2,7 @@ type RefreshRequestOptions = {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
-  baseUrl?: string;
+  baseUrl?: string | null;
 };
 
 export function resolveOrchestratorStatusBaseUrl(
@@ -21,7 +21,9 @@ export async function requestOrchestratorRefresh(
   const timeoutMs = options.timeoutMs ?? 5_000;
   const signal = AbortSignal.timeout(timeoutMs);
   const baseUrl =
-    options.baseUrl ?? resolveOrchestratorStatusBaseUrl(options.env);
+    "baseUrl" in options
+      ? options.baseUrl
+      : resolveOrchestratorStatusBaseUrl(options.env);
 
   if (!baseUrl) {
     return false;
