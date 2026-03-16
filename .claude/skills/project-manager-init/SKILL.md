@@ -1,5 +1,5 @@
 ---
-name: init
+name: project-manager-init
 description: Initialize PROJECT_MANAGE.md with repository-specific project management rules, GitHub Project board binding, and field mappings. Use when setting up project management for a repository for the first time.
 argument-hint: "github-project-url"
 disable-model-invocation: true

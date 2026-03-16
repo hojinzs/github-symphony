@@ -1,5 +1,5 @@
 ---
-name: new
+name: project-manager-new
 description: Create new GitHub issues following PROJECT_MANAGE.md conventions. Analyzes codebase to estimate size, suggests splitting if needed, sets project fields, and connects blocking relationships. Use when you need to create well-structured issues.
 argument-hint: <description of the work>
 disable-model-invocation: true

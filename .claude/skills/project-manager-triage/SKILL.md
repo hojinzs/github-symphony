@@ -1,5 +1,5 @@
 ---
-name: triage
+name: project-manager-triage
 description: Analyze backlog issues to set Priority, Size, and Estimate, then identify and connect blocking relationships between issues. Use when backlog items need evaluation or when new items have been added without triage.
 disable-model-invocation: true
 user-invocable: true

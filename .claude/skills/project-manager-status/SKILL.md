@@ -1,5 +1,5 @@
 ---
-name: status
+name: project-manager-status
 description: Display a dashboard of all project issues grouped by status, showing priority, size, estimate, and blocking relationships. Use when you want to see the current state of the project board.
 disable-model-invocation: true
 user-invocable: true
