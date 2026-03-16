@@ -25,6 +25,14 @@ Verify the installation:
 gh-symphony --version
 ```
 
+Enable shell completion:
+
+```bash
+gh-symphony completion bash >> ~/.bashrc
+gh-symphony completion zsh >> ~/.zshrc
+gh-symphony completion fish > ~/.config/fish/completions/gh-symphony.fish
+```
+
 ## 2. Set Repository
 
 Navigate to the repository you want to orchestrate, then run:
@@ -126,6 +134,7 @@ Orchestration:
   run <issue>         Dispatch a single issue
   recover             Recover stalled runs
   logs                View orchestrator logs
+  completion <shell>  Print shell completion for bash/zsh/fish
 
 Project Management:
   project add          Add a new project (interactive wizard)

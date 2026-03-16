@@ -1,28 +1,39 @@
 import { readFile, rm } from "node:fs/promises";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, orchestratorPortPath } from "../config.js";
-import { parseCliArgs } from "./parse-cli-args.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
   projectId?: string;
   error?: string;
 } {
-  const parsed = parseCliArgs(args, {
-    force: { type: "boolean" },
-    project: { type: "string" },
-    "project-id": { type: "string" },
-  });
-  if ("error" in parsed) {
-    return { force: false, error: parsed.error };
+  const parsed: { force: boolean; projectId?: string; error?: string } = {
+    force: false,
+  };
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--force") {
+      parsed.force = true;
+      continue;
+    }
+    if (arg === "--project" || arg === "--project-id") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("-")) {
+      parsed.error = `Unknown option '${arg}'`;
+      return parsed;
+    }
   }
 
-  return {
-    force: Boolean(parsed.values.force),
-    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
-      | string
-      | undefined,
-  };
+  return parsed;
 }
 
 const handler = async (
