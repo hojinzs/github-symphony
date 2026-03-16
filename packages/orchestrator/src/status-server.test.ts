@@ -1,16 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveOrchestratorStatusResponse } from "./status-server.js";
 
+function createOptions(overrides: Partial<Parameters<
+  typeof resolveOrchestratorStatusResponse
+>[0]> = {}): Parameters<typeof resolveOrchestratorStatusResponse>[0] {
+  return {
+    pathname: "/api/v1/status",
+    method: "GET",
+    getProjectStatus: vi.fn().mockResolvedValue(null),
+    ...overrides,
+  };
+}
+
 describe("POST /api/v1/refresh", () => {
   it("triggers onRefresh callback on POST", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
     const onRefresh = vi.fn();
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "POST",
-      mockStatus,
-      onRefresh
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "POST",
+        onRefresh,
+      })
     );
 
     expect(result.status).toBe(202);
@@ -19,12 +30,11 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 405 for GET on /api/v1/refresh", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
-
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "GET",
-      mockStatus
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "GET",
+      })
     );
 
     expect(result.status).toBe(405);
@@ -32,12 +42,11 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 405 for PUT on /api/v1/refresh", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
-
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "PUT",
-      mockStatus
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "PUT",
+      })
     );
 
     expect(result.status).toBe(405);
@@ -45,12 +54,11 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("works when onRefresh is not provided", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
-
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "POST",
-      mockStatus
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "POST",
+      })
     );
 
     expect(result.status).toBe(202);
@@ -58,7 +66,6 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("awaits async refresh completion before returning", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
     let released = false;
     const onRefresh = vi.fn().mockImplementation(
       () =>
@@ -71,10 +78,11 @@ describe("POST /api/v1/refresh", () => {
     );
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "POST",
-      mockStatus,
-      onRefresh
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "POST",
+        onRefresh,
+      })
     );
 
     expect(released).toBe(true);
@@ -82,7 +90,6 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("coalesces concurrent refresh requests while one is running", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
     let resolveRefresh: (() => void) | null = null;
     const onRefresh = vi.fn().mockImplementation(
       () =>
@@ -92,16 +99,18 @@ describe("POST /api/v1/refresh", () => {
     );
 
     const first = resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "POST",
-      mockStatus,
-      onRefresh
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "POST",
+        onRefresh,
+      })
     );
     const second = await resolveOrchestratorStatusResponse(
-      "/api/v1/refresh",
-      "POST",
-      mockStatus,
-      onRefresh
+      createOptions({
+        pathname: "/api/v1/refresh",
+        method: "POST",
+        onRefresh,
+      })
     );
 
     expect(second).toEqual({
@@ -118,7 +127,6 @@ describe("POST /api/v1/refresh", () => {
   });
 
   it("returns 500 when refresh callback rejects and clears the in-flight state", async () => {
-    const mockStatus = vi.fn().mockResolvedValue(null);
     const onRefresh = vi
       .fn()
       .mockRejectedValueOnce(new Error("refresh failed"))
@@ -126,10 +134,11 @@ describe("POST /api/v1/refresh", () => {
 
     await expect(
       resolveOrchestratorStatusResponse(
-        "/api/v1/refresh",
-        "POST",
-        mockStatus,
-        onRefresh
+        createOptions({
+          pathname: "/api/v1/refresh",
+          method: "POST",
+          onRefresh,
+        })
       )
     ).resolves.toEqual({
       status: 500,
@@ -138,10 +147,11 @@ describe("POST /api/v1/refresh", () => {
 
     await expect(
       resolveOrchestratorStatusResponse(
-        "/api/v1/refresh",
-        "POST",
-        mockStatus,
-        onRefresh
+        createOptions({
+          pathname: "/api/v1/refresh",
+          method: "POST",
+          onRefresh,
+        })
       )
     ).resolves.toEqual({
       status: 202,
@@ -149,8 +159,10 @@ describe("POST /api/v1/refresh", () => {
     });
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
+});
 
-  it("returns a single project snapshot from /api/v1/status", async () => {
+describe("GET /api/v1/status", () => {
+  it("returns a single project snapshot", async () => {
     const snapshot = {
       projectId: "tenant-1",
       slug: "tenant-1",
@@ -170,15 +182,100 @@ describe("POST /api/v1/refresh", () => {
       retryQueue: [],
       lastError: null,
     } as const;
-    const mockStatus = vi.fn().mockResolvedValue(snapshot);
+    const getProjectStatus = vi.fn().mockResolvedValue(snapshot);
 
     const result = await resolveOrchestratorStatusResponse(
-      "/api/v1/status",
-      mockStatus
+      createOptions({
+        pathname: "/api/v1/status",
+        getProjectStatus,
+      })
     );
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
-    expect(mockStatus).toHaveBeenCalledOnce();
+    expect(getProjectStatus).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GET /api/v1/<issue_identifier>", () => {
+  it("returns issue-specific status for URL-encoded identifiers", async () => {
+    const payload = {
+      issue_identifier: "acme/repo#123",
+      issue_id: "issue-123",
+      status: "running",
+      workspace: { path: "/tmp/workspace" },
+      attempts: {
+        restart_count: 1,
+        current_retry_attempt: 2,
+      },
+      running: {
+        session_id: "session-1",
+        turn_count: 7,
+        state: "In Progress",
+        started_at: "2026-03-16T00:00:00.000Z",
+        last_event: "notification",
+        last_message: "Working on tests",
+        last_event_at: "2026-03-16T00:10:00.000Z",
+        tokens: {
+          input_tokens: 100,
+          output_tokens: 50,
+          total_tokens: 150,
+        },
+      },
+      retry: null,
+      logs: {
+        codex_session_logs: [],
+      },
+      recent_events: [],
+      last_error: null,
+      tracked: {},
+    } as const;
+    const getIssueStatus = vi.fn().mockResolvedValue(payload);
+
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/acme%2Frepo%23123",
+        getIssueStatus,
+      })
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.payload).toEqual(payload);
+    expect(getIssueStatus).toHaveBeenCalledWith("acme/repo#123");
+  });
+
+  it("returns issue_not_found for unknown issues", async () => {
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/acme%2Frepo%23999",
+        getIssueStatus: vi.fn().mockResolvedValue(null),
+      })
+    );
+
+    expect(result).toEqual({
+      status: 404,
+      payload: {
+        error: {
+          code: "issue_not_found",
+          message:
+            'Issue "acme/repo#999" is unknown to the current in-memory state.',
+        },
+      },
+    });
+  });
+
+  it("returns 405 for non-GET methods on issue-specific routes", async () => {
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/acme%2Frepo%23123",
+        method: "POST",
+        getIssueStatus: vi.fn(),
+      })
+    );
+
+    expect(result).toEqual({
+      status: 405,
+      payload: { error: "Method not allowed" },
+    });
   });
 });

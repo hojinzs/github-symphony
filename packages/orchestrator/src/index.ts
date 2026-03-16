@@ -36,6 +36,8 @@ export async function runCli(
           host: statusHost,
           port: statusPort,
           getProjectStatus: () => service.status(),
+          getIssueStatus: (issueIdentifier) =>
+            service.statusForIssue(issueIdentifier),
           onRefresh: async () => {
             await service.runOnce({
               issueIdentifier: parsed.issueIdentifier,

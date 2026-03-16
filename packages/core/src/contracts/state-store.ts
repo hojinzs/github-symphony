@@ -1,4 +1,5 @@
 import type {
+  IssueStatusEvent,
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   ProjectStatusSnapshot
@@ -23,6 +24,7 @@ export type OrchestratorStateStore = {
   loadAllRuns(): Promise<OrchestratorRunRecord[]>;
   saveRun(run: OrchestratorRunRecord): Promise<void>;
   appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void>;
+  loadRecentRunEvents(runId: string, limit?: number): Promise<IssueStatusEvent[]>;
   runDir(runId: string): string;
   projectDir(projectId: string): string;
   loadIssueWorkspace(projectId: string, workspaceKey: string): Promise<IssueWorkspaceRecord | null>;
