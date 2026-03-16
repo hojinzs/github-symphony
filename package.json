@@ -2,20 +2,12 @@
   "name": "github-symphony",
   "private": true,
   "packageManager": "pnpm@9.15.9",
-  "dependencies": {
-    "@prisma/client": "6.19.2"
-  },
   "scripts": {
     "build": "pnpm -r build",
     "build:cli": "pnpm --filter @gh-symphony/cli... build",
-    "dev": "pnpm --filter control-plane dev",
-    "dev:control-plane": "pnpm --filter control-plane dev",
     "dev:orchestrator": "pnpm --filter @gh-symphony/orchestrator dev",
     "dev:worker": "pnpm --filter @gh-symphony/worker dev",
     "lint": "pnpm -r lint",
-    "prisma:db-push": "prisma db push",
-    "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate",
     "test": "pnpm -r test",
     "test:watch": "vitest",
     "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
@@ -33,7 +25,6 @@
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "prettier": "^3.5.3",
-    "prisma": "6.19.2",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.1",
     "vitest": "^3.0.8"

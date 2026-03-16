@@ -3,11 +3,9 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { fetchProjectOrchestratorStatus } from "../../../apps/control-plane/lib/orchestrator-status-client.ts";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { runCli } from "./index.js";
 import { OrchestratorService } from "./service.js";
-import { resolveOrchestratorStatusResponse } from "./status-server.js";
 
 describe("headless orchestration verification", () => {
   it("runs headlessly from the CLI and exposes status for optional extensions", async () => {
@@ -66,41 +64,6 @@ describe("headless orchestration verification", () => {
       };
       expect(cliStatus.projectId).toBe("tenant-1");
       expect(cliStatus.summary.dispatched).toBe(1);
-
-      const snapshot = await fetchProjectOrchestratorStatus("tenant-1", {
-        baseUrl: "http://orchestrator.test",
-        fetchImpl: (async (input) => {
-          const requestUrl =
-            typeof input === "string"
-              ? input
-              : input instanceof URL
-                ? input.toString()
-                : input.url;
-          const pathname = new URL(requestUrl).pathname;
-          const resolved = await resolveOrchestratorStatusResponse(
-            pathname,
-            "GET",
-            () => service.status()
-          );
-
-          return new Response(JSON.stringify(resolved.payload), {
-            status: resolved.status,
-            headers: {
-              "content-type": "application/json",
-            },
-          });
-        }) as typeof fetch,
-      });
-
-      expect(snapshot).toMatchObject({
-        projectId: "tenant-1",
-        health: "running",
-        tracker: {
-          adapter: "github-project",
-          bindingId: "project-123",
-        },
-      });
-      expect(snapshot?.activeRuns[0]?.issueIdentifier).toBe("acme/platform#1");
       expect(spawnImpl).toHaveBeenCalledTimes(1);
     } finally {
       if (originalToken === undefined) {

@@ -27,46 +27,5 @@ services:
       - 'echo "Worker image built: ${SYMPHONY_IMAGE:-github-symphony-worker:local}"'
     restart: "no"
 
-  control-plane:
-    image: node:24-bookworm-slim
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      symphony-worker-image:
-        condition: service_completed_successfully
-    working_dir: /workspace
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/github_symphony}
-      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-GitHub Symphony}
-      CONTROL_PLANE_BASE_URL: ${CONTROL_PLANE_BASE_URL:-http://localhost:3000}
-      CONTROL_PLANE_RUNTIME_URL: ${CONTROL_PLANE_RUNTIME_URL:-http://host.docker.internal:3000}
-      SYMPHONY_RUNTIME_DRIVER: ${SYMPHONY_RUNTIME_DRIVER:-docker}
-      GITHUB_APP_SECRETS_KEY: ${GITHUB_APP_SECRETS_KEY:-}
-      WORKSPACE_RUNTIME_AUTH_SECRET: ${WORKSPACE_RUNTIME_AUTH_SECRET:-}
-      DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
-      SYMPHONY_IMAGE: ${SYMPHONY_IMAGE:-github-symphony-worker:local}
-    volumes:
-      - .:/workspace
-      - node-modules:/workspace/node_modules
-      - pnpm-store:/pnpm/store
-      - /var/run/docker.sock:/var/run/docker.sock
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        set -e
-        corepack enable
-        pnpm config set store-dir /pnpm/store
-        pnpm install
-        pnpm prisma:generate
-        pnpm prisma:db-push
-        pnpm --filter control-plane build
-        pnpm --filter control-plane start --hostname 0.0.0.0 --port 3000
-
 volumes:
   postgres-data:
-  node-modules:
-  pnpm-store:

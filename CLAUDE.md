@@ -24,13 +24,9 @@ pnpm --filter @gh-symphony/orchestrator build
 # Single test file
 npx vitest run packages/core/src/workflow/workflow-loader.test.ts
 
-# Prisma (requires DATABASE_URL)
-pnpm prisma:generate
-pnpm prisma:db-push
-DATABASE_URL='postgresql://postgres:postgres@localhost:5432/github_symphony' pnpm prisma:validate
 ```
 
-Before shipping: `pnpm lint && pnpm test && pnpm typecheck && pnpm build && pnpm prisma:validate`
+Before shipping: `pnpm lint && pnpm test && pnpm typecheck && pnpm build`
 
 ## Architecture
 
@@ -50,11 +46,9 @@ All work must be classified against these layers (per `AGENT.md`):
 ```
 orchestrator ──→ core, tracker-github
 worker ──────→ core, runtime-codex, tracker-github, extension-github-workflow
-control-plane ─→ core, @prisma/client, dockerode
 runtime-codex ─→ core
 tracker-github ─→ core
 extension-github-workflow ─→ core
-shared ──────→ core, tracker-github (re-exports)
 ```
 
 ### Key Packages
@@ -64,7 +58,6 @@ shared ──────→ core, tracker-github (re-exports)
 - **`packages/worker`** — Runs a single issue; serves `/api/v1/state`; integrates with Codex runtime; manages approval workflow and after-create hooks.
 - **`packages/runtime-codex`** — Codex AI runtime integration (launcher, session, git-credential-helper, github-graphql tool).
 - **`packages/tracker-github`** — `GitHubTrackerAdapter` implementing `OrchestratorTrackerAdapter` contract.
-- **`apps/control-plane`** — Next.js 15 App Router (React 19, Tailwind). Optional workspace management UI. Uses Prisma for PostgreSQL metadata.
 
 ### Key Contracts (in core)
 
@@ -86,7 +79,7 @@ Filesystem state lives under `.runtime/orchestrator/`:
 - **Prettier**: double quotes, semicolons, trailing commas (es5)
 - **ESLint**: flat config, unused vars prefixed with `_`
 - **Tests**: `*.test.ts` files, Vitest, node environment
-- **Build output**: `dist/` for libraries, `.next/` for control-plane
+- **Build output**: `dist/` for libraries
 - **Workspace protocol**: `workspace:*` version specifiers between packages
 
 ## Spec Discipline
