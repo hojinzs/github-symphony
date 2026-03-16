@@ -12,7 +12,6 @@ import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
 import { resolveProjectOrchestratorStatusBaseUrl } from "../orchestrator-status-endpoint.js";
 import { requestOrchestratorRefresh } from "./status-refresh.js";
-import { parseCliArgs } from "./parse-cli-args.js";
 
 const WATCH_REFRESH_TIMEOUT_MS = 1_500;
 
@@ -154,21 +153,33 @@ function parseStatusArgs(args: string[]): {
   projectId?: string;
   error?: string;
 } {
-  const parsed = parseCliArgs(args, {
-    watch: { type: "boolean", short: "w" },
-    project: { type: "string" },
-    "project-id": { type: "string" },
-  });
-  if ("error" in parsed) {
-    return { watch: false, error: parsed.error };
+  const parsed: { watch: boolean; projectId?: string; error?: string } = {
+    watch: false,
+  };
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--watch" || arg === "-w") {
+      parsed.watch = true;
+      continue;
+    }
+    if (arg === "--project" || arg === "--project-id") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("-")) {
+      parsed.error = `Unknown option '${arg}'`;
+      return parsed;
+    }
   }
 
-  return {
-    watch: Boolean(parsed.values.watch),
-    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
-      | string
-      | undefined,
-  };
+  return parsed;
 }
 
 async function readStatusSnapshot(
@@ -239,7 +250,9 @@ const handler = async (
         process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
       } else {
         if (!snapshot) {
-          process.stdout.write(clearScreen() + "Unable to read status snapshot.\n");
+          process.stdout.write(
+            clearScreen() + "Unable to read status snapshot.\n"
+          );
           return;
         }
         process.stdout.write(

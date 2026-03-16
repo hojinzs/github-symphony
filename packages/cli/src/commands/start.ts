@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import type { GlobalOptions } from "../index.js";
-import { parseCliArgs } from "./parse-cli-args.js";
 import {
   daemonPidPath,
   orchestratorLogPath,
@@ -50,21 +49,33 @@ function parseStartArgs(args: string[]): {
   projectId?: string;
   error?: string;
 } {
-  const parsed = parseCliArgs(args, {
-    daemon: { type: "boolean", short: "d" },
-    project: { type: "string" },
-    "project-id": { type: "string" },
-  });
-  if ("error" in parsed) {
-    return { daemon: false, error: parsed.error };
+  const parsed: { daemon: boolean; projectId?: string; error?: string } = {
+    daemon: false,
+  };
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--daemon" || arg === "-d") {
+      parsed.daemon = true;
+      continue;
+    }
+    if (arg === "--project" || arg === "--project-id") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("-")) {
+      parsed.error = `Unknown option '${arg}'`;
+      return parsed;
+    }
   }
 
-  return {
-    daemon: Boolean(parsed.values.daemon),
-    projectId: (parsed.values["project-id"] ?? parsed.values.project) as
-      | string
-      | undefined,
-  };
+  return parsed;
 }
 
 // ── Tick logging ──────────────────────────────────────────────────────────────
@@ -148,7 +159,10 @@ function logTickResult(
   const prevRecovered = prevSnapshot?.summary.recovered ?? 0;
   if (snapshot.summary.recovered > prevRecovered) {
     const delta = snapshot.summary.recovered - prevRecovered;
-    logLine(yellow("\u21BA"), `Recovered ${bold(String(delta))} stalled run(s)`);
+    logLine(
+      yellow("\u21BA"),
+      `Recovered ${bold(String(delta))} stalled run(s)`
+    );
   }
 
   const prevRetryCount = prevSnapshot?.retryQueue.length ?? 0;
@@ -280,7 +294,9 @@ const handler = async (
       logTickResult(snapshot, prevSnapshot, isFirst);
 
       if (!isFirst) {
-        const currentRunIds = new Set(snapshot.activeRuns.map((run) => run.runId));
+        const currentRunIds = new Set(
+          snapshot.activeRuns.map((run) => run.runId)
+        );
         for (const prevRun of prevSnapshot?.activeRuns ?? []) {
           if (!currentRunIds.has(prevRun.runId)) {
             await tailWorkerLog(

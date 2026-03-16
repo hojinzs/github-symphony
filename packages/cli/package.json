@@ -45,6 +45,7 @@
     "@gh-symphony/core": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
-    "@gh-symphony/worker": "workspace:*"
+    "@gh-symphony/worker": "workspace:*",
+    "commander": "^14.0.1"
   }
 }
