@@ -1,5 +1,17 @@
 # @gh-symphony/worker
 
+## 0.0.10
+
+### Patch Changes
+
+- fix(core): remove duplicate "workspaces" segment in issue workspace path resolution — fixes ENOENT when provisioning issue workspaces
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.10
+  - @gh-symphony/tracker-github@0.0.10
+  - @gh-symphony/runtime-codex@0.0.10
+  - @gh-symphony/extension-github-workflow@0.0.10
+
 ## 0.0.9
 
 ### Patch Changes

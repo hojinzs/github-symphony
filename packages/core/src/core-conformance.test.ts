@@ -97,7 +97,7 @@ describe("resolveIssueWorkspaceDirectory", () => {
       "abc123"
     );
 
-    expect(result).toBe("/runtime/workspaces/workspaces/ws-1/issues/abc123");
+    expect(result).toBe("/runtime/workspaces/ws-1/issues/abc123");
   });
 
   it("rejects path traversal that escapes the root", () => {

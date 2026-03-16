@@ -1,6 +1,6 @@
 {
   "name": "@gh-symphony/worker",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Symphony worker runtime for executing single issue runs",

@@ -1,5 +1,11 @@
 # @gh-symphony/core
 
+## 0.0.10
+
+### Patch Changes
+
+- fix(core): remove duplicate "workspaces" segment in issue workspace path resolution — fixes ENOENT when provisioning issue workspaces
+
 ## 0.0.9
 
 ### Patch Changes

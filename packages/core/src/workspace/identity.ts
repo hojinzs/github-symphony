@@ -56,7 +56,6 @@ export function resolveIssueWorkspaceDirectory(
   const normalizedRoot = resolve(workspaceRoot);
   const candidate = resolve(
     normalizedRoot,
-    "workspaces",
     projectId,
     "issues",
     workspaceKey
