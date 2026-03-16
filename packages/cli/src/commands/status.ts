@@ -4,9 +4,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   resolveRuntimeRoot,
-  resolveProjectConfig,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
@@ -215,15 +218,12 @@ const handler = async (
     return;
   }
 
-  const projectConfig = await resolveProjectConfig(
-    options.configDir,
-    parsed.projectId
-  );
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
   if (!projectConfig) {
-    process.stderr.write(
-      "No project configured. Run 'gh-symphony project add' first.\n"
-    );
-    process.exitCode = 1;
+    handleMissingManagedProjectConfig();
     return;
   }
 

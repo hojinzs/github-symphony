@@ -4,9 +4,12 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveProjectConfig,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 
 type RecoverCandidate = {
   runId: string;
@@ -39,15 +42,12 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseRecoverArgs(args);
 
-  const projectConfig = await resolveProjectConfig(
-    options.configDir,
-    parsed.projectId
-  );
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
   if (!projectConfig) {
-    process.stderr.write(
-      "No project configured. Run 'gh-symphony project add' first.\n"
-    );
-    process.exitCode = 1;
+    handleMissingManagedProjectConfig();
     return;
   }
 
