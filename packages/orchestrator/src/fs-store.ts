@@ -8,14 +8,15 @@ import {
   appendFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type {
-  IssueWorkspaceRecord,
-  OrchestratorEvent,
-  OrchestratorRunRecord,
-  OrchestratorStateStore,
-  OrchestratorProjectConfig,
-  ProjectLeaseRecord,
-  ProjectStatusSnapshot,
+import {
+  deriveIssueWorkspaceKeyFromIdentifier,
+  type IssueOrchestrationRecord,
+  type IssueWorkspaceRecord,
+  type OrchestratorEvent,
+  type OrchestratorRunRecord,
+  type OrchestratorStateStore,
+  type OrchestratorProjectConfig,
+  type ProjectStatusSnapshot,
 } from "@gh-symphony/core";
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
@@ -50,23 +51,55 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     );
   }
 
-  async loadProjectLeases(
+  async loadProjectIssueOrchestrations(
     projectId: string
-  ): Promise<ProjectLeaseRecord[]> {
-    return (
-      (await readJsonFile<ProjectLeaseRecord[]>(
-        join(this.projectDir(projectId), "leases.json")
-      )) ?? []
+  ): Promise<IssueOrchestrationRecord[]> {
+    const issuesPath = join(this.projectDir(projectId), "issues.json");
+    const issues = await readJsonFile<IssueOrchestrationRecord[]>(issuesPath);
+    if (issues) {
+      return issues;
+    }
+
+    const legacyLeases =
+      (await readJsonFile<
+        Array<{
+          issueId: string;
+          issueIdentifier: string;
+          runId: string;
+          status: "active" | "released";
+          updatedAt: string;
+        }>
+      >(join(this.projectDir(projectId), "leases.json"))) ?? [];
+
+    if (legacyLeases.length === 0) {
+      return [];
+    }
+
+    const migratedIssues: IssueOrchestrationRecord[] = legacyLeases.map(
+      (lease) => ({
+        issueId: lease.issueId,
+        identifier: lease.issueIdentifier,
+        workspaceKey: deriveIssueWorkspaceKeyFromIdentifier(
+          lease.issueIdentifier
+        ),
+        state: lease.status === "active" ? "claimed" : "released",
+        currentRunId: lease.status === "active" ? lease.runId : null,
+        retryEntry: null,
+        updatedAt: lease.updatedAt,
+      })
     );
+
+    await this.saveProjectIssueOrchestrations(projectId, migratedIssues);
+    return migratedIssues;
   }
 
-  async saveProjectLeases(
+  async saveProjectIssueOrchestrations(
     projectId: string,
-    leases: ProjectLeaseRecord[]
+    issues: IssueOrchestrationRecord[]
   ): Promise<void> {
     await writeJsonFile(
-      join(this.projectDir(projectId), "leases.json"),
-      leases
+      join(this.projectDir(projectId), "issues.json"),
+      issues
     );
   }
 

@@ -10,8 +10,10 @@ import {
   buildPromptVariables,
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
+  deriveLegacyIssueWorkspaceKey,
   executeWorkspaceHook,
   isWorkflowExecutionPhase,
+  isRunAttemptPhase,
   isStateActive,
   isStateTerminal,
   matchesWorkflowState,
@@ -19,16 +21,17 @@ import {
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
   type HookResult,
+  type IssueOrchestrationRecord,
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  type ProjectStatusSnapshot,
   type RepositoryRef,
+  type RunAttemptPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
-  type ProjectLeaseRecord,
-  type ProjectStatusSnapshot,
 } from "@gh-symphony/core";
 import {
   cloneRepositoryForRun,
@@ -53,6 +56,10 @@ type SpawnLike = (
 
 function parseExecutionPhase(value: unknown) {
   return isWorkflowExecutionPhase(value) ? value : null;
+}
+
+function parseRunPhase(value: unknown): RunAttemptPhase | null {
+  return isRunAttemptPhase(value) ? value : null;
 }
 
 export class OrchestratorService {
@@ -131,7 +138,8 @@ export class OrchestratorService {
     let recovered = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 
-    let leases = await this.store.loadProjectLeases(tenant.projectId);
+    let issueRecords =
+      await this.store.loadProjectIssueOrchestrations(tenant.projectId);
     const allRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
@@ -139,8 +147,8 @@ export class OrchestratorService {
     this.initializePortFrom(allRuns);
 
     for (const run of activeRuns) {
-      const outcome = await this.reconcileRun(tenant, run, leases);
-      leases = outcome.leases;
+      const outcome = await this.reconcileRun(tenant, run, issueRecords);
+      issueRecords = outcome.issueRecords;
       if (outcome.recovered) {
         recovered += 1;
       }
@@ -168,15 +176,16 @@ export class OrchestratorService {
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
       const concurrency = this.getProjectConcurrency(tenant);
-      const currentlyActive = leases.filter(
-        (lease) => lease.status === "active"
+      const currentlyActive = issueRecords.filter((record) =>
+        isIssueOrchestrationClaimed(record.state)
       ).length;
       const availableSlots = Math.max(0, concurrency - currentlyActive);
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
-        const leaseKey = buildLeaseKey(issue);
-        return !leases.some(
-          (lease) => lease.leaseKey === leaseKey && lease.status === "active"
+        return !issueRecords.some(
+          (record) =>
+            record.issueId === issue.id &&
+            isIssueOrchestrationClaimed(record.state)
         );
       });
 
@@ -208,14 +217,37 @@ export class OrchestratorService {
           }
         }
 
-        const leaseKey = buildLeaseKey(issue);
-        const run = await this.startRun(tenant, issue);
-        leases = upsertLease(leases, {
-          leaseKey,
-          runId: run.runId,
+        const preferredWorkspaceKey = deriveIssueWorkspaceKey(
+          {
+            projectId: tenant.projectId,
+            adapter: issue.tracker.adapter,
+            issueSubjectId: issue.id,
+          },
+          issue.identifier
+        );
+        issueRecords = upsertIssueOrchestration(issueRecords, {
+          issueId: issue.id,
+          identifier: issue.identifier,
+          workspaceKey: preferredWorkspaceKey,
+          state: "claimed",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: now.toISOString(),
+        });
+        let run: OrchestratorRunRecord;
+        try {
+          run = await this.startRun(tenant, issue);
+        } catch (error) {
+          issueRecords = releaseIssueOrchestration(issueRecords, issue.id, now);
+          throw error;
+        }
+        issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: run.issueId,
-          issueIdentifier: run.issueIdentifier,
-          status: "active",
+          identifier: run.issueIdentifier,
+          workspaceKey: run.issueWorkspaceKey ?? preferredWorkspaceKey,
+          state: "running",
+          currentRunId: run.runId,
+          retryEntry: null,
           updatedAt: now.toISOString(),
         });
         await this.store.saveRun(run);
@@ -236,11 +268,12 @@ export class OrchestratorService {
       }
 
       for (const issue of filteredIssues) {
-        const leaseKey = buildLeaseKey(issue);
-        const lease = leases.find(
-          (entry) => entry.leaseKey === leaseKey && entry.status === "active"
+        const issueRecord = issueRecords.find(
+          (entry) =>
+            entry.issueId === issue.id &&
+            isIssueOrchestrationClaimed(entry.state)
         );
-        if (!lease) {
+        if (!issueRecord) {
           continue;
         }
 
@@ -248,7 +281,9 @@ export class OrchestratorService {
           (candidate) => candidate.identifier === issue.identifier
         );
         if (!resolvedIssue) {
-          const leasedRun = await this.store.loadRun(lease.runId);
+          const leasedRun = issueRecord.currentRunId
+            ? await this.store.loadRun(issueRecord.currentRunId)
+            : null;
           if (leasedRun?.processId) {
             try {
               process.kill(leasedRun.processId, "SIGTERM");
@@ -262,11 +297,16 @@ export class OrchestratorService {
               status: "suppressed",
               completedAt: now.toISOString(),
               updatedAt: now.toISOString(),
+              runPhase: "canceled_by_reconciliation",
               lastError:
                 "Run suppressed because the tracker state is no longer actionable.",
             });
           }
-          leases = releaseLease(leases, leaseKey, now);
+          issueRecords = releaseIssueOrchestration(
+            issueRecords,
+            issue.id,
+            now
+          );
           suppressed += 1;
         }
       }
@@ -284,7 +324,10 @@ export class OrchestratorService {
     }
 
     this.projectPollIntervals.set(tenant.projectId, pollIntervalMs);
-    await this.store.saveProjectLeases(tenant.projectId, leases);
+    await this.store.saveProjectIssueOrchestrations(
+      tenant.projectId,
+      issueRecords
+    );
 
     const allTenantRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
@@ -409,7 +452,18 @@ export class OrchestratorService {
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
-    const workspaceKey = deriveIssueWorkspaceKey(identity);
+    const preferredWorkspaceKey = deriveIssueWorkspaceKey(
+      identity,
+      issue.identifier
+    );
+    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(identity);
+    const existingWorkspaceRecord =
+      (await this.store.loadIssueWorkspace(tenant.projectId, preferredWorkspaceKey)) ??
+      (legacyWorkspaceKey === preferredWorkspaceKey
+        ? null
+        : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
+    const workspaceKey =
+      existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
       tenant.workspaceDir,
       tenant.projectId,
@@ -421,10 +475,6 @@ export class OrchestratorService {
       issueWorkspacePath,
     });
 
-    const existingWorkspaceRecord = await this.store.loadIssueWorkspace(
-      tenant.projectId,
-      workspaceKey
-    );
     if (!existingWorkspaceRecord) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
@@ -576,6 +626,7 @@ export class OrchestratorService {
       completedAt: null,
       lastError: null,
       nextRetryAt: null,
+      runPhase: "preparing_workspace",
     };
   }
 
@@ -611,8 +662,11 @@ export class OrchestratorService {
   private async reconcileRun(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    leases: ProjectLeaseRecord[]
-  ): Promise<{ leases: ProjectLeaseRecord[]; recovered: boolean }> {
+    issueRecords: IssueOrchestrationRecord[]
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+  }> {
     const now = this.now();
 
     if (run.processId && isProcessRunning(run.processId)) {
@@ -643,10 +697,29 @@ export class OrchestratorService {
           lastEvent: liveState.lastEvent ?? undefined,
           lastEventAt: liveState.lastEventAt ?? undefined,
           executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
+          runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
         };
         await this.store.saveRun(runningRecord);
+        issueRecords = upsertIssueOrchestration(issueRecords, {
+          issueId: run.issueId,
+          identifier: run.issueIdentifier,
+          workspaceKey:
+            run.issueWorkspaceKey ??
+            deriveIssueWorkspaceKey(
+              {
+                projectId: tenant.projectId,
+                adapter: tenant.tracker.adapter,
+                issueSubjectId: run.issueSubjectId,
+              },
+              run.issueIdentifier
+            ),
+          state: "running",
+          currentRunId: run.runId,
+          retryEntry: null,
+          updatedAt: now.toISOString(),
+        });
         return {
-          leases,
+          issueRecords,
           recovered: false,
         };
       }
@@ -661,6 +734,7 @@ export class OrchestratorService {
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
+      runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
     };
     const workerSessionId = workerInfo.sessionId;
 
@@ -682,12 +756,13 @@ export class OrchestratorService {
         completedAt: now.toISOString(),
         updatedAt: now.toISOString(),
         retryKind: runWithTokens.retryKind ?? "failure",
+        runPhase: runWithTokens.runPhase ?? "failed",
         lastError:
           runWithTokens.lastError ?? "Worker process exited unexpectedly.",
       };
       await this.store.saveRun(failedRecord);
       return {
-        leases: releaseLease(leases, buildLeaseKey(run), now),
+        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
         recovered: false,
       };
     }
@@ -695,12 +770,18 @@ export class OrchestratorService {
     if (run.status === "retrying" && run.nextRetryAt) {
       if (new Date(run.nextRetryAt).getTime() > now.getTime()) {
         return {
-          leases,
+          issueRecords,
           recovered: false,
         };
       }
 
-      return this.restartRun(tenant, run, leases, now, workerSessionId);
+      return this.restartRun(
+        tenant,
+        run,
+        issueRecords,
+        now,
+        workerSessionId
+      );
     }
 
     if (run.issueWorkspaceKey) {
@@ -757,14 +838,37 @@ export class OrchestratorService {
       updatedAt: now.toISOString(),
       nextRetryAt,
       retryKind,
+      runPhase: runWithTokens.runPhase ?? "failed",
       lastError:
         retryKind === "continuation"
           ? null
           : "Worker process exited unexpectedly.",
     };
     await this.store.saveRun(retryRecord);
+    issueRecords = upsertIssueOrchestration(issueRecords, {
+      issueId: run.issueId,
+      identifier: run.issueIdentifier,
+      workspaceKey:
+        run.issueWorkspaceKey ??
+        deriveIssueWorkspaceKey(
+          {
+            projectId: tenant.projectId,
+            adapter: tenant.tracker.adapter,
+            issueSubjectId: run.issueSubjectId,
+          },
+          run.issueIdentifier
+        ),
+      state: "retry_queued",
+      currentRunId: run.runId,
+      retryEntry: {
+        attempt: retryRecord.attempt,
+        dueAt: nextRetryAt,
+        error: retryRecord.lastError,
+      },
+      updatedAt: now.toISOString(),
+    });
     return {
-      leases,
+      issueRecords,
       recovered: false,
     };
   }
@@ -842,6 +946,7 @@ export class OrchestratorService {
     lastEvent: string | null;
     lastEventAt: string | null;
     executionPhase: OrchestratorRunRecord["executionPhase"];
+    runPhase: OrchestratorRunRecord["runPhase"];
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -857,6 +962,7 @@ export class OrchestratorService {
       lastEvent: liveState.lastEvent,
       lastEventAt: liveState.lastEventAt,
       executionPhase: liveState.executionPhase,
+      runPhase: liveState.runPhase,
     };
   }
 
@@ -868,6 +974,7 @@ export class OrchestratorService {
     lastEvent: string | null;
     lastEventAt: string | null;
     executionPhase: OrchestratorRunRecord["executionPhase"];
+    runPhase: OrchestratorRunRecord["runPhase"];
   }> {
     if (!run.port) {
       return {
@@ -878,6 +985,7 @@ export class OrchestratorService {
         lastEvent: null,
         lastEventAt: null,
         executionPhase: null,
+        runPhase: null,
       };
     }
 
@@ -896,12 +1004,14 @@ export class OrchestratorService {
           lastEvent: null,
           lastEventAt: null,
           executionPhase: null,
+          runPhase: null,
         };
       }
 
       const state = (await response.json()) as {
         status?: string;
         executionPhase?: unknown;
+        runPhase?: unknown;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -926,6 +1036,7 @@ export class OrchestratorService {
       const lastEvent = state.status ?? null;
       const lastEventAt: string | null = null; // worker doesn't emit event timestamps
       const executionPhase = parseExecutionPhase(state.executionPhase);
+      const runPhase = parseRunPhase(state.runPhase);
 
       return {
         tokenUsage,
@@ -935,6 +1046,7 @@ export class OrchestratorService {
         lastEvent,
         lastEventAt,
         executionPhase,
+        runPhase,
       };
     } catch {
       return {
@@ -945,6 +1057,7 @@ export class OrchestratorService {
         lastEvent: null,
         lastEventAt: null,
         executionPhase: null,
+        runPhase: null,
       };
     }
   }
@@ -1012,10 +1125,13 @@ export class OrchestratorService {
   private async restartRun(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    leases: ProjectLeaseRecord[],
+    issueRecords: IssueOrchestrationRecord[],
     now: Date,
     sessionId?: string | null
-  ): Promise<{ leases: ProjectLeaseRecord[]; recovered: boolean }> {
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+  }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
     // and isActiveRunStatus() picks it up on every tick, calling restartRun()
@@ -1051,12 +1167,22 @@ export class OrchestratorService {
     });
 
     return {
-      leases: upsertLease(leases, {
-        leaseKey: buildLeaseKey(run),
-        runId: recoveredRecord.runId,
+      issueRecords: upsertIssueOrchestration(issueRecords, {
         issueId: recoveredRecord.issueId,
-        issueIdentifier: recoveredRecord.issueIdentifier,
-        status: "active",
+        identifier: recoveredRecord.issueIdentifier,
+        workspaceKey:
+          recoveredRecord.issueWorkspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              projectId: tenant.projectId,
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: recoveredRecord.issueSubjectId,
+            },
+            recoveredRecord.issueIdentifier
+          ),
+        state: "running",
+        currentRunId: recoveredRecord.runId,
+        retryEntry: null,
         updatedAt: now.toISOString(),
       }),
       recovered: true,
@@ -1164,11 +1290,25 @@ export class OrchestratorService {
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
-    const workspaceKey = deriveIssueWorkspaceKey(identity);
-    const workspaceRecord = await this.store.loadIssueWorkspace(
-      tenant.projectId,
-      workspaceKey
+    const preferredWorkspaceKey = deriveIssueWorkspaceKey(
+      identity,
+      issue.identifier
     );
+    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(identity);
+    const orchestrationRecord = (
+      await this.store.loadProjectIssueOrchestrations(tenant.projectId)
+    ).find((record) => record.issueId === issue.id);
+    const workspaceRecord =
+      (orchestrationRecord
+        ? await this.store.loadIssueWorkspace(
+            tenant.projectId,
+            orchestrationRecord.workspaceKey
+          )
+        : null) ??
+      (await this.store.loadIssueWorkspace(tenant.projectId, preferredWorkspaceKey)) ??
+      (legacyWorkspaceKey === preferredWorkspaceKey
+        ? null
+        : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
 
     if (
       !workspaceRecord ||
@@ -1194,7 +1334,7 @@ export class OrchestratorService {
       issue.repository,
       {
         projectId: tenant.projectId,
-        workspaceKey,
+        workspaceKey: workspaceRecord.workspaceKey,
         issueSubjectId,
         issueIdentifier: issue.identifier,
         workspacePath: workspaceRecord.workspacePath,
@@ -1301,35 +1441,37 @@ function createRunId(
   ].join("-");
 }
 
-function buildLeaseKey(
-  record: Pick<TrackedIssue, "id"> | Pick<OrchestratorRunRecord, "issueId">
-): string {
-  return "id" in record ? record.id : record.issueId;
+function isIssueOrchestrationClaimed(
+  state: IssueOrchestrationRecord["state"]
+): boolean {
+  return state === "claimed" || state === "running" || state === "retry_queued";
 }
 
-function upsertLease(
-  leases: ProjectLeaseRecord[],
-  nextLease: ProjectLeaseRecord
-): ProjectLeaseRecord[] {
-  const remaining = leases.filter(
-    (lease) => lease.leaseKey !== nextLease.leaseKey
+function upsertIssueOrchestration(
+  issueRecords: IssueOrchestrationRecord[],
+  nextRecord: IssueOrchestrationRecord
+): IssueOrchestrationRecord[] {
+  const remaining = issueRecords.filter(
+    (record) => record.issueId !== nextRecord.issueId
   );
-  return [...remaining, nextLease];
+  return [...remaining, nextRecord];
 }
 
-function releaseLease(
-  leases: ProjectLeaseRecord[],
-  leaseKey: string,
+function releaseIssueOrchestration(
+  issueRecords: IssueOrchestrationRecord[],
+  issueId: string,
   now: Date
-): ProjectLeaseRecord[] {
-  return leases.map((lease) =>
-    lease.leaseKey === leaseKey
+): IssueOrchestrationRecord[] {
+  return issueRecords.map((record) =>
+    record.issueId === issueId
       ? {
-          ...lease,
-          status: "released",
+          ...record,
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
           updatedAt: now.toISOString(),
         }
-      : lease
+      : record
   );
 }
 
