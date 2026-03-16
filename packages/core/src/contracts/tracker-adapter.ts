@@ -11,6 +11,12 @@ export type TrackerBindingSummary = {
   bindingId: string;
 };
 
+export type BlockerRef = {
+  id: string | null;
+  identifier: string | null;
+  state: string | null;
+};
+
 export type TrackedIssue = {
   id: string;
   identifier: string;
@@ -22,7 +28,7 @@ export type TrackedIssue = {
   branchName: string | null;
   url: string | null;
   labels: string[];
-  blockedBy: string[];
+  blockedBy: BlockerRef[];
   createdAt: string | null;
   updatedAt: string | null;
   repository: RepositoryRef & {

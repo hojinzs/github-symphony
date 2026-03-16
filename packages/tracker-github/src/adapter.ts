@@ -62,8 +62,9 @@ type GraphQLIssueNode = {
   };
   blockedBy: {
     nodes: Array<{
+      id: string;
       number: number;
-      state: string;
+      state: string | null;
       repository: {
         name: string;
         owner: { login: string };
@@ -127,11 +128,15 @@ export function normalizeProjectItem(
   const repository = item.content.repository;
   const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap(
     (node) =>
-    node
-      ? [
-          `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
-        ]
-      : []
+      node
+        ? [
+            {
+              id: node.id,
+              identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
+              state: normalizeBlockerState(node.state, lifecycle),
+            },
+          ]
+        : []
   );
 
   return {
@@ -381,6 +386,26 @@ function deriveCloneUrl(repositoryUrl: string): string {
   return `${repositoryUrl}.git`;
 }
 
+function normalizeBlockerState(
+  state: string | null,
+  lifecycle: WorkflowLifecycleConfig
+): string | null {
+  if (!state) {
+    return null;
+  }
+
+  const normalized = state.trim().toLowerCase();
+  if (normalized === "closed") {
+    return lifecycle.terminalStates[0] ?? state;
+  }
+
+  if (normalized === "open") {
+    return null;
+  }
+
+  return state;
+}
+
 function resolveRestUserApiUrl(apiUrl?: string): string {
   const parsed = new URL(apiUrl ?? DEFAULT_API_URL);
   const pathSegments = parsed.pathname.split("/").filter(Boolean);
@@ -454,6 +479,7 @@ const PROJECT_ITEMS_QUERY = `
                 }
                 blockedBy(first: 100) {
                   nodes {
+                    id
                     number
                     state
                     repository {

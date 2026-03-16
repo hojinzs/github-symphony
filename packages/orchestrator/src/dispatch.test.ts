@@ -266,7 +266,13 @@ describe("blocker eligibility", () => {
       identifier: "acme/platform#2",
       number: 2,
       state: "Todo",
-      blockedBy: ["acme/platform#1"],
+      blockedBy: [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          state: "Todo",
+        },
+      ],
       repository: {
         owner: repository.owner,
         name: repository.name,
@@ -363,7 +369,13 @@ describe("blocker eligibility", () => {
       identifier: "acme/platform#2",
       number: 2,
       state: "Todo",
-      blockedBy: ["acme/platform#1"],
+      blockedBy: [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          state: "Done",
+        },
+      ],
       repository: {
         owner: repository.owner,
         name: repository.name,
@@ -403,6 +415,93 @@ describe("blocker eligibility", () => {
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5202, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "node packages/worker/dist/index.js"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_SUBJECT_ID: "issue-2",
+        }),
+      })
+    );
+  });
+
+  it("dispatches blocked issue when cross-project blocker is terminal", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-blocker-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const issue = makeIssue({
+      id: "issue-2",
+      identifier: "acme/platform#2",
+      number: 2,
+      state: "Todo",
+      blockedBy: [
+        {
+          id: "issue-99",
+          identifier: "other/repo#99",
+          state: "Done",
+        },
+      ],
+      repository: {
+        owner: repository.owner,
+        name: repository.name,
+        cloneUrl: repository.cloneUrl,
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-2",
+      },
+    });
+
+    const listIssues = vi.fn().mockResolvedValue([issue]);
+    const adapter: OrchestratorTrackerAdapter = {
+      listIssues,
+      buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
+      reviveIssue: (
+        _tenant: OrchestratorProjectConfig,
+        run: OrchestratorRunRecord
+      ) =>
+        makeIssue({
+          id: run.issueId,
+          identifier: run.issueIdentifier,
+          state: run.issueState,
+          repository: {
+            owner: repository.owner,
+            name: repository.name,
+            cloneUrl: repository.cloneUrl,
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: run.issueId,
+          },
+        }),
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5203, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),

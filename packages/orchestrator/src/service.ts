@@ -511,13 +511,28 @@ export class OrchestratorService {
         ) &&
         issue.blockedBy.length > 0
       ) {
-        const hasNonTerminalBlocker = issue.blockedBy.some(
-          (blockerId: string) => {
-            const blockerIssue = issues.find((i) => i.identifier === blockerId);
-            if (!blockerIssue) return true; // Unknown blocker treated as blocking
-            return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
+        const hasNonTerminalBlocker = issue.blockedBy.some((blockerRef) => {
+          if (
+            blockerRef.state &&
+            isStateTerminal(blockerRef.state, resolution.lifecycle)
+          ) {
+            return false;
           }
-        );
+
+          if (blockerRef.identifier) {
+            const blockerIssue = issues.find(
+              (candidate) => candidate.identifier === blockerRef.identifier
+            );
+            if (blockerIssue?.state) {
+              return !isStateTerminal(
+                blockerIssue.state,
+                resolution.lifecycle
+              );
+            }
+          }
+
+          return true;
+        });
         if (hasNonTerminalBlocker) {
           continue;
         }
