@@ -382,10 +382,11 @@ export class OrchestratorService {
         issue.blockedBy.length > 0
       ) {
         const hasNonTerminalBlocker = issue.blockedBy.some(
-          (blockerId: string) => {
-            const blockerIssue = issues.find((i) => i.identifier === blockerId);
-            if (!blockerIssue) return true; // Unknown blocker treated as blocking
-            return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
+          (blockerRef) => {
+            if (!blockerRef.state) {
+              return true;
+            }
+            return !isStateTerminal(blockerRef.state, resolution.lifecycle);
           }
         );
         if (hasNonTerminalBlocker) {

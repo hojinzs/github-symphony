@@ -54,12 +54,30 @@ describe("normalizeGithubProjectItem", () => {
         labels: {
           nodes: [{ name: "Agent" }, { name: "Infra" }]
         },
+        assignees: {
+          nodes: []
+        },
         repository: {
           name: "platform",
           url: "https://github.com/acme/platform",
           owner: {
             login: "acme"
           }
+        },
+        blockedBy: {
+          nodes: [
+            {
+              id: "issue-9",
+              number: 9,
+              state: "Done",
+              repository: {
+                name: "shared",
+                owner: {
+                  login: "other"
+                }
+              }
+            }
+          ]
         }
       }
     });
@@ -75,7 +93,13 @@ describe("normalizeGithubProjectItem", () => {
       branchName: null,
       url: "https://github.com/acme/platform/issues/42",
       labels: ["agent", "infra"],
-      blockedBy: [],
+      blockedBy: [
+        {
+          id: "issue-9",
+          identifier: "other/shared#9",
+          state: "Done"
+        }
+      ],
       createdAt: "2026-03-07T09:00:00.000Z",
       updatedAt: "2026-03-07T10:00:00.000Z",
       repository: {
@@ -157,11 +181,13 @@ describe("fetchActionableIssues", () => {
                       createdAt: "2026-03-07T09:00:00.000Z",
                       updatedAt: "2026-03-07T10:00:00.000Z",
                       labels: { nodes: [] },
+                      assignees: { nodes: [] },
                       repository: {
                         name: "platform",
                         url: "https://github.com/acme/platform",
                         owner: { login: "acme" }
-                      }
+                      },
+                      blockedBy: { nodes: [] }
                     }
                   }
                 ],
@@ -205,11 +231,13 @@ describe("fetchActionableIssues", () => {
                       createdAt: "2026-03-07T09:30:00.000Z",
                       updatedAt: "2026-03-07T10:05:00.000Z",
                       labels: { nodes: [] },
+                      assignees: { nodes: [] },
                       repository: {
                         name: "platform",
                         url: "https://github.com/acme/platform",
                         owner: { login: "acme" }
-                      }
+                      },
+                      blockedBy: { nodes: [] }
                     }
                   }
                 ],

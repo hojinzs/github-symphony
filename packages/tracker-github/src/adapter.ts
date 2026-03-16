@@ -62,8 +62,9 @@ type GraphQLIssueNode = {
   };
   blockedBy: {
     nodes: Array<{
+      id: string;
       number: number;
-      state: string;
+      state: string | null;
       repository: {
         name: string;
         owner: { login: string };
@@ -127,11 +128,15 @@ export function normalizeProjectItem(
   const repository = item.content.repository;
   const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap(
     (node) =>
-    node
-      ? [
-          `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
-        ]
-      : []
+      node
+        ? [
+            {
+              id: node.id,
+              identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
+              state: node.state,
+            },
+          ]
+        : []
   );
 
   return {
@@ -454,6 +459,7 @@ const PROJECT_ITEMS_QUERY = `
                 }
                 blockedBy(first: 100) {
                   nodes {
+                    id
                     number
                     state
                     repository {
