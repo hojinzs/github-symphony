@@ -15,7 +15,7 @@ polling:
 workspace:
   root: .runtime/symphony-workspaces
 hooks:
-  after_create: hooks/after_create.sh
+  after_create: null
   before_run: null
   after_run: null
   before_remove: null
