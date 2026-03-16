@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
+import { createHash } from "node:crypto";
 import type { IssueSubjectIdentity } from "../domain/issue.js";
 
 /**
@@ -33,12 +33,8 @@ export function deriveIssueWorkspaceKeyFromIdentifier(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  const suffix = createHash("sha256")
-    .update(issueIdentifier)
-    .digest("hex")
-    .slice(0, 8);
 
-  return `${sanitized || "issue"}_${suffix}`;
+  return sanitized || "issue";
 }
 
 export function deriveLegacyIssueWorkspaceKey(

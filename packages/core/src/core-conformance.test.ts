@@ -27,7 +27,7 @@ describe("deriveIssueWorkspaceKey", () => {
     const key2 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
 
     expect(key1).toBe(key2);
-    expect(key1).toMatch(/^acme_platform_42_[a-f0-9]{8}$/);
+    expect(key1).toBe("acme_platform_42");
   });
 
   it("produces different keys for different identifiers", () => {
@@ -51,7 +51,7 @@ describe("deriveIssueWorkspaceKey", () => {
     expect(keyA).not.toBe(keyC);
   });
 
-  it("adds a disambiguator when normalized identifiers would collide", () => {
+  it("produces the same key when normalized identifiers collide (spec 4.2: pure substitution)", () => {
     const keyA = deriveIssueWorkspaceKey(
       {
         projectId: "ws-1",
@@ -69,12 +69,13 @@ describe("deriveIssueWorkspaceKey", () => {
       "acme/foo_bar#1"
     );
 
-    expect(keyA).not.toBe(keyB);
-    expect(keyA).toMatch(/^acme_foo_bar_1_[a-f0-9]{8}$/);
-    expect(keyB).toMatch(/^acme_foo_bar_1_[a-f0-9]{8}$/);
+    // Per spec 4.2, workspace key is pure identifier substitution.
+    // Collisions are handled by the directory layout (projectId/issues/key).
+    expect(keyA).toBe("acme_foo_bar_1");
+    expect(keyB).toBe("acme_foo_bar_1");
   });
 
-  it("falls back to a hashed issue key when sanitization strips everything", () => {
+  it("falls back to 'issue' when sanitization strips everything", () => {
     const key = deriveIssueWorkspaceKey(
       {
         projectId: "ws-1",
@@ -84,7 +85,7 @@ describe("deriveIssueWorkspaceKey", () => {
       "!!!"
     );
 
-    expect(key).toMatch(/^issue_[a-f0-9]{8}$/);
+    expect(key).toBe("issue");
   });
 });
 

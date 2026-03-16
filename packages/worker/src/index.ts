@@ -59,7 +59,7 @@ const runtimeState: {
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   executionPhase: null,
-  runPhase: launcherEnv.SYMPHONY_RUN_ID ? "initializing_session" : null,
+  runPhase: launcherEnv.SYMPHONY_RUN_ID ? "preparing_workspace" : null,
   run: launcherEnv.SYMPHONY_RUN_ID
     ? {
         runId: launcherEnv.SYMPHONY_RUN_ID,

@@ -626,7 +626,7 @@ export class OrchestratorService {
       completedAt: null,
       lastError: null,
       nextRetryAt: null,
-      runPhase: "initializing_session",
+      runPhase: "preparing_workspace",
     };
   }
 
