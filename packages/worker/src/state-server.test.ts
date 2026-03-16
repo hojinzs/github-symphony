@@ -41,6 +41,7 @@ Prefer small changes.
     });
     expect(state.executionPhase).toBeNull();
     expect(state.runPhase).toBeNull();
+    expect(state.sessionId).toBeNull();
   });
 
   it("falls back to environment metadata when workflow is missing", async () => {
@@ -55,6 +56,7 @@ Prefer small changes.
     expect(state.workflow).toBeNull();
     expect(state.executionPhase).toBeNull();
     expect(state.runPhase).toBeNull();
+    expect(state.sessionId).toBeNull();
   });
 
   it("surfaces assigned run metadata from the orchestrator", async () => {
@@ -96,6 +98,7 @@ Prefer small changes.
     });
     expect(state.executionPhase).toBeNull();
     expect(state.runPhase).toBeNull();
+    expect(state.sessionId).toBeNull();
   });
 
   it("includes runtime execution and run phase metadata when provided", async () => {
@@ -108,12 +111,26 @@ Prefer small changes.
         status: "running",
         executionPhase: "implementation",
         runPhase: "streaming_turn",
+        sessionId: "thread-1-turn-1",
+        sessionInfo: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          turnCount: 1,
+          sessionId: "thread-1-turn-1",
+        },
       }
     );
 
     expect(state.status).toBe("running");
     expect(state.executionPhase).toBe("implementation");
     expect(state.runPhase).toBe("streaming_turn");
+    expect(state.sessionId).toBe("thread-1-turn-1");
+    expect(state.sessionInfo).toEqual({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      turnCount: 1,
+      sessionId: "thread-1-turn-1",
+    });
   });
 });
 
@@ -126,6 +143,7 @@ describe("createWorkerRequestHandler", () => {
       status: "idle",
       executionPhase: "planning",
       runPhase: "streaming_turn",
+      sessionId: "thread-1-turn-1",
       projectId: "project-123",
       workspaceRuntimeDir: "/workspace-runtime",
       run: null,
@@ -133,6 +151,12 @@ describe("createWorkerRequestHandler", () => {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
+      },
+      sessionInfo: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        turnCount: 1,
+        sessionId: "thread-1-turn-1",
       },
       workflow: null,
     }));
@@ -148,6 +172,7 @@ describe("createWorkerRequestHandler", () => {
     expect(response.body).toContain('"projectId":"project-123"');
     expect(response.body).toContain('"executionPhase":"planning"');
     expect(response.body).toContain('"runPhase":"streaming_turn"');
+    expect(response.body).toContain('"sessionId":"thread-1-turn-1"');
   });
 });
 

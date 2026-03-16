@@ -1157,6 +1157,7 @@ export class OrchestratorService {
         status?: string;
         executionPhase?: unknown;
         runPhase?: unknown;
+        sessionId?: unknown;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -1164,7 +1165,9 @@ export class OrchestratorService {
         };
         sessionInfo?: {
           threadId: string | null;
+          turnId?: string | null;
           turnCount: number;
+          sessionId?: string | null;
         } | null;
         run?: { lastError: string | null } | null;
       };
@@ -1173,9 +1176,12 @@ export class OrchestratorService {
         ? state.tokenUsage
         : null;
       const sessionId =
-        state.sessionInfo?.threadId && state.sessionInfo.turnCount > 0
-          ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnCount}`
-          : null;
+        typeof state.sessionId === "string"
+          ? state.sessionId
+          : state.sessionInfo?.sessionId ??
+            (state.sessionInfo?.threadId && state.sessionInfo?.turnId
+              ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnId}`
+              : null);
       const turnCount = state.sessionInfo?.turnCount ?? null;
       const lastError = state.run?.lastError ?? null;
       const lastEvent = state.status ?? null;

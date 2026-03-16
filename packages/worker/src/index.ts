@@ -33,6 +33,7 @@ const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
+  sessionId: string | null;
   run: null | {
     runId: string;
     issueId: string | null;
@@ -54,12 +55,15 @@ const runtimeState: {
   };
   sessionInfo: {
     threadId: string | null;
+    turnId: string | null;
     turnCount: number;
+    sessionId: string | null;
   };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   executionPhase: null,
   runPhase: launcherEnv.SYMPHONY_RUN_ID ? "preparing_workspace" : null,
+  sessionId: null,
   run: launcherEnv.SYMPHONY_RUN_ID
     ? {
         runId: launcherEnv.SYMPHONY_RUN_ID,
@@ -83,7 +87,9 @@ const runtimeState: {
   },
   sessionInfo: {
     threadId: null,
+    turnId: null,
     turnCount: 0,
+    sessionId: null,
   },
 };
 
@@ -669,6 +675,9 @@ async function runCodexClientProtocol(
         | undefined);
 
     runtimeState.sessionInfo.threadId = threadId ?? null;
+    runtimeState.sessionInfo.turnId = null;
+    runtimeState.sessionInfo.sessionId = null;
+    runtimeState.sessionId = null;
 
     process.stderr.write(
       `[worker] codex thread started (id=${String(threadId ?? "unknown")})\n`
@@ -715,8 +724,15 @@ async function runCodexClientProtocol(
         ((turnResult.turn as Record<string, unknown> | undefined)?.id as
           | string
           | undefined);
+      const sessionId = threadId && turnId ? `${threadId}-${turnId}` : null;
+      runtimeState.sessionInfo.turnId = turnId ?? null;
+      runtimeState.sessionInfo.sessionId = sessionId;
+      runtimeState.sessionId = sessionId;
       process.stderr.write(
         `[worker] codex turn started (id=${String(turnId ?? "unknown")})\n`
+      );
+      process.stderr.write(
+        `[worker] session_id=${String(sessionId ?? "unknown")}\n`
       );
 
       // Wait for turn completion with absolute timeout

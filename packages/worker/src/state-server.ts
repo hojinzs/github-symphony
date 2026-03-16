@@ -17,6 +17,7 @@ export type WorkerRuntimeState = {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
+  sessionId: string | null;
   projectId: string | null;
   workspaceRuntimeDir: string;
   run: null | {
@@ -40,7 +41,9 @@ export type WorkerRuntimeState = {
   };
   sessionInfo?: {
     threadId: string | null;
+    turnId: string | null;
     turnCount: number;
+    sessionId: string | null;
   } | null;
   workflow: null | {
     githubProjectId: string | null;
@@ -64,6 +67,7 @@ export async function buildWorkerRuntimeState(
       | "status"
       | "executionPhase"
       | "runPhase"
+      | "sessionId"
       | "run"
       | "tokenUsage"
       | "sessionInfo"
@@ -114,6 +118,7 @@ export async function buildWorkerRuntimeState(
     status: runtime.status ?? "idle",
     executionPhase: runtime.executionPhase ?? null,
     runPhase: runtime.runPhase ?? null,
+    sessionId: runtime.sessionId ?? runtime.sessionInfo?.sessionId ?? null,
     projectId: env.GITHUB_PROJECT_ID ?? workflow?.githubProjectId ?? null,
     workspaceRuntimeDir,
     run: assignedRun,

@@ -760,6 +760,7 @@ describe("OrchestratorService", () => {
           ok: true,
           json: async () => ({
             status: "running",
+            sessionId: "thread-1-turn-abc",
             executionPhase: "planning",
             tokenUsage: {
               inputTokens: 10,
@@ -768,7 +769,9 @@ describe("OrchestratorService", () => {
             },
             sessionInfo: {
               threadId: "thread-1",
+              turnId: "turn-abc",
               turnCount: 2,
+              sessionId: "thread-1-turn-abc",
             },
             run: {
               lastError: null,
@@ -797,6 +800,7 @@ describe("OrchestratorService", () => {
       outputTokens: 4,
       totalTokens: 14,
     });
+    expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-abc");
   });
 
   it("synchronizes active run issueState with the latest tracker status", async () => {
@@ -928,7 +932,9 @@ describe("OrchestratorService", () => {
             },
             sessionInfo: {
               threadId: "thread-1",
+              turnId: "turn-def",
               turnCount: 2,
+              sessionId: "thread-1-turn-def",
             },
             run: {
               lastError: null,
