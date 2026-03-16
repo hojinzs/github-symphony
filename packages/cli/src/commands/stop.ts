@@ -1,7 +1,10 @@
 import { readFile, rm } from "node:fs/promises";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, orchestratorPortPath } from "../config.js";
-import { resolveManagedProjectConfig } from "../project-selection.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
@@ -56,12 +59,7 @@ const handler = async (
     requestedProjectId: parsed.projectId,
   });
   if (!projectConfig) {
-    if (process.exitCode !== 1) {
-      process.stderr.write(
-        "No project configured. Run 'gh-symphony project add' first.\n"
-      );
-      process.exitCode = 1;
-    }
+    handleMissingManagedProjectConfig();
     return;
   }
   const resolvedProjectId = projectConfig.projectId;

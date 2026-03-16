@@ -22,7 +22,8 @@ vi.mock("@clack/prompts", async () => {
   };
 });
 
-const { resolveManagedProjectConfig } = await import("./project-selection.js");
+const { handleMissingManagedProjectConfig, resolveManagedProjectConfig } =
+  await import("./project-selection.js");
 
 function createProject(projectId: string, displayName?: string): CliProjectConfig {
   return {
@@ -129,5 +130,17 @@ describe("resolveManagedProjectConfig", () => {
       })
     );
     expect(project?.projectId).toBe("tenant-b");
+  });
+
+  it("preserves an existing non-zero exit code when handling a missing project", () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    process.exitCode = 130;
+
+    handleMissingManagedProjectConfig();
+
+    expect(stderr).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(130);
   });
 });

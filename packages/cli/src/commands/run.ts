@@ -4,7 +4,10 @@ import {
   resolveRuntimeRoot,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
-import { resolveManagedProjectConfig } from "../project-selection.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 
 function parseRunArgs(args: string[]): {
   issue?: string;
@@ -46,12 +49,7 @@ const handler = async (
     requestedProjectId: parsed.projectId,
   });
   if (!projectConfig) {
-    if (process.exitCode !== 1) {
-      process.stderr.write(
-        "No project configured. Run 'gh-symphony project add' first.\n"
-      );
-      process.exitCode = 1;
-    }
+    handleMissingManagedProjectConfig();
     return;
   }
 

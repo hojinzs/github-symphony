@@ -50,6 +50,17 @@ afterEach(() => {
   process.exitCode = undefined;
 });
 
+function setTty(input: boolean, output: boolean): void {
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: input,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: output,
+    configurable: true,
+  });
+}
+
 describe("lifecycle command integration", () => {
   it("syncs the selected project config before single-issue dispatch", async () => {
     const configDir = await createConfigFixture({
@@ -119,8 +130,7 @@ describe("lifecycle command integration", () => {
       ],
     });
     selectMock.mockResolvedValue("tenant-b");
-    vi.spyOn(process.stdin, "isTTY", "get").mockReturnValue(true);
-    vi.spyOn(process.stdout, "isTTY", "get").mockReturnValue(true);
+    setTty(true, true);
 
     await runModule.default(["beta/api#42"], baseOptions(configDir));
 
@@ -136,6 +146,30 @@ describe("lifecycle command integration", () => {
     ]);
   });
 
+  it("preserves the cancel exit code when interactive project selection is aborted", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    selectMock.mockResolvedValue(Symbol.for("clack-cancel"));
+    setTty(true, true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runModule.default(["acme/platform#7"], baseOptions(configDir));
+
+    expect(orchestratorRunCli).not.toHaveBeenCalled();
+    expect(cancelMock).toHaveBeenCalledWith("Cancelled.");
+    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).not.toContain(
+      "No project configured. Run 'gh-symphony project add' first."
+    );
+    expect(process.exitCode).toBe(130);
+  });
+
   it("requires explicit --project-id in non-interactive multi-project mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -144,8 +178,7 @@ describe("lifecycle command integration", () => {
         createTenant("tenant-b", "beta", "api"),
       ],
     });
-    vi.spyOn(process.stdin, "isTTY", "get").mockReturnValue(false);
-    vi.spyOn(process.stdout, "isTTY", "get").mockReturnValue(false);
+    setTty(false, false);
     const stderr = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);

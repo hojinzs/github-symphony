@@ -18,7 +18,10 @@ import {
   resolveRuntimeRoot,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
-import { resolveManagedProjectConfig } from "../project-selection.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
 
@@ -211,12 +214,7 @@ const handler = async (
     requestedProjectId: parsed.projectId,
   });
   if (!projectConfig) {
-    if (process.exitCode !== 1) {
-      process.stderr.write(
-        "No project configured. Run 'gh-symphony project add' first.\n"
-      );
-      process.exitCode = 1;
-    }
+    handleMissingManagedProjectConfig();
     return;
   }
 

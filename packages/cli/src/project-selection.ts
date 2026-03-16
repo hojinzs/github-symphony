@@ -72,3 +72,14 @@ export async function resolveManagedProjectConfig(
 
   return loadProjectConfig(input.configDir, selected);
 }
+
+export function handleMissingManagedProjectConfig(): void {
+  if (process.exitCode) {
+    return;
+  }
+
+  process.stderr.write(
+    "No project configured. Run 'gh-symphony project add' first.\n"
+  );
+  process.exitCode = 1;
+}

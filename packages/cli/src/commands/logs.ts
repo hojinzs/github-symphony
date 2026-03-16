@@ -4,7 +4,10 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { GlobalOptions } from "../index.js";
 import { orchestratorLogPath } from "../config.js";
-import { resolveManagedProjectConfig } from "../project-selection.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -84,12 +87,7 @@ const handler = async (
       requestedProjectId: parsed.projectId,
     });
     if (!projectConfig) {
-      if (process.exitCode !== 1) {
-        process.stderr.write(
-          "No project configured. Run 'gh-symphony project add' first.\n"
-        );
-        process.exitCode = 1;
-      }
+      handleMissingManagedProjectConfig();
       return;
     }
 
