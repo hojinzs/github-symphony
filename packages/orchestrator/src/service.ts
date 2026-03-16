@@ -58,7 +58,7 @@ function parseExecutionPhase(value: unknown) {
   return isWorkflowExecutionPhase(value) ? value : null;
 }
 
-function parseRunPhase(value: unknown) {
+function parseRunPhase(value: unknown): RunAttemptPhase | null {
   return isRunAttemptPhase(value) ? value : null;
 }
 

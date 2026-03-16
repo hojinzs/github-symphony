@@ -27,7 +27,7 @@ describe("deriveIssueWorkspaceKey", () => {
     const key2 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
 
     expect(key1).toBe(key2);
-    expect(key1).toBe("acme_platform_42");
+    expect(key1).toMatch(/^acme_platform_42_[a-f0-9]{8}$/);
   });
 
   it("produces different keys for different identifiers", () => {
@@ -49,6 +49,42 @@ describe("deriveIssueWorkspaceKey", () => {
 
     expect(keyA).not.toBe(keyB);
     expect(keyA).not.toBe(keyC);
+  });
+
+  it("adds a disambiguator when normalized identifiers would collide", () => {
+    const keyA = deriveIssueWorkspaceKey(
+      {
+        projectId: "ws-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/foo-bar#1"
+    );
+    const keyB = deriveIssueWorkspaceKey(
+      {
+        projectId: "ws-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-2",
+      },
+      "acme/foo_bar#1"
+    );
+
+    expect(keyA).not.toBe(keyB);
+    expect(keyA).toMatch(/^acme_foo_bar_1_[a-f0-9]{8}$/);
+    expect(keyB).toMatch(/^acme_foo_bar_1_[a-f0-9]{8}$/);
+  });
+
+  it("falls back to a hashed issue key when sanitization strips everything", () => {
+    const key = deriveIssueWorkspaceKey(
+      {
+        projectId: "ws-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "!!!"
+    );
+
+    expect(key).toMatch(/^issue_[a-f0-9]{8}$/);
   });
 });
 

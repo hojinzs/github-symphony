@@ -33,8 +33,12 @@ export function deriveIssueWorkspaceKeyFromIdentifier(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+  const suffix = createHash("sha256")
+    .update(issueIdentifier)
+    .digest("hex")
+    .slice(0, 8);
 
-  return sanitized || "issue";
+  return `${sanitized || "issue"}_${suffix}`;
 }
 
 export function deriveLegacyIssueWorkspaceKey(

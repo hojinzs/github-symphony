@@ -24,6 +24,7 @@ import {
   resolveFinalExecutionPhase,
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
+import { resolveExitRunPhase } from "./run-phase.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
@@ -168,9 +169,10 @@ async function startAssignedRun() {
       "exit",
       (code: number | null, signal: NodeJS.Signals | null) => {
         runtimeState.status = code === 0 && !signal ? "completed" : "failed";
-        if (!runtimeState.runPhase || runtimeState.runPhase === "streaming_turn") {
-          runtimeState.runPhase = code === 0 && !signal ? "succeeded" : "failed";
-        }
+        runtimeState.runPhase = resolveExitRunPhase(runtimeState.runPhase, {
+          code,
+          signal,
+        });
 
         if (runtimeState.run) {
           runtimeState.run.lastError =
