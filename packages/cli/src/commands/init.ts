@@ -624,6 +624,7 @@ export async function writeConfig(
   await saveProjectConfig(configDir, input.projectId, {
     projectId: input.projectId,
     slug: input.projectId,
+    displayName: input.project.title,
     workspaceDir: input.workspaceDir,
     repositories: input.repos.map((r) => ({
       owner: r.owner,
