@@ -1,5 +1,12 @@
 # @gh-symphony/runtime-codex
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.11
+
 ## 0.0.10
 
 ### Patch Changes

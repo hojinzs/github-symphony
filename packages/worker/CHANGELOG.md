@@ -1,5 +1,15 @@
 # @gh-symphony/worker
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.11
+  - @gh-symphony/tracker-github@0.0.11
+  - @gh-symphony/runtime-codex@0.0.11
+  - @gh-symphony/extension-github-workflow@0.0.11
+
 ## 0.0.10
 
 ### Patch Changes

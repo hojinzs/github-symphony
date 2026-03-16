@@ -1534,7 +1534,7 @@ function hasTokenUsage(
 
 function resolveWorkerCommand(): string {
   try {
-    const workerUrl = import.meta.resolve("@gh-symphony/worker/dist/index.js");
+    const workerUrl = import.meta.resolve("@gh-symphony/worker");
     return `node ${fileURLToPath(workerUrl)}`;
   } catch {
     return DEFAULT_WORKER_COMMAND;

@@ -1,5 +1,11 @@
 # @gh-symphony/core
 
+## 0.0.11
+
+### Patch Changes
+
+- fix(orchestrator): fix worker module resolution for global npm installs
+
 ## 0.0.10
 
 ### Patch Changes

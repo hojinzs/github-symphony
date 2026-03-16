@@ -1,5 +1,15 @@
 # @gh-symphony/orchestrator
 
+## 0.0.11
+
+### Patch Changes
+
+- fix(orchestrator): fix worker module resolution for global npm installs — use package exports map instead of direct subpath
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.11
+  - @gh-symphony/tracker-github@0.0.11
+
 ## 0.0.10
 
 ### Patch Changes
