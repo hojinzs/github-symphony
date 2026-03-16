@@ -45,7 +45,7 @@ describe("OrchestratorService", () => {
 
     const first = await service.runOnce();
     const second = await service.runOnce();
-    const leases = await store.loadProjectLeases("tenant-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
     expect(first.summary.dispatched).toBe(1);
     expect(first.tracker).toEqual({
@@ -53,8 +53,8 @@ describe("OrchestratorService", () => {
       bindingId: "project-123",
     });
     expect(second.summary.dispatched).toBe(0);
-    expect(leases).toHaveLength(1);
-    expect(leases[0]?.status).toBe("active");
+    expect(issueRecords).toHaveLength(1);
+    expect(issueRecords[0]?.state).toBe("retry_queued");
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
@@ -83,13 +83,14 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -184,13 +185,14 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -278,13 +280,14 @@ describe("OrchestratorService", () => {
       issueSubjectId: "issue-1",
     });
 
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -346,13 +349,14 @@ describe("OrchestratorService", () => {
     );
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -441,13 +445,14 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -534,13 +539,14 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -599,13 +605,14 @@ describe("OrchestratorService", () => {
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);
@@ -802,13 +809,14 @@ Workspace prompt.
       workspaceKey
     );
 
-    await store.saveProjectLeases("tenant-1", [
+    await store.saveProjectIssueOrchestrations("tenant-1", [
       {
-        leaseKey: "issue-1",
-        runId: "run-1",
         issueId: "issue-1",
-        issueIdentifier: "acme/platform#1",
-        status: "active",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
         updatedAt: "2026-03-08T00:00:00.000Z",
       },
     ]);

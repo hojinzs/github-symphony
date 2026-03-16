@@ -1,17 +1,22 @@
 import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
-  ProjectLeaseRecord,
   ProjectStatusSnapshot
 } from "./status-surface.js";
+import type { IssueOrchestrationRecord } from "./issue-orchestration.js";
 import type { IssueWorkspaceRecord } from "../domain/issue.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
 export type OrchestratorStateStore = {
   loadProjectConfig(projectId: string): Promise<OrchestratorProjectConfig | null>;
   saveProjectConfig(config: OrchestratorProjectConfig): Promise<void>;
-  loadProjectLeases(projectId: string): Promise<ProjectLeaseRecord[]>;
-  saveProjectLeases(projectId: string, leases: ProjectLeaseRecord[]): Promise<void>;
+  loadProjectIssueOrchestrations(
+    projectId: string
+  ): Promise<IssueOrchestrationRecord[]>;
+  saveProjectIssueOrchestrations(
+    projectId: string,
+    issues: IssueOrchestrationRecord[]
+  ): Promise<void>;
   saveProjectStatus(status: ProjectStatusSnapshot): Promise<void>;
   loadProjectStatus(projectId: string): Promise<ProjectStatusSnapshot | null>;
   loadRun(runId: string): Promise<OrchestratorRunRecord | null>;
