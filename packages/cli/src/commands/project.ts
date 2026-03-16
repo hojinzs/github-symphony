@@ -505,7 +505,7 @@ async function projectAddNonInteractive(
   }
 
   const projectId = generateProjectId(project.title, project.id);
-  const workspaceDir = flags.workspaceDir ?? `${options.configDir}/workspaces`;
+  const workspaceDir = flags.workspaceDir ?? join(options.configDir, "workspaces");
 
   await writeConfig(options.configDir, {
     projectId,
@@ -527,7 +527,7 @@ async function projectAddNonInteractive(
 
 async function projectAddInteractive(options: GlobalOptions): Promise<void> {
   p.intro("gh-symphony - Project Setup");
-  const defaultWorkspaceDir = `${options.configDir}/workspaces`;
+  const defaultWorkspaceDir = join(options.configDir, "workspaces");
 
   const existingConfig = await loadGlobalConfig(options.configDir);
   if (existingConfig) {
@@ -670,7 +670,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
     if (filterRepositories) {
       selectedRepos = await abortIfCancelled(
         p.multiselect({
-          message: "Step 3/4 - Select repositories to orchestrate:",
+          message: "Select repositories to orchestrate:",
           options: projectDetail.linkedRepositories.map((repo) => ({
             value: repo,
             label: `${repo.owner}/${repo.name}`,
@@ -682,7 +682,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
 
     workspaceDir = await abortIfCancelled(
       p.text({
-        message: "Step 4/4 - Workspace root directory:",
+        message: "Workspace root directory:",
         placeholder: defaultWorkspaceDir,
         defaultValue: defaultWorkspaceDir,
         validate(value: string) {

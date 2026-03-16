@@ -480,12 +480,12 @@ describe("project add interactive", () => {
     );
     expect(multiselectSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: "Step 3/4 - Select repositories to orchestrate:",
+        message: "Select repositories to orchestrate:",
       })
     );
     expect(textSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: "Step 4/4 - Workspace root directory:",
+        message: "Workspace root directory:",
         defaultValue: join(configDir, "workspaces"),
       })
     );
@@ -500,5 +500,55 @@ describe("project add interactive", () => {
       ),
       "Configuration Summary"
     );
+  });
+
+  it("does not skip step numbering when advanced options keep all repositories", async () => {
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-add-advanced-default-repos-")
+    );
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    const confirmSpy = vi
+      .mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+    const textSpy = vi
+      .mocked(p.text)
+      .mockResolvedValue(join(configDir, "custom-workspaces") as never);
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = JSON.parse(
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        message: "Filter specific repositories? (default: No)",
+      })
+    );
+    expect(p.multiselect).not.toHaveBeenCalled();
+    expect(textSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Workspace root directory:",
+        defaultValue: join(configDir, "workspaces"),
+      })
+    );
+    expect(project.repositories).toHaveLength(3);
+    expect(project.workspaceDir).toBe(join(configDir, "custom-workspaces"));
   });
 });
