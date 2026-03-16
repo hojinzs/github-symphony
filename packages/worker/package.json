@@ -1,11 +1,24 @@
 {
   "name": "@gh-symphony/worker",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Symphony worker runtime for executing single issue runs",
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -13,6 +26,10 @@
     "type": "git",
     "url": "https://github.com/hojinzs/github-symphony.git",
     "directory": "packages/worker"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

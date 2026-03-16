@@ -1,5 +1,14 @@
 # @gh-symphony/extension-github-workflow
 
+## 0.0.8
+
+### Patch Changes
+
+- Issue-centric state model refactor, commander CLI migration, issue status endpoint, blocker normalization, and continuation retry fixes
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.8
+
 ## 0.0.7
 
 ### Patch Changes
