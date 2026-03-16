@@ -63,6 +63,19 @@ function parseRunPhase(value: unknown): RunAttemptPhase | null {
   return isRunAttemptPhase(value) ? value : null;
 }
 
+function isMatchingIssueRun(
+  run: OrchestratorRunRecord | null,
+  projectId: string,
+  issueId: string,
+  issueIdentifier: string
+): run is OrchestratorRunRecord {
+  return Boolean(
+    run &&
+      run.projectId === projectId &&
+      (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
+  );
+}
+
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
@@ -123,22 +136,17 @@ export class OrchestratorService {
       return null;
     }
 
-    const allRuns = (await this.store.loadAllRuns())
-      .filter((run) => run.projectId === this.projectConfig.projectId)
-      .filter(
-        (run) =>
-          run.issueId === issueRecord.issueId ||
-          run.issueIdentifier === issueIdentifier
-      )
-      .sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-      );
-
-    const currentRun =
-      (issueRecord.currentRunId
-        ? await this.store.loadRun(issueRecord.currentRunId)
-        : null) ?? allRuns[0] ?? null;
+    const currentRunCandidate = issueRecord.currentRunId
+      ? await this.store.loadRun(issueRecord.currentRunId)
+      : null;
+    const currentRun = isMatchingIssueRun(
+      currentRunCandidate,
+      this.projectConfig.projectId,
+      issueRecord.issueId,
+      issueIdentifier
+    )
+      ? currentRunCandidate
+      : await this.findLatestRunForIssue(issueRecord.issueId, issueIdentifier);
 
     const recentEvents =
       currentRun === null
@@ -449,6 +457,24 @@ export class OrchestratorService {
     });
     await this.store.saveProjectStatus(status);
     return status;
+  }
+
+  private async findLatestRunForIssue(
+    issueId: string,
+    issueIdentifier: string
+  ): Promise<OrchestratorRunRecord | null> {
+    const matchingRuns = (await this.store.loadAllRuns())
+      .filter((run) => run.projectId === this.projectConfig.projectId)
+      .filter(
+        (run) =>
+          run.issueId === issueId || run.issueIdentifier === issueIdentifier
+      )
+      .sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      );
+
+    return matchingRuns[0] ?? null;
   }
 
   private async resolveActionableCandidates(

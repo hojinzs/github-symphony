@@ -272,6 +272,65 @@ describe("OrchestratorService", () => {
     });
   });
 
+  it("uses currentRunId before falling back to a full run scan", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-issue-status-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:02:30.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In Progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "run-1", "repo"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "run-1", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:02:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
+    const service = new OrchestratorService(store, projectConfig);
+
+    await expect(service.statusForIssue("acme/platform#1")).resolves.toMatchObject(
+      {
+        issue_identifier: "acme/platform#1",
+        status: "running",
+      }
+    );
+    expect(loadAllRunsSpy).not.toHaveBeenCalled();
+  });
+
   it("reloads workflow poll intervals for future ticks without restart", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-poll-"));

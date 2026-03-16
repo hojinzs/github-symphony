@@ -1,5 +1,6 @@
 import {
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -151,17 +152,38 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   ): Promise<IssueStatusEvent[]> {
     const path = join(this.runDir(runId), "events.ndjson");
     try {
-      const raw = await readFile(path, "utf8");
-      return raw
-        .split("\n")
-        .filter((line) => line.trim().length > 0)
-        .slice(-Math.max(0, limit))
-        .map((line) => JSON.parse(line) as OrchestratorEvent)
-        .map((event) => ({
-          at: event.at,
-          event: event.event,
-          message: formatEventMessage(event),
-        }));
+      if (limit <= 0) {
+        return [];
+      }
+
+      const handle = await open(path, "r");
+      try {
+        const stats = await handle.stat();
+        let position = stats.size;
+        let tail = Buffer.alloc(0);
+
+        while (position > 0) {
+          const readSize = Math.min(position, 4_096);
+          position -= readSize;
+
+          const chunk = Buffer.allocUnsafe(readSize);
+          await handle.read(chunk, 0, readSize, position);
+          tail = Buffer.concat([chunk, tail]);
+
+          const events = parseRecentEvents(tail.toString("utf8"), limit, {
+            allowPartialFirstLine: position > 0,
+          });
+          if (events.length >= limit) {
+            return events;
+          }
+        }
+
+        return parseRecentEvents(tail.toString("utf8"), limit, {
+          allowPartialFirstLine: false,
+        });
+      } finally {
+        await handle.close();
+      }
     } catch (error) {
       if (isFileMissing(error)) {
         return [];
@@ -288,5 +310,48 @@ function formatEventMessage(event: OrchestratorEvent): string | null {
       return event.error;
     default:
       return null;
+  }
+}
+
+function parseRecentEvents(
+  raw: string,
+  limit: number,
+  options: { allowPartialFirstLine: boolean }
+): IssueStatusEvent[] {
+  const lines = raw.split("\n");
+  if (options.allowPartialFirstLine) {
+    lines.shift();
+  }
+
+  const events: IssueStatusEvent[] = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim();
+    if (!line) {
+      continue;
+    }
+
+    const event = parseRunEventLine(line);
+    if (!event) {
+      continue;
+    }
+
+    events.push({
+      at: event.at,
+      event: event.event,
+      message: formatEventMessage(event),
+    });
+    if (events.length === limit) {
+      break;
+    }
+  }
+
+  return events.reverse();
+}
+
+function parseRunEventLine(line: string): OrchestratorEvent | null {
+  try {
+    return JSON.parse(line) as OrchestratorEvent;
+  } catch {
+    return null;
   }
 }

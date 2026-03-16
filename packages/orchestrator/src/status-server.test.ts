@@ -195,6 +195,20 @@ describe("GET /api/v1/status", () => {
     expect(result.payload).toEqual(snapshot);
     expect(getProjectStatus).toHaveBeenCalledOnce();
   });
+
+  it("returns 405 for non-GET methods", async () => {
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/status",
+        method: "POST",
+      })
+    );
+
+    expect(result).toEqual({
+      status: 405,
+      payload: { error: "Method not allowed" },
+    });
+  });
 });
 
 describe("GET /api/v1/<issue_identifier>", () => {
@@ -259,6 +273,43 @@ describe("GET /api/v1/<issue_identifier>", () => {
           code: "issue_not_found",
           message:
             'Issue "acme/repo#999" is unknown to the current in-memory state.',
+        },
+      },
+    });
+  });
+
+  it("returns 400 for malformed URL-encoded identifiers", async () => {
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/%E0%A4%A",
+        getIssueStatus: vi.fn(),
+      })
+    );
+
+    expect(result).toEqual({
+      status: 400,
+      payload: {
+        error: {
+          code: "invalid_issue_identifier",
+          message: "Issue identifier path segment is not valid URL encoding.",
+        },
+      },
+    });
+  });
+
+  it("returns 501 when issue lookup is not configured", async () => {
+    const result = await resolveOrchestratorStatusResponse(
+      createOptions({
+        pathname: "/api/v1/acme%2Frepo%23123",
+      })
+    );
+
+    expect(result).toEqual({
+      status: 501,
+      payload: {
+        error: {
+          code: "issue_status_not_supported",
+          message: "Issue status lookup is not configured.",
         },
       },
     });

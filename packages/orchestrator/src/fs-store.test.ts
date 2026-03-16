@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -41,5 +41,49 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     const store = new OrchestratorFsStore(runtimeRoot);
 
     await expect(store.loadRecentRunEvents("missing-run")).resolves.toEqual([]);
+  });
+
+  it("skips corrupted trailing lines and returns the latest valid events", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const path = join(store.runDir("run-1"), "events.ndjson");
+    await mkdir(store.runDir("run-1"), { recursive: true });
+
+    await appendFile(
+      path,
+      [
+        JSON.stringify({
+          at: "2026-03-16T00:00:00.000Z",
+          event: "run-dispatched",
+          projectId: "project-1",
+          issueIdentifier: "acme/repo#1",
+          issueState: "Todo",
+        }),
+        "{\"bad\":",
+        JSON.stringify({
+          at: "2026-03-16T00:01:00.000Z",
+          event: "worker-error",
+          runId: "run-1",
+          issueIdentifier: "acme/repo#1",
+          error: "worker failed",
+          attempt: 1,
+        }),
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+
+    await expect(store.loadRecentRunEvents("run-1", 2)).resolves.toEqual([
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "run-dispatched",
+        message: "Dispatched from Todo",
+      },
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "worker-error",
+        message: "worker failed",
+      },
+    ]);
   });
 });

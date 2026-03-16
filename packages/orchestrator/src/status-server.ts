@@ -36,6 +36,13 @@ export async function resolveOrchestratorStatusResponse(options: {
   }
 
   if (options.pathname === "/api/v1/status") {
+    if (method !== "GET") {
+      return {
+        status: 405,
+        payload: { error: "Method not allowed" },
+      };
+    }
+
     const snapshot = await options.getProjectStatus();
     if (!snapshot) {
       return {
@@ -105,8 +112,33 @@ export async function resolveOrchestratorStatusResponse(options: {
       };
     }
 
-    const issueIdentifier = decodeURIComponent(rawIdentifier);
-    const issueStatus = await options.getIssueStatus?.(issueIdentifier);
+    if (!options.getIssueStatus) {
+      return {
+        status: 501,
+        payload: {
+          error: {
+            code: "issue_status_not_supported",
+            message: "Issue status lookup is not configured.",
+          },
+        },
+      };
+    }
+
+    let issueIdentifier: string;
+    try {
+      issueIdentifier = decodeURIComponent(rawIdentifier);
+    } catch {
+      return {
+        status: 400,
+        payload: {
+          error: {
+            code: "invalid_issue_identifier",
+            message: "Issue identifier path segment is not valid URL encoding.",
+          },
+        },
+      };
+    }
+    const issueStatus = await options.getIssueStatus(issueIdentifier);
     if (!issueStatus) {
       return {
         status: 404,
