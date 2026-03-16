@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   parseWorkflowMarkdown,
+  type RunAttemptPhase,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
 import {
@@ -30,6 +31,7 @@ const launcherEnv = loadLauncherEnvironment(process.env);
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
+  runPhase: RunAttemptPhase | null;
   run: null | {
     runId: string;
     issueId: string | null;
@@ -56,6 +58,7 @@ const runtimeState: {
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   executionPhase: null,
+  runPhase: launcherEnv.SYMPHONY_RUN_ID ? "initializing_session" : null,
   run: launcherEnv.SYMPHONY_RUN_ID
     ? {
         runId: launcherEnv.SYMPHONY_RUN_ID,
@@ -136,6 +139,7 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 async function startAssignedRun() {
   try {
     const workflowPath = join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
+    runtimeState.runPhase = "building_prompt";
     const workflow = parseWorkflowMarkdown(
       await readFile(workflowPath, "utf8"),
       launcherEnv
@@ -147,9 +151,11 @@ async function startAssignedRun() {
     });
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = workflow.codex.command;
+    runtimeState.runPhase = "launching_agent";
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";
+    runtimeState.runPhase = "initializing_session";
 
     if (runtimeState.run) {
       runtimeState.run.processId = childProcess.pid ?? null;
@@ -162,6 +168,9 @@ async function startAssignedRun() {
       "exit",
       (code: number | null, signal: NodeJS.Signals | null) => {
         runtimeState.status = code === 0 && !signal ? "completed" : "failed";
+        if (!runtimeState.runPhase || runtimeState.runPhase === "streaming_turn") {
+          runtimeState.runPhase = code === 0 && !signal ? "succeeded" : "failed";
+        }
 
         if (runtimeState.run) {
           runtimeState.run.lastError =
@@ -174,6 +183,7 @@ async function startAssignedRun() {
     );
     childProcess.once("error", (error: Error) => {
       runtimeState.status = "failed";
+      runtimeState.runPhase = "failed";
 
       if (runtimeState.run) {
         runtimeState.run.lastError = error.message;
@@ -182,6 +192,7 @@ async function startAssignedRun() {
     });
   } catch (error) {
     runtimeState.status = "failed";
+    runtimeState.runPhase = "failed";
 
     if (runtimeState.run) {
       runtimeState.run.lastError =
@@ -675,6 +686,7 @@ async function runCodexClientProtocol(
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
       runtimeState.sessionInfo.turnCount = turnCount;
+      runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
       const turnInput = isFirstTurn
         ? renderedPrompt
@@ -727,6 +739,7 @@ async function runCodexClientProtocol(
       process.stderr.write(`[worker] tracker state refresh: ${trackerState}\n`);
 
       if (trackerState === "non-actionable") {
+        runtimeState.runPhase = "finishing";
         runtimeState.executionPhase = resolveFinalExecutionPhase({
           currentPhase: runtimeState.executionPhase,
           trackerState,
@@ -744,7 +757,9 @@ async function runCodexClientProtocol(
     process.stderr.write(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
+    runtimeState.runPhase = "finishing";
     runtimeState.status = userInputRequired ? "failed" : "completed";
+    runtimeState.runPhase = userInputRequired ? "failed" : "succeeded";
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
 
     // Brief delay so the state API can serve the final status once.
@@ -755,16 +770,19 @@ async function runCodexClientProtocol(
     const errMsg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[worker] codex client protocol error: ${errMsg}\n`);
     runtimeState.status = "failed";
+    runtimeState.runPhase = "failed";
     if (runtimeState.run) {
       runtimeState.run.lastError = `Codex client protocol error: ${errMsg}`;
     }
 
     // Map timeout errors to specific categories
     if (errMsg.startsWith("response_timeout:")) {
+      runtimeState.runPhase = "stalled";
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
       }
     } else if (errMsg.startsWith("turn_timeout:")) {
+      runtimeState.runPhase = "timed_out";
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
       }

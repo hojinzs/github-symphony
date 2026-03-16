@@ -23,30 +23,29 @@ describe("deriveIssueWorkspaceKey", () => {
       issueSubjectId: "issue-abc",
     };
 
-    const key1 = deriveIssueWorkspaceKey(identity);
-    const key2 = deriveIssueWorkspaceKey(identity);
+    const key1 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
+    const key2 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
 
     expect(key1).toBe(key2);
-    expect(key1).toHaveLength(16);
-    expect(key1).toMatch(/^[a-f0-9]{16}$/);
+    expect(key1).toBe("acme_platform_42");
   });
 
-  it("produces different keys for different identities", () => {
+  it("produces different keys for different identifiers", () => {
     const keyA = deriveIssueWorkspaceKey({
       projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-1",
-    });
+    }, "acme/platform#1");
     const keyB = deriveIssueWorkspaceKey({
       projectId: "ws-1",
       adapter: "github-project",
       issueSubjectId: "issue-2",
-    });
+    }, "acme/platform#2");
     const keyC = deriveIssueWorkspaceKey({
       projectId: "ws-2",
       adapter: "github-project",
       issueSubjectId: "issue-1",
-    });
+    }, "acme/api#1");
 
     expect(keyA).not.toBe(keyB);
     expect(keyA).not.toBe(keyC);

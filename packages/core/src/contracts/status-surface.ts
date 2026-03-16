@@ -2,6 +2,7 @@ import type { RepositoryRef } from "../domain/workspace.js";
 import type { WorkflowDefinition } from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 import type { TrackerAdapterKind } from "./tracker-adapter.js";
+import type { RunAttemptPhase } from "./run-attempt-phase.js";
 
 export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
@@ -89,15 +90,8 @@ export type OrchestratorRunRecord = {
   lastEventAt?: string | null;
   /** Current workflow execution phase reported by the worker */
   executionPhase?: WorkflowExecutionPhase | null;
-};
-
-export type ProjectLeaseRecord = {
-  leaseKey: string;
-  runId: string;
-  issueId: string;
-  issueIdentifier: string;
-  status: "active" | "released";
-  updatedAt: string;
+  /** Technical run attempt phase aligned with Symphony spec 7.2 */
+  runPhase?: RunAttemptPhase | null;
 };
 
 export type RuntimeSessionRow = {
@@ -121,6 +115,7 @@ export type LiveWorkerState = {
   lastEvent: string | null;
   lastEventAt: string | null;
   executionPhase: WorkflowExecutionPhase | null;
+  runPhase: RunAttemptPhase | null;
   status: "idle" | "starting" | "running" | "failed" | "completed";
 };
 
@@ -152,6 +147,7 @@ export type ProjectStatusSnapshot = {
     lastEvent?: string | null;
     lastEventAt?: string | null;
     executionPhase?: WorkflowExecutionPhase | null;
+    runPhase?: RunAttemptPhase | null;
     tokenUsage?: {
       inputTokens: number;
       outputTokens: number;

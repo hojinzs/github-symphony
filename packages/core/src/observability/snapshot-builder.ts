@@ -75,6 +75,7 @@ export function buildProjectSnapshot(
       lastEvent: run.lastEvent ?? null,
       lastEventAt: run.lastEventAt ?? null,
       executionPhase: run.executionPhase ?? null,
+      runPhase: run.runPhase ?? null,
       tokenUsage: run.tokenUsage,
     })),
     retryQueue: activeRuns

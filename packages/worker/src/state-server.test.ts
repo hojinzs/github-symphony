@@ -40,6 +40,7 @@ Prefer small changes.
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
     });
     expect(state.executionPhase).toBeNull();
+    expect(state.runPhase).toBeNull();
   });
 
   it("falls back to environment metadata when workflow is missing", async () => {
@@ -53,6 +54,7 @@ Prefer small changes.
     expect(state.projectId).toBe("project-123");
     expect(state.workflow).toBeNull();
     expect(state.executionPhase).toBeNull();
+    expect(state.runPhase).toBeNull();
   });
 
   it("surfaces assigned run metadata from the orchestrator", async () => {
@@ -93,9 +95,10 @@ Prefer small changes.
       lastError: null,
     });
     expect(state.executionPhase).toBeNull();
+    expect(state.runPhase).toBeNull();
   });
 
-  it("includes runtime execution phase metadata when provided", async () => {
+  it("includes runtime execution and run phase metadata when provided", async () => {
     const state = await buildWorkerRuntimeState(
       {
         GITHUB_PROJECT_ID: "project-123",
@@ -104,11 +107,13 @@ Prefer small changes.
       {
         status: "running",
         executionPhase: "implementation",
+        runPhase: "streaming_turn",
       }
     );
 
     expect(state.status).toBe("running");
     expect(state.executionPhase).toBe("implementation");
+    expect(state.runPhase).toBe("streaming_turn");
   });
 });
 
@@ -120,6 +125,7 @@ describe("createWorkerRequestHandler", () => {
       runtime: "self-hosted-sample",
       status: "idle",
       executionPhase: "planning",
+      runPhase: "streaming_turn",
       projectId: "project-123",
       workspaceRuntimeDir: "/workspace-runtime",
       run: null,
@@ -141,6 +147,7 @@ describe("createWorkerRequestHandler", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('"projectId":"project-123"');
     expect(response.body).toContain('"executionPhase":"planning"');
+    expect(response.body).toContain('"runPhase":"streaming_turn"');
   });
 });
 
