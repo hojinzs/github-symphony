@@ -527,6 +527,7 @@ async function projectAddNonInteractive(
 
 async function projectAddInteractive(options: GlobalOptions): Promise<void> {
   p.intro("gh-symphony - Project Setup");
+  const defaultWorkspaceDir = `${options.configDir}/workspaces`;
 
   const existingConfig = await loadGlobalConfig(options.configDir);
   if (existingConfig) {
@@ -609,7 +610,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/4 - Select a GitHub Project board:",
+      message: "Step 1/2 - Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -640,43 +641,69 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  const selectedRepos = await abortIfCancelled(
-    p.multiselect({
-      message: "Step 2/4 - Select repositories to orchestrate:",
-      options: projectDetail.linkedRepositories.map((repo) => ({
-        value: repo,
-        label: `${repo.owner}/${repo.name}`,
-      })),
-      required: true,
-    })
-  );
-
   const assignedOnly = await abortIfCancelled(
     p.confirm({
       message:
-        "Step 3/4 - Only process issues assigned to the authenticated GitHub user?",
+        "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
       initialValue: false,
     })
   );
 
-  const workspaceDir = await abortIfCancelled(
-    p.text({
-      message: "Step 4/4 - Workspace root directory:",
-      placeholder: `${options.configDir}/workspaces`,
-      defaultValue: `${options.configDir}/workspaces`,
-      validate(value: string) {
-        return value.trim().length > 0
-          ? undefined
-          : "Workspace directory is required.";
-      },
+  const customizeAdvancedOptions = await abortIfCancelled(
+    p.confirm({
+      message: "Customize advanced options? (default: No)",
+      initialValue: false,
     })
   );
+
+  let selectedRepos = projectDetail.linkedRepositories;
+  let workspaceDir = defaultWorkspaceDir;
+
+  if (customizeAdvancedOptions) {
+    const filterRepositories = await abortIfCancelled(
+      p.confirm({
+        message: "Filter specific repositories? (default: No)",
+        initialValue: false,
+      })
+    );
+
+    if (filterRepositories) {
+      selectedRepos = await abortIfCancelled(
+        p.multiselect({
+          message: "Step 3/4 - Select repositories to orchestrate:",
+          options: projectDetail.linkedRepositories.map((repo) => ({
+            value: repo,
+            label: `${repo.owner}/${repo.name}`,
+          })),
+          required: true,
+        })
+      );
+    }
+
+    workspaceDir = await abortIfCancelled(
+      p.text({
+        message: "Step 4/4 - Workspace root directory:",
+        placeholder: defaultWorkspaceDir,
+        defaultValue: defaultWorkspaceDir,
+        validate(value: string) {
+          return value.trim().length > 0
+            ? undefined
+            : "Workspace directory is required.";
+        },
+      })
+    );
+  }
+
+  const repoSummary =
+    selectedRepos.length === projectDetail.linkedRepositories.length
+      ? `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (all ${selectedRepos.length} linked)`
+      : `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${projectDetail.linkedRepositories.length} linked)`;
 
   p.note(
     [
       `User:       ${login}`,
       `Project:    ${projectDetail.title}`,
-      `Repos:      ${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}`,
+      `Repos:      ${repoSummary}`,
       `Assigned:   ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
       `Workspace:  ${workspaceDir}`,
     ].join("\n"),

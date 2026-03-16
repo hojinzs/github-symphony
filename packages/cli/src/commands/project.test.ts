@@ -1,14 +1,46 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+vi.mock("@clack/prompts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@clack/prompts")>();
+
+  return {
+    ...actual,
+    intro: vi.fn(),
+    outro: vi.fn(),
+    cancel: vi.fn(),
+    note: vi.fn(),
+    select: vi.fn(),
+    confirm: vi.fn(),
+    multiselect: vi.fn(),
+    text: vi.fn(),
+    spinner: vi.fn(() => ({
+      start: vi.fn(),
+      stop: vi.fn(),
+    })),
+    log: {
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      step: vi.fn(),
+      success: vi.fn(),
+      message: vi.fn(),
+    },
+  };
+});
+
 import projectCommand from "./project.js";
+import * as p from "@clack/prompts";
 import {
   saveGlobalConfig,
   saveProjectConfig,
   type CliProjectConfig,
 } from "../config.js";
+import * as ghAuth from "../github/gh-auth.js";
+import * as githubClient from "../github/client.js";
+import { generateProjectId } from "./init.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -255,5 +287,218 @@ describe("project list", () => {
         active: false,
       },
     ]);
+  });
+});
+
+const MOCK_PROJECT_SUMMARY = {
+  id: "PVT_project_1",
+  title: "My Project",
+  owner: { login: "acme", type: "Organization" as const },
+  openItemCount: 12,
+  url: "https://github.com/orgs/acme/projects/1",
+};
+
+const MOCK_REPOS = [
+  {
+    owner: "acme",
+    name: "repo-a",
+    url: "https://github.com/acme/repo-a",
+    cloneUrl: "https://github.com/acme/repo-a.git",
+  },
+  {
+    owner: "acme",
+    name: "repo-b",
+    url: "https://github.com/acme/repo-b",
+    cloneUrl: "https://github.com/acme/repo-b.git",
+  },
+  {
+    owner: "acme",
+    name: "repo-c",
+    url: "https://github.com/acme/repo-c",
+    cloneUrl: "https://github.com/acme/repo-c.git",
+  },
+];
+
+const MOCK_PROJECT_DETAIL = {
+  id: "PVT_project_1",
+  title: "My Project",
+  url: "https://github.com/orgs/acme/projects/1",
+  statusFields: [],
+  textFields: [],
+  linkedRepositories: MOCK_REPOS,
+};
+
+function mockSpinner() {
+  return {
+    start: vi.fn(),
+    stop: vi.fn(),
+  };
+}
+
+describe("project add interactive", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(p.intro).mockImplementation(() => undefined);
+    vi.mocked(p.outro).mockImplementation(() => undefined);
+    vi.mocked(p.cancel).mockImplementation(() => undefined);
+    vi.mocked(p.note).mockImplementation(() => undefined);
+    vi.mocked(p.spinner).mockImplementation(mockSpinner);
+    vi.mocked(p.log.error).mockImplementation(() => undefined);
+    vi.mocked(p.log.warn).mockImplementation(() => undefined);
+    vi.spyOn(ghAuth, "ensureGhAuth").mockReturnValue({
+      login: "stevelee",
+      token: "test-token",
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
+      MOCK_PROJECT_SUMMARY,
+    ]);
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
+      MOCK_PROJECT_DETAIL
+    );
+  });
+
+  it("uses all linked repositories and the default workspace when advanced options are skipped", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-default-"));
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    const selectSpy = vi
+      .mocked(p.select)
+      .mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    const confirmSpy = vi
+      .mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = JSON.parse(
+      await readFile(
+        join(
+          configDir,
+          "projects",
+          projectId,
+          "project.json"
+        ),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(selectSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Step 1/2 - Select a GitHub Project board:",
+      })
+    );
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        message:
+          "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
+      })
+    );
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        message: "Customize advanced options? (default: No)",
+      })
+    );
+    expect(p.multiselect).not.toHaveBeenCalled();
+    expect(p.text).not.toHaveBeenCalled();
+    expect(project.workspaceDir).toBe(join(configDir, "workspaces"));
+    expect(project.repositories).toHaveLength(3);
+    expect(project.repositories.map((repo) => repo.name)).toEqual([
+      "repo-a",
+      "repo-b",
+      "repo-c",
+    ]);
+    expect(p.note).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Repos:      acme/repo-a, acme/repo-b, acme/repo-c  (all 3 linked)"
+      ),
+      "Configuration Summary"
+    );
+  });
+
+  it("shows advanced repository and workspace prompts only when customization is enabled", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-advanced-"));
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    const confirmSpy = vi
+      .mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
+    const multiselectSpy = vi
+      .mocked(p.multiselect)
+      .mockResolvedValue([MOCK_REPOS[1], MOCK_REPOS[2]] as never);
+    const textSpy = vi
+      .mocked(p.text)
+      .mockResolvedValue("/tmp/custom-workspaces" as never);
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = JSON.parse(
+      await readFile(
+        join(
+          configDir,
+          "projects",
+          projectId,
+          "project.json"
+        ),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        message: "Customize advanced options? (default: No)",
+      })
+    );
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        message: "Filter specific repositories? (default: No)",
+      })
+    );
+    expect(multiselectSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Step 3/4 - Select repositories to orchestrate:",
+      })
+    );
+    expect(textSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Step 4/4 - Workspace root directory:",
+        defaultValue: join(configDir, "workspaces"),
+      })
+    );
+    expect(project.workspaceDir).toBe("/tmp/custom-workspaces");
+    expect(project.repositories.map((repo) => repo.name)).toEqual([
+      "repo-b",
+      "repo-c",
+    ]);
+    expect(p.note).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Repos:      acme/repo-b, acme/repo-c  (2 of 3 linked)"
+      ),
+      "Configuration Summary"
+    );
   });
 });
