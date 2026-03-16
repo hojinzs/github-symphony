@@ -89,7 +89,7 @@ export function generateReferenceWorkflow(
   lines.push("agent:");
   lines.push("  max_concurrent_agents: 10");
   lines.push("  max_retry_backoff_ms: 30000");
-  lines.push("  retry_base_delay_ms: 1000");
+  lines.push("  retry_base_delay_ms: 10000");
   lines.push("  max_turns: 20");
   lines.push("");
 

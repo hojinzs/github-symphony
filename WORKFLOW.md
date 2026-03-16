@@ -23,7 +23,7 @@ hooks:
 agent:
   max_concurrent_agents: 10
   max_retry_backoff_ms: 30000
-  retry_base_delay_ms: 1000
+  retry_base_delay_ms: 10000
   max_turns: 20
 codex:
   command: codex app-server

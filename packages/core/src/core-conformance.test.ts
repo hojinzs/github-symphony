@@ -413,7 +413,7 @@ describe("scheduleRetryAt", () => {
 });
 
 describe("calculateRetryDelay", () => {
-  it("uses the spec default base delay when options are omitted", () => {
+  it("uses the core default base delay when options are omitted", () => {
     expect(DEFAULT_BASE_DELAY_MS).toBe(10_000);
     expect(DEFAULT_WORKFLOW_AGENT.retryBaseDelayMs).toBe(10_000);
     expect(calculateRetryDelay(1)).toBe(10_000);
