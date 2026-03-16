@@ -1,5 +1,17 @@
 # @gh-symphony/worker
 
+## 0.0.7
+
+### Patch Changes
+
+- feat: add project management skills and restructure initialization; remove control-plane app; harden project list status
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.7
+  - @gh-symphony/extension-github-workflow@0.0.7
+  - @gh-symphony/runtime-codex@0.0.7
+  - @gh-symphony/tracker-github@0.0.7
+
 ## 0.0.6
 
 ### Patch Changes
