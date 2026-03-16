@@ -1,5 +1,14 @@
 # @gh-symphony/runtime-codex
 
+## 0.0.9
+
+### Patch Changes
+
+- Interactive project selection, project add advanced options, CLI prompt alignment, and cancel exit code preservation
+
+- Updated dependencies []:
+  - @gh-symphony/core@0.0.9
+
 ## 0.0.8
 
 ### Patch Changes
