@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
+import { normalizeGithubProjectItem } from "./adapter.js";
 import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
 import {
   validateWorkflowFieldMapping,
@@ -8,6 +9,78 @@ import {
 } from "./validation.js";
 
 describe("resolveTrackerAdapter", () => {
+  it("normalizes blocker refs into the workflow lifecycle state domain", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        id: "item-1",
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        fieldValues: {
+          nodes: [
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "Todo",
+              field: { name: "Status" },
+            },
+          ],
+        },
+        content: {
+          __typename: "Issue",
+          id: "issue-1",
+          number: 1,
+          title: "Blocked issue",
+          body: null,
+          url: "https://github.com/acme/platform/issues/1",
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          labels: { nodes: [] },
+          assignees: { nodes: [] },
+          repository: {
+            name: "platform",
+            url: "https://github.com/acme/platform",
+            owner: { login: "acme" },
+          },
+          blockedBy: {
+            nodes: [
+              {
+                id: "issue-9",
+                number: 9,
+                state: "CLOSED",
+                repository: {
+                  name: "shared",
+                  owner: { login: "other" },
+                },
+              },
+              {
+                id: "issue-10",
+                number: 10,
+                state: "OPEN",
+                repository: {
+                  name: "shared",
+                  owner: { login: "other" },
+                },
+              },
+            ],
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.blockedBy).toEqual([
+      {
+        id: "issue-9",
+        identifier: "other/shared#9",
+        state: "Done",
+      },
+      {
+        id: "issue-10",
+        identifier: "other/shared#10",
+        state: null,
+      },
+    ]);
+  });
+
   it("returns an adapter for github-project", () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

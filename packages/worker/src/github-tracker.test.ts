@@ -69,7 +69,7 @@ describe("normalizeGithubProjectItem", () => {
             {
               id: "issue-9",
               number: 9,
-              state: "Done",
+              state: "CLOSED",
               repository: {
                 name: "shared",
                 owner: {

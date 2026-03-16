@@ -133,7 +133,7 @@ export function normalizeProjectItem(
             {
               id: node.id,
               identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
-              state: node.state,
+              state: normalizeBlockerState(node.state, lifecycle),
             },
           ]
         : []
@@ -384,6 +384,26 @@ function deriveCloneUrl(repositoryUrl: string): string {
   }
 
   return `${repositoryUrl}.git`;
+}
+
+function normalizeBlockerState(
+  state: string | null,
+  lifecycle: WorkflowLifecycleConfig
+): string | null {
+  if (!state) {
+    return null;
+  }
+
+  const normalized = state.trim().toLowerCase();
+  if (normalized === "closed") {
+    return lifecycle.terminalStates[0] ?? state;
+  }
+
+  if (normalized === "open") {
+    return null;
+  }
+
+  return state;
 }
 
 function resolveRestUserApiUrl(apiUrl?: string): string {
