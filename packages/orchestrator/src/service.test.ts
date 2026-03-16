@@ -498,6 +498,7 @@ describe("OrchestratorService", () => {
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
+    const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
 
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
@@ -506,6 +507,7 @@ describe("OrchestratorService", () => {
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:01.000Z");
     expect(updatedRun?.retryKind).toBe("continuation");
     expect(updatedRun?.lastError).toBeNull();
+    expect(loadRetryPolicySpy).not.toHaveBeenCalled();
   });
 
   it("does not execute after_run while waiting for a retry schedule", async () => {

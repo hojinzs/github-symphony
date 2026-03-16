@@ -942,7 +942,6 @@ export class OrchestratorService {
 
     // Determine retry kind: continuation (issue still actionable) vs failure
     const retryKind = await this.classifyRetryKind(tenant, run);
-    const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
 
     let nextRetryAt: string;
     if (retryKind === "continuation") {
@@ -950,6 +949,7 @@ export class OrchestratorService {
         now.getTime() + CONTINUATION_RETRY_DELAY_MS
       ).toISOString();
     } else {
+      const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
       // Exponential backoff for failure retries
       const backoffMs =
         this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
