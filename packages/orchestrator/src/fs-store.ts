@@ -1,5 +1,6 @@
 import {
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -12,6 +13,7 @@ import {
   deriveIssueWorkspaceKeyFromIdentifier,
   type IssueOrchestrationRecord,
   type IssueWorkspaceRecord,
+  type IssueStatusEvent,
   type OrchestratorEvent,
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
@@ -144,6 +146,53 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     await appendFile(path, JSON.stringify(event) + "\n", "utf8");
   }
 
+  async loadRecentRunEvents(
+    runId: string,
+    limit = 20
+  ): Promise<IssueStatusEvent[]> {
+    const path = join(this.runDir(runId), "events.ndjson");
+    try {
+      if (limit <= 0) {
+        return [];
+      }
+
+      const handle = await open(path, "r");
+      try {
+        const stats = await handle.stat();
+        let position = stats.size;
+        let tail = Buffer.alloc(0);
+
+        while (position > 0) {
+          const readSize = Math.min(position, 4_096);
+          position -= readSize;
+
+          const chunk = Buffer.allocUnsafe(readSize);
+          await handle.read(chunk, 0, readSize, position);
+          tail = Buffer.concat([chunk, tail]);
+
+          const events = parseRecentEvents(tail.toString("utf8"), limit, {
+            allowPartialFirstLine: position > 0,
+          });
+          if (events.length >= limit) {
+            return events;
+          }
+        }
+
+        return parseRecentEvents(tail.toString("utf8"), limit, {
+          allowPartialFirstLine: false,
+        });
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (isFileMissing(error)) {
+        return [];
+      }
+
+      throw error;
+    }
+  }
+
   issueWorkspaceDir(projectId: string, workspaceKey: string): string {
     return join(this.projectDir(projectId), "issues", workspaceKey);
   }
@@ -233,4 +282,76 @@ function isFileMissing(error: unknown): boolean {
     "code" in error &&
     (error.code === "ENOENT" || error.code === "ENOTDIR")
   );
+}
+
+function formatEventMessage(event: OrchestratorEvent): string | null {
+  switch (event.event) {
+    case "run-dispatched":
+      return event.issueState
+        ? `Dispatched from ${event.issueState}`
+        : "Dispatched";
+    case "run-recovered":
+      return "Recovered existing run";
+    case "run-retried":
+      return `Retry ${event.attempt} scheduled (${event.retryKind})`;
+    case "run-failed":
+      return event.lastError;
+    case "run-suppressed":
+      return event.reason;
+    case "hook-executed":
+      return `${event.hook}: ${event.outcome}`;
+    case "hook-failed":
+      return event.error;
+    case "workspace-cleanup":
+      return event.error
+        ? `${event.outcome}: ${event.error}`
+        : event.outcome;
+    case "worker-error":
+      return event.error;
+    default:
+      return null;
+  }
+}
+
+function parseRecentEvents(
+  raw: string,
+  limit: number,
+  options: { allowPartialFirstLine: boolean }
+): IssueStatusEvent[] {
+  const lines = raw.split("\n");
+  if (options.allowPartialFirstLine) {
+    lines.shift();
+  }
+
+  const events: IssueStatusEvent[] = [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim();
+    if (!line) {
+      continue;
+    }
+
+    const event = parseRunEventLine(line);
+    if (!event) {
+      continue;
+    }
+
+    events.push({
+      at: event.at,
+      event: event.event,
+      message: formatEventMessage(event),
+    });
+    if (events.length === limit) {
+      break;
+    }
+  }
+
+  return events.reverse();
+}
+
+function parseRunEventLine(line: string): OrchestratorEvent | null {
+  try {
+    return JSON.parse(line) as OrchestratorEvent;
+  } catch {
+    return null;
+  }
 }

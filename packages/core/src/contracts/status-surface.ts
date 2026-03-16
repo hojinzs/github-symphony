@@ -3,6 +3,7 @@ import type { WorkflowDefinition } from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 import type { TrackerAdapterKind } from "./tracker-adapter.js";
 import type { RunAttemptPhase } from "./run-attempt-phase.js";
+import type { OrchestratorEvent } from "../observability/structured-events.js";
 
 export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
@@ -169,6 +170,54 @@ export type ProjectStatusSnapshot = {
   };
   rateLimits?: Record<string, unknown> | null;
   lastError: string | null;
+};
+
+export type IssueStatusEvent = {
+  at: string;
+  event: OrchestratorEvent["event"];
+  message: string | null;
+};
+
+export type IssueStatusSnapshot = {
+  issue_identifier: string;
+  issue_id: string;
+  status: string;
+  workspace: {
+    path: string | null;
+  };
+  attempts: {
+    restart_count: number;
+    current_retry_attempt: number;
+  };
+  running: {
+    session_id: string | null;
+    turn_count: number | null;
+    state: string | null;
+    started_at: string | null;
+    last_event: string | null;
+    last_message: string | null;
+    last_event_at: string | null;
+    tokens: {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+    } | null;
+  } | null;
+  retry: {
+    due_at: string;
+    kind: RetryKind | null;
+    error: string | null;
+  } | null;
+  logs: {
+    codex_session_logs: Array<{
+      label: string;
+      path: string;
+      url: string | null;
+    }>;
+  };
+  recent_events: IssueStatusEvent[];
+  last_error: string | null;
+  tracked: Record<string, unknown>;
 };
 
 export type WorkflowResolution = {

@@ -22,6 +22,7 @@ import {
   scheduleRetryAt,
   type HookResult,
   type IssueOrchestrationRecord,
+  type IssueStatusSnapshot,
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
@@ -60,6 +61,19 @@ function parseExecutionPhase(value: unknown) {
 
 function parseRunPhase(value: unknown): RunAttemptPhase | null {
   return isRunAttemptPhase(value) ? value : null;
+}
+
+function isMatchingIssueRun(
+  run: OrchestratorRunRecord | null,
+  projectId: string,
+  issueId: string,
+  issueIdentifier: string
+): run is OrchestratorRunRecord {
+  return Boolean(
+    run &&
+      run.projectId === projectId &&
+      (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
+  );
 }
 
 export class OrchestratorService {
@@ -107,6 +121,104 @@ export class OrchestratorService {
 
   async status(): Promise<ProjectStatusSnapshot | null> {
     return this.store.loadProjectStatus(this.projectConfig.projectId);
+  }
+
+  async statusForIssue(
+    issueIdentifier: string
+  ): Promise<IssueStatusSnapshot | null> {
+    const issueRecords = await this.store.loadProjectIssueOrchestrations(
+      this.projectConfig.projectId
+    );
+    const issueRecord = issueRecords.find(
+      (record) => record.identifier === issueIdentifier
+    );
+    if (!issueRecord) {
+      return null;
+    }
+
+    const currentRunCandidate = issueRecord.currentRunId
+      ? await this.store.loadRun(issueRecord.currentRunId)
+      : null;
+    const currentRun = isMatchingIssueRun(
+      currentRunCandidate,
+      this.projectConfig.projectId,
+      issueRecord.issueId,
+      issueIdentifier
+    )
+      ? currentRunCandidate
+      : await this.findLatestRunForIssue(issueRecord.issueId, issueIdentifier);
+
+    const recentEvents =
+      currentRun === null
+        ? []
+        : await this.store.loadRecentRunEvents(currentRun.runId);
+    const latestEventMessage =
+      recentEvents[recentEvents.length - 1]?.message ?? null;
+    const currentAttempt =
+      currentRun?.attempt ?? issueRecord.retryEntry?.attempt ?? 0;
+
+    return {
+      issue_identifier: issueRecord.identifier,
+      issue_id: issueRecord.issueId,
+      status:
+        currentRun?.status ?? mapIssueOrchestrationStateToStatus(issueRecord.state),
+      workspace: {
+        path: currentRun?.workingDirectory ?? null,
+      },
+      attempts: {
+        restart_count: Math.max(0, currentAttempt - 1),
+        current_retry_attempt: currentAttempt,
+      },
+      running:
+        currentRun === null
+          ? null
+          : {
+              session_id: currentRun.runtimeSession?.sessionId ?? null,
+              turn_count: currentRun.turnCount ?? null,
+              state: currentRun.issueState ?? null,
+              started_at: currentRun.startedAt ?? null,
+              last_event: currentRun.lastEvent ?? null,
+              last_message: latestEventMessage,
+              last_event_at: currentRun.lastEventAt ?? null,
+              tokens: currentRun.tokenUsage
+                ? {
+                    input_tokens: currentRun.tokenUsage.inputTokens,
+                    output_tokens: currentRun.tokenUsage.outputTokens,
+                    total_tokens: currentRun.tokenUsage.totalTokens,
+                  }
+                : null,
+            },
+      retry:
+        currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt
+          ? {
+              due_at:
+                currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
+              kind: currentRun?.retryKind ?? null,
+              error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+            }
+          : null,
+      logs: {
+        codex_session_logs:
+          currentRun === null
+            ? []
+            : [
+                {
+                  label: "worker",
+                  path: join(this.store.runDir(currentRun.runId), "worker.log"),
+                  url: null,
+                },
+              ],
+      },
+      recent_events: recentEvents,
+      last_error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+      tracked: {
+        issue_orchestration_state: issueRecord.state,
+        current_run_id: issueRecord.currentRunId,
+        workspace_key: issueRecord.workspaceKey,
+        run_phase: currentRun?.runPhase ?? null,
+        execution_phase: currentRun?.executionPhase ?? null,
+      },
+    };
   }
 
   async recover(): Promise<ProjectStatusSnapshot> {
@@ -345,6 +457,24 @@ export class OrchestratorService {
     });
     await this.store.saveProjectStatus(status);
     return status;
+  }
+
+  private async findLatestRunForIssue(
+    issueId: string,
+    issueIdentifier: string
+  ): Promise<OrchestratorRunRecord | null> {
+    const matchingRuns = (await this.store.loadAllRuns())
+      .filter((run) => run.projectId === this.projectConfig.projectId)
+      .filter(
+        (run) =>
+          run.issueId === issueId || run.issueIdentifier === issueIdentifier
+      )
+      .sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      );
+
+    return matchingRuns[0] ?? null;
   }
 
   private async resolveActionableCandidates(
@@ -1482,6 +1612,25 @@ function isActiveRunStatus(status: OrchestratorRunRecord["status"]): boolean {
     status === "running" ||
     status === "retrying"
   );
+}
+
+function mapIssueOrchestrationStateToStatus(
+  state: IssueOrchestrationRecord["state"]
+): string {
+  switch (state) {
+    case "claimed":
+      return "starting";
+    case "running":
+      return "running";
+    case "retry_queued":
+      return "retrying";
+    case "released":
+      return "released";
+    case "unclaimed":
+      return "pending";
+    default:
+      return state;
+  }
 }
 
 function isProcessRunning(processId: number): boolean {

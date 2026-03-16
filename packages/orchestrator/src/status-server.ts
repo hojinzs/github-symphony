@@ -4,63 +4,46 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+import type {
+  IssueStatusSnapshot,
+  ProjectStatusSnapshot,
+} from "@gh-symphony/core";
 
 let refreshInFlight: Promise<void> | null = null;
 
 type ProjectStatusReader = () => Promise<ProjectStatusSnapshot | null>;
+type IssueStatusReader = (
+  issueIdentifier: string
+) => Promise<IssueStatusSnapshot | null>;
 
-function isProjectStatusReader(
-  value: unknown
-): value is ProjectStatusReader {
-  return typeof value === "function";
-}
-
-export async function resolveOrchestratorStatusResponse(
-  pathname: string,
-  methodOrGetProjectStatus: string | ProjectStatusReader,
-  getProjectStatusOrOnRefresh?: ProjectStatusReader | (() => void | Promise<void>),
-  onRefresh?: () => void | Promise<void>
-): Promise<{
+export async function resolveOrchestratorStatusResponse(options: {
+  pathname: string;
+  method?: string;
+  getProjectStatus: ProjectStatusReader;
+  getIssueStatus?: IssueStatusReader;
+  onRefresh?: () => void | Promise<void>;
+}): Promise<{
   status: number;
   payload: unknown;
 }> {
-  const method =
-    typeof methodOrGetProjectStatus === "string"
-      ? methodOrGetProjectStatus
-      : "GET";
-  const getProjectStatus = isProjectStatusReader(methodOrGetProjectStatus)
-    ? methodOrGetProjectStatus
-    : isProjectStatusReader(getProjectStatusOrOnRefresh)
-      ? getProjectStatusOrOnRefresh
-      : null;
-  const refreshCallback =
-    typeof methodOrGetProjectStatus === "string"
-      ? typeof onRefresh === "function"
-        ? onRefresh
-        : undefined
-      : typeof getProjectStatusOrOnRefresh === "function"
-        ? getProjectStatusOrOnRefresh
-        : typeof onRefresh === "function"
-          ? onRefresh
-          : undefined;
+  const method = options.method ?? "GET";
 
-  if (!getProjectStatus) {
-    return {
-      status: 500,
-      payload: { error: "Project status reader not configured." },
-    };
-  }
-
-  if (pathname === "/healthz") {
+  if (options.pathname === "/healthz") {
     return {
       status: 200,
       payload: { ok: true },
     };
   }
 
-  if (pathname === "/api/v1/status") {
-    const snapshot = await getProjectStatus();
+  if (options.pathname === "/api/v1/status") {
+    if (method !== "GET") {
+      return {
+        status: 405,
+        payload: { error: "Method not allowed" },
+      };
+    }
+
+    const snapshot = await options.getProjectStatus();
     if (!snapshot) {
       return {
         status: 404,
@@ -73,7 +56,8 @@ export async function resolveOrchestratorStatusResponse(
       payload: snapshot,
     };
   }
-  if (pathname === "/api/v1/refresh") {
+
+  if (options.pathname === "/api/v1/refresh") {
     if (method !== "POST") {
       return {
         status: 405,
@@ -87,7 +71,9 @@ export async function resolveOrchestratorStatusResponse(
       };
     }
 
-    refreshInFlight = Promise.resolve(refreshCallback?.()).then(() => undefined);
+    refreshInFlight = Promise.resolve(options.onRefresh?.()).then(
+      () => undefined
+    );
     try {
       await refreshInFlight;
     } catch (error) {
@@ -103,9 +89,71 @@ export async function resolveOrchestratorStatusResponse(
     } finally {
       refreshInFlight = null;
     }
+
     return {
       status: 202,
       payload: { queued: true },
+    };
+  }
+
+  if (options.pathname.startsWith("/api/v1/")) {
+    if (method !== "GET") {
+      return {
+        status: 405,
+        payload: { error: "Method not allowed" },
+      };
+    }
+
+    const rawIdentifier = options.pathname.slice("/api/v1/".length);
+    if (!rawIdentifier) {
+      return {
+        status: 404,
+        payload: { error: "Not found" },
+      };
+    }
+
+    if (!options.getIssueStatus) {
+      return {
+        status: 501,
+        payload: {
+          error: {
+            code: "issue_status_not_supported",
+            message: "Issue status lookup is not configured.",
+          },
+        },
+      };
+    }
+
+    let issueIdentifier: string;
+    try {
+      issueIdentifier = decodeURIComponent(rawIdentifier);
+    } catch {
+      return {
+        status: 400,
+        payload: {
+          error: {
+            code: "invalid_issue_identifier",
+            message: "Issue identifier path segment is not valid URL encoding.",
+          },
+        },
+      };
+    }
+    const issueStatus = await options.getIssueStatus(issueIdentifier);
+    if (!issueStatus) {
+      return {
+        status: 404,
+        payload: {
+          error: {
+            code: "issue_not_found",
+            message: `Issue "${issueIdentifier}" is unknown to the current in-memory state.`,
+          },
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      payload: issueStatus,
     };
   }
 
@@ -116,17 +164,19 @@ export async function resolveOrchestratorStatusResponse(
 }
 
 export function createOrchestratorRequestHandler(
-  getProjectStatus: () => Promise<ProjectStatusSnapshot | null>,
+  getProjectStatus: ProjectStatusReader,
+  getIssueStatus?: IssueStatusReader,
   onRefresh?: () => void | Promise<void>
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    const resolved = await resolveOrchestratorStatusResponse(
-      url.pathname,
-      request.method ?? "GET",
+    const resolved = await resolveOrchestratorStatusResponse({
+      pathname: url.pathname,
+      method: request.method ?? "GET",
       getProjectStatus,
-      onRefresh
-    );
+      getIssueStatus,
+      onRefresh,
+    });
     respondJson(response, resolved.status, resolved.payload);
   };
 }
@@ -134,12 +184,14 @@ export function createOrchestratorRequestHandler(
 export function startOrchestratorStatusServer(options: {
   host: string;
   port: number;
-  getProjectStatus: () => Promise<ProjectStatusSnapshot | null>;
+  getProjectStatus: ProjectStatusReader;
+  getIssueStatus?: IssueStatusReader;
   onRefresh?: () => void | Promise<void>;
 }): Server {
   const server = createServer((request, response) => {
     void createOrchestratorRequestHandler(
       options.getProjectStatus,
+      options.getIssueStatus,
       options.onRefresh
     )(request, response);
   });
