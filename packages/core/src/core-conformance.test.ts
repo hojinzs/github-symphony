@@ -4,6 +4,8 @@ import {
   buildPromptVariables,
   buildProjectSnapshot,
   calculateRetryDelay,
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_WORKFLOW_AGENT,
   DEFAULT_WORKFLOW_LIFECYCLE,
   deriveIssueWorkspaceKey,
   isStateActive,
@@ -411,6 +413,13 @@ describe("scheduleRetryAt", () => {
 });
 
 describe("calculateRetryDelay", () => {
+  it("uses the spec default base delay when options are omitted", () => {
+    expect(DEFAULT_BASE_DELAY_MS).toBe(10_000);
+    expect(DEFAULT_WORKFLOW_AGENT.retryBaseDelayMs).toBe(10_000);
+    expect(calculateRetryDelay(1)).toBe(10_000);
+    expect(calculateRetryDelay(2)).toBe(20_000);
+  });
+
   it("doubles the delay for each attempt", () => {
     expect(
       calculateRetryDelay(1, { baseDelayMs: 100, maxDelayMs: 10000 })
