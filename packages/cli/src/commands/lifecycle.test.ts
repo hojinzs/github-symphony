@@ -6,10 +6,23 @@ import type { CliProjectConfig } from "../config.js";
 
 const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
+const selectMock = vi.fn();
+const cancelMock = vi.fn();
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
 }));
+
+vi.mock("@clack/prompts", async () => {
+  const actual =
+    await vi.importActual<typeof import("@clack/prompts")>("@clack/prompts");
+  return {
+    ...actual,
+    select: selectMock,
+    cancel: cancelMock,
+    isCancel: (value: unknown) => value === Symbol.for("clack-cancel"),
+  };
+});
 
 vi.mock("node:child_process", async () => {
   const actual =
@@ -31,6 +44,8 @@ const stopModule = await import("./stop.js");
 afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
+  selectMock.mockReset();
+  cancelMock.mockReset();
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -71,6 +86,78 @@ describe("lifecycle command integration", () => {
       owner: "beta",
       name: "api",
     });
+  });
+
+  it("auto-selects the only configured project when start omits --project-id", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+
+    spawnMock.mockReturnValue({
+      pid: 4321,
+      stdout: { pipe: vi.fn() },
+      stderr: { pipe: vi.fn() },
+      unref: vi.fn(),
+    });
+
+    await startModule.default(["--daemon"], baseOptions(configDir));
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      process.execPath,
+      [process.argv[1], "start", "--project", "tenant-a"],
+      expect.any(Object)
+    );
+  });
+
+  it("prompts for project selection when run omits --project-id in interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    selectMock.mockResolvedValue("tenant-b");
+    vi.spyOn(process.stdin, "isTTY", "get").mockReturnValue(true);
+    vi.spyOn(process.stdout, "isTTY", "get").mockReturnValue(true);
+
+    await runModule.default(["beta/api#42"], baseOptions(configDir));
+
+    expect(selectMock).toHaveBeenCalled();
+    expect(orchestratorRunCli).toHaveBeenCalledWith([
+      "run-issue",
+      "--runtime-root",
+      configDir,
+      "--project-id",
+      "tenant-b",
+      "--issue",
+      "beta/api#42",
+    ]);
+  });
+
+  it("requires explicit --project-id in non-interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [
+        createTenant("tenant-a", "acme", "platform"),
+        createTenant("tenant-b", "beta", "api"),
+      ],
+    });
+    vi.spyOn(process.stdin, "isTTY", "get").mockReturnValue(false);
+    vi.spyOn(process.stdout, "isTTY", "get").mockReturnValue(false);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runModule.default(["acme/platform#7"], baseOptions(configDir));
+
+    expect(orchestratorRunCli).not.toHaveBeenCalled();
+    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain(
+      "Multiple projects are configured. Re-run with --project-id in non-interactive environments."
+    );
+    expect(process.exitCode).toBe(1);
   });
 
   it("starts the requested project in daemon mode", async () => {

@@ -1,6 +1,7 @@
 import { readFile, rm } from "node:fs/promises";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, orchestratorPortPath } from "../config.js";
+import { resolveManagedProjectConfig } from "../project-selection.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
@@ -49,15 +50,21 @@ const handler = async (
     process.exitCode = 2;
     return;
   }
-  if (!parsed.projectId) {
-    process.stderr.write(
-      "Usage: gh-symphony stop --project-id <project-id> [--force]\n"
-    );
-    process.exitCode = 2;
+  const resolvedForce = parsed.force;
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
+  if (!projectConfig) {
+    if (process.exitCode !== 1) {
+      process.stderr.write(
+        "No project configured. Run 'gh-symphony project add' first.\n"
+      );
+      process.exitCode = 1;
+    }
     return;
   }
-  const resolvedForce = parsed.force;
-  const resolvedProjectId = parsed.projectId;
+  const resolvedProjectId = projectConfig.projectId;
 
   const pidPath = daemonPidPath(options.configDir, resolvedProjectId);
   const portPath = orchestratorPortPath(options.configDir, resolvedProjectId);

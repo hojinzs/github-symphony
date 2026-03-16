@@ -2,9 +2,9 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  resolveProjectConfig,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
+import { resolveManagedProjectConfig } from "../project-selection.js";
 
 function parseRunArgs(args: string[]): {
   issue?: string;
@@ -41,15 +41,17 @@ const handler = async (
     return;
   }
 
-  const projectConfig = await resolveProjectConfig(
-    options.configDir,
-    parsed.projectId
-  );
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
   if (!projectConfig) {
-    process.stderr.write(
-      "No project configured. Run 'gh-symphony project add' first.\n"
-    );
-    process.exitCode = 1;
+    if (process.exitCode !== 1) {
+      process.stderr.write(
+        "No project configured. Run 'gh-symphony project add' first.\n"
+      );
+      process.exitCode = 1;
+    }
     return;
   }
 

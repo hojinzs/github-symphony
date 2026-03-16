@@ -15,10 +15,10 @@ import {
 } from "@gh-symphony/orchestrator";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import {
-  resolveProjectConfig,
   resolveRuntimeRoot,
   syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
+import { resolveManagedProjectConfig } from "../project-selection.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
 
@@ -206,23 +206,17 @@ const handler = async (
     process.exitCode = 2;
     return;
   }
-  if (!parsed.projectId) {
-    process.stderr.write(
-      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
-    );
-    process.exitCode = 2;
-    return;
-  }
-
-  const projectConfig = await resolveProjectConfig(
-    options.configDir,
-    parsed.projectId
-  );
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
   if (!projectConfig) {
-    process.stderr.write(
-      "No project configured. Run 'gh-symphony project add' first.\n"
-    );
-    process.exitCode = 1;
+    if (process.exitCode !== 1) {
+      process.stderr.write(
+        "No project configured. Run 'gh-symphony project add' first.\n"
+      );
+      process.exitCode = 1;
+    }
     return;
   }
 

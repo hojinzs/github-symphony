@@ -3,11 +3,8 @@ import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type { GlobalOptions } from "../index.js";
-import {
-  loadActiveProjectConfig,
-  loadProjectConfig,
-  orchestratorLogPath,
-} from "../config.js";
+import { orchestratorLogPath } from "../config.js";
+import { resolveManagedProjectConfig } from "../project-selection.js";
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -54,17 +51,6 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseLogsArgs(args);
 
-  const projectConfig = parsed.projectId
-    ? await loadProjectConfig(options.configDir, parsed.projectId)
-    : await loadActiveProjectConfig(options.configDir);
-  if (!projectConfig) {
-    process.stderr.write(
-      "No project configured. Run 'gh-symphony project add' first.\n"
-    );
-    process.exitCode = 1;
-    return;
-  }
-
   // If --run is specified, read that run's events
   if (parsed.run) {
     const eventsPath = join(
@@ -79,6 +65,7 @@ const handler = async (
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
         const event = JSON.parse(line) as Record<string, unknown>;
+        if (parsed.projectId && event.projectId !== parsed.projectId) continue;
         if (parsed.level && event.level !== parsed.level) continue;
         if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
         process.stdout.write(formatEvent(event) + "\n");
@@ -92,6 +79,20 @@ const handler = async (
 
   // Default: read orchestrator log or scan all events
   if (parsed.follow) {
+    const projectConfig = await resolveManagedProjectConfig({
+      configDir: options.configDir,
+      requestedProjectId: parsed.projectId,
+    });
+    if (!projectConfig) {
+      if (process.exitCode !== 1) {
+        process.stderr.write(
+          "No project configured. Run 'gh-symphony project add' first.\n"
+        );
+        process.exitCode = 1;
+      }
+      return;
+    }
+
     const logPath = orchestratorLogPath(
       options.configDir,
       projectConfig.projectId
@@ -140,6 +141,8 @@ const handler = async (
         const lines = content.trim().split("\n").filter(Boolean);
         for (const line of lines) {
           const event = JSON.parse(line) as Record<string, unknown>;
+          if (parsed.projectId && event.projectId !== parsed.projectId)
+            continue;
           if (parsed.level && event.level !== parsed.level) continue;
           if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
           process.stdout.write(formatEvent(event) + "\n");
