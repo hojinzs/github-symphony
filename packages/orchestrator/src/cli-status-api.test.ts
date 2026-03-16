@@ -1,4 +1,7 @@
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runCli } from "./index.js";
 import type { OrchestratorService } from "./service.js";
@@ -50,11 +53,22 @@ describe("CLI --no-status-api flag", () => {
   it("does not start the status server when --no-status-api is set", async () => {
     const startStatusServer = vi.fn();
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
 
-    await runCli(["run", "--no-status-api"], {
-      createService: () => service,
-      startStatusServer: startStatusServer as never,
-    });
+    await runCli(
+      [
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+      ],
+      {
+        createService: () => service,
+        startStatusServer: startStatusServer as never,
+      }
+    );
 
     expect(startStatusServer).not.toHaveBeenCalled();
     expect(service.run).toHaveBeenCalledTimes(1);
@@ -67,16 +81,20 @@ describe("CLI --no-status-api flag", () => {
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       emitter.emit("listening");
     });
     const stdout = createStdoutCapture();
 
-    await runCli(["run"], {
-      createService: () => service,
-      startStatusServer: startStatusServer as never,
-      stdout,
-    });
+    await runCli(
+      ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+      {
+        createService: () => service,
+        startStatusServer: startStatusServer as never,
+        stdout,
+      }
+    );
 
     expect(startStatusServer).toHaveBeenCalledTimes(1);
     expect(startStatusServer).toHaveBeenCalledWith(
@@ -98,15 +116,27 @@ describe("CLI --no-status-api flag", () => {
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       emitter.emit("listening");
     });
 
-    await runCli(["run", "--project-id", "tenant-1", "--issue", "acme/repo#1"], {
-      createService: () => service,
-      startStatusServer: startStatusServer as never,
-      stdout: createStdoutCapture(),
-    });
+    await runCli(
+      [
+        "run",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--issue",
+        "acme/repo#1",
+      ],
+      {
+        createService: () => service,
+        startStatusServer: startStatusServer as never,
+        stdout: createStdoutCapture(),
+      }
+    );
 
     const options = startStatusServer.mock.calls[0]?.[0] as {
       onRefresh: () => Promise<void>;
@@ -125,16 +155,20 @@ describe("CLI --no-status-api flag", () => {
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       emitter.emit("listening");
     });
     const stdout = createStdoutCapture();
 
-    await runCli(["run"], {
-      createService: () => service,
-      startStatusServer: startStatusServer as never,
-      stdout,
-    });
+    await runCli(
+      ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+      {
+        createService: () => service,
+        startStatusServer: startStatusServer as never,
+        stdout,
+      }
+    );
 
     expect(stdout.output()).toContain(
       "Status server listening on http://localhost:9999"
@@ -148,16 +182,20 @@ describe("CLI --no-status-api flag", () => {
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       emitter.emit("listening");
     });
     const stdout = createStdoutCapture();
 
-    await runCli(["run"], {
-      createService: () => service,
-      startStatusServer: startStatusServer as never,
-      stdout,
-    });
+    await runCli(
+      ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+      {
+        createService: () => service,
+        startStatusServer: startStatusServer as never,
+        stdout,
+      }
+    );
 
     expect(stdout.output()).toContain(
       "Status server listening on http://localhost:4680"
@@ -171,13 +209,24 @@ describe("CLI --no-status-api flag", () => {
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       emitter.emit("listening");
     });
     const stdout = createStdoutCapture();
 
     await runCli(
-      ["run", "--status-host", "10.0.0.5", "--status-port", "8080"],
+      [
+        "run",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--status-host",
+        "10.0.0.5",
+        "--status-port",
+        "8080",
+      ],
       {
         createService: () => service,
         startStatusServer: startStatusServer as never,
@@ -194,5 +243,65 @@ describe("CLI --no-status-api flag", () => {
     expect(stdout.output()).toContain(
       "Status server listening on http://10.0.0.5:8080"
     );
+  });
+
+  it("releases the project lock after the run finishes", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+
+    await runCli(
+      [
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+      ],
+      {
+        createService: () => service,
+      }
+    );
+
+    await expect(
+      access(join(runtimeRoot, "orchestrator", "projects", "tenant-1", ".lock"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails before running the service when the project lock belongs to a live pid", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    await mkdir(join(runtimeRoot, "orchestrator", "projects", "tenant-1"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(runtimeRoot, "orchestrator", "projects", "tenant-1", ".lock"),
+      JSON.stringify({
+        ownerToken: "existing-owner",
+        pid: process.pid,
+        startedAt: "2026-03-16T00:00:00.000Z",
+      }) + "\n",
+      "utf8"
+    );
+
+    await expect(
+      runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+        ],
+        {
+          createService: () => service,
+        }
+      )
+    ).rejects.toThrow(
+      `Project "tenant-1" is already running (PID ${process.pid}).`
+    );
+
+    expect(service.run).not.toHaveBeenCalled();
   });
 });
