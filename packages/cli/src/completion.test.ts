@@ -42,7 +42,7 @@ describe("completion renderer", () => {
     const output = renderCompletionScript("zsh");
     expect(output).toContain("autoload -Uz compinit && compinit");
     expect(output).toContain("bashcompinit");
-    expect(output).toContain("compdef _gh_symphony_completion gh-symphony");
+    expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
   });
 
   it("renders fish completion commands", () => {

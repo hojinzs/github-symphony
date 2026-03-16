@@ -226,7 +226,7 @@ ${renderBashCasePatterns()}
   if (shell === "zsh") {
     return `autoload -Uz compinit && compinit
 autoload -U +X bashcompinit && bashcompinit
-${bashFunction}compdef _gh_symphony_completion gh-symphony
+${bashFunction}complete -F _gh_symphony_completion gh-symphony
 `;
   }
 
