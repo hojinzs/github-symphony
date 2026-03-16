@@ -33,6 +33,12 @@ gh-symphony completion zsh >> ~/.zshrc
 gh-symphony completion fish > ~/.config/fish/completions/gh-symphony.fish
 ```
 
+If your `zsh` config does not already initialize completion, add this before the generated script line:
+
+```bash
+autoload -Uz compinit && compinit
+```
+
 ## 2. Set Repository
 
 Navigate to the repository you want to orchestrate, then run:

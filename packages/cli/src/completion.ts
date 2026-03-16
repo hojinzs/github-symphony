@@ -27,6 +27,8 @@ const GLOBAL_OPTIONS = [
   "-V",
 ] as const;
 
+const GLOBAL_OPTIONS_WITH_VALUES = ["--config", "--config-dir"] as const;
+
 const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   completion: ["bash", "zsh", "fish"],
   start: ["--project-id", "--project", "--daemon", "-d", ...GLOBAL_OPTIONS],
@@ -97,7 +99,7 @@ function renderBashCasePatterns(): string {
           command === "repo" ||
           command === "config"
         ) {
-          return `    ${command})\n      if (( COMP_CWORD == 2 )); then\n        COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      fi\n      return\n      ;;`;
+          return `    ${command})\n      COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      return\n      ;;`;
         }
         return `    ${command})\n      COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      return\n      ;;`;
       }
@@ -153,6 +155,46 @@ export function renderCompletionScript(shell: "bash" | "zsh" | "fish"): string {
   }
 
   const bashFunction = `# shellcheck shell=bash
+_gh_symphony_find_context() {
+  GH_SYMPHONY_COMMAND=""
+  GH_SYMPHONY_SUBCOMMAND=""
+
+  local idx=1
+  local token=""
+  local expects_value=0
+
+  while (( idx < COMP_CWORD )); do
+    token="\${COMP_WORDS[idx]}"
+
+    if (( expects_value )); then
+      expects_value=0
+      (( idx++ ))
+      continue
+    fi
+
+    case "\${token}" in
+      ${GLOBAL_OPTIONS_WITH_VALUES.map((option) => `${option}`).join("|")})
+        expects_value=1
+        ;;
+      ${GLOBAL_OPTIONS_WITH_VALUES.map((option) => `${option}=*`).join("|")})
+        ;;
+      ${GLOBAL_OPTIONS.filter((option) => !GLOBAL_OPTIONS_WITH_VALUES.includes(option as "--config" | "--config-dir")).join("|")})
+        ;;
+      -*)
+        ;;
+      *)
+        if [[ -z "\${GH_SYMPHONY_COMMAND}" ]]; then
+          GH_SYMPHONY_COMMAND="\${token}"
+        elif [[ -z "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
+          GH_SYMPHONY_SUBCOMMAND="\${token}"
+        fi
+        ;;
+    esac
+
+    (( idx++ ))
+  done
+}
+
 _gh_symphony_completion() {
   local cur prev path
   cur="\${COMP_WORDS[COMP_CWORD]}"
@@ -160,16 +202,18 @@ _gh_symphony_completion() {
   if (( COMP_CWORD > 0 )); then
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
   fi
-  path="\${COMP_WORDS[1]}"
 
-  if (( COMP_CWORD == 1 )); then
+  _gh_symphony_find_context
+  path="\${GH_SYMPHONY_COMMAND}"
+
+  if [[ -z "\${path}" ]]; then
     COMPREPLY=( $(compgen -W "${quoteWords(TOP_LEVEL_COMMANDS)} ${quoteWords(GLOBAL_OPTIONS)}" -- "$cur") )
     return
   fi
 
-  if [[ "\${path}" == "project" || "\${path}" == "repo" || "\${path}" == "config" ]]; then
-    if (( COMP_CWORD >= 2 )); then
-      path="\${path}:\${COMP_WORDS[2]}"
+  if [[ "\${path}" == "project" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
+    if [[ -n "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
+      path="\${path}:\${GH_SYMPHONY_SUBCOMMAND}"
     fi
   fi
 
@@ -180,7 +224,8 @@ ${renderBashCasePatterns()}
 `;
 
   if (shell === "zsh") {
-    return `autoload -U +X bashcompinit && bashcompinit
+    return `autoload -Uz compinit && compinit
+autoload -U +X bashcompinit && bashcompinit
 ${bashFunction}compdef _gh_symphony_completion gh-symphony
 `;
   }

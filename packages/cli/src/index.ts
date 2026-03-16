@@ -37,30 +37,23 @@ type LoaderKey =
 
 type CliOptionValues = Partial<
   GlobalOptions & {
+    assignedOnly?: boolean;
     config?: string;
-    project?: string;
-    projectId?: string;
     daemon?: boolean;
-    force?: boolean;
-    watch?: boolean;
     dryRun?: boolean;
     follow?: boolean;
+    force?: boolean;
     issue?: string;
-    run?: string;
     level?: string;
     nonInteractive?: boolean;
-    workspaceDir?: string;
-    assignedOnly?: boolean;
+    project?: string;
+    projectId?: string;
+    run?: string;
     version?: boolean;
+    workspaceDir?: string;
+    watch?: boolean;
   }
 >;
-
-type RootInvocation = {
-  options: GlobalOptions;
-  remaining: string[];
-  sanitizedArgv: string[];
-  showVersion: boolean;
-};
 
 const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
@@ -84,57 +77,6 @@ function addGlobalOptions(command: Command): Command {
     .option("-v, --verbose", "Enable verbose output")
     .option("--json", "Output in JSON format")
     .option("--no-color", "Disable color output");
-}
-
-function parseRootInvocation(argv: string[]): RootInvocation {
-  const options: GlobalOptions = {
-    configDir: resolveConfigDir(),
-    verbose: false,
-    json: false,
-    noColor: false,
-  };
-  const remaining: string[] = [];
-  const sanitizedArgv: string[] = [];
-  let showVersion = false;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-
-    if (arg === "--config" || arg === "--config-dir") {
-      const value = argv[i + 1];
-      options.configDir = resolveConfigDir(value);
-      sanitizedArgv.push(arg);
-      if (value !== undefined) {
-        sanitizedArgv.push(value);
-      }
-      i += 1;
-      continue;
-    }
-    if (arg === "--verbose" || arg === "-v") {
-      options.verbose = true;
-      sanitizedArgv.push(arg);
-      continue;
-    }
-    if (arg === "--json") {
-      options.json = true;
-      sanitizedArgv.push(arg);
-      continue;
-    }
-    if (arg === "--no-color") {
-      options.noColor = true;
-      sanitizedArgv.push(arg);
-      continue;
-    }
-    if (arg === "--version" || arg === "-V") {
-      showVersion = true;
-      continue;
-    }
-
-    remaining.push(arg);
-    sanitizedArgv.push(arg);
-  }
-
-  return { options, remaining, sanitizedArgv, showVersion };
 }
 
 function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
@@ -190,6 +132,25 @@ function shellArgument(value: string): "bash" | "zsh" | "fish" {
     return value;
   }
   throw new InvalidArgumentError("Shell must be one of: bash, zsh, fish");
+}
+
+function hasVersionFlag(argv: string[]): boolean {
+  return argv.some((arg) => arg === "--version" || arg === "-V");
+}
+
+function resolveVersionOptions(argv: string[]): GlobalOptions {
+  const options: GlobalOptions = {
+    configDir: resolveConfigDir(),
+    verbose: argv.some((arg) => arg === "--verbose" || arg === "-v"),
+    json: argv.includes("--json"),
+    noColor: argv.includes("--no-color"),
+  };
+
+  if (options.noColor) {
+    process.env.NO_COLOR = "1";
+  }
+
+  return options;
 }
 
 function createProgram(): { program: Command; wasInvoked: () => boolean } {
@@ -569,30 +530,18 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
 }
 
 export async function runCli(argv: string[]): Promise<void> {
-  const rootInvocation = parseRootInvocation(argv);
   const { program, wasInvoked } = createProgram();
 
-  if (rootInvocation.options.noColor) {
-    process.env.NO_COLOR = "1";
-  }
-
-  if (rootInvocation.remaining.length === 0) {
-    if (rootInvocation.showVersion) {
-      const versionModule = await COMMANDS.version();
-      await versionModule.default([], rootInvocation.options);
-    } else {
-      program.outputHelp();
-    }
+  if (hasVersionFlag(argv)) {
+    const versionModule = await COMMANDS.version();
+    await versionModule.default([], resolveVersionOptions(argv));
     return;
   }
 
   try {
-    await program.parseAsync(
-      ["node", "gh-symphony", ...rootInvocation.sanitizedArgv],
-      {
-        from: "node",
-      }
-    );
+    await program.parseAsync(["node", "gh-symphony", ...argv], {
+      from: "node",
+    });
 
     if (!wasInvoked()) {
       program.outputHelp();

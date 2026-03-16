@@ -93,6 +93,18 @@ describe("Commander CLI entrypoint", () => {
     });
   });
 
+  it("prints version even when --version follows a subcommand", async () => {
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await runCli(["repo", "list", "--version"]);
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("gh-symphony v");
+  });
+
   it("prints completion scripts from the CLI", async () => {
     const stdout = captureWrites(process.stdout);
 
@@ -107,16 +119,32 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("project repo config completion");
   });
 
+  it("reports a missing root config argument", async () => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["--config"]);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("option '--config <dir>' argument missing");
+  });
+
   it("falls back to root help when no command is provided", async () => {
     const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
 
     try {
       await runCli([]);
     } finally {
       stdout.restore();
+      stderr.restore();
     }
 
-    expect(stdout.output()).toContain("Usage: gh-symphony");
-    expect(stdout.output()).toContain("completion");
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("Usage: gh-symphony");
+    expect(output).toContain("completion");
   });
 });
