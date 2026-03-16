@@ -46,6 +46,7 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
+const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 
@@ -956,15 +957,14 @@ export class OrchestratorService {
 
     // Determine retry kind: continuation (issue still actionable) vs failure
     const retryKind = await this.classifyRetryKind(tenant, run);
-    const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
 
     let nextRetryAt: string;
     if (retryKind === "continuation") {
-      // Short delay for continuation — recheck issue eligibility promptly
-      const continuationDelay =
-        retryOptions?.baseDelayMs ?? DEFAULT_RETRY_BACKOFF_MS;
-      nextRetryAt = new Date(now.getTime() + continuationDelay).toISOString();
+      nextRetryAt = new Date(
+        now.getTime() + CONTINUATION_RETRY_DELAY_MS
+      ).toISOString();
     } else {
+      const retryOptions = await this.loadRetryPolicy(tenant, run.repository);
       // Exponential backoff for failure retries
       const backoffMs =
         this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
