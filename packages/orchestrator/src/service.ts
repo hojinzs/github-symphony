@@ -50,9 +50,12 @@ const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
+
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
 >;
+             
+const STUCK_WORKER_TIMEOUT_MS = 30 * 60 * 1000;
 
 type SpawnLike = (
   command: string,
@@ -79,6 +82,15 @@ function isMatchingIssueRun(
       run.projectId === projectId &&
       (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
   );
+}
+
+function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export class OrchestratorService {
@@ -966,15 +978,31 @@ export class OrchestratorService {
     const now = this.now();
 
     if (run.processId && this.isProcessRunning(run.processId)) {
-      // Stuck worker detection: if the run has been active for longer than
-      // the timeout without the worker exiting on its own, kill it so
-      // the orchestrator can re-dispatch (continuation retry).
-      const STUCK_WORKER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-      const startedAt = run.startedAt ? new Date(run.startedAt).getTime() : 0;
-      const runningSince = now.getTime() - startedAt;
-      if (runningSince > STUCK_WORKER_TIMEOUT_MS) {
+      const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
+      const configuredStallTimeoutMs = retryPolicy?.stallTimeoutMs ?? null;
+      const lastActivityAtMs = parseTimestampMs(run.lastEventAt ?? run.startedAt);
+      const startedAtMs = parseTimestampMs(run.startedAt);
+      const elapsedSinceLastActivityMs =
+        lastActivityAtMs === null ? null : now.getTime() - lastActivityAtMs;
+      const runningSinceMs =
+        startedAtMs === null ? null : now.getTime() - startedAtMs;
+      const isStalledByWorkflowTimeout =
+        configuredStallTimeoutMs !== null &&
+        configuredStallTimeoutMs > 0 &&
+        elapsedSinceLastActivityMs !== null &&
+        elapsedSinceLastActivityMs > configuredStallTimeoutMs;
+      const isStalledByFallbackTimeout =
+        runningSinceMs !== null && runningSinceMs > STUCK_WORKER_TIMEOUT_MS;
+
+      if (isStalledByWorkflowTimeout || isStalledByFallbackTimeout) {
+        const elapsedMs = isStalledByWorkflowTimeout
+          ? elapsedSinceLastActivityMs
+          : runningSinceMs;
+        const timeoutMs = isStalledByWorkflowTimeout
+          ? configuredStallTimeoutMs
+          : STUCK_WORKER_TIMEOUT_MS;
         process.stderr.write(
-          `[orchestrator] stuck worker detected for ${run.runId} (running ${Math.round(runningSince / 60000)}min) — sending SIGTERM\n`
+          `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${Math.round((elapsedMs ?? 0) / 1000)}s > ${Math.round((timeoutMs ?? 0) / 1000)}s) — sending SIGTERM\n`
         );
         this.sendSignal(run.processId, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
@@ -995,7 +1023,7 @@ export class OrchestratorService {
           turnCount: liveState.turnCount ?? undefined,
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
-          lastEventAt: liveState.lastEventAt ?? undefined,
+          lastEventAt: liveState.lastEventAt ?? run.lastEventAt ?? undefined,
           executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
           runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
         };
@@ -1602,25 +1630,35 @@ export class OrchestratorService {
   private async loadRetryPolicy(
     tenant: OrchestratorProjectConfig,
     repository: RepositoryRef
-  ): Promise<{ baseDelayMs: number; maxDelayMs: number } | null> {
-    if (this.dependencies.retryBackoffMs) {
-      return {
-        baseDelayMs: this.dependencies.retryBackoffMs,
-        maxDelayMs: this.dependencies.retryBackoffMs,
-      };
-    }
-
+  ): Promise<{
+    baseDelayMs: number;
+    maxDelayMs: number;
+    stallTimeoutMs: number | null;
+  } | null> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, repository);
       if (!resolution.isValid) {
         return null;
       }
       return {
-        baseDelayMs: resolution.workflow.agent.retryBaseDelayMs,
-        maxDelayMs: resolution.workflow.agent.maxRetryBackoffMs,
+        baseDelayMs:
+          this.dependencies.retryBackoffMs ??
+          resolution.workflow.agent.retryBaseDelayMs,
+        maxDelayMs:
+          this.dependencies.retryBackoffMs ??
+          resolution.workflow.agent.maxRetryBackoffMs,
+        stallTimeoutMs: resolution.workflow.codex.stallTimeoutMs,
       };
     } catch {
-      return null;
+      if (!this.dependencies.retryBackoffMs) {
+        return null;
+      }
+
+      return {
+        baseDelayMs: this.dependencies.retryBackoffMs,
+        maxDelayMs: this.dependencies.retryBackoffMs,
+        stallTimeoutMs: null,
+      };
     }
   }
 
