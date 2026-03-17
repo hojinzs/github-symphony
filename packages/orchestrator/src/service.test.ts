@@ -70,6 +70,9 @@ describe("OrchestratorService", () => {
           SYMPHONY_TRACKER_ITEM_ID: "item-1",
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-1",
           SYMPHONY_ISSUE_WORKSPACE_KEY: expect.any(String),
+          WORKSPACE_RUNTIME_DIR: expect.stringMatching(
+            /projects\/tenant-1\/runs\/.+/
+          ),
         }),
       })
     );
@@ -1735,11 +1738,7 @@ describe("OrchestratorService", () => {
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    const workspaceRuntimeDir = join(
-      tempRoot,
-      "stale-run",
-      "workspace-runtime"
-    );
+    const workspaceRuntimeDir = join(tempRoot, "stale-run");
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations("tenant-1", [
@@ -1778,17 +1777,9 @@ describe("OrchestratorService", () => {
       lastError: null,
       nextRetryAt: null,
     });
-    await mkdir(join(workspaceRuntimeDir, ".orchestrator", "runs", "run-1"), {
-      recursive: true,
-    });
+    await mkdir(workspaceRuntimeDir, { recursive: true });
     await writeFile(
-      join(
-        workspaceRuntimeDir,
-        ".orchestrator",
-        "runs",
-        "run-1",
-        "token-usage.json"
-      ),
+      join(workspaceRuntimeDir, "token-usage.json"),
       JSON.stringify(
         {
           inputTokens: 120,
