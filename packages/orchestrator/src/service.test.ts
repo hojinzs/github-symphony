@@ -1818,6 +1818,101 @@ describe("OrchestratorService", () => {
     });
   });
 
+  it("falls back to the legacy nested token usage artifact when needed", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-token-usage-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRuntimeDir = join(tempRoot, "stale-run");
+    const legacyArtifactDir = join(
+      workspaceRuntimeDir,
+      ".orchestrator",
+      "runs",
+      "run-1"
+    );
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir,
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    await mkdir(legacyArtifactDir, { recursive: true });
+    await writeFile(
+      join(legacyArtifactDir, "token-usage.json"),
+      JSON.stringify(
+        {
+          inputTokens: 55,
+          outputTokens: 10,
+          totalTokens: 65,
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker offline");
+      }
+      return createEmptyTrackerResponse();
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4203,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(updatedRun?.tokenUsage).toEqual({
+      inputTokens: 55,
+      outputTokens: 10,
+      totalTokens: 65,
+    });
+  });
+
   it("captures worker executionPhase from the live state endpoint", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-phase-"));
