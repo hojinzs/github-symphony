@@ -84,6 +84,22 @@ describe("fileTrackerAdapter", () => {
       expect(issues).toEqual([]);
     });
 
+    it("filters out entries with invalid shape", async () => {
+      const issuesPath = join(testDir, "mixed.json");
+      const invalidEntry = { title: "no id or state" };
+      await writeFile(
+        issuesPath,
+        JSON.stringify([sampleIssue, invalidEntry, sampleIssue])
+      );
+
+      const project = makeProject(issuesPath);
+      const issues = await fileTrackerAdapter.listIssues(project);
+
+      expect(issues).toHaveLength(2);
+      expect(issues[0].id).toBe("issue-1");
+      expect(issues[1].id).toBe("issue-1");
+    });
+
     it("returns empty array when file contains truncated JSON", async () => {
       const issuesPath = join(testDir, "truncated.json");
       await writeFile(issuesPath, '[{"id":');

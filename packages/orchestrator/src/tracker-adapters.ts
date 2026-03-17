@@ -5,14 +5,14 @@ import type {
   OrchestratorTrackerConfig,
 } from "@gh-symphony/core";
 
-const localAdapters: Record<string, OrchestratorTrackerAdapter> = {
-  file: fileTrackerAdapter,
-};
+const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
+  ["file", fileTrackerAdapter],
+]);
 
 export function resolveTrackerAdapter(
   tracker: OrchestratorTrackerConfig,
 ): OrchestratorTrackerAdapter {
-  const local = localAdapters[tracker.adapter];
+  const local = localAdapters.get(tracker.adapter);
   if (local) return local;
   return resolveGitHubAdapter(tracker);
 }

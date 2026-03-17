@@ -21,7 +21,14 @@ const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
 const ISSUE_STATE = process.env.SYMPHONY_ISSUE_STATE ?? null;
 const WORKSPACE_RUNTIME_DIR = process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
 type Scenario = "happy" | "fail" | "stall" | "slow";
-const SCENARIO = (process.env.STUB_SCENARIO ?? "happy") as Scenario;
+const VALID_SCENARIOS: ReadonlySet<string> = new Set(["happy", "fail", "stall", "slow"]);
+const rawScenario = process.env.STUB_SCENARIO ?? "happy";
+const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
+  ? (rawScenario as Scenario)
+  : (() => {
+      console.error(`[stub-worker] unknown STUB_SCENARIO="${rawScenario}", falling back to "happy"`);
+      return "happy" as Scenario;
+    })();
 
 const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> = {
   happy: { startMs: 2000, runMs: 5000 },
@@ -43,7 +50,7 @@ function buildState() {
     runtime: "self-hosted-sample",
     status,
     executionPhase: status === "running" ? "implementation" : null,
-    runPhase: status === "running" ? "executing" : null,
+    runPhase: status === "running" ? "streaming_turn" : null,
     sessionId: null,
     projectId: null,
     workspaceRuntimeDir: WORKSPACE_RUNTIME_DIR,
@@ -115,28 +122,28 @@ async function saveTokenArtifact() {
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
-  console.log(`[stub-worker] scenario=${SCENARIO} port=${PORT} runId=${RUN_ID}`);
+  console.error(`[stub-worker] scenario=${SCENARIO} port=${PORT} runId=${RUN_ID}`);
 
   // Starting phase
   status = "starting";
-  console.log(`[stub-worker] status=starting`);
+  console.error(`[stub-worker] status=starting`);
   await sleep(durations.startMs);
 
   // Running phase
   status = "running";
-  console.log(`[stub-worker] status=running`);
+  console.error(`[stub-worker] status=running`);
   await sleep(durations.runMs);
 
   // Terminal phase
   if (SCENARIO === "fail") {
     status = "failed";
-    console.log(`[stub-worker] status=failed`);
+    console.error(`[stub-worker] status=failed`);
     await saveTokenArtifact();
     server.close();
     process.exit(1);
   } else {
     status = "completed";
-    console.log(`[stub-worker] status=completed`);
+    console.error(`[stub-worker] status=completed`);
     await saveTokenArtifact();
     server.close();
     process.exit(0);
@@ -150,7 +157,7 @@ let shuttingDown = false;
 function handleSignal(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[stub-worker] received ${signal}, shutting down gracefully`);
+  console.error(`[stub-worker] received ${signal}, shutting down gracefully`);
 
   saveTokenArtifact().finally(() => {
     server.close();
@@ -164,6 +171,6 @@ process.on("SIGINT", () => handleSignal("SIGINT"));
 // ── Start ────────────────────────────────────────────────────────
 
 server.listen(PORT, () => {
-  console.log(`[stub-worker] listening on port ${PORT}`);
+  console.error(`[stub-worker] listening on port ${PORT}`);
   run();
 });

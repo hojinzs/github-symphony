@@ -24,6 +24,20 @@ function parseIssueNumber(identifier: string): number {
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
+function isValidIssueShape(entry: unknown): entry is TrackedIssue {
+  if (!entry || typeof entry !== "object") return false;
+  const e = entry as Record<string, unknown>;
+  return (
+    typeof e.id === "string" &&
+    typeof e.identifier === "string" &&
+    typeof e.state === "string" &&
+    e.repository !== null &&
+    typeof e.repository === "object" &&
+    e.tracker !== null &&
+    typeof e.tracker === "object"
+  );
+}
+
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project) {
     const issuesPath = requireTrackerSetting(project, "issuesPath");
@@ -35,7 +49,17 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
           `Expected an array of issues in ${issuesPath}, got ${typeof parsed}`,
         );
       }
-      return parsed as TrackedIssue[];
+      const valid: TrackedIssue[] = [];
+      for (let i = 0; i < parsed.length; i++) {
+        if (isValidIssueShape(parsed[i])) {
+          valid.push(parsed[i]);
+        } else {
+          process.stderr.write(
+            `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`,
+          );
+        }
+      }
+      return valid;
     } catch (err) {
       if (
         err instanceof Error &&
