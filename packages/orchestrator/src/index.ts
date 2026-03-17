@@ -2,9 +2,21 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { createStore, OrchestratorService } from "./service.js";
 import { startOrchestratorStatusServer } from "./status-server.js";
+import {
+  acquireProjectLock,
+  assertValidProjectId,
+  releaseProjectLock,
+  type ProjectLockHandle,
+} from "./lock.js";
 
 export { OrchestratorService, createStore };
 export { startOrchestratorStatusServer };
+export {
+  acquireProjectLock,
+  assertValidProjectId,
+  releaseProjectLock,
+  type ProjectLockHandle,
+};
 
 export async function runCli(
   argv: string[],
@@ -16,10 +28,15 @@ export async function runCli(
       projectId?: string
     ) => Promise<OrchestratorService> | OrchestratorService;
     startStatusServer?: typeof startOrchestratorStatusServer;
+    acquireLock?: typeof acquireProjectLock;
+    releaseLock?: typeof releaseProjectLock;
   } = {}
 ): Promise<void> {
   const [command = "run-once", ...args] = argv;
   const parsed = parseArgs(args);
+  if (parsed.projectId) {
+    assertValidProjectId(parsed.projectId);
+  }
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
   const service =
     (await dependencies.createService?.(runtimeRoot, parsed.projectId)) ??
@@ -29,39 +46,65 @@ export async function runCli(
 
   switch (command) {
     case "run": {
-      if (!parsed.noStatusApi) {
-        const statusHost = parsed.statusHost ?? process.env.ORCHESTRATOR_STATUS_HOST ?? "127.0.0.1";
-        const statusPort = parsed.statusPort ?? parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 0) ?? 0;
-        const statusServer = (dependencies.startStatusServer ?? startOrchestratorStatusServer)({
-          host: statusHost,
-          port: statusPort,
-          getProjectStatus: () => service.status(),
-          getIssueStatus: (issueIdentifier) =>
-            service.statusForIssue(issueIdentifier),
-          onRefresh: async () => {
-            await service.runOnce({
-              issueIdentifier: parsed.issueIdentifier,
-            });
-          },
+      let lock: ProjectLockHandle | null = null;
+      try {
+        if (parsed.projectId) {
+          lock = await (dependencies.acquireLock ?? acquireProjectLock)({
+            runtimeRoot,
+            projectId: parsed.projectId,
+          });
+        }
+
+        if (!parsed.noStatusApi) {
+          const statusHost =
+            parsed.statusHost ??
+            process.env.ORCHESTRATOR_STATUS_HOST ??
+            "127.0.0.1";
+          const statusPort =
+            parsed.statusPort ??
+            parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 0) ??
+            0;
+          const statusServer = (
+            dependencies.startStatusServer ?? startOrchestratorStatusServer
+          )({
+            host: statusHost,
+            port: statusPort,
+            getProjectStatus: () => service.status(),
+            getIssueStatus: (issueIdentifier) =>
+              service.statusForIssue(issueIdentifier),
+            onRefresh: async () => {
+              await service.runOnce({
+                issueIdentifier: parsed.issueIdentifier,
+              });
+            },
+          });
+          statusServer.on("listening", () => {
+            const addr = statusServer.address();
+            if (addr && typeof addr === "object") {
+              const host =
+                addr.address === "::" || addr.address === "0.0.0.0"
+                  ? "localhost"
+                  : addr.address;
+              const urlHost =
+                host !== "localhost" && host.includes(":") ? `[${host}]` : host;
+              stdout.write(
+                `Status server listening on http://${urlHost}:${addr.port}\n`
+              );
+            }
+          });
+        }
+        await service.run({
+          issueIdentifier: parsed.issueIdentifier,
         });
-        statusServer.on("listening", () => {
-          const addr = statusServer.address();
-          if (addr && typeof addr === "object") {
-            const host = addr.address === "::" || addr.address === "0.0.0.0" ? "localhost" : addr.address;
-            const urlHost = host !== "localhost" && host.includes(":") ? `[${host}]` : host;
-            stdout.write(`Status server listening on http://${urlHost}:${addr.port}\n`);
-          }
-        });
+      } finally {
+        await (dependencies.releaseLock ?? releaseProjectLock)(lock);
       }
-      await service.run({
-        issueIdentifier: parsed.issueIdentifier
-      });
       return;
     }
     case "run-once":
     case "dispatch": {
       const result = await service.runOnce({
-        issueIdentifier: parsed.issueIdentifier
+        issueIdentifier: parsed.issueIdentifier,
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
@@ -72,7 +115,7 @@ export async function runCli(
       }
 
       const result = await service.runOnce({
-        issueIdentifier: parsed.issueIdentifier
+        issueIdentifier: parsed.issueIdentifier,
       });
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
@@ -171,7 +214,10 @@ function parseArgs(args: string[]): {
   return parsed;
 }
 
-function parseInteger(value: string | undefined, fallback: number | undefined): number | undefined {
+function parseInteger(
+  value: string | undefined,
+  fallback: number | undefined
+): number | undefined {
   if (!value) {
     return fallback;
   }
@@ -185,9 +231,14 @@ function parseInteger(value: string | undefined, fallback: number | undefined): 
   return parsed;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.message : "Unknown error"}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Unknown error"}\n`
+    );
     process.exitCode = 1;
   });
 }
