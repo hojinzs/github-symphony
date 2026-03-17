@@ -74,6 +74,264 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("cleans up terminal issue workspaces during startup before the first tick", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-cleanup-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      projectConfig.workspaceDir,
+      projectConfig.projectId,
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4102,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    const workspaceRecord = await store.loadIssueWorkspace("tenant-1", workspaceKey);
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(workspaceRecord?.status).toBe("removed");
+  });
+
+  it("logs a warning and continues startup when terminal issue fetch fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-warn-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      projectConfig.workspaceDir,
+      projectConfig.projectId,
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4103,
+      unref: vi.fn(),
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("tracker unavailable"))
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[orchestrator] Startup cleanup skipped for project tenant-1: tracker unavailable"
+    );
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-workflow-warn-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      projectConfig.workspaceDir,
+      projectConfig.projectId,
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4104,
+      unref: vi.fn(),
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const originalLoadProjectWorkflow = (service as any).loadProjectWorkflow.bind(
+      service
+    );
+    vi.spyOn(service as never, "loadProjectWorkflow")
+      .mockImplementationOnce(async () => {
+        throw new Error("workflow cache timeout");
+      })
+      .mockImplementation(originalLoadProjectWorkflow);
+
+    await service.run({ once: true });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[orchestrator] Startup cleanup skipped workspace for acme/platform#1: workflow cache timeout"
+    );
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("serializes startup cleanup with concurrent runOnce calls", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-lock-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const events: string[] = [];
+    let releaseStartupCleanup: (() => void) | null = null;
+    const startupCleanupGate = new Promise<void>((resolve) => {
+      releaseStartupCleanup = resolve;
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    vi.spyOn(service as never, "performStartupCleanup").mockImplementation(
+      async () => {
+        events.push("startup-begin");
+        await startupCleanupGate;
+        events.push("startup-end");
+      }
+    );
+
+    const runPromise = service.run({ once: true }).then(() => {
+      events.push("run");
+    });
+    await Promise.resolve();
+    const manualRunOncePromise = service.runOnce().then(() => {
+      events.push("manual-runOnce");
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(["startup-begin"]);
+
+    releaseStartupCleanup?.();
+    await Promise.all([runPromise, manualRunOncePromise]);
+
+    expect(events.indexOf("startup-end")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("manual-runOnce")).toBeGreaterThan(
+      events.indexOf("startup-end")
+    );
+  });
+
   it("tracks active worker pids and escalates to SIGKILL during shutdown", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-shutdown-"));
@@ -861,6 +1119,381 @@ describe("OrchestratorService", () => {
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
   });
 
+  it("terminates a running worker when lastEventAt exceeds the workflow stall timeout", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stall-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4106,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:02:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:02:00.000Z",
+    });
+
+    const killImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker shutting down");
+      }
+      return createTrackerResponseWithState(repository, "In Progress");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4206,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4106,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(killImpl).toHaveBeenCalledWith(4106, "SIGTERM");
+    expect(updatedRun?.status).toBe("retrying");
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:05:01.000Z");
+    expect(updatedRun?.retryKind).toBe("continuation");
+  });
+
+  it("uses lastEventAt instead of startedAt for stall detection when recent activity exists", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stall-activity-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 300000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4107,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:04:00.000Z",
+    });
+
+    const killImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 4,
+              totalTokens: 14,
+            },
+            sessionInfo: {
+              threadId: "thread-1",
+              turnId: "turn-xyz",
+              turnCount: 2,
+              sessionId: "thread-1-turn-xyz",
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4207,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4107,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(snapshot.activeRuns[0]?.status).toBe("running");
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+    expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
+  });
+
+  it("preserves the persisted lastEventAt when live worker state omits timestamps", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stall-preserve-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 300000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4109,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:04:00.000Z",
+    });
+
+    const killImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 4,
+              totalTokens: 14,
+            },
+            sessionInfo: {
+              threadId: "thread-1",
+              turnId: "turn-xyz",
+              turnCount: 2,
+              sessionId: "thread-1-turn-xyz",
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    let currentTime = new Date("2026-03-08T00:06:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4209,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4109,
+      now: () => currentTime,
+    });
+
+    await service.runOnce();
+
+    currentTime = new Date("2026-03-08T00:08:00.000Z");
+    await service.runOnce();
+
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+  });
+
+  it("disables workflow stall detection when stall_timeout_ms <= 0 but keeps the 30 minute fallback", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stall-disabled-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+        stallTimeoutMs: 0,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4108,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:20:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:20:00.000Z",
+    });
+
+    const killImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker shutting down");
+      }
+      return createTrackerResponseWithState(repository, "In Progress");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4208,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4108,
+      now: () => new Date("2026-03-08T00:31:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(killImpl).toHaveBeenCalledWith(4108, "SIGTERM");
+    expect(updatedRun?.status).toBe("retrying");
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:31:01.000Z");
+    expect(updatedRun?.retryKind).toBe("continuation");
+  });
+
   it("does not execute after_run while waiting for a retry schedule", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -1599,6 +2232,7 @@ async function createRepositoryFixture(
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
     maxConcurrentAgents?: number;
+    stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     codexCommand?: string;
     rawWorkflow?: string;
@@ -1663,6 +2297,7 @@ async function commitWorkflowFixture(
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
     maxConcurrentAgents?: number;
+    stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     afterRunCommand?: string;
     codexCommand?: string;
@@ -1685,6 +2320,7 @@ async function writeWorkflowFixture(
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
     maxConcurrentAgents?: number;
+    stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     afterRunCommand?: string;
     codexCommand?: string;
@@ -1719,6 +2355,7 @@ agent:
 codex:
   command: ${options.codexCommand ?? "codex app-server"}
   read_timeout_ms: 5000
+  stall_timeout_ms: ${options.stallTimeoutMs ?? 300000}
   turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
