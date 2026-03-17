@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runCli } from "./index.js";
+import type { OrchestratorLogLevel } from "./service.js";
 import type { OrchestratorService } from "./service.js";
 
 function createMockService(): OrchestratorService {
@@ -70,6 +71,87 @@ function createFakeStatusServer(
 }
 
 describe("CLI --no-status-api flag", () => {
+  it("passes --log-level verbose to service creation", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    await runCli(
+      [
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--log-level",
+        "verbose",
+      ],
+      {
+        createService,
+      }
+    );
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        logLevel: "verbose",
+      })
+    );
+  });
+
+  it("uses SYMPHONY_LOG_LEVEL when --log-level is omitted", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    process.env.SYMPHONY_LOG_LEVEL = "verbose";
+    try {
+      await runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+        ],
+        {
+          createService,
+        }
+      );
+    } finally {
+      delete process.env.SYMPHONY_LOG_LEVEL;
+    }
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        logLevel: "verbose",
+      })
+    );
+  });
+
   it("does not start the status server when --no-status-api is set", async () => {
     const startStatusServer = vi.fn();
     const service = createMockService();

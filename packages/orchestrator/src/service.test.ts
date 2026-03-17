@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -72,6 +73,59 @@ describe("OrchestratorService", () => {
         }),
       })
     );
+  });
+
+  it("emits verbose lifecycle logs for dispatch, worker exit, retry scheduling, and completion", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-verbose-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4102;
+    worker.unref = vi.fn();
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+      logLevel: "verbose",
+    });
+
+    await service.runOnce();
+    worker.emit("exit", 0);
+    await service.runOnce();
+
+    const output = stderr.write.mock.calls
+      .map((call) => String(call[0]))
+      .join("");
+    const runId = (await store.loadAllRuns())[0]?.runId;
+
+    expect(runId).toBeTruthy();
+    expect(output).toContain(
+      `[dispatch] Issue acme/platform#1 → run ${runId} (port=4601)\n`
+    );
+    expect(output).toContain(`[worker-started] ${runId} (pid=4102)\n`);
+    expect(output).toContain(`[worker-exited] ${runId} (code=0)\n`);
+    expect(output).toContain(
+      `[retry-scheduled] ${runId} kind=continuation attempt=2 nextAt=2026-03-08T00:00:01.000Z\n`
+    );
+    expect(output).toContain(`[run-completed] ${runId} status=retrying\n`);
   });
 
   it("cleans up terminal issue workspaces during startup before the first tick", async () => {
@@ -261,9 +315,11 @@ describe("OrchestratorService", () => {
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const originalLoadProjectWorkflow = (service as any).loadProjectWorkflow.bind(
-      service
-    );
+    const originalLoadProjectWorkflow = (
+      service as unknown as {
+        loadProjectWorkflow: (typeof service)["loadProjectWorkflow"];
+      }
+    ).loadProjectWorkflow.bind(service);
     vi.spyOn(service as never, "loadProjectWorkflow")
       .mockImplementationOnce(async () => {
         throw new Error("workflow cache timeout");
@@ -1199,6 +1255,89 @@ describe("OrchestratorService", () => {
     expect(updatedRun?.status).toBe("retrying");
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:05:01.000Z");
     expect(updatedRun?.retryKind).toBe("continuation");
+  });
+
+  it("formats stall detection as a structured verbose log when enabled", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stall-log-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4106,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:02:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:02:00.000Z",
+    });
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/v1/state")) {
+          throw new Error("worker shutting down");
+        }
+        return createTrackerResponseWithState(repository, "In Progress");
+      }) as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4206,
+        unref: vi.fn(),
+      }) as never,
+      killImpl: vi.fn(),
+      isProcessRunning: (pid) => pid === 4106,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      stderr,
+      logLevel: "verbose",
+    });
+
+    await service.runOnce();
+
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[stall-detected] run-1 (elapsed=180s > 120s)\n"
+    );
   });
 
   it("uses lastEventAt instead of startedAt for stall detection when recent activity exists", async () => {

@@ -13,6 +13,7 @@ import {
   acquireProjectLock,
   createStore,
   releaseProjectLock,
+  resolveOrchestratorLogLevel,
   startOrchestratorStatusServer,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
@@ -56,9 +57,15 @@ type ForegroundShutdownOptions = {
 function parseStartArgs(args: string[]): {
   daemon: boolean;
   projectId?: string;
+  logLevel?: string;
   error?: string;
 } {
-  const parsed: { daemon: boolean; projectId?: string; error?: string } = {
+  const parsed: {
+    daemon: boolean;
+    projectId?: string;
+    logLevel?: string;
+    error?: string;
+  } = {
     daemon: false,
   };
 
@@ -75,6 +82,16 @@ function parseStartArgs(args: string[]): {
         return parsed;
       }
       parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--log-level") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.logLevel = value;
       i += 1;
       continue;
     }
@@ -226,10 +243,22 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
+  let logLevel;
+  try {
+    logLevel = resolveOrchestratorLogLevel(
+      parsed.logLevel ?? process.env.SYMPHONY_LOG_LEVEL
+    );
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Unsupported log level"}\n`
+    );
+    process.exitCode = 2;
+    return;
+  }
   await syncProjectToRuntime(options.configDir, projectConfig);
 
   if (parsed.daemon) {
-    await startDaemon(options, projectId);
+    await startDaemon(options, projectId, parsed.logLevel);
     return;
   }
 
@@ -251,7 +280,9 @@ const handler = async (
     });
 
     const store = createStore(runtimeRoot);
-    const service = new OrchestratorService(store, projectConfig);
+    const service = new OrchestratorService(store, projectConfig, {
+      logLevel,
+    });
 
     const statusServer = startOrchestratorStatusServer({
       host: "127.0.0.1",
@@ -434,7 +465,8 @@ export default handler;
 
 async function startDaemon(
   options: GlobalOptions,
-  projectId: string
+  projectId: string,
+  logLevel?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -444,7 +476,13 @@ async function startDaemon(
 
   const child = spawn(
     process.execPath,
-    [process.argv[1]!, "start", "--project", projectId],
+    [
+      process.argv[1]!,
+      "start",
+      "--project",
+      projectId,
+      ...(logLevel ? ["--log-level", logLevel] : []),
+    ],
     {
       cwd: process.cwd(),
       env: {

@@ -64,6 +64,8 @@ type SpawnLike = (
   options: SpawnOptions
 ) => ChildProcess;
 
+export type OrchestratorLogLevel = "normal" | "verbose";
+
 function parseExecutionPhase(value: unknown) {
   return isWorkflowExecutionPhase(value) ? value : null;
 }
@@ -129,6 +131,8 @@ export class OrchestratorService {
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
       waitImpl?: (ms: number) => Promise<void>;
+      stderr?: Pick<NodeJS.WriteStream, "write">;
+      logLevel?: OrchestratorLogLevel;
     } = {}
   ) {}
 
@@ -474,6 +478,9 @@ export class OrchestratorService {
           issueId: run.issueId,
           issueState: issue.state,
         });
+        this.logVerbose(
+          `[dispatch] Issue ${issue.identifier} → run ${run.runId} (port=${run.port ?? "unknown"})`
+        );
         dispatched += 1;
         slotsRemaining -= 1;
         activeByState.set(
@@ -504,7 +511,7 @@ export class OrchestratorService {
             this.retireWorkerPid(leasedRun.processId);
           }
           if (leasedRun) {
-            await this.store.saveRun({
+            const suppressedRun: OrchestratorRunRecord = {
               ...leasedRun,
               status: "suppressed",
               processId: null,
@@ -513,7 +520,11 @@ export class OrchestratorService {
               runPhase: "canceled_by_reconciliation",
               lastError:
                 "Run suppressed because the tracker state is no longer actionable.",
-            });
+            };
+            await this.store.saveRun(suppressedRun);
+            this.logVerbose(
+              `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+            );
           }
           issueRecords = releaseIssueOrchestration(
             issueRecords,
@@ -961,7 +972,14 @@ export class OrchestratorService {
 
     if (child.pid) {
       this.activeWorkerPids.add(child.pid);
+      this.logVerbose(`[worker-started] ${runId} (pid=${child.pid})`);
     }
+    child.on?.("exit", (code) => {
+      if (child.pid) {
+        this.retireWorkerPid(child.pid);
+      }
+      this.logVerbose(`[worker-exited] ${runId} (code=${code ?? "null"})`);
+    });
     child.unref();
 
     return {
@@ -1055,9 +1073,17 @@ export class OrchestratorService {
         const timeoutMs = isStalledByWorkflowTimeout
           ? configuredStallTimeoutMs
           : STUCK_WORKER_TIMEOUT_MS;
-        process.stderr.write(
-          `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${Math.round((elapsedMs ?? 0) / 1000)}s > ${Math.round((timeoutMs ?? 0) / 1000)}s) — sending SIGTERM\n`
-        );
+        const elapsedSeconds = Math.round((elapsedMs ?? 0) / 1000);
+        const timeoutSeconds = Math.round((timeoutMs ?? 0) / 1000);
+        if (this.isVerboseLoggingEnabled()) {
+          this.writeStderr(
+            `[stall-detected] ${run.runId} (elapsed=${elapsedSeconds}s > ${timeoutSeconds}s)`
+          );
+        } else {
+          this.writeStderr(
+            `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
+          );
+        }
         this.sendSignal(run.processId, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
@@ -1154,6 +1180,9 @@ export class OrchestratorService {
           runWithTokens.lastError ?? "Worker process exited unexpectedly.",
       };
       await this.store.saveRun(failedRecord);
+      this.logVerbose(
+        `[run-completed] ${failedRecord.runId} status=${failedRecord.status}`
+      );
       return {
         issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
         recovered: false,
@@ -1237,6 +1266,12 @@ export class OrchestratorService {
           : "Worker process exited unexpectedly.",
     };
     await this.store.saveRun(retryRecord);
+    this.logVerbose(
+      `[retry-scheduled] ${retryRecord.runId} kind=${retryKind} attempt=${retryRecord.attempt} nextAt=${nextRetryAt}`
+    );
+    this.logVerbose(
+      `[run-completed] ${retryRecord.runId} status=${retryRecord.status}`
+    );
     issueRecords = upsertIssueOrchestration(issueRecords, {
       issueId: run.issueId,
       identifier: run.issueIdentifier,
@@ -1267,6 +1302,21 @@ export class OrchestratorService {
 
   private now(): Date {
     return this.dependencies.now?.() ?? new Date();
+  }
+
+  private isVerboseLoggingEnabled(): boolean {
+    return this.dependencies.logLevel === "verbose";
+  }
+
+  private writeStderr(message: string): void {
+    (this.dependencies.stderr ?? process.stderr).write(`${message}\n`);
+  }
+
+  private logVerbose(message: string): void {
+    if (!this.isVerboseLoggingEnabled()) {
+      return;
+    }
+    this.writeStderr(message);
   }
 
   private async waitForNextPoll(): Promise<void> {

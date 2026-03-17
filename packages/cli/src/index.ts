@@ -45,6 +45,7 @@ type CliOptionValues = Partial<
     force?: boolean;
     issue?: string;
     level?: string;
+    logLevel?: string;
     nonInteractive?: boolean;
     project?: string;
     projectId?: string;
@@ -185,6 +186,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start the orchestrator")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
@@ -194,6 +196,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("start", args, values);
   });
 
@@ -236,6 +239,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("run")
       .description("Dispatch a single issue")
       .argument("<issue>", "Issue identifier")
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("-w, --watch", "Watch status after dispatch")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
@@ -245,6 +249,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [issue];
     pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--log-level", values.logLevel);
     pushOption(args, "--watch", values.watch);
     await invokeHandler("run", args, values);
   });

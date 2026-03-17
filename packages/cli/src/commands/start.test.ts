@@ -14,6 +14,8 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   acquireProjectLock,
   releaseProjectLock,
   createStore: vi.fn(() => ({ kind: "store" })),
+  resolveOrchestratorLogLevel: (value?: string | null) =>
+    value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
     runOnce = runOnce;
     status = status;

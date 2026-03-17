@@ -11,6 +11,8 @@ const cancelMock = vi.fn();
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
+  resolveOrchestratorLogLevel: (value?: string | null) =>
+    value === "verbose" ? "verbose" : "normal",
 }));
 
 vi.mock("@clack/prompts", async () => {
@@ -97,6 +99,30 @@ describe("lifecycle command integration", () => {
       owner: "beta",
       name: "api",
     });
+  });
+
+  it("forwards --log-level to orchestrator single-issue dispatch", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+
+    await runModule.default(
+      ["--project", "tenant-a", "--log-level", "verbose", "acme/platform#42"],
+      baseOptions(configDir)
+    );
+
+    expect(orchestratorRunCli).toHaveBeenCalledWith([
+      "run-issue",
+      "--runtime-root",
+      configDir,
+      "--project-id",
+      "tenant-a",
+      "--issue",
+      "acme/platform#42",
+      "--log-level",
+      "verbose",
+    ]);
   });
 
   it("auto-selects the only configured project when start omits --project-id", async () => {

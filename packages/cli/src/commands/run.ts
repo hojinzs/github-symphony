@@ -13,8 +13,14 @@ function parseRunArgs(args: string[]): {
   issue?: string;
   watch: boolean;
   projectId?: string;
+  logLevel?: string;
 } {
-  const parsed: { issue?: string; watch: boolean; projectId?: string } = {
+  const parsed: {
+    issue?: string;
+    watch: boolean;
+    projectId?: string;
+    logLevel?: string;
+  } = {
     watch: false,
   };
   for (let i = 0; i < args.length; i += 1) {
@@ -23,6 +29,9 @@ function parseRunArgs(args: string[]): {
       parsed.watch = true;
     } else if (arg === "--project" || arg === "--project-id") {
       parsed.projectId = args[i + 1];
+      i += 1;
+    } else if (arg === "--log-level") {
+      parsed.logLevel = args[i + 1];
       i += 1;
     } else if (!arg?.startsWith("--")) {
       // Positional arg = issue identifier
@@ -81,6 +90,7 @@ const handler = async (
     projectId,
     "--issue",
     parsed.issue,
+    ...(parsed.logLevel ? ["--log-level", parsed.logLevel] : []),
   ]);
 
   if (parsed.watch) {
