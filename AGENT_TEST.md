@@ -50,7 +50,7 @@ AI Agent
 - **File Tracker** (`@gh-symphony/tracker-file`): GitHub API 없이 JSON 파일에서 이슈를 읽음
 - **Stub Worker** (`e2e/stub-worker.ts`): Codex AI 없이 Worker 동작을 시뮬레이션
 - **격리**: 모든 상태는 tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
-- **이벤트 미러링(선택)**: `SYMPHONY_EVENTS_DIR=/e2e/evidence`를 주면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
+- **이벤트 미러링(선택)**: `docker-compose.e2e.events.yml` override를 함께 쓰면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
 
 ### Stub Worker 시나리오
 
@@ -72,7 +72,7 @@ AI Agent
 ```bash
 echo "[]" > e2e/fixtures/issues.json
 mkdir -p evidence
-SYMPHONY_EVENTS_DIR=/e2e/evidence docker compose -f docker-compose.e2e.yml up -d --build
+docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
@@ -152,7 +152,7 @@ docker logs symphony-e2e
 # 이벤트 로그 (구조화된 NDJSON, 기본 tmpfs)
 docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson'
 
-# 호스트 미러 로그 (SYMPHONY_EVENTS_DIR 활성화 시)
+# 호스트 미러 로그 (events override 활성화 시)
 tail -f evidence/projects/e2e-project/runs/*/events.ndjson
 
 # Worker 로그 (stderr만 캡처됨)

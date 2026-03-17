@@ -8,9 +8,7 @@ services:
       - "4680:4680"
     volumes:
       - ./e2e/fixtures:/e2e/fixtures
-      - ./evidence:/e2e/evidence
     tmpfs:
       - /app/.runtime:size=100M
     environment:
       STUB_SCENARIO: happy
-      SYMPHONY_EVENTS_DIR: ${SYMPHONY_EVENTS_DIR:-}

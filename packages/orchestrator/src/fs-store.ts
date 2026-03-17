@@ -201,17 +201,26 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     }
 
     const path = join(runDirectory, "events.ndjson");
+    const resolvedPath = resolve(path);
     const serializedEvent = JSON.stringify(event) + "\n";
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, serializedEvent, "utf8");
 
-    const mirrorPath = this.resolveMirroredEventsPath(path);
+    const mirrorPath = this.resolveMirroredEventsPath(resolvedPath);
     if (!mirrorPath) {
       return;
     }
 
-    await mkdir(dirname(mirrorPath), { recursive: true });
-    await appendFile(mirrorPath, serializedEvent, "utf8");
+    try {
+      await mkdir(dirname(mirrorPath), { recursive: true });
+      await appendFile(mirrorPath, serializedEvent, "utf8");
+    } catch (error) {
+      console.warn(
+        `Failed to mirror orchestrator event log to ${mirrorPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   async loadRecentRunEvents(

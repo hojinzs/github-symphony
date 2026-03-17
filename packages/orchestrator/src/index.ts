@@ -362,7 +362,7 @@ function resolveOptionalPath(value: string | undefined): string | undefined {
     return undefined;
   }
 
-  return resolve(value);
+  return resolve(value.trim());
 }
 
 function parseInteger(

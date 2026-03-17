@@ -1,7 +1,8 @@
 import { appendFile, mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { chdir } from "node:process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { OrchestratorFsStore } from "./fs-store.js";
 
 describe("OrchestratorFsStore.loadRecentRunEvents", () => {
@@ -140,5 +141,84 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         "utf8"
       )
     ).resolves.toContain('"event":"hook-failed"');
+  });
+
+  it("mirrors events when the runtime root is configured as a relative path", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "orchestrator-cwd-"));
+    const previousCwd = process.cwd();
+    const eventsMirrorRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-events-")
+    );
+
+    chdir(workspaceRoot);
+    try {
+      const store = new OrchestratorFsStore(".runtime", {
+        eventsMirrorRoot,
+      });
+
+      await store.appendRunEvent("run-1", {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "hook-failed",
+        projectId: "project-1",
+        hook: "after_create",
+        error: "hook failed",
+      });
+
+      await expect(
+        readFile(
+          join(
+            eventsMirrorRoot,
+            "projects",
+            "project-1",
+            "runs",
+            "run-1",
+            "events.ndjson"
+          ),
+          "utf8"
+        )
+      ).resolves.toContain('"event":"hook-failed"');
+    } finally {
+      chdir(previousCwd);
+    }
+  });
+
+  it("does not fail the primary write when the mirror path is unavailable", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const eventsMirrorRoot = join(runtimeRoot, "mirror-file");
+    const store = new OrchestratorFsStore(runtimeRoot, {
+      eventsMirrorRoot,
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await appendFile(eventsMirrorRoot, "not-a-directory", "utf8");
+
+    try {
+      await expect(
+        store.appendRunEvent("run-1", {
+          at: "2026-03-16T00:01:00.000Z",
+          event: "hook-failed",
+          projectId: "project-1",
+          hook: "after_create",
+          error: "hook failed",
+        })
+      ).resolves.toBeUndefined();
+
+      await expect(
+        readFile(
+          join(
+            runtimeRoot,
+            "projects",
+            "project-1",
+            "runs",
+            "run-1",
+            "events.ndjson"
+          ),
+          "utf8"
+        )
+      ).resolves.toContain('"event":"hook-failed"');
+      expect(warnSpy).toHaveBeenCalledOnce();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

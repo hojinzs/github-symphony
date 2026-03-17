@@ -197,6 +197,50 @@ describe("CLI --no-status-api flag", () => {
     );
   });
 
+  it("trims SYMPHONY_EVENTS_DIR before resolving it", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const eventsDir = join(runtimeRoot, "evidence");
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          eventsDir?: string;
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    process.env.SYMPHONY_EVENTS_DIR = `  ${eventsDir}  `;
+    try {
+      await runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+        ],
+        {
+          createService,
+        }
+      );
+    } finally {
+      delete process.env.SYMPHONY_EVENTS_DIR;
+    }
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        eventsDir,
+      })
+    );
+  });
+
   it("uses SYMPHONY_LOG_LEVEL when --log-level is omitted", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const service = createMockService();
