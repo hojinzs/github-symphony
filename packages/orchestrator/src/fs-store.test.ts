@@ -46,8 +46,8 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
   it("skips corrupted trailing lines and returns the latest valid events", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
-    const path = join(store.runDir("run-1"), "events.ndjson");
-    await mkdir(store.runDir("run-1"), { recursive: true });
+    const path = join(store.runDir("run-1", "project-1"), "events.ndjson");
+    await mkdir(store.runDir("run-1", "project-1"), { recursive: true });
 
     await appendFile(
       path,
@@ -83,6 +83,29 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         at: "2026-03-16T00:01:00.000Z",
         event: "worker-error",
         message: "worker failed",
+      },
+    ]);
+  });
+
+  it("writes events to the provided project run directory before run.json exists", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await store.appendRunEvent("run-1", {
+      at: "2026-03-16T00:01:00.000Z",
+      event: "hook-failed",
+      projectId: "project-1",
+      hook: "after_create",
+      error: "hook failed",
+    });
+
+    await expect(
+      store.loadRecentRunEvents("run-1", 1, "project-1")
+    ).resolves.toEqual([
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "hook-failed",
+        message: "hook failed",
       },
     ]);
   });

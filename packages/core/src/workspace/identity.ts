@@ -10,7 +10,7 @@ import type { IssueSubjectIdentity } from "../domain/issue.js";
  * easy to reverse-map back to the source issue.
  *
  * **Migration note**: Existing run-scoped workspaces (under `runs/<run-id>/`) are
- * unaffected. The issue-scoped workspace directory (`workspaces/<id>/issues/<key>/`)
+ * unaffected. The issue-scoped workspace directory (`projects/<id>/issues/<key>/`)
  * is created on the first run for a given issue and reused on subsequent runs.
  * `OrchestratorRunRecord.issueWorkspaceKey` is nullable to support older run
  * records created before the transition.
@@ -49,21 +49,15 @@ export function deriveLegacyIssueWorkspaceKey(
 }
 
 export function resolveIssueWorkspaceDirectory(
-  workspaceRoot: string,
-  projectId: string,
+  projectDirectory: string,
   workspaceKey: string
 ): string {
-  const normalizedRoot = resolve(workspaceRoot);
-  const candidate = resolve(
-    normalizedRoot,
-    projectId,
-    "issues",
-    workspaceKey
-  );
+  const normalizedProjectDirectory = resolve(projectDirectory);
+  const candidate = resolve(normalizedProjectDirectory, "issues", workspaceKey);
 
-  if (!candidate.startsWith(`${normalizedRoot}/`)) {
+  if (!candidate.startsWith(`${normalizedProjectDirectory}/`)) {
     throw new Error(
-      "Issue workspace path escapes the configured workspace root."
+      "Issue workspace path escapes the configured project directory."
     );
   }
 

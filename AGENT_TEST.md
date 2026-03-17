@@ -148,10 +148,10 @@ Stub worker는 이슈 상태를 변경하지 않으므로, 완료 후 이슈를 
 docker logs symphony-e2e
 
 # 이벤트 로그 (구조화된 NDJSON)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/orchestrator/runs/*/events.ndjson'
+docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson'
 
 # Worker 로그 (stderr만 캡처됨)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/orchestrator/runs/*/worker.log'
+docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/worker.log'
 ```
 
 ### 7. 정리

@@ -26,6 +26,7 @@ import {
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
+  type OrchestratorEvent,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
   type ProjectStatusSnapshot,
@@ -198,7 +199,10 @@ export class OrchestratorService {
     }
 
     const currentRunCandidate = issueRecord.currentRunId
-      ? await this.store.loadRun(issueRecord.currentRunId)
+      ? await this.store.loadRun(
+          issueRecord.currentRunId,
+          this.projectConfig.projectId
+        )
       : null;
     const currentRun = isMatchingIssueRun(
       currentRunCandidate,
@@ -212,7 +216,11 @@ export class OrchestratorService {
     const recentEvents =
       currentRun === null
         ? []
-        : await this.store.loadRecentRunEvents(currentRun.runId);
+        : await this.store.loadRecentRunEvents(
+            currentRun.runId,
+            20,
+            currentRun.projectId
+          );
     const latestEventMessage =
       recentEvents[recentEvents.length - 1]?.message ?? null;
     const currentAttempt =
@@ -265,7 +273,10 @@ export class OrchestratorService {
             : [
                 {
                   label: "worker",
-                  path: join(this.store.runDir(currentRun.runId), "worker.log"),
+                  path: join(
+                    this.store.runDir(currentRun.runId, currentRun.projectId),
+                    "worker.log"
+                  ),
                   url: null,
                 },
               ],
@@ -504,7 +515,10 @@ export class OrchestratorService {
         );
         if (!resolvedIssue) {
           const leasedRun = issueRecord.currentRunId
-            ? await this.store.loadRun(issueRecord.currentRunId)
+            ? await this.store.loadRun(
+                issueRecord.currentRunId,
+                tenant.projectId
+              )
             : null;
           if (leasedRun?.processId) {
             this.sendSignal(leasedRun.processId, "SIGTERM");
@@ -783,8 +797,8 @@ export class OrchestratorService {
     repository: RepositoryRef
   ): Promise<WorkflowResolution> {
     const cacheRoot = join(
-      tenant.workspaceDir,
-      "workflow-cache",
+      this.store.projectDir(tenant.projectId),
+      "cache",
       repository.owner,
       repository.name
     );
@@ -812,7 +826,7 @@ export class OrchestratorService {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
-    const runDir = this.store.runDir(runId);
+    const runDir = this.store.runDir(runId, tenant.projectId);
     const workspaceRuntimeDir = join(runDir, "workspace-runtime");
 
     const issueSubjectId = issue.id;
@@ -833,9 +847,9 @@ export class OrchestratorService {
         : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
+    const projectDir = this.store.projectDir(tenant.projectId);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      tenant.workspaceDir,
-      tenant.projectId,
+      projectDir,
       workspaceKey
     );
 
@@ -883,9 +897,10 @@ export class OrchestratorService {
         await this.store.appendRunEvent(runId, {
           at: now.toISOString(),
           event: "hook-failed",
+          projectId: tenant.projectId,
           hook: "after_create",
           error: afterCreateResult.error ?? null,
-        });
+        } as OrchestratorEvent);
       }
     }
 
@@ -1163,11 +1178,12 @@ export class OrchestratorService {
       await this.store.appendRunEvent(run.runId, {
         at: now.toISOString(),
         event: "worker-error",
+        projectId: run.projectId,
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
         error: workerInfo.lastError,
         attempt: run.attempt,
-      });
+      } as OrchestratorEvent);
     }
 
     if (run.attempt >= this.getProjectMaxAttempts(tenant)) {
@@ -1210,8 +1226,7 @@ export class OrchestratorService {
 
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-        tenant.workspaceDir,
-        tenant.projectId,
+        this.store.projectDir(tenant.projectId),
         run.issueWorkspaceKey
       );
 
@@ -1656,10 +1671,11 @@ export class OrchestratorService {
     await this.store.appendRunEvent(run.runId, {
       at: now.toISOString(),
       event: "run-recovered",
+      projectId: run.projectId,
       issueIdentifier: run.issueIdentifier,
       issueId: run.issueId,
       sessionId: sessionId ?? undefined,
-    });
+    } as OrchestratorEvent);
 
     return {
       issueRecords: upsertIssueOrchestration(issueRecords, {

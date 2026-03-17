@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
@@ -53,16 +53,25 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseLogsArgs(args);
+  const runtimeRoot = resolve(options.configDir);
 
   // If --run is specified, read that run's events
   if (parsed.run) {
-    const eventsPath = join(
-      resolve(options.configDir),
-      "orchestrator",
-      "runs",
-      parsed.run,
-      "events.ndjson"
-    );
+    const eventsPath = parsed.projectId
+      ? join(
+          runtimeRoot,
+          "projects",
+          parsed.projectId,
+          "runs",
+          parsed.run,
+          "events.ndjson"
+        )
+      : await resolveRunEventsPath(runtimeRoot, parsed.run);
+    if (!eventsPath) {
+      process.stderr.write(`No events found for run: ${parsed.run}\n`);
+      process.exitCode = 1;
+      return;
+    }
     try {
       const content = await readFile(eventsPath, "utf8");
       const lines = content.trim().split("\n").filter(Boolean);
@@ -129,27 +138,41 @@ const handler = async (
   }
 
   // Scan all run events
-  const runsDir = join(resolve(options.configDir), "orchestrator", "runs");
+  const runRoots = parsed.projectId
+    ? [join(runtimeRoot, "projects", parsed.projectId, "runs")]
+    : await listProjectRunRoots(runtimeRoot);
+  let foundRuns = false;
+
   try {
-    const entries = await readdir(runsDir);
-    for (const entry of entries) {
-      const eventsPath = join(runsDir, entry, "events.ndjson");
-      try {
-        const content = await readFile(eventsPath, "utf8");
-        const lines = content.trim().split("\n").filter(Boolean);
-        for (const line of lines) {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          if (parsed.projectId && event.projectId !== parsed.projectId)
-            continue;
-          if (parsed.level && event.level !== parsed.level) continue;
-          if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
-          process.stdout.write(formatEvent(event) + "\n");
+    for (const runsDir of runRoots) {
+      const entries = await safeReadDir(runsDir);
+      if (entries.length === 0) {
+        continue;
+      }
+      foundRuns = true;
+      for (const entry of entries) {
+        const eventsPath = join(runsDir, entry, "events.ndjson");
+        try {
+          const content = await readFile(eventsPath, "utf8");
+          const lines = content.trim().split("\n").filter(Boolean);
+          for (const line of lines) {
+            const event = JSON.parse(line) as Record<string, unknown>;
+            if (parsed.projectId && event.projectId !== parsed.projectId)
+              continue;
+            if (parsed.level && event.level !== parsed.level) continue;
+            if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
+            process.stdout.write(formatEvent(event) + "\n");
+          }
+        } catch {
+          // Skip runs without events
         }
-      } catch {
-        // Skip runs without events
       }
     }
   } catch {
+    // fall through to friendly error below
+  }
+
+  if (!foundRuns) {
     process.stderr.write("No runs found. Start the orchestrator first.\n");
   }
 };
@@ -162,4 +185,40 @@ function formatEvent(event: Record<string, unknown>): string {
   const issue = event.issueIdentifier ?? "";
   const extra = event.error ? ` error=${event.error}` : "";
   return `[${at}] ${eventType} ${issue}${extra}`;
+}
+
+async function listProjectRunRoots(runtimeRoot: string): Promise<string[]> {
+  try {
+    const projectIds = await readdir(join(runtimeRoot, "projects"));
+    return projectIds.map((projectId) =>
+      join(runtimeRoot, "projects", projectId, "runs")
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function resolveRunEventsPath(
+  runtimeRoot: string,
+  runId: string
+): Promise<string | null> {
+  for (const runsDir of await listProjectRunRoots(runtimeRoot)) {
+    const eventsPath = join(runsDir, runId, "events.ndjson");
+    try {
+      await stat(eventsPath);
+      return eventsPath;
+    } catch {
+      // Continue searching.
+    }
+  }
+
+  return null;
+}
+
+async function safeReadDir(path: string): Promise<string[]> {
+  try {
+    return await readdir(path);
+  } catch {
+    return [];
+  }
 }

@@ -148,8 +148,7 @@ describe("OrchestratorService", () => {
       issueSubjectId: "issue-1",
     });
     const workspacePath = resolveIssueWorkspaceDirectory(
-      projectConfig.workspaceDir,
-      projectConfig.projectId,
+      store.projectDir(projectConfig.projectId),
       workspaceKey
     );
     const repositoryPath = join(workspacePath, "repository");
@@ -219,8 +218,7 @@ describe("OrchestratorService", () => {
       issueSubjectId: "issue-1",
     });
     const workspacePath = resolveIssueWorkspaceDirectory(
-      projectConfig.workspaceDir,
-      projectConfig.projectId,
+      store.projectDir(projectConfig.projectId),
       workspaceKey
     );
     const repositoryPath = join(workspacePath, "repository");
@@ -283,8 +281,7 @@ describe("OrchestratorService", () => {
       issueSubjectId: "issue-1",
     });
     const workspacePath = resolveIssueWorkspaceDirectory(
-      projectConfig.workspaceDir,
-      projectConfig.projectId,
+      store.projectDir(projectConfig.projectId),
       workspaceKey
     );
     const repositoryPath = join(workspacePath, "repository");
@@ -669,7 +666,7 @@ describe("OrchestratorService", () => {
         codex_session_logs: [
           {
             label: "worker",
-            path: join(store.runDir("run-1"), "worker.log"),
+            path: join(store.runDir("run-1", "tenant-1"), "worker.log"),
             url: null,
           },
         ],
@@ -975,8 +972,8 @@ describe("OrchestratorService", () => {
     expect(workerEnv?.SYMPHONY_AGENT_COMMAND).toBe("codex --model gpt-5");
     expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(
       join(
-        projectConfig.workspaceDir,
-        "workflow-cache",
+        store.projectDir(projectConfig.projectId),
+        "cache",
         repository.owner,
         repository.name,
         "last-known-good",
@@ -1024,7 +1021,7 @@ describe("OrchestratorService", () => {
         typeof input === "object" &&
         input !== null &&
         "targetDirectory" in input &&
-        String(input.targetDirectory).includes("/workflow-cache/")
+        String(input.targetDirectory).includes("/cache/")
     );
 
     expect(workflowSyncCalls).toHaveLength(1);
@@ -2297,8 +2294,7 @@ Workspace prompt.
       issueSubjectId: "issue-1",
     });
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(
-      workspaceDir,
-      "tenant-1",
+      store.projectDir("tenant-1"),
       workspaceKey
     );
 

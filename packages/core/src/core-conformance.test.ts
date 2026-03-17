@@ -94,20 +94,18 @@ describe("deriveIssueWorkspaceKey", () => {
 describe("resolveIssueWorkspaceDirectory", () => {
   it("produces the correct issue workspace path", () => {
     const result = resolveIssueWorkspaceDirectory(
-      "/runtime/workspaces",
-      "ws-1",
+      "/runtime/projects/ws-1",
       "abc123"
     );
 
-    expect(result).toBe("/runtime/workspaces/ws-1/issues/abc123");
+    expect(result).toBe("/runtime/projects/ws-1/issues/abc123");
   });
 
   it("rejects path traversal that escapes the root", () => {
     expect(() =>
       resolveIssueWorkspaceDirectory(
-        "/runtime/workspaces",
-        "../../../../../../tmp",
-        "key"
+        "/runtime/projects/ws-1",
+        "../../../../../../tmp"
       )
     ).toThrow("escapes");
   });
@@ -115,8 +113,8 @@ describe("resolveIssueWorkspaceDirectory", () => {
 
 describe("resolveIssueRepositoryPath", () => {
   it("appends /repository to the workspace directory", () => {
-    expect(resolveIssueRepositoryPath("/workspaces/ws-1/issues/abc")).toBe(
-      "/workspaces/ws-1/issues/abc/repository"
+    expect(resolveIssueRepositoryPath("/projects/ws-1/issues/abc")).toBe(
+      "/projects/ws-1/issues/abc/repository"
     );
   });
 });

@@ -20,12 +20,19 @@ export type OrchestratorStateStore = {
   ): Promise<void>;
   saveProjectStatus(status: ProjectStatusSnapshot): Promise<void>;
   loadProjectStatus(projectId: string): Promise<ProjectStatusSnapshot | null>;
-  loadRun(runId: string): Promise<OrchestratorRunRecord | null>;
+  loadRun(
+    runId: string,
+    projectId?: string
+  ): Promise<OrchestratorRunRecord | null>;
   loadAllRuns(): Promise<OrchestratorRunRecord[]>;
   saveRun(run: OrchestratorRunRecord): Promise<void>;
   appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void>;
-  loadRecentRunEvents(runId: string, limit?: number): Promise<IssueStatusEvent[]>;
-  runDir(runId: string): string;
+  loadRecentRunEvents(
+    runId: string,
+    limit?: number,
+    projectId?: string
+  ): Promise<IssueStatusEvent[]>;
+  runDir(runId: string, projectId?: string): string;
   projectDir(projectId: string): string;
   loadIssueWorkspace(projectId: string, workspaceKey: string): Promise<IssueWorkspaceRecord | null>;
   loadIssueWorkspaces(projectId: string): Promise<IssueWorkspaceRecord[]>;

@@ -103,7 +103,6 @@ async function seedProject(
   if (input.snapshot) {
     const runtimeDir = join(
       configDir,
-      "orchestrator",
       "projects",
       input.projectId
     );

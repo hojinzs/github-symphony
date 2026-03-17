@@ -252,7 +252,7 @@ async function readPersistedSnapshot(
   try {
     const runtimeRoot = resolveRuntimeRoot(configDir);
     const content = await readFile(
-      join(runtimeRoot, "orchestrator", "projects", projectId, "status.json"),
+      join(runtimeRoot, "projects", projectId, "status.json"),
       "utf8"
     );
     return JSON.parse(content) as ProjectStatusSnapshot;

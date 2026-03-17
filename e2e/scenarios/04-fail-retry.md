@@ -47,7 +47,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 
 5. **Check event log**
    ```bash
-   docker exec symphony-e2e sh -c 'cat /app/.runtime/orchestrator/runs/*/events.ndjson'
+   docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson'
    # Expected: dispatch event, failure event, retry-scheduled event
    ```
 

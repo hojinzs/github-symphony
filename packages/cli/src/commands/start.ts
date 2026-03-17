@@ -21,7 +21,6 @@ import {
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import {
   resolveRuntimeRoot,
-  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
@@ -256,8 +255,6 @@ const handler = async (
     process.exitCode = 2;
     return;
   }
-  await syncProjectToRuntime(options.configDir, projectConfig);
-
   if (parsed.daemon) {
     await startDaemon(options, projectId, parsed.logLevel);
     return;
@@ -344,6 +341,7 @@ const handler = async (
             if (!currentRunIds.has(prevRun.runId)) {
               await tailWorkerLog(
                 runtimeRoot,
+                projectId,
                 prevRun.runId,
                 prevRun.issueIdentifier
               );
@@ -436,17 +434,12 @@ export async function shutdownForegroundOrchestrator(
 
 async function tailWorkerLog(
   runtimeRoot: string,
+  projectId: string,
   runId: string,
   issueIdentifier: string
 ): Promise<void> {
   try {
-    const logPath = join(
-      runtimeRoot,
-      "orchestrator",
-      "runs",
-      runId,
-      "worker.log"
-    );
+    const logPath = join(runtimeRoot, "projects", projectId, "runs", runId, "worker.log");
     const content = await readFile(logPath, "utf8");
     const lines = content.split("\n").filter((l) => l.trim());
     if (lines.length === 0) return;

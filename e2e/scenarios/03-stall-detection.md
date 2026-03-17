@@ -42,7 +42,7 @@ docker compose -f docker-compose.e2e.yml up -d --build
 
 5. **Verify graceful shutdown**
    ```bash
-   docker exec symphony-e2e sh -c 'cat /app/.runtime/orchestrator/runs/*/events.ndjson' | tail -5
+   docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson' | tail -5
    # Expected: events showing stall detection and worker termination
    ```
 

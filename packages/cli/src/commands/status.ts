@@ -4,7 +4,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   resolveRuntimeRoot,
-  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
@@ -192,7 +191,6 @@ async function readStatusSnapshot(
   try {
     const statusPath = join(
       runtimeRoot,
-      "orchestrator",
       "projects",
       projectId,
       "status.json"
@@ -229,8 +227,6 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  await syncProjectToRuntime(options.configDir, projectConfig);
-
   if (parsed.watch) {
     const isTTY = process.stdout.isTTY === true;
     let terminalWidth = process.stdout.columns ?? 115;
