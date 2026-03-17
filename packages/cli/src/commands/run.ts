@@ -14,12 +14,14 @@ function parseRunArgs(args: string[]): {
   watch: boolean;
   projectId?: string;
   logLevel?: string;
+  error?: string;
 } {
   const parsed: {
     issue?: string;
     watch: boolean;
     projectId?: string;
     logLevel?: string;
+    error?: string;
   } = {
     watch: false,
   };
@@ -28,14 +30,27 @@ function parseRunArgs(args: string[]): {
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
     } else if (arg === "--project" || arg === "--project-id") {
-      parsed.projectId = args[i + 1];
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.projectId = value;
       i += 1;
     } else if (arg === "--log-level") {
-      parsed.logLevel = args[i + 1];
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.logLevel = value;
       i += 1;
-    } else if (!arg?.startsWith("--")) {
+    } else if (!arg?.startsWith("-")) {
       // Positional arg = issue identifier
       parsed.issue = arg;
+    } else {
+      parsed.error = `Unknown option '${arg}'`;
+      return parsed;
     }
   }
   return parsed;
@@ -46,6 +61,12 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseRunArgs(args);
+
+  if (parsed.error) {
+    process.stderr.write(`${parsed.error}\n`);
+    process.exitCode = 2;
+    return;
+  }
 
   if (!parsed.issue) {
     process.stderr.write("Usage: gh-symphony run <owner/repo#number>\n");

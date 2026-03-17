@@ -33,7 +33,9 @@ export function resolveOrchestratorLogLevel(
   if (value === "verbose") {
     return "verbose";
   }
-  throw new Error(`Unsupported log level: ${value}`);
+  throw new Error(
+    `Unsupported log level: ${value}. Supported values: normal, verbose.`
+  );
 }
 
 export async function runCli(
@@ -323,6 +325,9 @@ function parseArgs(args: string[]): {
         parsed.noStatusApi = true;
         break;
       case "--log-level":
+        if (!value || value.startsWith("-")) {
+          throw new Error(`Option '${argument}' argument missing`);
+        }
         parsed.logLevel = value;
         index += 1;
         break;

@@ -15,6 +15,7 @@ import {
   releaseProjectLock,
   resolveOrchestratorLogLevel,
   startOrchestratorStatusServer,
+  type OrchestratorLogLevel,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
@@ -243,7 +244,7 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  let logLevel;
+  let logLevel: OrchestratorLogLevel;
   try {
     logLevel = resolveOrchestratorLogLevel(
       parsed.logLevel ?? process.env.SYMPHONY_LOG_LEVEL

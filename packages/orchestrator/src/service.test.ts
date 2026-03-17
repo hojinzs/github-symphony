@@ -108,7 +108,7 @@ describe("OrchestratorService", () => {
     });
 
     await service.runOnce();
-    worker.emit("exit", 0);
+    worker.emit("exit", 0, null);
     await service.runOnce();
 
     const output = stderr.write.mock.calls
@@ -121,7 +121,9 @@ describe("OrchestratorService", () => {
       `[dispatch] Issue acme/platform#1 → run ${runId} (port=4601)\n`
     );
     expect(output).toContain(`[worker-started] ${runId} (pid=4102)\n`);
-    expect(output).toContain(`[worker-exited] ${runId} (code=0)\n`);
+    expect(output).toContain(
+      `[worker-exited] ${runId} (code=0, signal=null)\n`
+    );
     expect(output).toContain(
       `[retry-scheduled] ${runId} kind=continuation attempt=2 nextAt=2026-03-08T00:00:01.000Z\n`
     );

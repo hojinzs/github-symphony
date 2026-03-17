@@ -125,6 +125,27 @@ describe("lifecycle command integration", () => {
     ]);
   });
 
+  it("rejects missing --log-level values for single-issue dispatch", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runModule.default(
+      ["--project", "tenant-a", "--log-level", "--watch", "acme/platform#42"],
+      baseOptions(configDir)
+    );
+
+    expect(orchestratorRunCli).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
+      "Option '--log-level' argument missing"
+    );
+    expect(process.exitCode).toBe(2);
+  });
+
   it("auto-selects the only configured project when start omits --project-id", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -275,13 +296,20 @@ describe("lifecycle command integration", () => {
     });
 
     await projectModule.default(
-      ["start", "--project-id", "tenant-b", "--daemon"],
+      ["start", "--project-id", "tenant-b", "--daemon", "--log-level", "verbose"],
       baseOptions(configDir)
     );
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "start", "--project", "tenant-b"],
+      [
+        process.argv[1],
+        "start",
+        "--project",
+        "tenant-b",
+        "--log-level",
+        "verbose",
+      ],
       expect.any(Object)
     );
   });

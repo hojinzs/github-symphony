@@ -152,6 +152,41 @@ describe("CLI --no-status-api flag", () => {
     );
   });
 
+  it("rejects --log-level without a value", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+
+    await expect(
+      runCli([
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--log-level",
+      ])
+    ).rejects.toThrow("Option '--log-level' argument missing");
+  });
+
+  it("describes supported log levels in validation errors", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+
+    await expect(
+      runCli([
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--log-level",
+        "loud",
+      ])
+    ).rejects.toThrow(
+      "Unsupported log level: loud. Supported values: normal, verbose."
+    );
+  });
+
   it("does not start the status server when --no-status-api is set", async () => {
     const startStatusServer = vi.fn();
     const service = createMockService();

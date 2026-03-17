@@ -974,11 +974,13 @@ export class OrchestratorService {
       this.activeWorkerPids.add(child.pid);
       this.logVerbose(`[worker-started] ${runId} (pid=${child.pid})`);
     }
-    child.on?.("exit", (code) => {
+    child.on?.("exit", (code, signal) => {
       if (child.pid) {
         this.retireWorkerPid(child.pid);
       }
-      this.logVerbose(`[worker-exited] ${runId} (code=${code ?? "null"})`);
+      this.logVerbose(
+        `[worker-exited] ${runId} (code=${code ?? "null"}, signal=${signal ?? "null"})`
+      );
     });
     child.unref();
 

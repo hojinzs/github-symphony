@@ -351,6 +351,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start a specific project")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
@@ -360,6 +361,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args = ["start"];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("project", args, values);
   });
 
