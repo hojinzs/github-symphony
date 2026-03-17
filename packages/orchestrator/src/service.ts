@@ -952,7 +952,7 @@ export class OrchestratorService {
           turnCount: liveState.turnCount ?? undefined,
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
-          lastEventAt: liveState.lastEventAt ?? undefined,
+          lastEventAt: liveState.lastEventAt ?? run.lastEventAt ?? undefined,
           executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
           runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
         };
