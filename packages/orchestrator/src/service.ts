@@ -80,6 +80,11 @@ function isMatchingIssueRun(
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
+  private readonly activeWorkerPids = new Set<number>();
+  private running = true;
+  private shutdownPromise: Promise<void> | null = null;
+  private sleepTimer: ReturnType<typeof setTimeout> | null = null;
+  private sleepResolver: (() => void) | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -92,6 +97,9 @@ export class OrchestratorService {
       pollIntervalMs?: number;
       maxAttempts?: number;
       retryBackoffMs?: number;
+      killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
+      isProcessRunning?: (pid: number) => boolean;
+      waitImpl?: (ms: number) => Promise<void>;
     } = {}
   ) {}
 
@@ -101,14 +109,16 @@ export class OrchestratorService {
       once?: boolean;
     } = {}
   ): Promise<void> {
-    for (;;) {
+    this.running = true;
+
+    while (this.running) {
       await this.runOnce(options);
 
-      if (options.once) {
+      if (options.once || !this.running) {
         return;
       }
 
-      await wait(this.getEffectivePollIntervalMs());
+      await this.waitForNextPoll();
     }
   }
 
@@ -224,6 +234,36 @@ export class OrchestratorService {
 
   async recover(): Promise<ProjectStatusSnapshot> {
     return this.runOnce();
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.shutdownPromise = (async () => {
+      this.running = false;
+      this.cancelPendingSleep();
+
+      const workerPids = [...this.activeWorkerPids];
+      for (const pid of workerPids) {
+        this.sendSignal(pid, "SIGTERM");
+      }
+
+      await (this.dependencies.waitImpl ?? wait)(10_000);
+
+      for (const pid of [...this.activeWorkerPids]) {
+        if (!this.isProcessRunning(pid)) {
+          this.activeWorkerPids.delete(pid);
+          continue;
+        }
+
+        this.sendSignal(pid, "SIGKILL");
+        this.activeWorkerPids.delete(pid);
+      }
+    })();
+
+    return this.shutdownPromise;
   }
 
   getEffectivePollIntervalMs(): number {
@@ -398,11 +438,7 @@ export class OrchestratorService {
             ? await this.store.loadRun(issueRecord.currentRunId)
             : null;
           if (leasedRun?.processId) {
-            try {
-              process.kill(leasedRun.processId, "SIGTERM");
-            } catch {
-              // Ignore already-exited workers during suppression.
-            }
+            this.sendSignal(leasedRun.processId, "SIGTERM");
           }
           if (leasedRun) {
             await this.store.saveRun({
@@ -746,6 +782,9 @@ export class OrchestratorService {
       }
     );
 
+    if (child.pid) {
+      this.activeWorkerPids.add(child.pid);
+    }
     child.unref();
 
     return {
@@ -815,7 +854,7 @@ export class OrchestratorService {
   }> {
     const now = this.now();
 
-    if (run.processId && isProcessRunning(run.processId)) {
+    if (run.processId && this.isProcessRunning(run.processId)) {
       // Stuck worker detection: if the run has been active for longer than
       // the timeout without the worker exiting on its own, kill it so
       // the orchestrator can re-dispatch (continuation retry).
@@ -826,11 +865,7 @@ export class OrchestratorService {
         process.stderr.write(
           `[orchestrator] stuck worker detected for ${run.runId} (running ${Math.round(runningSince / 60000)}min) — sending SIGTERM\n`
         );
-        try {
-          process.kill(run.processId, "SIGTERM");
-        } catch {
-          // Already gone.
-        }
+        this.sendSignal(run.processId, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const liveState = await this.fetchLiveWorkerState(run);
@@ -869,6 +904,9 @@ export class OrchestratorService {
           recovered: false,
         };
       }
+    }
+    if (run.processId) {
+      this.activeWorkerPids.delete(run.processId);
     }
 
     // Attempt to capture final token usage and session info from the worker
@@ -1020,6 +1058,35 @@ export class OrchestratorService {
 
   private now(): Date {
     return this.dependencies.now?.() ?? new Date();
+  }
+
+  private async waitForNextPoll(): Promise<void> {
+    const customWait = this.dependencies.waitImpl;
+    if (customWait) {
+      await customWait(this.getEffectivePollIntervalMs());
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      this.sleepResolver = () => {
+        this.sleepResolver = null;
+        this.sleepTimer = null;
+        resolve();
+      };
+      this.sleepTimer = setTimeout(
+        this.sleepResolver,
+        this.getEffectivePollIntervalMs()
+      );
+    });
+  }
+
+  private cancelPendingSleep(): void {
+    if (this.sleepTimer) {
+      clearTimeout(this.sleepTimer);
+      this.sleepTimer = null;
+    }
+    this.sleepResolver?.();
+    this.sleepResolver = null;
   }
 
   private async allocatePort(): Promise<number> {
@@ -1414,6 +1481,18 @@ export class OrchestratorService {
 
   private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {
     return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  }
+
+  private isProcessRunning(processId: number): boolean {
+    return (this.dependencies.isProcessRunning ?? isProcessRunning)(processId);
+  }
+
+  private sendSignal(processId: number, signal: NodeJS.Signals): void {
+    try {
+      (this.dependencies.killImpl ?? process.kill)(processId, signal);
+    } catch {
+      this.activeWorkerPids.delete(processId);
+    }
   }
 
   /**

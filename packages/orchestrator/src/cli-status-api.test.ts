@@ -21,6 +21,7 @@ function createMockService(): OrchestratorService {
       lastError: null,
     }),
     status: vi.fn().mockResolvedValue(null),
+    shutdown: vi.fn().mockResolvedValue(undefined),
     recover: vi.fn().mockResolvedValue({
       projectId: "tenant-1",
       slug: "tenant-1",
@@ -49,6 +50,19 @@ function createStdoutCapture(): {
   };
 }
 
+function createFakeStatusServer(
+  address: { address: string; port: number; family: string }
+) {
+  const emitter = new EventEmitter();
+  return Object.assign(emitter, {
+    address: () => address,
+    close: (callback?: (error?: Error) => void) => {
+      callback?.();
+      return emitter;
+    },
+  });
+}
+
 describe("CLI --no-status-api flag", () => {
   it("does not start the status server when --no-status-api is set", async () => {
     const startStatusServer = vi.fn();
@@ -75,15 +89,16 @@ describe("CLI --no-status-api flag", () => {
   });
 
   it("starts the status server by default and prints the listening address", async () => {
-    const emitter = new EventEmitter();
-    const fakeServer = Object.assign(emitter, {
-      address: () => ({ address: "127.0.0.1", port: 4680, family: "IPv4" }),
+    const fakeServer = createFakeStatusServer({
+      address: "127.0.0.1",
+      port: 4680,
+      family: "IPv4",
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      emitter.emit("listening");
+      fakeServer.emit("listening");
     });
     const stdout = createStdoutCapture();
 
@@ -110,15 +125,16 @@ describe("CLI --no-status-api flag", () => {
   });
 
   it("wires the refresh endpoint to service.runOnce", async () => {
-    const emitter = new EventEmitter();
-    const fakeServer = Object.assign(emitter, {
-      address: () => ({ address: "127.0.0.1", port: 4680, family: "IPv4" }),
+    const fakeServer = createFakeStatusServer({
+      address: "127.0.0.1",
+      port: 4680,
+      family: "IPv4",
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      emitter.emit("listening");
+      fakeServer.emit("listening");
     });
 
     await runCli(
@@ -149,15 +165,16 @@ describe("CLI --no-status-api flag", () => {
   });
 
   it("normalises wildcard addresses to localhost in the log line", async () => {
-    const emitter = new EventEmitter();
-    const fakeServer = Object.assign(emitter, {
-      address: () => ({ address: "0.0.0.0", port: 9999, family: "IPv4" }),
+    const fakeServer = createFakeStatusServer({
+      address: "0.0.0.0",
+      port: 9999,
+      family: "IPv4",
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      emitter.emit("listening");
+      fakeServer.emit("listening");
     });
     const stdout = createStdoutCapture();
 
@@ -176,15 +193,16 @@ describe("CLI --no-status-api flag", () => {
   });
 
   it("normalises IPv6 wildcard to localhost in the log line", async () => {
-    const emitter = new EventEmitter();
-    const fakeServer = Object.assign(emitter, {
-      address: () => ({ address: "::", port: 4680, family: "IPv6" }),
+    const fakeServer = createFakeStatusServer({
+      address: "::",
+      port: 4680,
+      family: "IPv6",
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      emitter.emit("listening");
+      fakeServer.emit("listening");
     });
     const stdout = createStdoutCapture();
 
@@ -203,15 +221,16 @@ describe("CLI --no-status-api flag", () => {
   });
 
   it("forwards --status-host and --status-port to the status server", async () => {
-    const emitter = new EventEmitter();
-    const fakeServer = Object.assign(emitter, {
-      address: () => ({ address: "10.0.0.5", port: 8080, family: "IPv4" }),
+    const fakeServer = createFakeStatusServer({
+      address: "10.0.0.5",
+      port: 8080,
+      family: "IPv4",
     });
     const startStatusServer = vi.fn().mockReturnValue(fakeServer);
     const service = createMockService();
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     (service.run as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      emitter.emit("listening");
+      fakeServer.emit("listening");
     });
     const stdout = createStdoutCapture();
 
@@ -243,6 +262,59 @@ describe("CLI --no-status-api flag", () => {
     expect(stdout.output()).toContain(
       "Status server listening on http://10.0.0.5:8080"
     );
+  });
+
+  it("gracefully shuts down on SIGTERM", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const signalTarget = new EventEmitter();
+    const exitProcess = vi.fn();
+    const service = createMockService();
+    let resolveRun: (() => void) | null = null;
+    (service.run as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    (service.shutdown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const runPromise = runCli(
+      [
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+      ],
+      {
+        createService: () => service,
+        exitProcess,
+        signalTarget: signalTarget as unknown as Pick<
+          NodeJS.Process,
+          "once" | "off"
+        >,
+      }
+    );
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (signalTarget.listenerCount("SIGTERM") === 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(signalTarget.listenerCount("SIGTERM")).toBe(1);
+    signalTarget.emit("SIGTERM");
+    await runPromise;
+
+    expect(service.shutdown).toHaveBeenCalledTimes(1);
+    expect(exitProcess).toHaveBeenCalledWith(0);
+    await expect(
+      access(join(runtimeRoot, "orchestrator", "projects", "tenant-1", ".lock"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("releases the project lock after the run finishes", async () => {
