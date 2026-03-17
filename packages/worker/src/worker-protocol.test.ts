@@ -211,15 +211,29 @@ function createProtocolContext(options: {
     // Token usage events — track cumulative totals
     if (
       msg.method === "thread/tokenUsage/updated" ||
-      msg.method === "total_token_usage"
+      msg.method === "total_token_usage" ||
+      msg.method === "codex/event/token_count"
     ) {
       const params = (msg.params ?? {}) as Record<string, unknown>;
+      const codexMsg = params.msg as Record<string, unknown> | undefined;
+      const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
+      const directInfo = params.info as Record<string, unknown> | undefined;
+      const directTotals = params.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
+      const codexTotals = codexInfo?.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
+      const infoTotals = directInfo?.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
+      const source = codexTotals ?? infoTotals ?? directTotals ?? params;
       const inputTokens =
-        typeof params.input_tokens === "number" ? params.input_tokens : 0;
+        typeof source.input_tokens === "number" ? source.input_tokens : 0;
       const outputTokens =
-        typeof params.output_tokens === "number" ? params.output_tokens : 0;
+        typeof source.output_tokens === "number" ? source.output_tokens : 0;
       const totalTokens =
-        typeof params.total_tokens === "number" ? params.total_tokens : 0;
+        typeof source.total_tokens === "number" ? source.total_tokens : 0;
 
       if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
         runtimeState.tokenUsage.inputTokens = inputTokens;
@@ -731,6 +745,54 @@ describe("token usage tracking", () => {
       inputTokens: 200,
       outputTokens: 100,
       totalTokens: 300,
+    });
+  });
+
+  it("updates token counts from codex/event/token_count wrapper events", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "codex/event/token_count",
+      params: {
+        msg: {
+          info: {
+            total_token_usage: {
+              input_tokens: 300,
+              output_tokens: 120,
+              total_tokens: 420,
+            },
+          },
+        },
+      },
+    });
+
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 300,
+      outputTokens: 120,
+      totalTokens: 420,
+    });
+  });
+
+  it("accepts alternate codex/event/token_count wrapper shapes", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "codex/event/token_count",
+      params: {
+        info: {
+          total_token_usage: {
+            input_tokens: 410,
+            output_tokens: 140,
+            total_tokens: 550,
+          },
+        },
+      },
+    });
+
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 410,
+      outputTokens: 140,
+      totalTokens: 550,
     });
   });
 

@@ -546,13 +546,21 @@ async function runCodexClientProtocol(
     ) {
       const params = (msg.params ?? {}) as Record<string, unknown>;
 
-      // codex/event/token_count: { msg: { info: { total_token_usage: { input_tokens, output_tokens, total_tokens } } } }
+      // codex/event/token_count wrappers have appeared with totals nested under
+      // msg.info, info, or total_token_usage depending on the producer version.
       const codexMsg = params.msg as Record<string, unknown> | undefined;
       const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
+      const directInfo = params.info as Record<string, unknown> | undefined;
+      const directTotals = params.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
       const codexTotals = codexInfo?.total_token_usage as
         | Record<string, unknown>
         | undefined;
-      const source = codexTotals ?? params;
+      const infoTotals = directInfo?.total_token_usage as
+        | Record<string, unknown>
+        | undefined;
+      const source = codexTotals ?? infoTotals ?? directTotals ?? params;
 
       const inputTokens =
         typeof source.input_tokens === "number"
