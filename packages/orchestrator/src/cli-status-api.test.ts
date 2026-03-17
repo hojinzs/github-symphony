@@ -304,4 +304,27 @@ describe("CLI --no-status-api flag", () => {
 
     expect(service.run).not.toHaveBeenCalled();
   });
+
+  it("rejects invalid project ids before creating the service", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const createService = vi.fn(() => createMockService());
+
+    await expect(
+      runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "../tenant-1",
+        ],
+        {
+          createService,
+        }
+      )
+    ).rejects.toThrow('Invalid project ID "../tenant-1"');
+
+    expect(createService).not.toHaveBeenCalled();
+  });
 });

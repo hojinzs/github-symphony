@@ -96,6 +96,47 @@ describe("project lock", () => {
     await releaseProjectLock(lock);
   });
 
+  it("does not delete an unreadable lock file", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const lockPath = join(
+      runtimeRoot,
+      "orchestrator",
+      "projects",
+      "project-1",
+      ".lock"
+    );
+    await mkdir(join(runtimeRoot, "orchestrator", "projects", "project-1"), {
+      recursive: true,
+    });
+    await writeFile(lockPath, "{\"ownerToken\":\"partial\"", "utf8");
+
+    await expect(
+      acquireProjectLock({
+        runtimeRoot,
+        projectId: "project-1",
+        pid: 4321,
+        isProcessRunning: () => false,
+      })
+    ).rejects.toThrow('Project "project-1" lock file is unreadable');
+
+    await expect(readFile(lockPath, "utf8")).resolves.toBe(
+      "{\"ownerToken\":\"partial\""
+    );
+  });
+
+  it("rejects project ids with path traversal characters", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+
+    await expect(
+      acquireProjectLock({
+        runtimeRoot,
+        projectId: "../escape",
+        pid: 4321,
+        isProcessRunning: () => false,
+      })
+    ).rejects.toThrow('Invalid project ID "../escape"');
+  });
+
   it("does not remove a lock owned by another acquisition", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
     const first = await acquireProjectLock({

@@ -4,6 +4,7 @@ import { createStore, OrchestratorService } from "./service.js";
 import { startOrchestratorStatusServer } from "./status-server.js";
 import {
   acquireProjectLock,
+  assertValidProjectId,
   releaseProjectLock,
   type ProjectLockHandle,
 } from "./lock.js";
@@ -27,6 +28,9 @@ export async function runCli(
 ): Promise<void> {
   const [command = "run-once", ...args] = argv;
   const parsed = parseArgs(args);
+  if (parsed.projectId) {
+    assertValidProjectId(parsed.projectId);
+  }
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
   const service =
     (await dependencies.createService?.(runtimeRoot, parsed.projectId)) ??

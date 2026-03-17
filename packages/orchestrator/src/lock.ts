@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { OrchestratorFsStore } from "./fs-store.js";
 
 type ProjectLockRecord = {
@@ -16,6 +17,9 @@ export type ProjectLockHandle = {
   startedAt: string;
 };
 
+const LOCK_READ_RETRY_DELAY_MS = 10;
+const LOCK_READ_RETRY_LIMIT = 20;
+
 export async function acquireProjectLock(input: {
   runtimeRoot: string;
   projectId: string;
@@ -23,12 +27,13 @@ export async function acquireProjectLock(input: {
   now?: Date;
   isProcessRunning?: (pid: number) => boolean;
 }): Promise<ProjectLockHandle> {
+  assertValidProjectId(input.projectId);
   const pid = input.pid ?? process.pid;
   const startedAt = (input.now ?? new Date()).toISOString();
   const ownerToken = `${pid}:${randomUUID()}`;
-  const store = new OrchestratorFsStore(input.runtimeRoot);
-  const lockPath = join(store.projectDir(input.projectId), ".lock");
+  const lockPath = resolveProjectLockPath(input.runtimeRoot, input.projectId);
   const record: ProjectLockRecord = { ownerToken, pid, startedAt };
+  let invalidReadAttempts = 0;
 
   for (;;) {
     try {
@@ -48,12 +53,27 @@ export async function acquireProjectLock(input: {
     }
 
     const existing = await readProjectLock(lockPath);
-    if (
-      existing &&
-      (input.isProcessRunning ?? isProcessRunning)(existing.pid)
-    ) {
+    if (existing.status === "missing") {
+      invalidReadAttempts = 0;
+      continue;
+    }
+
+    if (existing.status === "invalid") {
+      invalidReadAttempts += 1;
+      if (invalidReadAttempts >= LOCK_READ_RETRY_LIMIT) {
+        throw new Error(
+          `Project "${input.projectId}" lock file is unreadable at "${lockPath}".`
+        );
+      }
+
+      await delay(LOCK_READ_RETRY_DELAY_MS);
+      continue;
+    }
+
+    invalidReadAttempts = 0;
+    if ((input.isProcessRunning ?? isProcessRunning)(existing.record.pid)) {
       throw new Error(
-        `Project "${input.projectId}" is already running (PID ${existing.pid}).`
+        `Project "${input.projectId}" is already running (PID ${existing.record.pid}).`
       );
     }
 
@@ -70,7 +90,10 @@ export async function releaseProjectLock(
 
   try {
     const existing = await readProjectLock(lock.lockPath);
-    if (!existing || existing.ownerToken !== lock.ownerToken) {
+    if (
+      existing.status !== "valid" ||
+      existing.record.ownerToken !== lock.ownerToken
+    ) {
       return;
     }
   } catch (error) {
@@ -86,17 +109,59 @@ export async function releaseProjectLock(
 
 async function readProjectLock(
   lockPath: string
-): Promise<ProjectLockRecord | null> {
+): Promise<
+  | { status: "missing" }
+  | { status: "invalid" }
+  | { status: "valid"; record: ProjectLockRecord }
+> {
   try {
     const raw = await readFile(lockPath, "utf8");
-    return parseProjectLock(raw);
+    const record = parseProjectLock(raw);
+    if (!record) {
+      return { status: "invalid" };
+    }
+
+    return { status: "valid", record };
   } catch (error) {
     if (isMissingFileError(error)) {
-      return null;
+      return { status: "missing" };
     }
 
     throw error;
   }
+}
+
+export function assertValidProjectId(projectId: string): void {
+  if (
+    projectId.length === 0 ||
+    projectId === "." ||
+    projectId === ".." ||
+    projectId.includes("/") ||
+    projectId.includes("\\")
+  ) {
+    throw new Error(
+      `Invalid project ID "${projectId}". Project IDs must not contain path separators or traversal segments.`
+    );
+  }
+}
+
+function resolveProjectLockPath(runtimeRoot: string, projectId: string): string {
+  const store = new OrchestratorFsStore(runtimeRoot);
+  const projectsRoot = resolve(runtimeRoot, "orchestrator", "projects");
+  const projectDir = resolve(store.projectDir(projectId));
+  const relativeProjectDir = relative(projectsRoot, projectDir);
+
+  if (
+    relativeProjectDir.length === 0 ||
+    relativeProjectDir.startsWith("..") ||
+    isAbsolute(relativeProjectDir)
+  ) {
+    throw new Error(
+      `Invalid project ID "${projectId}". Project lock path must stay within "${projectsRoot}".`
+    );
+  }
+
+  return join(projectDir, ".lock");
 }
 
 function parseProjectLock(raw: string): ProjectLockRecord | null {
