@@ -86,12 +86,144 @@ function createProtocolContext(options: {
   let turnCompletedResolve: (() => void) | null = null;
   let userInputRequired = false;
   let killCalled = false;
+  const logs: string[] = [];
 
   const runtimeState = {
     status: "running" as string,
     run: { lastError: null as string | null },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
   };
+
+  function applyTokenUsageUpdate(
+    source: string,
+    tokenUsage: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    }
+  ): void {
+    runtimeState.tokenUsage.inputTokens = tokenUsage.inputTokens;
+    runtimeState.tokenUsage.outputTokens = tokenUsage.outputTokens;
+    runtimeState.tokenUsage.totalTokens = tokenUsage.totalTokens;
+    logs.push(
+      `[worker] token_usage source=${source} input=${tokenUsage.inputTokens} output=${tokenUsage.outputTokens} total=${tokenUsage.totalTokens}`
+    );
+  }
+
+  function extractAbsoluteTokenUsage(
+    value: unknown
+  ):
+    | {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+      }
+    | null {
+    const direct = parseTokenUsageSnapshot(value);
+    if (direct) {
+      return direct;
+    }
+
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      "total_token_usage",
+      "token_usage",
+      "info",
+      "msg",
+      "event",
+      "data",
+      "result",
+      "payload",
+    ];
+
+    for (const key of preferredKeys) {
+      if (key in record) {
+        const nested = extractAbsoluteTokenUsage(record[key]);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+
+    for (const [key, nestedValue] of Object.entries(record)) {
+      if (key === "last_token_usage") {
+        continue;
+      }
+      const nested = extractAbsoluteTokenUsage(nestedValue);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return null;
+  }
+
+  function parseTokenUsageSnapshot(
+    value: unknown
+  ):
+    | {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+      }
+    | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const inputTokens =
+      typeof record.input_tokens === "number"
+        ? record.input_tokens
+        : typeof record.inputTokens === "number"
+          ? record.inputTokens
+          : null;
+    const outputTokens =
+      typeof record.output_tokens === "number"
+        ? record.output_tokens
+        : typeof record.outputTokens === "number"
+          ? record.outputTokens
+          : null;
+    const explicitTotalTokens =
+      typeof record.total_tokens === "number"
+        ? record.total_tokens
+        : typeof record.totalTokens === "number"
+          ? record.totalTokens
+          : null;
+
+    if (
+      inputTokens === null &&
+      outputTokens === null &&
+      explicitTotalTokens === null
+    ) {
+      return null;
+    }
+
+    const normalizedInputTokens = inputTokens ?? 0;
+    const normalizedOutputTokens = outputTokens ?? 0;
+    const normalizedTotalTokens =
+      explicitTotalTokens ?? normalizedInputTokens + normalizedOutputTokens;
+
+    if (
+      normalizedInputTokens <= 0 &&
+      normalizedOutputTokens <= 0 &&
+      normalizedTotalTokens <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      inputTokens: normalizedInputTokens,
+      outputTokens: normalizedOutputTokens,
+      totalTokens:
+        normalizedTotalTokens ||
+        normalizedInputTokens + normalizedOutputTokens,
+    };
+  }
 
   function sendMessage(msg: Record<string, unknown>): void {
     const line = JSON.stringify(msg) + "\n";
@@ -201,6 +333,11 @@ function createProtocolContext(options: {
 
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
+      const turnParams = (msg.params ?? {}) as Record<string, unknown>;
+      const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
+      if (turnUsage) {
+        applyTokenUsageUpdate("turn/completed", turnUsage);
+      }
       if (turnCompletedResolve) {
         turnCompletedResolve();
         turnCompletedResolve = null;
@@ -214,32 +351,9 @@ function createProtocolContext(options: {
       msg.method === "total_token_usage" ||
       msg.method === "codex/event/token_count"
     ) {
-      const params = (msg.params ?? {}) as Record<string, unknown>;
-      const codexMsg = params.msg as Record<string, unknown> | undefined;
-      const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
-      const directInfo = params.info as Record<string, unknown> | undefined;
-      const directTotals = params.total_token_usage as
-        | Record<string, unknown>
-        | undefined;
-      const codexTotals = codexInfo?.total_token_usage as
-        | Record<string, unknown>
-        | undefined;
-      const infoTotals = directInfo?.total_token_usage as
-        | Record<string, unknown>
-        | undefined;
-      const source = codexTotals ?? infoTotals ?? directTotals ?? params;
-      const inputTokens =
-        typeof source.input_tokens === "number" ? source.input_tokens : 0;
-      const outputTokens =
-        typeof source.output_tokens === "number" ? source.output_tokens : 0;
-      const totalTokens =
-        typeof source.total_tokens === "number" ? source.total_tokens : 0;
-
-      if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
-        runtimeState.tokenUsage.inputTokens = inputTokens;
-        runtimeState.tokenUsage.outputTokens = outputTokens;
-        runtimeState.tokenUsage.totalTokens =
-          totalTokens || inputTokens + outputTokens;
+      const tokenUsage = extractAbsoluteTokenUsage(msg.params);
+      if (tokenUsage) {
+        applyTokenUsageUpdate(msg.method, tokenUsage);
       }
       return;
     }
@@ -255,6 +369,7 @@ function createProtocolContext(options: {
     waitForTurnWithTimeout,
     handleServerMessage,
     maxTurns,
+    logs,
     get userInputRequired() {
       return userInputRequired;
     },
@@ -718,6 +833,26 @@ describe("refreshTrackerState", () => {
 });
 
 describe("token usage tracking", () => {
+  it("updates and logs token counts from turn/completed usage payloads", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        usage: { input_tokens: 90, output_tokens: 30, total_tokens: 120 },
+      },
+    });
+
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 90,
+      outputTokens: 30,
+      totalTokens: 120,
+    });
+    expect(ctx.logs).toContain(
+      "[worker] token_usage source=turn/completed input=90 output=30 total=120"
+    );
+  });
+
   it("updates token counts from thread/tokenUsage/updated events", () => {
     const ctx = createProtocolContext({});
 
@@ -794,6 +929,41 @@ describe("token usage tracking", () => {
       outputTokens: 140,
       totalTokens: 550,
     });
+  });
+
+  it("accepts deeply nested token_count wrapper shapes and logs the update", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "codex/event/token_count",
+      params: {
+        event: {
+          payload: {
+            info: {
+              total_token_usage: {
+                input_tokens: 515,
+                output_tokens: 185,
+                total_tokens: 700,
+              },
+              last_token_usage: {
+                input_tokens: 1,
+                output_tokens: 1,
+                total_tokens: 2,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 515,
+      outputTokens: 185,
+      totalTokens: 700,
+    });
+    expect(ctx.logs).toContain(
+      "[worker] token_usage source=codex/event/token_count input=515 output=185 total=700"
+    );
   });
 
   it("prefers absolute totals (replaces, does not accumulate)", () => {
