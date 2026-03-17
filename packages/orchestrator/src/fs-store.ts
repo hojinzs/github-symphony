@@ -9,7 +9,7 @@ import {
   writeFile,
   appendFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   type IssueOrchestrationRecord,
@@ -23,7 +23,20 @@ import {
 } from "@gh-symphony/core";
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
-  constructor(readonly runtimeRoot: string) {}
+  private readonly resolvedRuntimeRoot: string;
+  private readonly resolvedEventsMirrorRoot: string | null;
+
+  constructor(
+    readonly runtimeRoot: string,
+    options: {
+      eventsMirrorRoot?: string;
+    } = {}
+  ) {
+    this.resolvedRuntimeRoot = resolve(runtimeRoot);
+    this.resolvedEventsMirrorRoot = options.eventsMirrorRoot
+      ? resolve(options.eventsMirrorRoot)
+      : null;
+  }
 
   private projectsRoot(): string {
     return join(this.runtimeRoot, "projects");
@@ -188,8 +201,17 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     }
 
     const path = join(runDirectory, "events.ndjson");
+    const serializedEvent = JSON.stringify(event) + "\n";
     await mkdir(dirname(path), { recursive: true });
-    await appendFile(path, JSON.stringify(event) + "\n", "utf8");
+    await appendFile(path, serializedEvent, "utf8");
+
+    const mirrorPath = this.resolveMirroredEventsPath(path);
+    if (!mirrorPath) {
+      return;
+    }
+
+    await mkdir(dirname(mirrorPath), { recursive: true });
+    await appendFile(mirrorPath, serializedEvent, "utf8");
   }
 
   async loadRecentRunEvents(
@@ -310,6 +332,20 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     }
 
     return null;
+  }
+
+  private resolveMirroredEventsPath(primaryPath: string): string | null {
+    if (!this.resolvedEventsMirrorRoot) {
+      return null;
+    }
+
+    const relativePath = relative(this.resolvedRuntimeRoot, primaryPath);
+    if (relativePath.startsWith("..")) {
+      return null;
+    }
+
+    const mirrorPath = join(this.resolvedEventsMirrorRoot, relativePath);
+    return mirrorPath === primaryPath ? null : mirrorPath;
   }
 }
 

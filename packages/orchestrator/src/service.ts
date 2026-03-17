@@ -2111,8 +2111,13 @@ function resolveWorkerCommand(): string {
   }
 }
 
-export function createStore(runtimeRoot = ".runtime") {
-  return new OrchestratorFsStore(runtimeRoot);
+export function createStore(
+  runtimeRoot = ".runtime",
+  options: {
+    eventsMirrorRoot?: string;
+  } = {}
+) {
+  return new OrchestratorFsStore(runtimeRoot, options);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, mkdir } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -108,5 +108,37 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         message: "hook failed",
       },
     ]);
+  });
+
+  it("mirrors events to an external directory when configured", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const eventsMirrorRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-events-")
+    );
+    const store = new OrchestratorFsStore(runtimeRoot, {
+      eventsMirrorRoot,
+    });
+
+    await store.appendRunEvent("run-1", {
+      at: "2026-03-16T00:01:00.000Z",
+      event: "hook-failed",
+      projectId: "project-1",
+      hook: "after_create",
+      error: "hook failed",
+    });
+
+    await expect(
+      readFile(
+        join(
+          eventsMirrorRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    ).resolves.toContain('"event":"hook-failed"');
   });
 });
