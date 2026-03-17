@@ -26,6 +26,7 @@ import {
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
+  type OrchestratorEvent,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
   type ProjectStatusSnapshot,
@@ -896,9 +897,10 @@ export class OrchestratorService {
         await this.store.appendRunEvent(runId, {
           at: now.toISOString(),
           event: "hook-failed",
+          projectId: tenant.projectId,
           hook: "after_create",
           error: afterCreateResult.error ?? null,
-        });
+        } as OrchestratorEvent);
       }
     }
 
@@ -1176,11 +1178,12 @@ export class OrchestratorService {
       await this.store.appendRunEvent(run.runId, {
         at: now.toISOString(),
         event: "worker-error",
+        projectId: run.projectId,
         runId: run.runId,
         issueIdentifier: run.issueIdentifier,
         error: workerInfo.lastError,
         attempt: run.attempt,
-      });
+      } as OrchestratorEvent);
     }
 
     if (run.attempt >= this.getProjectMaxAttempts(tenant)) {
@@ -1668,10 +1671,11 @@ export class OrchestratorService {
     await this.store.appendRunEvent(run.runId, {
       at: now.toISOString(),
       event: "run-recovered",
+      projectId: run.projectId,
       issueIdentifier: run.issueIdentifier,
       issueId: run.issueId,
       sessionId: sessionId ?? undefined,
-    });
+    } as OrchestratorEvent);
 
     return {
       issueRecords: upsertIssueOrchestration(issueRecords, {

@@ -5,6 +5,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   writeFile,
   appendFile,
 } from "node:fs/promises";
@@ -172,10 +173,20 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void> {
-    const runDirectory =
+    const resolvedProjectId =
       "projectId" in event && typeof event.projectId === "string"
-        ? this.runDir(runId, event.projectId)
-        : ((await this.findRunDir(runId)) ?? this.runDir(runId));
+        ? event.projectId
+        : undefined;
+    const runDirectory =
+      resolvedProjectId !== undefined
+        ? this.runDir(runId, resolvedProjectId)
+        : await this.findRunDir(runId);
+    if (!runDirectory) {
+      throw new Error(
+        `Unable to resolve run directory for event append: ${runId}`
+      );
+    }
+
     const path = join(runDirectory, "events.ndjson");
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, JSON.stringify(event) + "\n", "utf8");
@@ -336,7 +347,7 @@ async function safeReadDir(path: string): Promise<string[]> {
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await readFile(path);
+    await stat(path);
     return true;
   } catch (error) {
     if (isFileMissing(error)) {

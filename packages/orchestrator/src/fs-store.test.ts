@@ -86,4 +86,27 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       },
     ]);
   });
+
+  it("writes events to the provided project run directory before run.json exists", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await store.appendRunEvent("run-1", {
+      at: "2026-03-16T00:01:00.000Z",
+      event: "hook-failed",
+      projectId: "project-1",
+      hook: "after_create",
+      error: "hook failed",
+    });
+
+    await expect(
+      store.loadRecentRunEvents("run-1", 1, "project-1")
+    ).resolves.toEqual([
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "hook-failed",
+        message: "hook failed",
+      },
+    ]);
+  });
 });

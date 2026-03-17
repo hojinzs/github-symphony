@@ -123,6 +123,32 @@ describe("logs command", () => {
     expect(output).toContain("beta/api#2");
   });
 
+  it("continues scanning when one project has no runs directory", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-b", "run-2", [
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-started",
+        issueIdentifier: "beta/api#2",
+        projectId: "tenant-b",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await logsCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("beta/api#2");
+  });
+
   it("filters scanned events by --project-id when provided", async () => {
     const configDir = await createConfigFixture();
     await writeRunEvents(configDir, "tenant-a", "run-1", [

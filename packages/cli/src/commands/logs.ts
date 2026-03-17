@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
@@ -145,7 +145,10 @@ const handler = async (
 
   try {
     for (const runsDir of runRoots) {
-      const entries = await readdir(runsDir);
+      const entries = await safeReadDir(runsDir);
+      if (entries.length === 0) {
+        continue;
+      }
       foundRuns = true;
       for (const entry of entries) {
         const eventsPath = join(runsDir, entry, "events.ndjson");
@@ -202,7 +205,7 @@ async function resolveRunEventsPath(
   for (const runsDir of await listProjectRunRoots(runtimeRoot)) {
     const eventsPath = join(runsDir, runId, "events.ndjson");
     try {
-      await readFile(eventsPath, "utf8");
+      await stat(eventsPath);
       return eventsPath;
     } catch {
       // Continue searching.
@@ -210,4 +213,12 @@ async function resolveRunEventsPath(
   }
 
   return null;
+}
+
+async function safeReadDir(path: string): Promise<string[]> {
+  try {
+    return await readdir(path);
+  } catch {
+    return [];
+  }
 }

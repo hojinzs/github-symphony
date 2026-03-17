@@ -20,6 +20,7 @@ export type RunDispatchedEvent = {
 export type RunRecoveredEvent = {
   at: string;
   event: "run-recovered";
+  projectId?: string;
   issueIdentifier: string;
   sessionId?: string;
   issueId?: string;
@@ -28,6 +29,7 @@ export type RunRecoveredEvent = {
 export type RunRetriedEvent = {
   at: string;
   event: "run-retried";
+  projectId?: string;
   issueIdentifier: string;
   sessionId?: string;
   issueId?: string;
@@ -39,6 +41,7 @@ export type RunRetriedEvent = {
 export type RunFailedEvent = {
   at: string;
   event: "run-failed";
+  projectId?: string;
   issueIdentifier: string;
   sessionId?: string;
   issueId?: string;
@@ -49,6 +52,7 @@ export type RunFailedEvent = {
 export type RunSuppressedEvent = {
   at: string;
   event: "run-suppressed";
+  projectId?: string;
   issueIdentifier: string;
   issueId?: string;
   reason: string;
@@ -57,6 +61,7 @@ export type RunSuppressedEvent = {
 export type HookExecutedEvent = {
   at: string;
   event: "hook-executed";
+  projectId?: string;
   hook: string;
   outcome: string;
   durationMs?: number;
@@ -66,6 +71,7 @@ export type HookExecutedEvent = {
 export type HookFailedEvent = {
   at: string;
   event: "hook-failed";
+  projectId?: string;
   hook: string;
   error: string | null;
 };
@@ -73,6 +79,7 @@ export type HookFailedEvent = {
 export type WorkspaceCleanupEvent = {
   at: string;
   event: "workspace-cleanup";
+  projectId?: string;
   workspaceKey: string;
   issueIdentifier: string;
   issueId?: string;
@@ -83,6 +90,7 @@ export type WorkspaceCleanupEvent = {
 export type WorkerErrorEvent = {
   at: string;
   event: "worker-error";
+  projectId?: string;
   runId: string;
   issueIdentifier: string;
   error: string;
