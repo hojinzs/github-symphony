@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import type { Server } from "node:http";
 import { createStore, OrchestratorService } from "./service.js";
 import { startOrchestratorStatusServer } from "./status-server.js";
 import {
@@ -30,6 +31,8 @@ export async function runCli(
     startStatusServer?: typeof startOrchestratorStatusServer;
     acquireLock?: typeof acquireProjectLock;
     releaseLock?: typeof releaseProjectLock;
+    exitProcess?: (code: number) => void;
+    signalTarget?: Pick<NodeJS.Process, "once" | "off">;
   } = {}
 ): Promise<void> {
   const [command = "run-once", ...args] = argv;
@@ -42,11 +45,79 @@ export async function runCli(
     (await dependencies.createService?.(runtimeRoot, parsed.projectId)) ??
     (await createServiceForRuntime(runtimeRoot, parsed.projectId));
   const stdout = dependencies.stdout ?? process.stdout;
-  void (dependencies.stderr ?? process.stderr);
+  const stderr = dependencies.stderr ?? process.stderr;
+  const exitProcess = dependencies.exitProcess ?? process.exit;
+  const signalTarget = dependencies.signalTarget ?? process;
 
   switch (command) {
     case "run": {
       let lock: ProjectLockHandle | null = null;
+      let statusServer: Server | null = null;
+      let cleanupPromise: Promise<void> | null = null;
+      let shuttingDownForSignal = false;
+      const closeStatusServer = async () => {
+        if (!statusServer) {
+          return;
+        }
+
+        const serverToClose = statusServer;
+        statusServer = null;
+        await new Promise<void>((resolveClose, rejectClose) => {
+          serverToClose.close((error) => {
+            if (error) {
+              rejectClose(error);
+              return;
+            }
+            resolveClose();
+          });
+        });
+      };
+      const cleanup = async () => {
+        if (cleanupPromise) {
+          return cleanupPromise;
+        }
+
+        cleanupPromise = (async () => {
+          let cleanupError: unknown;
+          const shutdownPromise = service.shutdown();
+
+          try {
+            await closeStatusServer();
+            await shutdownPromise;
+          } catch (error) {
+            cleanupError = error;
+          } finally {
+            try {
+              await (dependencies.releaseLock ?? releaseProjectLock)(lock);
+              lock = null;
+            } catch (lockError) {
+              cleanupError ??= lockError;
+            }
+          }
+
+          if (cleanupError) {
+            throw cleanupError;
+          }
+        })();
+
+        return cleanupPromise;
+      };
+      const handleSignal = (signal: NodeJS.Signals) => {
+        shuttingDownForSignal = true;
+        let exitCode = 0;
+        void cleanup()
+          .catch((error) => {
+            exitCode = 1;
+            stderr.write(
+              `Failed to shut down orchestrator after ${signal}: ${error instanceof Error ? error.message : String(error)}\n`
+            );
+          })
+          .finally(() => {
+            exitProcess(exitCode);
+          });
+      };
+      const sigintHandler = () => handleSignal("SIGINT");
+      const sigtermHandler = () => handleSignal("SIGTERM");
       try {
         if (parsed.projectId) {
           lock = await (dependencies.acquireLock ?? acquireProjectLock)({
@@ -54,6 +125,9 @@ export async function runCli(
             projectId: parsed.projectId,
           });
         }
+
+        signalTarget.once("SIGINT", sigintHandler);
+        signalTarget.once("SIGTERM", sigtermHandler);
 
         if (!parsed.noStatusApi) {
           const statusHost =
@@ -64,7 +138,7 @@ export async function runCli(
             parsed.statusPort ??
             parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 0) ??
             0;
-          const statusServer = (
+          const server = (
             dependencies.startStatusServer ?? startOrchestratorStatusServer
           )({
             host: statusHost,
@@ -78,8 +152,9 @@ export async function runCli(
               });
             },
           });
-          statusServer.on("listening", () => {
-            const addr = statusServer.address();
+          statusServer = server;
+          server.on("listening", () => {
+            const addr = server.address();
             if (addr && typeof addr === "object") {
               const host =
                 addr.address === "::" || addr.address === "0.0.0.0"
@@ -96,8 +171,13 @@ export async function runCli(
         await service.run({
           issueIdentifier: parsed.issueIdentifier,
         });
+        await cleanup();
       } finally {
-        await (dependencies.releaseLock ?? releaseProjectLock)(lock);
+        signalTarget.off("SIGINT", sigintHandler);
+        signalTarget.off("SIGTERM", sigtermHandler);
+        if (!shuttingDownForSignal) {
+          await cleanup();
+        }
       }
       return;
     }

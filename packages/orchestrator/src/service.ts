@@ -81,6 +81,13 @@ function isMatchingIssueRun(
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
+  private readonly activeWorkerPids = new Set<number>();
+  private running = true;
+  private shuttingDown = false;
+  private shutdownPromise: Promise<void> | null = null;
+  private sleepTimer: ReturnType<typeof setTimeout> | null = null;
+  private sleepResolver: (() => void) | null = null;
+  private reconcilePromise: Promise<ProjectStatusSnapshot> | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -93,6 +100,9 @@ export class OrchestratorService {
       pollIntervalMs?: number;
       maxAttempts?: number;
       retryBackoffMs?: number;
+      killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
+      isProcessRunning?: (pid: number) => boolean;
+      waitImpl?: (ms: number) => Promise<void>;
     } = {}
   ) {}
 
@@ -102,14 +112,16 @@ export class OrchestratorService {
       once?: boolean;
     } = {}
   ): Promise<void> {
-    for (;;) {
+    this.running = true;
+
+    while (this.running) {
       await this.runOnce(options);
 
-      if (options.once) {
+      if (options.once || !this.running) {
         return;
       }
 
-      await wait(this.getEffectivePollIntervalMs());
+      await this.waitForNextPoll();
     }
   }
 
@@ -118,7 +130,24 @@ export class OrchestratorService {
       issueIdentifier?: string;
     } = {}
   ): Promise<ProjectStatusSnapshot> {
-    return this.reconcileProject(this.projectConfig, options.issueIdentifier);
+    // Serialize concurrent runOnce() calls to prevent TOCTOU races where
+    // two interleaved reconcileProject() calls both see the same issue as
+    // unscheduled and each dispatch a worker for it.
+    if (this.reconcilePromise) {
+      await this.reconcilePromise;
+    }
+    const promise = this.reconcileProject(
+      this.projectConfig,
+      options.issueIdentifier
+    );
+    this.reconcilePromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (this.reconcilePromise === promise) {
+        this.reconcilePromise = null;
+      }
+    }
   }
 
   async status(): Promise<ProjectStatusSnapshot | null> {
@@ -227,6 +256,49 @@ export class OrchestratorService {
     return this.runOnce();
   }
 
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.shuttingDown = true;
+    this.shutdownPromise = (async () => {
+      this.running = false;
+      this.cancelPendingSleep();
+
+      const workerPids = [...this.activeWorkerPids];
+      for (const pid of workerPids) {
+        this.sendSignal(pid, "SIGTERM");
+      }
+
+      if (workerPids.length === 0) {
+        return;
+      }
+
+      let waitedMs = 0;
+      while (this.activeWorkerPids.size > 0 && waitedMs < 10_000) {
+        this.pruneExitedWorkerPids();
+        if (this.activeWorkerPids.size === 0) {
+          return;
+        }
+        await (this.dependencies.waitImpl ?? wait)(100);
+        waitedMs += 100;
+      }
+
+      for (const pid of [...this.activeWorkerPids]) {
+        if (!this.isProcessRunning(pid)) {
+          this.retireWorkerPid(pid);
+          continue;
+        }
+
+        this.sendSignal(pid, "SIGKILL");
+        this.retireWorkerPid(pid);
+      }
+    })();
+
+    return this.shutdownPromise;
+  }
+
   getEffectivePollIntervalMs(): number {
     if (this.dependencies.pollIntervalMs) {
       return this.dependencies.pollIntervalMs;
@@ -320,6 +392,9 @@ export class OrchestratorService {
 
       let slotsRemaining = availableSlots;
       for (const issue of sortedCandidates) {
+        if (this.shuttingDown) {
+          break;
+        }
         if (slotsRemaining <= 0) break;
 
         // Per-state concurrency check: skip if state limit reached
@@ -399,16 +474,14 @@ export class OrchestratorService {
             ? await this.store.loadRun(issueRecord.currentRunId)
             : null;
           if (leasedRun?.processId) {
-            try {
-              process.kill(leasedRun.processId, "SIGTERM");
-            } catch {
-              // Ignore already-exited workers during suppression.
-            }
+            this.sendSignal(leasedRun.processId, "SIGTERM");
+            this.retireWorkerPid(leasedRun.processId);
           }
           if (leasedRun) {
             await this.store.saveRun({
               ...leasedRun,
               status: "suppressed",
+              processId: null,
               completedAt: now.toISOString(),
               updatedAt: now.toISOString(),
               runPhase: "canceled_by_reconciliation",
@@ -587,6 +660,10 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
+    if (this.shuttingDown || !this.running) {
+      throw new Error("Orchestrator is shutting down and cannot start new runs.");
+    }
+
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
@@ -747,6 +824,9 @@ export class OrchestratorService {
       }
     );
 
+    if (child.pid) {
+      this.activeWorkerPids.add(child.pid);
+    }
     child.unref();
 
     return {
@@ -816,7 +896,7 @@ export class OrchestratorService {
   }> {
     const now = this.now();
 
-    if (run.processId && isProcessRunning(run.processId)) {
+    if (run.processId && this.isProcessRunning(run.processId)) {
       // Stuck worker detection: if the run has been active for longer than
       // the timeout without the worker exiting on its own, kill it so
       // the orchestrator can re-dispatch (continuation retry).
@@ -827,11 +907,7 @@ export class OrchestratorService {
         process.stderr.write(
           `[orchestrator] stuck worker detected for ${run.runId} (running ${Math.round(runningSince / 60000)}min) — sending SIGTERM\n`
         );
-        try {
-          process.kill(run.processId, "SIGTERM");
-        } catch {
-          // Already gone.
-        }
+        this.sendSignal(run.processId, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const liveState = await this.fetchLiveWorkerState(run);
@@ -878,6 +954,9 @@ export class OrchestratorService {
           recovered: false,
         };
       }
+    }
+    if (run.processId) {
+      this.retireWorkerPid(run.processId);
     }
 
     // Attempt to capture final token usage and session info from the worker
@@ -1037,6 +1116,35 @@ export class OrchestratorService {
 
   private now(): Date {
     return this.dependencies.now?.() ?? new Date();
+  }
+
+  private async waitForNextPoll(): Promise<void> {
+    const customWait = this.dependencies.waitImpl;
+    if (customWait) {
+      await customWait(this.getEffectivePollIntervalMs());
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      this.sleepResolver = () => {
+        this.sleepResolver = null;
+        this.sleepTimer = null;
+        resolve();
+      };
+      this.sleepTimer = setTimeout(
+        this.sleepResolver,
+        this.getEffectivePollIntervalMs()
+      );
+    });
+  }
+
+  private cancelPendingSleep(): void {
+    if (this.sleepTimer) {
+      clearTimeout(this.sleepTimer);
+      this.sleepTimer = null;
+    }
+    this.sleepResolver?.();
+    this.sleepResolver = null;
   }
 
   private async allocatePort(): Promise<number> {
@@ -1453,6 +1561,54 @@ export class OrchestratorService {
     return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
+  private isProcessRunning(processId: number): boolean {
+    if (this.dependencies.isProcessRunning) {
+      return this.dependencies.isProcessRunning(processId);
+    }
+    // Check whether any process in the worker's process group is still alive.
+    // Workers are spawned with detached:true, so the original PID is also the
+    // PGID.  Checking -pid catches cases where bash -lc forked a child with a
+    // different PID that is still running even though the original bash process
+    // has exited.
+    try {
+      process.kill(-processId, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private sendSignal(processId: number, signal: NodeJS.Signals): void {
+    try {
+      const kill = this.dependencies.killImpl;
+      if (kill) {
+        kill(processId, signal);
+      } else {
+        // Kill the entire process group (-pid) rather than just the leader.
+        // Workers are spawned with detached:true, so processId equals the PGID.
+        // This ensures that child processes (bash → node → codex agent) all
+        // receive the signal even if bash has already exited.
+        process.kill(-processId, signal);
+      }
+    } catch {
+      this.retireWorkerPid(processId);
+    }
+  }
+
+  private pruneExitedWorkerPids(): void {
+    for (const pid of [...this.activeWorkerPids]) {
+      if (!this.isProcessRunning(pid)) {
+        this.retireWorkerPid(pid);
+      }
+    }
+  }
+
+  private retireWorkerPid(processId: number | null | undefined): void {
+    if (processId) {
+      this.activeWorkerPids.delete(processId);
+    }
+  }
+
   /**
    * Clean up the issue workspace for a terminal issue.
    *
@@ -1713,15 +1869,6 @@ function mapIssueOrchestrationStateToStatus(
       return "pending";
     default:
       return state;
-  }
-}
-
-function isProcessRunning(processId: number): boolean {
-  try {
-    process.kill(processId, 0);
-    return true;
-  } catch {
-    return false;
   }
 }
 

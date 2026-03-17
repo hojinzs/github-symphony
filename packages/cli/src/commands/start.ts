@@ -45,6 +45,7 @@ type ForegroundShutdownOptions = {
   projectId: string;
   statusServer: { close(): void };
   projectLock?: ProjectLockHandle | null;
+  service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   removePortFile?: typeof rm;
   releaseLock?: typeof releaseProjectLock;
@@ -284,6 +285,7 @@ const handler = async (
         projectId,
         statusServer,
         projectLock: heldLock,
+        service,
       });
       return shutdownPromise;
     };
@@ -347,6 +349,21 @@ export async function shutdownForegroundOrchestrator(
   input: ForegroundShutdownOptions
 ): Promise<never> {
   logLine(yellow("\u25BC"), "Shutting down...");
+
+  // Drain active workers before tearing down infrastructure so that child
+  // processes receive SIGTERM/SIGKILL and do not become orphans.
+  if (input.service) {
+    try {
+      await input.service.shutdown();
+    } catch (error) {
+      logLine(
+        red("\u2717"),
+        red(
+          `Failed to shut down workers: ${error instanceof Error ? error.message : "Unknown error"}`
+        )
+      );
+    }
+  }
 
   try {
     input.statusServer.close();
