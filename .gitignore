@@ -10,3 +10,6 @@ secrets
 pnpm-lock.yaml
 .runtime
 .idea
+
+# E2E runtime file (injected at test time, not committed)
+e2e/fixtures/issues.json

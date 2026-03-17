@@ -2032,6 +2032,9 @@ function buildRuntimeSession(
 }
 
 function resolveWorkerCommand(): string {
+  if (process.env.SYMPHONY_WORKER_COMMAND) {
+    return process.env.SYMPHONY_WORKER_COMMAND;
+  }
   try {
     const workerUrl = import.meta.resolve("@gh-symphony/worker");
     return `node ${fileURLToPath(workerUrl)}`;

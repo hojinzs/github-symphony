@@ -1,9 +1,9 @@
 {
-  "name": "@gh-symphony/orchestrator",
+  "name": "@gh-symphony/tracker-file",
   "version": "0.0.11",
   "license": "MIT",
   "author": "hojinzs",
-  "description": "Headless CLI orchestrator with filesystem-backed state management for GitHub Symphony",
+  "description": "File-based tracker adapter for E2E testing without external API dependencies",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,7 +25,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/hojinzs/github-symphony.git",
-    "directory": "packages/orchestrator"
+    "directory": "packages/tracker-file"
   },
   "homepage": "https://github.com/hojinzs/github-symphony#readme",
   "bugs": {
@@ -33,15 +33,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node --watch src/index.ts",
     "lint": "eslint src --ext .ts",
-    "start": "node dist/index.js",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@gh-symphony/core": "workspace:*",
-    "@gh-symphony/tracker-file": "workspace:*",
-    "@gh-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/core": "workspace:*"
   }
 }

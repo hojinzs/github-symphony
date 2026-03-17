@@ -94,11 +94,17 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 3. Implement the changes following the project's coding conventions.
 4. Write or update tests to cover the changes.
 5. Verify that all existing tests pass before creating or updating a PR.
-6. If no PR exists and the completion bar is met, use the `/gh-pr-writeup` skill to run a brief pre-PR validation pass, create a PR with the required linked-issue, evidence, and human validation sections, post a comment summarizing what was implemented, and move the issue to `In review`.
-7. If a PR already exists while the issue is `In progress`, read all PR review activity, failing checks, and unresolved inline comments before changing any code.
-8. Distill the main merge blockers into a short prioritized list, then publish a refreshed workpad comment in the report language that captures those blockers and the revised execution plan for this rework cycle.
-9. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
-10. If review feedback requires code changes, implement them, update tests if needed, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
+6. **Pre-review validation (mandatory before moving to `In review`):**
+   - Re-read the original issue body and compare it against the implementation to confirm that every requested item has been addressed and nothing was missed or diverged from the goal.
+   - If any requirement is unmet or the implementation deviates from the issue's intent, fix it before proceeding.
+   - Run `pnpm lint && pnpm test && pnpm typecheck && pnpm build` and confirm all pass.
+   - If the change affects integration behavior (orchestrator dispatch, worker lifecycle, tracker adapters, status API, etc.), write a short TC and run a Docker E2E blackbox test following [AGENT_TEST.md](AGENT_TEST.md).
+   - Record the validation results (commands executed and their outcomes) in the workpad comment under the **Validation** section.
+7. If no PR exists and the completion bar is met, use the `/gh-pr-writeup` skill to run a brief pre-PR validation pass, create a PR with the required linked-issue, evidence, and human validation sections, post a comment summarizing what was implemented, and move the issue to `In review`.
+8. If a PR already exists while the issue is `In progress`, read all PR review activity, failing checks, and unresolved inline comments before changing any code.
+9. Distill the main merge blockers into a short prioritized list, then publish a refreshed workpad comment in the report language that captures those blockers and the revised execution plan for this rework cycle.
+10. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
+11. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
 
 #### Step 3: In review handling
 
