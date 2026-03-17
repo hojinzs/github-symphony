@@ -151,7 +151,9 @@ type TokenUsageSnapshot = {
 
 async function startAssignedRun() {
   try {
-    const workflowPath = join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
+    const workflowPath =
+      launcherEnv.SYMPHONY_WORKFLOW_PATH ||
+      join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
     runtimeState.runPhase = "building_prompt";
     const workflow = parseWorkflowMarkdown(
       await readFile(workflowPath, "utf8"),

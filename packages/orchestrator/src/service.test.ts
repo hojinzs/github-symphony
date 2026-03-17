@@ -8,12 +8,14 @@ import {
   resolveIssueWorkspaceDirectory,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
+import * as gitModule from "./git.js";
 import { OrchestratorService } from "./service.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (originalToken === undefined) {
       delete process.env.GITHUB_GRAPHQL_TOKEN;
     } else {
@@ -721,6 +723,253 @@ describe("OrchestratorService", () => {
 
     await service.runOnce();
     expect(service.getEffectivePollIntervalMs()).toBe(5000);
+  });
+
+  it("reloads workflow concurrency limits for future dispatches without restart", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxConcurrentAgents: 1,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4301,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          { id: "issue-2", identifier: "acme/platform#2", state: "Todo" },
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const first = await service.runOnce();
+    expect(first.summary.dispatched).toBe(1);
+
+    await commitWorkflowFixture(repository.path, {
+      maxConcurrentAgents: 2,
+    });
+
+    const second = await service.runOnce();
+    expect(second.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("respects an explicit workflow concurrency of zero", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-0-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxConcurrentAgents: 0,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4305,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last known good workflow when a reload becomes invalid", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-lkg-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        schedulerPollIntervalMs: 5000,
+        maxConcurrentAgents: 2,
+        codexCommand: "codex --model gpt-5",
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4302,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createEmptyTrackerResponse())
+        .mockResolvedValueOnce(
+          createTrackerResponseWithItems(repository, [
+            { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          ])
+        ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    expect(service.getEffectivePollIntervalMs()).toBe(5000);
+
+    await commitWorkflowFixture(repository.path, {
+      rawWorkflow: "---\ninvalid: [\n---\n",
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(service.getEffectivePollIntervalMs()).toBe(5000);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", expect.stringContaining("packages/worker/dist/index.js")],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_AGENT_COMMAND: "codex --model gpt-5",
+        }),
+      })
+    );
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("failed to reload WORKFLOW.md")
+    );
+  });
+
+  it("keeps a readable workflow snapshot when WORKFLOW.md is deleted", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-missing-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        codexCommand: "codex --model gpt-5",
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4306,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createEmptyTrackerResponse())
+        .mockResolvedValueOnce(
+          createTrackerResponseWithItems(repository, [
+            { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          ])
+        ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    execSync(`git -C ${shell(repository.path)} rm WORKFLOW.md`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repository.path)} commit -m remove-workflow`, {
+      stdio: "ignore",
+    });
+
+    const result = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(workerEnv?.SYMPHONY_AGENT_COMMAND).toBe("codex --model gpt-5");
+    expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(
+      join(
+        projectConfig.workspaceDir,
+        "workflow-cache",
+        repository.owner,
+        repository.name,
+        "last-known-good",
+        "WORKFLOW.md"
+      )
+    );
+    await expect(
+      readFile(workerEnv?.SYMPHONY_WORKFLOW_PATH ?? "", "utf8")
+    ).resolves.toContain("codex --model gpt-5");
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("failed to reload WORKFLOW.md")
+    );
+  });
+
+  it("reuses a single workflow sync per repository within one tick", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-cache-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const syncSpy = vi.spyOn(gitModule, "syncRepositoryForRun");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+        ])
+      ),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4307,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workflowSyncCalls = syncSpy.mock.calls.filter(
+      ([input]) =>
+        typeof input === "object" &&
+        input !== null &&
+        "targetDirectory" in input &&
+        String(input.targetDirectory).includes("/workflow-cache/")
+    );
+
+    expect(workflowSyncCalls).toHaveLength(1);
   });
 
   it("uses the latest workflow retry policy for future retries", async () => {
@@ -1982,8 +2231,11 @@ async function createRepositoryFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
+    codexCommand?: string;
+    rawWorkflow?: string;
   } = {}
 ): Promise<{
   owner: string;
@@ -2044,9 +2296,12 @@ async function commitWorkflowFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     afterRunCommand?: string;
+    codexCommand?: string;
+    rawWorkflow?: string;
   } = {}
 ): Promise<void> {
   await writeWorkflowFixture(repositoryRoot, options);
@@ -2064,13 +2319,16 @@ async function writeWorkflowFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
     afterRunCommand?: string;
+    codexCommand?: string;
+    rawWorkflow?: string;
   } = {}
 ): Promise<void> {
-  await writeFile(
-    join(repositoryRoot, "WORKFLOW.md"),
+  const content =
+    options.rawWorkflow ??
     `---
 tracker:
   kind: github-project
@@ -2091,16 +2349,20 @@ polling:
 workspace:
   root: .runtime/symphony-workspaces
 agent:
+  max_concurrent_agents: ${options.maxConcurrentAgents ?? 10}
   max_retry_backoff_ms: ${options.retryMaxDelayMs ?? 30000}
   retry_base_delay_ms: ${options.retryBaseDelayMs ?? 1000}
 codex:
-  command: codex app-server
+  command: ${options.codexCommand ?? "codex app-server"}
   read_timeout_ms: 5000
   stall_timeout_ms: ${options.stallTimeoutMs ?? 300000}
   turn_timeout_ms: 3600000
 ---
 Prefer focused changes.
-`,
+`;
+  await writeFile(
+    join(repositoryRoot, "WORKFLOW.md"),
+    content,
     "utf8"
   );
 }
@@ -2157,6 +2419,74 @@ function createTrackerResponse(repository: {
             pageInfo: {
               endCursor: null,
               hasNextPage: false,
+            },
+          },
+        },
+      },
+    }),
+  };
+}
+
+function createTrackerResponseWithItems(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  items: Array<{
+    id: string;
+    identifier: string;
+    state: string;
+  }>
+) {
+  return {
+    ok: true,
+    json: async () => ({
+      data: {
+        node: {
+          __typename: "ProjectV2",
+          items: {
+            nodes: items.map((item) => ({
+              id: `tracker-${item.id}`,
+              updatedAt: "2026-03-08T00:00:00.000Z",
+              fieldValues: {
+                nodes: [
+                  {
+                    __typename: "ProjectV2ItemFieldSingleSelectValue",
+                    name: item.state,
+                    field: {
+                      name: "Status",
+                    },
+                  },
+                ],
+              },
+              content: {
+                __typename: "Issue",
+                id: item.id,
+                number: Number(item.identifier.split("#")[1]),
+                title: item.identifier,
+                body: null,
+                url: `https://github.com/${repository.owner}/${repository.name}/issues/${item.identifier.split("#")[1]}`,
+                createdAt: "2026-03-08T00:00:00.000Z",
+                updatedAt: "2026-03-08T00:00:00.000Z",
+                labels: {
+                  nodes: [],
+                },
+                blockedBy: {
+                  nodes: [],
+                },
+                repository: {
+                  name: repository.name,
+                  owner: {
+                    login: repository.owner,
+                  },
+                  url: `file://${repository.cloneUrl}`,
+                },
+              },
+            })),
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
             },
           },
         },

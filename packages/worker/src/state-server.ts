@@ -75,10 +75,9 @@ export async function buildWorkerRuntimeState(
   > = {}
 ): Promise<WorkerRuntimeState> {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR ?? "/workspace-runtime";
-  const workflowPath = join(
-    env.WORKING_DIRECTORY ?? workspaceRuntimeDir,
-    "WORKFLOW.md"
-  );
+  const workflowPath =
+    env.SYMPHONY_WORKFLOW_PATH ||
+    join(env.WORKING_DIRECTORY ?? workspaceRuntimeDir, "WORKFLOW.md");
   let workflow: WorkerRuntimeState["workflow"] = null;
   const assignedRun =
     runtime.run ??
