@@ -10,8 +10,11 @@ import {
 } from "../config.js";
 import {
   OrchestratorService,
+  acquireProjectLock,
   createStore,
+  releaseProjectLock,
   startOrchestratorStatusServer,
+  type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import {
@@ -41,8 +44,10 @@ type ForegroundShutdownOptions = {
   configDir: string;
   projectId: string;
   statusServer: { close(): void };
+  projectLock?: ProjectLockHandle | null;
   exit?: (code?: number) => never;
   removePortFile?: typeof rm;
+  releaseLock?: typeof releaseProjectLock;
 };
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
@@ -237,82 +242,104 @@ const handler = async (
     }
   }
 
-  const store = createStore(runtimeRoot);
-  const service = new OrchestratorService(store, projectConfig);
-
-  const statusServer = startOrchestratorStatusServer({
-    host: "127.0.0.1",
-    port: 0,
-    getProjectStatus: () => service.status(),
-    onRefresh: async () => {
-      await service.runOnce();
-    },
-  });
-  await persistStatusServerPort(options.configDir, projectId, statusServer);
-
-  logLine(
-    green("\u25B2"),
-    `Starting orchestrator for project: ${bold(projectId)}`
-  );
-  logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
-
-  let running = true;
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-    running = false;
-    await shutdownForegroundOrchestrator({
-      configDir: options.configDir,
+  let projectLock: ProjectLockHandle | null = null;
+  try {
+    projectLock = await acquireProjectLock({
+      runtimeRoot,
       projectId,
-      statusServer,
     });
-  };
-  process.on("SIGINT", () => {
-    void shutdown();
-  });
-  process.on("SIGTERM", () => {
-    void shutdown();
-  });
 
-  let prevSnapshot: ProjectStatusSnapshot | null = null;
-  let isFirst = true;
+    const store = createStore(runtimeRoot);
+    const service = new OrchestratorService(store, projectConfig);
 
-  while (running) {
-    try {
-      const snapshot = await service.runOnce();
-      logTickResult(snapshot, prevSnapshot, isFirst);
+    const statusServer = startOrchestratorStatusServer({
+      host: "127.0.0.1",
+      port: 0,
+      getProjectStatus: () => service.status(),
+      onRefresh: async () => {
+        await service.runOnce();
+      },
+    });
+    await persistStatusServerPort(options.configDir, projectId, statusServer);
 
-      if (!isFirst) {
-        const currentRunIds = new Set(
-          snapshot.activeRuns.map((run) => run.runId)
-        );
-        for (const prevRun of prevSnapshot?.activeRuns ?? []) {
-          if (!currentRunIds.has(prevRun.runId)) {
-            await tailWorkerLog(
-              runtimeRoot,
-              prevRun.runId,
-              prevRun.issueIdentifier
-            );
+    logLine(
+      green("\u25B2"),
+      `Starting orchestrator for project: ${bold(projectId)}`
+    );
+    logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
+
+    let running = true;
+    let shuttingDown = false;
+    let shutdownPromise: Promise<never> | null = null;
+    const shutdown = async () => {
+      if (shuttingDown) {
+        return shutdownPromise;
+      }
+      shuttingDown = true;
+      running = false;
+      const heldLock = projectLock;
+      projectLock = null;
+      shutdownPromise = shutdownForegroundOrchestrator({
+        configDir: options.configDir,
+        projectId,
+        statusServer,
+        projectLock: heldLock,
+      });
+      return shutdownPromise;
+    };
+    process.on("SIGINT", () => {
+      void shutdown();
+    });
+    process.on("SIGTERM", () => {
+      void shutdown();
+    });
+
+    let prevSnapshot: ProjectStatusSnapshot | null = null;
+    let isFirst = true;
+
+    while (running) {
+      try {
+        const snapshot = await service.runOnce();
+        logTickResult(snapshot, prevSnapshot, isFirst);
+
+        if (!isFirst) {
+          const currentRunIds = new Set(
+            snapshot.activeRuns.map((run) => run.runId)
+          );
+          for (const prevRun of prevSnapshot?.activeRuns ?? []) {
+            if (!currentRunIds.has(prevRun.runId)) {
+              await tailWorkerLog(
+                runtimeRoot,
+                prevRun.runId,
+                prevRun.issueIdentifier
+              );
+            }
           }
         }
+
+        prevSnapshot = snapshot;
+        isFirst = false;
+      } catch (error) {
+        logLine(
+          red("\u2717"),
+          red(
+            `Tick error: ${error instanceof Error ? error.message : "Unknown error"}`
+          )
+        );
       }
 
-      prevSnapshot = snapshot;
-      isFirst = false;
-    } catch (error) {
-      logLine(
-        red("\u2717"),
-        red(
-          `Tick error: ${error instanceof Error ? error.message : "Unknown error"}`
-        )
-      );
-    }
+      if (!running) {
+        if (shutdownPromise) {
+          await shutdownPromise;
+        }
+        break;
+      }
 
-    // Poll interval: default 30s
-    await new Promise((r) => setTimeout(r, 30_000));
+      // Poll interval: default 30s
+      await new Promise((r) => setTimeout(r, 30_000));
+    }
+  } finally {
+    await releaseProjectLock(projectLock);
   }
 };
 
@@ -343,6 +370,15 @@ export async function shutdownForegroundOrchestrator(
     logLine(
       yellow("\u26A0"),
       `Failed to remove persisted status port: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+
+  try {
+    await (input.releaseLock ?? releaseProjectLock)(input.projectLock);
+  } catch (error) {
+    logLine(
+      yellow("\u26A0"),
+      `Failed to release project lock: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 

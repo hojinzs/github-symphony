@@ -11,6 +11,12 @@ import {
 
 export { OrchestratorService, createStore };
 export { startOrchestratorStatusServer };
+export {
+  acquireProjectLock,
+  assertValidProjectId,
+  releaseProjectLock,
+  type ProjectLockHandle,
+};
 
 export async function runCli(
   argv: string[],
