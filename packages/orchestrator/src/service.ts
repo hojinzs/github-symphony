@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { mkdirSync, openSync } from "node:fs";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
@@ -91,6 +91,8 @@ export class OrchestratorService {
   private readonly activeWorkerPids = new Set<number>();
   private readonly lastKnownGoodWorkflows = new Map<string, WorkflowResolution>();
   private readonly lastReportedWorkflowErrors = new Map<string, string>();
+  private workflowResolutionCache: Map<string, Promise<WorkflowResolution>> | null =
+    null;
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -145,6 +147,8 @@ export class OrchestratorService {
     if (this.reconcilePromise) {
       await this.reconcilePromise;
     }
+    const workflowResolutionCache = new Map<string, Promise<WorkflowResolution>>();
+    this.workflowResolutionCache = workflowResolutionCache;
     const promise = this.reconcileProject(
       this.projectConfig,
       options.issueIdentifier
@@ -155,6 +159,9 @@ export class OrchestratorService {
     } finally {
       if (this.reconcilePromise === promise) {
         this.reconcilePromise = null;
+      }
+      if (this.workflowResolutionCache === workflowResolutionCache) {
+        this.workflowResolutionCache = null;
       }
     }
   }
@@ -650,7 +657,30 @@ export class OrchestratorService {
   private async loadProjectWorkflow(
     tenant: OrchestratorProjectConfig,
     repository: RepositoryRef
-  ) {
+  ): Promise<WorkflowResolution> {
+    const cacheKey = this.workflowCacheKey(repository);
+    const pendingCache = this.workflowResolutionCache;
+    if (pendingCache) {
+      const cachedResolution = pendingCache.get(cacheKey);
+      if (cachedResolution) {
+        return cachedResolution;
+      }
+
+      const resolutionPromise = this.loadProjectWorkflowUncached(
+        tenant,
+        repository
+      );
+      pendingCache.set(cacheKey, resolutionPromise);
+      return resolutionPromise;
+    }
+
+    return this.loadProjectWorkflowUncached(tenant, repository);
+  }
+
+  private async loadProjectWorkflowUncached(
+    tenant: OrchestratorProjectConfig,
+    repository: RepositoryRef
+  ): Promise<WorkflowResolution> {
     const cacheRoot = join(
       tenant.workspaceDir,
       "workflow-cache",
@@ -662,7 +692,12 @@ export class OrchestratorService {
       targetDirectory: cacheRoot,
     });
     const resolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
-    return this.resolveWorkflowResolution(repository, resolution, changed);
+    return this.resolveWorkflowResolution(
+      repository,
+      cacheRoot,
+      resolution,
+      changed
+    );
   }
 
   private async startRun(
@@ -1566,7 +1601,7 @@ export class OrchestratorService {
   private async getProjectConcurrency(
     project: OrchestratorProjectConfig
   ): Promise<number> {
-    if (this.dependencies.concurrency) {
+    if (this.dependencies.concurrency !== undefined) {
       return this.dependencies.concurrency;
     }
 
@@ -1583,16 +1618,17 @@ export class OrchestratorService {
       })
     );
     const validLimits = limits.filter(
-      (value) => Number.isFinite(value) && value > 0
+      (value) => Number.isFinite(value) && value >= 0
     );
     return validLimits.length ? Math.min(...validLimits) : DEFAULT_CONCURRENCY;
   }
 
-  private resolveWorkflowResolution(
+  private async resolveWorkflowResolution(
     repository: RepositoryRef,
+    cacheRoot: string,
     resolution: WorkflowResolution,
     changed: boolean
-  ): WorkflowResolution {
+  ): Promise<WorkflowResolution> {
     const cacheKey = this.workflowCacheKey(repository);
 
     if (resolution.isValid) {
@@ -1602,7 +1638,18 @@ export class OrchestratorService {
         usedLastKnownGood: false,
         validationError: null,
       };
-      this.lastKnownGoodWorkflows.set(cacheKey, effectiveResolution);
+      let workflowPath = effectiveResolution.workflowPath;
+      try {
+        workflowPath =
+          (await this.persistLastKnownGoodWorkflow(cacheRoot, effectiveResolution)) ??
+          effectiveResolution.workflowPath;
+      } catch {
+        workflowPath = effectiveResolution.workflowPath;
+      }
+      this.lastKnownGoodWorkflows.set(cacheKey, {
+        ...effectiveResolution,
+        workflowPath,
+      });
       this.lastReportedWorkflowErrors.delete(cacheKey);
       return effectiveResolution;
     }
@@ -1623,15 +1670,46 @@ export class OrchestratorService {
 
     return {
       ...cached,
-      workflowPath: resolution.workflowPath ?? cached.workflowPath,
+      workflowPath: cached.workflowPath,
       isValid: false,
       usedLastKnownGood: true,
       validationError: message,
     };
   }
 
+  private async persistLastKnownGoodWorkflow(
+    cacheRoot: string,
+    resolution: WorkflowResolution
+  ): Promise<string | null> {
+    if (!resolution.workflowPath) {
+      return null;
+    }
+
+    const snapshotPath = this.lastKnownGoodWorkflowPath(cacheRoot);
+    const markdown = await readFile(resolution.workflowPath, "utf8");
+    await mkdir(join(cacheRoot, "last-known-good"), { recursive: true });
+    await writeFile(snapshotPath, markdown, "utf8");
+    return snapshotPath;
+  }
+
+  private lastKnownGoodWorkflowPath(cacheRoot: string): string {
+    return join(cacheRoot, "last-known-good", "WORKFLOW.md");
+  }
+
   private workflowCacheKey(repository: RepositoryRef): string {
-    return `${repository.owner}/${repository.name}:${repository.cloneUrl}`;
+    return `${repository.owner}/${repository.name}:${this.normalizeRepositoryCloneUrl(repository.cloneUrl)}`;
+  }
+
+  private normalizeRepositoryCloneUrl(cloneUrl: string): string {
+    if (cloneUrl.startsWith("file://")) {
+      try {
+        return fileURLToPath(cloneUrl);
+      } catch {
+        return cloneUrl;
+      }
+    }
+
+    return cloneUrl;
   }
 
   private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {

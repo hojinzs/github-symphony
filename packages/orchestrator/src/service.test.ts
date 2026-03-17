@@ -8,6 +8,7 @@ import {
   resolveIssueWorkspaceDirectory,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
+import * as gitModule from "./git.js";
 import { OrchestratorService } from "./service.js";
 
 describe("OrchestratorService", () => {
@@ -508,6 +509,41 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("respects an explicit workflow concurrency of zero", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-0-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxConcurrentAgents: 0,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4305,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
   it("keeps the last known good workflow when a reload becomes invalid", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-lkg-"));
@@ -568,6 +604,114 @@ describe("OrchestratorService", () => {
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining("failed to reload WORKFLOW.md")
     );
+  });
+
+  it("keeps a readable workflow snapshot when WORKFLOW.md is deleted", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-missing-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        codexCommand: "codex --model gpt-5",
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4306,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createEmptyTrackerResponse())
+        .mockResolvedValueOnce(
+          createTrackerResponseWithItems(repository, [
+            { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          ])
+        ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    execSync(`git -C ${shell(repository.path)} rm WORKFLOW.md`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repository.path)} commit -m remove-workflow`, {
+      stdio: "ignore",
+    });
+
+    const result = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(workerEnv?.SYMPHONY_AGENT_COMMAND).toBe("codex --model gpt-5");
+    expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(
+      join(
+        projectConfig.workspaceDir,
+        "workflow-cache",
+        repository.owner,
+        repository.name,
+        "last-known-good",
+        "WORKFLOW.md"
+      )
+    );
+    await expect(
+      readFile(workerEnv?.SYMPHONY_WORKFLOW_PATH ?? "", "utf8")
+    ).resolves.toContain("codex --model gpt-5");
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("failed to reload WORKFLOW.md")
+    );
+  });
+
+  it("reuses a single workflow sync per repository within one tick", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-cache-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const syncSpy = vi.spyOn(gitModule, "syncRepositoryForRun");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+        ])
+      ),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4307,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workflowSyncCalls = syncSpy.mock.calls.filter(
+      ([input]) =>
+        typeof input === "object" &&
+        input !== null &&
+        "targetDirectory" in input &&
+        String(input.targetDirectory).includes("/workflow-cache/")
+    );
+
+    expect(workflowSyncCalls).toHaveLength(1);
   });
 
   it("uses the latest workflow retry policy for future retries", async () => {

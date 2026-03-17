@@ -59,6 +59,32 @@ Prefer small changes.
     expect(state.sessionId).toBeNull();
   });
 
+  it("prefers SYMPHONY_WORKFLOW_PATH over the workspace directory", async () => {
+    const readFileImpl = vi
+      .fn()
+      .mockImplementation(async (path: string) => `---
+tracker:
+  kind: github-project
+  project_id: project-123
+codex:
+  command: ${path.includes("preferred") ? "codex preferred" : "codex fallback"}
+---
+Prefer small changes.
+`);
+
+    const state = await buildWorkerRuntimeState(
+      {
+        GITHUB_PROJECT_ID: "project-123",
+        WORKING_DIRECTORY: "/workspace/repository",
+        SYMPHONY_WORKFLOW_PATH: "/preferred/WORKFLOW.md",
+      },
+      readFileImpl as never
+    );
+
+    expect(readFileImpl).toHaveBeenCalledWith("/preferred/WORKFLOW.md", "utf8");
+    expect(state.workflow?.agentCommand).toBe("codex preferred");
+  });
+
   it("surfaces assigned run metadata from the orchestrator", async () => {
     const state = await buildWorkerRuntimeState(
       {
