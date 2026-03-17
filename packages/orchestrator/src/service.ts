@@ -30,6 +30,7 @@ import {
   type OrchestratorProjectConfig,
   type ProjectStatusSnapshot,
   type RepositoryRef,
+  type RuntimeSessionRow,
   type RunAttemptPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
@@ -838,6 +839,14 @@ export class OrchestratorService {
           ...run,
           status: "running",
           updatedAt: now.toISOString(),
+          runtimeSession: buildRuntimeSession(
+            run.runtimeSession,
+            liveState.sessionId,
+            liveState.threadId,
+            "active",
+            run.startedAt ?? now.toISOString(),
+            now.toISOString()
+          ),
           turnCount: liveState.turnCount ?? undefined,
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
@@ -876,6 +885,14 @@ export class OrchestratorService {
     const workerInfo = await this.fetchWorkerRunInfo(run);
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
+      runtimeSession: buildRuntimeSession(
+        run.runtimeSession,
+        workerInfo.sessionId,
+        workerInfo.threadId,
+        run.status === "running" ? "failed" : run.runtimeSession?.status ?? null,
+        run.runtimeSession?.startedAt ?? run.startedAt ?? now.toISOString(),
+        now.toISOString()
+      ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
@@ -1086,6 +1103,7 @@ export class OrchestratorService {
   private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    threadId: string | null;
     turnCount: number | null;
     lastError: string | null;
     lastEvent: string | null;
@@ -1102,6 +1120,7 @@ export class OrchestratorService {
     return {
       tokenUsage: persistedTokenUsage,
       sessionId: liveState.sessionId,
+      threadId: liveState.threadId,
       turnCount: liveState.turnCount,
       lastError: liveState.lastError,
       lastEvent: liveState.lastEvent,
@@ -1114,6 +1133,7 @@ export class OrchestratorService {
   private async fetchLiveWorkerState(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
+    threadId: string | null;
     turnCount: number | null;
     lastError: string | null;
     lastEvent: string | null;
@@ -1125,6 +1145,7 @@ export class OrchestratorService {
       return {
         tokenUsage: null,
         sessionId: null,
+        threadId: null,
         turnCount: null,
         lastError: null,
         lastEvent: null,
@@ -1144,6 +1165,7 @@ export class OrchestratorService {
         return {
           tokenUsage: null,
           sessionId: null,
+          threadId: null,
           turnCount: null,
           lastError: null,
           lastEvent: null,
@@ -1157,6 +1179,7 @@ export class OrchestratorService {
         status?: string;
         executionPhase?: unknown;
         runPhase?: unknown;
+        sessionId?: unknown;
         tokenUsage?: {
           inputTokens: number;
           outputTokens: number;
@@ -1164,7 +1187,9 @@ export class OrchestratorService {
         };
         sessionInfo?: {
           threadId: string | null;
+          turnId?: string | null;
           turnCount: number;
+          sessionId?: string | null;
         } | null;
         run?: { lastError: string | null } | null;
       };
@@ -1172,12 +1197,22 @@ export class OrchestratorService {
       const tokenUsage = hasTokenUsage(state.tokenUsage)
         ? state.tokenUsage
         : null;
+      const topLevelSessionId = asStringOrNull(state.sessionId);
+      const nestedSessionId = asStringOrNull(state.sessionInfo?.sessionId);
+      const threadId = asStringOrNull(state.sessionInfo?.threadId);
+      const turnId = asStringOrNull(state.sessionInfo?.turnId);
       const sessionId =
-        state.sessionInfo?.threadId && state.sessionInfo.turnCount > 0
-          ? `${state.sessionInfo.threadId}-${state.sessionInfo.turnCount}`
+        topLevelSessionId ??
+        nestedSessionId ??
+        (threadId && turnId
+          ? `${threadId}-${turnId}`
+          : null);
+      const turnCount =
+        typeof state.sessionInfo?.turnCount === "number"
+          ? state.sessionInfo.turnCount
           : null;
-      const turnCount = state.sessionInfo?.turnCount ?? null;
-      const lastError = state.run?.lastError ?? null;
+      const lastError =
+        typeof state.run?.lastError === "string" ? state.run.lastError : null;
       const lastEvent = state.status ?? null;
       const lastEventAt: string | null = null; // worker doesn't emit event timestamps
       const executionPhase = parseExecutionPhase(state.executionPhase);
@@ -1186,6 +1221,7 @@ export class OrchestratorService {
       return {
         tokenUsage,
         sessionId,
+        threadId,
         turnCount,
         lastError,
         lastEvent,
@@ -1197,6 +1233,7 @@ export class OrchestratorService {
       return {
         tokenUsage: null,
         sessionId: null,
+        threadId: null,
         turnCount: null,
         lastError: null,
         lastEvent: null,
@@ -1530,6 +1567,37 @@ function hasTokenUsage(
       tokenUsage.outputTokens > 0 ||
       tokenUsage.totalTokens > 0)
   );
+}
+
+function asStringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function buildRuntimeSession(
+  existing: OrchestratorRunRecord["runtimeSession"] | null | undefined,
+  sessionId: string | null,
+  threadId: string | null,
+  status: RuntimeSessionRow["status"],
+  startedAt: string | null,
+  updatedAt: string
+): OrchestratorRunRecord["runtimeSession"] | undefined {
+  if (
+    existing === undefined &&
+    sessionId === null &&
+    threadId === null &&
+    status === null
+  ) {
+    return undefined;
+  }
+
+  return {
+    sessionId: sessionId ?? existing?.sessionId ?? null,
+    threadId: threadId ?? existing?.threadId ?? null,
+    status: status ?? existing?.status ?? null,
+    startedAt: existing?.startedAt ?? startedAt,
+    updatedAt,
+    exitClassification: existing?.exitClassification ?? null,
+  };
 }
 
 function resolveWorkerCommand(): string {

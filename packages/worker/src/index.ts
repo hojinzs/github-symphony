@@ -33,6 +33,7 @@ const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
+  sessionId: string | null;
   run: null | {
     runId: string;
     issueId: string | null;
@@ -54,12 +55,15 @@ const runtimeState: {
   };
   sessionInfo: {
     threadId: string | null;
+    turnId: string | null;
     turnCount: number;
+    sessionId: string | null;
   };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
   executionPhase: null,
   runPhase: launcherEnv.SYMPHONY_RUN_ID ? "preparing_workspace" : null,
+  sessionId: null,
   run: launcherEnv.SYMPHONY_RUN_ID
     ? {
         runId: launcherEnv.SYMPHONY_RUN_ID,
@@ -83,7 +87,9 @@ const runtimeState: {
   },
   sessionInfo: {
     threadId: null,
+    turnId: null,
     turnCount: 0,
+    sessionId: null,
   },
 };
 
@@ -136,6 +142,12 @@ function shutdown(signal: NodeJS.Signals) {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+type TokenUsageSnapshot = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
 
 async function startAssignedRun() {
   try {
@@ -497,32 +509,9 @@ async function runCodexClientProtocol(
       flushDeltaBuffer();
       // Extract token usage from turn completion params if present
       const turnParams = (msg.params ?? {}) as Record<string, unknown>;
-      const usage = turnParams.usage as Record<string, unknown> | undefined;
-      if (usage) {
-        const inputTokens =
-          typeof usage.input_tokens === "number"
-            ? usage.input_tokens
-            : typeof usage.inputTokens === "number"
-              ? usage.inputTokens
-              : 0;
-        const outputTokens =
-          typeof usage.output_tokens === "number"
-            ? usage.output_tokens
-            : typeof usage.outputTokens === "number"
-              ? usage.outputTokens
-              : 0;
-        const totalTokens =
-          typeof usage.total_tokens === "number"
-            ? usage.total_tokens
-            : typeof usage.totalTokens === "number"
-              ? usage.totalTokens
-              : inputTokens + outputTokens;
-        if (inputTokens > 0 || outputTokens > 0 || totalTokens > 0) {
-          runtimeState.tokenUsage.inputTokens = inputTokens;
-          runtimeState.tokenUsage.outputTokens = outputTokens;
-          runtimeState.tokenUsage.totalTokens =
-            totalTokens || inputTokens + outputTokens;
-        }
+      const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
+      if (turnUsage) {
+        applyTokenUsageUpdate("turn/completed", turnUsage);
       }
       process.stderr.write("[worker] codex turn/completed\n");
       if (turnCompletedResolve) {
@@ -538,41 +527,9 @@ async function runCodexClientProtocol(
       msg.method === "total_token_usage" ||
       msg.method === "codex/event/token_count"
     ) {
-      const params = (msg.params ?? {}) as Record<string, unknown>;
-
-      // codex/event/token_count: { msg: { info: { total_token_usage: { input_tokens, output_tokens, total_tokens } } } }
-      const codexMsg = params.msg as Record<string, unknown> | undefined;
-      const codexInfo = codexMsg?.info as Record<string, unknown> | undefined;
-      const codexTotals = codexInfo?.total_token_usage as
-        | Record<string, unknown>
-        | undefined;
-      const source = codexTotals ?? params;
-
-      const inputTokens =
-        typeof source.input_tokens === "number"
-          ? source.input_tokens
-          : typeof source.inputTokens === "number"
-            ? source.inputTokens
-            : 0;
-      const outputTokens =
-        typeof source.output_tokens === "number"
-          ? source.output_tokens
-          : typeof source.outputTokens === "number"
-            ? source.outputTokens
-            : 0;
-      const totalTokens =
-        typeof source.total_tokens === "number"
-          ? source.total_tokens
-          : typeof source.totalTokens === "number"
-            ? source.totalTokens
-            : 0;
-
-      // Prefer absolute totals from the event
-      if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0) {
-        runtimeState.tokenUsage.inputTokens = inputTokens;
-        runtimeState.tokenUsage.outputTokens = outputTokens;
-        runtimeState.tokenUsage.totalTokens =
-          totalTokens || inputTokens + outputTokens;
+      const tokenUsage = extractAbsoluteTokenUsage(msg.params);
+      if (tokenUsage) {
+        applyTokenUsageUpdate(msg.method, tokenUsage);
       }
       return;
     }
@@ -669,6 +626,9 @@ async function runCodexClientProtocol(
         | undefined);
 
     runtimeState.sessionInfo.threadId = threadId ?? null;
+    runtimeState.sessionInfo.turnId = null;
+    runtimeState.sessionInfo.sessionId = null;
+    runtimeState.sessionId = null;
 
     process.stderr.write(
       `[worker] codex thread started (id=${String(threadId ?? "unknown")})\n`
@@ -715,8 +675,15 @@ async function runCodexClientProtocol(
         ((turnResult.turn as Record<string, unknown> | undefined)?.id as
           | string
           | undefined);
+      const sessionId = threadId && turnId ? `${threadId}-${turnId}` : null;
+      runtimeState.sessionInfo.turnId = turnId ?? null;
+      runtimeState.sessionInfo.sessionId = sessionId;
+      runtimeState.sessionId = sessionId;
       process.stderr.write(
         `[worker] codex turn started (id=${String(turnId ?? "unknown")})\n`
+      );
+      process.stderr.write(
+        `[worker] session_id=${String(sessionId ?? "unknown")}\n`
       );
 
       // Wait for turn completion with absolute timeout
@@ -797,6 +764,117 @@ async function runCodexClientProtocol(
       server.close(() => process.exit(1));
     }, 1500);
   }
+}
+
+function applyTokenUsageUpdate(
+  source: string,
+  tokenUsage: TokenUsageSnapshot
+): void {
+  runtimeState.tokenUsage.inputTokens = tokenUsage.inputTokens;
+  runtimeState.tokenUsage.outputTokens = tokenUsage.outputTokens;
+  runtimeState.tokenUsage.totalTokens = tokenUsage.totalTokens;
+  process.stderr.write(
+    `[worker] token_usage source=${source} input=${tokenUsage.inputTokens} output=${tokenUsage.outputTokens} total=${tokenUsage.totalTokens}\n`
+  );
+}
+
+function extractAbsoluteTokenUsage(value: unknown): TokenUsageSnapshot | null {
+  const direct = parseTokenUsageSnapshot(value);
+  if (direct) {
+    return direct;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "total_token_usage",
+    "token_usage",
+    "info",
+    "msg",
+    "event",
+    "data",
+    "result",
+    "payload",
+  ];
+
+  for (const key of preferredKeys) {
+    if (key in record) {
+      const nested = extractAbsoluteTokenUsage(record[key]);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  for (const [key, nestedValue] of Object.entries(record)) {
+    if (key === "last_token_usage") {
+      continue;
+    }
+    const nested = extractAbsoluteTokenUsage(nestedValue);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+function parseTokenUsageSnapshot(value: unknown): TokenUsageSnapshot | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const inputTokens =
+    typeof record.input_tokens === "number"
+      ? record.input_tokens
+      : typeof record.inputTokens === "number"
+        ? record.inputTokens
+        : null;
+  const outputTokens =
+    typeof record.output_tokens === "number"
+      ? record.output_tokens
+      : typeof record.outputTokens === "number"
+        ? record.outputTokens
+        : null;
+  const explicitTotalTokens =
+    typeof record.total_tokens === "number"
+      ? record.total_tokens
+      : typeof record.totalTokens === "number"
+        ? record.totalTokens
+        : null;
+
+  if (
+    inputTokens === null &&
+    outputTokens === null &&
+    explicitTotalTokens === null
+  ) {
+    return null;
+  }
+
+  const normalizedInputTokens = inputTokens ?? 0;
+  const normalizedOutputTokens = outputTokens ?? 0;
+  const normalizedTotalTokens =
+    explicitTotalTokens ?? normalizedInputTokens + normalizedOutputTokens;
+
+  if (
+    normalizedInputTokens <= 0 &&
+    normalizedOutputTokens <= 0 &&
+    normalizedTotalTokens <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    inputTokens: normalizedInputTokens,
+    outputTokens: normalizedOutputTokens,
+    totalTokens:
+      normalizedTotalTokens ||
+      normalizedInputTokens + normalizedOutputTokens,
+  };
 }
 
 /**
