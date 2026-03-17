@@ -34,11 +34,12 @@ import {
   type RunAttemptPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
+  type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
-  cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,
   loadRepositoryWorkflow,
+  syncRepositoryForRun,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
@@ -65,6 +66,12 @@ function parseRunPhase(value: unknown): RunAttemptPhase | null {
   return isRunAttemptPhase(value) ? value : null;
 }
 
+function isUsableWorkflowResolution(
+  resolution: WorkflowResolution
+): boolean {
+  return resolution.isValid || resolution.usedLastKnownGood;
+}
+
 function isMatchingIssueRun(
   run: OrchestratorRunRecord | null,
   projectId: string,
@@ -82,6 +89,8 @@ export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
+  private readonly lastKnownGoodWorkflows = new Map<string, WorkflowResolution>();
+  private readonly lastReportedWorkflowErrors = new Map<string, string>();
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -361,7 +370,7 @@ export class OrchestratorService {
         : issues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
-      const concurrency = this.getProjectConcurrency(tenant);
+      const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
         isIssueOrchestrationClaimed(record.state)
       ).length;
@@ -567,7 +576,7 @@ export class OrchestratorService {
         tenant,
         issue.repository
       );
-      if (!resolution.isValid) {
+      if (!isUsableWorkflowResolution(resolution)) {
         continue;
       }
       if (!lifecycle) {
@@ -622,7 +631,7 @@ export class OrchestratorService {
         tenant,
         tenant.repositories[0]!
       );
-      if (resolution.isValid) {
+      if (isUsableWorkflowResolution(resolution)) {
         lifecycle = resolution.lifecycle;
       }
     }
@@ -648,12 +657,12 @@ export class OrchestratorService {
       repository.owner,
       repository.name
     );
-    const repositoryDirectory = await cloneRepositoryForRun({
+    const { repositoryDirectory, changed } = await syncRepositoryForRun({
       repository,
       targetDirectory: cacheRoot,
     });
-
-    return await loadRepositoryWorkflow(repositoryDirectory, repository);
+    const resolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
+    return this.resolveWorkflowResolution(repository, resolution, changed);
   }
 
   private async startRun(
@@ -745,7 +754,7 @@ export class OrchestratorService {
     }
 
     const workflow = await this.loadProjectWorkflow(tenant, issue.repository);
-    if (!workflow.isValid) {
+    if (!isUsableWorkflowResolution(workflow)) {
       throw new Error(
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
       );
@@ -810,6 +819,7 @@ export class OrchestratorService {
           TARGET_REPOSITORY_URL: issue.repository.url,
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
+          SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
           SYMPHONY_AGENT_COMMAND: workflow.workflow.codex.command,
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
           SYMPHONY_READ_TIMEOUT_MS: String(
@@ -1193,7 +1203,7 @@ export class OrchestratorService {
         return "failure";
       }
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
-      if (!resolution.isValid) {
+      if (!isUsableWorkflowResolution(resolution)) {
         return "failure";
       }
       return isStateActive(runIssue.state, resolution.lifecycle)
@@ -1395,7 +1405,7 @@ export class OrchestratorService {
   ): Promise<HookResult | null> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, repository);
-      if (!resolution.isValid) {
+      if (!isUsableWorkflowResolution(resolution)) {
         return null;
       }
       const hookEnv = buildHookEnv(context);
@@ -1485,7 +1495,7 @@ export class OrchestratorService {
     const intervals = await Promise.all(
       tenant.repositories.map(async (repository) => {
         const resolution = await this.loadProjectWorkflow(tenant, repository);
-        return resolution.isValid
+        return isUsableWorkflowResolution(resolution)
           ? resolution.workflow.polling.intervalMs
           : NaN;
       })
@@ -1514,7 +1524,7 @@ export class OrchestratorService {
 
     for (const resolution of resolutions) {
       if (!resolution) continue;
-      if (!resolution.isValid) continue;
+      if (!isUsableWorkflowResolution(resolution)) continue;
       const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
       for (const [state, limit] of Object.entries(stateLimits)) {
         const existing = result[state];
@@ -1541,7 +1551,7 @@ export class OrchestratorService {
 
     try {
       const resolution = await this.loadProjectWorkflow(tenant, repository);
-      if (!resolution.isValid) {
+      if (!isUsableWorkflowResolution(resolution)) {
         return null;
       }
       return {
@@ -1553,8 +1563,75 @@ export class OrchestratorService {
     }
   }
 
-  private getProjectConcurrency(_project: OrchestratorProjectConfig): number {
-    return this.dependencies.concurrency ?? DEFAULT_CONCURRENCY;
+  private async getProjectConcurrency(
+    project: OrchestratorProjectConfig
+  ): Promise<number> {
+    if (this.dependencies.concurrency) {
+      return this.dependencies.concurrency;
+    }
+
+    const limits = await Promise.all(
+      project.repositories.map(async (repository) => {
+        try {
+          const resolution = await this.loadProjectWorkflow(project, repository);
+          return isUsableWorkflowResolution(resolution)
+            ? resolution.workflow.agent.maxConcurrentAgents
+            : NaN;
+        } catch {
+          return NaN;
+        }
+      })
+    );
+    const validLimits = limits.filter(
+      (value) => Number.isFinite(value) && value > 0
+    );
+    return validLimits.length ? Math.min(...validLimits) : DEFAULT_CONCURRENCY;
+  }
+
+  private resolveWorkflowResolution(
+    repository: RepositoryRef,
+    resolution: WorkflowResolution,
+    changed: boolean
+  ): WorkflowResolution {
+    const cacheKey = this.workflowCacheKey(repository);
+
+    if (resolution.isValid) {
+      const effectiveResolution: WorkflowResolution = {
+        ...resolution,
+        isValid: true,
+        usedLastKnownGood: false,
+        validationError: null,
+      };
+      this.lastKnownGoodWorkflows.set(cacheKey, effectiveResolution);
+      this.lastReportedWorkflowErrors.delete(cacheKey);
+      return effectiveResolution;
+    }
+
+    const cached = this.lastKnownGoodWorkflows.get(cacheKey);
+    const message = resolution.validationError ?? "Invalid repository WORKFLOW.md";
+    const previousMessage = this.lastReportedWorkflowErrors.get(cacheKey);
+    if (changed || previousMessage !== message) {
+      process.stderr.write(
+        `[orchestrator] failed to reload WORKFLOW.md for ${repository.owner}/${repository.name}: ${message}\n`
+      );
+      this.lastReportedWorkflowErrors.set(cacheKey, message);
+    }
+
+    if (!cached) {
+      return resolution;
+    }
+
+    return {
+      ...cached,
+      workflowPath: resolution.workflowPath ?? cached.workflowPath,
+      isValid: false,
+      usedLastKnownGood: true,
+      validationError: message,
+    };
+  }
+
+  private workflowCacheKey(repository: RepositoryRef): string {
+    return `${repository.owner}/${repository.name}:${repository.cloneUrl}`;
   }
 
   private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {

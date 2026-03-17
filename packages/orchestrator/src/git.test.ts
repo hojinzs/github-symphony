@@ -14,6 +14,7 @@ import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
   releaseRepositoryLock,
+  syncRepositoryForRun,
 } from "./git.js";
 
 describe("cloneRepositoryForRun", () => {
@@ -58,6 +59,35 @@ describe("cloneRepositoryForRun", () => {
     expect(await readFile(join(clonedDirectory, "WORKFLOW.md"), "utf8")).toContain(
       'project_id: "PVT_test"'
     );
+  });
+
+  it("reports whether a cached repository pull changed HEAD", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-sync-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const targetDirectory = join(tempRoot, "cache");
+
+    const first = await syncRepositoryForRun({
+      repository,
+      targetDirectory,
+    });
+    const second = await syncRepositoryForRun({
+      repository,
+      targetDirectory,
+    });
+
+    await writeFile(join(repository.path, "WORKFLOW.md"), "# updated\n", "utf8");
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update workflow"`);
+    execSync(`git -C "${repository.path}" push origin HEAD`);
+
+    const third = await syncRepositoryForRun({
+      repository,
+      targetDirectory,
+    });
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(third.changed).toBe(true);
   });
 
   it("only releases repository locks owned by the current caller", async () => {
@@ -112,5 +142,6 @@ async function createRepositoryFixture(tempRoot: string) {
     owner: "acme",
     name: "platform",
     cloneUrl: originPath,
+    path: workingPath,
   };
 }

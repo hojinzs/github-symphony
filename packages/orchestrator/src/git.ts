@@ -24,10 +24,23 @@ const LOCK_RETRY_MS = 100;
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
 
+export type RepositorySyncResult = {
+  repositoryDirectory: string;
+  changed: boolean;
+};
+
 export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
 }): Promise<string> {
+  const result = await syncRepositoryForRun(input);
+  return result.repositoryDirectory;
+}
+
+export async function syncRepositoryForRun(input: {
+  repository: RepositoryRef;
+  targetDirectory: string;
+}): Promise<RepositorySyncResult> {
   await mkdir(input.targetDirectory, { recursive: true });
   const repositoryDirectory = join(input.targetDirectory, "repository");
   const lockDirectory = join(input.targetDirectory, "repository.lock");
@@ -44,13 +57,18 @@ export async function cloneRepositoryForRun(input: {
 
     if (hasGit) {
       try {
+        const beforeHead = await readGitHead(repositoryDirectory);
         await runCommand("git", [
           "-C",
           repositoryDirectory,
           "pull",
           "--ff-only",
         ]);
-        return repositoryDirectory;
+        const afterHead = await readGitHead(repositoryDirectory);
+        return {
+          repositoryDirectory,
+          changed: beforeHead !== afterHead,
+        };
       } catch {
         // Pull failed — remove the corrupted/stale directory and re-clone
         await rm(repositoryDirectory, { recursive: true, force: true });
@@ -75,7 +93,10 @@ export async function cloneRepositoryForRun(input: {
         tempRepositoryDirectory,
       ]);
       await rename(tempRepositoryDirectory, repositoryDirectory);
-      return repositoryDirectory;
+      return {
+        repositoryDirectory,
+        changed: true,
+      };
     } finally {
       await rm(tempRepositoryDirectory, { recursive: true, force: true });
     }
@@ -125,6 +146,48 @@ function runCommand(command: string, args: string[]): Promise<void> {
     child.once("exit", (code) => {
       if (code === 0) {
         resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          stderr.trim() || `${command} exited with code ${code ?? "unknown"}`
+        )
+      );
+    });
+  });
+}
+
+async function readGitHead(repositoryDirectory: string): Promise<string | null> {
+  try {
+    return await runCommandCapture("git", [
+      "-C",
+      repositoryDirectory,
+      "rev-parse",
+      "HEAD",
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+function runCommandCapture(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
         return;
       }
 
