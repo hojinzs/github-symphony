@@ -1,0 +1,60 @@
+[
+  {
+    "id": "issue-blocker-1",
+    "identifier": "test-owner/test-repo#20",
+    "number": 20,
+    "title": "Blocking issue",
+    "description": "This issue blocks issue #21.",
+    "priority": 1,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-blocker-1"
+    },
+    "metadata": {}
+  },
+  {
+    "id": "issue-blocked-1",
+    "identifier": "test-owner/test-repo#21",
+    "number": 21,
+    "title": "Blocked issue",
+    "description": "This issue is blocked by #20.",
+    "priority": 2,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [
+      {
+        "id": "issue-blocker-1",
+        "identifier": "test-owner/test-repo#20",
+        "state": "Ready"
+      }
+    ],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-blocked-1"
+    },
+    "metadata": {}
+  }
+]

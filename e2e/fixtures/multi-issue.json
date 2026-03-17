@@ -1,0 +1,80 @@
+[
+  {
+    "id": "issue-multi-1",
+    "identifier": "test-owner/test-repo#10",
+    "number": 10,
+    "title": "Multi-issue test 1",
+    "description": "First concurrent issue.",
+    "priority": 1,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-multi-1"
+    },
+    "metadata": {}
+  },
+  {
+    "id": "issue-multi-2",
+    "identifier": "test-owner/test-repo#11",
+    "number": 11,
+    "title": "Multi-issue test 2",
+    "description": "Second concurrent issue.",
+    "priority": 2,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-multi-2"
+    },
+    "metadata": {}
+  },
+  {
+    "id": "issue-multi-3",
+    "identifier": "test-owner/test-repo#12",
+    "number": 12,
+    "title": "Multi-issue test 3",
+    "description": "Third concurrent issue — should be queued if concurrency limit is 2.",
+    "priority": 3,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-multi-3"
+    },
+    "metadata": {}
+  }
+]

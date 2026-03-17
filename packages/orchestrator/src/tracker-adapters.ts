@@ -1,3 +1,18 @@
-import { resolveTrackerAdapter } from "@gh-symphony/tracker-github";
+import { resolveTrackerAdapter as resolveGitHubAdapter } from "@gh-symphony/tracker-github";
+import { fileTrackerAdapter } from "@gh-symphony/tracker-file";
+import type {
+  OrchestratorTrackerAdapter,
+  OrchestratorTrackerConfig,
+} from "@gh-symphony/core";
 
-export { resolveTrackerAdapter };
+const localAdapters: Record<string, OrchestratorTrackerAdapter> = {
+  file: fileTrackerAdapter,
+};
+
+export function resolveTrackerAdapter(
+  tracker: OrchestratorTrackerConfig,
+): OrchestratorTrackerAdapter {
+  const local = localAdapters[tracker.adapter];
+  if (local) return local;
+  return resolveGitHubAdapter(tracker);
+}

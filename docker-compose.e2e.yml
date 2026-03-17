@@ -1,0 +1,14 @@
+services:
+  symphony-e2e:
+    container_name: symphony-e2e
+    build:
+      context: .
+      dockerfile: docker/orchestrator-e2e.Dockerfile
+    ports:
+      - "4680:4680"
+    volumes:
+      - ./e2e/fixtures:/e2e/fixtures
+    tmpfs:
+      - /app/.runtime:size=100M
+    environment:
+      STUB_SCENARIO: happy

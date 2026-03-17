@@ -28,6 +28,8 @@ npx vitest run packages/core/src/workflow/workflow-loader.test.ts
 
 Before shipping: `pnpm lint && pnpm test && pnpm typecheck && pnpm build`
 
+**작업 완료 후 반드시 TC를 작성하고 테스트를 실행하여 검증해야 한다.** 단위 테스트로 충분하지 않은 통합 동작은 Docker E2E 환경에서 블랙박스 테스트로 검증한다. 구체적인 방법은 [AGENT_TEST.md](AGENT_TEST.md) 참조.
+
 ## Architecture
 
 ### Six Symphony Layers
