@@ -1,7 +1,11 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import type { Server } from "node:http";
-import { createStore, OrchestratorService } from "./service.js";
+import {
+  createStore,
+  OrchestratorService,
+  type OrchestratorLogLevel,
+} from "./service.js";
 import { startOrchestratorStatusServer } from "./status-server.js";
 import {
   acquireProjectLock,
@@ -11,6 +15,7 @@ import {
 } from "./lock.js";
 
 export { OrchestratorService, createStore };
+export type { OrchestratorLogLevel };
 export { startOrchestratorStatusServer };
 export {
   acquireProjectLock,
@@ -19,6 +24,20 @@ export {
   type ProjectLockHandle,
 };
 
+export function resolveOrchestratorLogLevel(
+  value: string | null | undefined
+): OrchestratorLogLevel {
+  if (!value || value === "normal") {
+    return "normal";
+  }
+  if (value === "verbose") {
+    return "verbose";
+  }
+  throw new Error(
+    `Unsupported log level: ${value}. Supported values: normal, verbose.`
+  );
+}
+
 export async function runCli(
   argv: string[],
   dependencies: {
@@ -26,7 +45,11 @@ export async function runCli(
     stderr?: Pick<NodeJS.WriteStream, "write">;
     createService?: (
       runtimeRoot: string,
-      projectId?: string
+      projectId?: string,
+      options?: {
+        logLevel: OrchestratorLogLevel;
+        stderr: Pick<NodeJS.WriteStream, "write">;
+      }
     ) => Promise<OrchestratorService> | OrchestratorService;
     startStatusServer?: typeof startOrchestratorStatusServer;
     acquireLock?: typeof acquireProjectLock;
@@ -41,11 +64,20 @@ export async function runCli(
     assertValidProjectId(parsed.projectId);
   }
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
-  const service =
-    (await dependencies.createService?.(runtimeRoot, parsed.projectId)) ??
-    (await createServiceForRuntime(runtimeRoot, parsed.projectId));
-  const stdout = dependencies.stdout ?? process.stdout;
   const stderr = dependencies.stderr ?? process.stderr;
+  const logLevel = resolveOrchestratorLogLevel(
+    parsed.logLevel ?? process.env.SYMPHONY_LOG_LEVEL
+  );
+  const service =
+    (await dependencies.createService?.(runtimeRoot, parsed.projectId, {
+      logLevel,
+      stderr,
+    })) ??
+    (await createServiceForRuntime(runtimeRoot, parsed.projectId, {
+      logLevel,
+      stderr,
+    }));
+  const stdout = dependencies.stdout ?? process.stdout;
   const exitProcess = dependencies.exitProcess ?? process.exit;
   const signalTarget = dependencies.signalTarget ?? process;
 
@@ -217,7 +249,11 @@ export async function runCli(
 
 async function createServiceForRuntime(
   runtimeRoot: string,
-  projectId?: string
+  projectId?: string,
+  options?: {
+    logLevel: OrchestratorLogLevel;
+    stderr: Pick<NodeJS.WriteStream, "write">;
+  }
 ): Promise<OrchestratorService> {
   if (!projectId) {
     throw new Error("Orchestrator CLI requires --project-id.");
@@ -229,7 +265,7 @@ async function createServiceForRuntime(
     throw new Error(`Project config not found for "${projectId}".`);
   }
 
-  return new OrchestratorService(store, projectConfig);
+  return new OrchestratorService(store, projectConfig, options);
 }
 
 async function main(): Promise<void> {
@@ -243,6 +279,7 @@ function parseArgs(args: string[]): {
   statusHost?: string;
   statusPort?: number;
   noStatusApi?: boolean;
+  logLevel?: string;
 } {
   const parsed: {
     runtimeRoot?: string;
@@ -251,6 +288,7 @@ function parseArgs(args: string[]): {
     statusHost?: string;
     statusPort?: number;
     noStatusApi?: boolean;
+    logLevel?: string;
   } = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -285,6 +323,13 @@ function parseArgs(args: string[]): {
         break;
       case "--no-status-api":
         parsed.noStatusApi = true;
+        break;
+      case "--log-level":
+        if (!value || value.startsWith("-")) {
+          throw new Error(`Option '${argument}' argument missing`);
+        }
+        parsed.logLevel = value;
+        index += 1;
         break;
       default:
         throw new Error(`Unknown option: ${argument}`);
