@@ -68,10 +68,11 @@ async function createConfigFixture(): Promise<string> {
 
 async function writeRunEvents(
   configDir: string,
+  projectId: string,
   runId: string,
   events: Array<Record<string, unknown>>
 ): Promise<void> {
-  const runDir = join(configDir, "orchestrator", "runs", runId);
+  const runDir = join(configDir, "projects", projectId, "runs", runId);
   await mkdir(runDir, { recursive: true });
   await writeFile(
     join(runDir, "events.ndjson"),
@@ -88,7 +89,7 @@ afterEach(() => {
 describe("logs command", () => {
   it("shows events from all projects when --project-id is omitted", async () => {
     const configDir = await createConfigFixture();
-    await writeRunEvents(configDir, "run-1", [
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
       {
         at: "2026-03-16T00:00:00.000Z",
         event: "run-started",
@@ -96,7 +97,7 @@ describe("logs command", () => {
         projectId: "tenant-a",
       },
     ]);
-    await writeRunEvents(configDir, "run-2", [
+    await writeRunEvents(configDir, "tenant-b", "run-2", [
       {
         at: "2026-03-16T00:01:00.000Z",
         event: "run-started",
@@ -124,13 +125,15 @@ describe("logs command", () => {
 
   it("filters scanned events by --project-id when provided", async () => {
     const configDir = await createConfigFixture();
-    await writeRunEvents(configDir, "run-1", [
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
       {
         at: "2026-03-16T00:00:00.000Z",
         event: "run-started",
         issueIdentifier: "acme/platform#1",
         projectId: "tenant-a",
       },
+    ]);
+    await writeRunEvents(configDir, "tenant-b", "run-2", [
       {
         at: "2026-03-16T00:01:00.000Z",
         event: "run-started",

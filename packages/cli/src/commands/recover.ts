@@ -4,7 +4,6 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
@@ -53,8 +52,6 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  await syncProjectToRuntime(options.configDir, projectConfig);
-
   if (parsed.dryRun) {
     process.stdout.write("Dry run — scanning for stalled runs...\n");
     const candidates = await listRecoverCandidates(runtimeRoot, projectId);
@@ -90,7 +87,7 @@ async function listRecoverCandidates(
   runtimeRoot: string,
   projectId: string
 ): Promise<RecoverCandidate[]> {
-  const runsDir = join(runtimeRoot, "orchestrator", "runs");
+  const runsDir = join(runtimeRoot, "projects", projectId, "runs");
   const candidates: RecoverCandidate[] = [];
 
   let entries: string[] = [];

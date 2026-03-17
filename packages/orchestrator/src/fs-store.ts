@@ -24,23 +24,31 @@ import {
 export class OrchestratorFsStore implements OrchestratorStateStore {
   constructor(readonly runtimeRoot: string) {}
 
+  private projectsRoot(): string {
+    return join(this.runtimeRoot, "projects");
+  }
+
   projectDir(projectId: string): string {
-    return join(this.runtimeRoot, "orchestrator", "projects", projectId);
+    return join(this.projectsRoot(), projectId);
   }
 
-  runsDir(): string {
-    return join(this.runtimeRoot, "orchestrator", "runs");
+  private projectRunsDir(projectId: string): string {
+    return join(this.projectDir(projectId), "runs");
   }
 
-  runDir(runId: string): string {
-    return join(this.runsDir(), runId);
+  runDir(runId: string, projectId?: string): string {
+    if (!projectId) {
+      return join(this.runtimeRoot, "projects", "__unknown__", "runs", runId);
+    }
+
+    return join(this.projectRunsDir(projectId), runId);
   }
 
   async loadProjectConfig(
     projectId: string
   ): Promise<OrchestratorProjectConfig | null> {
     return readJsonFile<OrchestratorProjectConfig>(
-      join(this.projectDir(projectId), "config.json")
+      join(this.projectDir(projectId), "project.json")
     );
   }
 
@@ -48,7 +56,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     config: OrchestratorProjectConfig
   ): Promise<void> {
     await writeJsonFile(
-      join(this.projectDir(config.projectId), "config.json"),
+      join(this.projectDir(config.projectId), "project.json"),
       config
     );
   }
@@ -122,35 +130,71 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     );
   }
 
-  async loadRun(runId: string): Promise<OrchestratorRunRecord | null> {
+  async loadRun(
+    runId: string,
+    projectId?: string
+  ): Promise<OrchestratorRunRecord | null> {
+    const runDirectory =
+      projectId !== undefined
+        ? this.runDir(runId, projectId)
+        : await this.findRunDir(runId);
+    if (!runDirectory) {
+      return null;
+    }
+
     return (
       (await readJsonFile<OrchestratorRunRecord>(
-        join(this.runDir(runId), "run.json")
+        join(runDirectory, "run.json")
       )) ?? null
     );
   }
 
   async loadAllRuns(): Promise<OrchestratorRunRecord[]> {
-    const entries = await safeReadDir(this.runsDir());
-    const runs = await Promise.all(entries.map((entry) => this.loadRun(entry)));
+    const projectIds = await safeReadDir(this.projectsRoot());
+    const runDirectories = await Promise.all(
+      projectIds.map(async (projectId) => {
+        const entries = await safeReadDir(this.projectRunsDir(projectId));
+        return entries.map((entry) => this.runDir(entry, projectId));
+      })
+    );
+    const runs = await Promise.all(
+      runDirectories
+        .flat()
+        .map((directory) =>
+          readJsonFile<OrchestratorRunRecord>(join(directory, "run.json"))
+        )
+    );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
   }
 
   async saveRun(run: OrchestratorRunRecord): Promise<void> {
-    await writeJsonFile(join(this.runDir(run.runId), "run.json"), run);
+    await writeJsonFile(join(this.runDir(run.runId, run.projectId), "run.json"), run);
   }
 
   async appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void> {
-    const path = join(this.runDir(runId), "events.ndjson");
+    const runDirectory =
+      "projectId" in event && typeof event.projectId === "string"
+        ? this.runDir(runId, event.projectId)
+        : ((await this.findRunDir(runId)) ?? this.runDir(runId));
+    const path = join(runDirectory, "events.ndjson");
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, JSON.stringify(event) + "\n", "utf8");
   }
 
   async loadRecentRunEvents(
     runId: string,
-    limit = 20
+    limit = 20,
+    projectId?: string
   ): Promise<IssueStatusEvent[]> {
-    const path = join(this.runDir(runId), "events.ndjson");
+    const runDirectory =
+      projectId !== undefined
+        ? this.runDir(runId, projectId)
+        : await this.findRunDir(runId);
+    if (!runDirectory) {
+      return [];
+    }
+
+    const path = join(runDirectory, "events.ndjson");
     try {
       if (limit <= 0) {
         return [];
@@ -241,6 +285,21 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     const dir = this.issueWorkspaceDir(projectId, workspaceKey);
     await rm(dir, { recursive: true, force: true });
   }
+
+  private async findRunDir(runId: string): Promise<string | null> {
+    const projectIds = await safeReadDir(this.projectsRoot());
+    for (const projectId of projectIds) {
+      const candidate = this.runDir(runId, projectId);
+      const run = await readJsonFile<OrchestratorRunRecord>(
+        join(candidate, "run.json")
+      );
+      if (run || (await pathExists(join(candidate, "events.ndjson")))) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
 }
 
 async function readJsonFile<T>(path: string): Promise<T | null> {
@@ -269,6 +328,19 @@ async function safeReadDir(path: string): Promise<string[]> {
   } catch (error) {
     if (isFileMissing(error)) {
       return [];
+    }
+
+    throw error;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await readFile(path);
+    return true;
+  } catch (error) {
+    if (isFileMissing(error)) {
+      return false;
     }
 
     throw error;

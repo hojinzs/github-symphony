@@ -46,8 +46,8 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
   it("skips corrupted trailing lines and returns the latest valid events", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
-    const path = join(store.runDir("run-1"), "events.ndjson");
-    await mkdir(store.runDir("run-1"), { recursive: true });
+    const path = join(store.runDir("run-1", "project-1"), "events.ndjson");
+    await mkdir(store.runDir("run-1", "project-1"), { recursive: true });
 
     await appendFile(
       path,

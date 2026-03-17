@@ -100,7 +100,6 @@ describe("start command foreground locking", () => {
     const lock = {
       lockPath: join(
         configDir,
-        "orchestrator",
         "projects",
         "tenant-a",
         ".lock"

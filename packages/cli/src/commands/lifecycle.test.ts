@@ -64,7 +64,7 @@ function setTty(input: boolean, output: boolean): void {
 }
 
 describe("lifecycle command integration", () => {
-  it("syncs the selected project config before single-issue dispatch", async () => {
+  it("reads the selected project config directly from the project directory", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -90,7 +90,7 @@ describe("lifecycle command integration", () => {
 
     const synced = JSON.parse(
       await readFile(
-        join(configDir, "orchestrator", "projects", "tenant-b", "config.json"),
+        join(configDir, "projects", "tenant-b", "project.json"),
         "utf8"
       )
     ) as CliProjectConfig;
@@ -442,7 +442,7 @@ describe("lifecycle command integration", () => {
       activeProject: "tenant-a",
       projects: [createTenant("tenant-a", "acme", "platform")],
     });
-    const runDir = join(configDir, "orchestrator", "runs", "run-1");
+    const runDir = join(configDir, "projects", "tenant-a", "runs", "run-1");
     await mkdir(runDir, { recursive: true });
     await writeFile(
       join(runDir, "run.json"),
@@ -550,7 +550,7 @@ async function writeStatusSnapshot(
   projectId: string,
   input: { slug: string; health: "idle" | "running" | "degraded" }
 ): Promise<void> {
-  const statusDir = join(configDir, "orchestrator", "projects", projectId);
+  const statusDir = join(configDir, "projects", projectId);
   await mkdir(statusDir, { recursive: true });
   await writeFile(
     join(statusDir, "status.json"),

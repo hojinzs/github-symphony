@@ -61,12 +61,11 @@ describe("project lock", () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
     const lockPath = join(
       runtimeRoot,
-      "orchestrator",
       "projects",
       "project-1",
       ".lock"
     );
-    await mkdir(join(runtimeRoot, "orchestrator", "projects", "project-1"), {
+    await mkdir(join(runtimeRoot, "projects", "project-1"), {
       recursive: true,
     });
     await writeFile(
@@ -100,12 +99,11 @@ describe("project lock", () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
     const lockPath = join(
       runtimeRoot,
-      "orchestrator",
       "projects",
       "project-1",
       ".lock"
     );
-    await mkdir(join(runtimeRoot, "orchestrator", "projects", "project-1"), {
+    await mkdir(join(runtimeRoot, "projects", "project-1"), {
       recursive: true,
     });
     await writeFile(lockPath, "{\"ownerToken\":\"partial\"", "utf8");

@@ -147,7 +147,7 @@ export function assertValidProjectId(projectId: string): void {
 
 function resolveProjectLockPath(runtimeRoot: string, projectId: string): string {
   const store = new OrchestratorFsStore(runtimeRoot);
-  const projectsRoot = resolve(runtimeRoot, "orchestrator", "projects");
+  const projectsRoot = resolve(runtimeRoot, "projects");
   const projectDir = resolve(store.projectDir(projectId));
   const relativeProjectDir = relative(projectsRoot, projectDir);
 

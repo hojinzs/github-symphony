@@ -105,11 +105,11 @@ done
 
 echo ""
 log "=== Worker Logs ==="
-docker exec symphony-e2e sh -c 'for f in $(find /app/.runtime/orchestrator/runs -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
+docker exec symphony-e2e sh -c 'for f in $(find /app/.runtime/projects/e2e-project/runs -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
 
 echo ""
 log "=== Event Logs ==="
-docker exec symphony-e2e sh -c 'find /app/.runtime/orchestrator/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
+docker exec symphony-e2e sh -c 'find /app/.runtime/projects/e2e-project/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
 if [ "$SAW_RUNNING" = true ]; then

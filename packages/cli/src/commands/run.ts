@@ -2,7 +2,6 @@ import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
 import {
   resolveRuntimeRoot,
-  syncProjectToRuntime,
 } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
@@ -85,8 +84,6 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  await syncProjectToRuntime(options.configDir, projectConfig);
-
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
   if (
