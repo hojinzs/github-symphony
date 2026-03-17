@@ -171,7 +171,7 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("read_timeout_ms: 5000");
     expect(output).toContain("turn_timeout_ms: 3600000");
     expect(output).toContain("interval_ms: 30000");
-    expect(output).toContain("retry_base_delay_ms: 1000");
+    expect(output).toContain("retry_base_delay_ms: 10000");
     expect(output).toContain("max_retry_backoff_ms: 30000");
   });
 
