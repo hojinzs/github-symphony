@@ -86,6 +86,7 @@ export class OrchestratorService {
   private shutdownPromise: Promise<void> | null = null;
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepResolver: (() => void) | null = null;
+  private reconcilePromise: Promise<ProjectStatusSnapshot> | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -128,7 +129,24 @@ export class OrchestratorService {
       issueIdentifier?: string;
     } = {}
   ): Promise<ProjectStatusSnapshot> {
-    return this.reconcileProject(this.projectConfig, options.issueIdentifier);
+    // Serialize concurrent runOnce() calls to prevent TOCTOU races where
+    // two interleaved reconcileProject() calls both see the same issue as
+    // unscheduled and each dispatch a worker for it.
+    if (this.reconcilePromise) {
+      await this.reconcilePromise;
+    }
+    const promise = this.reconcileProject(
+      this.projectConfig,
+      options.issueIdentifier
+    );
+    this.reconcilePromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (this.reconcilePromise === promise) {
+        this.reconcilePromise = null;
+      }
+    }
   }
 
   async status(): Promise<ProjectStatusSnapshot | null> {
@@ -1507,12 +1525,34 @@ export class OrchestratorService {
   }
 
   private isProcessRunning(processId: number): boolean {
-    return (this.dependencies.isProcessRunning ?? isProcessRunning)(processId);
+    if (this.dependencies.isProcessRunning) {
+      return this.dependencies.isProcessRunning(processId);
+    }
+    // Check whether any process in the worker's process group is still alive.
+    // Workers are spawned with detached:true, so the original PID is also the
+    // PGID.  Checking -pid catches cases where bash -lc forked a child with a
+    // different PID that is still running even though the original bash process
+    // has exited.
+    try {
+      process.kill(-processId, 0);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {
     try {
-      (this.dependencies.killImpl ?? process.kill)(processId, signal);
+      const kill = this.dependencies.killImpl;
+      if (kill) {
+        kill(processId, signal);
+      } else {
+        // Kill the entire process group (-pid) rather than just the leader.
+        // Workers are spawned with detached:true, so processId equals the PGID.
+        // This ensures that child processes (bash → node → codex agent) all
+        // receive the signal even if bash has already exited.
+        process.kill(-processId, signal);
+      }
     } catch {
       this.retireWorkerPid(processId);
     }
@@ -1761,15 +1801,6 @@ function mapIssueOrchestrationStateToStatus(
       return "pending";
     default:
       return state;
-  }
-}
-
-function isProcessRunning(processId: number): boolean {
-  try {
-    process.kill(processId, 0);
-    return true;
-  } catch {
-    return false;
   }
 }
 

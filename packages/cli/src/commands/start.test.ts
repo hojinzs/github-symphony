@@ -17,6 +17,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   OrchestratorService: class {
     runOnce = runOnce;
     status = status;
+    shutdown = vi.fn().mockResolvedValue(undefined);
   },
   startOrchestratorStatusServer: vi.fn(() => ({
     listening: true,
@@ -124,7 +125,7 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
 
     await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
 
