@@ -51,13 +51,19 @@ function createStdoutCapture(): {
 }
 
 function createFakeStatusServer(
-  address: { address: string; port: number; family: string }
+  address: { address: string; port: number; family: string },
+  options: {
+    onClose?: (callback?: (error?: Error) => void) => void;
+  } = {}
 ) {
   const emitter = new EventEmitter();
   return Object.assign(emitter, {
     address: () => address,
     close: (callback?: (error?: Error) => void) => {
-      callback?.();
+      options.onClose?.(callback);
+      if (!options.onClose) {
+        callback?.();
+      }
       return emitter;
     },
   });
@@ -312,6 +318,71 @@ describe("CLI --no-status-api flag", () => {
 
     expect(service.shutdown).toHaveBeenCalledTimes(1);
     expect(exitProcess).toHaveBeenCalledWith(0);
+    await expect(
+      access(join(runtimeRoot, "orchestrator", "projects", "tenant-1", ".lock"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("releases the project lock and exits non-zero when cleanup fails on SIGTERM", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const signalTarget = new EventEmitter();
+    const exitProcess = vi.fn();
+    const stderr = createStdoutCapture();
+    const service = createMockService();
+    const fakeServer = createFakeStatusServer(
+      {
+        address: "127.0.0.1",
+        port: 4680,
+        family: "IPv4",
+      },
+      {
+        onClose: (callback) => {
+          queueMicrotask(() => {
+            callback?.(new Error("close failed"));
+          });
+        },
+      }
+    );
+    let resolveRun: (() => void) | null = null;
+    (service.run as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    (service.shutdown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const runPromise = runCli(
+      ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+      {
+        createService: () => service,
+        startStatusServer: () => fakeServer as never,
+        exitProcess,
+        signalTarget: signalTarget as unknown as Pick<
+          NodeJS.Process,
+          "once" | "off"
+        >,
+        stderr,
+      }
+    );
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (signalTarget.listenerCount("SIGTERM") === 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    signalTarget.emit("SIGTERM");
+    await expect(runPromise).rejects.toThrow("close failed");
+
+    expect(service.shutdown).toHaveBeenCalledTimes(1);
+    expect(exitProcess).toHaveBeenCalledWith(1);
+    expect(stderr.output()).toContain(
+      "Failed to shut down orchestrator after SIGTERM: close failed"
+    );
     await expect(
       access(join(runtimeRoot, "orchestrator", "projects", "tenant-1", ".lock"))
     ).rejects.toMatchObject({ code: "ENOENT" });

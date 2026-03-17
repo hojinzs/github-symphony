@@ -82,6 +82,7 @@ export class OrchestratorService {
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
   private running = true;
+  private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepResolver: (() => void) | null = null;
@@ -241,6 +242,7 @@ export class OrchestratorService {
       return this.shutdownPromise;
     }
 
+    this.shuttingDown = true;
     this.shutdownPromise = (async () => {
       this.running = false;
       this.cancelPendingSleep();
@@ -250,16 +252,28 @@ export class OrchestratorService {
         this.sendSignal(pid, "SIGTERM");
       }
 
-      await (this.dependencies.waitImpl ?? wait)(10_000);
+      if (workerPids.length === 0) {
+        return;
+      }
+
+      let waitedMs = 0;
+      while (this.activeWorkerPids.size > 0 && waitedMs < 10_000) {
+        this.pruneExitedWorkerPids();
+        if (this.activeWorkerPids.size === 0) {
+          return;
+        }
+        await (this.dependencies.waitImpl ?? wait)(100);
+        waitedMs += 100;
+      }
 
       for (const pid of [...this.activeWorkerPids]) {
         if (!this.isProcessRunning(pid)) {
-          this.activeWorkerPids.delete(pid);
+          this.retireWorkerPid(pid);
           continue;
         }
 
         this.sendSignal(pid, "SIGKILL");
-        this.activeWorkerPids.delete(pid);
+        this.retireWorkerPid(pid);
       }
     })();
 
@@ -359,6 +373,9 @@ export class OrchestratorService {
 
       let slotsRemaining = availableSlots;
       for (const issue of sortedCandidates) {
+        if (this.shuttingDown) {
+          break;
+        }
         if (slotsRemaining <= 0) break;
 
         // Per-state concurrency check: skip if state limit reached
@@ -439,11 +456,13 @@ export class OrchestratorService {
             : null;
           if (leasedRun?.processId) {
             this.sendSignal(leasedRun.processId, "SIGTERM");
+            this.retireWorkerPid(leasedRun.processId);
           }
           if (leasedRun) {
             await this.store.saveRun({
               ...leasedRun,
               status: "suppressed",
+              processId: null,
               completedAt: now.toISOString(),
               updatedAt: now.toISOString(),
               runPhase: "canceled_by_reconciliation",
@@ -622,6 +641,10 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
+    if (this.shuttingDown || !this.running) {
+      throw new Error("Orchestrator is shutting down and cannot start new runs.");
+    }
+
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
@@ -906,7 +929,7 @@ export class OrchestratorService {
       }
     }
     if (run.processId) {
-      this.activeWorkerPids.delete(run.processId);
+      this.retireWorkerPid(run.processId);
     }
 
     // Attempt to capture final token usage and session info from the worker
@@ -1491,6 +1514,20 @@ export class OrchestratorService {
     try {
       (this.dependencies.killImpl ?? process.kill)(processId, signal);
     } catch {
+      this.retireWorkerPid(processId);
+    }
+  }
+
+  private pruneExitedWorkerPids(): void {
+    for (const pid of [...this.activeWorkerPids]) {
+      if (!this.isProcessRunning(pid)) {
+        this.retireWorkerPid(pid);
+      }
+    }
+  }
+
+  private retireWorkerPid(processId: number | null | undefined): void {
+    if (processId) {
       this.activeWorkerPids.delete(processId);
     }
   }

@@ -78,24 +78,42 @@ export async function runCli(
         }
 
         cleanupPromise = (async () => {
-          await service.shutdown();
-          await closeStatusServer();
-          await (dependencies.releaseLock ?? releaseProjectLock)(lock);
-          lock = null;
+          let cleanupError: unknown;
+          const shutdownPromise = service.shutdown();
+
+          try {
+            await closeStatusServer();
+            await shutdownPromise;
+          } catch (error) {
+            cleanupError = error;
+          } finally {
+            try {
+              await (dependencies.releaseLock ?? releaseProjectLock)(lock);
+              lock = null;
+            } catch (lockError) {
+              cleanupError ??= lockError;
+            }
+          }
+
+          if (cleanupError) {
+            throw cleanupError;
+          }
         })();
 
         return cleanupPromise;
       };
       const handleSignal = (signal: NodeJS.Signals) => {
         shuttingDownForSignal = true;
+        let exitCode = 0;
         void cleanup()
           .catch((error) => {
+            exitCode = 1;
             stderr.write(
               `Failed to shut down orchestrator after ${signal}: ${error instanceof Error ? error.message : String(error)}\n`
             );
           })
           .finally(() => {
-            exitProcess(0);
+            exitProcess(exitCode);
           });
       };
       const sigintHandler = () => handleSignal("SIGINT");

@@ -109,6 +109,71 @@ describe("OrchestratorService", () => {
     expect(killImpl).toHaveBeenNthCalledWith(2, 4101, "SIGKILL");
   });
 
+  it("removes suppressed worker pids from shutdown tracking", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-suppress-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const livePids = new Set([4101]);
+    const killImpl = vi.fn((pid: number, signal?: NodeJS.Signals) => {
+      if (signal === "SIGTERM") {
+        livePids.delete(pid);
+      }
+    });
+    const waitImpl = vi.fn().mockResolvedValue(undefined);
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponse(repository))
+        .mockResolvedValueOnce(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4101,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => livePids.has(pid),
+      waitImpl,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    await service.runOnce();
+    await service.shutdown();
+
+    expect(killImpl).toHaveBeenCalledTimes(1);
+    expect(killImpl).toHaveBeenCalledWith(4101, "SIGTERM");
+    expect(waitImpl).not.toHaveBeenCalled();
+  });
+
+  it("skips shutdown wait when there are no active workers", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-idle-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const waitImpl = vi.fn().mockResolvedValue(undefined);
+    const service = new OrchestratorService(store, projectConfig, {
+      waitImpl,
+    });
+
+    await service.shutdown();
+
+    expect(waitImpl).not.toHaveBeenCalled();
+  });
+
   it("restarts retrying runs after backoff elapses", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-"));
