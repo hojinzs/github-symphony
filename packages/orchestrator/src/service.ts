@@ -113,6 +113,7 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
+    await this.performStartupCleanup();
 
     while (this.running) {
       await this.runOnce(options);
@@ -532,6 +533,65 @@ export class OrchestratorService {
     });
     await this.store.saveProjectStatus(status);
     return status;
+  }
+
+  private async performStartupCleanup(): Promise<void> {
+    const tenant = this.projectConfig;
+    const workspaceRecords = await this.store.loadIssueWorkspaces(tenant.projectId);
+    if (workspaceRecords.length === 0) {
+      return;
+    }
+
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    let issues: TrackedIssue[];
+    try {
+      issues = await trackerAdapter.listIssues(tenant, {
+        fetchImpl: this.dependencies.fetchImpl,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown tracker error";
+      console.warn(
+        `[orchestrator] Startup cleanup skipped for project ${tenant.projectId}: ${message}`
+      );
+      return;
+    }
+
+    const workflowCache = new Map<
+      string,
+      Awaited<ReturnType<OrchestratorService["loadProjectWorkflow"]>>
+    >();
+    const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
+
+    for (const workspaceRecord of workspaceRecords) {
+      if (
+        workspaceRecord.status === "removed" ||
+        workspaceRecord.status === "cleanup_blocked"
+      ) {
+        continue;
+      }
+
+      const issue = issuesById.get(workspaceRecord.issueSubjectId);
+      if (!issue) {
+        continue;
+      }
+
+      const workflowKey = `${issue.repository.owner}/${issue.repository.name}`;
+      let resolution = workflowCache.get(workflowKey);
+      if (!resolution) {
+        resolution = await this.loadProjectWorkflow(tenant, issue.repository);
+        workflowCache.set(workflowKey, resolution);
+      }
+
+      if (!resolution.isValid) {
+        continue;
+      }
+      if (!isStateTerminal(issue.state, resolution.lifecycle)) {
+        continue;
+      }
+
+      await this.cleanupTerminalIssueWorkspace(tenant, issue, this.now());
+    }
   }
 
   private async findLatestRunForIssue(
