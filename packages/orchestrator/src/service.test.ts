@@ -128,7 +128,7 @@ describe("OrchestratorService", () => {
       fetchImpl: vi
         .fn()
         .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
-        .mockResolvedValueOnce(createEmptyTrackerResponse()) as never,
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4102,
         unref: vi.fn(),
@@ -203,6 +203,131 @@ describe("OrchestratorService", () => {
     );
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
+  });
+
+  it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-workflow-warn-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      projectConfig.workspaceDir,
+      projectConfig.projectId,
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4104,
+      unref: vi.fn(),
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const originalLoadProjectWorkflow = (service as any).loadProjectWorkflow.bind(
+      service
+    );
+    vi.spyOn(service as never, "loadProjectWorkflow")
+      .mockImplementationOnce(async () => {
+        throw new Error("workflow cache timeout");
+      })
+      .mockImplementation(originalLoadProjectWorkflow);
+
+    await service.run({ once: true });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[orchestrator] Startup cleanup skipped workspace for acme/platform#1: workflow cache timeout"
+    );
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("serializes startup cleanup with concurrent runOnce calls", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-lock-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const events: string[] = [];
+    let releaseStartupCleanup: (() => void) | null = null;
+    const startupCleanupGate = new Promise<void>((resolve) => {
+      releaseStartupCleanup = resolve;
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    vi.spyOn(service as never, "performStartupCleanup").mockImplementation(
+      async () => {
+        events.push("startup-begin");
+        await startupCleanupGate;
+        events.push("startup-end");
+      }
+    );
+
+    const runPromise = service.run({ once: true }).then(() => {
+      events.push("run");
+    });
+    await Promise.resolve();
+    const manualRunOncePromise = service.runOnce().then(() => {
+      events.push("manual-runOnce");
+    });
+    await Promise.resolve();
+
+    expect(events).toEqual(["startup-begin"]);
+
+    releaseStartupCleanup?.();
+    await Promise.all([runPromise, manualRunOncePromise]);
+
+    expect(events.indexOf("startup-end")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("manual-runOnce")).toBeGreaterThan(
+      events.indexOf("startup-end")
+    );
   });
 
   it("tracks active worker pids and escalates to SIGKILL during shutdown", async () => {

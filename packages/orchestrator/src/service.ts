@@ -50,6 +50,9 @@ const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
+type ProjectWorkflowResolution = Awaited<
+  ReturnType<typeof loadRepositoryWorkflow>
+>;
 
 type SpawnLike = (
   command: string,
@@ -87,7 +90,7 @@ export class OrchestratorService {
   private shutdownPromise: Promise<void> | null = null;
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepResolver: (() => void) | null = null;
-  private reconcilePromise: Promise<ProjectStatusSnapshot> | null = null;
+  private reconcilePromise: Promise<void> = Promise.resolve();
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -113,7 +116,7 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
-    await this.performStartupCleanup();
+    await this.runSerialized(() => this.performStartupCleanup());
 
     while (this.running) {
       await this.runOnce(options);
@@ -131,24 +134,9 @@ export class OrchestratorService {
       issueIdentifier?: string;
     } = {}
   ): Promise<ProjectStatusSnapshot> {
-    // Serialize concurrent runOnce() calls to prevent TOCTOU races where
-    // two interleaved reconcileProject() calls both see the same issue as
-    // unscheduled and each dispatch a worker for it.
-    if (this.reconcilePromise) {
-      await this.reconcilePromise;
-    }
-    const promise = this.reconcileProject(
-      this.projectConfig,
-      options.issueIdentifier
+    return this.runSerialized(() =>
+      this.reconcileProject(this.projectConfig, options.issueIdentifier)
     );
-    this.reconcilePromise = promise;
-    try {
-      return await promise;
-    } finally {
-      if (this.reconcilePromise === promise) {
-        this.reconcilePromise = null;
-      }
-    }
   }
 
   async status(): Promise<ProjectStatusSnapshot | null> {
@@ -537,6 +525,7 @@ export class OrchestratorService {
 
   private async performStartupCleanup(): Promise<void> {
     const tenant = this.projectConfig;
+    const now = this.now();
     const workspaceRecords = await this.store.loadIssueWorkspaces(tenant.projectId);
     if (workspaceRecords.length === 0) {
       return;
@@ -557,10 +546,7 @@ export class OrchestratorService {
       return;
     }
 
-    const workflowCache = new Map<
-      string,
-      Awaited<ReturnType<OrchestratorService["loadProjectWorkflow"]>>
-    >();
+    const workflowCache = new Map<string, ProjectWorkflowResolution>();
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
 
     for (const workspaceRecord of workspaceRecords) {
@@ -576,21 +562,44 @@ export class OrchestratorService {
         continue;
       }
 
-      const workflowKey = `${issue.repository.owner}/${issue.repository.name}`;
-      let resolution = workflowCache.get(workflowKey);
-      if (!resolution) {
-        resolution = await this.loadProjectWorkflow(tenant, issue.repository);
-        workflowCache.set(workflowKey, resolution);
-      }
+      try {
+        const workflowKey = `${issue.repository.owner}/${issue.repository.name}`;
+        let resolution = workflowCache.get(workflowKey);
+        if (!resolution) {
+          resolution = await this.loadProjectWorkflow(tenant, issue.repository);
+          workflowCache.set(workflowKey, resolution);
+        }
 
-      if (!resolution.isValid) {
-        continue;
-      }
-      if (!isStateTerminal(issue.state, resolution.lifecycle)) {
-        continue;
-      }
+        if (!resolution.isValid) {
+          continue;
+        }
+        if (!isStateTerminal(issue.state, resolution.lifecycle)) {
+          continue;
+        }
 
-      await this.cleanupTerminalIssueWorkspace(tenant, issue, this.now());
+        await this.cleanupTerminalIssueWorkspace(tenant, issue, now, resolution);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown startup cleanup error";
+        console.warn(
+          `[orchestrator] Startup cleanup skipped workspace for ${issue.identifier}: ${message}`
+        );
+      }
+    }
+  }
+
+  private async runSerialized<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.reconcilePromise;
+    let release!: () => void;
+    this.reconcilePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
     }
   }
 
@@ -1451,20 +1460,22 @@ export class OrchestratorService {
       repositoryPath: string;
       runId?: string;
       state?: string;
-    }
+    },
+    resolution?: ProjectWorkflowResolution
   ): Promise<HookResult | null> {
     try {
-      const resolution = await this.loadProjectWorkflow(tenant, repository);
-      if (!resolution.isValid) {
+      const workflowResolution =
+        resolution ?? (await this.loadProjectWorkflow(tenant, repository));
+      if (!workflowResolution.isValid) {
         return null;
       }
       const hookEnv = buildHookEnv(context);
       return executeWorkspaceHook({
         kind,
-        hooks: resolution.workflow.hooks,
+        hooks: workflowResolution.workflow.hooks,
         repositoryPath: repositoryDirectory,
         env: hookEnv,
-        timeoutMs: resolution.workflow.hooks.timeoutMs,
+        timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
       });
     } catch {
       // If workflow cannot be loaded, skip hook execution
@@ -1680,7 +1691,8 @@ export class OrchestratorService {
   private async cleanupTerminalIssueWorkspace(
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue,
-    now: Date
+    now: Date,
+    workflowResolution?: ProjectWorkflowResolution
   ): Promise<void> {
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
@@ -1737,7 +1749,8 @@ export class OrchestratorService {
         issueIdentifier: issue.identifier,
         workspacePath: workspaceRecord.workspacePath,
         repositoryPath: workspaceRecord.repositoryPath,
-      }
+      },
+      workflowResolution
     );
 
     if (
