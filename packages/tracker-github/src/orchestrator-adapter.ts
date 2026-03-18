@@ -22,6 +22,10 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
         token,
         apiUrl: project.tracker.apiUrl,
         assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
+        priorityFieldName: readOptionalStringTrackerSetting(
+          project.tracker,
+          "priorityFieldName"
+        ),
       },
       dependencies.fetchImpl
     );
@@ -96,6 +100,14 @@ function readBooleanTrackerSetting(
 ): boolean {
   const value = tracker.settings?.[key];
   return value === true || value === "true";
+}
+
+function readOptionalStringTrackerSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): string | undefined {
+  const value = tracker.settings?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function parseIssueNumber(identifier: string): number {
