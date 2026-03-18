@@ -367,6 +367,139 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("includes persisted workspace repositories when resolving startup cleanup terminal states", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-workspace-terminal-states-")
+    );
+    const configuredRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const removedRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "legacy",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Archived
+  blocker_check_states:
+    - Todo
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, configuredRepository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-legacy-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    execSync(
+      `git clone ${shell(removedRepository.cloneUrl)} ${shell(repositoryPath)}`,
+      {
+        stdio: "ignore",
+      }
+    );
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-legacy-1",
+      issueIdentifier: "acme/legacy#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const listIssuesByStates = vi.fn(
+      async (_project, states: readonly string[]) => {
+        expect([...states].sort()).toEqual(["Archived", "Done"]);
+        return [
+          {
+            id: "issue-legacy-1",
+            identifier: "acme/legacy#1",
+            number: 1,
+            title: "Archived issue",
+            description: null,
+            priority: null,
+            state: "Archived",
+            branchName: null,
+            url: "https://github.com/acme/legacy/issues/1",
+            labels: [],
+            blockedBy: [],
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:00.000Z",
+            repository: removedRepository,
+            tracker: {
+              adapter: "github-project",
+              bindingId: "project-123",
+              itemId: "item-legacy-1",
+            },
+            metadata: {},
+          },
+        ];
+      }
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4104,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(listIssuesByStates).toHaveBeenCalledTimes(1);
+  });
+
   it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
