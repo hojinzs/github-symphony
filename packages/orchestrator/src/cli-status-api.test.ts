@@ -79,6 +79,7 @@ describe("CLI --no-status-api flag", () => {
         runtimeRoot: string,
         projectId?: string,
         options?: {
+          eventsDir?: string;
           logLevel: OrchestratorLogLevel;
           stderr: Pick<NodeJS.WriteStream, "write">;
         }
@@ -106,6 +107,136 @@ describe("CLI --no-status-api flag", () => {
       "tenant-1",
       expect.objectContaining({
         logLevel: "verbose",
+        eventsDir: undefined,
+      })
+    );
+  });
+
+  it("passes --events-dir to service creation", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const eventsDir = join(runtimeRoot, "evidence");
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          eventsDir?: string;
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    await runCli(
+      [
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--events-dir",
+        eventsDir,
+      ],
+      {
+        createService,
+      }
+    );
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        eventsDir,
+      })
+    );
+  });
+
+  it("uses SYMPHONY_EVENTS_DIR when --events-dir is omitted", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const eventsDir = join(runtimeRoot, "evidence");
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          eventsDir?: string;
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    process.env.SYMPHONY_EVENTS_DIR = eventsDir;
+    try {
+      await runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+        ],
+        {
+          createService,
+        }
+      );
+    } finally {
+      delete process.env.SYMPHONY_EVENTS_DIR;
+    }
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        eventsDir,
+      })
+    );
+  });
+
+  it("trims SYMPHONY_EVENTS_DIR before resolving it", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const eventsDir = join(runtimeRoot, "evidence");
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          eventsDir?: string;
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    process.env.SYMPHONY_EVENTS_DIR = `  ${eventsDir}  `;
+    try {
+      await runCli(
+        [
+          "run",
+          "--no-status-api",
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+        ],
+        {
+          createService,
+        }
+      );
+    } finally {
+      delete process.env.SYMPHONY_EVENTS_DIR;
+    }
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        eventsDir,
       })
     );
   });
@@ -118,6 +249,7 @@ describe("CLI --no-status-api flag", () => {
         runtimeRoot: string,
         projectId?: string,
         options?: {
+          eventsDir?: string;
           logLevel: OrchestratorLogLevel;
           stderr: Pick<NodeJS.WriteStream, "write">;
         }
@@ -148,8 +280,25 @@ describe("CLI --no-status-api flag", () => {
       "tenant-1",
       expect.objectContaining({
         logLevel: "verbose",
+        eventsDir: undefined,
       })
     );
+  });
+
+  it("rejects --events-dir without a value", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+
+    await expect(
+      runCli([
+        "run",
+        "--no-status-api",
+        "--runtime-root",
+        runtimeRoot,
+        "--project-id",
+        "tenant-1",
+        "--events-dir",
+      ])
+    ).rejects.toThrow("Option '--events-dir' argument missing");
   });
 
   it("rejects --log-level without a value", async () => {

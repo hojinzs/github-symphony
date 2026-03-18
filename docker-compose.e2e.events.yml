@@ -1,0 +1,6 @@
+services:
+  symphony-e2e:
+    volumes:
+      - ./evidence:/e2e/evidence
+    environment:
+      SYMPHONY_EVENTS_DIR: /e2e/evidence

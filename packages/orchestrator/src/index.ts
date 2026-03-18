@@ -48,6 +48,7 @@ export async function runCli(
       projectId?: string,
       options?: {
         logLevel: OrchestratorLogLevel;
+        eventsDir?: string;
         stderr: Pick<NodeJS.WriteStream, "write">;
       }
     ) => Promise<OrchestratorService> | OrchestratorService;
@@ -65,15 +66,20 @@ export async function runCli(
   }
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
   const stderr = dependencies.stderr ?? process.stderr;
+  const eventsDir = resolveOptionalPath(
+    parsed.eventsDir ?? process.env.SYMPHONY_EVENTS_DIR
+  );
   const logLevel = resolveOrchestratorLogLevel(
     parsed.logLevel ?? process.env.SYMPHONY_LOG_LEVEL
   );
   const service =
     (await dependencies.createService?.(runtimeRoot, parsed.projectId, {
+      eventsDir,
       logLevel,
       stderr,
     })) ??
     (await createServiceForRuntime(runtimeRoot, parsed.projectId, {
+      eventsDir,
       logLevel,
       stderr,
     }));
@@ -251,6 +257,7 @@ async function createServiceForRuntime(
   runtimeRoot: string,
   projectId?: string,
   options?: {
+    eventsDir?: string;
     logLevel: OrchestratorLogLevel;
     stderr: Pick<NodeJS.WriteStream, "write">;
   }
@@ -259,7 +266,9 @@ async function createServiceForRuntime(
     throw new Error("Orchestrator CLI requires --project-id.");
   }
 
-  const store = createStore(runtimeRoot);
+  const store = createStore(runtimeRoot, {
+    eventsMirrorRoot: options?.eventsDir,
+  });
   const projectConfig = await store.loadProjectConfig(projectId);
   if (!projectConfig) {
     throw new Error(`Project config not found for "${projectId}".`);
@@ -276,6 +285,7 @@ function parseArgs(args: string[]): {
   runtimeRoot?: string;
   projectId?: string;
   issueIdentifier?: string;
+  eventsDir?: string;
   statusHost?: string;
   statusPort?: number;
   noStatusApi?: boolean;
@@ -285,6 +295,7 @@ function parseArgs(args: string[]): {
     runtimeRoot?: string;
     projectId?: string;
     issueIdentifier?: string;
+    eventsDir?: string;
     statusHost?: string;
     statusPort?: number;
     noStatusApi?: boolean;
@@ -313,6 +324,13 @@ function parseArgs(args: string[]): {
         parsed.issueIdentifier = value;
         index += 1;
         break;
+      case "--events-dir":
+        if (!value || value.startsWith("-")) {
+          throw new Error(`Option '${argument}' argument missing`);
+        }
+        parsed.eventsDir = value;
+        index += 1;
+        break;
       case "--status-host":
         parsed.statusHost = value;
         index += 1;
@@ -337,6 +355,14 @@ function parseArgs(args: string[]): {
   }
 
   return parsed;
+}
+
+function resolveOptionalPath(value: string | undefined): string | undefined {
+  if (!value || value.trim().length === 0) {
+    return undefined;
+  }
+
+  return resolve(value.trim());
 }
 
 function parseInteger(
