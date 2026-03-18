@@ -1964,10 +1964,10 @@ export class OrchestratorService {
   /**
    * Clean up the issue workspace for a terminal issue.
    *
-   * Runs the `before_remove` hook if configured. If the hook fails,
-   * the workspace transitions to `cleanup_blocked` (fail-closed per design
-   * decision 12). If it succeeds, the workspace directory is removed and
-   * the record set to `removed`. Orchestration records (runs) are preserved.
+   * Runs the `before_remove` hook if configured. Hook failures are logged and
+   * ignored so workspace cleanup still proceeds per spec 9.4. The workspace
+   * directory is removed and the record set to `removed`. Orchestration
+   * records (runs) are preserved.
    */
   private async cleanupTerminalIssueWorkspace(
     tenant: OrchestratorProjectConfig,
@@ -2017,7 +2017,7 @@ export class OrchestratorService {
     };
     await this.store.saveIssueWorkspace(pendingRecord);
 
-    // Run before_remove hook (fail-closed)
+    // Run before_remove hook. Failures are logged but do not block cleanup.
     const hookResult = await this.runHook(
       "before_remove",
       tenant,
@@ -2039,16 +2039,11 @@ export class OrchestratorService {
       hookResult.outcome !== "success" &&
       hookResult.outcome !== "skipped"
     ) {
-      // Fail closed: block cleanup, require operator intervention
-      const blockedRecord: IssueWorkspaceRecord = {
-        ...workspaceRecord,
-        status: "cleanup_blocked",
-        updatedAt: now.toISOString(),
-        lastError:
-          hookResult.error ?? `before_remove hook ${hookResult.outcome}`,
-      };
-      await this.store.saveIssueWorkspace(blockedRecord);
-      return;
+      const errorMessage =
+        hookResult.error ?? `before_remove hook ${hookResult.outcome}`;
+      console.warn(
+        `[orchestrator] before_remove hook failed for ${issue.identifier}; continuing cleanup: ${errorMessage}`
+      );
     }
 
     // Hook succeeded or was skipped — remove workspace directory
