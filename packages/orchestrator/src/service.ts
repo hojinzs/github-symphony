@@ -827,7 +827,7 @@ export class OrchestratorService {
     const now = this.now();
     const runId = createRunId(now, tenant.projectId, issue.identifier);
     const runDir = this.store.runDir(runId, tenant.projectId);
-    const workspaceRuntimeDir = join(runDir, "workspace-runtime");
+    const workspaceRuntimeDir = runDir;
 
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
@@ -1573,21 +1573,32 @@ export class OrchestratorService {
   private async readPersistedWorkerTokenUsage(
     run: OrchestratorRunRecord
   ): Promise<OrchestratorRunRecord["tokenUsage"] | null> {
-    const artifactPath = join(
-      run.workspaceRuntimeDir,
-      ".orchestrator",
-      "runs",
-      run.runId,
-      "token-usage.json"
-    );
+    const artifactPaths = [
+      join(run.workspaceRuntimeDir, "token-usage.json"),
+      join(
+        run.workspaceRuntimeDir,
+        ".orchestrator",
+        "runs",
+        run.runId,
+        "token-usage.json"
+      ),
+    ];
 
-    try {
-      const raw = await readFile(artifactPath, "utf8");
-      const tokenUsage = JSON.parse(raw) as OrchestratorRunRecord["tokenUsage"];
-      return hasTokenUsage(tokenUsage) ? tokenUsage : null;
-    } catch {
-      return null;
+    for (const artifactPath of artifactPaths) {
+      try {
+        const raw = await readFile(artifactPath, "utf8");
+        const tokenUsage = JSON.parse(
+          raw
+        ) as OrchestratorRunRecord["tokenUsage"];
+        if (hasTokenUsage(tokenUsage)) {
+          return tokenUsage;
+        }
+      } catch {
+        continue;
+      }
     }
+
+    return null;
   }
 
   /**

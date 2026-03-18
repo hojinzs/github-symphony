@@ -35,16 +35,9 @@ export function resolveTokenUsageArtifactPath(
   env: NodeJS.ProcessEnv
 ): string | null {
   const workspaceRuntimeDir = env.WORKSPACE_RUNTIME_DIR;
-  const runId = env.SYMPHONY_RUN_ID;
-  if (!workspaceRuntimeDir || !runId) {
+  if (!workspaceRuntimeDir) {
     return null;
   }
 
-  return join(
-    workspaceRuntimeDir,
-    ".orchestrator",
-    "runs",
-    runId,
-    "token-usage.json"
-  );
+  return join(workspaceRuntimeDir, "token-usage.json");
 }

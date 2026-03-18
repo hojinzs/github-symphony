@@ -14,11 +14,10 @@ describe("resolveTokenUsageArtifactPath", () => {
 });
 
 describe("persistTokenUsageArtifact", () => {
-  it("writes token usage into the orchestrator run artifact path", async () => {
+  it("writes token usage into the worker runtime root", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "worker-token-usage-"));
     const env = {
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
-      SYMPHONY_RUN_ID: "run-123",
     } as NodeJS.ProcessEnv;
 
     await persistTokenUsageArtifact(env, {
@@ -28,16 +27,7 @@ describe("persistTokenUsageArtifact", () => {
     });
 
     await expect(
-      readFile(
-        join(
-          runtimeRoot,
-          ".orchestrator",
-          "runs",
-          "run-123",
-          "token-usage.json"
-        ),
-        "utf8"
-      )
+      readFile(join(runtimeRoot, "token-usage.json"), "utf8")
     ).resolves.toContain('"totalTokens": 19');
   });
 });
