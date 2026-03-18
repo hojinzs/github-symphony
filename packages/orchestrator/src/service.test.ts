@@ -11,6 +11,7 @@ import {
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { OrchestratorService } from "./service.js";
+import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
@@ -264,6 +265,108 @@ describe("OrchestratorService", () => {
     warnSpy.mockRestore();
   });
 
+  it("uses listIssuesByStates for startup cleanup terminal lookups", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-list-issues-by-states-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const listIssues = vi.fn(async () => {
+      throw new Error("listIssues should not be used for startup cleanup");
+    });
+    const listIssuesByStates = vi.fn(async (_project, states: readonly string[]) => {
+      expect(states).toEqual(["Done"]);
+      return [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Terminal issue",
+          description: null,
+          priority: null,
+          state: "Done",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+        },
+      ];
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4103,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(listIssuesByStates).toHaveBeenCalledTimes(1);
+    expect(listIssuesByStates).toHaveBeenCalledWith(
+      projectConfig,
+      ["Done"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+  });
+
   it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -323,6 +426,7 @@ describe("OrchestratorService", () => {
       }
     ).loadProjectWorkflow.bind(service);
     vi.spyOn(service as never, "loadProjectWorkflow")
+      .mockImplementationOnce(originalLoadProjectWorkflow)
       .mockImplementationOnce(async () => {
         throw new Error("workflow cache timeout");
       })

@@ -48,6 +48,14 @@ export type OrchestratorTrackerAdapter = {
       token?: string;
     }
   ): Promise<TrackedIssue[]>;
+  listIssuesByStates(
+    project: OrchestratorProjectConfig,
+    states: readonly string[],
+    dependencies?: {
+      fetchImpl?: typeof fetch;
+      token?: string;
+    }
+  ): Promise<TrackedIssue[]>;
   buildWorkerEnvironment(
     project: OrchestratorProjectConfig,
     issue: TrackedIssue

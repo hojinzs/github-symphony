@@ -139,6 +139,32 @@ describe("fileTrackerAdapter", () => {
     });
   });
 
+  describe("listIssuesByStates", () => {
+    it("filters issues to the requested workflow states", async () => {
+      const issuesPath = join(testDir, "issues.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          sampleIssue,
+          {
+            ...sampleIssue,
+            id: "issue-2",
+            identifier: "test-owner/test-repo#2",
+            number: 2,
+            state: "Done",
+          },
+        ])
+      );
+
+      const project = makeProject(issuesPath);
+      const issues = await fileTrackerAdapter.listIssuesByStates(project, ["done"]);
+
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.id).toBe("issue-2");
+      expect(issues[0]?.state).toBe("Done");
+    });
+  });
+
   describe("buildWorkerEnvironment", () => {
     it("returns SYMPHONY_FILE_TRACKER flag", () => {
       const project = makeProject("/tmp/issues.json");

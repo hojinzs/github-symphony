@@ -6,6 +6,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
   buildHookEnv,
   buildPromptVariables,
   buildProjectSnapshot,
@@ -596,9 +597,13 @@ export class OrchestratorService {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     let issues: TrackedIssue[];
     try {
-      issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
+      issues = await trackerAdapter.listIssuesByStates(
+        tenant,
+        await this.resolveStartupCleanupTerminalStates(tenant),
+        {
+          fetchImpl: this.dependencies.fetchImpl,
+        }
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown tracker error";
@@ -648,6 +653,39 @@ export class OrchestratorService {
         );
       }
     }
+  }
+
+  private async resolveStartupCleanupTerminalStates(
+    tenant: OrchestratorProjectConfig
+  ): Promise<string[]> {
+    const terminalStates = new Map<string, string>();
+
+    for (const repository of tenant.repositories) {
+      let resolution: ProjectWorkflowResolution;
+      try {
+        resolution = await this.loadProjectWorkflow(tenant, repository);
+      } catch {
+        continue;
+      }
+      if (!isUsableWorkflowResolution(resolution)) {
+        continue;
+      }
+
+      for (const state of resolution.lifecycle.terminalStates) {
+        const normalizedState = state.trim().toLowerCase();
+        if (!terminalStates.has(normalizedState)) {
+          terminalStates.set(normalizedState, state);
+        }
+      }
+    }
+
+    if (terminalStates.size === 0) {
+      for (const state of DEFAULT_WORKFLOW_LIFECYCLE.terminalStates) {
+        terminalStates.set(state.trim().toLowerCase(), state);
+      }
+    }
+
+    return [...terminalStates.values()];
   }
 
   private async runSerialized<T>(operation: () => Promise<T>): Promise<T> {
