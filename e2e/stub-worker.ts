@@ -20,8 +20,8 @@ const ISSUE_ID = process.env.SYMPHONY_ISSUE_ID ?? null;
 const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
 const ISSUE_STATE = process.env.SYMPHONY_ISSUE_STATE ?? null;
 const WORKSPACE_RUNTIME_DIR = process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
-type Scenario = "happy" | "fail" | "stall" | "slow";
-const VALID_SCENARIOS: ReadonlySet<string> = new Set(["happy", "fail", "stall", "slow"]);
+type Scenario = "happy" | "fail" | "stall" | "slow" | "pr-review";
+const VALID_SCENARIOS: ReadonlySet<string> = new Set(["happy", "fail", "stall", "slow", "pr-review"]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
   ? (rawScenario as Scenario)
@@ -35,6 +35,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
   fail: { startMs: 2000, runMs: 3000 },
   stall: { startMs: 2000, runMs: Infinity },
   slow: { startMs: 2000, runMs: 30000 },
+  "pr-review": { startMs: 1000, runMs: 3000 },
 };
 
 // ── State ────────────────────────────────────────────────────────
@@ -44,12 +45,30 @@ type WorkerStatus = "idle" | "starting" | "running" | "failed" | "completed";
 let status: WorkerStatus = "idle";
 const tokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
+/**
+ * Derives the execution phase for the pr-review scenario based on issue state.
+ * Mirrors real worker logic: blocker_check_states (Ready) → planning,
+ * active_states (In Progress) → implementation.
+ */
+function resolveExecutionPhase(): string | null {
+  if (status !== "running") return null;
+  if (SCENARIO === "pr-review") {
+    const BLOCKER_CHECK_STATES = ["ready"];
+    const normalised = (ISSUE_STATE ?? "").trim().toLowerCase();
+    if (BLOCKER_CHECK_STATES.includes(normalised)) {
+      return "planning";
+    }
+    return "implementation";
+  }
+  return "implementation";
+}
+
 function buildState() {
   return {
     package: "@gh-symphony/stub-worker",
     runtime: "self-hosted-sample",
     status,
-    executionPhase: status === "running" ? "implementation" : null,
+    executionPhase: resolveExecutionPhase(),
     runPhase: status === "running" ? "streaming_turn" : null,
     sessionId: null,
     projectId: null,

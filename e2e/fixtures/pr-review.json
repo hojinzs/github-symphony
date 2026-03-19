@@ -1,0 +1,28 @@
+[
+  {
+    "id": "issue-pr-review-1",
+    "identifier": "test-owner/test-repo#10",
+    "number": 10,
+    "title": "PR review lifecycle test issue",
+    "description": "Tests the planning → human-review → implementation → awaiting-merge phase lifecycle.",
+    "priority": null,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-03-17T00:00:00Z",
+    "updatedAt": "2026-03-17T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "issue-pr-review-1"
+    },
+    "metadata": {}
+  }
+]
