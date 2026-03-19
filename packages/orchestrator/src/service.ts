@@ -595,11 +595,16 @@ export class OrchestratorService {
     }
 
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const workflowCache = new Map<string, Promise<ProjectWorkflowResolution>>();
     let issues: TrackedIssue[];
     try {
       issues = await trackerAdapter.listIssuesByStates(
         tenant,
-        await this.resolveStartupCleanupTerminalStates(tenant, workspaceRecords),
+        await this.resolveStartupCleanupTerminalStates(
+          tenant,
+          workspaceRecords,
+          workflowCache
+        ),
         {
           fetchImpl: this.dependencies.fetchImpl,
         }
@@ -613,7 +618,6 @@ export class OrchestratorService {
       return;
     }
 
-    const workflowCache = new Map<string, ProjectWorkflowResolution>();
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
 
     for (const workspaceRecord of workspaceRecords) {
@@ -630,12 +634,11 @@ export class OrchestratorService {
       }
 
       try {
-        const workflowKey = `${issue.repository.owner}/${issue.repository.name}`;
-        let resolution = workflowCache.get(workflowKey);
-        if (!resolution) {
-          resolution = await this.loadProjectWorkflow(tenant, issue.repository);
-          workflowCache.set(workflowKey, resolution);
-        }
+        const resolution = await this.loadStartupCleanupWorkflow(
+          tenant,
+          issue.repository,
+          workflowCache
+        );
 
         if (!resolution.isValid) {
           continue;
@@ -657,7 +660,8 @@ export class OrchestratorService {
 
   private async resolveStartupCleanupTerminalStates(
     tenant: OrchestratorProjectConfig,
-    workspaceRecords: readonly IssueWorkspaceRecord[]
+    workspaceRecords: readonly IssueWorkspaceRecord[],
+    workflowCache: Map<string, Promise<ProjectWorkflowResolution>>
   ): Promise<string[]> {
     const terminalStates = new Map<string, string>();
     const repositories = this.resolveStartupCleanupRepositories(
@@ -668,14 +672,11 @@ export class OrchestratorService {
     for (const repository of repositories) {
       let resolution: ProjectWorkflowResolution;
       try {
-        const isConfiguredRepository = tenant.repositories.some(
-          (candidate) =>
-            candidate.owner === repository.owner &&
-            candidate.name === repository.name
+        resolution = await this.loadStartupCleanupWorkflow(
+          tenant,
+          repository,
+          workflowCache
         );
-        resolution = isConfiguredRepository
-          ? await this.loadProjectWorkflow(tenant, repository)
-          : await loadRepositoryWorkflow(repository.cloneUrl, repository);
       } catch {
         continue;
       }
@@ -756,6 +757,27 @@ export class OrchestratorService {
 
   private startupCleanupRepositoryKey(owner: string, name: string): string {
     return `${owner}/${name}`;
+  }
+
+  private async loadStartupCleanupWorkflow(
+    tenant: OrchestratorProjectConfig,
+    repository: RepositoryRef,
+    workflowCache: Map<string, Promise<ProjectWorkflowResolution>>
+  ): Promise<ProjectWorkflowResolution> {
+    const cacheKey = this.workflowCacheKey(repository);
+    const cachedResolution = workflowCache.get(cacheKey);
+    if (cachedResolution) {
+      return cachedResolution;
+    }
+
+    const resolutionPromise = tenant.repositories.some(
+      (candidate) =>
+        candidate.owner === repository.owner && candidate.name === repository.name
+    )
+      ? this.loadProjectWorkflow(tenant, repository)
+      : loadRepositoryWorkflow(repository.cloneUrl, repository);
+    workflowCache.set(cacheKey, resolutionPromise);
+    return resolutionPromise;
   }
 
   private async runSerialized<T>(operation: () => Promise<T>): Promise<T> {

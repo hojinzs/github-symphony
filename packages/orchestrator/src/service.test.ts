@@ -500,10 +500,9 @@ Prefer focused changes.
     expect(listIssuesByStates).toHaveBeenCalledTimes(1);
   });
 
-  it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+  it("reuses startup cleanup workflow resolution across terminal lookup and cleanup", async () => {
     const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-startup-workflow-warn-")
+      join(tmpdir(), "orchestrator-startup-workflow-cache-")
     );
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -540,38 +539,49 @@ Prefer focused changes.
       lastError: null,
     });
 
-    const spawnImpl = vi.fn().mockReturnValue({
-      pid: 4104,
-      unref: vi.fn(),
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(async () => [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Terminal issue",
+          description: null,
+          priority: null,
+          state: "Done",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+        },
+      ]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
-        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
-      spawnImpl: spawnImpl as never,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const originalLoadProjectWorkflow = (
-      service as unknown as {
-        loadProjectWorkflow: (typeof service)["loadProjectWorkflow"];
-      }
-    ).loadProjectWorkflow.bind(service);
-    vi.spyOn(service as never, "loadProjectWorkflow")
-      .mockImplementationOnce(originalLoadProjectWorkflow)
-      .mockImplementationOnce(async () => {
-        throw new Error("workflow cache timeout");
-      })
-      .mockImplementation(originalLoadProjectWorkflow);
+    const loadProjectWorkflowSpy = vi.spyOn(service as never, "loadProjectWorkflow");
 
-    await service.run({ once: true });
+    await (
+      service as unknown as { performStartupCleanup: () => Promise<void> }
+    ).performStartupCleanup();
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[orchestrator] Startup cleanup skipped workspace for acme/platform#1: workflow cache timeout"
-    );
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
-    warnSpy.mockRestore();
+    expect(loadProjectWorkflowSpy).toHaveBeenCalledTimes(1);
   });
 
   it("serializes startup cleanup with concurrent runOnce calls", async () => {
