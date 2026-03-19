@@ -379,6 +379,10 @@ export class OrchestratorService {
         recovered += 1;
       }
     }
+    const reconciledRuns = (await this.store.loadAllRuns()).filter(
+      (run) => run.projectId === tenant.projectId && isActiveRunStatus(run.status)
+    );
+    rateLimits = resolveProjectRateLimits(reconciledRuns, []);
 
     try {
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
@@ -404,10 +408,27 @@ export class OrchestratorService {
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
-        filteredIssues.map((issue) => [issue.identifier, issue])
+        syncedIssuesByIdentifier
       );
+      for (const issue of filteredIssues) {
+        const existing = trackedIssuesByIdentifier.get(issue.identifier);
+        trackedIssuesByIdentifier.set(issue.identifier, {
+          ...(existing ?? issue),
+          ...issue,
+          rateLimits: issue.rateLimits ?? existing?.rateLimits ?? null,
+        });
+      }
       for (const [identifier, issue] of syncedIssuesByIdentifier) {
-        trackedIssuesByIdentifier.set(identifier, issue);
+        const existing = trackedIssuesByIdentifier.get(identifier);
+        if (!existing) {
+          trackedIssuesByIdentifier.set(identifier, issue);
+          continue;
+        }
+        trackedIssuesByIdentifier.set(identifier, {
+          ...issue,
+          ...existing,
+          rateLimits: existing.rateLimits ?? issue.rateLimits ?? null,
+        });
       }
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
@@ -596,6 +617,7 @@ export class OrchestratorService {
     const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunStatus(run.status)
     );
+    rateLimits = rateLimits ?? resolveProjectRateLimits(latestRuns, []);
     const status = buildProjectSnapshot({
       project: tenant,
       activeRuns: latestRuns,

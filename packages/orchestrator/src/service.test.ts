@@ -2283,6 +2283,248 @@ Prefer focused changes.
     });
   });
 
+  it("preserves live worker rate-limit data when tracker calls fail", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-live-rate-limits-on-tracker-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueSubjectId: "issue-1",
+      issueState: "Todo",
+      issueWorkspaceKey: deriveIssueWorkspaceKey(
+        {
+          projectId: projectConfig.projectId,
+          adapter: "github-project",
+          issueSubjectId: "issue-1",
+        },
+        "acme/platform#1"
+      ),
+      repository,
+      workerDir: join(tempRoot, "worker"),
+      workingDirectory: join(tempRoot, "workspace"),
+      workspaceRuntimeDir: join(tempRoot, "workspace-runtime"),
+      workflowPath: null,
+      workspaceBranch: "sym/test",
+      status: "running",
+      attempt: 1,
+      processId: 4112,
+      port: 4312,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      sessionId: null,
+      turnCount: 0,
+      tokenUsage: null,
+      executionPhase: "implementation",
+      runPhase: "streaming_turn",
+      rateLimits: null,
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            runPhase: "streaming_turn",
+            rateLimits: {
+              source: "codex",
+              remaining: 41,
+              resetAt: "2026-03-08T00:45:00.000Z",
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+
+      throw new Error("tracker unavailable");
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      isProcessRunning: (pid) => pid === 4112,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.lastError).toContain("tracker unavailable");
+    expect(snapshot.rateLimits).toEqual({
+      source: "codex",
+      remaining: 41,
+      resetAt: "2026-03-08T00:45:00.000Z",
+    });
+  });
+
+  it("prefers the latest tracker rate-limit payload over earlier sync metadata", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-tracker-rate-limits-latest-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueSubjectId: "issue-1",
+      issueState: "Todo",
+      issueWorkspaceKey: deriveIssueWorkspaceKey(
+        {
+          projectId: projectConfig.projectId,
+          adapter: "github-project",
+          issueSubjectId: "issue-1",
+        },
+        "acme/platform#1"
+      ),
+      repository,
+      workerDir: join(tempRoot, "worker"),
+      workingDirectory: join(tempRoot, "workspace"),
+      workspaceRuntimeDir: join(tempRoot, "workspace-runtime"),
+      workflowPath: null,
+      workspaceBranch: "sym/test",
+      status: "running",
+      attempt: 1,
+      processId: 4113,
+      port: 4313,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      sessionId: null,
+      turnCount: 0,
+      tokenUsage: null,
+      executionPhase: "implementation",
+      runPhase: "streaming_turn",
+      rateLimits: null,
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            runPhase: "streaming_turn",
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+      };
+      if (body.query.includes("query IssueStatesByIds")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              nodes: [
+                {
+                  ...makeTrackerIssueStateLookupNode(repository, "Todo"),
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4999",
+              "x-ratelimit-used": "1",
+              "x-ratelimit-reset": "1773892800",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [
+                  makeTrackerProjectItem(repository, "Todo"),
+                ],
+                pageInfo: {
+                  hasNextPage: false,
+                  endCursor: null,
+                },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "4997",
+            "x-ratelimit-used": "3",
+            "x-ratelimit-reset": "1773892860",
+            "x-ratelimit-resource": "graphql",
+          },
+        }
+      );
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      isProcessRunning: (pid) => pid === 4113,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.rateLimits).toEqual({
+      source: "github",
+      limit: 5000,
+      remaining: 4997,
+      used: 3,
+      reset: 1773892860,
+      resetAt: "2026-03-19T04:01:00.000Z",
+      resource: "graphql",
+    });
+  });
+
   it("disables workflow stall detection when stall_timeout_ms <= 0 but keeps the 30 minute fallback", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -4332,6 +4574,101 @@ function createTrackerResponseWithState(
         },
       },
     }),
+  };
+}
+
+function makeTrackerProjectItem(
+  repository: { owner: string; name: string; cloneUrl: string },
+  state: string
+) {
+  return {
+    id: "item-1",
+    updatedAt: "2026-03-08T00:00:00.000Z",
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          name: state,
+          field: {
+            name: "Status",
+          },
+        },
+      ],
+    },
+    content: {
+      __typename: "Issue",
+      id: "issue-1",
+      number: 1,
+      title: "Test issue",
+      body: null,
+      url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      labels: {
+        nodes: [],
+      },
+      blockedBy: {
+        nodes: [],
+      },
+      assignees: {
+        nodes: [],
+      },
+      repository: {
+        name: repository.name,
+        url: `file://${repository.cloneUrl}`,
+        owner: {
+          login: repository.owner,
+        },
+      },
+    },
+  };
+}
+
+function makeTrackerIssueStateLookupNode(
+  repository: { owner: string; name: string; cloneUrl: string },
+  state: string
+) {
+  return {
+    __typename: "Issue",
+    id: "issue-1",
+    number: 1,
+    title: "Test issue",
+    url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
+    createdAt: "2026-03-08T00:00:00.000Z",
+    updatedAt: "2026-03-08T00:00:00.000Z",
+    repository: {
+      name: repository.name,
+      url: `file://${repository.cloneUrl}`,
+      owner: {
+        login: repository.owner,
+      },
+    },
+    projectItems: {
+      nodes: [
+        {
+          id: "item-1",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          project: {
+            id: "project-123",
+          },
+          fieldValues: {
+            nodes: [
+              {
+                __typename: "ProjectV2ItemFieldSingleSelectValue",
+                name: state,
+                field: {
+                  name: "Status",
+                },
+              },
+            ],
+          },
+        },
+      ],
+      pageInfo: {
+        hasNextPage: false,
+        endCursor: null,
+      },
+    },
   };
 }
 

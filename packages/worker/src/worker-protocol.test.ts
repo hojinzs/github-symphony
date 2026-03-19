@@ -116,8 +116,8 @@ function createProtocolContext(options: {
     rateLimits: Record<string, unknown>
   ): void {
     runtimeState.rateLimits = {
-      source: "codex",
       ...rateLimits,
+      source: "codex",
     };
     logs.push(
       `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits)}`
@@ -738,6 +738,7 @@ describe("rate-limit telemetry", () => {
           total_tokens: 15,
         },
         rate_limits: {
+          source: "upstream",
           remaining: 42,
           resetAt: "2026-03-08T00:30:00.000Z",
         },

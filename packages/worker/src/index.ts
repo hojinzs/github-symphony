@@ -796,8 +796,8 @@ function applyRateLimitUpdate(
   rateLimits: Record<string, unknown>
 ): void {
   runtimeState.rateLimits = {
-    source: "codex",
     ...rateLimits,
+    source: "codex",
   };
   process.stderr.write(
     `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits).slice(0, 300)}\n`

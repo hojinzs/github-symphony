@@ -325,6 +325,12 @@ export async function fetchProjectIssues(
     });
   }
 
+  if (latestRateLimits) {
+    for (const issue of issues) {
+      issue.rateLimits = latestRateLimits;
+    }
+  }
+
   return issues;
 }
 
