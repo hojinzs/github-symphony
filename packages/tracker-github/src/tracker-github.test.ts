@@ -383,6 +383,195 @@ describe("resolveTrackerAdapter", () => {
     }
   });
 
+  it("attaches GitHub API rate-limit headers to listed issues", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-1",
+                        issueId: "issue-1",
+                        number: 1,
+                        title: "Tracked issue",
+                        assignees: [],
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4999",
+                "x-ratelimit-used": "1",
+                "x-ratelimit-reset": "1773892800",
+                "x-ratelimit-resource": "graphql",
+              },
+            }
+          ),
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.rateLimits).toEqual({
+      source: "github",
+      limit: 5000,
+      remaining: 4999,
+      used: 1,
+      reset: 1773892800,
+      resetAt: "2026-03-19T04:00:00.000Z",
+      resource: "graphql",
+    });
+  });
+
+  it("applies the latest paginated GitHub rate-limit headers to all listed issues", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            variables?: { cursor?: string | null };
+          };
+          const cursor = body.variables?.cursor ?? null;
+          const page = cursor === null
+            ? {
+                nodes: [
+                  makeProjectItem({
+                    itemId: "item-1",
+                    issueId: "issue-1",
+                    number: 1,
+                    title: "First issue",
+                    assignees: [],
+                  }),
+                ],
+                pageInfo: { endCursor: "cursor-1", hasNextPage: true },
+                headers: {
+                  "content-type": "application/json",
+                  "x-ratelimit-limit": "5000",
+                  "x-ratelimit-remaining": "4999",
+                  "x-ratelimit-used": "1",
+                  "x-ratelimit-reset": "1773892800",
+                  "x-ratelimit-resource": "graphql",
+                },
+              }
+            : {
+                nodes: [
+                  makeProjectItem({
+                    itemId: "item-2",
+                    issueId: "issue-2",
+                    number: 2,
+                    title: "Second issue",
+                    assignees: [],
+                  }),
+                ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+                headers: {
+                  "content-type": "application/json",
+                  "x-ratelimit-limit": "5000",
+                  "x-ratelimit-remaining": "4997",
+                  "x-ratelimit-used": "3",
+                  "x-ratelimit-reset": "1773892860",
+                  "x-ratelimit-resource": "graphql",
+                },
+              };
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: page.nodes,
+                    pageInfo: page.pageInfo,
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: page.headers,
+            }
+          );
+        },
+      }
+    );
+
+    expect(issues).toHaveLength(2);
+    expect(issues.map((issue) => issue.rateLimits)).toEqual([
+      {
+        source: "github",
+        limit: 5000,
+        remaining: 4997,
+        used: 3,
+        reset: 1773892860,
+        resetAt: "2026-03-19T04:01:00.000Z",
+        resource: "graphql",
+      },
+      {
+        source: "github",
+        limit: 5000,
+        remaining: 4997,
+        used: 3,
+        reset: 1773892860,
+        resetAt: "2026-03-19T04:01:00.000Z",
+        resource: "graphql",
+      },
+    ]);
+  });
+
   it("applies the default network timeout to GitHub API requests", async () => {
     const timeoutSignal = new AbortController().signal;
     const timeoutSpy = vi
@@ -1301,6 +1490,75 @@ describe("resolveTrackerAdapter", () => {
       "In Progress",
       "Done",
     ]);
+  });
+
+  it("attaches GitHub API rate-limit headers to fetched issue state lookups", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["issue-1"],
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                nodes: [
+                  makeIssueStateLookupNode({
+                    projectId: "project-123",
+                    itemId: "item-1",
+                    issueId: "issue-1",
+                    number: 1,
+                    title: "Tracked issue",
+                    state: "In Progress",
+                  }),
+                ],
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4988",
+                "x-ratelimit-used": "12",
+                "x-ratelimit-reset": "1773892860",
+                "x-ratelimit-resource": "graphql",
+              },
+            }
+          ),
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.rateLimits).toEqual({
+      source: "github",
+      limit: 5000,
+      remaining: 4988,
+      used: 12,
+      reset: 1773892860,
+      resetAt: "2026-03-19T04:01:00.000Z",
+      resource: "graphql",
+    });
   });
 
   it("paginates issue projectItems until the configured project item is found", async () => {

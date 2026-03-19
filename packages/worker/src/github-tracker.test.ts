@@ -116,7 +116,8 @@ describe("normalizeGithubProjectItem", () => {
       metadata: {
         Status: "Todo",
         "Repository Context": "repo context"
-      }
+      },
+      rateLimits: null
     });
   });
 });
