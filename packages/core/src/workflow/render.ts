@@ -1,4 +1,5 @@
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
+import { Liquid } from "liquidjs";
 
 /**
  * Normalized issue variables for prompt template rendering.
@@ -12,8 +13,14 @@ export type PromptIssueVariables = {
   number: number;
   title: string;
   description: string | null;
+  priority: number | null;
   url: string | null;
   state: string;
+  labels: string[];
+  blocked_by: TrackedIssue["blockedBy"];
+  branch_name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
   repository: string;
 };
 
@@ -44,8 +51,14 @@ export function buildPromptVariables(
       number: issue.number,
       title: issue.title,
       description: issue.description,
+      priority: issue.priority,
       url: issue.url,
       state: issue.state,
+      labels: issue.labels,
+      blocked_by: issue.blockedBy,
+      branch_name: issue.branchName,
+      created_at: issue.createdAt,
+      updated_at: issue.updatedAt,
       repository: `${issue.repository.owner}/${issue.repository.name}`,
     },
     attempt: options.attempt,
@@ -63,6 +76,13 @@ export type RenderPromptOptions = {
    */
   strict?: boolean;
 };
+
+const STRICT_LIQUID_ENGINE = new Liquid({
+  strictVariables: true,
+  strictFilters: true,
+  ownPropertyOnly: true,
+  lenientIf: true,
+});
 
 /**
  * Render a prompt template with the given variables.
@@ -83,40 +103,18 @@ export function renderPrompt(
   options: RenderPromptOptions = {}
 ): string {
   const strict = options.strict ?? true;
-  const flatVars = flattenVariables(variables);
 
-  // In strict mode, validate the original template BEFORE substitution.
-  // This ensures that {{...}} patterns introduced by substituted values
-  // (e.g. issue descriptions containing "{{variable.path}}") are not
-  // mistakenly flagged as unresolved template variables.
-  if (strict) {
-    const varPattern = /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g;
-    let match: RegExpExecArray | null;
-    while ((match = varPattern.exec(template)) !== null) {
-      const key = match[1];
-      if (!flatVars.has(key)) {
-        throw new Error(
-          `template_render_error: unresolved variable "{{${key}}}" in rendered prompt`
-        );
-      }
-    }
+  if (!strict) {
+    return renderLegacyPrompt(template, variables);
   }
 
-  const rendered = template.replace(
-    /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g,
-    (match, key: string) => {
-      const value = flatVars.get(key);
-      if (value === undefined) {
-        return match;
-      }
-      if (value === null) {
-        return "";
-      }
-      return String(value);
-    }
-  );
-
-  return rendered;
+  try {
+    return STRICT_LIQUID_ENGINE.parseAndRenderSync(template, variables);
+  } catch (error) {
+    throw new Error(
+      `template_render_error: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 /**
@@ -146,4 +144,25 @@ function flattenVariables(
   }
 
   return result;
+}
+
+function renderLegacyPrompt(
+  template: string,
+  variables: PromptVariables
+): string {
+  const flatVars = flattenVariables(variables);
+
+  return template.replace(
+    /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g,
+    (match, key: string) => {
+      const value = flatVars.get(key);
+      if (value === undefined) {
+        return match;
+      }
+      if (value === null) {
+        return "";
+      }
+      return String(value);
+    }
+  );
 }

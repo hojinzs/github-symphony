@@ -36,5 +36,8 @@
     "lint": "eslint src --ext .ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "liquidjs": "^10.25.0"
   }
 }

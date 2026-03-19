@@ -110,6 +110,25 @@ Prompt body.
     expect(workflow.hooks.beforeRun).toBe('echo "hello"\npwd');
     expect(workflow.promptTemplate).toBe("Prompt body.");
   });
+
+  it("preserves Liquid prompt syntax in the markdown body", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  command: codex app-server
+---
+{% if issue.labels.size > 0 %}
+Labels:
+{% for label in issue.labels %}- {{ label | upcase }}
+{% endfor %}
+{% endif %}
+`);
+
+    expect(workflow.promptTemplate).toContain("{% if issue.labels.size > 0 %}");
+    expect(workflow.promptTemplate).toContain("{{ label | upcase }}");
+    expect(workflow.promptTemplate).toContain("{% endfor %}");
+  });
 });
 
 describe("WorkflowConfigStore", () => {

@@ -197,6 +197,116 @@ describe("renderPrompt", () => {
     expect(rendered).toBe("Fix Fix the bug in acme/platform.");
   });
 
+  it("renders Liquid control flow and filters in strict mode", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#42",
+        number: 42,
+        title: "Fix the bug",
+        description: "It crashes on startup",
+        priority: 1,
+        state: "Todo",
+        branchName: "fix/issue-42",
+        url: "https://github.com/acme/platform/issues/42",
+        labels: ["bug", "backend"],
+        blockedBy: [
+          {
+            id: "issue-41",
+            identifier: "acme/platform#41",
+            state: "In Progress",
+          },
+        ],
+        createdAt: "2026-03-18T00:00:00.000Z",
+        updatedAt: "2026-03-19T00:00:00.000Z",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: 2 }
+    );
+
+    const rendered = renderPrompt(
+      [
+        "{% if issue.labels.size > 0 %}",
+        "{{ issue.title | upcase }}",
+        "{% endif %}",
+        "{% for label in issue.labels %}[{{ label }}]{% endfor %}",
+        "priority={{ issue.priority }}",
+        "branch={{ issue.branch_name }}",
+        "blocked={{ issue.blocked_by[0].identifier }}",
+        "attempt={{ attempt }}",
+      ].join("\n"),
+      variables
+    );
+
+    expect(rendered).toContain("FIX THE BUG");
+    expect(rendered).toContain("[bug][backend]");
+    expect(rendered).toContain("priority=1");
+    expect(rendered).toContain("branch=fix/issue-42");
+    expect(rendered).toContain("blocked=acme/platform#41");
+    expect(rendered).toContain("attempt=2");
+  });
+
+  it("exposes spec-defined issue fields in prompt variables", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#42",
+        number: 42,
+        title: "Fix the bug",
+        description: "It crashes on startup",
+        priority: 0,
+        state: "Todo",
+        branchName: "fix/issue-42",
+        url: "https://github.com/acme/platform/issues/42",
+        labels: ["bug"],
+        blockedBy: [
+          {
+            id: "issue-40",
+            identifier: "acme/platform#40",
+            state: "Done",
+          },
+        ],
+        createdAt: "2026-03-18T00:00:00.000Z",
+        updatedAt: "2026-03-19T00:00:00.000Z",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: null }
+    );
+
+    expect(variables.issue.priority).toBe(0);
+    expect(variables.issue.labels).toEqual(["bug"]);
+    expect(variables.issue.blocked_by).toEqual([
+      {
+        id: "issue-40",
+        identifier: "acme/platform#40",
+        state: "Done",
+      },
+    ]);
+    expect(variables.issue.branch_name).toBe("fix/issue-42");
+    expect(variables.issue.created_at).toBe("2026-03-18T00:00:00.000Z");
+    expect(variables.issue.updated_at).toBe("2026-03-19T00:00:00.000Z");
+  });
+
   it("leaves unresolved variables as-is in non-strict mode", () => {
     const variables = buildPromptVariables(
       {
@@ -269,6 +379,42 @@ describe("renderPrompt", () => {
     );
     expect(() =>
       renderPrompt("{{unknown.var}}", variables, { strict: true })
+    ).toThrow("template_render_error");
+  });
+
+  it("throws template_render_error for unknown filters in strict mode", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: null }
+    );
+
+    expect(() =>
+      renderPrompt("{{ issue.title | does_not_exist }}", variables)
     ).toThrow("template_render_error");
   });
 
