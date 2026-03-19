@@ -84,6 +84,7 @@ export function parseWorkflowMarkdown(
       stateFieldName:
         readOptionalString(tracker, "state_field", env) ??
         DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+      priorityFieldName: readOptionalString(tracker, "priority_field", env),
       blockerCheckStates,
     },
     polling: {

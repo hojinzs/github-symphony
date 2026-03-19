@@ -81,6 +81,118 @@ describe("resolveTrackerAdapter", () => {
     ]);
   });
 
+  it("maps a configured project priority field by single-select option order", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        id: "item-1",
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        fieldValues: {
+          nodes: [
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "Todo",
+              optionId: "status-todo",
+              field: { name: "Status" },
+            },
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "P1",
+              optionId: "priority-p1",
+              field: { name: "Priority" },
+            },
+          ],
+        },
+        content: {
+          __typename: "Issue",
+          id: "issue-1",
+          number: 1,
+          title: "Prioritized issue",
+          body: null,
+          url: "https://github.com/acme/platform/issues/1",
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          labels: { nodes: [] },
+          assignees: { nodes: [] },
+          repository: {
+            name: "platform",
+            url: "https://github.com/acme/platform",
+            owner: { login: "acme" },
+          },
+          blockedBy: {
+            nodes: [],
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE,
+      {
+        fieldName: "Priority",
+        optionIds: {
+          "priority-p0": 0,
+          "priority-p1": 1,
+          "priority-p2": 2,
+        },
+      }
+    );
+
+    expect(issue?.priority).toBe(1);
+  });
+
+  it("keeps priority null when the configured project field cannot be mapped", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        id: "item-1",
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        fieldValues: {
+          nodes: [
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "Todo",
+              optionId: "status-todo",
+              field: { name: "Status" },
+            },
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "P1",
+              optionId: "priority-p1",
+              field: { name: "Priority" },
+            },
+          ],
+        },
+        content: {
+          __typename: "Issue",
+          id: "issue-1",
+          number: 1,
+          title: "Prioritized issue",
+          body: null,
+          url: "https://github.com/acme/platform/issues/1",
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          labels: { nodes: [] },
+          assignees: { nodes: [] },
+          repository: {
+            name: "platform",
+            url: "https://github.com/acme/platform",
+            owner: { login: "acme" },
+          },
+          blockedBy: {
+            nodes: [],
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE,
+      {
+        fieldName: "Priority",
+        optionIds: {
+          "priority-p0": 0,
+        },
+      }
+    );
+
+    expect(issue?.priority).toBeNull();
+  });
+
   it("returns an adapter for github-project", () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -217,6 +329,9 @@ describe("resolveTrackerAdapter", () => {
                 data: {
                   node: {
                     __typename: "ProjectV2",
+                    fields: {
+                      nodes: [],
+                    },
                     items: {
                       nodes: [
                         makeProjectItem({
@@ -259,6 +374,232 @@ describe("resolveTrackerAdapter", () => {
     } finally {
       infoSpy.mockRestore();
     }
+  });
+
+  it("maps priority from the configured project field during issue listing", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+            priorityFieldName: "Priority",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { query: string };
+
+          if (body.query.includes("query ProjectFields")) {
+            expect(body.query).toContain("fields(first: 100)");
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    fields: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2SingleSelectField",
+                          name: "Priority",
+                          options: [
+                            { id: "priority-p0", name: "P0" },
+                            { id: "priority-p1", name: "P1" },
+                            { id: "priority-p2", name: "P2" },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          expect(body.query).not.toContain("fields(");
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-1",
+                        issueId: "issue-1",
+                        number: 1,
+                        title: "Prioritized issue",
+                        assignees: [],
+                        priorityOptionId: "priority-p1",
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.priority).toBe(1);
+  });
+
+  it("maps priority using only non-null option entries and fetches field metadata once", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+
+    let fieldQueryCount = 0;
+    let itemsQueryCount = 0;
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+            priorityFieldName: "Priority",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { query: string };
+
+          if (body.query.includes("query ProjectFields")) {
+            fieldQueryCount += 1;
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    fields: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2SingleSelectField",
+                          name: "Priority",
+                          options: [
+                            null,
+                            { id: "priority-p0", name: "P0" },
+                            { id: "priority-p1", name: "P1" },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          itemsQueryCount += 1;
+          expect(body.query).not.toContain("fields(");
+
+          if (itemsQueryCount === 1) {
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [
+                        makeProjectItem({
+                          itemId: "item-1",
+                          issueId: "issue-1",
+                          number: 1,
+                          title: "First prioritized issue",
+                          assignees: [],
+                          priorityOptionId: "priority-p0",
+                        }),
+                      ],
+                      pageInfo: { endCursor: "cursor-2", hasNextPage: true },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-2",
+                        issueId: "issue-2",
+                        number: 2,
+                        title: "Second prioritized issue",
+                        assignees: [],
+                        priorityOptionId: "priority-p1",
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(fieldQueryCount).toBe(1);
+    expect(itemsQueryCount).toBe(2);
+    expect(issues.map((issue) => issue.priority)).toEqual([0, 1]);
   });
 
   it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
@@ -304,6 +645,9 @@ describe("resolveTrackerAdapter", () => {
               data: {
                 node: {
                   __typename: "ProjectV2",
+                  fields: {
+                    nodes: [],
+                  },
                   items: {
                     nodes: [],
                     pageInfo: { endCursor: null, hasNextPage: false },
@@ -466,6 +810,7 @@ function makeProjectItem(input: {
   number: number;
   title: string;
   assignees: string[];
+  priorityOptionId?: string;
 }) {
   return {
     id: input.itemId,
@@ -477,6 +822,16 @@ function makeProjectItem(input: {
           name: "Todo",
           field: { name: "Status" },
         },
+        ...(input.priorityOptionId
+          ? [
+              {
+                __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
+                name: "P1",
+                optionId: input.priorityOptionId,
+                field: { name: "Priority" },
+              },
+            ]
+          : []),
       ],
     },
     content: {
