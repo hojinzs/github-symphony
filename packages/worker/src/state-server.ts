@@ -39,6 +39,7 @@ export type WorkerRuntimeState = {
     outputTokens: number;
     totalTokens: number;
   };
+  rateLimits?: Record<string, unknown> | null;
   sessionInfo?: {
     threadId: string | null;
     turnId: string | null;
@@ -70,6 +71,7 @@ export async function buildWorkerRuntimeState(
       | "sessionId"
       | "run"
       | "tokenUsage"
+      | "rateLimits"
       | "sessionInfo"
     >
   > = {}
@@ -126,6 +128,7 @@ export async function buildWorkerRuntimeState(
       outputTokens: 0,
       totalTokens: 0,
     },
+    rateLimits: runtime.rateLimits ?? null,
     sessionInfo: runtime.sessionInfo ?? null,
     workflow,
   };

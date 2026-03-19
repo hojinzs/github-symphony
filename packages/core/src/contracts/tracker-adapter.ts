@@ -38,6 +38,7 @@ export type TrackedIssue = {
     itemId: string;
   };
   metadata: Record<string, string>;
+  rateLimits?: Record<string, unknown> | null;
 };
 
 export type ProjectItemsCache = {

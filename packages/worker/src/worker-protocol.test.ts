@@ -92,6 +92,7 @@ function createProtocolContext(options: {
     status: "running" as string,
     run: { lastError: null as string | null },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    rateLimits: null as Record<string, unknown> | null,
   };
 
   function applyTokenUsageUpdate(
@@ -108,6 +109,93 @@ function createProtocolContext(options: {
     logs.push(
       `[worker] token_usage source=${source} input=${tokenUsage.inputTokens} output=${tokenUsage.outputTokens} total=${tokenUsage.totalTokens}`
     );
+  }
+
+  function applyRateLimitUpdate(
+    source: string,
+    rateLimits: Record<string, unknown>
+  ): void {
+    runtimeState.rateLimits = {
+      ...rateLimits,
+      source: "codex",
+    };
+    logs.push(
+      `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits)}`
+    );
+  }
+
+  function extractRateLimitPayload(
+    value: unknown
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const direct = parseRateLimitRecord(value);
+    if (direct) {
+      return direct;
+    }
+
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      "rate_limits",
+      "rateLimits",
+      "rate_limit",
+      "rateLimit",
+      "info",
+      "msg",
+      "event",
+      "data",
+      "result",
+      "payload",
+    ];
+
+    for (const key of preferredKeys) {
+      if (key in record) {
+        const nested = extractRateLimitPayload(record[key]);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+
+    for (const nestedValue of Object.values(record)) {
+      const nested = extractRateLimitPayload(nestedValue);
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return null;
+  }
+
+  function parseRateLimitRecord(
+    value: unknown
+  ): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    const directKeys = new Set([
+      "limit",
+      "remaining",
+      "used",
+      "reset",
+      "resetAt",
+      "resets_at",
+      "reset_at",
+      "window_minutes",
+      "resource",
+      "retry_after",
+    ]);
+
+    if (!keys.some((key) => directKeys.has(key))) {
+      return null;
+    }
+
+    return { ...record };
   }
 
   function extractAbsoluteTokenUsage(
@@ -338,6 +426,10 @@ function createProtocolContext(options: {
       if (turnUsage) {
         applyTokenUsageUpdate("turn/completed", turnUsage);
       }
+      const rateLimits = extractRateLimitPayload(turnParams);
+      if (rateLimits) {
+        applyRateLimitUpdate("turn/completed", rateLimits);
+      }
       if (turnCompletedResolve) {
         turnCompletedResolve();
         turnCompletedResolve = null;
@@ -356,6 +448,11 @@ function createProtocolContext(options: {
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
       return;
+    }
+
+    const rateLimits = extractRateLimitPayload(msg.params);
+    if (rateLimits && typeof msg.method === "string") {
+      applyRateLimitUpdate(msg.method, rateLimits);
     }
   }
 
@@ -622,6 +719,66 @@ describe("read timeout (3.5)", () => {
 
     const result = await promise;
     expect(result).toEqual({ serverInfo: { name: "codex", version: "1.0" } });
+  });
+});
+
+describe("rate-limit telemetry", () => {
+  it("captures rate limits from turn/completed payloads", () => {
+    const ctx = createProtocolContext({
+      readTimeoutMs: 1000,
+      turnTimeoutMs: 60000,
+    });
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          total_tokens: 15,
+        },
+        rate_limits: {
+          source: "upstream",
+          remaining: 42,
+          resetAt: "2026-03-08T00:30:00.000Z",
+        },
+      },
+    });
+
+    expect(ctx.runtimeState.rateLimits).toEqual({
+      source: "codex",
+      remaining: 42,
+      resetAt: "2026-03-08T00:30:00.000Z",
+    });
+  });
+
+  it("captures nested rate limits from non-turn agent events", () => {
+    const ctx = createProtocolContext({
+      readTimeoutMs: 1000,
+      turnTimeoutMs: 60000,
+    });
+
+    ctx.handleServerMessage({
+      method: "codex/event/session_updated",
+      params: {
+        payload: {
+          info: {
+            rateLimits: {
+              limit: 100,
+              remaining: 99,
+              resource: "tokens",
+            },
+          },
+        },
+      },
+    });
+
+    expect(ctx.runtimeState.rateLimits).toEqual({
+      source: "codex",
+      limit: 100,
+      remaining: 99,
+      resource: "tokens",
+    });
   });
 });
 
