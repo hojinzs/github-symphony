@@ -201,6 +201,7 @@ describe("resolveTrackerAdapter", () => {
 
     expect(adapter).toBeDefined();
     expect(adapter.listIssues).toBeTypeOf("function");
+    expect(adapter.listIssuesByStates).toBeTypeOf("function");
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
     expect(adapter.reviveIssue).toBeTypeOf("function");
   });
@@ -664,6 +665,75 @@ describe("resolveTrackerAdapter", () => {
       }
     );
   });
+
+  it("filters issues to the requested workflow states", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssuesByStates(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["Done"],
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, _init) =>
+          new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-1",
+                        issueId: "issue-1",
+                        number: 1,
+                        title: "Done issue",
+                        assignees: [],
+                        state: "Done",
+                      }),
+                      makeProjectItem({
+                        itemId: "item-2",
+                        issueId: "issue-2",
+                        number: 2,
+                        title: "Todo issue",
+                        assignees: [],
+                        state: "Todo",
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          ),
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.identifier).toBe("acme/platform#1");
+    expect(issues[0]?.state).toBe("Done");
+  });
 });
 
 describe("validateWorkflowFieldMapping", () => {
@@ -810,6 +880,7 @@ function makeProjectItem(input: {
   number: number;
   title: string;
   assignees: string[];
+  state?: string;
   priorityOptionId?: string;
 }) {
   return {
@@ -819,7 +890,7 @@ function makeProjectItem(input: {
       nodes: [
         {
           __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
-          name: "Todo",
+          name: input.state ?? "Todo",
           field: { name: "Status" },
         },
         ...(input.priorityOptionId
