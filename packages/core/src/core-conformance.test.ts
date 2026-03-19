@@ -380,6 +380,12 @@ describe("renderPrompt", () => {
     expect(() =>
       renderPrompt("{{unknown.var}}", variables, { strict: true })
     ).toThrow("template_render_error");
+    expect(() =>
+      renderPrompt("{% if unknown_var %}x{% endif %}", variables)
+    ).toThrow("template_render_error");
+    expect(() =>
+      renderPrompt("{% for item in unknown_list %}{{ item }}{% endfor %}", variables)
+    ).toThrow("template_render_error");
   });
 
   it("throws template_render_error for unknown filters in strict mode", () => {
@@ -416,6 +422,42 @@ describe("renderPrompt", () => {
     expect(() =>
       renderPrompt("{{ issue.title | does_not_exist }}", variables)
     ).toThrow("template_render_error");
+  });
+
+  it("throws template_parse_error for malformed Liquid templates", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: null,
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: null }
+    );
+
+    expect(() => renderPrompt("{% if %}", variables)).toThrow(
+      "template_parse_error"
+    );
   });
 
   it("does not throw in strict mode when all variables resolve", () => {

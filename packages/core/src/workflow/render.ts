@@ -1,5 +1,11 @@
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
-import { Liquid } from "liquidjs";
+import {
+  Liquid,
+  ParseError,
+  RenderError,
+  TokenizationError,
+  UndefinedVariableError,
+} from "liquidjs";
 
 /**
  * Normalized issue variables for prompt template rendering.
@@ -70,9 +76,10 @@ export function buildPromptVariables(
  */
 export type RenderPromptOptions = {
   /**
-   * When `true` (default), throw an error if any `{{...}}` variables remain
-   * unresolved after substitution. Set to `false` to preserve legacy behavior
-   * where unresolved variables are left as-is.
+   * When `true` (default), render with strict Liquid semantics so unknown
+   * variables and filters fail immediately. Set to `false` to preserve the
+   * legacy `{{variable.path}}` substitution behavior where unresolved
+   * variables are left as-is.
    */
   strict?: boolean;
 };
@@ -81,17 +88,14 @@ const STRICT_LIQUID_ENGINE = new Liquid({
   strictVariables: true,
   strictFilters: true,
   ownPropertyOnly: true,
-  lenientIf: true,
 });
 
 /**
  * Render a prompt template with the given variables.
  *
- * Supports simple `{{variable}}` and `{{object.key}}` substitution.
- *
- * When `strict` is `true` (the default), an error is thrown if any
- * `{{...}}` patterns remain after substitution. Set `strict` to `false`
- * to preserve the legacy behavior of leaving unresolved variables as-is.
+ * In strict mode, this supports Liquid-compatible tags, loops, and filters
+ * while rejecting unknown variables or filters. Set `strict` to `false` to
+ * preserve the legacy `{{variable}}` / `{{object.key}}` substitution path.
  *
  * The template body is the Markdown content of `WORKFLOW.md` after the
  * YAML front matter. It typically contains the base prompt guidelines
@@ -111,10 +115,26 @@ export function renderPrompt(
   try {
     return STRICT_LIQUID_ENGINE.parseAndRenderSync(template, variables);
   } catch (error) {
-    throw new Error(
-      `template_render_error: ${error instanceof Error ? error.message : String(error)}`
-    );
+    throw normalizeTemplateError(error);
   }
+}
+
+function normalizeTemplateError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (
+    error instanceof UndefinedVariableError ||
+    error instanceof RenderError ||
+    (error instanceof ParseError && message.startsWith("undefined filter:"))
+  ) {
+    return new Error(`template_render_error: ${message}`, { cause: error });
+  }
+
+  if (error instanceof ParseError || error instanceof TokenizationError) {
+    return new Error(`template_parse_error: ${message}`, { cause: error });
+  }
+
+  return new Error(`template_render_error: ${message}`, { cause: error });
 }
 
 /**
