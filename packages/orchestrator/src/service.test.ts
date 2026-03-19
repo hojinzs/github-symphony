@@ -2470,7 +2470,7 @@ Prefer focused changes.
     expect(updatedRun?.runtimeSession?.sessionId).toBeNull();
   });
 
-  it("uses fetchIssueStatesByIds to synchronize active run issueState", async () => {
+  it("reuses listIssues results to synchronize active run issueState", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-state-"));
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -2525,7 +2525,7 @@ Prefer focused changes.
         title: "Test issue",
         description: null,
         priority: null,
-        state: "Todo",
+        state: "In Progress",
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
@@ -2587,15 +2587,8 @@ Prefer focused changes.
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
 
-    expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
     expect(listIssues).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(snapshot.activeRuns[0]?.issueState).toBe("In Progress");
     expect(updatedRun?.issueState).toBe("In Progress");
   });

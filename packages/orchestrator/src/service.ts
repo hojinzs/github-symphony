@@ -389,15 +389,16 @@ export class OrchestratorService {
         (run) =>
           run.projectId === tenant.projectId && isActiveRunStatus(run.status)
       );
+      const issues = await trackerAdapter.listIssues(tenant, {
+        fetchImpl: this.dependencies.fetchImpl,
+      });
       const syncedActiveRuns = await this.syncActiveRunIssueStates(
         tenant,
         trackerAdapter,
         currentActiveRuns,
-        now
+        now,
+        issues
       );
-      const issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
       const filteredIssues = issueIdentifier
         ? issues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
@@ -1163,20 +1164,19 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     trackerAdapter: OrchestratorTrackerAdapter,
     activeRuns: OrchestratorRunRecord[],
-    now: Date
+    now: Date,
+    issuesSnapshot?: readonly TrackedIssue[]
   ): Promise<OrchestratorRunRecord[]> {
     const activeIssueIds = [...new Set(activeRuns.map((run) => run.issueId))];
     if (activeIssueIds.length === 0) {
       return activeRuns;
     }
 
-    const issues = await trackerAdapter.fetchIssueStatesByIds(
-      tenant,
-      activeIssueIds,
-      {
+    const issues =
+      issuesSnapshot?.filter((issue) => activeIssueIds.includes(issue.id)) ??
+      (await trackerAdapter.fetchIssueStatesByIds(tenant, activeIssueIds, {
         fetchImpl: this.dependencies.fetchImpl,
-      }
-    );
+      }));
     const issueStateByIdentifier = new Map<string, TrackedIssue["state"]>(
       issues.map((issue) => [issue.identifier, issue.state])
     );

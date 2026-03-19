@@ -1007,6 +1007,10 @@ describe("resolveTrackerAdapter", () => {
 
           expect(body.query).toContain("query IssueStatesByIds($issueIds: [ID!])");
           expect(body.query).toContain("nodes(ids: $issueIds)");
+          expect(body.query).toContain("projectItems(first: 100, includeArchived: false)");
+          expect(body.query).not.toContain("blockedBy(");
+          expect(body.query).not.toContain("labels(");
+          expect(body.query).not.toContain("assignees(");
           expect(body.variables.issueIds).toEqual(["issue-1", "issue-2"]);
 
           return new Response(
@@ -1050,6 +1054,124 @@ describe("resolveTrackerAdapter", () => {
       "In Progress",
       "Done",
     ]);
+  });
+
+  it("paginates issue projectItems until the configured project item is found", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables: { issueIds?: string[]; issueId?: string; cursor?: string | null };
+      };
+
+      if (body.query.includes("query IssueStatesByIds")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              nodes: [
+                makeIssueStateLookupNode({
+                  projectId: "project-999",
+                  itemId: "item-other",
+                  issueId: "issue-1",
+                  number: 1,
+                  title: "First issue",
+                  state: "Todo",
+                  pageInfo: {
+                    endCursor: "cursor-1",
+                    hasNextPage: true,
+                  },
+                }),
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      expect(body.query).toContain("query IssueProjectItemsPage($issueId: ID!, $cursor: String)");
+      expect(body.variables.issueId).toBe("issue-1");
+      expect(body.variables.cursor).toBe("cursor-1");
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "Issue",
+              id: "issue-1",
+              number: 1,
+              updatedAt: "2026-03-14T00:00:00.000Z",
+              repository: {
+                name: "platform",
+                url: "https://github.com/acme/platform",
+                owner: { login: "acme" },
+              },
+              projectItems: {
+                nodes: [
+                  {
+                    id: "item-1",
+                    updatedAt: "2026-03-14T00:01:00.000Z",
+                    project: { id: "project-123" },
+                    fieldValues: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2ItemFieldSingleSelectValue",
+                          name: "Done",
+                          field: { name: "Status" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                pageInfo: {
+                  endCursor: null,
+                  hasNextPage: false,
+                },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["issue-1"],
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.tracker.itemId).toBe("item-1");
+    expect(issues[0]?.state).toBe("Done");
   });
 });
 
@@ -1252,24 +1374,21 @@ function makeIssueStateLookupNode(input: {
   number: number;
   title: string;
   state: string;
+  pageInfo?: {
+    endCursor: string | null;
+    hasNextPage: boolean;
+  };
 }) {
   return {
     __typename: "Issue" as const,
     id: input.issueId,
     number: input.number,
-    title: input.title,
-    body: null,
-    url: `https://github.com/acme/platform/issues/${input.number}`,
-    createdAt: "2026-03-14T00:00:00.000Z",
     updatedAt: "2026-03-14T00:00:00.000Z",
-    labels: { nodes: [] },
-    assignees: { nodes: [] },
     repository: {
       name: "platform",
       url: "https://github.com/acme/platform",
       owner: { login: "acme" },
     },
-    blockedBy: { nodes: [] },
     projectItems: {
       nodes: [
         {
@@ -1287,6 +1406,10 @@ function makeIssueStateLookupNode(input: {
           },
         },
       ],
+      pageInfo: input.pageInfo ?? {
+        endCursor: null,
+        hasNextPage: false,
+      },
     },
   };
 }
