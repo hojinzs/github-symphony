@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Manager"
+  short_description: "Manage GitHub Project issue workflows"
+  default_prompt: "Use $project-manager to initialize project rules, create issues, triage backlog items, or show project status."
