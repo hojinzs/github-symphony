@@ -100,6 +100,21 @@ type GraphQLProjectItem = {
   content: GraphQLIssueNode | null;
 };
 
+type GraphQLIssueProjectItemNode = {
+  id: string;
+  updatedAt: string | null;
+  project: { id: string } | null;
+  fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
+};
+
+type GraphQLIssueProjectItemsConnection = {
+  nodes: Array<GraphQLIssueProjectItemNode | null> | null;
+  pageInfo: {
+    endCursor: string | null;
+    hasNextPage: boolean;
+  };
+};
+
 type GraphQLProjectItemsPage = {
   nodes: Array<GraphQLProjectItem | null> | null;
   pageInfo: {
@@ -122,6 +137,27 @@ type GraphQLProjectFieldsResponse = {
       nodes: Array<GraphQLProjectFieldConfiguration | null> | null;
     };
   } | null;
+};
+
+type GraphQLIssueStateLookupNode = {
+  __typename: "Issue";
+  id: string;
+  number: number;
+  updatedAt: string | null;
+  repository: {
+    name: string;
+    url: string;
+    owner: { login: string };
+  };
+  projectItems: GraphQLIssueProjectItemsConnection | null;
+};
+
+type GraphQLIssueStatesByIdsResponse = {
+  nodes?: Array<GraphQLIssueStateLookupNode | null> | null;
+};
+
+type GraphQLIssueProjectItemsByIdResponse = {
+  node?: GraphQLIssueStateLookupNode | null;
 };
 
 type GraphQLResponse<TData> = {
@@ -287,6 +323,48 @@ export async function fetchActionableIssues(
   });
 }
 
+export async function fetchIssueStatesByIds(
+  config: GitHubTrackerConfig,
+  issueIds: readonly string[],
+  fetchImpl: FetchLike = fetch
+): Promise<GitHubTrackedIssue[]> {
+  if (issueIds.length === 0) {
+    return [];
+  }
+
+  const issues: GitHubTrackedIssue[] = [];
+
+  for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
+    const data = await executeGraphQLQuery<GraphQLIssueStatesByIdsResponse>(
+      config,
+      ISSUE_STATES_BY_IDS_QUERY,
+      {
+        issueIds: issueIdBatch,
+      },
+      fetchImpl
+    );
+
+    for (const node of data.nodes ?? []) {
+      const projectItem = await resolveIssueProjectItemForStateLookup(
+        config,
+        node,
+        fetchImpl
+      );
+      const normalized = normalizeIssueStateLookupNode(
+        config.projectId,
+        node,
+        projectItem,
+        config.lifecycle
+      );
+      if (normalized) {
+        issues.push(normalized);
+      }
+    }
+  }
+
+  return issues;
+}
+
 async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
@@ -315,6 +393,7 @@ async function fetchProjectItemsPage(
 
 export const normalizeGithubProjectItem = normalizeProjectItem;
 export const fetchGithubProjectIssues = fetchProjectIssues;
+export const fetchGithubIssueStatesByIds = fetchIssueStatesByIds;
 
 async function fetchCurrentUserLogin(
   config: GitHubTrackerConfig,
@@ -402,6 +481,120 @@ function extractFieldValues(
 
     return values;
   }, {});
+}
+
+function normalizeIssueStateLookupNode(
+  projectId: string,
+  issue: GraphQLIssueStateLookupNode | null,
+  projectItem: GraphQLIssueProjectItemNode | null,
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
+): GitHubTrackedIssue | null {
+  if (issue?.__typename !== "Issue") {
+    return null;
+  }
+  if (!projectItem) {
+    return null;
+  }
+
+  const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
+  const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
+  const repository = issue.repository;
+  const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
+
+  return {
+    id: issue.id,
+    identifier,
+    number: issue.number,
+    title: identifier,
+    description: null,
+    priority: null,
+    state,
+    branchName: null,
+    url: `${repository.url}/issues/${issue.number}`,
+    labels: [],
+    blockedBy: [],
+    createdAt: null,
+    updatedAt: projectItem.updatedAt ?? issue.updatedAt,
+    repository: {
+      owner: repository.owner.login,
+      name: repository.name,
+      url: repository.url,
+      cloneUrl: deriveCloneUrl(repository.url),
+    },
+    tracker: {
+      adapter: "github-project",
+      bindingId: projectId,
+      itemId: projectItem.id,
+    },
+    metadata: fieldValues,
+  };
+}
+
+async function resolveIssueProjectItemForStateLookup(
+  config: GitHubTrackerConfig,
+  issue: GraphQLIssueStateLookupNode | null,
+  fetchImpl: FetchLike
+): Promise<GraphQLIssueProjectItemNode | null> {
+  if (issue?.__typename !== "Issue") {
+    return null;
+  }
+
+  let connection = issue.projectItems;
+  let projectItem = findProjectItemByProjectId(
+    connection?.nodes ?? [],
+    config.projectId
+  );
+  let cursor = connection?.pageInfo.endCursor ?? null;
+
+  while (!projectItem && connection?.pageInfo.hasNextPage) {
+    const nextPage = await fetchIssueProjectItemsPage(
+      config,
+      issue.id,
+      cursor,
+      fetchImpl
+    );
+    projectItem = findProjectItemByProjectId(
+      nextPage.nodes ?? [],
+      config.projectId
+    );
+    connection = nextPage;
+    cursor = nextPage.pageInfo.endCursor;
+  }
+
+  return projectItem;
+}
+
+async function fetchIssueProjectItemsPage(
+  config: GitHubTrackerConfig,
+  issueId: string,
+  cursor: string | null,
+  fetchImpl: FetchLike
+): Promise<GraphQLIssueProjectItemsConnection> {
+  const data = await executeGraphQLQuery<GraphQLIssueProjectItemsByIdResponse>(
+    config,
+    ISSUE_PROJECT_ITEMS_PAGE_QUERY,
+    {
+      issueId,
+      cursor,
+    },
+    fetchImpl
+  );
+  const issue = data.node;
+
+  if (issue?.__typename !== "Issue" || !issue.projectItems) {
+    throw new GitHubTrackerQueryError(
+      "GitHub GraphQL response did not include issue project items."
+    );
+  }
+
+  return issue.projectItems;
+}
+
+function findProjectItemByProjectId(
+  nodes: Array<GraphQLIssueProjectItemNode | null>,
+  projectId: string
+): GraphQLIssueProjectItemNode | null {
+  return nodes.find((item) => item?.project?.id === projectId) ?? null;
 }
 
 function resolvePriority(
@@ -520,6 +713,16 @@ function resolveRestUserApiUrl(apiUrl?: string): string {
   return parsed.toString();
 }
 
+function chunkValues<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
 function buildRequestSignal(timeoutMs?: number): AbortSignal {
   return AbortSignal.timeout(resolveNetworkTimeoutMs(timeoutMs));
 }
@@ -539,7 +742,7 @@ function resolveNetworkTimeoutMs(timeoutMs?: number): number {
 async function executeGraphQLQuery<TData>(
   config: GitHubTrackerConfig,
   query: string,
-  variables: Record<string, string | number | null>,
+  variables: Record<string, string | number | string[] | null>,
   fetchImpl: FetchLike
 ): Promise<TData> {
   const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
@@ -680,6 +883,116 @@ const PROJECT_FIELDS_QUERY = `
                 name
               }
             }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ISSUE_STATES_BY_IDS_QUERY = `
+  query IssueStatesByIds($issueIds: [ID!]) {
+    nodes(ids: $issueIds) {
+      __typename
+      ... on Issue {
+        id
+        number
+        updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
+  query IssueProjectItemsPage($issueId: ID!, $cursor: String) {
+    node(id: $issueId) {
+      __typename
+      ... on Issue {
+        id
+        number
+        updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, after: $cursor, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
           }
         }
       }

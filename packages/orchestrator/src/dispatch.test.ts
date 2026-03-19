@@ -289,6 +289,7 @@ describe("blocker eligibility", () => {
     const adapter: OrchestratorTrackerAdapter = {
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
         _tenant: OrchestratorProjectConfig,
@@ -393,6 +394,7 @@ describe("blocker eligibility", () => {
     const adapter: OrchestratorTrackerAdapter = {
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
         _tenant: OrchestratorProjectConfig,
@@ -481,6 +483,7 @@ describe("blocker eligibility", () => {
     const adapter: OrchestratorTrackerAdapter = {
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
       reviveIssue: (
         _tenant: OrchestratorProjectConfig,

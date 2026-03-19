@@ -457,6 +457,7 @@ Prefer focused changes.
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates,
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         GITHUB_PROJECT_ID: "project-123",
       }),
@@ -597,6 +598,7 @@ Prefer focused changes.
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues: vi.fn(),
       listIssuesByStates,
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         GITHUB_PROJECT_ID: "project-123",
       }),
@@ -683,6 +685,7 @@ Prefer focused changes.
           metadata: {},
         },
       ]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         GITHUB_PROJECT_ID: "project-123",
       }),
@@ -2467,8 +2470,7 @@ Prefer focused changes.
     expect(updatedRun?.runtimeSession?.sessionId).toBeNull();
   });
 
-  it("synchronizes active run issueState with the latest tracker status", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+  it("reuses listIssues results to synchronize active run issueState", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-state-"));
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -2515,10 +2517,66 @@ Prefer focused changes.
       nextRetryAt: "2026-03-08T00:10:00.000Z",
     });
 
+    const listIssues = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "In Progress",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "In Progress",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:05:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "In Progress")) as never,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4204,
         unref: vi.fn(),
@@ -2529,6 +2587,8 @@ Prefer focused changes.
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
 
+    expect(listIssues).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(snapshot.activeRuns[0]?.issueState).toBe("In Progress");
     expect(updatedRun?.issueState).toBe("In Progress");
   });

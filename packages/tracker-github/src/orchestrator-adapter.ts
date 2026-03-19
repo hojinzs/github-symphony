@@ -2,7 +2,10 @@ import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerConfig,
 } from "@gh-symphony/core";
-import { fetchGithubProjectIssues } from "./adapter.js";
+import {
+  fetchGithubIssueStatesByIds,
+  fetchGithubProjectIssues,
+} from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
@@ -21,6 +24,14 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     return issues.filter((issue) =>
       normalizedStates.has(issue.state.trim().toLowerCase())
     );
+  },
+
+  async fetchIssueStatesByIds(project, issueIds, dependencies = {}) {
+    if (issueIds.length === 0) {
+      return [];
+    }
+
+    return fetchProjectIssueStatesByIds(project, issueIds, dependencies);
   },
 
   buildWorkerEnvironment(project) {
@@ -59,6 +70,29 @@ async function listProjectIssues(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
   dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
 ) {
+  const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+
+  return fetchGithubProjectIssues(trackerConfig, dependencies.fetchImpl);
+}
+
+async function fetchProjectIssueStatesByIds(
+  project: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[0],
+  issueIds: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[1],
+  dependencies: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[2] = {}
+) {
+  const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+
+  return fetchGithubIssueStatesByIds(
+    trackerConfig,
+    [...issueIds],
+    dependencies.fetchImpl
+  );
+}
+
+function resolveGitHubTrackerConfig(
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
+  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
+) {
   const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
 
   if (!token) {
@@ -69,20 +103,17 @@ async function listProjectIssues(
 
   const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
 
-  return fetchGithubProjectIssues(
-    {
-      projectId: githubProjectId,
-      token,
-      apiUrl: project.tracker.apiUrl,
-      assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
-      priorityFieldName: readOptionalStringTrackerSetting(
-        project.tracker,
-        "priorityFieldName"
-      ),
-      timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
-    },
-    dependencies.fetchImpl
-  );
+  return {
+    projectId: githubProjectId,
+    token,
+    apiUrl: project.tracker.apiUrl,
+    assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
+    priorityFieldName: readOptionalStringTrackerSetting(
+      project.tracker,
+      "priorityFieldName"
+    ),
+    timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
+  };
 }
 
 const trackerAdapters: Record<string, OrchestratorTrackerAdapter> = {
