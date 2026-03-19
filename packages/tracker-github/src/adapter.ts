@@ -100,6 +100,13 @@ type GraphQLProjectItem = {
   content: GraphQLIssueNode | null;
 };
 
+type GraphQLIssueProjectItemNode = {
+  id: string;
+  updatedAt: string | null;
+  project: { id: string } | null;
+  fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
+};
+
 type GraphQLProjectItemsPage = {
   nodes: Array<GraphQLProjectItem | null> | null;
   pageInfo: {
@@ -122,6 +129,16 @@ type GraphQLProjectFieldsResponse = {
       nodes: Array<GraphQLProjectFieldConfiguration | null> | null;
     };
   } | null;
+};
+
+type GraphQLIssueStateLookupNode = GraphQLIssueNode & {
+  projectItems: {
+    nodes: Array<GraphQLIssueProjectItemNode | null> | null;
+  } | null;
+};
+
+type GraphQLIssueStatesByIdsResponse = {
+  nodes?: Array<GraphQLIssueStateLookupNode | null> | null;
 };
 
 type GraphQLResponse<TData> = {
@@ -287,6 +304,42 @@ export async function fetchActionableIssues(
   });
 }
 
+export async function fetchIssueStatesByIds(
+  config: GitHubTrackerConfig,
+  issueIds: readonly string[],
+  fetchImpl: FetchLike = fetch
+): Promise<GitHubTrackedIssue[]> {
+  if (issueIds.length === 0) {
+    return [];
+  }
+
+  const issues: GitHubTrackedIssue[] = [];
+
+  for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
+    const data = await executeGraphQLQuery<GraphQLIssueStatesByIdsResponse>(
+      config,
+      ISSUE_STATES_BY_IDS_QUERY,
+      {
+        issueIds: issueIdBatch,
+      },
+      fetchImpl
+    );
+
+    for (const node of data.nodes ?? []) {
+      const normalized = normalizeIssueStateLookupNode(
+        config.projectId,
+        node,
+        config.lifecycle
+      );
+      if (normalized) {
+        issues.push(normalized);
+      }
+    }
+  }
+
+  return issues;
+}
+
 async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
@@ -315,6 +368,7 @@ async function fetchProjectItemsPage(
 
 export const normalizeGithubProjectItem = normalizeProjectItem;
 export const fetchGithubProjectIssues = fetchProjectIssues;
+export const fetchGithubIssueStatesByIds = fetchIssueStatesByIds;
 
 async function fetchCurrentUserLogin(
   config: GitHubTrackerConfig,
@@ -402,6 +456,34 @@ function extractFieldValues(
 
     return values;
   }, {});
+}
+
+function normalizeIssueStateLookupNode(
+  projectId: string,
+  issue: GraphQLIssueStateLookupNode | null,
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
+): GitHubTrackedIssue | null {
+  if (issue?.__typename !== "Issue") {
+    return null;
+  }
+
+  const projectItem = (issue.projectItems?.nodes ?? []).find(
+    (item) => item?.project?.id === projectId
+  );
+  if (!projectItem) {
+    return null;
+  }
+
+  return normalizeProjectItem(
+    projectId,
+    {
+      id: projectItem.id,
+      updatedAt: projectItem.updatedAt,
+      fieldValues: projectItem.fieldValues,
+      content: issue,
+    },
+    lifecycle
+  );
 }
 
 function resolvePriority(
@@ -520,6 +602,16 @@ function resolveRestUserApiUrl(apiUrl?: string): string {
   return parsed.toString();
 }
 
+function chunkValues<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
 function buildRequestSignal(timeoutMs?: number): AbortSignal {
   return AbortSignal.timeout(resolveNetworkTimeoutMs(timeoutMs));
 }
@@ -539,7 +631,7 @@ function resolveNetworkTimeoutMs(timeoutMs?: number): number {
 async function executeGraphQLQuery<TData>(
   config: GitHubTrackerConfig,
   query: string,
-  variables: Record<string, string | number | null>,
+  variables: Record<string, string | number | string[] | null>,
   fetchImpl: FetchLike
 ): Promise<TData> {
   const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
@@ -678,6 +770,84 @@ const PROJECT_FIELDS_QUERY = `
               options {
                 id
                 name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ISSUE_STATES_BY_IDS_QUERY = `
+  query IssueStatesByIds($issueIds: [ID!]) {
+    nodes(ids: $issueIds) {
+      __typename
+      ... on Issue {
+        id
+        number
+        title
+        body
+        url
+        createdAt
+        updatedAt
+        labels(first: 20) {
+          nodes {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+          }
+        }
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        blockedBy(first: 100) {
+          nodes {
+            id
+            number
+            state
+            repository {
+              name
+              owner {
+                login
+              }
+            }
+          }
+        }
+        projectItems(first: 20, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
               }
             }
           }

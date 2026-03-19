@@ -90,6 +90,16 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
     );
   },
 
+  async fetchIssueStatesByIds(project, issueIds) {
+    if (issueIds.length === 0) {
+      return [];
+    }
+
+    const issues = await this.listIssues(project);
+    const ids = new Set(issueIds);
+    return issues.filter((issue) => ids.has(issue.id));
+  },
+
   buildWorkerEnvironment(_project, _issue) {
     return {
       SYMPHONY_FILE_TRACKER: "true",

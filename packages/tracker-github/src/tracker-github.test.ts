@@ -202,6 +202,7 @@ describe("resolveTrackerAdapter", () => {
     expect(adapter).toBeDefined();
     expect(adapter.listIssues).toBeTypeOf("function");
     expect(adapter.listIssuesByStates).toBeTypeOf("function");
+    expect(adapter.fetchIssueStatesByIds).toBeTypeOf("function");
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
     expect(adapter.reviveIssue).toBeTypeOf("function");
   });
@@ -971,6 +972,85 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.identifier).toBe("acme/platform#1");
     expect(issues[0]?.state).toBe("Done");
   });
+
+  it("fetches issue states by GraphQL issue ids using nodes lookup", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["issue-1", "issue-2"],
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            query: string;
+            variables: { issueIds: string[] };
+          };
+
+          expect(body.query).toContain("query IssueStatesByIds($issueIds: [ID!])");
+          expect(body.query).toContain("nodes(ids: $issueIds)");
+          expect(body.variables.issueIds).toEqual(["issue-1", "issue-2"]);
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                nodes: [
+                  makeIssueStateLookupNode({
+                    projectId: "project-123",
+                    itemId: "item-1",
+                    issueId: "issue-1",
+                    number: 1,
+                    title: "First issue",
+                    state: "In Progress",
+                  }),
+                  makeIssueStateLookupNode({
+                    projectId: "project-123",
+                    itemId: "item-2",
+                    issueId: "issue-2",
+                    number: 2,
+                    title: "Second issue",
+                    state: "Done",
+                  }),
+                ],
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(issues).toHaveLength(2);
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+      "acme/platform#2",
+    ]);
+    expect(issues.map((issue) => issue.state)).toEqual([
+      "In Progress",
+      "Done",
+    ]);
+  });
 });
 
 describe("validateWorkflowFieldMapping", () => {
@@ -1161,6 +1241,52 @@ function makeProjectItem(input: {
         owner: { login: "acme" },
       },
       blockedBy: { nodes: [] },
+    },
+  };
+}
+
+function makeIssueStateLookupNode(input: {
+  projectId: string;
+  itemId: string;
+  issueId: string;
+  number: number;
+  title: string;
+  state: string;
+}) {
+  return {
+    __typename: "Issue" as const,
+    id: input.issueId,
+    number: input.number,
+    title: input.title,
+    body: null,
+    url: `https://github.com/acme/platform/issues/${input.number}`,
+    createdAt: "2026-03-14T00:00:00.000Z",
+    updatedAt: "2026-03-14T00:00:00.000Z",
+    labels: { nodes: [] },
+    assignees: { nodes: [] },
+    repository: {
+      name: "platform",
+      url: "https://github.com/acme/platform",
+      owner: { login: "acme" },
+    },
+    blockedBy: { nodes: [] },
+    projectItems: {
+      nodes: [
+        {
+          id: input.itemId,
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          project: { id: input.projectId },
+          fieldValues: {
+            nodes: [
+              {
+                __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
+                name: input.state,
+                field: { name: "Status" },
+              },
+            ],
+          },
+        },
+      ],
     },
   };
 }
