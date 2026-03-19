@@ -20,6 +20,7 @@ tracker:
   kind: github-project
   project_id: project-123
   state_field: Status
+  priority_field: Priority
   active_states:
     - Todo
     - In Progress
@@ -58,6 +59,7 @@ describe("parseWorkflowMarkdown", () => {
       format: "front-matter",
     });
     expect(workflow.tracker.kind).toBe("github-project");
+    expect(workflow.tracker.priorityFieldName).toBe("Priority");
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
   });

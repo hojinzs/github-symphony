@@ -20,6 +20,7 @@ export type WorkflowTrackerConfig = {
   terminalStates: string[];
   projectId: string | null;
   stateFieldName: string;
+  priorityFieldName: string | null;
   blockerCheckStates: string[];
 };
 
@@ -106,6 +107,7 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
   terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
   projectId: null,
   stateFieldName: DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+  priorityFieldName: null,
   blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
 };
 

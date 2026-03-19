@@ -6,6 +6,7 @@ import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
   buildHookEnv,
   buildPromptVariables,
   buildProjectSnapshot,
@@ -594,11 +595,20 @@ export class OrchestratorService {
     }
 
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const workflowCache = new Map<string, Promise<ProjectWorkflowResolution>>();
     let issues: TrackedIssue[];
     try {
-      issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
+      issues = await trackerAdapter.listIssuesByStates(
+        tenant,
+        await this.resolveStartupCleanupTerminalStates(
+          tenant,
+          workspaceRecords,
+          workflowCache
+        ),
+        {
+          fetchImpl: this.dependencies.fetchImpl,
+        }
+      );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown tracker error";
@@ -608,7 +618,6 @@ export class OrchestratorService {
       return;
     }
 
-    const workflowCache = new Map<string, ProjectWorkflowResolution>();
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
 
     for (const workspaceRecord of workspaceRecords) {
@@ -625,12 +634,11 @@ export class OrchestratorService {
       }
 
       try {
-        const workflowKey = `${issue.repository.owner}/${issue.repository.name}`;
-        let resolution = workflowCache.get(workflowKey);
-        if (!resolution) {
-          resolution = await this.loadProjectWorkflow(tenant, issue.repository);
-          workflowCache.set(workflowKey, resolution);
-        }
+        const resolution = await this.loadStartupCleanupWorkflow(
+          tenant,
+          issue.repository,
+          workflowCache
+        );
 
         if (!resolution.isValid) {
           continue;
@@ -648,6 +656,128 @@ export class OrchestratorService {
         );
       }
     }
+  }
+
+  private async resolveStartupCleanupTerminalStates(
+    tenant: OrchestratorProjectConfig,
+    workspaceRecords: readonly IssueWorkspaceRecord[],
+    workflowCache: Map<string, Promise<ProjectWorkflowResolution>>
+  ): Promise<string[]> {
+    const terminalStates = new Map<string, string>();
+    const repositories = this.resolveStartupCleanupRepositories(
+      tenant,
+      workspaceRecords
+    );
+
+    for (const repository of repositories) {
+      let resolution: ProjectWorkflowResolution;
+      try {
+        resolution = await this.loadStartupCleanupWorkflow(
+          tenant,
+          repository,
+          workflowCache
+        );
+      } catch {
+        continue;
+      }
+      if (!isUsableWorkflowResolution(resolution)) {
+        continue;
+      }
+
+      for (const state of resolution.lifecycle.terminalStates) {
+        const normalizedState = state.trim().toLowerCase();
+        if (!terminalStates.has(normalizedState)) {
+          terminalStates.set(normalizedState, state);
+        }
+      }
+    }
+
+    if (terminalStates.size === 0) {
+      for (const state of DEFAULT_WORKFLOW_LIFECYCLE.terminalStates) {
+        terminalStates.set(state.trim().toLowerCase(), state);
+      }
+    }
+
+    return [...terminalStates.values()];
+  }
+
+  private resolveStartupCleanupRepositories(
+    tenant: OrchestratorProjectConfig,
+    workspaceRecords: readonly IssueWorkspaceRecord[]
+  ): RepositoryRef[] {
+    const repositories = new Map<string, RepositoryRef>();
+
+    for (const repository of tenant.repositories) {
+      repositories.set(
+        this.startupCleanupRepositoryKey(repository.owner, repository.name),
+        repository
+      );
+    }
+
+    for (const workspaceRecord of workspaceRecords) {
+      const repository = this.parseWorkspaceRepositoryRef(workspaceRecord);
+      if (!repository) {
+        continue;
+      }
+
+      const key = this.startupCleanupRepositoryKey(
+        repository.owner,
+        repository.name
+      );
+      if (!repositories.has(key)) {
+        repositories.set(key, repository);
+      }
+    }
+
+    return [...repositories.values()];
+  }
+
+  private parseWorkspaceRepositoryRef(
+    workspaceRecord: IssueWorkspaceRecord
+  ): RepositoryRef | null {
+    const match = workspaceRecord.issueIdentifier.match(
+      /^([^/]+)\/([^#]+)#\d+$/
+    );
+    if (!match) {
+      return null;
+    }
+
+    const owner = match[1];
+    const name = match[2];
+    if (!owner || !name) {
+      return null;
+    }
+
+    return {
+      owner,
+      name,
+      cloneUrl: workspaceRecord.repositoryPath,
+    };
+  }
+
+  private startupCleanupRepositoryKey(owner: string, name: string): string {
+    return `${owner}/${name}`;
+  }
+
+  private async loadStartupCleanupWorkflow(
+    tenant: OrchestratorProjectConfig,
+    repository: RepositoryRef,
+    workflowCache: Map<string, Promise<ProjectWorkflowResolution>>
+  ): Promise<ProjectWorkflowResolution> {
+    const cacheKey = this.workflowCacheKey(repository);
+    const cachedResolution = workflowCache.get(cacheKey);
+    if (cachedResolution) {
+      return cachedResolution;
+    }
+
+    const resolutionPromise = tenant.repositories.some(
+      (candidate) =>
+        candidate.owner === repository.owner && candidate.name === repository.name
+    )
+      ? this.loadProjectWorkflow(tenant, repository)
+      : loadRepositoryWorkflow(repository.cloneUrl, repository);
+    workflowCache.set(cacheKey, resolutionPromise);
+    return resolutionPromise;
   }
 
   private async runSerialized<T>(operation: () => Promise<T>): Promise<T> {

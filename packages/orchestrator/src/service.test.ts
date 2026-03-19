@@ -11,6 +11,7 @@ import {
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { OrchestratorService } from "./service.js";
+import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
@@ -382,10 +383,244 @@ Prefer focused changes.
     warnSpy.mockRestore();
   });
 
-  it("logs a warning and continues startup when workflow resolution fails during cleanup", async () => {
-    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+  it("uses listIssuesByStates for startup cleanup terminal lookups", async () => {
     const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-startup-workflow-warn-")
+      join(tmpdir(), "orchestrator-startup-list-issues-by-states-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const listIssues = vi.fn(async () => {
+      throw new Error("listIssues should not be used for startup cleanup");
+    });
+    const listIssuesByStates = vi.fn(async (_project, states: readonly string[]) => {
+      expect(states).toEqual(["Done"]);
+      return [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Terminal issue",
+          description: null,
+          priority: null,
+          state: "Done",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+        },
+      ];
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4103,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(listIssuesByStates).toHaveBeenCalledTimes(1);
+    expect(listIssuesByStates).toHaveBeenCalledWith(
+      projectConfig,
+      ["Done"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+  });
+
+  it("includes persisted workspace repositories when resolving startup cleanup terminal states", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-workspace-terminal-states-")
+    );
+    const configuredRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const removedRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "legacy",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Archived
+  blocker_check_states:
+    - Todo
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, configuredRepository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-legacy-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    execSync(
+      `git clone ${shell(removedRepository.cloneUrl)} ${shell(repositoryPath)}`,
+      {
+        stdio: "ignore",
+      }
+    );
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-legacy-1",
+      issueIdentifier: "acme/legacy#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const listIssuesByStates = vi.fn(
+      async (_project, states: readonly string[]) => {
+        expect([...states].sort()).toEqual(["Archived", "Done"]);
+        return [
+          {
+            id: "issue-legacy-1",
+            identifier: "acme/legacy#1",
+            number: 1,
+            title: "Archived issue",
+            description: null,
+            priority: null,
+            state: "Archived",
+            branchName: null,
+            url: "https://github.com/acme/legacy/issues/1",
+            labels: [],
+            blockedBy: [],
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:00.000Z",
+            repository: removedRepository,
+            tracker: {
+              adapter: "github-project",
+              bindingId: "project-123",
+              itemId: "item-legacy-1",
+            },
+            metadata: {},
+          },
+        ];
+      }
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4104,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(listIssuesByStates).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses startup cleanup workflow resolution across terminal lookup and cleanup", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-workflow-cache-")
     );
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -422,37 +657,49 @@ Prefer focused changes.
       lastError: null,
     });
 
-    const spawnImpl = vi.fn().mockReturnValue({
-      pid: 4104,
-      unref: vi.fn(),
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(async () => [
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Terminal issue",
+          description: null,
+          priority: null,
+          state: "Done",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+        },
+      ]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
-        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
-      spawnImpl: spawnImpl as never,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const originalLoadProjectWorkflow = (
-      service as unknown as {
-        loadProjectWorkflow: (typeof service)["loadProjectWorkflow"];
-      }
-    ).loadProjectWorkflow.bind(service);
-    vi.spyOn(service as never, "loadProjectWorkflow")
-      .mockImplementationOnce(async () => {
-        throw new Error("workflow cache timeout");
-      })
-      .mockImplementation(originalLoadProjectWorkflow);
+    const loadProjectWorkflowSpy = vi.spyOn(service as never, "loadProjectWorkflow");
 
-    await service.run({ once: true });
+    await (
+      service as unknown as { performStartupCleanup: () => Promise<void> }
+    ).performStartupCleanup();
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[orchestrator] Startup cleanup skipped workspace for acme/platform#1: workflow cache timeout"
-    );
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
-    warnSpy.mockRestore();
+    expect(loadProjectWorkflowSpy).toHaveBeenCalledTimes(1);
   });
 
   it("serializes startup cleanup with concurrent runOnce calls", async () => {

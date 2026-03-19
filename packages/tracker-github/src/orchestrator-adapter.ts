@@ -6,25 +6,20 @@ import { fetchGithubProjectIssues } from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
-    const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
+    return listProjectIssues(project, dependencies);
+  },
 
-    if (!token) {
-      throw new Error(
-        "GITHUB_GRAPHQL_TOKEN environment variable is required. Run 'gh auth token' or set the variable."
-      );
+  async listIssuesByStates(project, states, dependencies = {}) {
+    if (states.length === 0) {
+      return [];
     }
 
-    const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
-
-    return fetchGithubProjectIssues(
-      {
-        projectId: githubProjectId,
-        token,
-        apiUrl: project.tracker.apiUrl,
-        assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
-        timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
-      },
-      dependencies.fetchImpl
+    const issues = await listProjectIssues(project, dependencies);
+    const normalizedStates = new Set(
+      states.map((state) => state.trim().toLowerCase())
+    );
+    return issues.filter((issue) =>
+      normalizedStates.has(issue.state.trim().toLowerCase())
     );
   },
 
@@ -59,6 +54,36 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     };
   },
 };
+
+async function listProjectIssues(
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
+  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
+) {
+  const token = dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN;
+
+  if (!token) {
+    throw new Error(
+      "GITHUB_GRAPHQL_TOKEN environment variable is required. Run 'gh auth token' or set the variable."
+    );
+  }
+
+  const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
+
+  return fetchGithubProjectIssues(
+    {
+      projectId: githubProjectId,
+      token,
+      apiUrl: project.tracker.apiUrl,
+      assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
+      priorityFieldName: readOptionalStringTrackerSetting(
+        project.tracker,
+        "priorityFieldName"
+      ),
+      timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
+    },
+    dependencies.fetchImpl
+  );
+}
 
 const trackerAdapters: Record<string, OrchestratorTrackerAdapter> = {
   "github-project": githubProjectTrackerAdapter,
@@ -124,6 +149,14 @@ function readNumberTrackerSetting(
   throw new Error(
     `Tracker adapter "${tracker.adapter}" requires the "${key}" setting to be a positive integer when provided.`
   );
+}
+
+function readOptionalStringTrackerSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): string | undefined {
+  const value = tracker.settings?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function parseIssueNumber(identifier: string): number {
