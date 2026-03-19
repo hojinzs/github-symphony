@@ -129,7 +129,7 @@ function resolveGitHubTrackerConfig(
 
 function buildProjectItemsCacheKey(
   config: ReturnType<typeof resolveGitHubTrackerConfig>,
-  dependencies: OrchestratorTrackerDependencies
+  _dependencies: OrchestratorTrackerDependencies
 ): string {
   return JSON.stringify({
     adapter: "github-project",
@@ -138,9 +138,7 @@ function buildProjectItemsCacheKey(
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
     timeoutMs: config.timeoutMs,
-    tokenFingerprint: hashToken(
-      dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN ?? null
-    ),
+    tokenFingerprint: hashToken(config.token),
   });
 }
 

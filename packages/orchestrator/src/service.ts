@@ -554,7 +554,11 @@ export class OrchestratorService {
             `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
           );
         }
-        issueRecords = releaseIssueOrchestration(issueRecords, issue.id, now);
+        issueRecords = releaseIssueOrchestration(
+          issueRecords,
+          issueRecord.issueId,
+          now
+        );
         suppressed += 1;
       }
 

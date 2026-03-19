@@ -1138,6 +1138,88 @@ describe("resolveTrackerAdapter", () => {
     expect(firstKey.tokenFingerprint).not.toBe(secondKey.tokenFingerprint);
   });
 
+  it("keys the shared project item cache with the resolved dependency token", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const cacheKeys: string[] = [];
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        cacheKeys.push(key);
+        process.env.GITHUB_GRAPHQL_TOKEN = "mutated-env-token";
+        return load();
+      },
+    };
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer dependencies-token");
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repositories: [],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+    };
+
+    const previousToken = process.env.GITHUB_GRAPHQL_TOKEN;
+    process.env.GITHUB_GRAPHQL_TOKEN = "initial-env-token";
+
+    try {
+      await adapter.listIssues(project, {
+        token: "dependencies-token",
+        fetchImpl,
+        projectItemsCache,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(cacheKeys).toHaveLength(1);
+      const cacheKey = JSON.parse(cacheKeys[0] ?? "{}") as {
+        tokenFingerprint?: string | null;
+      };
+      expect(cacheKey.tokenFingerprint).toBe(
+        createHash("sha256").update("dependencies-token").digest("hex")
+      );
+      expect(cacheKey.tokenFingerprint).not.toBe(
+        createHash("sha256").update("mutated-env-token").digest("hex")
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_GRAPHQL_TOKEN;
+      } else {
+        process.env.GITHUB_GRAPHQL_TOKEN = previousToken;
+      }
+    }
+  });
+
   it("fetches issue states by GraphQL issue ids using nodes lookup", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
