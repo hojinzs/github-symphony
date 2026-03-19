@@ -144,6 +144,10 @@ Prefer small changes.
           turnCount: 1,
           sessionId: "thread-1-turn-1",
         },
+        rateLimits: {
+          source: "codex",
+          remaining: 42,
+        },
       }
     );
 
@@ -156,6 +160,10 @@ Prefer small changes.
       turnId: "turn-1",
       turnCount: 1,
       sessionId: "thread-1-turn-1",
+    });
+    expect(state.rateLimits).toEqual({
+      source: "codex",
+      remaining: 42,
     });
   });
 });
@@ -178,6 +186,10 @@ describe("createWorkerRequestHandler", () => {
         outputTokens: 0,
         totalTokens: 0,
       },
+      rateLimits: {
+        source: "codex",
+        remaining: 42,
+      },
       sessionInfo: {
         threadId: "thread-1",
         turnId: "turn-1",
@@ -199,6 +211,7 @@ describe("createWorkerRequestHandler", () => {
     expect(response.body).toContain('"executionPhase":"planning"');
     expect(response.body).toContain('"runPhase":"streaming_turn"');
     expect(response.body).toContain('"sessionId":"thread-1-turn-1"');
+    expect(response.body).toContain('"rateLimits":{"source":"codex","remaining":42}');
   });
 });
 

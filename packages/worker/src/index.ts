@@ -53,6 +53,7 @@ const runtimeState: {
     outputTokens: number;
     totalTokens: number;
   };
+  rateLimits: Record<string, unknown> | null;
   sessionInfo: {
     threadId: string | null;
     turnId: string | null;
@@ -85,6 +86,7 @@ const runtimeState: {
     outputTokens: 0,
     totalTokens: 0,
   },
+  rateLimits: null,
   sessionInfo: {
     threadId: null,
     turnId: null,
@@ -515,6 +517,10 @@ async function runCodexClientProtocol(
       if (turnUsage) {
         applyTokenUsageUpdate("turn/completed", turnUsage);
       }
+      const rateLimits = extractRateLimitPayload(turnParams);
+      if (rateLimits) {
+        applyRateLimitUpdate("turn/completed", rateLimits);
+      }
       process.stderr.write("[worker] codex turn/completed\n");
       if (turnCompletedResolve) {
         turnCompletedResolve();
@@ -534,6 +540,11 @@ async function runCodexClientProtocol(
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
       return;
+    }
+
+    const rateLimits = extractRateLimitPayload(msg.params);
+    if (rateLimits && typeof msg.method === "string") {
+      applyRateLimitUpdate(msg.method, rateLimits);
     }
 
     // Accumulate streaming delta events into a single log line per message
@@ -778,6 +789,89 @@ function applyTokenUsageUpdate(
   process.stderr.write(
     `[worker] token_usage source=${source} input=${tokenUsage.inputTokens} output=${tokenUsage.outputTokens} total=${tokenUsage.totalTokens}\n`
   );
+}
+
+function applyRateLimitUpdate(
+  source: string,
+  rateLimits: Record<string, unknown>
+): void {
+  runtimeState.rateLimits = {
+    source: "codex",
+    ...rateLimits,
+  };
+  process.stderr.write(
+    `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits).slice(0, 300)}\n`
+  );
+}
+
+function extractRateLimitPayload(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const direct = parseRateLimitRecord(value);
+  if (direct) {
+    return direct;
+  }
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "rate_limits",
+    "rateLimits",
+    "rate_limit",
+    "rateLimit",
+    "info",
+    "msg",
+    "event",
+    "data",
+    "result",
+    "payload",
+  ];
+
+  for (const key of preferredKeys) {
+    if (key in record) {
+      const nested = extractRateLimitPayload(record[key]);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const nested = extractRateLimitPayload(nestedValue);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+function parseRateLimitRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  const directKeys = new Set([
+    "limit",
+    "remaining",
+    "used",
+    "reset",
+    "resetAt",
+    "resets_at",
+    "reset_at",
+    "window_minutes",
+    "resource",
+    "retry_after",
+  ]);
+
+  if (!keys.some((key) => directKeys.has(key))) {
+    return null;
+  }
+
+  return { ...record };
 }
 
 function extractAbsoluteTokenUsage(value: unknown): TokenUsageSnapshot | null {

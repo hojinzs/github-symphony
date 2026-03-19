@@ -2070,6 +2070,219 @@ Prefer focused changes.
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
   });
 
+  it("propagates worker rate-limit payloads into persisted runs and project snapshots", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-rate-limits-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4110,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:04:00.000Z",
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            runPhase: "streaming_turn",
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 4,
+              totalTokens: 14,
+            },
+            rateLimits: {
+              source: "codex",
+              remaining: 42,
+              resetAt: "2026-03-08T00:30:00.000Z",
+            },
+            sessionInfo: {
+              threadId: "thread-1",
+              turnId: "turn-xyz",
+              turnCount: 2,
+              sessionId: "thread-1-turn-xyz",
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4210,
+        unref: vi.fn(),
+      }) as never,
+      isProcessRunning: (pid) => pid === 4110,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(updatedRun?.rateLimits).toEqual({
+      source: "codex",
+      remaining: 42,
+      resetAt: "2026-03-08T00:30:00.000Z",
+    });
+    expect(snapshot.rateLimits).toEqual({
+      source: "codex",
+      remaining: 42,
+      resetAt: "2026-03-08T00:30:00.000Z",
+    });
+  });
+
+  it("falls back to tracker rate-limit data when no live worker payload is available", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-tracker-rate-limits-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [
+                    {
+                      id: "item-1",
+                      updatedAt: "2026-03-08T00:00:00.000Z",
+                      fieldValues: {
+                        nodes: [
+                          {
+                            __typename: "ProjectV2ItemFieldSingleSelectValue",
+                            name: "Todo",
+                            field: {
+                              name: "Status",
+                            },
+                          },
+                        ],
+                      },
+                      content: {
+                        __typename: "Issue",
+                        id: "issue-1",
+                        number: 1,
+                        title: "Issue 1",
+                        body: "",
+                        url: "https://github.com/acme/platform/issues/1",
+                        createdAt: "2026-03-08T00:00:00.000Z",
+                        updatedAt: "2026-03-08T00:00:00.000Z",
+                        labels: {
+                          nodes: [],
+                        },
+                        assignees: {
+                          nodes: [],
+                        },
+                        repository: {
+                          name: repository.name,
+                          owner: {
+                            login: repository.owner,
+                          },
+                          url: `file://${repository.cloneUrl}`,
+                        },
+                        blockedBy: {
+                          nodes: [],
+                        },
+                      },
+                    },
+                  ],
+                  pageInfo: {
+                    hasNextPage: false,
+                    endCursor: null,
+                  },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4998",
+              "x-ratelimit-used": "2",
+              "x-ratelimit-reset": "1773892920",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4211,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.rateLimits).toEqual({
+      source: "github",
+      limit: 5000,
+      remaining: 4998,
+      used: 2,
+      reset: 1773892920,
+      resetAt: "2026-03-19T04:02:00.000Z",
+      resource: "graphql",
+    });
+  });
+
   it("disables workflow stall detection when stall_timeout_ms <= 0 but keeps the 30 minute fallback", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

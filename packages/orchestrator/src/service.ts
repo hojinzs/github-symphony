@@ -362,6 +362,7 @@ export class OrchestratorService {
     let suppressed = 0;
     let recovered = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
+    let rateLimits: Record<string, unknown> | null = null;
 
     let issueRecords =
       await this.store.loadProjectIssueOrchestrations(tenant.projectId);
@@ -408,6 +409,10 @@ export class OrchestratorService {
       for (const [identifier, issue] of syncedIssuesByIdentifier) {
         trackedIssuesByIdentifier.set(identifier, issue);
       }
+      rateLimits = resolveProjectRateLimits(
+        syncedActiveRuns,
+        trackedIssuesByIdentifier.values()
+      );
       const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
         isIssueOrchestrationClaimed(record.state)
@@ -598,6 +603,7 @@ export class OrchestratorService {
       summary: { dispatched, suppressed, recovered },
       lastTickAt: now.toISOString(),
       lastError,
+      rateLimits,
     });
     await this.store.saveProjectStatus(status);
     return status;
@@ -1201,6 +1207,7 @@ export class OrchestratorService {
       lastError: null,
       nextRetryAt: null,
       runPhase: "preparing_workspace",
+      rateLimits: issue.rateLimits ?? null,
     };
   }
 
@@ -1325,6 +1332,7 @@ export class OrchestratorService {
           lastEventAt: liveState.lastEventAt ?? run.lastEventAt ?? undefined,
           executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
           runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
+          rateLimits: liveState.rateLimits ?? run.rateLimits ?? null,
         };
         await this.store.saveRun(runningRecord);
         issueRecords = upsertIssueOrchestration(issueRecords, {
@@ -1373,6 +1381,7 @@ export class OrchestratorService {
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
       runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
+      rateLimits: workerInfo.rateLimits ?? run.rateLimits ?? null,
     };
     const workerSessionId = workerInfo.sessionId;
 
@@ -1638,6 +1647,7 @@ export class OrchestratorService {
     lastEventAt: string | null;
     executionPhase: OrchestratorRunRecord["executionPhase"];
     runPhase: OrchestratorRunRecord["runPhase"];
+    rateLimits: Record<string, unknown> | null;
   }> {
     const liveState = await this.fetchLiveWorkerState(run);
     if (liveState.tokenUsage) {
@@ -1655,6 +1665,7 @@ export class OrchestratorService {
       lastEventAt: liveState.lastEventAt,
       executionPhase: liveState.executionPhase,
       runPhase: liveState.runPhase,
+      rateLimits: liveState.rateLimits,
     };
   }
 
@@ -1668,6 +1679,7 @@ export class OrchestratorService {
     lastEventAt: string | null;
     executionPhase: OrchestratorRunRecord["executionPhase"];
     runPhase: OrchestratorRunRecord["runPhase"];
+    rateLimits: Record<string, unknown> | null;
   }> {
     if (!run.port) {
       return {
@@ -1680,6 +1692,7 @@ export class OrchestratorService {
         lastEventAt: null,
         executionPhase: null,
         runPhase: null,
+        rateLimits: null,
       };
     }
 
@@ -1700,6 +1713,7 @@ export class OrchestratorService {
           lastEventAt: null,
           executionPhase: null,
           runPhase: null,
+          rateLimits: null,
         };
       }
 
@@ -1720,6 +1734,7 @@ export class OrchestratorService {
           sessionId?: string | null;
         } | null;
         run?: { lastError: string | null } | null;
+        rateLimits?: Record<string, unknown> | null;
       };
 
       const tokenUsage = hasTokenUsage(state.tokenUsage)
@@ -1745,6 +1760,7 @@ export class OrchestratorService {
       const lastEventAt: string | null = null; // worker doesn't emit event timestamps
       const executionPhase = parseExecutionPhase(state.executionPhase);
       const runPhase = parseRunPhase(state.runPhase);
+      const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;
 
       return {
         tokenUsage,
@@ -1756,6 +1772,7 @@ export class OrchestratorService {
         lastEventAt,
         executionPhase,
         runPhase,
+        rateLimits,
       };
     } catch {
       return {
@@ -1768,6 +1785,7 @@ export class OrchestratorService {
         lastEventAt: null,
         executionPhase: null,
         runPhase: null,
+        rateLimits: null,
       };
     }
   }
@@ -2317,6 +2335,45 @@ function hasTokenUsage(
 
 function asStringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveProjectRateLimits(
+  runs: Iterable<OrchestratorRunRecord>,
+  issues: Iterable<TrackedIssue>
+): Record<string, unknown> | null {
+  let latestRunRateLimits: Record<string, unknown> | null = null;
+  let latestRunTimestamp = -Infinity;
+
+  for (const run of runs) {
+    if (!isRecord(run.rateLimits)) {
+      continue;
+    }
+
+    const timestamp = parseTimestampMs(
+      run.lastEventAt ?? run.updatedAt ?? run.startedAt
+    );
+    const sortableTimestamp = timestamp ?? -Infinity;
+    if (sortableTimestamp >= latestRunTimestamp) {
+      latestRunTimestamp = sortableTimestamp;
+      latestRunRateLimits = run.rateLimits;
+    }
+  }
+
+  if (latestRunRateLimits) {
+    return latestRunRateLimits;
+  }
+
+  for (const issue of issues) {
+    if (isRecord(issue.rateLimits)) {
+      return issue.rateLimits;
+    }
+  }
+
+  return null;
 }
 
 function buildRuntimeSession(

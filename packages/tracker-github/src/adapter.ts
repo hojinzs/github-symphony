@@ -31,6 +31,7 @@ export type GitHubTrackedIssue = TrackedIssue & {
   tracker: TrackedIssue["tracker"] & {
     adapter: "github-project";
   };
+  rateLimits?: Record<string, unknown> | null;
 };
 
 type FetchLike = typeof fetch;
@@ -181,6 +182,16 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
 
 export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
+type GitHubRateLimitPayload = {
+  source: "github";
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset: number | null;
+  resetAt: string | null;
+  resource: string | null;
+};
+
 export function normalizeProjectItem(
   projectId: string,
   item: GraphQLProjectItem,
@@ -188,7 +199,8 @@ export function normalizeProjectItem(
   priority: {
     fieldName?: string;
     optionIds?: PriorityMap;
-  } = {}
+  } = {},
+  rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
   if (item.content?.__typename !== "Issue") {
     return null;
@@ -240,6 +252,7 @@ export function normalizeProjectItem(
       itemId: item.id,
     },
     metadata: fieldValues,
+    rateLimits,
   };
 }
 
@@ -262,9 +275,12 @@ export async function fetchProjectIssues(
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
   let excludedCount = 0;
+  let latestRateLimits: Record<string, unknown> | null = null;
 
   do {
-    const page = await fetchProjectItemsPage(config, cursor, fetchImpl);
+    const pageResult = await fetchProjectItemsPage(config, cursor, fetchImpl);
+    const page = pageResult.page;
+    latestRateLimits = pageResult.rateLimits ?? latestRateLimits;
     const pageIssues = (page.nodes ?? [])
       .flatMap((item) => {
         if (!item) {
@@ -278,7 +294,8 @@ export async function fetchProjectIssues(
           {
             fieldName: config.priorityFieldName,
             optionIds: priorityOptionIds,
-          }
+          },
+          latestRateLimits
         );
         if (!normalized) {
           return [];
@@ -337,7 +354,8 @@ export async function fetchIssueStatesByIds(
   const issues: GitHubTrackedIssue[] = [];
 
   for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
-    const data = await executeGraphQLQuery<GraphQLIssueStatesByIdsResponse>(
+    const result =
+      await executeGraphQLQueryWithMetadata<GraphQLIssueStatesByIdsResponse>(
       config,
       ISSUE_STATES_BY_IDS_QUERY,
       {
@@ -345,6 +363,8 @@ export async function fetchIssueStatesByIds(
       },
       fetchImpl
     );
+    const data = result.data;
+    const rateLimits = result.rateLimits;
 
     for (const node of data.nodes ?? []) {
       const projectItem = await resolveIssueProjectItemForStateLookup(
@@ -356,7 +376,8 @@ export async function fetchIssueStatesByIds(
         config.projectId,
         node,
         projectItem,
-        config.lifecycle
+        config.lifecycle,
+        rateLimits
       );
       if (normalized) {
         issues.push(normalized);
@@ -371,8 +392,11 @@ async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
   fetchImpl: FetchLike
-) : Promise<GraphQLProjectItemsPage> {
-  const data = await executeGraphQLQuery<GraphQLProjectItemsResponse>(
+): Promise<{
+  page: GraphQLProjectItemsPage;
+  rateLimits: Record<string, unknown> | null;
+}> {
+  const result = await executeGraphQLQueryWithMetadata<GraphQLProjectItemsResponse>(
     config,
     PROJECT_ITEMS_QUERY,
     {
@@ -382,6 +406,7 @@ async function fetchProjectItemsPage(
     },
     fetchImpl
   );
+  const data = result.data;
   const items = data.node?.items;
 
   if (!items) {
@@ -390,7 +415,10 @@ async function fetchProjectItemsPage(
     );
   }
 
-  return items;
+  return {
+    page: items,
+    rateLimits: result.rateLimits,
+  };
 }
 
 export const normalizeGithubProjectItem = normalizeProjectItem;
@@ -489,7 +517,8 @@ function normalizeIssueStateLookupNode(
   projectId: string,
   issue: GraphQLIssueStateLookupNode | null,
   projectItem: GraphQLIssueProjectItemNode | null,
-  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
+  rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
   if (issue?.__typename !== "Issue") {
     return null;
@@ -529,6 +558,7 @@ function normalizeIssueStateLookupNode(
       itemId: projectItem.id,
     },
     metadata: fieldValues,
+    rateLimits,
   };
 }
 
@@ -572,7 +602,8 @@ async function fetchIssueProjectItemsPage(
   cursor: string | null,
   fetchImpl: FetchLike
 ): Promise<GraphQLIssueProjectItemsConnection> {
-  const data = await executeGraphQLQuery<GraphQLIssueProjectItemsByIdResponse>(
+  const result =
+    await executeGraphQLQueryWithMetadata<GraphQLIssueProjectItemsByIdResponse>(
     config,
     ISSUE_PROJECT_ITEMS_PAGE_QUERY,
     {
@@ -581,6 +612,7 @@ async function fetchIssueProjectItemsPage(
     },
     fetchImpl
   );
+  const data = result.data;
   const issue = data.node;
 
   if (issue?.__typename !== "Issue" || !issue.projectItems) {
@@ -747,6 +779,24 @@ async function executeGraphQLQuery<TData>(
   variables: Record<string, string | number | string[] | null>,
   fetchImpl: FetchLike
 ): Promise<TData> {
+  const result = await executeGraphQLQueryWithMetadata<TData>(
+    config,
+    query,
+    variables,
+    fetchImpl
+  );
+  return result.data;
+}
+
+async function executeGraphQLQueryWithMetadata<TData>(
+  config: GitHubTrackerConfig,
+  query: string,
+  variables: Record<string, string | number | string[] | null>,
+  fetchImpl: FetchLike
+): Promise<{
+  data: TData;
+  rateLimits: GitHubRateLimitPayload | null;
+}> {
   const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
     method: "POST",
     headers: {
@@ -783,7 +833,54 @@ async function executeGraphQLQuery<TData>(
     );
   }
 
-  return payload.data;
+  const data = payload.data as TData;
+  return {
+    data,
+    rateLimits: extractGitHubRateLimits(response.headers),
+  };
+}
+
+function extractGitHubRateLimits(
+  headers: Pick<Headers, "get"> | null | undefined
+): GitHubRateLimitPayload | null {
+  if (!headers || typeof headers.get !== "function") {
+    return null;
+  }
+
+  const limit = parseIntegerHeader(headers.get("x-ratelimit-limit"));
+  const remaining = parseIntegerHeader(headers.get("x-ratelimit-remaining"));
+  const used = parseIntegerHeader(headers.get("x-ratelimit-used"));
+  const reset = parseIntegerHeader(headers.get("x-ratelimit-reset"));
+  const resource = headers.get("x-ratelimit-resource");
+
+  if (
+    limit === null &&
+    remaining === null &&
+    used === null &&
+    reset === null &&
+    resource === null
+  ) {
+    return null;
+  }
+
+  return {
+    source: "github",
+    limit,
+    remaining,
+    used,
+    reset,
+    resetAt: reset === null ? null : new Date(reset * 1000).toISOString(),
+    resource,
+  };
+}
+
+function parseIntegerHeader(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 const PROJECT_ITEMS_QUERY = `

@@ -180,6 +180,10 @@ describe("GET /api/v1/status", () => {
       },
       activeRuns: [],
       retryQueue: [],
+      rateLimits: {
+        source: "codex",
+        remaining: 42,
+      },
       lastError: null,
     } as const;
     const getProjectStatus = vi.fn().mockResolvedValue(snapshot);

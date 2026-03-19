@@ -93,6 +93,8 @@ export type OrchestratorRunRecord = {
   executionPhase?: WorkflowExecutionPhase | null;
   /** Technical run attempt phase aligned with Symphony spec 7.2 */
   runPhase?: RunAttemptPhase | null;
+  /** Latest rate-limit payload observed from the worker runtime */
+  rateLimits?: Record<string, unknown> | null;
 };
 
 export type RuntimeSessionRow = {
@@ -118,6 +120,7 @@ export type LiveWorkerState = {
   executionPhase: WorkflowExecutionPhase | null;
   runPhase: RunAttemptPhase | null;
   status: "idle" | "starting" | "running" | "failed" | "completed";
+  rateLimits: Record<string, unknown> | null;
 };
 
 export type ProjectStatusSnapshot = {
