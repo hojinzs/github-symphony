@@ -6,6 +6,7 @@ import {
 
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
 
 export type GitHubTrackerConfig = {
   projectId: string;
@@ -14,6 +15,7 @@ export type GitHubTrackerConfig = {
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
   assignedOnly?: boolean;
+  timeoutMs?: number;
   priorityFieldName?: string;
 };
 
@@ -325,6 +327,7 @@ async function fetchCurrentUserLogin(
       "user-agent": "gh-symphony",
       accept: "application/vnd.github+json",
     },
+    signal: buildRequestSignal(config.timeoutMs),
   });
 
   if (!response.ok) {
@@ -517,6 +520,22 @@ function resolveRestUserApiUrl(apiUrl?: string): string {
   return parsed.toString();
 }
 
+function buildRequestSignal(timeoutMs?: number): AbortSignal {
+  return AbortSignal.timeout(resolveNetworkTimeoutMs(timeoutMs));
+}
+
+function resolveNetworkTimeoutMs(timeoutMs?: number): number {
+  if (
+    timeoutMs !== undefined &&
+    Number.isInteger(timeoutMs) &&
+    timeoutMs > 0
+  ) {
+    return timeoutMs;
+  }
+
+  return DEFAULT_NETWORK_TIMEOUT_MS;
+}
+
 async function executeGraphQLQuery<TData>(
   config: GitHubTrackerConfig,
   query: string,
@@ -533,6 +552,7 @@ async function executeGraphQLQuery<TData>(
       query,
       variables,
     }),
+    signal: buildRequestSignal(config.timeoutMs),
   });
 
   if (!response.ok) {

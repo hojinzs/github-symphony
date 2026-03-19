@@ -9,7 +9,7 @@ export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
   bindingId: string;
   apiUrl?: string;
-  settings?: Record<string, string | boolean>;
+  settings?: Record<string, string | number | boolean>;
 };
 
 export type OrchestratorProjectConfig = {

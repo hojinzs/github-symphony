@@ -79,6 +79,7 @@ async function listProjectIssues(
         project.tracker,
         "priorityFieldName"
       ),
+      timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
     },
     dependencies.fetchImpl
   );
@@ -121,6 +122,33 @@ function readBooleanTrackerSetting(
 ): boolean {
   const value = tracker.settings?.[key];
   return value === true || value === "true";
+}
+
+function readNumberTrackerSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): number | undefined {
+  const value = tracker.settings?.[key];
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  throw new Error(
+    `Tracker adapter "${tracker.adapter}" requires the "${key}" setting to be a positive integer when provided.`
+  );
 }
 
 function readOptionalStringTrackerSetting(
