@@ -24,6 +24,7 @@ import {
   resolveFinalExecutionPhase,
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
+import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
@@ -255,12 +256,8 @@ async function runCodexClientProtocol(
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
-  const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
-  const threadSandbox =
-    env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
-  const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
-    ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
-    : undefined;
+  const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
+    resolveCodexPolicySettings(env);
 
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);

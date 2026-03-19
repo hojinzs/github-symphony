@@ -15,6 +15,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { resolveCodexPolicySettings } from "./codex-policy.js";
 
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
@@ -483,16 +484,47 @@ function createProtocolContext(options: {
 }
 
 function readSentMessages(stream: PassThrough): Array<Record<string, unknown>> {
-  const chunk = stream.read();
+  let chunk = stream.read();
   if (!chunk) {
     return [];
   }
 
-  return chunk
-    .toString("utf8")
+  let serialized = "";
+  while (chunk) {
+    serialized += chunk.toString("utf8");
+    chunk = stream.read();
+  }
+
+  return serialized
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function sendStartupRequestsForEnv(
+  ctx: ReturnType<typeof createProtocolContext>,
+  env: Pick<
+    NodeJS.ProcessEnv,
+    | "SYMPHONY_APPROVAL_POLICY"
+    | "SYMPHONY_THREAD_SANDBOX"
+    | "SYMPHONY_TURN_SANDBOX_POLICY"
+  >
+): void {
+  const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
+    resolveCodexPolicySettings(env);
+
+  void ctx.sendRequest("thread-1", "thread/start", {
+    cwd: "/tmp",
+    developerInstructions: "test prompt",
+    approvalPolicy,
+    sandbox: threadSandbox,
+  });
+  void ctx.sendRequest("turn-1", "turn/start", {
+    threadId: "thread-1",
+    input: [{ type: "text", text: "continue" }],
+    approvalPolicy,
+    sandboxPolicy: turnSandboxPolicy,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -736,29 +768,10 @@ describe("read timeout (3.5)", () => {
 
   it("includes env-derived approval and sandbox settings in protocol requests", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
-    const env = {
+    sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "on-request",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
       SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
-    };
-    const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
-    const threadSandbox =
-      env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
-    const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
-      ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
-      : undefined;
-
-    void ctx.sendRequest("thread-1", "thread/start", {
-      cwd: "/tmp",
-      developerInstructions: "test prompt",
-      approvalPolicy,
-      sandbox: threadSandbox,
-    });
-    void ctx.sendRequest("turn-1", "turn/start", {
-      threadId: "thread-1",
-      input: [{ type: "text", text: "continue" }],
-      approvalPolicy,
-      sandboxPolicy: turnSandboxPolicy,
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
@@ -791,29 +804,10 @@ describe("read timeout (3.5)", () => {
 
   it("falls back to default approval and sandbox settings when env is empty", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
-    const env = {
+    sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "",
       SYMPHONY_THREAD_SANDBOX: "",
       SYMPHONY_TURN_SANDBOX_POLICY: "",
-    };
-    const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
-    const threadSandbox =
-      env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
-    const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
-      ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
-      : undefined;
-
-    void ctx.sendRequest("thread-1", "thread/start", {
-      cwd: "/tmp",
-      developerInstructions: "test prompt",
-      approvalPolicy,
-      sandbox: threadSandbox,
-    });
-    void ctx.sendRequest("turn-1", "turn/start", {
-      threadId: "thread-1",
-      input: [{ type: "text", text: "continue" }],
-      approvalPolicy,
-      sandboxPolicy: turnSandboxPolicy,
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
