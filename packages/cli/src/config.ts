@@ -14,9 +14,13 @@ export type CliGlobalConfig = {
   projects: string[];
 };
 
-export type CliProjectTrackerSettings = Record<string, string | boolean> & {
+export type CliProjectTrackerSettings = Record<
+  string,
+  string | number | boolean
+> & {
   projectId?: string;
   assignedOnly?: boolean;
+  timeoutMs?: number;
 };
 
 export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {

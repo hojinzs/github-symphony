@@ -261,6 +261,240 @@ describe("resolveTrackerAdapter", () => {
     }
   });
 
+  it("applies the default network timeout to GitHub API requests", async () => {
+    const timeoutSignal = AbortSignal.abort();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeoutSignal);
+
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      });
+
+      await adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+            },
+          },
+        },
+        {
+          token: "dependencies-token",
+          fetchImpl: async (_url, init) => {
+            expect(init?.signal).toBe(timeoutSignal);
+
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [],
+                      pageInfo: { endCursor: null, hasNextPage: false },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          },
+        }
+      );
+
+      expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("uses the configured timeout for both REST and GraphQL tracker requests", async () => {
+    const timeoutSignal = AbortSignal.abort();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeoutSignal);
+
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          assignedOnly: true,
+          timeoutMs: 1_500,
+        },
+      });
+
+      await adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+              assignedOnly: true,
+              timeoutMs: 1_500,
+            },
+          },
+        },
+        {
+          token: "dependencies-token",
+          fetchImpl: async (url, init) => {
+            expect(init?.signal).toBe(timeoutSignal);
+
+            if (String(url).endsWith("/user")) {
+              return new Response(JSON.stringify({ login: "machine-user" }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [],
+                      pageInfo: { endCursor: null, hasNextPage: false },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          },
+        }
+      );
+
+      expect(timeoutSpy).toHaveBeenCalledWith(1_500);
+      expect(timeoutSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("accepts a positive integer timeout from string-based tracker settings", async () => {
+    const timeoutSignal = AbortSignal.abort();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeoutSignal);
+
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          timeoutMs: "2500",
+        },
+      });
+
+      await adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+              timeoutMs: "2500",
+            },
+          },
+        },
+        {
+          token: "dependencies-token",
+          fetchImpl: async (_url, init) => {
+            expect(init?.signal).toBe(timeoutSignal);
+
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [],
+                      pageInfo: { endCursor: null, hasNextPage: false },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          },
+        }
+      );
+
+      expect(timeoutSpy).toHaveBeenCalledWith(2500);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects non-positive timeout settings", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        timeoutMs: 0,
+      },
+    });
+
+    await expect(
+      adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+              timeoutMs: 0,
+            },
+          },
+        },
+        {
+          token: "dependencies-token",
+        }
+      )
+    ).rejects.toThrow(
+      'Tracker adapter "github-project" requires the "timeoutMs" setting to be a positive integer when provided.'
+    );
+  });
+
   it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
