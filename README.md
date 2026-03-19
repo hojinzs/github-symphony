@@ -54,12 +54,12 @@ The generated skill files (under `.codex/skills/` or `.claude/skills/`) define h
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
-### 3. Set Orchestrator Runner (Tenant)
+### 3. Set Orchestrator Runner (Project)
 
-On the machine where you want the orchestrator to run, register a tenant:
+On the machine where you want the orchestrator to run, register a project:
 
 ```bash
-gh-symphony tenant add
+gh-symphony project add
 ```
 
 The interactive wizard will:
@@ -68,19 +68,23 @@ The interactive wizard will:
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
-5. Write tenant configuration to `~/.gh-symphony/`
+5. Write project configuration to `~/.gh-symphony/`
 
 Non-interactive mode:
 
 ```bash
-gh-symphony tenant add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
 ```
 
-Managing tenants:
+Managing projects:
 
 ```bash
-gh-symphony tenant list             # List all configured tenants
-gh-symphony tenant remove <id>      # Remove a tenant
+gh-symphony project list             # List all configured projects
+gh-symphony project remove <id>      # Remove a project
+gh-symphony project switch           # Switch the active project
+gh-symphony project status           # Show status for a specific project
+gh-symphony project start            # Start a specific project
+gh-symphony project stop             # Stop a specific project
 ```
 
 ### 4. Run the Orchestrator
@@ -89,6 +93,7 @@ gh-symphony tenant remove <id>      # Remove a tenant
 gh-symphony start                   # Start (foreground)
 gh-symphony start --daemon          # Start (background)
 gh-symphony stop                    # Stop the daemon
+gh-symphony stop --force            # Force stop with SIGKILL
 ```
 
 Monitor:
@@ -98,12 +103,16 @@ gh-symphony status                  # Show current status
 gh-symphony status --watch          # Live dashboard
 gh-symphony logs                    # View event logs
 gh-symphony logs --follow           # Stream logs in real-time
+gh-symphony logs --issue org/repo#1 # Filter by issue
+gh-symphony logs --run <run-id>     # Read events for a specific run
+gh-symphony logs --level <level>    # Filter by log level
 ```
 
 Dispatch a single issue:
 
 ```bash
 gh-symphony run org/repo#123
+gh-symphony run org/repo#123 --watch  # Watch status after dispatch
 ```
 
 Recover stalled runs:
@@ -113,10 +122,34 @@ gh-symphony recover                 # Recover stalled runs
 gh-symphony recover --dry-run       # Preview what would be recovered
 ```
 
+### Managing Repositories
+
+```bash
+gh-symphony repo list               # List repositories in active project
+gh-symphony repo add owner/name     # Add a repository
+gh-symphony repo remove owner/name  # Remove a repository
+```
+
+### Configuration
+
+```bash
+gh-symphony config show             # Show configuration
+gh-symphony config set <key> <val>  # Set a configuration value
+gh-symphony config edit             # Open config in $EDITOR
+```
+
+### Shell Completion
+
+```bash
+gh-symphony completion bash         # Print bash completion script
+gh-symphony completion zsh          # Print zsh completion script
+gh-symphony completion fish         # Print fish completion script
+```
+
 ## Concepts
 
-- **Tenant** — one GitHub Project bound to a set of repositories. Each tenant gets its own config, leases, and status snapshot. A single orchestrator manages multiple tenants.
-- **WORKFLOW.md** — the per-repository (or per-tenant fallback) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
+- **Project** — one GitHub Project bound to a set of repositories. Each project gets its own config, leases, and status snapshot. A single orchestrator manages multiple projects.
+- **WORKFLOW.md** — the per-repository (or per-project fallback) workflow policy file. Contains YAML front matter for lifecycle config and a Markdown body used as the agent prompt template.
 
 ## Authentication
 
@@ -172,14 +205,14 @@ Available template variables:
 
 `gh-symphony init` generates a `WORKFLOW.md` in the current directory.
 
-With a tenant already registered:
+With a project already registered:
 
 ```bash
 cd my-repo
-gh-symphony init        # generates ./WORKFLOW.md from active tenant config
+gh-symphony init        # generates ./WORKFLOW.md from active project config
 ```
 
-Without a tenant (standalone):
+Without a project (standalone):
 
 ```bash
 gh-symphony init --non-interactive --project PVT_xxx --output WORKFLOW.md
@@ -190,18 +223,18 @@ gh-symphony init --non-interactive --project PVT_xxx --output WORKFLOW.md
 The orchestrator resolves the workflow policy using this fallback chain:
 
 1. **Repository WORKFLOW.md** — if the target repository has a `WORKFLOW.md` at its root, use it.
-2. **Tenant WORKFLOW.md** — if the repository has no `WORKFLOW.md`, fall back to the tenant-level `WORKFLOW.md`.
+2. **Project WORKFLOW.md** — if the repository has no `WORKFLOW.md`, fall back to the project-level `WORKFLOW.md`.
 3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal).
 
 This means you can:
 
 - Run without any `WORKFLOW.md` and rely on defaults
-- Use a single tenant-level `WORKFLOW.md` for all repositories
+- Use a single project-level `WORKFLOW.md` for all repositories
 - Override per-repository by committing a `WORKFLOW.md` to the repo root
 
 ## Headless orchestration
 
-The orchestrator runs independently as long as tenant config exists under `~/.gh-symphony/tenants/`.
+The orchestrator runs independently as long as project config exists under `~/.gh-symphony/`.
 
 ```bash
 # Via the CLI daemon
@@ -211,24 +244,24 @@ gh-symphony run beta/api#42          # dispatch a single issue
 # Via the orchestrator package directly
 pnpm --filter @gh-symphony/orchestrator start -- run
 pnpm --filter @gh-symphony/orchestrator start -- run-once
-pnpm --filter @gh-symphony/orchestrator start -- dispatch --tenant-id <id>
-pnpm --filter @gh-symphony/orchestrator start -- run-issue --tenant-id <id> --issue <owner/repo#number>
+pnpm --filter @gh-symphony/orchestrator start -- dispatch --project-id <id>
+pnpm --filter @gh-symphony/orchestrator start -- run-issue --project-id <id> --issue <owner/repo#number>
 pnpm --filter @gh-symphony/orchestrator start -- recover
 pnpm --filter @gh-symphony/orchestrator start -- status
 ```
 
 Runtime state lives under `.runtime/orchestrator/`:
 
-| Path                          | Contents                                     |
-| ----------------------------- | -------------------------------------------- |
-| `tenants/<id>/config.json`    | Tenant metadata                              |
-| `tenants/<id>/WORKFLOW.md`    | Tenant-level workflow policy (repo fallback) |
-| `tenants/<id>/leases.json`    | Active or released issue-phase leases        |
-| `tenants/<id>/status.json`    | Latest tenant status snapshot                |
-| `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment |
-| `runs/<run-id>/events.ndjson` | Structured orchestration events              |
+| Path                           | Contents                                       |
+| ------------------------------ | ---------------------------------------------- |
+| `projects/<id>/config.json`    | Project metadata                               |
+| `projects/<id>/WORKFLOW.md`    | Project-level workflow policy (repo fallback)  |
+| `projects/<id>/leases.json`    | Active or released issue-phase leases          |
+| `projects/<id>/status.json`    | Latest project status snapshot                 |
+| `runs/<run-id>/run.json`       | Run snapshot, retry state, worker assignment   |
+| `runs/<run-id>/events.ndjson`  | Structured orchestration events                |
 
-Read orchestration state via the status API (`/api/v1/tenants/<id>/status`) rather than reading status files directly.
+Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
 
 ## Verification
 
