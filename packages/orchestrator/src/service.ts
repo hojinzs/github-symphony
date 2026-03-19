@@ -18,6 +18,7 @@ import {
   isStateActive,
   isStateTerminal,
   matchesWorkflowState,
+  readEnvFile,
   renderPrompt,
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
@@ -1076,8 +1077,7 @@ export class OrchestratorService {
       ["-lc", resolveWorkerCommand()],
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: this.buildProjectExecutionEnv(tenant.projectId, {
           GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
@@ -1097,7 +1097,7 @@ export class OrchestratorService {
           TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
           TARGET_REPOSITORY_NAME: issue.repository.name,
-          TARGET_REPOSITORY_URL: issue.repository.url,
+          TARGET_REPOSITORY_URL: issue.repository.url ?? "",
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
           SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
@@ -1109,7 +1109,7 @@ export class OrchestratorService {
           SYMPHONY_TURN_TIMEOUT_MS: String(
             workflow.workflow.codex.turnTimeoutMs
           ),
-        },
+        }),
         detached: true,
         stdio: ["ignore", "ignore", workerLogFd],
       }
@@ -1759,7 +1759,10 @@ export class OrchestratorService {
       if (!isUsableWorkflowResolution(workflowResolution)) {
         return null;
       }
-      const hookEnv = buildHookEnv(context);
+      const hookEnv = this.buildProjectExecutionEnv(
+        tenant.projectId,
+        buildHookEnv(context)
+      );
       return executeWorkspaceHook({
         kind,
         hooks: workflowResolution.workflow.hooks,
@@ -1771,6 +1774,27 @@ export class OrchestratorService {
       // If workflow cannot be loaded, skip hook execution
       return null;
     }
+  }
+
+  private readProjectEnv(projectId: string): Record<string, string> {
+    return readEnvFile(join(this.store.projectDir(projectId), ".env"));
+  }
+
+  private buildProjectExecutionEnv(
+    projectId: string,
+    env: Record<string, string>
+  ): Record<string, string> {
+    const inheritedEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+
+    return {
+      ...this.readProjectEnv(projectId),
+      ...inheritedEnv,
+      ...env,
+    };
   }
 
   private async restartRun(

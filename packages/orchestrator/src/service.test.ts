@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -2712,6 +2712,404 @@ Workspace prompt.
     // Repo WORKFLOW.md defines Todo as active, issue is in "Todo" → dispatched
     expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads project .env for repository script hooks during workspace creation", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-hook-project-env-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  after_create: scripts/setup-env.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "scripts"), { recursive: true });
+    await writeFile(
+      join(repository.path, "scripts", "setup-env.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\n',
+      "utf8"
+    );
+    execSync(`git -C ${shell(repository.path)} add scripts/setup-env.sh`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repository.path)} commit -m add-hook-script`, {
+      stdio: "ignore",
+    });
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "STAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\n",
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4303,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+
+    await expect(readFile(join(repositoryPath, ".after_create_host"), "utf8")).resolves
+      .toBe("https://staging.example.com\n");
+    await expect(
+      readFile(join(repositoryPath, ".after_create_file_only"), "utf8")
+    ).resolves.toBe("from-project-env\n");
+  });
+
+  it("applies project .env to inline hooks, with process env override and symphony context precedence", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalStagingApiHost = process.env.STAGING_API_HOST;
+    const originalSymphonyRepositoryPath = process.env.SYMPHONY_REPOSITORY_PATH;
+    process.env.STAGING_API_HOST = "https://ci.example.com";
+    process.env.SYMPHONY_REPOSITORY_PATH = "/tmp/should-not-win";
+
+    try {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-inline-hook-project-env-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  before_run: |
+    printf "%s\\n" "$STAGING_API_HOST" > .before_run_host
+    printf "%s\\n" "$FILE_ONLY" > .before_run_file_only
+    printf "%s\\n" "$SYMPHONY_REPOSITORY_PATH" > .before_run_repository_path
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await writeFile(
+        join(store.projectDir(projectConfig.projectId), ".env"),
+        "STAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\nSYMPHONY_REPOSITORY_PATH=/tmp/from-project-env\n",
+        "utf8"
+      );
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4304,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const workspaceKey = (
+        await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+      )[0]?.workspaceKey;
+      const repositoryPath = join(
+        resolveIssueWorkspaceDirectory(
+          store.projectDir(projectConfig.projectId),
+          workspaceKey ?? ""
+        ),
+        "repository"
+      );
+
+      await expect(readFile(join(repositoryPath, ".before_run_host"), "utf8")).resolves
+        .toBe("https://ci.example.com\n");
+      await expect(
+        readFile(join(repositoryPath, ".before_run_file_only"), "utf8")
+      ).resolves.toBe("from-project-env\n");
+      await expect(
+        readFile(join(repositoryPath, ".before_run_repository_path"), "utf8")
+      ).resolves.toBe(`${repositoryPath}\n`);
+      expect(spawnImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalStagingApiHost === undefined) {
+        delete process.env.STAGING_API_HOST;
+      } else {
+        process.env.STAGING_API_HOST = originalStagingApiHost;
+      }
+      if (originalSymphonyRepositoryPath === undefined) {
+        delete process.env.SYMPHONY_REPOSITORY_PATH;
+      } else {
+        process.env.SYMPHONY_REPOSITORY_PATH = originalSymphonyRepositoryPath;
+      }
+    }
+  });
+
+  it("includes project .env in worker spawn env and lets process env override it", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalStagingApiHost = process.env.STAGING_API_HOST;
+    process.env.STAGING_API_HOST = "https://ci.example.com";
+
+    try {
+      const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worker-project-env-"));
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await writeFile(
+        join(store.projectDir(projectConfig.projectId), ".env"),
+        "STAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\n",
+        "utf8"
+      );
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4305,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+      expect(spawnEnv?.STAGING_API_HOST).toBe("https://ci.example.com");
+      expect(spawnEnv?.FILE_ONLY).toBe("from-project-env");
+      expect(spawnEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
+      expect(spawnEnv?.SYMPHONY_ISSUE_WORKSPACE_KEY).toBeTruthy();
+    } finally {
+      if (originalStagingApiHost === undefined) {
+        delete process.env.STAGING_API_HOST;
+      } else {
+        process.env.STAGING_API_HOST = originalStagingApiHost;
+      }
+    }
+  });
+
+  it("loads project .env for absolute hook paths", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-absolute-hook-project-env-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  before_run: ${join(tempRoot, "before-run-hook.sh")}
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    await writeFile(
+      join(tempRoot, "before-run-hook.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.before_run_absolute_host"\n',
+      "utf8"
+    );
+    await chmod(join(tempRoot, "before-run-hook.sh"), 0o755);
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "STAGING_API_HOST=https://staging.example.com\n",
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4306,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+
+    await expect(
+      readFile(join(repositoryPath, ".before_run_absolute_host"), "utf8")
+    ).resolves.toBe("https://staging.example.com\n");
+  });
+
+  it("preserves existing behavior when the project .env file is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-missing-project-env-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  before_run: |
+    printf "%s\\n" "\${FILE_ONLY:-missing}" > .before_run_missing_project_env
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4307,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workspaceKey = (
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    )[0]?.workspaceKey;
+    const repositoryPath = join(
+      resolveIssueWorkspaceDirectory(
+        store.projectDir(projectConfig.projectId),
+        workspaceKey ?? ""
+      ),
+      "repository"
+    );
+
+    await expect(
+      readFile(join(repositoryPath, ".before_run_missing_project_env"), "utf8")
+    ).resolves.toBe("missing\n");
+    expect(spawnImpl.mock.calls[0]?.[2]?.env?.FILE_ONLY).toBeUndefined();
   });
 
   it("passes issue workspace root to after_run hook environment", async () => {
