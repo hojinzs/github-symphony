@@ -30,7 +30,9 @@ import {
   type OrchestratorEvent,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  type OrchestratorTrackerDependencies,
   type OrchestratorTrackerAdapter,
+  type ProjectItemsCache,
   type ProjectStatusSnapshot,
   type RepositoryRef,
   type RuntimeSessionRow,
@@ -146,10 +148,17 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
-    await this.runSerialized(() => this.performStartupCleanup());
+    let initialTickTrackerDependencies = this.createTrackerDependencies();
+    await this.runSerialized(() =>
+      this.performStartupCleanup(initialTickTrackerDependencies)
+    );
 
     while (this.running) {
-      await this.runOnce(options);
+      await this.runOnceInternal(
+        options.issueIdentifier,
+        initialTickTrackerDependencies
+      );
+      initialTickTrackerDependencies = this.createTrackerDependencies();
 
       if (options.once || !this.running) {
         return;
@@ -164,23 +173,10 @@ export class OrchestratorService {
       issueIdentifier?: string;
     } = {}
   ): Promise<ProjectStatusSnapshot> {
-    return this.runSerialized(async () => {
-      const workflowResolutionCache = new Map<
-        string,
-        Promise<WorkflowResolution>
-      >();
-      this.workflowResolutionCache = workflowResolutionCache;
-      try {
-        return await this.reconcileProject(
-          this.projectConfig,
-          options.issueIdentifier
-        );
-      } finally {
-        if (this.workflowResolutionCache === workflowResolutionCache) {
-          this.workflowResolutionCache = null;
-        }
-      }
-    });
+    return this.runOnceInternal(
+      options.issueIdentifier,
+      this.createTrackerDependencies()
+    );
   }
 
   async status(): Promise<ProjectStatusSnapshot | null> {
@@ -357,7 +353,8 @@ export class OrchestratorService {
 
   private async reconcileProject(
     tenant: OrchestratorProjectConfig,
-    issueIdentifier?: string
+    issueIdentifier?: string,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
@@ -389,9 +386,7 @@ export class OrchestratorService {
         (run) =>
           run.projectId === tenant.projectId && isActiveRunStatus(run.status)
       );
-      const issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
+      const issues = await trackerAdapter.listIssues(tenant, trackerDependencies);
       const syncedActiveRuns = await this.syncActiveRunIssueStates(
         tenant,
         trackerAdapter,
@@ -589,7 +584,9 @@ export class OrchestratorService {
     return status;
   }
 
-  private async performStartupCleanup(): Promise<void> {
+  private async performStartupCleanup(
+    trackerDependencies: OrchestratorTrackerDependencies = {}
+  ): Promise<void> {
     const tenant = this.projectConfig;
     const now = this.now();
     const workspaceRecords = await this.store.loadIssueWorkspaces(tenant.projectId);
@@ -608,9 +605,7 @@ export class OrchestratorService {
           workspaceRecords,
           workflowCache
         ),
-        {
-          fetchImpl: this.dependencies.fetchImpl,
-        }
+        trackerDependencies
       );
     } catch (error) {
       const message =
@@ -796,6 +791,37 @@ export class OrchestratorService {
     } finally {
       release();
     }
+  }
+
+  private async runOnceInternal(
+    issueIdentifier: string | undefined,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<ProjectStatusSnapshot> {
+    return this.runSerialized(async () => {
+      const workflowResolutionCache = new Map<
+        string,
+        Promise<WorkflowResolution>
+      >();
+      this.workflowResolutionCache = workflowResolutionCache;
+      try {
+        return await this.reconcileProject(
+          this.projectConfig,
+          issueIdentifier,
+          trackerDependencies
+        );
+      } finally {
+        if (this.workflowResolutionCache === workflowResolutionCache) {
+          this.workflowResolutionCache = null;
+        }
+      }
+    });
+  }
+
+  private createTrackerDependencies(): OrchestratorTrackerDependencies {
+    return {
+      fetchImpl: this.dependencies.fetchImpl,
+      projectItemsCache: createProjectItemsCache(),
+    };
   }
 
   private async findLatestRunForIssue(
@@ -2294,6 +2320,26 @@ export function sortCandidatesForDispatch(
     // 3. identifier lexicographic
     return a.identifier.localeCompare(b.identifier);
   });
+}
+
+function createProjectItemsCache(): ProjectItemsCache {
+  const entries = new Map<string, Promise<TrackedIssue[]>>();
+
+  return {
+    getOrLoad(key, load) {
+      const cached = entries.get(key);
+      if (cached) {
+        return cached;
+      }
+
+      const pending = load().catch((error) => {
+        entries.delete(key);
+        throw error;
+      });
+      entries.set(key, pending);
+      return pending;
+    },
+  };
 }
 
 function wait(ms: number): Promise<void> {
