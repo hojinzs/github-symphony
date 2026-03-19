@@ -405,26 +405,44 @@ describe("resolveTrackerAdapter", () => {
         token: "dependencies-token",
         fetchImpl: async (_url, init) => {
           const body = JSON.parse(String(init?.body)) as { query: string };
-          expect(body.query).toContain("fields(first: 20)");
+
+          if (body.query.includes("query ProjectFields")) {
+            expect(body.query).toContain("fields(first: 100)");
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    fields: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2SingleSelectField",
+                          name: "Priority",
+                          options: [
+                            { id: "priority-p0", name: "P0" },
+                            { id: "priority-p1", name: "P1" },
+                            { id: "priority-p2", name: "P2" },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          expect(body.query).not.toContain("fields(");
 
           return new Response(
             JSON.stringify({
               data: {
                 node: {
                   __typename: "ProjectV2",
-                  fields: {
-                    nodes: [
-                      {
-                        __typename: "ProjectV2SingleSelectField",
-                        name: "Priority",
-                        options: [
-                          { id: "priority-p0", name: "P0" },
-                          { id: "priority-p1", name: "P1" },
-                          { id: "priority-p2", name: "P2" },
-                        ],
-                      },
-                    ],
-                  },
                   items: {
                     nodes: [
                       makeProjectItem({
@@ -452,6 +470,136 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0]?.priority).toBe(1);
+  });
+
+  it("maps priority using only non-null option entries and fetches field metadata once", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+
+    let fieldQueryCount = 0;
+    let itemsQueryCount = 0;
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+            priorityFieldName: "Priority",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { query: string };
+
+          if (body.query.includes("query ProjectFields")) {
+            fieldQueryCount += 1;
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    fields: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2SingleSelectField",
+                          name: "Priority",
+                          options: [
+                            null,
+                            { id: "priority-p0", name: "P0" },
+                            { id: "priority-p1", name: "P1" },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          itemsQueryCount += 1;
+          expect(body.query).not.toContain("fields(");
+
+          if (itemsQueryCount === 1) {
+            return new Response(
+              JSON.stringify({
+                data: {
+                  node: {
+                    __typename: "ProjectV2",
+                    items: {
+                      nodes: [
+                        makeProjectItem({
+                          itemId: "item-1",
+                          issueId: "issue-1",
+                          number: 1,
+                          title: "First prioritized issue",
+                          assignees: [],
+                          priorityOptionId: "priority-p0",
+                        }),
+                      ],
+                      pageInfo: { endCursor: "cursor-2", hasNextPage: true },
+                    },
+                  },
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }
+            );
+          }
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-2",
+                        issueId: "issue-2",
+                        number: 2,
+                        title: "Second prioritized issue",
+                        assignees: [],
+                        priorityOptionId: "priority-p1",
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(fieldQueryCount).toBe(1);
+    expect(itemsQueryCount).toBe(2);
+    expect(issues.map((issue) => issue.priority)).toEqual([0, 1]);
   });
 
   it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
