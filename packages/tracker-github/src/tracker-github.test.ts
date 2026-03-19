@@ -378,7 +378,7 @@ describe("resolveTrackerAdapter", () => {
   });
 
   it("applies the default network timeout to GitHub API requests", async () => {
-    const timeoutSignal = AbortSignal.abort();
+    const timeoutSignal = new AbortController().signal;
     const timeoutSpy = vi
       .spyOn(AbortSignal, "timeout")
       .mockReturnValue(timeoutSignal);
@@ -409,6 +409,7 @@ describe("resolveTrackerAdapter", () => {
         {
           token: "dependencies-token",
           fetchImpl: async (_url, init) => {
+            expect(timeoutSignal.aborted).toBe(false);
             expect(init?.signal).toBe(timeoutSignal);
 
             return new Response(
@@ -440,7 +441,7 @@ describe("resolveTrackerAdapter", () => {
   });
 
   it("uses the configured timeout for both REST and GraphQL tracker requests", async () => {
-    const timeoutSignal = AbortSignal.abort();
+    const timeoutSignal = new AbortController().signal;
     const timeoutSpy = vi
       .spyOn(AbortSignal, "timeout")
       .mockReturnValue(timeoutSignal);
@@ -475,6 +476,7 @@ describe("resolveTrackerAdapter", () => {
         {
           token: "dependencies-token",
           fetchImpl: async (url, init) => {
+            expect(timeoutSignal.aborted).toBe(false);
             expect(init?.signal).toBe(timeoutSignal);
 
             if (String(url).endsWith("/user")) {
@@ -513,7 +515,7 @@ describe("resolveTrackerAdapter", () => {
   });
 
   it("accepts a positive integer timeout from string-based tracker settings", async () => {
-    const timeoutSignal = AbortSignal.abort();
+    const timeoutSignal = new AbortController().signal;
     const timeoutSpy = vi
       .spyOn(AbortSignal, "timeout")
       .mockReturnValue(timeoutSignal);
@@ -546,6 +548,7 @@ describe("resolveTrackerAdapter", () => {
         {
           token: "dependencies-token",
           fetchImpl: async (_url, init) => {
+            expect(timeoutSignal.aborted).toBe(false);
             expect(init?.signal).toBe(timeoutSignal);
 
             return new Response(
