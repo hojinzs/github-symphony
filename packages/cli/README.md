@@ -62,6 +62,38 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
+### Project `.env` Mapping
+
+If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the project runtime directory instead of hardcoding them in `WORKFLOW.md`.
+
+1. Find the project id from `gh-symphony project list`.
+2. Create the runtime env file:
+
+```bash
+mkdir -p ~/.gh-symphony/projects/<project-id>
+cat > ~/.gh-symphony/projects/<project-id>/.env <<'EOF'
+STAGING_API_HOST=https://staging.example.com
+DATABASE_URL=postgres://user:pass@staging-db:5432/app
+PLAYWRIGHT_BASE_URL=http://localhost:3000
+EOF
+```
+
+3. Reference those variables from `WORKFLOW.md` hooks or repository setup scripts:
+
+```yaml
+hooks:
+  after_create: 'echo "API_HOST=$STAGING_API_HOST" >> .env.development'
+  before_run: 'echo "BASE_URL=$PLAYWRIGHT_BASE_URL" > playwright.env'
+```
+
+Env precedence during hook execution and worker spawn is:
+
+- `project .env` as the base
+- system env as the override layer
+- Symphony context vars such as `SYMPHONY_*` as the highest-priority layer
+
+If you use `--config <dir>`, replace `~/.gh-symphony` with that directory.
+
 ## 3. Set Orchestrator Runner (Project)
 
 On the machine where you want the orchestrator to run, register a project:
