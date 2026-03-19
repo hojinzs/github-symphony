@@ -85,6 +85,23 @@ export function renderPrompt(
   const strict = options.strict ?? true;
   const flatVars = flattenVariables(variables);
 
+  // In strict mode, validate the original template BEFORE substitution.
+  // This ensures that {{...}} patterns introduced by substituted values
+  // (e.g. issue descriptions containing "{{variable.path}}") are not
+  // mistakenly flagged as unresolved template variables.
+  if (strict) {
+    const varPattern = /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = varPattern.exec(template)) !== null) {
+      const key = match[1];
+      if (!flatVars.has(key)) {
+        throw new Error(
+          `template_render_error: unresolved variable "{{${key}}}" in rendered prompt`
+        );
+      }
+    }
+  }
+
   const rendered = template.replace(
     /\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/g,
     (match, key: string) => {
@@ -98,15 +115,6 @@ export function renderPrompt(
       return String(value);
     }
   );
-
-  if (strict) {
-    const unresolvedMatch = rendered.match(/\{\{([a-zA-Z_][a-zA-Z0-9_.]*)\}\}/);
-    if (unresolvedMatch) {
-      throw new Error(
-        `template_render_error: unresolved variable "{{${unresolvedMatch[1]}}}" in rendered prompt`
-      );
-    }
-  }
 
   return rendered;
 }

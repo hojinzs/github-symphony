@@ -306,6 +306,50 @@ describe("renderPrompt", () => {
     expect(() => renderPrompt("Fix {{issue.title}}", variables)).not.toThrow();
   });
 
+  it("does not throw when substituted value contains mustache-like patterns", () => {
+    const variables = buildPromptVariables(
+      {
+        id: "issue-1",
+        identifier: "acme/platform#76",
+        number: 76,
+        title: "Replace template engine",
+        description:
+          '현재 `renderPrompt()`는 `{{variable.path}}` 단순 치환만 지원한다.',
+        priority: null,
+        state: "Ready",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/76",
+        labels: [],
+        blockedBy: [],
+        createdAt: null,
+        updatedAt: null,
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+      { attempt: null }
+    );
+
+    // The issue description contains {{variable.path}} — a mustache-like
+    // pattern that is NOT a template variable.  Strict mode must only
+    // validate the original template, not the substituted result.
+    const rendered = renderPrompt(
+      "Issue: {{issue.title}}\n\n{{issue.description}}",
+      variables
+    );
+
+    expect(rendered).toContain("{{variable.path}}");
+    expect(rendered).toContain("Replace template engine");
+  });
+
   it("renders null variables as empty string in strict mode", () => {
     const variables = buildPromptVariables(
       {

@@ -1,6 +1,6 @@
 {
   "name": "@gh-symphony/core",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Tracker-agnostic Symphony core contracts, workflow loading, orchestration types, and observability surfaces",
