@@ -14,6 +14,7 @@ export type GitHubTrackerConfig = {
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
   assignedOnly?: boolean;
+  priorityFieldName?: string;
 };
 
 export type GitHubRepositoryRef = {
@@ -36,12 +37,29 @@ type GraphQLFieldValue =
   | {
       __typename: "ProjectV2ItemFieldSingleSelectValue";
       name: string | null;
+      optionId?: string | null;
       field: { name: string | null } | null;
     }
   | {
       __typename: "ProjectV2ItemFieldTextValue";
       text: string | null;
       field: { name: string | null } | null;
+    };
+
+type GraphQLProjectFieldConfiguration =
+  | {
+      __typename: "ProjectV2SingleSelectField";
+      name: string | null;
+      options:
+        | Array<{
+            id: string;
+            name: string;
+          } | null>
+        | null;
+    }
+  | {
+      __typename: string;
+      name?: string | null;
     };
 
 type GraphQLIssueNode = {
@@ -88,15 +106,28 @@ type GraphQLProjectItemsPage = {
   };
 };
 
-type GraphQLResponse = {
-  data?: {
-    node?: {
-      __typename?: string;
-      items?: GraphQLProjectItemsPage;
-    } | null;
-  };
+type GraphQLProjectItemsResponse = {
+  node?: {
+    __typename?: string;
+    items?: GraphQLProjectItemsPage;
+  } | null;
+};
+
+type GraphQLProjectFieldsResponse = {
+  node?: {
+    __typename?: string;
+    fields?: {
+      nodes: Array<GraphQLProjectFieldConfiguration | null> | null;
+    };
+  } | null;
+};
+
+type GraphQLResponse<TData> = {
+  data?: TData;
   errors?: Array<{ message: string }>;
 };
+
+type PriorityMap = Record<string, number>;
 
 export class GitHubTrackerError extends Error {}
 
@@ -115,7 +146,11 @@ export class GitHubTrackerQueryError extends GitHubTrackerError {}
 export function normalizeProjectItem(
   projectId: string,
   item: GraphQLProjectItem,
-  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
+  priority: {
+    fieldName?: string;
+    optionIds?: PriorityMap;
+  } = {}
 ): GitHubTrackedIssue | null {
   if (item.content?.__typename !== "Issue") {
     return null;
@@ -145,7 +180,7 @@ export function normalizeProjectItem(
     number: item.content.number,
     title: item.content.title,
     description: item.content.body,
-    priority: null,
+    priority: resolvePriority(item, priority),
     state,
     branchName: null,
     url: item.content.url,
@@ -176,6 +211,13 @@ export async function fetchProjectIssues(
 ): Promise<GitHubTrackedIssue[]> {
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
+  const priorityOptionIds = config.priorityFieldName
+    ? await fetchPriorityOptionOrder(
+        config,
+        config.priorityFieldName,
+        fetchImpl
+      )
+    : undefined;
   const currentUserLogin = config.assignedOnly
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
@@ -192,7 +234,11 @@ export async function fetchProjectIssues(
         const normalized = normalizeProjectItem(
           config.projectId,
           item,
-          config.lifecycle
+          config.lifecycle,
+          {
+            fieldName: config.priorityFieldName,
+            optionIds: priorityOptionIds,
+          }
         );
         if (!normalized) {
           return [];
@@ -243,41 +289,18 @@ async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
   fetchImpl: FetchLike
-): Promise<GraphQLProjectItemsPage> {
-  const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.token}`,
+) : Promise<GraphQLProjectItemsPage> {
+  const data = await executeGraphQLQuery<GraphQLProjectItemsResponse>(
+    config,
+    PROJECT_ITEMS_QUERY,
+    {
+      projectId: config.projectId,
+      cursor,
+      pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
     },
-    body: JSON.stringify({
-      query: PROJECT_ITEMS_QUERY,
-      variables: {
-        projectId: config.projectId,
-        cursor,
-        pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new GitHubTrackerHttpError(
-      `GitHub GraphQL request failed with status ${response.status}`,
-      response.status,
-      details
-    );
-  }
-
-  const payload = (await response.json()) as GraphQLResponse;
-
-  if (payload.errors?.length) {
-    throw new GitHubTrackerQueryError(
-      payload.errors.map((error) => error.message).join("; ")
-    );
-  }
-
-  const items = payload.data?.node?.items;
+    fetchImpl
+  );
+  const items = data.node?.items;
 
   if (!items) {
     throw new GitHubTrackerQueryError(
@@ -378,6 +401,80 @@ function extractFieldValues(
   }, {});
 }
 
+function resolvePriority(
+  item: GraphQLProjectItem,
+  priority: {
+    fieldName?: string;
+    optionIds?: PriorityMap;
+  }
+): number | null {
+  if (!priority.fieldName || !priority.optionIds) {
+    return null;
+  }
+
+  for (const node of item.fieldValues?.nodes ?? []) {
+    if (
+      node?.__typename === "ProjectV2ItemFieldSingleSelectValue" &&
+      node.field?.name === priority.fieldName &&
+      node.optionId
+    ) {
+      return priority.optionIds[node.optionId] ?? null;
+    }
+  }
+
+  return null;
+}
+
+function extractPriorityOptionOrder(
+  fields: Array<GraphQLProjectFieldConfiguration | null>,
+  priorityFieldName: string
+): PriorityMap | undefined {
+  for (const field of fields) {
+    if (isSingleSelectProjectField(field) && field.name === priorityFieldName) {
+      let nextPriority = 0;
+      const optionEntries = (field.options ?? []).flatMap((option) => {
+        if (!option?.id) {
+          return [];
+        }
+
+        const entry = [option.id, nextPriority] as const;
+        nextPriority += 1;
+        return [entry];
+      });
+      return Object.fromEntries(optionEntries);
+    }
+  }
+
+  return undefined;
+}
+
+async function fetchPriorityOptionOrder(
+  config: GitHubTrackerConfig,
+  priorityFieldName: string,
+  fetchImpl: FetchLike
+): Promise<PriorityMap | undefined> {
+  const data = await executeGraphQLQuery<GraphQLProjectFieldsResponse>(
+    config,
+    PROJECT_FIELDS_QUERY,
+    { projectId: config.projectId },
+    fetchImpl
+  );
+
+  return extractPriorityOptionOrder(
+    data.node?.fields?.nodes ?? [],
+    priorityFieldName
+  );
+}
+
+function isSingleSelectProjectField(
+  field: GraphQLProjectFieldConfiguration | null
+): field is Extract<
+  GraphQLProjectFieldConfiguration,
+  { __typename: "ProjectV2SingleSelectField" }
+> {
+  return field?.__typename === "ProjectV2SingleSelectField";
+}
+
 function deriveCloneUrl(repositoryUrl: string): string {
   if (repositoryUrl.startsWith("file://") || repositoryUrl.endsWith(".git")) {
     return repositoryUrl;
@@ -420,6 +517,50 @@ function resolveRestUserApiUrl(apiUrl?: string): string {
   return parsed.toString();
 }
 
+async function executeGraphQLQuery<TData>(
+  config: GitHubTrackerConfig,
+  query: string,
+  variables: Record<string, string | number | null>,
+  fetchImpl: FetchLike
+): Promise<TData> {
+  const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${config.token}`,
+    },
+    body: JSON.stringify({
+      query,
+      variables,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new GitHubTrackerHttpError(
+      `GitHub GraphQL request failed with status ${response.status}`,
+      response.status,
+      details
+    );
+  }
+
+  const payload = (await response.json()) as GraphQLResponse<TData>;
+
+  if (payload.errors?.length) {
+    throw new GitHubTrackerQueryError(
+      payload.errors.map((error) => error.message).join("; ")
+    );
+  }
+
+  if (!payload.data) {
+    throw new GitHubTrackerQueryError(
+      "GitHub GraphQL response did not include data."
+    );
+  }
+
+  return payload.data;
+}
+
 const PROJECT_ITEMS_QUERY = `
   query ProjectItems($projectId: ID!, $cursor: String, $pageSize: Int!) {
     node(id: $projectId) {
@@ -434,6 +575,7 @@ const PROJECT_ITEMS_QUERY = `
                 __typename
                 ... on ProjectV2ItemFieldSingleSelectValue {
                   name
+                  optionId
                   field {
                     ... on ProjectV2SingleSelectField {
                       name
@@ -496,6 +638,28 @@ const PROJECT_ITEMS_QUERY = `
           pageInfo {
             endCursor
             hasNextPage
+          }
+        }
+      }
+    }
+  }
+`;
+
+const PROJECT_FIELDS_QUERY = `
+  query ProjectFields($projectId: ID!) {
+    node(id: $projectId) {
+      __typename
+      ... on ProjectV2 {
+        fields(first: 100) {
+          nodes {
+            __typename
+            ... on ProjectV2SingleSelectField {
+              name
+              options {
+                id
+                name
+              }
+            }
           }
         }
       }

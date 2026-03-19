@@ -118,11 +118,12 @@ describe("OrchestratorService", () => {
     const output = stderr.write.mock.calls
       .map((call) => String(call[0]))
       .join("");
-    const runId = (await store.loadAllRuns())[0]?.runId;
+    const run = (await store.loadAllRuns())[0];
+    const runId = run?.runId;
 
     expect(runId).toBeTruthy();
     expect(output).toContain(
-      `[dispatch] Issue acme/platform#1 → run ${runId} (port=4601)\n`
+      `[dispatch] Issue acme/platform#1 → run ${runId} (port=${run?.port})\n`
     );
     expect(output).toContain(`[worker-started] ${runId} (pid=4102)\n`);
     expect(output).toContain(
@@ -202,6 +203,123 @@ describe("OrchestratorService", () => {
     const workspaceRecord = await store.loadIssueWorkspace("tenant-1", workspaceKey);
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
+  });
+
+  it("logs and ignores before_remove hook failures during startup cleanup", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-before-remove-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  after_create: hooks/after_create.sh
+  before_remove: hooks/before_remove.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey({
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+
+    await mkdir(repositoryPath, { recursive: true });
+    await mkdir(join(repositoryPath, "hooks"), { recursive: true });
+    await writeFile(
+      join(repositoryPath, "hooks", "before_remove.sh"),
+      "#!/usr/bin/env bash\nset -eu\nprintf 'cleanup hook failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4103,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.run({ once: true });
+
+    const workspaceRecord = await store.loadIssueWorkspace("tenant-1", workspaceKey);
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(workspaceRecord?.status).toBe("removed");
+    expect(workspaceRecord?.lastError).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[orchestrator] before_remove hook failed for acme/platform#1; continuing cleanup: cleanup hook failed"
+    );
+    warnSpy.mockRestore();
   });
 
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {
