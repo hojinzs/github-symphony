@@ -1059,6 +1059,71 @@ describe("resolveTrackerAdapter", () => {
     expect(filtered[0]?.identifier).toBe(listed[0]?.identifier);
   });
 
+  it("uses a non-reversible token fingerprint in the shared project item cache key", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const cacheKeys: string[] = [];
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        cacheKeys.push(key);
+        return load();
+      },
+    };
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repositories: [],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+    };
+
+    await adapter.listIssues(project, {
+      token: "secret-token-a",
+      fetchImpl,
+      projectItemsCache,
+    });
+    await adapter.listIssues(project, {
+      token: "secret-token-b",
+      fetchImpl,
+      projectItemsCache,
+    });
+
+    expect(cacheKeys).toHaveLength(2);
+    expect(cacheKeys[0]).not.toContain("secret-token-a");
+    expect(cacheKeys[1]).not.toContain("secret-token-b");
+    expect(cacheKeys[0]).not.toBe(cacheKeys[1]);
+  });
+
   it("fetches issue states by GraphQL issue ids using nodes lookup", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

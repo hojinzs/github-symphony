@@ -705,7 +705,7 @@ Prefer focused changes.
     expect(loadProjectWorkflowSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("shares the per-tick project item cache between startup cleanup and reconciliation", async () => {
+  it("creates a fresh per-tick project item cache between startup cleanup and reconciliation", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-project-item-cache-")
     );
@@ -804,10 +804,10 @@ Prefer focused changes.
 
     await service.run({ once: true });
 
-    expect(fetchCount).toBe(1);
+    expect(fetchCount).toBe(2);
     expect(listIssuesByStates).toHaveBeenCalledTimes(1);
     expect(listIssues).toHaveBeenCalledTimes(1);
-    expect(listIssuesByStates.mock.calls[0]?.[2]?.projectItemsCache).toBe(
+    expect(listIssuesByStates.mock.calls[0]?.[2]?.projectItemsCache).not.toBe(
       listIssues.mock.calls[0]?.[1]?.projectItemsCache
     );
   });

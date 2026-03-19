@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerDependencies,
@@ -137,8 +138,18 @@ function buildProjectItemsCacheKey(
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
     timeoutMs: config.timeoutMs,
-    token: dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN ?? null,
+    tokenFingerprint: hashToken(
+      dependencies.token ?? process.env.GITHUB_GRAPHQL_TOKEN ?? null
+    ),
   });
+}
+
+function hashToken(token: string | null): string | null {
+  if (!token) {
+    return null;
+  }
+
+  return createHash("sha256").update(token).digest("hex");
 }
 
 const trackerAdapters: Record<string, OrchestratorTrackerAdapter> = {

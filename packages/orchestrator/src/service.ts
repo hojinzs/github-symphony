@@ -148,17 +148,15 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
-    let initialTickTrackerDependencies = this.createTrackerDependencies();
     await this.runSerialized(() =>
-      this.performStartupCleanup(initialTickTrackerDependencies)
+      this.performStartupCleanup(this.createTrackerDependencies())
     );
 
     while (this.running) {
       await this.runOnceInternal(
         options.issueIdentifier,
-        initialTickTrackerDependencies
+        this.createTrackerDependencies()
       );
-      initialTickTrackerDependencies = this.createTrackerDependencies();
 
       if (options.once || !this.running) {
         return;
