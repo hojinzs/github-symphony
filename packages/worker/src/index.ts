@@ -255,6 +255,12 @@ async function runCodexClientProtocol(
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+  const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
+  const threadSandbox =
+    env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
+  const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
+    ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
+    : undefined;
 
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
@@ -623,8 +629,8 @@ async function runCodexClientProtocol(
       {
         cwd: plan.cwd,
         developerInstructions: renderedPrompt,
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        approvalPolicy,
+        sandbox: threadSandbox,
         ephemeral: false,
         config: {
           mcp_servers: mcpServers,
@@ -679,7 +685,8 @@ async function runCodexClientProtocol(
         {
           threadId,
           input: [{ type: "text", text: turnInput }],
-          approvalPolicy: "never",
+          approvalPolicy,
+          sandboxPolicy: turnSandboxPolicy,
         }
       )) as Record<string, unknown>;
 

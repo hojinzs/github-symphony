@@ -1177,6 +1177,12 @@ export class OrchestratorService {
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
           SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
           SYMPHONY_AGENT_COMMAND: workflow.workflow.codex.command,
+          SYMPHONY_APPROVAL_POLICY:
+            workflow.workflow.codex.approvalPolicy ?? "",
+          SYMPHONY_THREAD_SANDBOX:
+            workflow.workflow.codex.threadSandbox ?? "",
+          SYMPHONY_TURN_SANDBOX_POLICY:
+            workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
           SYMPHONY_READ_TIMEOUT_MS: String(
             workflow.workflow.codex.readTimeoutMs

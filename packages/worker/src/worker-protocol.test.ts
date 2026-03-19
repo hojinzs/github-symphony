@@ -482,6 +482,19 @@ function createProtocolContext(options: {
   };
 }
 
+function readSentMessages(stream: PassThrough): Array<Record<string, unknown>> {
+  const chunk = stream.read();
+  if (!chunk) {
+    return [];
+  }
+
+  return chunk
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
 // ---------------------------------------------------------------------------
 // refreshTrackerState — replicated from index.ts lines 645-672
 // ---------------------------------------------------------------------------
@@ -719,6 +732,114 @@ describe("read timeout (3.5)", () => {
 
     const result = await promise;
     expect(result).toEqual({ serverInfo: { name: "codex", version: "1.0" } });
+  });
+
+  it("includes env-derived approval and sandbox settings in protocol requests", () => {
+    const ctx = createProtocolContext({ readTimeoutMs: 500 });
+    const env = {
+      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_THREAD_SANDBOX: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+    };
+    const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
+    const threadSandbox =
+      env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
+    const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
+      ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
+      : undefined;
+
+    void ctx.sendRequest("thread-1", "thread/start", {
+      cwd: "/tmp",
+      developerInstructions: "test prompt",
+      approvalPolicy,
+      sandbox: threadSandbox,
+    });
+    void ctx.sendRequest("turn-1", "turn/start", {
+      threadId: "thread-1",
+      input: [{ type: "text", text: "continue" }],
+      approvalPolicy,
+      sandboxPolicy: turnSandboxPolicy,
+    });
+
+    const messages = readSentMessages(ctx.fake.stdin);
+
+    expect(messages).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: "thread-1",
+        method: "thread/start",
+        params: {
+          cwd: "/tmp",
+          developerInstructions: "test prompt",
+          approvalPolicy: "on-request",
+          sandbox: "workspace-write",
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: "turn-1",
+        method: "turn/start",
+        params: {
+          threadId: "thread-1",
+          input: [{ type: "text", text: "continue" }],
+          approvalPolicy: "on-request",
+          sandboxPolicy: { type: "workspace-write" },
+        },
+      },
+    ]);
+  });
+
+  it("falls back to default approval and sandbox settings when env is empty", () => {
+    const ctx = createProtocolContext({ readTimeoutMs: 500 });
+    const env = {
+      SYMPHONY_APPROVAL_POLICY: "",
+      SYMPHONY_THREAD_SANDBOX: "",
+      SYMPHONY_TURN_SANDBOX_POLICY: "",
+    };
+    const approvalPolicy = env.SYMPHONY_APPROVAL_POLICY || "never";
+    const threadSandbox =
+      env.SYMPHONY_THREAD_SANDBOX || "danger-full-access";
+    const turnSandboxPolicy = env.SYMPHONY_TURN_SANDBOX_POLICY
+      ? { type: env.SYMPHONY_TURN_SANDBOX_POLICY }
+      : undefined;
+
+    void ctx.sendRequest("thread-1", "thread/start", {
+      cwd: "/tmp",
+      developerInstructions: "test prompt",
+      approvalPolicy,
+      sandbox: threadSandbox,
+    });
+    void ctx.sendRequest("turn-1", "turn/start", {
+      threadId: "thread-1",
+      input: [{ type: "text", text: "continue" }],
+      approvalPolicy,
+      sandboxPolicy: turnSandboxPolicy,
+    });
+
+    const messages = readSentMessages(ctx.fake.stdin);
+
+    expect(messages[0]).toEqual({
+      jsonrpc: "2.0",
+      id: "thread-1",
+      method: "thread/start",
+      params: {
+        cwd: "/tmp",
+        developerInstructions: "test prompt",
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+      },
+    });
+    expect(messages[1]).toEqual({
+      jsonrpc: "2.0",
+      id: "turn-1",
+      method: "turn/start",
+      params: {
+        threadId: "thread-1",
+        input: [{ type: "text", text: "continue" }],
+        approvalPolicy: "never",
+        sandboxPolicy: undefined,
+      },
+    });
   });
 });
 
