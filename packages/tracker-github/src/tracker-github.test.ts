@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
@@ -1119,9 +1120,22 @@ describe("resolveTrackerAdapter", () => {
     });
 
     expect(cacheKeys).toHaveLength(2);
-    expect(cacheKeys[0]).not.toContain("secret-token-a");
-    expect(cacheKeys[1]).not.toContain("secret-token-b");
-    expect(cacheKeys[0]).not.toBe(cacheKeys[1]);
+    const firstKey = JSON.parse(cacheKeys[0] ?? "{}") as {
+      tokenFingerprint?: string | null;
+    };
+    const secondKey = JSON.parse(cacheKeys[1] ?? "{}") as {
+      tokenFingerprint?: string | null;
+    };
+
+    expect(firstKey.tokenFingerprint).toBe(
+      createHash("sha256").update("secret-token-a").digest("hex")
+    );
+    expect(secondKey.tokenFingerprint).toBe(
+      createHash("sha256").update("secret-token-b").digest("hex")
+    );
+    expect(firstKey.tokenFingerprint).not.toBe("secret-token-a");
+    expect(secondKey.tokenFingerprint).not.toBe("secret-token-b");
+    expect(firstKey.tokenFingerprint).not.toBe(secondKey.tokenFingerprint);
   });
 
   it("fetches issue states by GraphQL issue ids using nodes lookup", async () => {
