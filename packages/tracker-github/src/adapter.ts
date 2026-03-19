@@ -247,6 +247,8 @@ export async function fetchProjectIssues(
   config: GitHubTrackerConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[]> {
+  // GitHub Project V2 does not expose query-time item filtering by workflow
+  // state, so callers must fetch the project items and filter in memory.
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
   const priorityOptionIds = config.priorityFieldName

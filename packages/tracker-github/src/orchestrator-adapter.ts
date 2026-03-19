@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import type {
   OrchestratorTrackerAdapter,
+  OrchestratorTrackerDependencies,
   OrchestratorTrackerConfig,
 } from "@gh-symphony/core";
 import {
@@ -17,6 +19,8 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
+    // GitHub Project V2 cannot filter project items by state at query time,
+    // so we reuse the full project fetch and apply state filtering locally.
     const issues = await listProjectIssues(project, dependencies);
     const normalizedStates = new Set(
       states.map((state) => state.trim().toLowerCase())
@@ -71,8 +75,15 @@ async function listProjectIssues(
   dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
 ) {
   const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+  const loadProjectIssues = () =>
+    fetchGithubProjectIssues(trackerConfig, dependencies.fetchImpl);
 
-  return fetchGithubProjectIssues(trackerConfig, dependencies.fetchImpl);
+  return (
+    dependencies.projectItemsCache?.getOrLoad(
+      buildProjectItemsCacheKey(trackerConfig, dependencies),
+      loadProjectIssues
+    ) ?? loadProjectIssues()
+  );
 }
 
 async function fetchProjectIssueStatesByIds(
@@ -114,6 +125,29 @@ function resolveGitHubTrackerConfig(
     ),
     timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
   };
+}
+
+function buildProjectItemsCacheKey(
+  config: ReturnType<typeof resolveGitHubTrackerConfig>,
+  _dependencies: OrchestratorTrackerDependencies
+): string {
+  return JSON.stringify({
+    adapter: "github-project",
+    apiUrl: config.apiUrl,
+    assignedOnly: config.assignedOnly ?? false,
+    priorityFieldName: config.priorityFieldName ?? null,
+    projectId: config.projectId,
+    timeoutMs: config.timeoutMs,
+    tokenFingerprint: hashToken(config.token),
+  });
+}
+
+function hashToken(token: string | null): string | null {
+  if (!token) {
+    return null;
+  }
+
+  return createHash("sha256").update(token).digest("hex");
 }
 
 const trackerAdapters: Record<string, OrchestratorTrackerAdapter> = {

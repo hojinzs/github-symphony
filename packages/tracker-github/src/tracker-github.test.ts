@@ -1,5 +1,10 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
+import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
+  type ProjectItemsCache,
+  type TrackedIssue,
+} from "@gh-symphony/core";
 import { normalizeGithubProjectItem } from "./adapter.js";
 import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
 import {
@@ -971,6 +976,248 @@ describe("resolveTrackerAdapter", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]?.identifier).toBe("acme/platform#1");
     expect(issues[0]?.state).toBe("Done");
+  });
+
+  it("reuses a shared project item cache across listIssues and listIssuesByStates", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const entries = new Map<string, Promise<TrackedIssue[]>>();
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        const cached = entries.get(key);
+        if (cached) {
+          return cached;
+        }
+
+        const pending = load();
+        entries.set(key, pending);
+        return pending;
+      },
+    };
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [
+                  makeProjectItem({
+                    itemId: "item-1",
+                    issueId: "issue-1",
+                    number: 1,
+                    title: "Done issue",
+                    assignees: [],
+                    state: "Done",
+                  }),
+                ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repositories: [],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+    };
+
+    const listed = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl,
+      projectItemsCache,
+    });
+    const filtered = await adapter.listIssuesByStates(project, ["Done"], {
+      token: "dependencies-token",
+      fetchImpl,
+      projectItemsCache,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(listed).toHaveLength(1);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.identifier).toBe(listed[0]?.identifier);
+  });
+
+  it("uses a non-reversible token fingerprint in the shared project item cache key", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const cacheKeys: string[] = [];
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        cacheKeys.push(key);
+        return load();
+      },
+    };
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repositories: [],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+    };
+
+    await adapter.listIssues(project, {
+      token: "secret-token-a",
+      fetchImpl,
+      projectItemsCache,
+    });
+    await adapter.listIssues(project, {
+      token: "secret-token-b",
+      fetchImpl,
+      projectItemsCache,
+    });
+
+    expect(cacheKeys).toHaveLength(2);
+    const firstKey = JSON.parse(cacheKeys[0] ?? "{}") as {
+      tokenFingerprint?: string | null;
+    };
+    const secondKey = JSON.parse(cacheKeys[1] ?? "{}") as {
+      tokenFingerprint?: string | null;
+    };
+
+    expect(firstKey.tokenFingerprint).toBe(
+      createHash("sha256").update("secret-token-a").digest("hex")
+    );
+    expect(secondKey.tokenFingerprint).toBe(
+      createHash("sha256").update("secret-token-b").digest("hex")
+    );
+    expect(firstKey.tokenFingerprint).not.toBe("secret-token-a");
+    expect(secondKey.tokenFingerprint).not.toBe("secret-token-b");
+    expect(firstKey.tokenFingerprint).not.toBe(secondKey.tokenFingerprint);
+  });
+
+  it("keys the shared project item cache with the resolved dependency token", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const cacheKeys: string[] = [];
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        cacheKeys.push(key);
+        process.env.GITHUB_GRAPHQL_TOKEN = "mutated-env-token";
+        return load();
+      },
+    };
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer dependencies-token");
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repositories: [],
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+        },
+      },
+    };
+
+    const previousToken = process.env.GITHUB_GRAPHQL_TOKEN;
+    process.env.GITHUB_GRAPHQL_TOKEN = "initial-env-token";
+
+    try {
+      await adapter.listIssues(project, {
+        token: "dependencies-token",
+        fetchImpl,
+        projectItemsCache,
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(cacheKeys).toHaveLength(1);
+      const cacheKey = JSON.parse(cacheKeys[0] ?? "{}") as {
+        tokenFingerprint?: string | null;
+      };
+      expect(cacheKey.tokenFingerprint).toBe(
+        createHash("sha256").update("dependencies-token").digest("hex")
+      );
+      expect(cacheKey.tokenFingerprint).not.toBe(
+        createHash("sha256").update("mutated-env-token").digest("hex")
+      );
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_GRAPHQL_TOKEN;
+      } else {
+        process.env.GITHUB_GRAPHQL_TOKEN = previousToken;
+      }
+    }
   });
 
   it("fetches issue states by GraphQL issue ids using nodes lookup", async () => {

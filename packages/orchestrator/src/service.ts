@@ -30,7 +30,9 @@ import {
   type OrchestratorEvent,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  type OrchestratorTrackerDependencies,
   type OrchestratorTrackerAdapter,
+  type ProjectItemsCache,
   type ProjectStatusSnapshot,
   type RepositoryRef,
   type RuntimeSessionRow,
@@ -146,10 +148,15 @@ export class OrchestratorService {
     } = {}
   ): Promise<void> {
     this.running = true;
-    await this.runSerialized(() => this.performStartupCleanup());
+    await this.runSerialized(() =>
+      this.performStartupCleanup(this.createTrackerDependencies())
+    );
 
     while (this.running) {
-      await this.runOnce(options);
+      await this.runOnceInternal(
+        options.issueIdentifier,
+        this.createTrackerDependencies()
+      );
 
       if (options.once || !this.running) {
         return;
@@ -164,23 +171,10 @@ export class OrchestratorService {
       issueIdentifier?: string;
     } = {}
   ): Promise<ProjectStatusSnapshot> {
-    return this.runSerialized(async () => {
-      const workflowResolutionCache = new Map<
-        string,
-        Promise<WorkflowResolution>
-      >();
-      this.workflowResolutionCache = workflowResolutionCache;
-      try {
-        return await this.reconcileProject(
-          this.projectConfig,
-          options.issueIdentifier
-        );
-      } finally {
-        if (this.workflowResolutionCache === workflowResolutionCache) {
-          this.workflowResolutionCache = null;
-        }
-      }
-    });
+    return this.runOnceInternal(
+      options.issueIdentifier,
+      this.createTrackerDependencies()
+    );
   }
 
   async status(): Promise<ProjectStatusSnapshot | null> {
@@ -357,7 +351,8 @@ export class OrchestratorService {
 
   private async reconcileProject(
     tenant: OrchestratorProjectConfig,
-    issueIdentifier?: string
+    issueIdentifier?: string,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
@@ -389,16 +384,16 @@ export class OrchestratorService {
         (run) =>
           run.projectId === tenant.projectId && isActiveRunStatus(run.status)
       );
-      const issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
-      const syncedActiveRuns = await this.syncActiveRunIssueStates(
+      const {
+        runs: syncedActiveRuns,
+        issuesByIdentifier: syncedIssuesByIdentifier,
+      } = await this.syncActiveRunIssueStates(
         tenant,
         trackerAdapter,
         currentActiveRuns,
-        now,
-        issues
+        now
       );
+      const issues = await trackerAdapter.listIssues(tenant, trackerDependencies);
       const filteredIssues = issueIdentifier
         ? issues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
@@ -406,6 +401,12 @@ export class OrchestratorService {
         : issues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
+      const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
+        filteredIssues.map((issue) => [issue.identifier, issue])
+      );
+      for (const [identifier, issue] of syncedIssuesByIdentifier) {
+        trackedIssuesByIdentifier.set(identifier, issue);
+      }
       const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
         isIssueOrchestrationClaimed(record.state)
@@ -504,60 +505,72 @@ export class OrchestratorService {
         );
       }
 
-      for (const issue of filteredIssues) {
-        const issueRecord = issueRecords.find(
-          (entry) =>
-            entry.issueId === issue.id &&
-            isIssueOrchestrationClaimed(entry.state)
-        );
-        if (!issueRecord) {
+      for (const issueRecord of issueRecords) {
+        if (!isIssueOrchestrationClaimed(issueRecord.state)) {
           continue;
         }
 
+        const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
+        if (!issue) {
+          continue;
+        }
+
+        const persistedRun = issueRecord.currentRunId
+          ? await this.store.loadRun(issueRecord.currentRunId, tenant.projectId)
+          : null;
+        const activeRun =
+          syncedActiveRuns.find((run) =>
+            isMatchingIssueRun(
+              run,
+              tenant.projectId,
+              issueRecord.issueId,
+              issueRecord.identifier
+            )
+          ) ?? persistedRun;
         const resolvedIssue = actionableCandidates.find(
           (candidate) => candidate.identifier === issue.identifier
         );
-        if (!resolvedIssue) {
-          const leasedRun = issueRecord.currentRunId
-            ? await this.store.loadRun(
-                issueRecord.currentRunId,
-                tenant.projectId
-              )
-            : null;
-          if (leasedRun?.processId) {
-            this.sendSignal(leasedRun.processId, "SIGTERM");
-            this.retireWorkerPid(leasedRun.processId);
-          }
-          if (leasedRun) {
-            const suppressedRun: OrchestratorRunRecord = {
-              ...leasedRun,
-              status: "suppressed",
-              processId: null,
-              completedAt: now.toISOString(),
-              updatedAt: now.toISOString(),
-              runPhase: "canceled_by_reconciliation",
-              lastError:
-                "Run suppressed because the tracker state is no longer actionable.",
-            };
-            await this.store.saveRun(suppressedRun);
-            this.logVerbose(
-              `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
-            );
-          }
-          issueRecords = releaseIssueOrchestration(
-            issueRecords,
-            issue.id,
-            now
-          );
-          suppressed += 1;
+        if (resolvedIssue) {
+          continue;
         }
+
+        if (activeRun?.processId) {
+          this.sendSignal(activeRun.processId, "SIGTERM");
+          this.retireWorkerPid(activeRun.processId);
+        }
+        if (activeRun) {
+          const suppressedRun: OrchestratorRunRecord = {
+            ...activeRun,
+            status: "suppressed",
+            processId: null,
+            completedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            runPhase: "canceled_by_reconciliation",
+            lastError:
+              "Run suppressed because the tracker state is no longer actionable.",
+          };
+          await this.store.saveRun(suppressedRun);
+          this.logVerbose(
+            `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+          );
+        }
+        issueRecords = releaseIssueOrchestration(
+          issueRecords,
+          issueRecord.issueId,
+          now
+        );
+        suppressed += 1;
       }
 
-      // Clean up issue workspaces for terminal issues
-      for (const issue of filteredIssues) {
+      const terminalIssuesByIdentifier = new Map<string, TrackedIssue>();
+      for (const issue of trackedIssuesByIdentifier.values()) {
         if (!isStateTerminal(issue.state, lifecycle)) {
           continue;
         }
+        terminalIssuesByIdentifier.set(issue.identifier, issue);
+      }
+
+      for (const issue of terminalIssuesByIdentifier.values()) {
         await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
       }
     } catch (error) {
@@ -589,7 +602,9 @@ export class OrchestratorService {
     return status;
   }
 
-  private async performStartupCleanup(): Promise<void> {
+  private async performStartupCleanup(
+    trackerDependencies: OrchestratorTrackerDependencies = {}
+  ): Promise<void> {
     const tenant = this.projectConfig;
     const now = this.now();
     const workspaceRecords = await this.store.loadIssueWorkspaces(tenant.projectId);
@@ -608,9 +623,7 @@ export class OrchestratorService {
           workspaceRecords,
           workflowCache
         ),
-        {
-          fetchImpl: this.dependencies.fetchImpl,
-        }
+        trackerDependencies
       );
     } catch (error) {
       const message =
@@ -796,6 +809,37 @@ export class OrchestratorService {
     } finally {
       release();
     }
+  }
+
+  private async runOnceInternal(
+    issueIdentifier: string | undefined,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<ProjectStatusSnapshot> {
+    return this.runSerialized(async () => {
+      const workflowResolutionCache = new Map<
+        string,
+        Promise<WorkflowResolution>
+      >();
+      this.workflowResolutionCache = workflowResolutionCache;
+      try {
+        return await this.reconcileProject(
+          this.projectConfig,
+          issueIdentifier,
+          trackerDependencies
+        );
+      } finally {
+        if (this.workflowResolutionCache === workflowResolutionCache) {
+          this.workflowResolutionCache = null;
+        }
+      }
+    });
+  }
+
+  private createTrackerDependencies(): OrchestratorTrackerDependencies {
+    return {
+      fetchImpl: this.dependencies.fetchImpl,
+      projectItemsCache: createProjectItemsCache(),
+    };
   }
 
   private async findLatestRunForIssue(
@@ -1164,19 +1208,29 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     trackerAdapter: OrchestratorTrackerAdapter,
     activeRuns: OrchestratorRunRecord[],
-    now: Date,
-    issuesSnapshot?: readonly TrackedIssue[]
-  ): Promise<OrchestratorRunRecord[]> {
+    now: Date
+  ): Promise<{
+    runs: OrchestratorRunRecord[];
+    issuesByIdentifier: Map<string, TrackedIssue>;
+  }> {
     const activeIssueIds = [...new Set(activeRuns.map((run) => run.issueId))];
     if (activeIssueIds.length === 0) {
-      return activeRuns;
+      return {
+        runs: activeRuns,
+        issuesByIdentifier: new Map(),
+      };
     }
 
-    const issues =
-      issuesSnapshot?.filter((issue) => activeIssueIds.includes(issue.id)) ??
-      (await trackerAdapter.fetchIssueStatesByIds(tenant, activeIssueIds, {
+    const issues = await trackerAdapter.fetchIssueStatesByIds(
+      tenant,
+      activeIssueIds,
+      {
         fetchImpl: this.dependencies.fetchImpl,
-      }));
+      }
+    );
+    const issuesByIdentifier = new Map<string, TrackedIssue>(
+      issues.map((issue) => [issue.identifier, issue])
+    );
     const issueStateByIdentifier = new Map<string, TrackedIssue["state"]>(
       issues.map((issue) => [issue.identifier, issue.state])
     );
@@ -1198,7 +1252,10 @@ export class OrchestratorService {
       syncedRuns.push(updatedRun);
     }
 
-    return syncedRuns;
+    return {
+      runs: syncedRuns,
+      issuesByIdentifier,
+    };
   }
 
   private async reconcileRun(
@@ -2294,6 +2351,26 @@ export function sortCandidatesForDispatch(
     // 3. identifier lexicographic
     return a.identifier.localeCompare(b.identifier);
   });
+}
+
+function createProjectItemsCache(): ProjectItemsCache {
+  const entries = new Map<string, Promise<TrackedIssue[]>>();
+
+  return {
+    getOrLoad(key, load) {
+      const cached = entries.get(key);
+      if (cached) {
+        return cached;
+      }
+
+      const pending = load().catch((error) => {
+        entries.delete(key);
+        throw error;
+      });
+      entries.set(key, pending);
+      return pending;
+    },
+  };
 }
 
 function wait(ms: number): Promise<void> {

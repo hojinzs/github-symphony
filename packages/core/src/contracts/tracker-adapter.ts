@@ -40,29 +40,33 @@ export type TrackedIssue = {
   metadata: Record<string, string>;
 };
 
+export type ProjectItemsCache = {
+  getOrLoad(
+    key: string,
+    load: () => Promise<TrackedIssue[]>
+  ): Promise<TrackedIssue[]>;
+};
+
+export type OrchestratorTrackerDependencies = {
+  fetchImpl?: typeof fetch;
+  token?: string;
+  projectItemsCache?: ProjectItemsCache;
+};
+
 export type OrchestratorTrackerAdapter = {
   listIssues(
     project: OrchestratorProjectConfig,
-    dependencies?: {
-      fetchImpl?: typeof fetch;
-      token?: string;
-    }
+    dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackedIssue[]>;
   listIssuesByStates(
     project: OrchestratorProjectConfig,
     states: readonly string[],
-    dependencies?: {
-      fetchImpl?: typeof fetch;
-      token?: string;
-    }
+    dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackedIssue[]>;
   fetchIssueStatesByIds(
     project: OrchestratorProjectConfig,
     issueIds: readonly string[],
-    dependencies?: {
-      fetchImpl?: typeof fetch;
-      token?: string;
-    }
+    dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackedIssue[]>;
   buildWorkerEnvironment(
     project: OrchestratorProjectConfig,
