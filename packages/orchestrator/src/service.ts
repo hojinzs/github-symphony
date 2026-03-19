@@ -18,6 +18,7 @@ import {
   isStateActive,
   isStateTerminal,
   matchesWorkflowState,
+  readEnvFile,
   renderPrompt,
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
@@ -1123,8 +1124,7 @@ export class OrchestratorService {
       ["-lc", resolveWorkerCommand()],
       {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
+        env: this.buildProjectExecutionEnv(tenant.projectId, {
           GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
@@ -1156,7 +1156,7 @@ export class OrchestratorService {
           SYMPHONY_TURN_TIMEOUT_MS: String(
             workflow.workflow.codex.turnTimeoutMs
           ),
-        },
+        }),
         detached: true,
         stdio: ["ignore", "ignore", workerLogFd],
       }
@@ -1831,7 +1831,10 @@ export class OrchestratorService {
       if (!isUsableWorkflowResolution(workflowResolution)) {
         return null;
       }
-      const hookEnv = buildHookEnv(context);
+      const hookEnv = this.buildProjectExecutionEnv(
+        tenant.projectId,
+        buildHookEnv(context)
+      );
       return executeWorkspaceHook({
         kind,
         hooks: workflowResolution.workflow.hooks,
@@ -1843,6 +1846,42 @@ export class OrchestratorService {
       // If workflow cannot be loaded, skip hook execution
       return null;
     }
+  }
+
+  private readProjectEnv(projectId: string): Record<string, string> {
+    const envPath = join(this.store.projectDir(projectId), ".env");
+    try {
+      return readEnvFile(envPath);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error occurred.";
+      (this.dependencies.stderr ?? process.stderr).write(
+        `[warn] Failed to load project env for ${projectId} from ${envPath}: ${message}\n`
+      );
+      return {};
+    }
+  }
+
+  private buildProjectExecutionEnv(
+    projectId: string,
+    env: Record<string, string | undefined>
+  ): Record<string, string> {
+    const inheritedEnv = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+    const explicitEnv = Object.fromEntries(
+      Object.entries(env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+
+    return {
+      ...this.readProjectEnv(projectId),
+      ...inheritedEnv,
+      ...explicitEnv,
+    };
   }
 
   private async restartRun(

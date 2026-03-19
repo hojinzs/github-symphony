@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readEnvFile } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -125,28 +125,6 @@ if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });
-}
-
-function readEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) {
-    return {};
-  }
-
-  return readFileSync(path, "utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#") && line.includes("="))
-    .reduce<Record<string, string>>((result, line) => {
-      const separatorIndex = line.indexOf("=");
-      const key = line.slice(0, separatorIndex).trim();
-      const value = line.slice(separatorIndex + 1).trim();
-
-      if (key) {
-        result[key] = value;
-      }
-
-      return result;
-    }, {});
 }
 
 function emitLaunchSummary(config: CodexRuntimeConfig) {
