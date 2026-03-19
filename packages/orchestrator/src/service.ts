@@ -1097,7 +1097,7 @@ export class OrchestratorService {
           TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
           TARGET_REPOSITORY_NAME: issue.repository.name,
-          TARGET_REPOSITORY_URL: issue.repository.url ?? "",
+          TARGET_REPOSITORY_URL: issue.repository.url,
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
           SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
@@ -1777,15 +1777,30 @@ export class OrchestratorService {
   }
 
   private readProjectEnv(projectId: string): Record<string, string> {
-    return readEnvFile(join(this.store.projectDir(projectId), ".env"));
+    const envPath = join(this.store.projectDir(projectId), ".env");
+    try {
+      return readEnvFile(envPath);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error occurred.";
+      (this.dependencies.stderr ?? process.stderr).write(
+        `[warn] Failed to load project env for ${projectId} from ${envPath}: ${message}\n`
+      );
+      return {};
+    }
   }
 
   private buildProjectExecutionEnv(
     projectId: string,
-    env: Record<string, string>
+    env: Record<string, string | undefined>
   ): Record<string, string> {
     const inheritedEnv = Object.fromEntries(
       Object.entries(process.env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+    const explicitEnv = Object.fromEntries(
+      Object.entries(env).filter(
         (entry): entry is [string, string] => typeof entry[1] === "string"
       )
     );
@@ -1793,7 +1808,7 @@ export class OrchestratorService {
     return {
       ...this.readProjectEnv(projectId),
       ...inheritedEnv,
-      ...env,
+      ...explicitEnv,
     };
   }
 

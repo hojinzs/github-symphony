@@ -2956,6 +2956,100 @@ Prefer focused changes.
     }
   });
 
+  it("does not force TARGET_REPOSITORY_URL to an empty string when the repository URL is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalTargetRepositoryUrl = process.env.TARGET_REPOSITORY_URL;
+    delete process.env.TARGET_REPOSITORY_URL;
+
+    try {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-worker-missing-repository-url-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4307,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(
+          createTrackerResponseWithItems(repository, [
+            {
+              id: "issue-1",
+              identifier: "acme/platform#1",
+              state: "Todo",
+              repositoryUrl: null,
+            },
+          ])
+        ),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+      expect(Object.hasOwn(spawnEnv ?? {}, "TARGET_REPOSITORY_URL")).toBe(false);
+    } finally {
+      if (originalTargetRepositoryUrl === undefined) {
+        delete process.env.TARGET_REPOSITORY_URL;
+      } else {
+        process.env.TARGET_REPOSITORY_URL = originalTargetRepositoryUrl;
+      }
+    }
+  });
+
+  it("falls back to inherited env when the project .env file cannot be read", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-unreadable-project-env-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await mkdir(join(store.projectDir(projectConfig.projectId), ".env"), {
+      recursive: true,
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4308,
+      unref: vi.fn(),
+    });
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      stderr,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await expect(service.runOnce()).resolves.toMatchObject({
+      summary: {
+        dispatched: 1,
+      },
+    });
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Failed to load project env for ${projectConfig.projectId}`
+      )
+    );
+  });
+
   it("loads project .env for absolute hook paths", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -3423,6 +3517,7 @@ function createTrackerResponseWithItems(
     id: string;
     identifier: string;
     state: string;
+    repositoryUrl?: string | null;
   }>
 ) {
   return {
@@ -3466,7 +3561,10 @@ function createTrackerResponseWithItems(
                   owner: {
                     login: repository.owner,
                   },
-                  url: `file://${repository.cloneUrl}`,
+                  url:
+                    "repositoryUrl" in item
+                      ? item.repositoryUrl
+                      : `file://${repository.cloneUrl}`,
                 },
               },
             })),
