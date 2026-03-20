@@ -77,7 +77,7 @@ STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 echo "[]" > e2e/fixtures/issues.json
 mkdir -p evidence
 docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
-curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
+curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
 ### 2. 이슈 주입
@@ -181,7 +181,9 @@ idle → [inject issue + refresh]
      → running (stub worker ~7s for happy scenario)
      → retrying/continuation (issue still in active state)
      → [remove issue]
-     → retrying/failure → max attempts → released
+     → retrying/failure
+     → [due retry + tracker recheck confirms issue missing/non-actionable]
+     → released
      → idle
 ```
 

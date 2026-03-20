@@ -7,7 +7,7 @@ echo "[]" > e2e/fixtures/issues.json
 # `docker-compose.e2e.yml` sets `STUB_SCENARIO: ${STUB_SCENARIO:-happy}`,
 # so prefixing the command switches the stub container to the fail scenario.
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
-curl --retry 10 --retry-delay 2 --fail http://localhost:4680/healthz
+curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
 ## Steps
