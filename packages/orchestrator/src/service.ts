@@ -55,7 +55,6 @@ const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
-const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 
 type ProjectWorkflowResolution = Awaited<
@@ -132,7 +131,6 @@ export class OrchestratorService {
       now?: () => Date;
       concurrency?: number;
       pollIntervalMs?: number;
-      maxAttempts?: number;
       retryBackoffMs?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
@@ -1425,27 +1423,6 @@ export class OrchestratorService {
       } as OrchestratorEvent);
     }
 
-    if (run.attempt >= this.getProjectMaxAttempts(tenant)) {
-      const failedRecord: OrchestratorRunRecord = {
-        ...runWithTokens,
-        status: "failed",
-        completedAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        retryKind: runWithTokens.retryKind ?? "failure",
-        runPhase: runWithTokens.runPhase ?? "failed",
-        lastError:
-          runWithTokens.lastError ?? "Worker process exited unexpectedly.",
-      };
-      await this.store.saveRun(failedRecord);
-      this.logVerbose(
-        `[run-completed] ${failedRecord.runId} status=${failedRecord.status}`
-      );
-      return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
-        recovered: false,
-      };
-    }
-
     if (run.status === "retrying" && run.nextRetryAt) {
       if (new Date(run.nextRetryAt).getTime() > now.getTime()) {
         return {
@@ -2194,10 +2171,6 @@ export class OrchestratorService {
     }
 
     return cloneUrl;
-  }
-
-  private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {
-    return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
   private isProcessRunning(processId: number): boolean {
