@@ -44,7 +44,10 @@ COPY e2e/seed/entrypoint.sh /e2e/entrypoint.sh
 RUN chmod +x /e2e/entrypoint.sh
 
 # Ensure fixtures directory exists
-RUN mkdir -p /e2e/fixtures
+RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence && \
+    chown -R node:node /app /e2e
+
+USER node
 
 ENV NODE_ENV=production
 ENV SYMPHONY_WORKER_COMMAND="node /app/e2e/stub-worker.js"

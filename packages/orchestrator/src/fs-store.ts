@@ -66,9 +66,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     );
   }
 
-  async saveProjectConfig(
-    config: OrchestratorProjectConfig
-  ): Promise<void> {
+  async saveProjectConfig(config: OrchestratorProjectConfig): Promise<void> {
     await writeJsonFile(
       join(this.projectDir(config.projectId), "project.json"),
       config
@@ -182,7 +180,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async saveRun(run: OrchestratorRunRecord): Promise<void> {
-    await writeJsonFile(join(this.runDir(run.runId, run.projectId), "run.json"), run);
+    await writeJsonFile(
+      join(this.runDir(run.runId, run.projectId), "run.json"),
+      run
+    );
   }
 
   async appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void> {
@@ -204,7 +205,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     const resolvedPath = resolve(path);
     const serializedEvent = JSON.stringify(event) + "\n";
     await mkdir(dirname(path), { recursive: true });
-    await appendFile(path, serializedEvent, "utf8");
+    await appendFile(path, serializedEvent, {
+      encoding: "utf8",
+      mode: 0o666,
+    });
 
     const mirrorPath = this.resolveMirroredEventsPath(resolvedPath);
     if (!mirrorPath) {
@@ -213,7 +217,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 
     try {
       await mkdir(dirname(mirrorPath), { recursive: true });
-      await appendFile(mirrorPath, serializedEvent, "utf8");
+      await appendFile(mirrorPath, serializedEvent, {
+        encoding: "utf8",
+        mode: 0o666,
+      });
     } catch (error) {
       console.warn(
         `Failed to mirror orchestrator event log to ${mirrorPath}: ${
@@ -289,10 +296,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   ): Promise<IssueWorkspaceRecord | null> {
     return (
       (await readJsonFile<IssueWorkspaceRecord>(
-        join(
-          this.issueWorkspaceDir(projectId, workspaceKey),
-          "workspace.json"
-        )
+        join(this.issueWorkspaceDir(projectId, workspaceKey), "workspace.json")
       )) ?? null
     );
   }
@@ -431,9 +435,7 @@ function formatEventMessage(event: OrchestratorEvent): string | null {
     case "hook-failed":
       return event.error;
     case "workspace-cleanup":
-      return event.error
-        ? `${event.outcome}: ${event.error}`
-        : event.outcome;
+      return event.error ? `${event.outcome}: ${event.error}` : event.outcome;
     case "worker-error":
       return event.error;
     default:

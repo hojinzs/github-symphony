@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, readFile, stat } from "node:fs/promises";
 import { chdir } from "node:process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -60,7 +60,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
           issueIdentifier: "acme/repo#1",
           issueState: "Todo",
         }),
-        "{\"bad\":",
+        '{"bad":',
         JSON.stringify({
           at: "2026-03-16T00:01:00.000Z",
           event: "worker-error",
@@ -141,6 +141,54 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         "utf8"
       )
     ).resolves.toContain('"event":"hook-failed"');
+  });
+
+  it("creates primary and mirrored event logs with group/world writable defaults", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const eventsMirrorRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-events-")
+    );
+    const store = new OrchestratorFsStore(runtimeRoot, {
+      eventsMirrorRoot,
+    });
+
+    const previousUmask = process.umask(0);
+
+    try {
+      await store.appendRunEvent("run-1", {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "hook-failed",
+        projectId: "project-1",
+        hook: "after_create",
+        error: "hook failed",
+      });
+
+      const primaryStats = await stat(
+        join(
+          runtimeRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        )
+      );
+      const mirroredStats = await stat(
+        join(
+          eventsMirrorRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        )
+      );
+
+      expect(primaryStats.mode & 0o666).toBe(0o666);
+      expect(mirroredStats.mode & 0o666).toBe(0o666);
+    } finally {
+      process.umask(previousUmask);
+    }
   });
 
   it("mirrors events when the runtime root is configured as a relative path", async () => {
