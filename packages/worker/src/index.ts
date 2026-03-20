@@ -199,17 +199,26 @@ async function startAssignedRun() {
     childProcess.once(
       "exit",
       (code: number | null, signal: NodeJS.Signals | null) => {
-        runtimeState.status = code === 0 && !signal ? "completed" : "failed";
-        runtimeState.runPhase = resolveExitRunPhase(runtimeState.runPhase, {
+        const currentRunPhase = runtimeState.runPhase;
+        const nextRunPhase = resolveExitRunPhase(currentRunPhase, {
           code,
           signal,
         });
+        const preservesTerminalPhase =
+          currentRunPhase != null && nextRunPhase === currentRunPhase;
+
+        if (!preservesTerminalPhase) {
+          runtimeState.status = code === 0 && !signal ? "completed" : "failed";
+        }
+        runtimeState.runPhase = nextRunPhase;
 
         if (runtimeState.run) {
-          runtimeState.run.lastError =
-            code === 0 && !signal
-              ? null
-              : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
+          if (!preservesTerminalPhase) {
+            runtimeState.run.lastError =
+              code === 0 && !signal
+                ? null
+                : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
+          }
         }
         void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
       }
@@ -299,6 +308,64 @@ async function runCodexClientProtocol(
   // Turn completion signaling
   let turnCompletedResolve: (() => void) | null = null;
   let userInputRequired = false;
+  type TurnTerminalFailurePhase = "failed" | "canceled_by_reconciliation";
+  let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
+
+  function resolvePendingTurnCompletion(): void {
+    if (turnCompletedResolve) {
+      turnCompletedResolve();
+      turnCompletedResolve = null;
+    }
+  }
+
+  function describeTurnTerminalEvent(
+    event: "turn/failed" | "turn/cancelled",
+    params: unknown
+  ): string | null {
+    const fallback =
+      event === "turn/failed"
+        ? "turn_failed: codex reported turn failure"
+        : "turn_cancelled: codex reported turn cancellation";
+
+    if (!params || typeof params !== "object") {
+      return fallback;
+    }
+
+    const record = params as Record<string, unknown>;
+    const directReasonKeys = ["message", "reason", "error"];
+
+    for (const key of directReasonKeys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) {
+        return `${event.replace("/", "_")}: ${value.trim()}`;
+      }
+      if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as Record<string, unknown>).message === "string"
+      ) {
+        return `${event.replace("/", "_")}: ${String((value as Record<string, unknown>).message).trim()}`;
+      }
+    }
+
+    const serialized = JSON.stringify(params).slice(0, 300);
+    return serialized && serialized !== "{}"
+      ? `${event.replace("/", "_")}: ${serialized}`
+      : fallback;
+  }
+
+  function markTurnTerminalFailure(
+    runPhase: TurnTerminalFailurePhase,
+    lastError: string | null
+  ): void {
+    runtimeState.status = "failed";
+    runtimeState.runPhase = runPhase;
+    if (runtimeState.run) {
+      runtimeState.run.lastError = lastError;
+    }
+    turnTerminalFailurePhase = runPhase;
+    resolvePendingTurnCompletion();
+  }
 
   function sendMessage(msg: Record<string, unknown>): void {
     const line = JSON.stringify(msg) + "\n";
@@ -519,10 +586,7 @@ async function runCodexClientProtocol(
         }
       }
       // Resolve any pending turn completion
-      if (turnCompletedResolve) {
-        turnCompletedResolve();
-        turnCompletedResolve = null;
-      }
+      resolvePendingTurnCompletion();
       return;
     }
 
@@ -540,10 +604,33 @@ async function runCodexClientProtocol(
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
       process.stderr.write("[worker] codex turn/completed\n");
-      if (turnCompletedResolve) {
-        turnCompletedResolve();
-        turnCompletedResolve = null;
-      }
+      resolvePendingTurnCompletion();
+      return;
+    }
+
+    if (msg.method === "turn/failed") {
+      flushDeltaBuffer();
+      const lastError = describeTurnTerminalEvent(
+        "turn/failed",
+        msg.params ?? null
+      );
+      process.stderr.write(
+        `[worker] codex turn/failed ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
+      );
+      markTurnTerminalFailure("failed", lastError);
+      return;
+    }
+
+    if (msg.method === "turn/cancelled") {
+      flushDeltaBuffer();
+      const lastError = describeTurnTerminalEvent(
+        "turn/cancelled",
+        msg.params ?? null
+      );
+      process.stderr.write(
+        `[worker] codex turn/cancelled ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
+      );
+      markTurnTerminalFailure("canceled_by_reconciliation", lastError);
       return;
     }
 
@@ -735,6 +822,13 @@ async function runCodexClientProtocol(
         break;
       }
 
+      if (turnTerminalFailurePhase) {
+        process.stderr.write(
+          `[worker] exiting due to ${turnTerminalFailurePhase}\n`
+        );
+        break;
+      }
+
       // Check if we should continue with another turn
       if (turn + 1 >= maxTurns) {
         process.stderr.write(
@@ -767,13 +861,18 @@ async function runCodexClientProtocol(
       `[worker] multi-turn loop complete after ${turnCount} turn(s) — exiting worker\n`
     );
     runtimeState.runPhase = "finishing";
-    runtimeState.status = userInputRequired ? "failed" : "completed";
-    runtimeState.runPhase = userInputRequired ? "failed" : "succeeded";
+    runtimeState.status =
+      userInputRequired || turnTerminalFailurePhase ? "failed" : "completed";
+    runtimeState.runPhase = userInputRequired
+      ? "failed"
+      : turnTerminalFailurePhase ?? "succeeded";
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
 
     // Brief delay so the state API can serve the final status once.
     setTimeout(() => {
-      server.close(() => process.exit(userInputRequired ? 1 : 0));
+      server.close(() =>
+        process.exit(userInputRequired || turnTerminalFailurePhase ? 1 : 0)
+      );
     }, 1500);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
