@@ -117,6 +117,20 @@ console.log(
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 
+function composeTurnTitle(
+  issueIdentifierValue: string | undefined,
+  issueTitleValue: string | undefined
+): string {
+  const issueIdentifier = issueIdentifierValue?.trim() ?? "";
+  const issueTitle = issueTitleValue?.trim() ?? "";
+
+  if (issueIdentifier && issueTitle) {
+    return `${issueIdentifier}: ${issueTitle}`;
+  }
+
+  return issueIdentifier || issueTitle || "Untitled issue";
+}
+
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
 }
@@ -670,7 +684,6 @@ async function runCodexClientProtocol(
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
-      const issueTitle = env.SYMPHONY_ISSUE_TITLE ?? "";
       const turnInput = isFirstTurn
         ? renderedPrompt
         : "Continue working on the issue. Review your progress and complete any remaining tasks.";
@@ -688,7 +701,10 @@ async function runCodexClientProtocol(
           threadId,
           input: [{ type: "text", text: turnInput }],
           cwd: plan.cwd,
-          title: `${issueIdentifier}: ${issueTitle}`,
+          title: composeTurnTitle(
+            issueIdentifier,
+            env.SYMPHONY_ISSUE_TITLE
+          ),
           approvalPolicy,
           sandboxPolicy: turnSandboxPolicy,
         }
