@@ -55,7 +55,6 @@ const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
-const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 
 type ProjectWorkflowResolution = Awaited<
@@ -132,8 +131,9 @@ export class OrchestratorService {
       now?: () => Date;
       concurrency?: number;
       pollIntervalMs?: number;
-      maxAttempts?: number;
       retryBackoffMs?: number;
+      /** @deprecated No longer used. Retry scheduling is governed by backoff policy only. */
+      maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
       waitImpl?: (ms: number) => Promise<void>;
@@ -1427,33 +1427,18 @@ export class OrchestratorService {
       } as OrchestratorEvent);
     }
 
-    if (run.attempt >= this.getProjectMaxAttempts(tenant)) {
-      const failedRecord: OrchestratorRunRecord = {
-        ...runWithTokens,
-        status: "failed",
-        completedAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        retryKind: runWithTokens.retryKind ?? "failure",
-        runPhase: runWithTokens.runPhase ?? "failed",
-        lastError:
-          runWithTokens.lastError ?? "Worker process exited unexpectedly.",
-      };
-      await this.store.saveRun(failedRecord);
-      this.logVerbose(
-        `[run-completed] ${failedRecord.runId} status=${failedRecord.status}`
-      );
-      return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
-        recovered: false,
-      };
-    }
-
     if (run.status === "retrying" && run.nextRetryAt) {
       if (new Date(run.nextRetryAt).getTime() > now.getTime()) {
         return {
           issueRecords,
           recovered: false,
         };
+      }
+
+      if (
+        (await this.resolveRetryRestartAction(tenant, run)) === "release"
+      ) {
+        return this.releaseRetryingRun(runWithTokens, issueRecords, now);
       }
 
       return this.restartRun(
@@ -1661,6 +1646,38 @@ export class OrchestratorService {
     } catch {
       return "failure";
     }
+  }
+
+  private async resolveRetryRestartAction(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<"restart" | "release"> {
+    try {
+      const runIssue = await this.fetchTrackedIssueById(tenant, run.issueId);
+      if (!runIssue) {
+        return "release";
+      }
+      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
+      if (!isUsableWorkflowResolution(resolution)) {
+        return "restart";
+      }
+      return isStateActive(runIssue.state, resolution.lifecycle)
+        ? "restart"
+        : "release";
+    } catch {
+      return "restart";
+    }
+  }
+
+  private async fetchTrackedIssueById(
+    tenant: OrchestratorProjectConfig,
+    issueId: string
+  ): Promise<TrackedIssue | null> {
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const issues = await trackerAdapter.fetchIssueStatesByIds(tenant, [issueId], {
+      fetchImpl: this.dependencies.fetchImpl,
+    });
+    return issues[0] ?? null;
   }
 
   /**
@@ -2000,6 +2017,36 @@ export class OrchestratorService {
     };
   }
 
+  private async releaseRetryingRun(
+    run: OrchestratorRunRecord,
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+  }> {
+    const suppressedRun: OrchestratorRunRecord = {
+      ...run,
+      status: "suppressed",
+      processId: null,
+      completedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      nextRetryAt: null,
+      runPhase: "canceled_by_reconciliation",
+      lastError:
+        "Retry canceled because the tracker issue is no longer actionable.",
+    };
+    await this.store.saveRun(suppressedRun);
+    this.logVerbose(
+      `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+    );
+
+    return {
+      issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+      recovered: false,
+    };
+  }
+
   private async loadProjectPollInterval(
     tenant: OrchestratorProjectConfig
   ): Promise<number> {
@@ -2196,10 +2243,6 @@ export class OrchestratorService {
     }
 
     return cloneUrl;
-  }
-
-  private getProjectMaxAttempts(_project: OrchestratorProjectConfig): number {
-    return this.dependencies.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   }
 
   private isProcessRunning(processId: number): boolean {

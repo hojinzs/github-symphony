@@ -1064,8 +1064,66 @@ Prefer focused changes.
       pid: 4102,
       unref: vi.fn(),
     });
+    const listIssues = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn().mockReturnValue({
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      }),
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1080,16 +1138,244 @@ Prefer focused changes.
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_ISSUE_STATE: "Todo",
-          SYMPHONY_ISSUE_TITLE: "Persisted issue title",
+          SYMPHONY_ISSUE_TITLE: "Test issue",
         }),
+      })
+    );
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
       })
     );
 
     const runs = await store.loadAllRuns();
     const recoveredRun = runs.find((run) => run.runId !== "run-1");
 
-    expect(recoveredRun?.issueTitle).toBe("Persisted issue title");
+    expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");
+  });
+
+  it("releases due retrying runs when the tracker issue is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-retry-release-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:10.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn();
+    const listIssues = vi.fn();
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.recovered).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
+      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+    expect(updatedRun?.status).toBe("suppressed");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
+    expect(updatedRun?.lastError).toBe(
+      "Retry canceled because the tracker issue is no longer actionable."
+    );
+    expect(issueRecords[0]).toMatchObject({
+      issueId: "issue-1",
+      state: "released",
+      currentRunId: null,
+      retryEntry: null,
+    });
+  });
+
+  it("keeps restarting due retrying runs when tracker eligibility cannot be confirmed", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-retry-transient-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:10.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4103,
+      unref: vi.fn(),
+    });
+    const listIssues = vi.fn();
+    const fetchIssueStatesByIds = vi
+      .fn()
+      .mockRejectedValue(new Error("tracker unavailable"));
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn().mockReturnValue({
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      }),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.recovered).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+    expect(listIssues).not.toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
@@ -1635,6 +1921,93 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("retrying");
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
     expect(updatedRun?.retryKind).toBe("failure");
+  });
+
+  it("keeps scheduling retries after the third failed attempt", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-unbounded-retry-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/v1/state")) {
+        return Promise.resolve({
+          ok: false,
+          json: vi.fn(),
+        } as Response);
+      }
+      return Promise.resolve(createEmptyTrackerResponse());
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun?.status).toBe("retrying");
+    expect(updatedRun?.attempt).toBe(4);
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
+    expect(issueRecords[0]?.state).toBe("retry_queued");
+    expect(issueRecords[0]?.retryEntry).toEqual({
+      attempt: 4,
+      dueAt: "2026-03-08T00:00:07.000Z",
+      error: "Worker process exited unexpectedly.",
+    });
   });
 
   it("uses a fixed 1000ms delay for continuation retries", async () => {

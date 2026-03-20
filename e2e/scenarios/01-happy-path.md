@@ -5,7 +5,7 @@
 ```bash
 echo "[]" > e2e/fixtures/issues.json
 docker compose -f docker-compose.e2e.yml up -d --build
-curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
+curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
 ## Steps
@@ -55,7 +55,8 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.health, .summary.activeRuns'
    # Expected: health="idle", activeRuns=0
-   # Worker exits → issue not found → retryKind="failure" → max attempts → released
+   # Worker exits → issue not found → retryKind="failure"
+   # Due retry rechecks tracker eligibility and releases the orchestration
    ```
 
 9. **Verify event log**
@@ -76,7 +77,7 @@ idle → [inject issue + refresh] → dispatching (git clone ~3s)
 - Stub worker reports status via `/api/v1/state` endpoint
 - Orchestrator polls worker and tracks executionPhase, lastEvent
 - After worker exit, orchestrator classifies retry as "continuation" (issue still active)
-- After issue removal, retry becomes "failure" and run is eventually released
+- After issue removal, retry becomes "failure", and the due retry tick releases the run instead of restarting a worker
 
 ## Cleanup
 
