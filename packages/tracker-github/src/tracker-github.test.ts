@@ -212,6 +212,65 @@ describe("resolveTrackerAdapter", () => {
     expect(adapter.reviveIssue).toBeTypeOf("function");
   });
 
+  it("revives issue title from run records when available", () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issue = adapter.reviveIssue(
+      {
+        projectId: "tenant-1",
+        slug: "tenant-1",
+        workspaceDir: "/tmp/workspaces/tenant-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        runId: "run-1",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueTitle: "Preserved title",
+        issueState: "Ready",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        status: "retrying",
+        attempt: 2,
+        processId: null,
+        port: null,
+        workingDirectory: "/tmp/workspaces/tenant-1/acme-platform-1/repository",
+        issueWorkspaceKey: "acme-platform-1",
+        workspaceRuntimeDir: "/tmp/runtime",
+        workflowPath: null,
+        retryKind: "recovery",
+        createdAt: "2026-03-17T00:00:00Z",
+        updatedAt: "2026-03-17T00:00:00Z",
+        startedAt: "2026-03-17T00:00:00Z",
+        completedAt: null,
+        lastError: null,
+        nextRetryAt: null,
+      }
+    );
+
+    expect(issue.title).toBe("Preserved title");
+    expect(issue.state).toBe("Ready");
+  });
+
   it("throws for unsupported tracker adapters", () => {
     expect(() =>
       resolveTrackerAdapter({

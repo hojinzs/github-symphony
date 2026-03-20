@@ -526,6 +526,9 @@ describe("blocker eligibility", () => {
         }),
       })
     );
+    const runs = await store.loadAllRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.issueTitle).toBe("Test");
   });
 });
 
