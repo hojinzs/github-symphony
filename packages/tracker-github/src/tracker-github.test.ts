@@ -1441,7 +1441,7 @@ describe("resolveTrackerAdapter", () => {
             variables: { issueIds: string[] };
           };
 
-          expect(body.query).toContain("query IssueStatesByIds($issueIds: [ID!])");
+          expect(body.query).toContain("query IssueStatesByIds($issueIds: [ID!]!)");
           expect(body.query).toContain("nodes(ids: $issueIds)");
           expect(body.query).toContain("projectItems(first: 100, includeArchived: false)");
           expect(body.query).not.toContain("blockedBy(");

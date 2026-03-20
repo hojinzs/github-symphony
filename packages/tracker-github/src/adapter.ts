@@ -996,7 +996,7 @@ const PROJECT_FIELDS_QUERY = `
 `;
 
 const ISSUE_STATES_BY_IDS_QUERY = `
-  query IssueStatesByIds($issueIds: [ID!]) {
+  query IssueStatesByIds($issueIds: [ID!]!) {
     nodes(ids: $issueIds) {
       __typename
       ... on Issue {
