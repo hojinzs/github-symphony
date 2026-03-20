@@ -29,7 +29,7 @@ codex:
   command: codex app-server
   read_timeout_ms: 5000
   turn_timeout_ms: 3600000
-  stall_timeout_ms: 300000
+  stall_timeout_ms: 900000
 ---
 ## Status Map
 
