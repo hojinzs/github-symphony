@@ -111,7 +111,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       id: run.issueId,
       identifier: run.issueIdentifier,
       number: parseIssueNumber(run.issueIdentifier),
-      title: run.issueIdentifier,
+      title: run.issueTitle ?? run.issueIdentifier,
       description: null,
       priority: null,
       state: "",

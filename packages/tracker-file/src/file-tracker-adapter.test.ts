@@ -187,6 +187,7 @@ describe("fileTrackerAdapter", () => {
         issueId: "issue-1",
         issueSubjectId: "issue-1",
         issueIdentifier: "test-owner/test-repo#1",
+        issueTitle: "Recovered issue title",
         issueState: "Ready",
         repository: {
           owner: "test-owner",
@@ -215,8 +216,46 @@ describe("fileTrackerAdapter", () => {
       expect(issue.id).toBe("issue-1");
       expect(issue.identifier).toBe("test-owner/test-repo#1");
       expect(issue.number).toBe(1);
+      expect(issue.title).toBe("Recovered issue title");
       expect(issue.tracker.adapter).toBe("file");
       expect(issue.tracker.bindingId).toBe("e2e-test");
+    });
+
+    it("falls back to issueIdentifier when issueTitle is absent", () => {
+      const project = makeProject("/tmp/issues.json");
+      const run = {
+        runId: "run-1",
+        projectId: "test-project",
+        projectSlug: "test-project",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "test-owner/test-repo#1",
+        issueState: "Ready",
+        repository: {
+          owner: "test-owner",
+          name: "test-repo",
+          cloneUrl: "/tmp/test-repo",
+        },
+        status: "succeeded" as const,
+        attempt: 1,
+        processId: null,
+        port: null,
+        workingDirectory: "/tmp",
+        issueWorkspaceKey: null,
+        workspaceRuntimeDir: "/tmp",
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-17T00:00:00Z",
+        updatedAt: "2026-03-17T00:00:00Z",
+        startedAt: null,
+        completedAt: null,
+        lastError: null,
+        nextRetryAt: null,
+      } satisfies OrchestratorRunRecord;
+
+      const issue = fileTrackerAdapter.reviveIssue(project, run);
+
+      expect(issue.title).toBe("test-owner/test-repo#1");
     });
   });
 });

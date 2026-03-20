@@ -1040,6 +1040,7 @@ Prefer focused changes.
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
+      issueTitle: "Persisted issue title",
       issueState: "Todo",
       repository,
       status: "retrying",
@@ -1073,6 +1074,20 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "node packages/worker/dist/index.js"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_TITLE: "Persisted issue title",
+        }),
+      })
+    );
+
+    const runs = await store.loadAllRuns();
+    const recoveredRun = runs.find((run) => run.runId !== "run-1");
+
+    expect(recoveredRun?.issueTitle).toBe("Persisted issue title");
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {

@@ -1218,6 +1218,7 @@ export class OrchestratorService {
       issueId: issue.id,
       issueSubjectId,
       issueIdentifier: issue.identifier,
+      issueTitle: issue.title,
       issueState: issue.state,
       repository: issue.repository,
       status: "running",

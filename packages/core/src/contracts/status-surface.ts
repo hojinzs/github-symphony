@@ -58,6 +58,7 @@ export type OrchestratorRunRecord = {
   issueId: string;
   issueSubjectId: string;
   issueIdentifier: string;
+  issueTitle?: string;
   issueState: string;
   repository: RepositoryRef;
   status: OrchestratorRunStatus;
