@@ -42,6 +42,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
 type WorkerStatus = "idle" | "starting" | "running" | "failed" | "completed";
 
 let status: WorkerStatus = "idle";
+let lastEventAt: string | null = null;
 const tokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
 function buildState() {
@@ -69,6 +70,7 @@ function buildState() {
       lastError: status === "failed" ? "Stub worker simulated failure" : null,
     },
     tokenUsage,
+    lastEventAt,
     workflow: null,
   };
 }
@@ -126,23 +128,27 @@ async function run() {
 
   // Starting phase
   status = "starting";
+  lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=starting`);
   await sleep(durations.startMs);
 
   // Running phase
   status = "running";
+  lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=running`);
   await sleep(durations.runMs);
 
   // Terminal phase
   if (SCENARIO === "fail") {
     status = "failed";
+    lastEventAt = new Date().toISOString();
     console.error(`[stub-worker] status=failed`);
     await saveTokenArtifact();
     server.close();
     process.exit(1);
   } else {
     status = "completed";
+    lastEventAt = new Date().toISOString();
     console.error(`[stub-worker] status=completed`);
     await saveTokenArtifact();
     server.close();
