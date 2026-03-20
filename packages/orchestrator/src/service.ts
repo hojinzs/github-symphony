@@ -1781,6 +1781,7 @@ export class OrchestratorService {
           sessionId?: string | null;
         } | null;
         run?: { lastError: string | null } | null;
+        lastEventAt?: unknown;
         rateLimits?: Record<string, unknown> | null;
       };
 
@@ -1804,7 +1805,7 @@ export class OrchestratorService {
       const lastError =
         typeof state.run?.lastError === "string" ? state.run.lastError : null;
       const lastEvent = state.status ?? null;
-      const lastEventAt: string | null = null; // worker doesn't emit event timestamps
+      const lastEventAt = asStringOrNull(state.lastEventAt);
       const executionPhase = parseExecutionPhase(state.executionPhase);
       const runPhase = parseRunPhase(state.runPhase);
       const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;

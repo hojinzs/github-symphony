@@ -100,6 +100,7 @@ function createProtocolContext(options: {
     runPhase: "streaming_turn" as string,
     run: { lastError: null as string | null },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
   };
 
@@ -507,6 +508,9 @@ function createProtocolContext(options: {
       }
       return;
     }
+
+    // Track the timestamp of every server-initiated notification/event.
+    runtimeState.lastEventAt = new Date().toISOString();
 
     // User input required — hard failure
     if (
@@ -1798,5 +1802,113 @@ describe("token usage tracking", () => {
       outputTokens: 50,
       totalTokens: 150,
     });
+  });
+});
+
+describe("lastEventAt timestamp tracking", () => {
+  it("updates lastEventAt on turn/completed", () => {
+    const ctx = createProtocolContext({});
+    expect(ctx.runtimeState.lastEventAt).toBeNull();
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {},
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+    // Verify it's a valid ISO timestamp
+    expect(new Date(ctx.runtimeState.lastEventAt!).toISOString()).toBe(
+      ctx.runtimeState.lastEventAt
+    );
+  });
+
+  it("updates lastEventAt on turn/failed", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "turn/failed",
+      params: { message: "some failure" },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+  });
+
+  it("updates lastEventAt on turn/cancelled", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "turn/cancelled",
+      params: { reason: "reconciliation" },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+  });
+
+  it("updates lastEventAt on token usage events", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+  });
+
+  it("updates lastEventAt on user_input_required", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "item/tool/requestUserInput",
+      params: {},
+    });
+
+    expect(ctx.runtimeState.lastEventAt).not.toBeNull();
+  });
+
+  it("does not update lastEventAt on JSON-RPC responses", () => {
+    const ctx = createProtocolContext({});
+    // Set up a pending request so the response handler finds it
+    void ctx.sendRequest("test-1", "initialize", {});
+
+    ctx.handleServerMessage({
+      id: "test-1",
+      result: { ok: true },
+    });
+
+    expect(ctx.runtimeState.lastEventAt).toBeNull();
+  });
+
+  it("advances lastEventAt on each successive event", () => {
+    vi.useFakeTimers();
+    try {
+      const baseTime = new Date("2024-01-01T00:00:00.000Z");
+      vi.setSystemTime(baseTime);
+
+      const ctx = createProtocolContext({});
+
+      ctx.handleServerMessage({
+        method: "thread/tokenUsage/updated",
+        params: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      });
+      const first = ctx.runtimeState.lastEventAt;
+      expect(first).not.toBeNull();
+
+      // Advance system time deterministically to ensure timestamp advances
+      const laterTime = new Date(baseTime.getTime() + 10);
+      vi.setSystemTime(laterTime);
+
+      ctx.handleServerMessage({
+        method: "turn/completed",
+        params: {},
+      });
+      const second = ctx.runtimeState.lastEventAt;
+      expect(second).not.toBeNull();
+      expect(new Date(second!).getTime()).toBeGreaterThan(
+        new Date(first!).getTime()
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
