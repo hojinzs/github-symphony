@@ -131,8 +131,6 @@ export class OrchestratorService {
       now?: () => Date;
       concurrency?: number;
       pollIntervalMs?: number;
-      // Deprecated compatibility no-op: retry attempts are no longer capped.
-      maxAttempts?: number;
       retryBackoffMs?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
