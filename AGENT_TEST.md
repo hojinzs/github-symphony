@@ -63,7 +63,11 @@ AI Agent
 | `stall` | starting(2s) → running(무한), SIGTERM 대기 |
 | `slow` | starting(2s) → running(30s) → completed, exit 0 |
 
-`docker-compose.e2e.yml`의 `environment.STUB_SCENARIO`를 변경하여 시나리오를 선택한다.
+`docker-compose.e2e.yml`는 `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`를 사용하므로, 쉘 환경변수로 시나리오를 선택할 수 있다.
+
+```bash
+STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
+```
 
 ## E2E 테스트 실행 방법
 
@@ -231,4 +235,4 @@ E2E 테스트 케이스는 다음 구조를 따른다:
 - **타이밍**: workspace 준비(git clone)에 3-5초, worker 실행에 시나리오별 시간이 필요함
 - **폴링 간격**: 1초 간격으로 상태를 폴링하되, 최대 대기 시간을 설정
 - **이슈 제거**: worker 완료 관찰 후 반드시 이슈를 제거해야 retry 루프 방지
-- **STUB_SCENARIO**: 시나리오에 맞는 worker 동작을 선택 (docker-compose.e2e.yml에서 변경)
+- **STUB_SCENARIO**: 시나리오에 맞는 worker 동작을 선택 (예: `STUB_SCENARIO=fail docker compose ...`)

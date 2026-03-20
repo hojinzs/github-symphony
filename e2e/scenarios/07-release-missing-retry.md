@@ -4,8 +4,8 @@
 
 ```bash
 echo "[]" > e2e/fixtures/issues.json
-# docker-compose.e2e.yml reads STUB_SCENARIO from the shell environment
-# via ${STUB_SCENARIO:-happy}.
+# `docker-compose.e2e.yml` sets `STUB_SCENARIO: ${STUB_SCENARIO:-happy}`,
+# so prefixing the command switches the stub container to the fail scenario.
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --retry 10 --retry-delay 2 --fail http://localhost:4680/healthz
 ```
@@ -47,7 +47,7 @@ curl --retry 10 --retry-delay 2 --fail http://localhost:4680/healthz
 ## Expected
 
 - No new worker is started after the retry becomes due.
-- The issue status transitions away from `retrying`.
+- The issue status transitions away from `retrying` and surfaces as `suppressed`.
 - `tracked.issue_orchestration_state` is `released`.
 
 ## Cleanup
