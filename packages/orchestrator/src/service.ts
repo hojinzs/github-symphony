@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { createWriteStream, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -1149,7 +1149,22 @@ export class OrchestratorService {
     );
 
     mkdirSync(runDir, { recursive: true });
-    const workerLogFd = openSync(join(runDir, "worker.log"), "a");
+    const workerLogStream = createWriteStream(join(runDir, "worker.log"), {
+      flags: "a",
+    });
+    let workerLogAvailable = true;
+    let workerExited = false;
+    const markWorkerLogUnavailable = (error: unknown) => {
+      if (!workerLogAvailable) {
+        return;
+      }
+      workerLogAvailable = false;
+      const message =
+        error instanceof Error ? error.message : String(error ?? "unknown");
+      this.writeStderr(
+        `[orchestrator] failed to write worker log for ${runId}: ${message}`
+      );
+    };
     const child = (this.dependencies.spawnImpl ?? spawn)(
       "bash",
       ["-lc", resolveWorkerCommand()],
@@ -1200,27 +1215,54 @@ export class OrchestratorService {
       }
     );
 
-    child.stderr?.on("data", (chunk: Buffer | string) => {
+    const handleWorkerStderrChunk = (chunk: Buffer | string) => {
       const buffer = Buffer.isBuffer(chunk)
         ? chunk
         : Buffer.from(String(chunk), "utf8");
-      writeSync(workerLogFd, buffer);
+      if (workerLogAvailable) {
+        try {
+          workerLogStream.write(buffer);
+        } catch (error) {
+          markWorkerLogUnavailable(error);
+        }
+      }
       this.consumeWorkerStderrChunk(runId, buffer);
-    });
-
-    if (child.pid) {
-      this.activeWorkerPids.add(child.pid);
-      this.logVerbose(`[worker-started] ${runId} (pid=${child.pid})`);
-    }
-    child.on?.("exit", (code, signal) => {
+    };
+    const finalizeWorkerStderr = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (workerExited) {
+        return;
+      }
+      workerExited = true;
+      child.stderr?.removeListener("data", handleWorkerStderrChunk);
       this.flushWorkerStderrBuffer(runId);
-      closeSync(workerLogFd);
+      workerLogStream.end();
       if (child.pid) {
         this.retireWorkerPid(child.pid);
       }
       this.logVerbose(
         `[worker-exited] ${runId} (code=${code ?? "null"}, signal=${signal ?? "null"})`
       );
+    };
+
+    workerLogStream.on("error", (error) => {
+      markWorkerLogUnavailable(error);
+    });
+    child.stderr?.on("data", handleWorkerStderrChunk);
+
+    if (child.pid) {
+      this.activeWorkerPids.add(child.pid);
+      this.logVerbose(`[worker-started] ${runId} (pid=${child.pid})`);
+    }
+    child.on?.("error", (error) => {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "unknown");
+      this.writeStderr(
+        `[orchestrator] worker process error for ${runId}: ${message}`
+      );
+      finalizeWorkerStderr(null, null);
+    });
+    child.on?.("close", (code, signal) => {
+      finalizeWorkerStderr(code, signal);
     });
     child.unref();
 
@@ -1589,7 +1631,7 @@ export class OrchestratorService {
 
   private consumeWorkerStderrLine(runId: string, line: string): void {
     const trimmed = line.trim();
-    if (!trimmed) {
+    if (!trimmed || !trimmed.startsWith("{")) {
       return;
     }
 
