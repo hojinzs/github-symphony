@@ -5,7 +5,7 @@ import type { IssueSubjectIdentity } from "../domain/issue.js";
 /**
  * Derive a stable workspace key from a canonical issue identifier.
  *
- * The workspace key is a sanitized identifier such as `acme_platform_123`.
+ * The workspace key is a sanitized identifier such as `Acme.Platform-123`.
  * It is used to create persistent per-issue workspace directories that remain
  * easy to reverse-map back to the source issue.
  *
@@ -30,8 +30,7 @@ export function deriveIssueWorkspaceKeyFromIdentifier(
   issueIdentifier: string
 ): string {
   const sanitized = issueIdentifier
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
   return sanitized || "issue";

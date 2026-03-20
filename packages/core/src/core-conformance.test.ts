@@ -73,8 +73,21 @@ describe("deriveIssueWorkspaceKey", () => {
 
     // Per spec 4.2, workspace key is pure identifier substitution.
     // Collisions are handled by the directory layout (projectId/issues/key).
-    expect(keyA).toBe("acme_foo_bar_1");
+    expect(keyA).toBe("acme_foo-bar_1");
     expect(keyB).toBe("acme_foo_bar_1");
+  });
+
+  it("preserves uppercase letters, dots, and hyphens allowed by spec 4.2", () => {
+    const key = deriveIssueWorkspaceKey(
+      {
+        projectId: "ws-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "My.Issue-1"
+    );
+
+    expect(key).toBe("My.Issue-1");
   });
 
   it("falls back to 'issue' when sanitization strips everything", () => {
