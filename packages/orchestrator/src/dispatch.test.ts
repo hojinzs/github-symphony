@@ -583,6 +583,7 @@ describe("codex policy propagation", () => {
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_APPROVAL_POLICY: "on-request",
+          SYMPHONY_ISSUE_TITLE: "Issue 1",
           SYMPHONY_THREAD_SANDBOX: "workspace-write",
           SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
         }),

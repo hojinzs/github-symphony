@@ -507,12 +507,16 @@ function sendStartupRequestsForEnv(
   env: Pick<
     NodeJS.ProcessEnv,
     | "SYMPHONY_APPROVAL_POLICY"
+    | "SYMPHONY_ISSUE_IDENTIFIER"
+    | "SYMPHONY_ISSUE_TITLE"
     | "SYMPHONY_THREAD_SANDBOX"
     | "SYMPHONY_TURN_SANDBOX_POLICY"
   >
 ): void {
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
+  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "acme/repo#1";
+  const issueTitle = env.SYMPHONY_ISSUE_TITLE ?? "Test issue";
 
   void ctx.sendRequest("thread-1", "thread/start", {
     cwd: "/tmp",
@@ -523,6 +527,8 @@ function sendStartupRequestsForEnv(
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId: "thread-1",
     input: [{ type: "text", text: "continue" }],
+    cwd: "/tmp",
+    title: `${issueIdentifier}: ${issueTitle}`,
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
   });
@@ -533,12 +539,16 @@ async function sendStartupHandshake(
   env: Pick<
     NodeJS.ProcessEnv,
     | "SYMPHONY_APPROVAL_POLICY"
+    | "SYMPHONY_ISSUE_IDENTIFIER"
+    | "SYMPHONY_ISSUE_TITLE"
     | "SYMPHONY_THREAD_SANDBOX"
     | "SYMPHONY_TURN_SANDBOX_POLICY"
   >
 ): Promise<void> {
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
+  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "acme/repo#1";
+  const issueTitle = env.SYMPHONY_ISSUE_TITLE ?? "Test issue";
 
   const initializePromise = ctx.sendRequestWithTimeout("init-1", "initialize", {
     clientInfo: { name: "github-symphony", version: "0.1.0" },
@@ -574,6 +584,8 @@ async function sendStartupHandshake(
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId,
     input: [{ type: "text", text: "continue" }],
+    cwd: "/tmp",
+    title: `${issueIdentifier}: ${issueTitle}`,
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
   });
@@ -822,6 +834,8 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+      SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
       SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
     });
@@ -847,6 +861,8 @@ describe("read timeout (3.5)", () => {
         params: {
           threadId: "thread-1",
           input: [{ type: "text", text: "continue" }],
+          cwd: "/tmp",
+          title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },
         },
@@ -859,6 +875,8 @@ describe("read timeout (3.5)", () => {
 
     await sendStartupHandshake(ctx, {
       SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+      SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
       SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
     });
@@ -898,6 +916,8 @@ describe("read timeout (3.5)", () => {
         params: {
           threadId: "thread-from-server",
           input: [{ type: "text", text: "continue" }],
+          cwd: "/tmp",
+          title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },
         },
@@ -909,6 +929,8 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "",
+      SYMPHONY_ISSUE_IDENTIFIER: "",
+      SYMPHONY_ISSUE_TITLE: "",
       SYMPHONY_THREAD_SANDBOX: "",
       SYMPHONY_TURN_SANDBOX_POLICY: "",
     });
@@ -933,6 +955,8 @@ describe("read timeout (3.5)", () => {
       params: {
         threadId: "thread-1",
         input: [{ type: "text", text: "continue" }],
+        cwd: "/tmp",
+        title: ": ",
         approvalPolicy: "never",
         sandboxPolicy: undefined,
       },

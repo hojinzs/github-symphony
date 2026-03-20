@@ -256,6 +256,7 @@ async function runCodexClientProtocol(
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
 
@@ -669,6 +670,7 @@ async function runCodexClientProtocol(
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
+      const issueTitle = env.SYMPHONY_ISSUE_TITLE ?? "";
       const turnInput = isFirstTurn
         ? renderedPrompt
         : "Continue working on the issue. Review your progress and complete any remaining tasks.";
@@ -685,6 +687,8 @@ async function runCodexClientProtocol(
         {
           threadId,
           input: [{ type: "text", text: turnInput }],
+          cwd: plan.cwd,
+          title: `${issueIdentifier}: ${issueTitle}`,
           approvalPolicy,
           sandboxPolicy: turnSandboxPolicy,
         }
