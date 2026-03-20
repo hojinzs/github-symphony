@@ -87,10 +87,17 @@ function createProtocolContext(options: {
   let turnCompletedResolve: (() => void) | null = null;
   let userInputRequired = false;
   let killCalled = false;
+  let turnTerminalFailure:
+    | {
+        runPhase: "failed" | "canceled_by_reconciliation";
+        lastError: string | null;
+      }
+    | null = null;
   const logs: string[] = [];
 
   const runtimeState = {
     status: "running" as string,
+    runPhase: "streaming_turn" as string,
     run: { lastError: null as string | null },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     rateLimits: null as Record<string, unknown> | null,
@@ -384,6 +391,107 @@ function createProtocolContext(options: {
     });
   }
 
+  function resolvePendingTurnCompletion(): void {
+    if (turnCompletedResolve) {
+      turnCompletedResolve();
+      turnCompletedResolve = null;
+    }
+  }
+
+  function describeTurnTerminalEvent(
+    event: "turn/failed" | "turn/cancelled",
+    params: unknown
+  ): string | null {
+    const fallback =
+      event === "turn/failed"
+        ? "turn_failed: codex reported turn failure"
+        : "turn_cancelled: codex reported turn cancellation";
+
+    if (!params || typeof params !== "object") {
+      return fallback;
+    }
+
+    const record = params as Record<string, unknown>;
+    const directReasonKeys = ["message", "reason", "error"];
+
+    for (const key of directReasonKeys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) {
+        return `${event.replace("/", "_")}: ${value.trim()}`;
+      }
+      if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as Record<string, unknown>).message === "string"
+      ) {
+        const nested = value as Record<string, unknown>;
+        const nestedMessage = String(nested.message).trim();
+        if (nestedMessage) {
+          return `${event.replace("/", "_")}: ${nestedMessage}`;
+        }
+      }
+    }
+
+    const serialized = JSON.stringify(params).slice(0, 300);
+    return serialized && serialized !== "{}"
+      ? `${event.replace("/", "_")}: ${serialized}`
+      : fallback;
+  }
+
+  function markTurnTerminalFailure(
+    runPhase: "failed" | "canceled_by_reconciliation",
+    lastError: string | null
+  ): void {
+    runtimeState.status = "failed";
+    runtimeState.runPhase = runPhase;
+    runtimeState.run.lastError = lastError;
+    turnTerminalFailure = { runPhase, lastError };
+    resolvePendingTurnCompletion();
+  }
+
+  function finalizeRunState(): void {
+    runtimeState.runPhase = "finishing";
+    runtimeState.status =
+      userInputRequired || turnTerminalFailure ? "failed" : "completed";
+    runtimeState.runPhase = userInputRequired
+      ? "failed"
+      : turnTerminalFailure?.runPhase ?? "succeeded";
+  }
+
+  function applyChildExit(
+    code: number | null,
+    signal: NodeJS.Signals | null
+  ): void {
+    const currentRunPhase = runtimeState.runPhase;
+    const terminalPhases = new Set([
+      "succeeded",
+      "failed",
+      "timed_out",
+      "stalled",
+      "canceled_by_reconciliation",
+    ]);
+    const nextRunPhase =
+      currentRunPhase && terminalPhases.has(currentRunPhase)
+        ? currentRunPhase
+        : code === 0 && !signal
+          ? "succeeded"
+          : "failed";
+    const preservesTerminalPhase =
+      currentRunPhase != null && nextRunPhase === currentRunPhase;
+
+    if (!preservesTerminalPhase) {
+      runtimeState.status = code === 0 && !signal ? "completed" : "failed";
+    }
+    runtimeState.runPhase = nextRunPhase;
+
+    if (!preservesTerminalPhase) {
+      runtimeState.run.lastError =
+        code === 0 && !signal
+          ? null
+          : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
+    }
+  }
+
   function handleServerMessage(msg: Record<string, unknown>): void {
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
@@ -413,10 +521,7 @@ function createProtocolContext(options: {
         "turn_input_required: agent requires user input";
       killCalled = true;
       // Resolve any pending turn completion
-      if (turnCompletedResolve) {
-        turnCompletedResolve();
-        turnCompletedResolve = null;
-      }
+      resolvePendingTurnCompletion();
       return;
     }
 
@@ -431,10 +536,25 @@ function createProtocolContext(options: {
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
-      if (turnCompletedResolve) {
-        turnCompletedResolve();
-        turnCompletedResolve = null;
-      }
+      resolvePendingTurnCompletion();
+      return;
+    }
+
+    if (msg.method === "turn/failed") {
+      const lastError = describeTurnTerminalEvent(
+        "turn/failed",
+        msg.params ?? null
+      );
+      markTurnTerminalFailure("failed", lastError);
+      return;
+    }
+
+    if (msg.method === "turn/cancelled") {
+      const lastError = describeTurnTerminalEvent(
+        "turn/cancelled",
+        msg.params ?? null
+      );
+      markTurnTerminalFailure("canceled_by_reconciliation", lastError);
       return;
     }
 
@@ -467,10 +587,15 @@ function createProtocolContext(options: {
     waitForTurnCompletion,
     waitForTurnWithTimeout,
     handleServerMessage,
+    finalizeRunState,
+    applyChildExit,
     maxTurns,
     logs,
     get userInputRequired() {
       return userInputRequired;
+    },
+    get turnTerminalFailure() {
+      return turnTerminalFailure;
     },
     get killCalled() {
       return killCalled;
@@ -679,6 +804,7 @@ describe("multi-turn loop (2.7)", () => {
         await turnPromise;
 
         if (ctx.userInputRequired) break;
+        if (ctx.turnTerminalFailure) break;
         if (turn + 1 >= ctx.maxTurns) break;
 
         // Simulate tracker returning "active" — continue loop
@@ -709,12 +835,90 @@ describe("multi-turn loop (2.7)", () => {
         await vi.advanceTimersByTimeAsync(50);
         await turnPromise;
 
+        if (ctx.turnTerminalFailure) break;
         if (turn + 1 >= ctx.maxTurns) break;
       }
     })();
 
     await loopPromise;
     expect(turnCount).toBe(2);
+  });
+
+  it("stops immediately when turn/failed is received", async () => {
+    const ctx = createProtocolContext({
+      maxTurns: 3,
+      readTimeoutMs: 1000,
+      turnTimeoutMs: 60000,
+    });
+    const turnResults: string[] = [];
+
+    const loopPromise = (async () => {
+      for (let turn = 0; turn < ctx.maxTurns; turn++) {
+        turnResults.push(`turn-${turn + 1}`);
+
+        const turnPromise = ctx.waitForTurnWithTimeout();
+        setTimeout(() => {
+          ctx.handleServerMessage({
+            method: "turn/failed",
+            params: { message: "tool execution failed" },
+          });
+        }, 25);
+        await vi.advanceTimersByTimeAsync(25);
+        await turnPromise;
+
+        if (ctx.userInputRequired) break;
+        if (ctx.turnTerminalFailure) break;
+      }
+
+      ctx.finalizeRunState();
+    })();
+
+    await loopPromise;
+
+    expect(turnResults).toEqual(["turn-1"]);
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: tool execution failed"
+    );
+  });
+
+  it("stops immediately when turn/cancelled is received", async () => {
+    const ctx = createProtocolContext({
+      maxTurns: 3,
+      readTimeoutMs: 1000,
+      turnTimeoutMs: 60000,
+    });
+    let turnCount = 0;
+
+    const loopPromise = (async () => {
+      for (let turn = 0; turn < ctx.maxTurns; turn++) {
+        turnCount = turn + 1;
+
+        const turnPromise = ctx.waitForTurnWithTimeout();
+        setTimeout(() => {
+          ctx.handleServerMessage({
+            method: "turn/cancelled",
+            params: { reason: "reconciled against tracker state" },
+          });
+        }, 25);
+        await vi.advanceTimersByTimeAsync(25);
+        await turnPromise;
+
+        if (ctx.turnTerminalFailure) break;
+      }
+
+      ctx.finalizeRunState();
+    })();
+
+    await loopPromise;
+
+    expect(turnCount).toBe(1);
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_cancelled: reconciled against tracker state"
+    );
   });
 
   it("stops when tracker state is non-actionable", async () => {
@@ -1152,6 +1356,94 @@ describe("turn timeout (3.6)", () => {
     await promise; // Should resolve without throwing
 
     expect(ctx.killCalled).toBe(false);
+  });
+
+  it("resolves pending turn wait when turn/failed is received", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "turn/failed",
+        params: { error: { message: "model backend failed" } },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: model backend failed"
+    );
+  });
+
+  it("resolves pending turn wait when turn/cancelled is received", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "turn/cancelled",
+        params: { reason: "superseded" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
+    expect(ctx.runtimeState.run.lastError).toBe("turn_cancelled: superseded");
+  });
+
+  it("falls back when nested turn failure message is whitespace only", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "turn/failed",
+        params: { error: { message: "   " }, code: "E_BACKEND" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      'turn_failed: {"error":{"message":"   "},"code":"E_BACKEND"}'
+    );
+  });
+
+  it("preserves terminal failure details after child exit", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "turn/failed",
+        params: { message: "tool execution failed" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    ctx.applyChildExit(1, null);
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: tool execution failed"
+    );
   });
 });
 
