@@ -17,7 +17,9 @@ import {
   isRunAttemptPhase,
   isStateActive,
   isStateTerminal,
+  isMatchingIssueRun,
   matchesWorkflowState,
+  mapIssueOrchestrationStateToStatus,
   readEnvFile,
   renderPrompt,
   resolveIssueWorkspaceDirectory,
@@ -83,19 +85,6 @@ function isUsableWorkflowResolution(
   resolution: WorkflowResolution
 ): boolean {
   return resolution.isValid || resolution.usedLastKnownGood;
-}
-
-function isMatchingIssueRun(
-  run: OrchestratorRunRecord | null,
-  projectId: string,
-  issueId: string,
-  issueIdentifier: string
-): run is OrchestratorRunRecord {
-  return Boolean(
-    run &&
-      run.projectId === projectId &&
-      (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
-  );
 }
 
 function parseTimestampMs(value: string | null | undefined): number | null {
@@ -2600,25 +2589,6 @@ function isActiveRunStatus(status: OrchestratorRunRecord["status"]): boolean {
     status === "running" ||
     status === "retrying"
   );
-}
-
-function mapIssueOrchestrationStateToStatus(
-  state: IssueOrchestrationRecord["state"]
-): string {
-  switch (state) {
-    case "claimed":
-      return "starting";
-    case "running":
-      return "running";
-    case "retry_queued":
-      return "retrying";
-    case "released":
-      return "released";
-    case "unclaimed":
-      return "pending";
-    default:
-      return state;
-  }
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
