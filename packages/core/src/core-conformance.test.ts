@@ -53,7 +53,7 @@ describe("deriveIssueWorkspaceKey", () => {
     expect(keyA).not.toBe(keyC);
   });
 
-  it("produces the same key when normalized identifiers collide (spec 4.2: pure substitution)", () => {
+  it("distinguishes hyphens from underscores under spec 4.2 substitution", () => {
     const keyA = deriveIssueWorkspaceKey(
       {
         projectId: "ws-1",
@@ -71,10 +71,9 @@ describe("deriveIssueWorkspaceKey", () => {
       "acme/foo_bar#1"
     );
 
-    // Per spec 4.2, workspace key is pure identifier substitution.
-    // Collisions are handled by the directory layout (projectId/issues/key).
     expect(keyA).toBe("acme_foo-bar_1");
     expect(keyB).toBe("acme_foo_bar_1");
+    expect(keyA).not.toBe(keyB);
   });
 
   it("preserves uppercase letters, dots, and hyphens allowed by spec 4.2", () => {
@@ -101,6 +100,18 @@ describe("deriveIssueWorkspaceKey", () => {
     );
 
     expect(key).toBe("issue");
+  });
+
+  it("falls back to 'issue' for dot-only sanitized keys", () => {
+    const identity = {
+      projectId: "ws-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+    };
+
+    expect(deriveIssueWorkspaceKey(identity, ".")).toBe("issue");
+    expect(deriveIssueWorkspaceKey(identity, "..")).toBe("issue");
+    expect(deriveIssueWorkspaceKey(identity, "...")).toBe("issue");
   });
 });
 

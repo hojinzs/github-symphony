@@ -33,7 +33,11 @@ export function deriveIssueWorkspaceKeyFromIdentifier(
     .replace(/[^A-Za-z0-9._-]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
-  return sanitized || "issue";
+  if (!sanitized || /^[.]+$/.test(sanitized)) {
+    return "issue";
+  }
+
+  return sanitized;
 }
 
 export function deriveLegacyIssueWorkspaceKey(
