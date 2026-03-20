@@ -132,6 +132,8 @@ export class OrchestratorService {
       concurrency?: number;
       pollIntervalMs?: number;
       retryBackoffMs?: number;
+      /** @deprecated No longer used. Retry scheduling is governed by backoff policy only. */
+      maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
       waitImpl?: (ms: number) => Promise<void>;
