@@ -1063,10 +1063,18 @@ Prefer focused changes.
       pid: 4102,
       unref: vi.fn(),
     });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: false,
+          json: async () => ({}),
+        } as Response;
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1132,8 +1140,18 @@ Prefer focused changes.
     });
 
     const spawnImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: false,
+          json: async () => ({}),
+        } as Response;
+      }
+      return createEmptyTrackerResponse();
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1215,8 +1233,18 @@ Prefer focused changes.
       pid: 4103,
       unref: vi.fn(),
     });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: false,
+          json: async () => ({}),
+        } as Response;
+      }
+      throw new Error("tracker unavailable");
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockRejectedValue(new Error("tracker unavailable")),
+      fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });

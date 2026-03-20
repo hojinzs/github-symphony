@@ -4,6 +4,8 @@
 
 ```bash
 echo "[]" > e2e/fixtures/issues.json
+# docker-compose.e2e.yml reads STUB_SCENARIO from the shell environment
+# via ${STUB_SCENARIO:-happy}.
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --retry 10 --retry-delay 2 --fail http://localhost:4680/healthz
 ```
