@@ -1,6 +1,6 @@
 {
   "name": "@gh-symphony/runtime-codex",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "license": "MIT",
   "author": "hojinzs",
   "description": "Codex AI runtime integration for Symphony workers",
