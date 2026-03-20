@@ -1431,6 +1431,12 @@ export class OrchestratorService {
         };
       }
 
+      if (
+        (await this.resolveRetryRestartAction(tenant, run)) === "release"
+      ) {
+        return this.releaseRetryingRun(runWithTokens, issueRecords, now);
+      }
+
       return this.restartRun(
         tenant,
         run,
@@ -1635,6 +1641,33 @@ export class OrchestratorService {
         : "failure";
     } catch {
       return "failure";
+    }
+  }
+
+  private async resolveRetryRestartAction(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<"restart" | "release"> {
+    try {
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+      const issues = await trackerAdapter.listIssues(tenant, {
+        fetchImpl: this.dependencies.fetchImpl,
+      });
+      const runIssue = issues.find(
+        (issue: TrackedIssue) => issue.identifier === run.issueIdentifier
+      );
+      if (!runIssue) {
+        return "release";
+      }
+      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
+      if (!isUsableWorkflowResolution(resolution)) {
+        return "restart";
+      }
+      return isStateActive(runIssue.state, resolution.lifecycle)
+        ? "restart"
+        : "release";
+    } catch {
+      return "restart";
     }
   }
 
@@ -1972,6 +2005,36 @@ export class OrchestratorService {
         updatedAt: now.toISOString(),
       }),
       recovered: true,
+    };
+  }
+
+  private async releaseRetryingRun(
+    run: OrchestratorRunRecord,
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+  }> {
+    const suppressedRun: OrchestratorRunRecord = {
+      ...run,
+      status: "suppressed",
+      processId: null,
+      completedAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      nextRetryAt: null,
+      runPhase: run.runPhase ?? "canceled_by_reconciliation",
+      lastError:
+        "Retry canceled because the tracker issue is no longer actionable.",
+    };
+    await this.store.saveRun(suppressedRun);
+    this.logVerbose(
+      `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+    );
+
+    return {
+      issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+      recovered: false,
     };
   }
 
