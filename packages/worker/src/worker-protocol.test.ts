@@ -502,13 +502,31 @@ function readSentMessages(stream: PassThrough): Array<Record<string, unknown>> {
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+function composeTurnTitle(
+  issueIdentifierValue: string | undefined,
+  issueTitleValue: string | undefined
+): string {
+  const issueIdentifier = issueIdentifierValue?.trim() ?? "";
+  const issueTitle = issueTitleValue?.trim() ?? "";
+
+  if (issueIdentifier && issueTitle) {
+    return `${issueIdentifier}: ${issueTitle}`;
+  }
+
+  return issueIdentifier || issueTitle || "Untitled issue";
+}
+
 function sendStartupRequestsForEnv(
   ctx: ReturnType<typeof createProtocolContext>,
-  env: Pick<
-    NodeJS.ProcessEnv,
-    | "SYMPHONY_APPROVAL_POLICY"
-    | "SYMPHONY_THREAD_SANDBOX"
-    | "SYMPHONY_TURN_SANDBOX_POLICY"
+  env: Partial<
+    Pick<
+      NodeJS.ProcessEnv,
+      | "SYMPHONY_APPROVAL_POLICY"
+      | "SYMPHONY_ISSUE_IDENTIFIER"
+      | "SYMPHONY_ISSUE_TITLE"
+      | "SYMPHONY_THREAD_SANDBOX"
+      | "SYMPHONY_TURN_SANDBOX_POLICY"
+    >
   >
 ): void {
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
@@ -523,6 +541,11 @@ function sendStartupRequestsForEnv(
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId: "thread-1",
     input: [{ type: "text", text: "continue" }],
+    cwd: "/tmp",
+    title: composeTurnTitle(
+      env.SYMPHONY_ISSUE_IDENTIFIER,
+      env.SYMPHONY_ISSUE_TITLE
+    ),
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
   });
@@ -530,11 +553,15 @@ function sendStartupRequestsForEnv(
 
 async function sendStartupHandshake(
   ctx: ReturnType<typeof createProtocolContext>,
-  env: Pick<
-    NodeJS.ProcessEnv,
-    | "SYMPHONY_APPROVAL_POLICY"
-    | "SYMPHONY_THREAD_SANDBOX"
-    | "SYMPHONY_TURN_SANDBOX_POLICY"
+  env: Partial<
+    Pick<
+      NodeJS.ProcessEnv,
+      | "SYMPHONY_APPROVAL_POLICY"
+      | "SYMPHONY_ISSUE_IDENTIFIER"
+      | "SYMPHONY_ISSUE_TITLE"
+      | "SYMPHONY_THREAD_SANDBOX"
+      | "SYMPHONY_TURN_SANDBOX_POLICY"
+    >
   >
 ): Promise<void> {
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
@@ -574,6 +601,11 @@ async function sendStartupHandshake(
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId,
     input: [{ type: "text", text: "continue" }],
+    cwd: "/tmp",
+    title: composeTurnTitle(
+      env.SYMPHONY_ISSUE_IDENTIFIER,
+      env.SYMPHONY_ISSUE_TITLE
+    ),
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
   });
@@ -822,6 +854,8 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+      SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
       SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
     });
@@ -847,6 +881,8 @@ describe("read timeout (3.5)", () => {
         params: {
           threadId: "thread-1",
           input: [{ type: "text", text: "continue" }],
+          cwd: "/tmp",
+          title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },
         },
@@ -859,6 +895,8 @@ describe("read timeout (3.5)", () => {
 
     await sendStartupHandshake(ctx, {
       SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+      SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
       SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
     });
@@ -898,6 +936,8 @@ describe("read timeout (3.5)", () => {
         params: {
           threadId: "thread-from-server",
           input: [{ type: "text", text: "continue" }],
+          cwd: "/tmp",
+          title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },
         },
@@ -909,6 +949,8 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
       SYMPHONY_APPROVAL_POLICY: "",
+      SYMPHONY_ISSUE_IDENTIFIER: "",
+      SYMPHONY_ISSUE_TITLE: "",
       SYMPHONY_THREAD_SANDBOX: "",
       SYMPHONY_TURN_SANDBOX_POLICY: "",
     });
@@ -933,6 +975,78 @@ describe("read timeout (3.5)", () => {
       params: {
         threadId: "thread-1",
         input: [{ type: "text", text: "continue" }],
+        cwd: "/tmp",
+        title: "Untitled issue",
+        approvalPolicy: "never",
+        sandboxPolicy: undefined,
+      },
+    });
+  });
+
+  it("trims and composes title without dangling separators", () => {
+    const ctx = createProtocolContext({ readTimeoutMs: 500 });
+    sendStartupRequestsForEnv(ctx, {
+      SYMPHONY_ISSUE_IDENTIFIER: "  acme/repo#1  ",
+      SYMPHONY_ISSUE_TITLE: "  Test issue\n",
+    });
+
+    const messages = readSentMessages(ctx.fake.stdin);
+
+    expect(messages[1]).toEqual({
+      jsonrpc: "2.0",
+      id: "turn-1",
+      method: "turn/start",
+      params: {
+        threadId: "thread-1",
+        input: [{ type: "text", text: "continue" }],
+        cwd: "/tmp",
+        title: "acme/repo#1: Test issue",
+        approvalPolicy: "never",
+        sandboxPolicy: undefined,
+      },
+    });
+  });
+
+  it("omits the separator when only one title component is available", () => {
+    const identifierOnlyCtx = createProtocolContext({ readTimeoutMs: 500 });
+    sendStartupRequestsForEnv(identifierOnlyCtx, {
+      SYMPHONY_ISSUE_IDENTIFIER: "  acme/repo#1  ",
+      SYMPHONY_ISSUE_TITLE: "   ",
+    });
+
+    const identifierOnlyMessages = readSentMessages(identifierOnlyCtx.fake.stdin);
+
+    expect(identifierOnlyMessages[1]).toEqual({
+      jsonrpc: "2.0",
+      id: "turn-1",
+      method: "turn/start",
+      params: {
+        threadId: "thread-1",
+        input: [{ type: "text", text: "continue" }],
+        cwd: "/tmp",
+        title: "acme/repo#1",
+        approvalPolicy: "never",
+        sandboxPolicy: undefined,
+      },
+    });
+
+    const titleOnlyCtx = createProtocolContext({ readTimeoutMs: 500 });
+    sendStartupRequestsForEnv(titleOnlyCtx, {
+      SYMPHONY_ISSUE_IDENTIFIER: "\n",
+      SYMPHONY_ISSUE_TITLE: "  Test issue  ",
+    });
+
+    const titleOnlyMessages = readSentMessages(titleOnlyCtx.fake.stdin);
+
+    expect(titleOnlyMessages[1]).toEqual({
+      jsonrpc: "2.0",
+      id: "turn-1",
+      method: "turn/start",
+      params: {
+        threadId: "thread-1",
+        input: [{ type: "text", text: "continue" }],
+        cwd: "/tmp",
+        title: "Test issue",
         approvalPolicy: "never",
         sandboxPolicy: undefined,
       },

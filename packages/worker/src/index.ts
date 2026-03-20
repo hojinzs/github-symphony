@@ -117,6 +117,20 @@ console.log(
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 
+function composeTurnTitle(
+  issueIdentifierValue: string | undefined,
+  issueTitleValue: string | undefined
+): string {
+  const issueIdentifier = issueIdentifierValue?.trim() ?? "";
+  const issueTitle = issueTitleValue?.trim() ?? "";
+
+  if (issueIdentifier && issueTitle) {
+    return `${issueIdentifier}: ${issueTitle}`;
+  }
+
+  return issueIdentifier || issueTitle || "Untitled issue";
+}
+
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
   void startAssignedRun();
 }
@@ -256,6 +270,7 @@ async function runCodexClientProtocol(
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
 
@@ -685,6 +700,11 @@ async function runCodexClientProtocol(
         {
           threadId,
           input: [{ type: "text", text: turnInput }],
+          cwd: plan.cwd,
+          title: composeTurnTitle(
+            issueIdentifier,
+            env.SYMPHONY_ISSUE_TITLE
+          ),
           approvalPolicy,
           sandboxPolicy: turnSandboxPolicy,
         }
