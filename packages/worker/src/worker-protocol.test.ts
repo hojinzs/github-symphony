@@ -424,7 +424,11 @@ function createProtocolContext(options: {
         typeof value === "object" &&
         typeof (value as Record<string, unknown>).message === "string"
       ) {
-        return `${event.replace("/", "_")}: ${String((value as Record<string, unknown>).message).trim()}`;
+        const nested = value as Record<string, unknown>;
+        const nestedMessage = String(nested.message).trim();
+        if (nestedMessage) {
+          return `${event.replace("/", "_")}: ${nestedMessage}`;
+        }
       }
     }
 
@@ -1394,6 +1398,28 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
     expect(ctx.runtimeState.run.lastError).toBe("turn_cancelled: superseded");
+  });
+
+  it("falls back when nested turn failure message is whitespace only", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "turn/failed",
+        params: { error: { message: "   " }, code: "E_BACKEND" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      'turn_failed: {"error":{"message":"   "},"code":"E_BACKEND"}'
+    );
   });
 
   it("preserves terminal failure details after child exit", async () => {

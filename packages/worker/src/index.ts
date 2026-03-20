@@ -344,7 +344,11 @@ async function runCodexClientProtocol(
         typeof value === "object" &&
         typeof (value as Record<string, unknown>).message === "string"
       ) {
-        return `${event.replace("/", "_")}: ${String((value as Record<string, unknown>).message).trim()}`;
+        const nested = value as Record<string, unknown>;
+        const nestedMessage = String(nested.message).trim();
+        if (nestedMessage) {
+          return `${event.replace("/", "_")}: ${nestedMessage}`;
+        }
       }
     }
 
