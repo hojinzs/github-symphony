@@ -461,6 +461,7 @@ function createProtocolContext(options: {
     fake,
     pendingRequests,
     runtimeState,
+    sendMessage,
     sendRequest,
     sendRequestWithTimeout,
     waitForTurnCompletion,
@@ -521,6 +522,57 @@ function sendStartupRequestsForEnv(
   });
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId: "thread-1",
+    input: [{ type: "text", text: "continue" }],
+    approvalPolicy,
+    sandboxPolicy: turnSandboxPolicy,
+  });
+}
+
+async function sendStartupHandshake(
+  ctx: ReturnType<typeof createProtocolContext>,
+  env: Pick<
+    NodeJS.ProcessEnv,
+    | "SYMPHONY_APPROVAL_POLICY"
+    | "SYMPHONY_THREAD_SANDBOX"
+    | "SYMPHONY_TURN_SANDBOX_POLICY"
+  >
+): Promise<void> {
+  const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
+    resolveCodexPolicySettings(env);
+
+  const initializePromise = ctx.sendRequestWithTimeout("init-1", "initialize", {
+    clientInfo: { name: "github-symphony", version: "0.1.0" },
+    capabilities: {},
+  });
+
+  ctx.handleServerMessage({
+    jsonrpc: "2.0",
+    id: "init-1",
+    result: { serverInfo: { name: "codex", version: "1.0" } },
+  });
+
+  await initializePromise;
+
+  ctx.sendMessage({ jsonrpc: "2.0", method: "initialized", params: {} });
+
+  const threadPromise = ctx.sendRequestWithTimeout("thread-1", "thread/start", {
+    cwd: "/tmp",
+    developerInstructions: "test prompt",
+    approvalPolicy,
+    sandbox: threadSandbox,
+  });
+
+  ctx.handleServerMessage({
+    jsonrpc: "2.0",
+    id: "thread-1",
+    result: { thread_id: "thread-from-server" },
+  });
+
+  const threadResult = (await threadPromise) as { thread_id?: string };
+  const threadId = threadResult.thread_id ?? "thread-1";
+
+  void ctx.sendRequest("turn-1", "turn/start", {
+    threadId,
     input: [{ type: "text", text: "continue" }],
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
@@ -794,6 +846,57 @@ describe("read timeout (3.5)", () => {
         method: "turn/start",
         params: {
           threadId: "thread-1",
+          input: [{ type: "text", text: "continue" }],
+          approvalPolicy: "on-request",
+          sandboxPolicy: { type: "workspace-write" },
+        },
+      },
+    ]);
+  });
+
+  it("sends initialized between initialize and thread/start", async () => {
+    const ctx = createProtocolContext({ readTimeoutMs: 500 });
+
+    await sendStartupHandshake(ctx, {
+      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_THREAD_SANDBOX: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+    });
+
+    const messages = readSentMessages(ctx.fake.stdin);
+
+    expect(messages).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: "init-1",
+        method: "initialize",
+        params: {
+          clientInfo: { name: "github-symphony", version: "0.1.0" },
+          capabilities: {},
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "initialized",
+        params: {},
+      },
+      {
+        jsonrpc: "2.0",
+        id: "thread-1",
+        method: "thread/start",
+        params: {
+          cwd: "/tmp",
+          developerInstructions: "test prompt",
+          approvalPolicy: "on-request",
+          sandbox: "workspace-write",
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: "turn-1",
+        method: "turn/start",
+        params: {
+          threadId: "thread-from-server",
           input: [{ type: "text", text: "continue" }],
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },

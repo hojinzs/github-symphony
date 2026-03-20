@@ -606,7 +606,10 @@ async function runCodexClientProtocol(
     });
     process.stderr.write("[worker] codex initialized\n");
 
-    // Step 2: thread/start with rendered prompt and MCP server tool definitions
+    // Step 2: Notify codex that initialization is complete.
+    sendMessage({ jsonrpc: "2.0", method: "initialized", params: {} });
+
+    // Step 3: thread/start with rendered prompt and MCP server tool definitions
     const mcpServers: Record<string, unknown> = {};
     for (const t of plan.tools) {
       mcpServers[t.name] = {
@@ -657,7 +660,7 @@ async function runCodexClientProtocol(
       return;
     }
 
-    // Step 3: Multi-turn loop
+    // Step 4: Multi-turn loop
     let turnCount = 0;
     let requestIdCounter = 0;
 
