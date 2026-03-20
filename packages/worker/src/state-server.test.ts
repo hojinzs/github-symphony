@@ -127,6 +127,31 @@ Prefer small changes.
     expect(state.sessionId).toBeNull();
   });
 
+  it("includes lastEventAt in response when provided by runtime", async () => {
+    const state = await buildWorkerRuntimeState(
+      {
+        GITHUB_PROJECT_ID: "project-123",
+      },
+      vi.fn().mockRejectedValue(new Error("missing")),
+      {
+        lastEventAt: "2026-03-21T10:00:00.000Z",
+      }
+    );
+
+    expect(state.lastEventAt).toBe("2026-03-21T10:00:00.000Z");
+  });
+
+  it("defaults lastEventAt to null when not provided", async () => {
+    const state = await buildWorkerRuntimeState(
+      {
+        GITHUB_PROJECT_ID: "project-123",
+      },
+      vi.fn().mockRejectedValue(new Error("missing"))
+    );
+
+    expect(state.lastEventAt).toBeNull();
+  });
+
   it("includes runtime execution and run phase metadata when provided", async () => {
     const state = await buildWorkerRuntimeState(
       {

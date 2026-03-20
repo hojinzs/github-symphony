@@ -54,6 +54,7 @@ const runtimeState: {
     outputTokens: number;
     totalTokens: number;
   };
+  lastEventAt: string | null;
   rateLimits: Record<string, unknown> | null;
   sessionInfo: {
     threadId: string | null;
@@ -87,6 +88,7 @@ const runtimeState: {
     outputTokens: 0,
     totalTokens: 0,
   },
+  lastEventAt: null,
   rateLimits: null,
   sessionInfo: {
     threadId: null,
@@ -546,6 +548,10 @@ async function runCodexClientProtocol(
       }
       return;
     }
+
+    // Track the timestamp of every server-initiated notification/event.
+    // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
+    runtimeState.lastEventAt = new Date().toISOString();
 
     // Server-initiated request (dynamic tool call)
     if (msg.method === "dynamic_tool_call_request" && msg.params != null) {
