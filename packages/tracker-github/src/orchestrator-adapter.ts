@@ -52,7 +52,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       title: run.issueTitle ?? run.issueIdentifier,
       description: null,
       priority: null,
-      state: "",
+      state: run.issueState,
       branchName: null,
       url: null,
       labels: [],

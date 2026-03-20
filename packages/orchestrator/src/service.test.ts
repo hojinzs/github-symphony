@@ -1079,6 +1079,7 @@ Prefer focused changes.
       ["-lc", "node packages/worker/dist/index.js"],
       expect.objectContaining({
         env: expect.objectContaining({
+          SYMPHONY_ISSUE_STATE: "Todo",
           SYMPHONY_ISSUE_TITLE: "Persisted issue title",
         }),
       })
@@ -1088,6 +1089,7 @@ Prefer focused changes.
     const recoveredRun = runs.find((run) => run.runId !== "run-1");
 
     expect(recoveredRun?.issueTitle).toBe("Persisted issue title");
+    expect(recoveredRun?.issueState).toBe("Todo");
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {

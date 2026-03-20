@@ -268,6 +268,7 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issue.title).toBe("Preserved title");
+    expect(issue.state).toBe("Ready");
   });
 
   it("throws for unsupported tracker adapters", () => {

@@ -217,6 +217,7 @@ describe("fileTrackerAdapter", () => {
       expect(issue.identifier).toBe("test-owner/test-repo#1");
       expect(issue.number).toBe(1);
       expect(issue.title).toBe("Recovered issue title");
+      expect(issue.state).toBe("Ready");
       expect(issue.tracker.adapter).toBe("file");
       expect(issue.tracker.bindingId).toBe("e2e-test");
     });
@@ -256,6 +257,7 @@ describe("fileTrackerAdapter", () => {
       const issue = fileTrackerAdapter.reviveIssue(project, run);
 
       expect(issue.title).toBe("test-owner/test-repo#1");
+      expect(issue.state).toBe("Ready");
     });
   });
 });
