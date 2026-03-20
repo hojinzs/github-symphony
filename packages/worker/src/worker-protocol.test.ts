@@ -461,6 +461,7 @@ function createProtocolContext(options: {
     fake,
     pendingRequests,
     runtimeState,
+    sendMessage,
     sendRequest,
     sendRequestWithTimeout,
     waitForTurnCompletion,
@@ -552,19 +553,26 @@ async function sendStartupHandshake(
 
   await initializePromise;
 
-  ctx.fake.stdin.write(
-    `${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`
-  );
+  ctx.sendMessage({ jsonrpc: "2.0", method: "initialized", params: {} });
 
-  void ctx.sendRequest("thread-1", "thread/start", {
+  const threadPromise = ctx.sendRequestWithTimeout("thread-1", "thread/start", {
     cwd: "/tmp",
     developerInstructions: "test prompt",
     approvalPolicy,
     sandbox: threadSandbox,
   });
 
+  ctx.handleServerMessage({
+    jsonrpc: "2.0",
+    id: "thread-1",
+    result: { thread_id: "thread-from-server" },
+  });
+
+  const threadResult = (await threadPromise) as { thread_id?: string };
+  const threadId = threadResult.thread_id ?? "thread-1";
+
   void ctx.sendRequest("turn-1", "turn/start", {
-    threadId: "thread-1",
+    threadId,
     input: [{ type: "text", text: "continue" }],
     approvalPolicy,
     sandboxPolicy: turnSandboxPolicy,
@@ -888,7 +896,7 @@ describe("read timeout (3.5)", () => {
         id: "turn-1",
         method: "turn/start",
         params: {
-          threadId: "thread-1",
+          threadId: "thread-from-server",
           input: [{ type: "text", text: "continue" }],
           approvalPolicy: "on-request",
           sandboxPolicy: { type: "workspace-write" },
