@@ -207,7 +207,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, serializedEvent, {
       encoding: "utf8",
-      mode: 0o666,
+      mode: 0o644,
     });
 
     const mirrorPath = this.resolveMirroredEventsPath(resolvedPath);
@@ -219,7 +219,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       await mkdir(dirname(mirrorPath), { recursive: true });
       await appendFile(mirrorPath, serializedEvent, {
         encoding: "utf8",
-        mode: 0o666,
+        mode: 0o644,
       });
     } catch (error) {
       console.warn(

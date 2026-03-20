@@ -143,7 +143,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     ).resolves.toContain('"event":"hook-failed"');
   });
 
-  it("creates primary and mirrored event logs with group/world writable defaults", async () => {
+  it("creates primary and mirrored event logs with owner-writable defaults", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const eventsMirrorRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-events-")
@@ -184,8 +184,8 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         )
       );
 
-      expect(primaryStats.mode & 0o666).toBe(0o666);
-      expect(mirroredStats.mode & 0o666).toBe(0o666);
+      expect(primaryStats.mode & 0o644).toBe(0o644);
+      expect(mirroredStats.mode & 0o644).toBe(0o644);
     } finally {
       process.umask(previousUmask);
     }
