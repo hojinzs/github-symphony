@@ -21,6 +21,11 @@ fail() { echo -e "${RED}[e2e]${NC} $*"; }
 
 cleanup() {
   log "Cleaning up..."
+  $COMPOSE exec -T symphony-e2e sh -lc '
+    if [ -d /e2e/evidence ]; then
+      find /e2e/evidence -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    fi
+  ' 2>/dev/null || true
   $COMPOSE down --timeout 5 2>/dev/null || true
   echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
 }
