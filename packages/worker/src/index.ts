@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   parseWorkflowMarkdown,
+  type OrchestratorChannelEvent,
   type RunAttemptPhase,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
@@ -167,6 +168,30 @@ type TokenUsageSnapshot = {
   outputTokens: number;
   totalTokens: number;
 };
+
+function emitOrchestratorChannelEvent(event?: string): void {
+  const issueId = runtimeState.run?.issueId;
+  const lastEventAt = runtimeState.lastEventAt;
+  if (!issueId || !lastEventAt) {
+    return;
+  }
+
+  const payload: OrchestratorChannelEvent = {
+    type: "codex_update",
+    issueId,
+    lastEventAt,
+    tokenUsage: { ...runtimeState.tokenUsage },
+  };
+
+  if (runtimeState.rateLimits) {
+    payload.rateLimits = { ...runtimeState.rateLimits };
+  }
+  if (event) {
+    payload.event = event;
+  }
+
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
+}
 
 async function startAssignedRun() {
   try {
@@ -552,6 +577,8 @@ async function runCodexClientProtocol(
     // Track the timestamp of every server-initiated notification/event.
     // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
     runtimeState.lastEventAt = new Date().toISOString();
+    const orchestratorEventName =
+      typeof msg.method === "string" ? msg.method : undefined;
 
     // Server-initiated request (dynamic tool call)
     if (msg.method === "dynamic_tool_call_request" && msg.params != null) {
@@ -569,6 +596,7 @@ async function runCodexClientProtocol(
         params.turnId,
         params.arguments
       );
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -597,6 +625,7 @@ async function runCodexClientProtocol(
       }
       // Resolve any pending turn completion
       resolvePendingTurnCompletion();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -613,6 +642,7 @@ async function runCodexClientProtocol(
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       process.stderr.write("[worker] codex turn/completed\n");
       resolvePendingTurnCompletion();
       return;
@@ -628,6 +658,7 @@ async function runCodexClientProtocol(
         `[worker] codex turn/failed ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );
       markTurnTerminalFailure("failed", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -641,6 +672,7 @@ async function runCodexClientProtocol(
         `[worker] codex turn/cancelled ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );
       markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -654,6 +686,7 @@ async function runCodexClientProtocol(
       if (tokenUsage) {
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -678,12 +711,14 @@ async function runCodexClientProtocol(
       } else {
         deltaBuffer.text += delta;
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
     // Log all other server notifications for observability
     if (typeof msg.method === "string") {
       flushDeltaBuffer();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       process.stderr.write(
         `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );

@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { mkdirSync, openSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -17,6 +17,7 @@ import {
   isRunAttemptPhase,
   isStateActive,
   isStateTerminal,
+  isOrchestratorChannelEvent,
   matchesWorkflowState,
   readEnvFile,
   renderPrompt,
@@ -27,6 +28,7 @@ import {
   type IssueStatusSnapshot,
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
+  type OrchestratorChannelEvent,
   type OrchestratorRunRecord,
   type OrchestratorEvent,
   type OrchestratorStateStore,
@@ -111,6 +113,7 @@ export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
+  private readonly workerStderrBuffers = new Map<string, string>();
   private readonly lastKnownGoodWorkflows = new Map<string, WorkflowResolution>();
   private readonly lastReportedWorkflowErrors = new Map<string, string>();
   private workflowResolutionCache: Map<string, Promise<WorkflowResolution>> | null =
@@ -1193,15 +1196,25 @@ export class OrchestratorService {
           ),
         }),
         detached: true,
-        stdio: ["ignore", "ignore", workerLogFd],
+        stdio: ["ignore", "ignore", "pipe"],
       }
     );
+
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk)
+        ? chunk
+        : Buffer.from(String(chunk), "utf8");
+      writeSync(workerLogFd, buffer);
+      this.consumeWorkerStderrChunk(runId, buffer);
+    });
 
     if (child.pid) {
       this.activeWorkerPids.add(child.pid);
       this.logVerbose(`[worker-started] ${runId} (pid=${child.pid})`);
     }
     child.on?.("exit", (code, signal) => {
+      this.flushWorkerStderrBuffer(runId);
+      closeSync(workerLogFd);
       if (child.pid) {
         this.retireWorkerPid(child.pid);
       }
@@ -1553,6 +1566,70 @@ export class OrchestratorService {
 
   private writeStderr(message: string): void {
     (this.dependencies.stderr ?? process.stderr).write(`${message}\n`);
+  }
+
+  private consumeWorkerStderrChunk(runId: string, chunk: Buffer): void {
+    const nextBuffer =
+      (this.workerStderrBuffers.get(runId) ?? "") + chunk.toString("utf8");
+    const lines = nextBuffer.split("\n");
+    this.workerStderrBuffers.set(runId, lines.pop() ?? "");
+
+    for (const line of lines) {
+      this.consumeWorkerStderrLine(runId, line);
+    }
+  }
+
+  private flushWorkerStderrBuffer(runId: string): void {
+    const remainder = this.workerStderrBuffers.get(runId);
+    this.workerStderrBuffers.delete(runId);
+    if (remainder && remainder.trim()) {
+      this.consumeWorkerStderrLine(runId, remainder);
+    }
+  }
+
+  private consumeWorkerStderrLine(runId: string, line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!isOrchestratorChannelEvent(parsed)) {
+        return;
+      }
+
+      void this.runSerialized(() =>
+        this.applyWorkerChannelEvent(runId, parsed)
+      ).catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : String(error ?? "unknown");
+        this.writeStderr(
+          `[orchestrator] failed to apply worker channel event for ${runId}: ${message}`
+        );
+      });
+    } catch {
+      // Ignore non-JSON stderr lines; they remain in worker.log for observability.
+    }
+  }
+
+  private async applyWorkerChannelEvent(
+    runId: string,
+    event: OrchestratorChannelEvent
+  ): Promise<void> {
+    const run = await this.store.loadRun(runId, this.projectConfig.projectId);
+    if (!run || run.status !== "running" || run.issueId !== event.issueId) {
+      return;
+    }
+
+    await this.store.saveRun({
+      ...run,
+      updatedAt: this.now().toISOString(),
+      lastEvent: event.event ?? run.lastEvent ?? null,
+      lastEventAt: event.lastEventAt,
+      tokenUsage: event.tokenUsage ?? run.tokenUsage,
+      rateLimits: event.rateLimits ?? run.rateLimits ?? null,
+    });
   }
 
   private logVerbose(message: string): void {

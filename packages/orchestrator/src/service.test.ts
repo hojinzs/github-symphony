@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
@@ -2458,6 +2459,93 @@ Prefer focused changes.
     expect(killImpl).not.toHaveBeenCalled();
     expect(updatedRun?.status).toBe("running");
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+  });
+
+  it("updates lastEventAt from worker stderr events even when the worker state API is unavailable", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-channel-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4110;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const killImpl = vi.fn();
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker state API unavailable");
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4110,
+      now: () => currentTime,
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.write(
+      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:04:30.000Z",
+        tokenUsage: {
+          inputTokens: 12,
+          outputTokens: 5,
+          totalTokens: 17,
+        },
+        rateLimits: {
+          source: "codex",
+          remaining: 3,
+        },
+        event: "thread/tokenUsage/updated",
+      })}\n`
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:30.000Z");
+    });
+
+    currentTime = new Date("2026-03-08T00:06:00.000Z");
+    await service.runOnce();
+
+    const updatedRun = await store.loadRun(initialRun!.runId);
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:30.000Z");
+    expect(updatedRun?.tokenUsage).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      totalTokens: 17,
+    });
+    expect(updatedRun?.rateLimits).toEqual({
+      source: "codex",
+      remaining: 3,
+    });
   });
 
   it("propagates worker rate-limit payloads into persisted runs and project snapshots", async () => {

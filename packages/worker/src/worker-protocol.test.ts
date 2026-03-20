@@ -94,11 +94,15 @@ function createProtocolContext(options: {
       }
     | null = null;
   const logs: string[] = [];
+  const orchestratorEvents: Array<Record<string, unknown>> = [];
 
   const runtimeState = {
     status: "running" as string,
     runPhase: "streaming_turn" as string,
-    run: { lastError: null as string | null },
+    run: {
+      issueId: "issue-1",
+      lastError: null as string | null,
+    },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
@@ -131,6 +135,28 @@ function createProtocolContext(options: {
     logs.push(
       `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits)}`
     );
+  }
+
+  function emitOrchestratorChannelEvent(event?: string): void {
+    if (!runtimeState.run.issueId || !runtimeState.lastEventAt) {
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      type: "codex_update",
+      issueId: runtimeState.run.issueId,
+      lastEventAt: runtimeState.lastEventAt,
+      tokenUsage: { ...runtimeState.tokenUsage },
+    };
+
+    if (runtimeState.rateLimits) {
+      payload.rateLimits = { ...runtimeState.rateLimits };
+    }
+    if (event) {
+      payload.event = event;
+    }
+
+    orchestratorEvents.push(payload);
   }
 
   function extractRateLimitPayload(
@@ -511,6 +537,8 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
+    const orchestratorEventName =
+      typeof msg.method === "string" ? msg.method : undefined;
 
     // User input required — hard failure
     if (
@@ -526,6 +554,7 @@ function createProtocolContext(options: {
       killCalled = true;
       // Resolve any pending turn completion
       resolvePendingTurnCompletion();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -540,6 +569,7 @@ function createProtocolContext(options: {
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       resolvePendingTurnCompletion();
       return;
     }
@@ -550,6 +580,7 @@ function createProtocolContext(options: {
         msg.params ?? null
       );
       markTurnTerminalFailure("failed", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -559,6 +590,7 @@ function createProtocolContext(options: {
         msg.params ?? null
       );
       markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -572,6 +604,7 @@ function createProtocolContext(options: {
       if (tokenUsage) {
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -579,6 +612,7 @@ function createProtocolContext(options: {
     if (rateLimits && typeof msg.method === "string") {
       applyRateLimitUpdate(msg.method, rateLimits);
     }
+    emitOrchestratorChannelEvent(orchestratorEventName);
   }
 
   return {
@@ -595,6 +629,7 @@ function createProtocolContext(options: {
     applyChildExit,
     maxTurns,
     logs,
+    orchestratorEvents,
     get userInputRequired() {
       return userInputRequired;
     },
@@ -1614,6 +1649,41 @@ describe("refreshTrackerState", () => {
 
     expect(result).toBe("unknown");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("orchestrator channel telemetry", () => {
+  it("emits codex_update payloads with the latest counters and rate limits", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        usage: { input_tokens: 90, output_tokens: 30, total_tokens: 120 },
+        rate_limits: {
+          remaining: 7,
+          resetAt: "2026-03-08T00:30:00.000Z",
+        },
+      },
+    });
+
+    expect(ctx.orchestratorEvents).toHaveLength(1);
+    expect(ctx.orchestratorEvents[0]).toEqual({
+      type: "codex_update",
+      issueId: "issue-1",
+      lastEventAt: expect.any(String),
+      tokenUsage: {
+        inputTokens: 90,
+        outputTokens: 30,
+        totalTokens: 120,
+      },
+      rateLimits: {
+        source: "codex",
+        remaining: 7,
+        resetAt: "2026-03-08T00:30:00.000Z",
+      },
+      event: "turn/completed",
+    });
   });
 });
 
