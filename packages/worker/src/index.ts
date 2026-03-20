@@ -24,6 +24,7 @@ import {
   resolveFinalExecutionPhase,
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
+import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
@@ -255,6 +256,8 @@ async function runCodexClientProtocol(
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+  const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
+    resolveCodexPolicySettings(env);
 
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
@@ -623,8 +626,8 @@ async function runCodexClientProtocol(
       {
         cwd: plan.cwd,
         developerInstructions: renderedPrompt,
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        approvalPolicy,
+        sandbox: threadSandbox,
         ephemeral: false,
         config: {
           mcp_servers: mcpServers,
@@ -679,7 +682,8 @@ async function runCodexClientProtocol(
         {
           threadId,
           input: [{ type: "text", text: turnInput }],
-          approvalPolicy: "never",
+          approvalPolicy,
+          sandboxPolicy: turnSandboxPolicy,
         }
       )) as Record<string, unknown>;
 

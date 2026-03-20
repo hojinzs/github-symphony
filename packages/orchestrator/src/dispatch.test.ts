@@ -529,12 +529,79 @@ describe("blocker eligibility", () => {
   });
 });
 
+describe("codex policy propagation", () => {
+  const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
+
+  afterEach(() => {
+    if (originalToken === undefined) {
+      delete process.env.GITHUB_GRAPHQL_TOKEN;
+    } else {
+      process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
+    }
+  });
+
+  it("passes workflow codex policies through worker environment", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-codex-policy-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        codex: {
+          approvalPolicy: "on-request",
+          threadSandbox: "workspace-write",
+          turnSandboxPolicy: "workspace-write",
+        },
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5301, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponse(repository, ["Todo"])),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", "node packages/worker/dist/index.js"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_APPROVAL_POLICY: "on-request",
+          SYMPHONY_THREAD_SANDBOX: "workspace-write",
+          SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+        }),
+      })
+    );
+  });
+});
+
 async function createRepositoryFixture(
   root: string,
   owner: string,
   name: string,
   options: {
     maxConcurrentByState?: Record<string, number>;
+    codex?: {
+      approvalPolicy?: string;
+      threadSandbox?: string;
+      turnSandboxPolicy?: string;
+    };
   } = {}
 ): Promise<{
   owner: string;
@@ -569,6 +636,11 @@ async function writeWorkflowFixture(
   repositoryRoot: string,
   options: {
     maxConcurrentByState?: Record<string, number>;
+    codex?: {
+      approvalPolicy?: string;
+      threadSandbox?: string;
+      turnSandboxPolicy?: string;
+    };
   } = {}
 ): Promise<void> {
   const maxConcurrentByState = options.maxConcurrentByState
@@ -578,6 +650,26 @@ async function writeWorkflowFixture(
         .map(([state, limit]) => `    ${state}: ${limit}`)
         .join("\n")}\n`
     : "";
+  const codexPolicyLines = [
+    options.codex?.approvalPolicy
+      ? `  approval_policy: ${options.codex.approvalPolicy}`
+      : null,
+    options.codex?.threadSandbox
+      ? `  thread_sandbox: ${options.codex.threadSandbox}`
+      : null,
+    options.codex?.turnSandboxPolicy
+      ? `  turn_sandbox_policy: ${options.codex.turnSandboxPolicy}`
+      : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+  const codexBlock = [
+    "codex:",
+    "  command: codex app-server",
+    ...(codexPolicyLines ? codexPolicyLines.split("\n") : []),
+    "  read_timeout_ms: 5000",
+    "  turn_timeout_ms: 3600000",
+  ].join("\n");
 
   await writeFile(
     join(repositoryRoot, "WORKFLOW.md"),
@@ -602,10 +694,7 @@ workspace:
 agent:
   max_retry_backoff_ms: 30000
   retry_base_delay_ms: 1000
-${maxConcurrentByState}codex:
-  command: codex app-server
-  read_timeout_ms: 5000
-  turn_timeout_ms: 3600000
+${maxConcurrentByState}${codexBlock}
 ---
 Prefer focused changes.
 `,
