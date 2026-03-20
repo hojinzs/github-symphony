@@ -1651,13 +1651,7 @@ export class OrchestratorService {
     run: OrchestratorRunRecord
   ): Promise<"restart" | "release"> {
     try {
-      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-      const issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
-      const runIssue = issues.find(
-        (issue: TrackedIssue) => issue.identifier === run.issueIdentifier
-      );
+      const runIssue = await this.fetchTrackedIssueById(tenant, run.issueId);
       if (!runIssue) {
         return "release";
       }
@@ -1671,6 +1665,17 @@ export class OrchestratorService {
     } catch {
       return "restart";
     }
+  }
+
+  private async fetchTrackedIssueById(
+    tenant: OrchestratorProjectConfig,
+    issueId: string
+  ): Promise<TrackedIssue | null> {
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    const issues = await trackerAdapter.fetchIssueStatesByIds(tenant, [issueId], {
+      fetchImpl: this.dependencies.fetchImpl,
+    });
+    return issues[0] ?? null;
   }
 
   /**
@@ -2025,7 +2030,7 @@ export class OrchestratorService {
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,
-      runPhase: run.runPhase ?? "canceled_by_reconciliation",
+      runPhase: "canceled_by_reconciliation",
       lastError:
         "Retry canceled because the tracker issue is no longer actionable.",
     };

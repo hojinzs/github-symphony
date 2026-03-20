@@ -1063,18 +1063,66 @@ Prefer focused changes.
       pid: 4102,
       unref: vi.fn(),
     });
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: false,
-          json: async () => ({}),
-        } as Response;
-      }
-      return createTrackerResponseWithState(repository, "Todo");
+    const listIssues = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn().mockReturnValue({
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      }),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1083,6 +1131,13 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
   });
 
   it("releases due retrying runs when the tracker issue is missing", async () => {
@@ -1137,21 +1192,26 @@ Prefer focused changes.
       completedAt: null,
       lastError: "Worker process exited unexpectedly.",
       nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
     });
 
     const spawnImpl = vi.fn();
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: false,
-          json: async () => ({}),
-        } as Response;
-      }
-      return createEmptyTrackerResponse();
+    const listIssues = vi.fn();
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1162,8 +1222,19 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
+      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
     expect(updatedRun?.lastError).toBe(
       "Retry canceled because the tracker issue is no longer actionable."
     );
@@ -1233,18 +1304,45 @@ Prefer focused changes.
       pid: 4103,
       unref: vi.fn(),
     });
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: false,
-          json: async () => ({}),
-        } as Response;
-      }
-      throw new Error("tracker unavailable");
+    const listIssues = vi.fn();
+    const fetchIssueStatesByIds = vi
+      .fn()
+      .mockRejectedValue(new Error("tracker unavailable"));
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn().mockReturnValue({
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      }),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -1253,6 +1351,14 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+      })
+    );
+    expect(listIssues).not.toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
