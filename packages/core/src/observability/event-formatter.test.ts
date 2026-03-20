@@ -29,7 +29,7 @@ describe("event-formatter", () => {
     ).toBe("cleanup_blocked: workspace locked");
   });
 
-  it("returns null for unsupported event messages", () => {
+  it("formats run-recovered events", () => {
     expect(
       formatEventMessage({
         at: "2026-03-16T00:01:00.000Z",

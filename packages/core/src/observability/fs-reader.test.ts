@@ -1,12 +1,23 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { isFileMissing, readJsonFile, safeReadDir } from "./fs-reader.js";
 
 describe("fs-reader", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.splice(0).map((path) =>
+        rm(path, { recursive: true, force: true })
+      )
+    );
+  });
+
   it("reads JSON files and returns null for missing files", async () => {
     const root = await mkdtemp(join(tmpdir(), "core-fs-reader-"));
+    tempDirs.push(root);
     const filePath = join(root, "record.json");
     await writeFile(filePath, JSON.stringify({ value: 42 }), "utf8");
 
@@ -18,16 +29,19 @@ describe("fs-reader", () => {
 
   it("returns empty arrays for missing directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "core-fs-reader-"));
+    tempDirs.push(root);
 
     await expect(safeReadDir(join(root, "missing"))).resolves.toEqual([]);
   });
 
   it("preserves directory entries for existing directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "core-fs-reader-"));
+    tempDirs.push(root);
     await mkdir(join(root, "nested"));
     await writeFile(join(root, "file.txt"), "content", "utf8");
 
-    await expect(safeReadDir(root)).resolves.toEqual(["file.txt", "nested"]);
+    const entries = await safeReadDir(root);
+    expect(entries.sort()).toEqual(["file.txt", "nested"]);
   });
 
   it("treats ENOENT and ENOTDIR as missing filesystem paths", () => {
