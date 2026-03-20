@@ -11,4 +11,4 @@ services:
     tmpfs:
       - /app/.runtime:size=100M
     environment:
-      STUB_SCENARIO: happy
+      STUB_SCENARIO: ${STUB_SCENARIO:-happy}

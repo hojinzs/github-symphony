@@ -1826,8 +1826,17 @@ Prefer focused changes.
       nextRetryAt: null,
     });
 
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/v1/state")) {
+        return Promise.resolve({
+          ok: false,
+          json: vi.fn(),
+        } as Response);
+      }
+      return Promise.resolve(createEmptyTrackerResponse());
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4105,
         unref: vi.fn(),
