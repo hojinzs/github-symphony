@@ -1879,27 +1879,36 @@ describe("lastEventAt timestamp tracking", () => {
     expect(ctx.runtimeState.lastEventAt).toBeNull();
   });
 
-  it("advances lastEventAt on each successive event", async () => {
-    const ctx = createProtocolContext({});
+  it("advances lastEventAt on each successive event", () => {
+    vi.useFakeTimers();
+    try {
+      const baseTime = new Date("2024-01-01T00:00:00.000Z");
+      vi.setSystemTime(baseTime);
 
-    ctx.handleServerMessage({
-      method: "thread/tokenUsage/updated",
-      params: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-    });
-    const first = ctx.runtimeState.lastEventAt;
-    expect(first).not.toBeNull();
+      const ctx = createProtocolContext({});
 
-    // Small delay to ensure timestamp advances
-    await new Promise((r) => setTimeout(r, 5));
+      ctx.handleServerMessage({
+        method: "thread/tokenUsage/updated",
+        params: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      });
+      const first = ctx.runtimeState.lastEventAt;
+      expect(first).not.toBeNull();
 
-    ctx.handleServerMessage({
-      method: "turn/completed",
-      params: {},
-    });
-    const second = ctx.runtimeState.lastEventAt;
-    expect(second).not.toBeNull();
-    expect(new Date(second!).getTime()).toBeGreaterThanOrEqual(
-      new Date(first!).getTime()
-    );
+      // Advance system time deterministically to ensure timestamp advances
+      const laterTime = new Date(baseTime.getTime() + 10);
+      vi.setSystemTime(laterTime);
+
+      ctx.handleServerMessage({
+        method: "turn/completed",
+        params: {},
+      });
+      const second = ctx.runtimeState.lastEventAt;
+      expect(second).not.toBeNull();
+      expect(new Date(second!).getTime()).toBeGreaterThan(
+        new Date(first!).getTime()
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

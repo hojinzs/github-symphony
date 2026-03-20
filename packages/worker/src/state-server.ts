@@ -39,7 +39,7 @@ export type WorkerRuntimeState = {
     outputTokens: number;
     totalTokens: number;
   };
-  lastEventAt?: string | null;
+  lastEventAt: string | null;
   rateLimits?: Record<string, unknown> | null;
   sessionInfo?: {
     threadId: string | null;
