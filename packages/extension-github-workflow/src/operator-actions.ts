@@ -24,17 +24,12 @@
  *      verifies that the expected handoff mutation occurred. If not,
  *      the operator must either force the transition or investigate.
  *
- *   5. **Cleanup retry / force remove** — When `before_remove` hook
- *      fails, the workspace enters `cleanup_blocked`. The operator
- *      must either fix the hook and retry cleanup, or force-remove
- *      the workspace.
- *
- *   6. **Issue-closure completion** — Pull-request merge alone does
+ *   5. **Issue-closure completion** — Pull-request merge alone does
  *      not complete work. The issue must be closed (typically by PR
  *      auto-close). If auto-close is not configured, the operator or
  *      GitHub automation must close the issue manually.
  *
- *   7. **Issue transfer rebind** — When the tracker adapter detects a
+ *   6. **Issue transfer rebind** — When the tracker adapter detects a
  *      possible issue transfer, the operator must confirm the rebind
  *      before canonical identity is updated.
  */
@@ -43,8 +38,6 @@ export type OperatorInterventionKind =
   | "approval"
   | "retry_exhausted"
   | "handoff_repair"
-  | "cleanup_blocked"
-  | "cleanup_force_remove"
   | "issue_closure_required"
   | "transfer_rebind";
 
@@ -89,17 +82,6 @@ export function createIntervention(
         "Handoff verification failed. The expected state transition did not occur after the run completed.",
       suggestedAction:
         "Force the project item state transition or investigate why the runtime tool did not perform the mutation.",
-    },
-    cleanup_blocked: {
-      description:
-        "The before_remove hook failed. The issue workspace cannot be cleaned up automatically.",
-      suggestedAction:
-        "Fix the hook script and retry cleanup, or force-remove the workspace.",
-    },
-    cleanup_force_remove: {
-      description: "Operator requested force removal of a blocked workspace.",
-      suggestedAction:
-        "Confirm force removal to delete the workspace directory without running the hook.",
     },
     issue_closure_required: {
       description:

@@ -167,7 +167,7 @@ Implementation: GitHub Symphony (pnpm monorepo, TypeScript)
 | `after_create` hook (new creation only) | OK | |
 | `before_run` hook (failure aborts attempt) | OK | |
 | `after_run` hook (failure ignored) | OK | |
-| `before_remove` hook (failure ignored) | **Differs** | Transitions to `cleanup_blocked` on failure (spec: "logged and ignored; cleanup still proceeds") |
+| `before_remove` hook (failure ignored) | OK | Logs hook failure and proceeds with cleanup to `removed` per spec |
 | Safety: workspace path inside root | OK | |
 | Safety: sanitized identifier | OK | |
 | Hook timeout (`hooks.timeout_ms`) | OK | SIGTERM → 5s grace → SIGKILL |
@@ -286,7 +286,6 @@ Implementation: GitHub Symphony (pnpm monorepo, TypeScript)
 |---|---|---|---|
 | **G4** | No query-time state filtering | 11.2 | Full project fetch then post-filter — inefficient at scale |
 | **G5** | No network timeout on tracker API | 11.2 | 30000ms timeout not applied |
-| **G6** | `before_remove` hook failure → `cleanup_blocked` | 9.4 | Spec says "logged and ignored; cleanup still proceeds" |
 | **G7** | No rate-limit tracking/exposure | 13.5 | rate_limits field not exposed in API/snapshot |
 | **G8** | Priority field always null | 4.1.1, 8.2 | Priority-based dispatch sorting is ineffective |
 
@@ -333,5 +332,4 @@ Implementation: GitHub Symphony (pnpm monorepo, TypeScript)
 1. **G1 (Dynamic Reload)**: Implement filesystem watch on `WORKFLOW.md` with debounced reload. This is the only Core Conformance (18.1) gap that blocks spec compliance.
 2. **G2/G3 (Tracker Operations)**: Add `fetchIssuesByStates()` and `fetchIssueStatesByIds()` to `GitHubTrackerAdapter` for more efficient reconciliation and terminal cleanup.
 3. **G5 (Network Timeout)**: Add configurable `AbortSignal.timeout(30000)` to GitHub GraphQL fetch calls.
-4. **G6 (before_remove semantics)**: Align with spec — log failure but proceed with cleanup instead of blocking.
-5. **G7 (Rate Limits)**: Extract and expose rate-limit headers from GitHub API responses in status snapshots.
+4. **G7 (Rate Limits)**: Extract and expose rate-limit headers from GitHub API responses in status snapshots.

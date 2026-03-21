@@ -23,10 +23,9 @@ describe("event-formatter", () => {
         event: "workspace-cleanup",
         workspaceKey: "workspace-1",
         issueIdentifier: "acme/repo#1",
-        outcome: "cleanup_blocked",
-        error: "workspace locked",
+        outcome: "removed",
       })
-    ).toBe("cleanup_blocked: workspace locked");
+    ).toBe("removed");
   });
 
   it("formats run-recovered events", () => {
