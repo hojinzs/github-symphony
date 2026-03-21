@@ -67,11 +67,7 @@ log "Initial state: idle"
 # ── Inject issues ─────────────────────────────────────────────
 
 cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
-docker exec symphony-e2e \
-  node /app/packages/orchestrator/dist/index.js run-once \
-  --runtime-root /app/.runtime \
-  --project-id e2e-project >/dev/null
-log "Issues injected, orchestrator reconciliation triggered"
+log "Issues injected; waiting for orchestrator reconciliation via existing polling loop"
 
 # ── Poll for dispatch ─────────────────────────────────────────
 

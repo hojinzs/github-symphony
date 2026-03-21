@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import type { Server } from "node:http";
 import { assertValidDashboardProjectId, DashboardFsReader } from "./store.js";
 import { startDashboardServer } from "./server.js";
 
@@ -33,8 +34,17 @@ export async function runCli(
   });
   const stdout = dependencies.stdout ?? process.stdout;
 
-  await new Promise<void>((resolveReady) => {
-    server.once("listening", () => {
+  await waitForServerReady(server, stdout);
+}
+
+async function waitForServerReady(
+  server: Server,
+  stdout: Pick<NodeJS.WriteStream, "write">
+): Promise<void> {
+  await new Promise<void>((resolveReady, rejectReady) => {
+    const handleListening = () => {
+      cleanup();
+
       const address = server.address();
       if (address && typeof address === "object") {
         const host =
@@ -47,8 +57,22 @@ export async function runCli(
           `Dashboard server listening on http://${urlHost}:${address.port}\n`
         );
       }
+
       resolveReady();
-    });
+    };
+
+    const handleError = (error: Error) => {
+      cleanup();
+      rejectReady(error);
+    };
+
+    const cleanup = () => {
+      server.off("listening", handleListening);
+      server.off("error", handleError);
+    };
+
+    server.once("listening", handleListening);
+    server.once("error", handleError);
   });
 }
 
