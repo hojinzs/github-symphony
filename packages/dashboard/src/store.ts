@@ -16,6 +16,8 @@ import {
 } from "@gh-symphony/core";
 
 const DEFAULT_RECENT_EVENT_LIMIT = 20;
+const RECENT_EVENT_CHUNK_SIZE = 4_096;
+const MAX_RECENT_EVENT_SCAN_BYTES = 64 * 1_024;
 
 export class DashboardFsReader {
   private readonly resolvedRuntimeRoot: string;
@@ -99,10 +101,20 @@ export class DashboardFsReader {
       try {
         const stats = await handle.stat();
         let position = stats.size;
-        let tail = Buffer.alloc(0);
+        let bytesScanned = 0;
+        let newlineCount = 0;
+        const chunks: Buffer[] = [];
 
-        while (position > 0) {
-          const readSize = Math.min(position, 4_096);
+        while (
+          position > 0 &&
+          bytesScanned < MAX_RECENT_EVENT_SCAN_BYTES &&
+          newlineCount <= limit
+        ) {
+          const readSize = Math.min(
+            position,
+            RECENT_EVENT_CHUNK_SIZE,
+            MAX_RECENT_EVENT_SCAN_BYTES - bytesScanned
+          );
           position -= readSize;
 
           const chunk = Buffer.allocUnsafe(readSize);
@@ -110,18 +122,14 @@ export class DashboardFsReader {
           if (bytesRead === 0) {
             break;
           }
-          tail = Buffer.concat([chunk.subarray(0, bytesRead), tail]);
-
-          const events = parseRecentEvents(tail.toString("utf8"), limit, {
-            allowPartialFirstLine: position > 0,
-          });
-          if (events.length >= limit) {
-            return events;
-          }
+          const populatedChunk = chunk.subarray(0, bytesRead);
+          chunks.unshift(populatedChunk);
+          bytesScanned += bytesRead;
+          newlineCount += countNewlines(populatedChunk);
         }
 
-        return parseRecentEvents(tail.toString("utf8"), limit, {
-          allowPartialFirstLine: false,
+        return parseRecentEvents(Buffer.concat(chunks).toString("utf8"), limit, {
+          allowPartialFirstLine: position > 0,
         });
       } finally {
         await handle.close();
@@ -134,6 +142,17 @@ export class DashboardFsReader {
       throw error;
     }
   }
+}
+
+function countNewlines(chunk: Uint8Array): number {
+  let count = 0;
+  for (const byte of chunk) {
+    if (byte === 0x0a) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 export async function statusForIssue(

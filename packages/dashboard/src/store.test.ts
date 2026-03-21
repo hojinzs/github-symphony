@@ -255,4 +255,56 @@ describe("DashboardFsReader", () => {
       }
     );
   });
+
+  it("reads recent events from large ndjson logs without scanning the entire file", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    const runDir = join(
+      runtimeRoot,
+      "projects",
+      "tenant-1",
+      "runs",
+      "run-1"
+    );
+    await mkdir(runDir, { recursive: true });
+
+    const noisyPrefix = `${"x".repeat(70_000)}\n`;
+    await writeFile(join(runDir, "events.ndjson"), noisyPrefix, "utf8");
+    await appendFile(
+      join(runDir, "events.ndjson"),
+      [
+        JSON.stringify({
+          at: "2026-03-20T00:01:00.000Z",
+          event: "run-dispatched",
+          runId: "run-1",
+          issueIdentifier: "acme/platform#1",
+          issueState: "Todo",
+        }),
+        JSON.stringify({
+          at: "2026-03-20T00:02:00.000Z",
+          event: "worker-error",
+          runId: "run-1",
+          issueIdentifier: "acme/platform#1",
+          error: "worker failed",
+          attempt: 1,
+        }),
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+
+    await expect(reader.loadRecentRunEvents("run-1", 2)).resolves.toEqual([
+      {
+        at: "2026-03-20T00:01:00.000Z",
+        event: "run-dispatched",
+        message: "Dispatched from Todo",
+      },
+      {
+        at: "2026-03-20T00:02:00.000Z",
+        event: "worker-error",
+        message: "worker failed",
+      },
+    ]);
+  });
 });

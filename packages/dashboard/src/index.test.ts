@@ -73,6 +73,23 @@ describe("runCli", () => {
     );
   });
 
+  it.each(["4680abc", "1.5", "-1"])(
+    "rejects non-integer port values: %s",
+    async (port) => {
+      await expect(
+        runCli(["--project-id", "tenant-1", "--port", port])
+      ).rejects.toThrow(`Expected an integer value but received "${port}".`);
+    }
+  );
+
+  it("rejects out-of-range port values", async () => {
+    await expect(
+      runCli(["--project-id", "tenant-1", "--port", "70000"])
+    ).rejects.toThrow(
+      'Expected a port number between 0 and 65535 but received "70000".'
+    );
+  });
+
   it("rejects invalid project IDs before constructing filesystem paths", async () => {
     await expect(runCli(["--project-id", "../tenant-1"])).rejects.toThrow(
       'Invalid project ID "../tenant-1"'

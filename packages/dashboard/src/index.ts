@@ -112,7 +112,7 @@ function parseArgs(args: string[]): {
         index += 1;
         break;
       case "--port":
-        parsed.port = parseInteger(readOptionValue(argument, value));
+        parsed.port = parseInteger(readNumericOptionValue(argument, value));
         index += 1;
         break;
       default:
@@ -131,10 +131,27 @@ function readOptionValue(argument: string, value: string | undefined): string {
   return value;
 }
 
+function readNumericOptionValue(
+  argument: string,
+  value: string | undefined
+): string {
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Option '${argument}' argument missing`);
+  }
+
+  return value;
+}
+
 function parseInteger(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
+  if (!/^\d+$/.test(value)) {
     throw new Error(`Expected an integer value but received "${value}".`);
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65_535) {
+    throw new Error(
+      `Expected a port number between 0 and 65535 but received "${value}".`
+    );
   }
 
   return parsed;
