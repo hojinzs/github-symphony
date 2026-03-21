@@ -23,10 +23,20 @@ describe("event-formatter", () => {
         event: "workspace-cleanup",
         workspaceKey: "workspace-1",
         issueIdentifier: "acme/repo#1",
-        outcome: "cleanup_blocked",
-        error: "workspace locked",
+        outcome: "removed",
       })
-    ).toBe("cleanup_blocked: workspace locked");
+    ).toBe("removed");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:02:00.000Z",
+        event: "workspace-cleanup",
+        workspaceKey: "workspace-2",
+        issueIdentifier: "acme/repo#1",
+        outcome: "skipped",
+        error: "cleanup failed",
+      })
+    ).toBe("skipped: cleanup failed");
   });
 
   it("formats run-recovered events", () => {

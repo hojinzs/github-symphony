@@ -83,7 +83,7 @@ export type WorkspaceCleanupEvent = {
   workspaceKey: string;
   issueIdentifier: string;
   issueId?: string;
-  outcome: "removed" | "cleanup_blocked" | "skipped";
+  outcome: "removed" | "skipped";
   error?: string | null;
 };
 

@@ -652,10 +652,7 @@ export class OrchestratorService {
     const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
 
     for (const workspaceRecord of workspaceRecords) {
-      if (
-        workspaceRecord.status === "removed" ||
-        workspaceRecord.status === "cleanup_blocked"
-      ) {
+      if (workspaceRecord.status === "removed") {
         continue;
       }
 
@@ -2396,11 +2393,7 @@ export class OrchestratorService {
         ? null
         : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
 
-    if (
-      !workspaceRecord ||
-      workspaceRecord.status === "removed" ||
-      workspaceRecord.status === "cleanup_blocked"
-    ) {
+    if (!workspaceRecord || workspaceRecord.status === "removed") {
       return;
     }
 

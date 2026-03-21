@@ -24,13 +24,11 @@ export type IssueSubjectIdentity = {
  *
  * - `active`          — available for runs
  * - `cleanup_pending` — terminal state reached, cleanup scheduled
- * - `cleanup_blocked` — `before_remove` hook failed, operator action needed
  * - `removed`         — workspace cleaned up
  */
 export type IssueWorkspaceStatus =
   | "active"
   | "cleanup_pending"
-  | "cleanup_blocked"
   | "removed";
 
 export type IssueWorkspaceRecord = {

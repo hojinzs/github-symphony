@@ -124,8 +124,6 @@ describe("createIntervention", () => {
       "approval",
       "retry_exhausted",
       "handoff_repair",
-      "cleanup_blocked",
-      "cleanup_force_remove",
       "issue_closure_required",
       "transfer_rebind",
     ] as const;
