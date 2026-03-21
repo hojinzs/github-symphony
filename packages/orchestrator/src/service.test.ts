@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
@@ -112,7 +113,7 @@ describe("OrchestratorService", () => {
     });
 
     await service.runOnce();
-    worker.emit("exit", 0, null);
+    worker.emit("close", 0, null);
     await service.runOnce();
 
     const output = stderr.write.mock.calls
@@ -2458,6 +2459,486 @@ Prefer focused changes.
     expect(killImpl).not.toHaveBeenCalled();
     expect(updatedRun?.status).toBe("running");
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+  });
+
+  it("updates lastEventAt from worker stderr events even when the worker state API is unavailable", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-channel-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4110;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const killImpl = vi.fn();
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        throw new Error("worker state API unavailable");
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4110,
+      now: () => currentTime,
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.write(
+      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:04:30.000Z",
+        tokenUsage: {
+          inputTokens: 12,
+          outputTokens: 5,
+          totalTokens: 17,
+        },
+        rateLimits: {
+          source: "codex",
+          remaining: 3,
+        },
+        event: "thread/tokenUsage/updated",
+      })}\n`
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:30.000Z");
+    });
+
+    currentTime = new Date("2026-03-08T00:06:00.000Z");
+    await service.runOnce();
+
+    const updatedRun = await store.loadRun(initialRun!.runId);
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:30.000Z");
+    expect(updatedRun?.tokenUsage).toEqual({
+      inputTokens: 12,
+      outputTokens: 5,
+      totalTokens: 17,
+    });
+    expect(updatedRun?.rateLimits).toEqual({
+      source: "codex",
+      remaining: 3,
+    });
+  });
+
+  it("flushes a trailing codex_update line when worker stderr closes without a newline", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-close-flush-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4111;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      isProcessRunning: (pid) => pid === 4111,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.write(
+      JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:01:30.000Z",
+        event: "thread/updated",
+      })
+    );
+    worker.stderr.end();
+    worker.emit("close", 0, null);
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:01:30.000Z");
+    });
+
+    const workerLog = await readFile(
+      join(store.runDir(initialRun!.runId, "tenant-1"), "worker.log"),
+      "utf8"
+    );
+    expect(workerLog).toContain('"lastEventAt":"2026-03-08T00:01:30.000Z"');
+
+    worker.stderr.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:02:00.000Z",
+        })}\n`
+      )
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const updatedRun = await store.loadRun(initialRun!.runId);
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:01:30.000Z");
+  });
+
+  it("parses codex_update lines when UTF-8 multi-byte characters are split across stderr chunks", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-utf8-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 41115;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      isProcessRunning: (pid) => pid === 41115,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    const encodedEvent = Buffer.from(
+      `${JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:02:30.000Z",
+        rateLimits: {
+          source: "codex",
+          label: "한도",
+        },
+      })}\n`,
+      "utf8"
+    );
+    const splitIndex = encodedEvent.indexOf(Buffer.from("한", "utf8"));
+    expect(splitIndex).toBeGreaterThan(0);
+
+    worker.stderr.write(encodedEvent.subarray(0, splitIndex + 1));
+    worker.stderr.write(encodedEvent.subarray(splitIndex + 1));
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:02:30.000Z");
+      expect(updatedRun?.rateLimits).toEqual({
+        source: "codex",
+        label: "한도",
+      });
+    });
+  });
+
+  it("skips JSON.parse for plain worker stderr log lines", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-fast-path-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4112;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      isProcessRunning: (pid) => pid === 4112,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    const parseSpy = vi.spyOn(JSON, "parse");
+    worker.stderr.write(
+      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:03:00.000Z",
+      })}\n`
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:03:00.000Z");
+    });
+
+    expect(parseSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"codex_update"')
+    );
+    expect(
+      parseSpy.mock.calls.some(
+        ([input]) =>
+          String(input).startsWith("[worker] codex → thread/tokenUsage/updated")
+      )
+    ).toBe(false);
+  });
+
+  it("pauses worker stderr until worker.log drain clears backpressure", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-backpressure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4113;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const pauseSpy = vi.spyOn(worker.stderr, "pause");
+    const resumeSpy = vi.spyOn(worker.stderr, "resume");
+    const workerLogStream = new EventEmitter() as EventEmitter & {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    workerLogStream.write = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+    workerLogStream.end = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      createWriteStreamImpl: vi
+        .fn()
+        .mockReturnValue(workerLogStream) as never,
+      isProcessRunning: (pid) => pid === 4113,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:05:00.000Z",
+        })}\n`
+      )
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:05:00.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(1);
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    const resumeCallsBeforeDrain = resumeSpy.mock.calls.length;
+
+    workerLogStream.emit("drain");
+
+    expect(resumeSpy.mock.calls.length).toBeGreaterThan(resumeCallsBeforeDrain);
+
+    worker.stderr.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:05:30.000Z",
+        })}\n`
+      )
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:05:30.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(2);
+  });
+
+  it("drains paused worker stderr before finalize flushes trailing codex updates", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-finalize-drain-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderr = new EventEmitter() as EventEmitter & {
+      pause: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      read: ReturnType<typeof vi.fn>;
+      readable: boolean;
+      readableEnded: boolean;
+    };
+    stderr.pause = vi.fn();
+    stderr.resume = vi.fn();
+    stderr.read = vi.fn().mockReturnValue(null);
+    stderr.readable = true;
+    stderr.readableEnded = false;
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: typeof stderr;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4114;
+    worker.stderr = stderr;
+    worker.unref = vi.fn();
+
+    const workerLogStream = new EventEmitter() as EventEmitter & {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    workerLogStream.write = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+    workerLogStream.end = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      createWriteStreamImpl: vi
+        .fn()
+        .mockReturnValue(workerLogStream) as never,
+      isProcessRunning: (pid) => pid === 4114,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.emit("data", Buffer.from("[worker] backpressure\n"));
+    worker.stderr.readableEnded = true;
+    worker.stderr.read
+      .mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            type: "codex_update",
+            issueId: initialRun!.issueId,
+            lastEventAt: "2026-03-08T00:06:00.000Z",
+          })
+        )
+      )
+      .mockReturnValueOnce(null);
+    worker.emit("close", 0, null);
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:06:00.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(2);
+    expect(workerLogStream.write.mock.calls[1]?.[0].toString("utf8")).toContain(
+      '"lastEventAt":"2026-03-08T00:06:00.000Z"'
+    );
+    expect(workerLogStream.end).toHaveBeenCalledTimes(1);
   });
 
   it("propagates worker rate-limit payloads into persisted runs and project snapshots", async () => {

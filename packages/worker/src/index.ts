@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   parseWorkflowMarkdown,
+  type OrchestratorChannelEvent,
   type RunAttemptPhase,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
@@ -118,6 +119,9 @@ console.log(
 
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
+let orchestratorChannelDrainPending = false;
+let pendingOrchestratorChannelPayload: string | null = null;
+const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
 
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
@@ -152,6 +156,7 @@ function shutdown(signal: NodeJS.Signals) {
     }
 
     await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
     server.close(() => {
       console.log(`Worker state server stopped on ${signal}`);
       process.exit(0);
@@ -167,6 +172,98 @@ type TokenUsageSnapshot = {
   outputTokens: number;
   totalTokens: number;
 };
+
+function flushPendingOrchestratorChannelEvent(): void {
+  if (!pendingOrchestratorChannelPayload) {
+    orchestratorChannelDrainPending = false;
+    return;
+  }
+
+  const payload = pendingOrchestratorChannelPayload;
+  pendingOrchestratorChannelPayload = null;
+  const wrote = process.stderr.write(payload);
+  if (wrote) {
+    orchestratorChannelDrainPending = false;
+    return;
+  }
+
+  pendingOrchestratorChannelPayload = payload;
+  orchestratorChannelDrainPending = true;
+  process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+}
+
+function waitForPendingOrchestratorChannelFlush(
+  timeoutMs = ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS
+): Promise<void> {
+  if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | null = setTimeout(() => {
+      settled = true;
+      process.stderr.removeListener("drain", handleDrain);
+      timeout = null;
+      resolve();
+    }, timeoutMs);
+
+    const handleDrain = () => {
+      if (
+        orchestratorChannelDrainPending ||
+        pendingOrchestratorChannelPayload
+      ) {
+        return;
+      }
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      process.stderr.removeListener("drain", handleDrain);
+      resolve();
+    };
+
+    process.stderr.on("drain", handleDrain);
+  });
+}
+
+function emitOrchestratorChannelEvent(event?: string): void {
+  const issueId = runtimeState.run?.issueId;
+  const lastEventAt = runtimeState.lastEventAt;
+  if (!issueId || !lastEventAt) {
+    return;
+  }
+
+  const payload: OrchestratorChannelEvent = {
+    type: "codex_update",
+    issueId,
+    lastEventAt,
+    tokenUsage: { ...runtimeState.tokenUsage },
+  };
+
+  if (runtimeState.rateLimits) {
+    payload.rateLimits = { ...runtimeState.rateLimits };
+  }
+  if (event) {
+    payload.event = event;
+  }
+
+  const serializedPayload = `${JSON.stringify(payload)}\n`;
+  if (orchestratorChannelDrainPending) {
+    pendingOrchestratorChannelPayload = serializedPayload;
+    return;
+  }
+
+  const wrote = process.stderr.write(serializedPayload);
+  if (!wrote) {
+    orchestratorChannelDrainPending = true;
+    process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+  }
+}
 
 async function startAssignedRun() {
   try {
@@ -552,6 +649,8 @@ async function runCodexClientProtocol(
     // Track the timestamp of every server-initiated notification/event.
     // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
     runtimeState.lastEventAt = new Date().toISOString();
+    const orchestratorEventName =
+      typeof msg.method === "string" ? msg.method : undefined;
 
     // Server-initiated request (dynamic tool call)
     if (msg.method === "dynamic_tool_call_request" && msg.params != null) {
@@ -569,6 +668,7 @@ async function runCodexClientProtocol(
         params.turnId,
         params.arguments
       );
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -597,6 +697,7 @@ async function runCodexClientProtocol(
       }
       // Resolve any pending turn completion
       resolvePendingTurnCompletion();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -613,6 +714,7 @@ async function runCodexClientProtocol(
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       process.stderr.write("[worker] codex turn/completed\n");
       resolvePendingTurnCompletion();
       return;
@@ -628,6 +730,7 @@ async function runCodexClientProtocol(
         `[worker] codex turn/failed ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );
       markTurnTerminalFailure("failed", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -641,6 +744,7 @@ async function runCodexClientProtocol(
         `[worker] codex turn/cancelled ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );
       markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -654,6 +758,7 @@ async function runCodexClientProtocol(
       if (tokenUsage) {
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -678,12 +783,14 @@ async function runCodexClientProtocol(
       } else {
         deltaBuffer.text += delta;
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
     // Log all other server notifications for observability
     if (typeof msg.method === "string") {
       flushDeltaBuffer();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       process.stderr.write(
         `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );
@@ -877,6 +984,7 @@ async function runCodexClientProtocol(
       ? "failed"
       : turnTerminalFailurePhase ?? "succeeded";
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
 
     // Brief delay so the state API can serve the final status once.
     setTimeout(() => {
@@ -907,6 +1015,7 @@ async function runCodexClientProtocol(
     }
 
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
 
     // Exit worker on protocol failure
     setTimeout(() => {
