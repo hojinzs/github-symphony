@@ -103,7 +103,8 @@ function createProtocolContext(options: {
   const logs: string[] = [];
   const orchestratorEvents: Array<Record<string, unknown>> = [];
   let orchestratorChannelDrainPending = false;
-  let pendingOrchestratorChannelPayload: string | null = null;
+  const pendingOrchestratorChannelPayloads: string[] = [];
+  const maxPendingOrchestratorChannelPayloads = 16;
 
   const defaultOrchestratorChannelWriter = {
     write(chunk: string): boolean {
@@ -125,7 +126,8 @@ function createProtocolContext(options: {
 
   const runtimeState = {
     status: "running" as string,
-    runPhase: "streaming_turn" as string,
+    executionPhase: "implementation" as string | null,
+    runPhase: "streaming_turn" as string | null,
     run: {
       issueId: "issue-1",
       lastError: null as string | null,
@@ -133,6 +135,12 @@ function createProtocolContext(options: {
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
+    sessionInfo: {
+      threadId: "thread-1" as string | null,
+      turnId: "turn-1" as string | null,
+      turnCount: 1,
+      sessionId: "thread-1-turn-1" as string | null,
+    },
   };
 
   function applyTokenUsageUpdate(
@@ -164,6 +172,51 @@ function createProtocolContext(options: {
     );
   }
 
+  function enqueuePendingOrchestratorChannelPayload(payload: string): void {
+    if (
+      pendingOrchestratorChannelPayloads.length >=
+      maxPendingOrchestratorChannelPayloads
+    ) {
+      pendingOrchestratorChannelPayloads.shift();
+    }
+
+    pendingOrchestratorChannelPayloads.push(payload);
+  }
+
+  function flushPendingOrchestratorChannelEvent(): void {
+    while (pendingOrchestratorChannelPayloads.length > 0) {
+      const pendingPayload = pendingOrchestratorChannelPayloads.shift();
+      if (!pendingPayload) {
+        continue;
+      }
+
+      const pendingWriteSucceeded = channelWriter.write(pendingPayload);
+      if (pendingWriteSucceeded) {
+        continue;
+      }
+
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+      return;
+    }
+
+    orchestratorChannelDrainPending = false;
+  }
+
+  function writeOrQueueOrchestratorChannelPayload(payload: Record<string, unknown>): void {
+    const serializedPayload = `${JSON.stringify(payload)}\n`;
+    if (orchestratorChannelDrainPending) {
+      enqueuePendingOrchestratorChannelPayload(serializedPayload);
+      return;
+    }
+
+    const wrote = channelWriter.write(serializedPayload);
+    if (!wrote) {
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+    }
+  }
+
   function emitOrchestratorChannelEvent(event?: string): void {
     if (!runtimeState.run.issueId || !runtimeState.lastEventAt) {
       return;
@@ -183,42 +236,34 @@ function createProtocolContext(options: {
       payload.event = event;
     }
 
-    function flushPendingOrchestratorChannelEvent(): void {
-      if (!pendingOrchestratorChannelPayload) {
-        orchestratorChannelDrainPending = false;
-        return;
-      }
+    writeOrQueueOrchestratorChannelPayload(payload);
+  }
 
-      const pendingPayload = pendingOrchestratorChannelPayload;
-      pendingOrchestratorChannelPayload = null;
-      const pendingWriteSucceeded = channelWriter.write(pendingPayload);
-      if (pendingWriteSucceeded) {
-        orchestratorChannelDrainPending = false;
-        return;
-      }
-
-      pendingOrchestratorChannelPayload = pendingPayload;
-      orchestratorChannelDrainPending = true;
-      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
-    }
-
-    const serializedPayload = `${JSON.stringify(payload)}\n`;
-    if (orchestratorChannelDrainPending) {
-      pendingOrchestratorChannelPayload = serializedPayload;
+  function emitOrchestratorHeartbeat(): void {
+    if (!runtimeState.run.issueId) {
       return;
     }
 
-    const wrote = channelWriter.write(serializedPayload);
-    if (!wrote) {
-      orchestratorChannelDrainPending = true;
-      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
-    }
+    writeOrQueueOrchestratorChannelPayload({
+      type: "heartbeat",
+      issueId: runtimeState.run.issueId,
+      lastEventAt: runtimeState.lastEventAt,
+      tokenUsage: { ...runtimeState.tokenUsage },
+      rateLimits: runtimeState.rateLimits ? { ...runtimeState.rateLimits } : null,
+      sessionInfo: { ...runtimeState.sessionInfo },
+      executionPhase: runtimeState.executionPhase,
+      runPhase: runtimeState.runPhase,
+      lastError: runtimeState.run.lastError,
+    });
   }
 
   function waitForPendingOrchestratorChannelFlush(
     timeoutMs = 250
   ): Promise<void> {
-    if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+    if (
+      !orchestratorChannelDrainPending &&
+      pendingOrchestratorChannelPayloads.length === 0
+    ) {
       return Promise.resolve();
     }
 
@@ -234,7 +279,7 @@ function createProtocolContext(options: {
       const handleDrain = () => {
         if (
           orchestratorChannelDrainPending ||
-          pendingOrchestratorChannelPayload
+          pendingOrchestratorChannelPayloads.length > 0
         ) {
           return;
         }
@@ -720,6 +765,7 @@ function createProtocolContext(options: {
     waitForTurnCompletion,
     waitForTurnWithTimeout,
     handleServerMessage,
+    emitOrchestratorHeartbeat,
     waitForPendingOrchestratorChannelFlush,
     finalizeRunState,
     applyChildExit,
@@ -1782,7 +1828,7 @@ describe("orchestrator channel telemetry", () => {
     });
   });
 
-  it("coalesces codex_update payloads while stderr is backpressured and flushes the latest on drain", () => {
+  it("buffers multiple codex_update payloads while stderr is backpressured and flushes them in order on drain", () => {
     const drainEmitter = new EventEmitter();
     const writtenPayloads: Array<Record<string, unknown>> = [];
     let writeCount = 0;
@@ -1824,13 +1870,68 @@ describe("orchestrator channel telemetry", () => {
 
     drainEmitter.emit("drain");
 
-    expect(writtenPayloads).toHaveLength(2);
+    expect(writtenPayloads).toHaveLength(3);
     expect(writtenPayloads[1]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 4,
+        outputTokens: 5,
+        totalTokens: 9,
+      },
+    });
+    expect(writtenPayloads[2]).toMatchObject({
       event: "thread/tokenUsage/updated",
       tokenUsage: {
         inputTokens: 7,
         outputTokens: 8,
         totalTokens: 15,
+      },
+    });
+  });
+
+  it("drops the oldest buffered payload when the bounded queue overflows", () => {
+    const drainEmitter = new EventEmitter();
+    const writtenPayloads: Array<Record<string, unknown>> = [];
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(chunk: string): boolean {
+          writtenPayloads.push(JSON.parse(chunk) as Record<string, unknown>);
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+      },
+    });
+
+    for (let i = 0; i < 18; i += 1) {
+      ctx.handleServerMessage({
+        method: "thread/tokenUsage/updated",
+        params: {
+          input_tokens: i + 1,
+          output_tokens: i + 2,
+          total_tokens: i + 3,
+        },
+      });
+    }
+
+    drainEmitter.emit("drain");
+
+    expect(writtenPayloads).toHaveLength(17);
+    expect(writtenPayloads[1]).toMatchObject({
+      tokenUsage: {
+        inputTokens: 3,
+        outputTokens: 4,
+        totalTokens: 5,
+      },
+    });
+    expect(writtenPayloads.at(-1)).toMatchObject({
+      tokenUsage: {
+        inputTokens: 18,
+        outputTokens: 19,
+        totalTokens: 20,
       },
     });
   });
@@ -1890,6 +1991,57 @@ describe("orchestrator channel telemetry", () => {
         totalTokens: 9,
       },
     });
+  });
+
+  it("emits heartbeat payloads as full runtime snapshots", () => {
+    const ctx = createProtocolContext({});
+    ctx.runtimeState.lastEventAt = "2026-03-08T00:04:30.000Z";
+    ctx.runtimeState.tokenUsage = {
+      inputTokens: 12,
+      outputTokens: 5,
+      totalTokens: 17,
+    };
+    ctx.runtimeState.rateLimits = {
+      source: "codex",
+      remaining: 3,
+    };
+    ctx.runtimeState.sessionInfo = {
+      threadId: "thread-1",
+      turnId: "turn-xyz",
+      turnCount: 2,
+      sessionId: "thread-1-turn-xyz",
+    };
+    ctx.runtimeState.executionPhase = "human-review";
+    ctx.runtimeState.runPhase = "failed";
+    ctx.runtimeState.run.lastError = "turn_input_required: agent requires user input";
+
+    ctx.emitOrchestratorHeartbeat();
+
+    expect(ctx.orchestratorEvents).toEqual([
+      {
+        type: "heartbeat",
+        issueId: "issue-1",
+        lastEventAt: "2026-03-08T00:04:30.000Z",
+        tokenUsage: {
+          inputTokens: 12,
+          outputTokens: 5,
+          totalTokens: 17,
+        },
+        rateLimits: {
+          source: "codex",
+          remaining: 3,
+        },
+        sessionInfo: {
+          threadId: "thread-1",
+          turnId: "turn-xyz",
+          turnCount: 2,
+          sessionId: "thread-1-turn-xyz",
+        },
+        executionPhase: "human-review",
+        runPhase: "failed",
+        lastError: "turn_input_required: agent requires user input",
+      },
+    ]);
   });
 });
 

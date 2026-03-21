@@ -32,6 +32,7 @@ import {
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorChannelEvent,
+  type OrchestratorChannelSessionInfo,
   type OrchestratorRunRecord,
   type OrchestratorEvent,
   type OrchestratorStateStore,
@@ -1780,6 +1781,31 @@ export class OrchestratorService {
       return;
     }
 
+    if (event.type === "heartbeat") {
+      await this.store.saveRun({
+        ...run,
+        updatedAt: this.now().toISOString(),
+        lastEvent: "heartbeat",
+        lastEventAt: event.lastEventAt ?? undefined,
+        lastEventAtSource: event.lastEventAt ? "event-channel" : null,
+        tokenUsage: event.tokenUsage,
+        rateLimits: event.rateLimits,
+        runtimeSession: buildRuntimeSession(
+          run.runtimeSession,
+          resolveChannelSessionId(event.sessionInfo),
+          event.sessionInfo?.threadId ?? null,
+          "active",
+          run.startedAt ?? run.runtimeSession?.startedAt ?? this.now().toISOString(),
+          this.now().toISOString()
+        ),
+        turnCount: event.sessionInfo?.turnCount ?? 0,
+        executionPhase: event.executionPhase,
+        runPhase: event.runPhase,
+        lastError: event.lastError,
+      });
+      return;
+    }
+
     await this.store.saveRun({
       ...run,
       updatedAt: this.now().toISOString(),
@@ -2719,6 +2745,21 @@ function buildRuntimeSession(
     updatedAt,
     exitClassification: existing?.exitClassification ?? null,
   };
+}
+
+function resolveChannelSessionId(
+  sessionInfo: OrchestratorChannelSessionInfo | null | undefined
+): string | null {
+  if (!sessionInfo) {
+    return null;
+  }
+
+  return (
+    sessionInfo.sessionId ??
+    (sessionInfo.threadId && sessionInfo.turnId
+      ? `${sessionInfo.threadId}-${sessionInfo.turnId}`
+      : null)
+  );
 }
 
 function resolveWorkerCommand(): string {
