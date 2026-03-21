@@ -3120,6 +3120,9 @@ Prefer focused changes.
         lastEventAt: "2026-03-08T00:06:30.000Z",
         lastEventAtSource: "event-channel",
         turnCount: 3,
+        executionPhase: "implementation",
+        runPhase: "streaming_turn",
+        lastError: "previous error",
       });
 
       worker.stderr.write(
@@ -3134,8 +3137,8 @@ Prefer focused changes.
           },
           rateLimits: null,
           sessionInfo: null,
-          executionPhase: "implementation",
-          runPhase: "streaming_turn",
+          executionPhase: null,
+          runPhase: null,
           lastError: null,
         })}\n`
       );
@@ -3154,6 +3157,9 @@ Prefer focused changes.
       expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:06:30.000Z");
       expect(updatedRun?.lastEventAtSource).toBe("event-channel");
       expect(updatedRun?.turnCount).toBe(3);
+      expect(updatedRun?.executionPhase).toBe("implementation");
+      expect(updatedRun?.runPhase).toBe("streaming_turn");
+      expect(updatedRun?.lastError).toBeNull();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

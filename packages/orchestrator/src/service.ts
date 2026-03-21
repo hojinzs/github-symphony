@@ -1809,8 +1809,8 @@ export class OrchestratorService {
           event.sessionInfo && event.sessionInfo.turnCount != null
             ? event.sessionInfo.turnCount
             : run.turnCount,
-        executionPhase: event.executionPhase,
-        runPhase: event.runPhase,
+        executionPhase: event.executionPhase ?? run.executionPhase,
+        runPhase: event.runPhase ?? run.runPhase,
         lastError: event.lastError,
       });
       return;
@@ -2758,7 +2758,7 @@ function buildRuntimeSession(
 }
 
 function resolveChannelSessionId(
-  sessionInfo: OrchestratorChannelSessionInfo | null | undefined
+  sessionInfo: OrchestratorChannelSessionInfo | null
 ): string | null {
   if (!sessionInfo) {
     return null;
