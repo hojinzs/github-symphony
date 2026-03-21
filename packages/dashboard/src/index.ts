@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
+import { DashboardFsReader } from "./store.js";
+import { startDashboardServer } from "./server.js";
+
+export { DashboardFsReader, statusForIssue } from "./store.js";
+export {
+  createDashboardRequestHandler,
+  resolveDashboardResponse,
+  startDashboardServer,
+} from "./server.js";
+
+export async function runCli(
+  argv: string[],
+  dependencies: {
+    stdout?: Pick<NodeJS.WriteStream, "write">;
+    stderr?: Pick<NodeJS.WriteStream, "write">;
+  } = {}
+): Promise<void> {
+  const parsed = parseArgs(argv);
+  if (!parsed.projectId) {
+    throw new Error("Dashboard CLI requires --project-id.");
+  }
+
+  const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
+  const reader = new DashboardFsReader(runtimeRoot, parsed.projectId);
+  const server = startDashboardServer({
+    host: parsed.host ?? "127.0.0.1",
+    port: parsed.port ?? 0,
+    reader,
+  });
+  const stdout = dependencies.stdout ?? process.stdout;
+
+  await new Promise<void>((resolveReady) => {
+    server.once("listening", () => {
+      const address = server.address();
+      if (address && typeof address === "object") {
+        const host =
+          address.address === "::" || address.address === "0.0.0.0"
+            ? "localhost"
+            : address.address;
+        const urlHost =
+          host !== "localhost" && host.includes(":") ? `[${host}]` : host;
+        stdout.write(
+          `Dashboard server listening on http://${urlHost}:${address.port}\n`
+        );
+      }
+      resolveReady();
+    });
+  });
+}
+
+function parseArgs(args: string[]): {
+  runtimeRoot?: string;
+  projectId?: string;
+  host?: string;
+  port?: number;
+} {
+  const parsed: {
+    runtimeRoot?: string;
+    projectId?: string;
+    host?: string;
+    port?: number;
+  } = {};
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    const value = args[index + 1];
+
+    if (!argument?.startsWith("--")) {
+      continue;
+    }
+
+    switch (argument) {
+      case "--runtime-root":
+        parsed.runtimeRoot = value;
+        index += 1;
+        break;
+      case "--project":
+      case "--project-id":
+        parsed.projectId = value;
+        index += 1;
+        break;
+      case "--host":
+        parsed.host = value;
+        index += 1;
+        break;
+      case "--port":
+        parsed.port = parseInteger(value);
+        index += 1;
+        break;
+      default:
+        throw new Error(`Unknown option: ${argument}`);
+    }
+  }
+
+  return parsed;
+}
+
+function parseInteger(value: string | undefined): number {
+  if (!value) {
+    throw new Error("Option '--port' argument missing");
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Expected an integer value but received "${value}".`);
+  }
+
+  return parsed;
+}
+
+async function main(): Promise<void> {
+  await runCli(process.argv.slice(2));
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error: unknown) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Unknown error"}\n`
+    );
+    process.exitCode = 1;
+  });
+}

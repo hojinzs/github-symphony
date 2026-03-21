@@ -27,6 +27,7 @@ type LoaderKey =
   | "start"
   | "stop"
   | "status"
+  | "dashboard"
   | "run"
   | "recover"
   | "logs"
@@ -47,6 +48,7 @@ type CliOptionValues = Partial<
     level?: string;
     logLevel?: string;
     nonInteractive?: boolean;
+    port?: string;
     project?: string;
     projectId?: string;
     run?: string;
@@ -62,6 +64,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     start: () => import("./commands/start.js"),
     stop: () => import("./commands/stop.js"),
     status: () => import("./commands/status.js"),
+    dashboard: () => import("./commands/dashboard.js"),
     run: () => import("./commands/run.js"),
     recover: () => import("./commands/recover.js"),
     logs: () => import("./commands/logs.js"),
@@ -232,6 +235,23 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--watch", values.watch);
     await invokeHandler("status", args, values);
+  });
+
+  addGlobalOptions(
+    program
+      .command("dashboard")
+      .description("Start the standalone dashboard server")
+      .option("--port <port>", "Dashboard port")
+      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = [];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--port", values.port);
+    await invokeHandler("dashboard", args, values);
   });
 
   addGlobalOptions(

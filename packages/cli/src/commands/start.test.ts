@@ -6,7 +6,6 @@ import type { CliProjectConfig } from "../config.js";
 
 const acquireProjectLock = vi.fn();
 const releaseProjectLock = vi.fn();
-const closeStatusServer = vi.fn();
 const runOnce = vi.fn();
 const status = vi.fn();
 
@@ -21,11 +20,6 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     status = status;
     shutdown = vi.fn().mockResolvedValue(undefined);
   },
-  startOrchestratorStatusServer: vi.fn(() => ({
-    listening: true,
-    address: () => ({ address: "127.0.0.1", port: 4680, family: "IPv4" }),
-    close: closeStatusServer,
-  })),
 }));
 
 const startModule = await import("./start.js");
@@ -33,7 +27,6 @@ const startModule = await import("./start.js");
 afterEach(() => {
   acquireProjectLock.mockReset();
   releaseProjectLock.mockReset();
-  closeStatusServer.mockReset();
   runOnce.mockReset();
   status.mockReset();
   vi.restoreAllMocks();
@@ -41,31 +34,21 @@ afterEach(() => {
 });
 
 describe("shutdownForegroundOrchestrator", () => {
-  it("exits even when removing the persisted status port fails", async () => {
-    const close = vi.fn();
+  it("exits after releasing the foreground lock", async () => {
     const exit = vi.fn((code?: number) => {
       throw new Error(`exit:${code ?? "undefined"}`);
     }) as unknown as (code?: number) => never;
-    const removePortFile = vi
-      .fn<typeof import("node:fs/promises").rm>()
-      .mockRejectedValue(new Error("permission denied"));
 
     await expect(
       startModule.shutdownForegroundOrchestrator({
         configDir: "/tmp/gh-symphony",
         projectId: "tenant-a",
-        statusServer: { close },
         exit,
-        removePortFile,
       })
     ).rejects.toThrow("exit:0");
-
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(removePortFile).toHaveBeenCalledTimes(1);
   });
 
   it("releases the project lock before exiting", async () => {
-    const close = vi.fn();
     const exit = vi.fn((code?: number) => {
       throw new Error(`exit:${code ?? "undefined"}`);
     }) as unknown as (code?: number) => never;
@@ -80,7 +63,6 @@ describe("shutdownForegroundOrchestrator", () => {
       startModule.shutdownForegroundOrchestrator({
         configDir: "/tmp/gh-symphony",
         projectId: "tenant-a",
-        statusServer: { close },
         projectLock,
         releaseLock: releaseProjectLock,
         exit,
@@ -135,7 +117,6 @@ describe("start command foreground locking", () => {
       projectId: "tenant-a",
     });
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
-    expect(closeStatusServer).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

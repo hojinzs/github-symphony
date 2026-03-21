@@ -31,19 +31,14 @@ import { writeConfig, generateProjectId, abortIfCancelled } from "./init.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
-import {
-  resolveProjectOrchestratorStatusBaseUrl,
-} from "../orchestrator-status-endpoint.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 
 const execFile = promisify(execFileCallback);
-const STATUS_REQUEST_TIMEOUT_MS = 1_500;
 
 type ProjectListRow = {
   id: string;
   name: string;
   status: "running" | "stopped";
-  endpoint: string;
   health: string;
   activeRuns: number | null;
   lastTick: string;
@@ -263,29 +258,9 @@ async function readPersistedSnapshot(
 
 async function fetchProjectSnapshot(
   configDir: string,
-  projectId: string,
-  baseUrl: string | null
+  projectId: string
 ): Promise<ProjectStatusSnapshot | null> {
-  if (!baseUrl) {
-    return readPersistedSnapshot(configDir, projectId);
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), STATUS_REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(`${baseUrl}/api/v1/status`, {
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return readPersistedSnapshot(configDir, projectId);
-    }
-    return (await response.json()) as ProjectStatusSnapshot;
-  } catch {
-    return readPersistedSnapshot(configDir, projectId);
-  } finally {
-    clearTimeout(timeout);
-  }
+  return readPersistedSnapshot(configDir, projectId);
 }
 
 async function readProcessUptime(pid: number): Promise<string> {
@@ -368,22 +343,14 @@ async function collectProjectListRows(
       const config = await loadProjectConfig(configDir, projectId);
       const pid = await readPid(configDir, projectId);
       const running = pid !== null && isProcessRunning(pid);
-      const endpointBaseUrl = running
-        ? await resolveProjectOrchestratorStatusBaseUrl({
-            configDir,
-            projectId,
-          })
-        : null;
-      const endpoint = endpointBaseUrl ?? "-";
       const snapshot = running
-        ? await fetchProjectSnapshot(configDir, projectId, endpointBaseUrl)
+        ? await fetchProjectSnapshot(configDir, projectId)
         : null;
 
       return {
         id: projectId,
         name: defaultProjectName(config, projectId),
         status: running ? "running" : "stopped",
-        endpoint,
         health: snapshot?.health ?? "-",
         activeRuns: snapshot?.summary.activeRuns ?? null,
         lastTick: snapshot?.lastTickAt
@@ -765,7 +732,6 @@ async function projectList(options: GlobalOptions): Promise<void> {
       "ID",
       "Name",
       "Status",
-      "Endpoint",
       "Health",
       "Active Runs",
       "Last Tick",
@@ -775,7 +741,6 @@ async function projectList(options: GlobalOptions): Promise<void> {
       row.id,
       row.name,
       row.status,
-      row.endpoint,
       row.health,
       row.activeRuns === null ? "-" : String(row.activeRuns),
       row.lastTick,

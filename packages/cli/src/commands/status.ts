@@ -12,10 +12,6 @@ import {
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
-import { resolveProjectOrchestratorStatusBaseUrl } from "../orchestrator-status-endpoint.js";
-import { requestOrchestratorRefresh } from "./status-refresh.js";
-
-const WATCH_REFRESH_TIMEOUT_MS = 1_500;
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
@@ -233,14 +229,6 @@ const handler = async (
     let runPromise: Promise<void> | null = null;
 
     const run = async () => {
-      const baseUrl = await resolveProjectOrchestratorStatusBaseUrl({
-        configDir: options.configDir,
-        projectId,
-      });
-      await requestOrchestratorRefresh({
-        baseUrl,
-        timeoutMs: WATCH_REFRESH_TIMEOUT_MS,
-      });
       const snapshot = await readStatusSnapshot(runtimeRoot, projectId);
       if (options.json || !isTTY) {
         process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
