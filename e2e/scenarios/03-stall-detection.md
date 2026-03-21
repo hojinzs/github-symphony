@@ -4,7 +4,7 @@
 
 ```bash
 # Start with stall scenario
-STUB_SCENARIO=stall docker compose -f docker-compose.e2e.yml up -d --build
+STUB_SCENARIO=stall docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
@@ -46,7 +46,14 @@ docker compose -f docker-compose.e2e.yml up -d --build
    # Expected: events showing stall detection and worker termination
    ```
 
-6. **Verify token usage artifact saved**
+6. **Verify legacy fallback behavior explicitly**
+   ```bash
+   curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0] | {startedAt, lastEventAt, status}'
+   # Expected before SIGTERM: stub worker updates /api/v1/state lastEventAt, but no stderr codex_update channel exists
+   # Expected orchestrator behavior: legacy worker remains compatible because stall fallback can still use startedAt
+   ```
+
+7. **Verify token usage artifact saved**
    ```bash
    docker exec symphony-e2e sh -c 'find /app/.runtime -name token-usage.json -exec cat {} \;'
    # Expected: { "inputTokens": 150, "outputTokens": 42, "totalTokens": 192 }
@@ -58,10 +65,12 @@ docker compose -f docker-compose.e2e.yml up -d --build
 - Orchestrator detects stall after configured timeout
 - Worker receives SIGTERM and saves token-usage artifact before exiting
 - Orchestrator schedules retry for the issue
+- Legacy worker path without stderr event channel still falls back safely instead of crashing
 
 ## Cleanup
 
 ```bash
-docker compose -f docker-compose.e2e.yml down
+docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml down
 echo "[]" > e2e/fixtures/issues.json
+rm -rf evidence
 ```

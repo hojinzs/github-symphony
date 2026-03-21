@@ -2461,6 +2461,110 @@ Prefer focused changes.
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
   });
 
+  it("ignores worker state API lastEventAt and keeps the persisted event-channel timestamp", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stall-ignore-api-timestamp-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 300000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4110,
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      lastEventAt: "2026-03-08T00:04:00.000Z",
+    });
+
+    const killImpl = vi.fn();
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/state")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "running",
+            executionPhase: "implementation",
+            lastEventAt: "2026-03-08T00:05:30.000Z",
+            tokenUsage: {
+              inputTokens: 10,
+              outputTokens: 4,
+              totalTokens: 14,
+            },
+            sessionInfo: {
+              threadId: "thread-1",
+              turnId: "turn-xyz",
+              turnCount: 2,
+              sessionId: "thread-1-turn-xyz",
+            },
+            run: {
+              lastError: null,
+            },
+          }),
+        } as Response;
+      }
+      return createTrackerResponseWithState(repository, "Todo");
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4210,
+        unref: vi.fn(),
+      }) as never,
+      killImpl,
+      isProcessRunning: (pid) => pid === 4110,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const updatedRun = await store.loadRun("run-1");
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+    expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
+  });
+
   it("updates lastEventAt from worker stderr events even when the worker state API is unavailable", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-channel-"));

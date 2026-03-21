@@ -1940,7 +1940,7 @@ export class OrchestratorService {
         turnCount: null,
         lastError: null,
         lastEvent: null,
-        lastEventAt: null,
+        lastEventAt: run.lastEventAt ?? null,
         executionPhase: null,
         runPhase: null,
         rateLimits: null,
@@ -1961,7 +1961,7 @@ export class OrchestratorService {
           turnCount: null,
           lastError: null,
           lastEvent: null,
-          lastEventAt: null,
+          lastEventAt: run.lastEventAt ?? null,
           executionPhase: null,
           runPhase: null,
           rateLimits: null,
@@ -2009,7 +2009,6 @@ export class OrchestratorService {
       const lastError =
         typeof state.run?.lastError === "string" ? state.run.lastError : null;
       const lastEvent = state.status ?? null;
-      const lastEventAt = asStringOrNull(state.lastEventAt);
       const executionPhase = parseExecutionPhase(state.executionPhase);
       const runPhase = parseRunPhase(state.runPhase);
       const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;
@@ -2021,7 +2020,7 @@ export class OrchestratorService {
         turnCount,
         lastError,
         lastEvent,
-        lastEventAt,
+        lastEventAt: run.lastEventAt ?? null,
         executionPhase,
         runPhase,
         rateLimits,
@@ -2034,7 +2033,7 @@ export class OrchestratorService {
         turnCount: null,
         lastError: null,
         lastEvent: null,
-        lastEventAt: null,
+        lastEventAt: run.lastEventAt ?? null,
         executionPhase: null,
         runPhase: null,
         rateLimits: null,
