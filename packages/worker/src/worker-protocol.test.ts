@@ -78,6 +78,8 @@ function createProtocolContext(options: {
   orchestratorChannelWriter?: {
     write: (chunk: string) => boolean;
     once: (event: "drain", listener: () => void) => unknown;
+    on?: (event: "drain", listener: () => void) => unknown;
+    removeListener?: (event: "drain", listener: () => void) => unknown;
   };
 }) {
   const {
@@ -109,6 +111,12 @@ function createProtocolContext(options: {
       return true;
     },
     once(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+    on(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+    removeListener(_event: "drain", _listener: () => void): void {
       // No-op for the default sink because writes are always immediate.
     },
   };

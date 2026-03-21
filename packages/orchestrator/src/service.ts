@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
@@ -119,6 +120,7 @@ export class OrchestratorService {
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
   private readonly workerStderrBuffers = new Map<string, string>();
+  private readonly workerStderrDecoders = new Map<string, StringDecoder>();
   private readonly lastKnownGoodWorkflows = new Map<string, WorkflowResolution>();
   private readonly lastReportedWorkflowErrors = new Map<string, string>();
   private workflowResolutionCache: Map<string, Promise<WorkflowResolution>> | null =
@@ -1686,8 +1688,13 @@ export class OrchestratorService {
   }
 
   private consumeWorkerStderrChunk(runId: string, chunk: Buffer): void {
+    let decoder = this.workerStderrDecoders.get(runId);
+    if (!decoder) {
+      decoder = new StringDecoder("utf8");
+      this.workerStderrDecoders.set(runId, decoder);
+    }
     const nextBuffer =
-      (this.workerStderrBuffers.get(runId) ?? "") + chunk.toString("utf8");
+      (this.workerStderrBuffers.get(runId) ?? "") + decoder.write(chunk);
     const lines = nextBuffer.split("\n");
     this.workerStderrBuffers.set(runId, lines.pop() ?? "");
 
@@ -1697,8 +1704,11 @@ export class OrchestratorService {
   }
 
   private flushWorkerStderrBuffer(runId: string): void {
-    const remainder = this.workerStderrBuffers.get(runId);
+    const decoder = this.workerStderrDecoders.get(runId);
+    const remainder =
+      (this.workerStderrBuffers.get(runId) ?? "") + (decoder?.end() ?? "");
     this.workerStderrBuffers.delete(runId);
+    this.workerStderrDecoders.delete(runId);
     if (remainder && remainder.trim()) {
       this.consumeWorkerStderrLine(runId, remainder);
     }

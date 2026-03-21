@@ -2625,6 +2625,71 @@ Prefer focused changes.
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:01:30.000Z");
   });
 
+  it("parses codex_update lines when UTF-8 multi-byte characters are split across stderr chunks", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-utf8-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 41115;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      isProcessRunning: (pid) => pid === 41115,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    const encodedEvent = Buffer.from(
+      `${JSON.stringify({
+        type: "codex_update",
+        issueId: initialRun!.issueId,
+        lastEventAt: "2026-03-08T00:02:30.000Z",
+        rateLimits: {
+          source: "codex",
+          label: "한도",
+        },
+      })}\n`,
+      "utf8"
+    );
+    const splitIndex = encodedEvent.indexOf(Buffer.from("한", "utf8"));
+    expect(splitIndex).toBeGreaterThan(0);
+
+    worker.stderr.write(encodedEvent.subarray(0, splitIndex + 1));
+    worker.stderr.write(encodedEvent.subarray(splitIndex + 1));
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:02:30.000Z");
+      expect(updatedRun?.rateLimits).toEqual({
+        source: "codex",
+        label: "한도",
+      });
+    });
+  });
+
   it("skips JSON.parse for plain worker stderr log lines", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-fast-path-"));
