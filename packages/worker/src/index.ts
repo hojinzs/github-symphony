@@ -1305,7 +1305,7 @@ function parseTokenUsageSnapshot(value: unknown): TokenUsageSnapshot | null {
 }
 
 /**
- * Refresh tracker state by querying the orchestrator status API.
+ * Refresh tracker state by querying the dashboard state API.
  * Returns "active" if the issue run is still tracked, "non-actionable"
  * if the run is no longer listed, or "unknown" on any failure.
  */
@@ -1320,7 +1320,7 @@ async function refreshTrackerState(
   }
 
   try {
-    const response = await fetch(`${orchestratorUrl}/api/v1/status`);
+    const response = await fetch(`${orchestratorUrl}/api/v1/state`);
     if (!response.ok) return "unknown";
 
     const status = (await response.json()) as {

@@ -27,7 +27,7 @@ pnpm lint && pnpm test && pnpm typecheck && pnpm build
 AI Agent
     │
     │ docker compose -f docker-compose.e2e.yml up -d
-    │ curl http://localhost:4680/api/v1/status
+    │ curl http://localhost:4680/api/v1/state
     │ docker logs symphony-e2e
     │
     ▼
@@ -36,14 +36,14 @@ AI Agent
 │                                                   │
 │  Orchestrator ──spawn──→ Stub Worker              │
 │       │                   (Codex 대체)            │
-│       │                   /api/v1/state           │
+│  Dashboard :4680        /api/v1/state           │
 │  File Tracker                                     │
 │  (/e2e/fixtures/issues.json)                      │
 │                                                   │
 │  .runtime/ (tmpfs, 컨테이너 종료 시 소멸)         │
 │  /e2e/repos/ (pre-seeded local git repo)          │
 │                                                   │
-│  :4680 status API (외부 노출)                     │
+│  :4680 dashboard API (외부 노출)                  │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -120,17 +120,20 @@ EOF
 ### 3. Reconciliation 트리거
 
 ```bash
-curl -X POST http://localhost:4680/api/v1/refresh
+docker exec symphony-e2e \
+  node /app/packages/orchestrator/dist/index.js run-once \
+  --runtime-root /app/.runtime \
+  --project-id e2e-project
 ```
 
 ### 4. 상태 관찰
 
 ```bash
 # 프로젝트 전체 상태
-curl -s http://localhost:4680/api/v1/status | jq .
+curl -s http://localhost:4680/api/v1/state | jq .
 
 # 핵심 필드만
-curl -s http://localhost:4680/api/v1/status | jq '{
+curl -s http://localhost:4680/api/v1/state | jq '{
   health,
   activeRuns: .summary.activeRuns,
   runs: [.activeRuns[] | {status, executionPhase, lastEvent, retryKind}],

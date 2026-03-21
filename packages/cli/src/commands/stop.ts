@@ -1,6 +1,6 @@
 import { readFile, rm } from "node:fs/promises";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath, orchestratorPortPath } from "../config.js";
+import { daemonPidPath } from "../config.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -65,8 +65,6 @@ const handler = async (
   const resolvedProjectId = projectConfig.projectId;
 
   const pidPath = daemonPidPath(options.configDir, resolvedProjectId);
-  const portPath = orchestratorPortPath(options.configDir, resolvedProjectId);
-
   let pidStr: string;
   try {
     pidStr = await readFile(pidPath, "utf8");
@@ -93,7 +91,6 @@ const handler = async (
       `Daemon for project "${resolvedProjectId}" (PID ${pid}) is not running. Cleaning up PID file.\n`
     );
     await rm(pidPath, { force: true });
-    await rm(portPath, { force: true });
     return;
   }
 
@@ -110,9 +107,6 @@ const handler = async (
   }
 
   await rm(pidPath, { force: true });
-  if (resolvedForce) {
-    await rm(portPath, { force: true });
-  }
   process.stdout.write("Daemon stopped.\n");
 };
 

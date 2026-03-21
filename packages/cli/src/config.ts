@@ -7,7 +7,6 @@ export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
 export const DAEMON_PID_FILE = "daemon.pid";
 export const ORCHESTRATOR_LOG_FILE = "orchestrator.log";
-export const ORCHESTRATOR_PORT_FILE = "port";
 
 export type CliGlobalConfig = {
   activeProject: string | null;
@@ -65,13 +64,6 @@ export function orchestratorLogPath(
   projectId: string
 ): string {
   return join(projectConfigDir(configDir, projectId), ORCHESTRATOR_LOG_FILE);
-}
-
-export function orchestratorPortPath(
-  configDir: string,
-  projectId: string
-): string {
-  return join(projectConfigDir(configDir, projectId), ORCHESTRATOR_PORT_FILE);
 }
 
 export async function loadGlobalConfig(

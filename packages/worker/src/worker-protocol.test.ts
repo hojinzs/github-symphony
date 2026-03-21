@@ -927,7 +927,7 @@ async function sendStartupHandshake(
 }
 
 // ---------------------------------------------------------------------------
-// refreshTrackerState — replicated from index.ts lines 645-672
+// refreshTrackerState — replicated from index.ts
 // ---------------------------------------------------------------------------
 
 async function refreshTrackerState(env: {
@@ -942,7 +942,7 @@ async function refreshTrackerState(env: {
   }
 
   try {
-    const response = await fetch(`${orchestratorUrl}/api/v1/status`);
+    const response = await fetch(`${orchestratorUrl}/api/v1/state`);
     if (!response.ok) return "unknown";
 
     const status = (await response.json()) as {
@@ -1733,6 +1733,7 @@ describe("refreshTrackerState", () => {
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
     });
     expect(result).toBe("non-actionable");
+    expect(fetchSpy).toHaveBeenCalledWith("http://localhost:4680/api/v1/state");
     fetchSpy.mockRestore();
   });
 

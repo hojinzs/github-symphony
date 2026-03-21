@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# E2E Test Runner — polls orchestrator status until the scenario completes.
+# E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
 #   scenario: happy (default), fail, stall, slow
 #   timeout:  30 (default)
@@ -41,23 +41,25 @@ echo "[]" > e2e/fixtures/issues.json
 export STUB_SCENARIO="$SCENARIO"
 STUB_SCENARIO="$SCENARIO" $COMPOSE up -d --build 2>&1 | tail -1
 
-log "Waiting for healthz..."
+log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
-  if curl -sf http://localhost:4680/healthz >/dev/null 2>&1; then
+  STATUS_JSON=$(curl -sf http://localhost:4680/api/v1/state 2>/dev/null || true)
+  HEALTH=$(echo "$STATUS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data.get('health',''))" 2>/dev/null || true)
+  if [ -n "$HEALTH" ]; then
     break
   fi
   if [ "$i" -eq 20 ]; then
-    fail "Healthcheck failed after 20s"
+    fail "Dashboard state did not become ready after 20s"
     docker logs symphony-e2e 2>&1 | tail -20
     exit 1
   fi
   sleep 1
 done
-log "Orchestrator ready"
+log "Dashboard ready"
 
 # ── Verify idle ───────────────────────────────────────────────
 
-HEALTH=$(curl -s http://localhost:4680/api/v1/status | python3 -c "import sys,json;print(json.load(sys.stdin)['health'])")
+HEALTH=$(curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json;print(json.load(sys.stdin)['health'])")
 if [ "$HEALTH" != "idle" ]; then
   fail "Expected idle, got: $HEALTH"
   exit 1
@@ -67,8 +69,7 @@ log "Initial state: idle"
 # ── Inject issues ─────────────────────────────────────────────
 
 cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
-curl -s -X POST http://localhost:4680/api/v1/refresh >/dev/null
-log "Issues injected, refresh triggered"
+log "Issues injected; waiting for orchestrator reconciliation via existing polling loop"
 
 # ── Poll for dispatch ─────────────────────────────────────────
 
@@ -81,7 +82,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   sleep 1
   ELAPSED=$((ELAPSED + 1))
 
-  STATUS_JSON=$(curl -s http://localhost:4680/api/v1/status 2>/dev/null || echo '{}')
+  STATUS_JSON=$(curl -s http://localhost:4680/api/v1/state 2>/dev/null || echo '{}')
   HEALTH=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('health','?'))" 2>/dev/null || echo "?")
   ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['summary']['activeRuns'])" 2>/dev/null || echo "?")
   RUN_STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0]['status'] if r else '-')" 2>/dev/null || echo "?")

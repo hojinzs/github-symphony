@@ -17,8 +17,27 @@ if [ ! -f /e2e/fixtures/issues.json ]; then
 fi
 
 echo "[entrypoint] Starting orchestrator..."
-exec node /app/packages/orchestrator/dist/index.js run \
+node /app/packages/orchestrator/dist/index.js run \
+  --runtime-root /app/.runtime \
+  --project-id e2e-project &
+ORCHESTRATOR_PID=$!
+
+echo "[entrypoint] Starting dashboard..."
+node /app/packages/dashboard/dist/index.js \
   --runtime-root /app/.runtime \
   --project-id e2e-project \
-  --status-host 0.0.0.0 \
-  --status-port 4680
+  --host 0.0.0.0 \
+  --port 4680 &
+DASHBOARD_PID=$!
+
+forward_signal() {
+  kill "$ORCHESTRATOR_PID" "$DASHBOARD_PID" 2>/dev/null || true
+}
+
+trap forward_signal INT TERM
+
+wait -n "$ORCHESTRATOR_PID" "$DASHBOARD_PID"
+EXIT_CODE=$?
+kill "$ORCHESTRATOR_PID" "$DASHBOARD_PID" 2>/dev/null || true
+wait || true
+exit "$EXIT_CODE"

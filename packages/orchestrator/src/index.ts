@@ -1,12 +1,10 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import type { Server } from "node:http";
 import {
   createStore,
   OrchestratorService,
   type OrchestratorLogLevel,
 } from "./service.js";
-import { startOrchestratorStatusServer } from "./status-server.js";
 import {
   acquireProjectLock,
   assertValidProjectId,
@@ -16,7 +14,6 @@ import {
 
 export { OrchestratorService, createStore };
 export type { OrchestratorLogLevel };
-export { startOrchestratorStatusServer };
 export {
   acquireProjectLock,
   assertValidProjectId,
@@ -52,7 +49,6 @@ export async function runCli(
         stderr: Pick<NodeJS.WriteStream, "write">;
       }
     ) => Promise<OrchestratorService> | OrchestratorService;
-    startStatusServer?: typeof startOrchestratorStatusServer;
     acquireLock?: typeof acquireProjectLock;
     releaseLock?: typeof releaseProjectLock;
     exitProcess?: (code: number) => void;
@@ -90,26 +86,8 @@ export async function runCli(
   switch (command) {
     case "run": {
       let lock: ProjectLockHandle | null = null;
-      let statusServer: Server | null = null;
       let cleanupPromise: Promise<void> | null = null;
       let shuttingDownForSignal = false;
-      const closeStatusServer = async () => {
-        if (!statusServer) {
-          return;
-        }
-
-        const serverToClose = statusServer;
-        statusServer = null;
-        await new Promise<void>((resolveClose, rejectClose) => {
-          serverToClose.close((error) => {
-            if (error) {
-              rejectClose(error);
-              return;
-            }
-            resolveClose();
-          });
-        });
-      };
       const cleanup = async () => {
         if (cleanupPromise) {
           return cleanupPromise;
@@ -120,7 +98,6 @@ export async function runCli(
           const shutdownPromise = service.shutdown();
 
           try {
-            await closeStatusServer();
             await shutdownPromise;
           } catch (error) {
             cleanupError = error;
@@ -166,46 +143,6 @@ export async function runCli(
 
         signalTarget.once("SIGINT", sigintHandler);
         signalTarget.once("SIGTERM", sigtermHandler);
-
-        if (!parsed.noStatusApi) {
-          const statusHost =
-            parsed.statusHost ??
-            process.env.ORCHESTRATOR_STATUS_HOST ??
-            "127.0.0.1";
-          const statusPort =
-            parsed.statusPort ??
-            parseInteger(process.env.ORCHESTRATOR_STATUS_PORT, 0) ??
-            0;
-          const server = (
-            dependencies.startStatusServer ?? startOrchestratorStatusServer
-          )({
-            host: statusHost,
-            port: statusPort,
-            getProjectStatus: () => service.status(),
-            getIssueStatus: (issueIdentifier) =>
-              service.statusForIssue(issueIdentifier),
-            onRefresh: async () => {
-              await service.runOnce({
-                issueIdentifier: parsed.issueIdentifier,
-              });
-            },
-          });
-          statusServer = server;
-          server.on("listening", () => {
-            const addr = server.address();
-            if (addr && typeof addr === "object") {
-              const host =
-                addr.address === "::" || addr.address === "0.0.0.0"
-                  ? "localhost"
-                  : addr.address;
-              const urlHost =
-                host !== "localhost" && host.includes(":") ? `[${host}]` : host;
-              stdout.write(
-                `Status server listening on http://${urlHost}:${addr.port}\n`
-              );
-            }
-          });
-        }
         await service.run({
           issueIdentifier: parsed.issueIdentifier,
         });
@@ -286,9 +223,6 @@ function parseArgs(args: string[]): {
   projectId?: string;
   issueIdentifier?: string;
   eventsDir?: string;
-  statusHost?: string;
-  statusPort?: number;
-  noStatusApi?: boolean;
   logLevel?: string;
 } {
   const parsed: {
@@ -296,9 +230,6 @@ function parseArgs(args: string[]): {
     projectId?: string;
     issueIdentifier?: string;
     eventsDir?: string;
-    statusHost?: string;
-    statusPort?: number;
-    noStatusApi?: boolean;
     logLevel?: string;
   } = {};
 
@@ -331,17 +262,6 @@ function parseArgs(args: string[]): {
         parsed.eventsDir = value;
         index += 1;
         break;
-      case "--status-host":
-        parsed.statusHost = value;
-        index += 1;
-        break;
-      case "--status-port":
-        parsed.statusPort = parseInteger(value, undefined);
-        index += 1;
-        break;
-      case "--no-status-api":
-        parsed.noStatusApi = true;
-        break;
       case "--log-level":
         if (!value || value.startsWith("-")) {
           throw new Error(`Option '${argument}' argument missing`);
@@ -363,23 +283,6 @@ function resolveOptionalPath(value: string | undefined): string | undefined {
   }
 
   return resolve(value.trim());
-}
-
-function parseInteger(
-  value: string | undefined,
-  fallback: number | undefined
-): number | undefined {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Expected an integer value but received "${value}".`);
-  }
-
-  return parsed;
 }
 
 if (

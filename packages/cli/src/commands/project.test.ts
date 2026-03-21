@@ -66,7 +66,6 @@ async function seedProject(
     projectId: string;
     displayName: string;
     pid?: number;
-    port?: number;
     snapshot?: ProjectStatusSnapshot;
   }
 ): Promise<void> {
@@ -92,14 +91,6 @@ async function seedProject(
     );
   }
 
-  if (input.port !== undefined) {
-    await writeFile(
-      join(configDir, "projects", input.projectId, "port"),
-      `${input.port}\n`,
-      "utf8"
-    );
-  }
-
   if (input.snapshot) {
     const runtimeDir = join(
       configDir,
@@ -120,17 +111,9 @@ describe("project list", () => {
     vi.restoreAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-15T14:00:00.000Z"));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("status server unavailable"))
-    );
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
-    delete process.env.ORCHESTRATOR_STATUS_HOST;
-    delete process.env.ORCHESTRATOR_STATUS_BASE_URL;
-    delete process.env.ORCHESTRATOR_STATUS_PORT;
     vi.useRealTimers();
   });
 
@@ -147,7 +130,6 @@ describe("project list", () => {
       projectId: "backend-a1b2",
       displayName: "Backend Tasks",
       pid: process.pid,
-      port: 52341,
       snapshot: {
         projectId: "backend-a1b2",
         slug: "backend-a1b2",
@@ -184,17 +166,15 @@ describe("project list", () => {
     expect(output).toContain("Frontend Features");
     expect(output).toContain("running");
     expect(output).toContain("stopped");
-    expect(output).toContain("http://127.0.0.1:52341");
     expect(output).toContain("2m ago");
     expect(output).toContain("│ running ");
     expect(output).toContain("│ 2 ");
     expect(output).toContain("│ - ");
   });
 
-  it("emits structured JSON rows with resolved endpoint metadata", async () => {
+  it("emits structured JSON rows with persisted status metadata", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "project-list-json-"));
     const stdout = captureWrites(process.stdout);
-    process.env.ORCHESTRATOR_STATUS_HOST = "::1";
 
     await saveGlobalConfig(configDir, {
       activeProject: "infra-e5f6",
@@ -205,7 +185,6 @@ describe("project list", () => {
       projectId: "infra-e5f6",
       displayName: "Infra Automation",
       pid: process.pid,
-      port: 52387,
       snapshot: {
         projectId: "infra-e5f6",
         slug: "infra-e5f6",
@@ -236,7 +215,6 @@ describe("project list", () => {
         id: "infra-e5f6",
         name: "Infra Automation",
         status: "running",
-        endpoint: "http://[::1]:52387",
         health: "idle",
         activeRuns: 0,
         lastTick: "30s ago",
@@ -278,7 +256,6 @@ describe("project list", () => {
         id: "front-c3d4",
         name: "프론트엔드 기능",
         status: "stopped",
-        endpoint: "-",
         health: "-",
         activeRuns: null,
         lastTick: "-",

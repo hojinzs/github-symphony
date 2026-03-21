@@ -1,20 +1,14 @@
-import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { once } from "node:events";
 import type { GlobalOptions } from "../index.js";
-import {
-  daemonPidPath,
-  orchestratorLogPath,
-  orchestratorPortPath,
-} from "../config.js";
+import { daemonPidPath, orchestratorLogPath } from "../config.js";
 import {
   OrchestratorService,
   acquireProjectLock,
   createStore,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
-  startOrchestratorStatusServer,
   type OrchestratorLogLevel,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
@@ -44,11 +38,9 @@ function logLine(icon: string, msg: string): void {
 type ForegroundShutdownOptions = {
   configDir: string;
   projectId: string;
-  statusServer: { close(): void };
   projectLock?: ProjectLockHandle | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
-  removePortFile?: typeof rm;
   releaseLock?: typeof releaseProjectLock;
 };
 
@@ -282,16 +274,6 @@ const handler = async (
       logLevel,
     });
 
-    const statusServer = startOrchestratorStatusServer({
-      host: "127.0.0.1",
-      port: 0,
-      getProjectStatus: () => service.status(),
-      onRefresh: async () => {
-        await service.runOnce();
-      },
-    });
-    await persistStatusServerPort(options.configDir, projectId, statusServer);
-
     logLine(
       green("\u25B2"),
       `Starting orchestrator for project: ${bold(projectId)}`
@@ -312,7 +294,6 @@ const handler = async (
       shutdownPromise = shutdownForegroundOrchestrator({
         configDir: options.configDir,
         projectId,
-        statusServer,
         projectLock: heldLock,
         service,
       });
@@ -393,31 +374,6 @@ export async function shutdownForegroundOrchestrator(
         )
       );
     }
-  }
-
-  try {
-    input.statusServer.close();
-  } catch (error) {
-    logLine(
-      red("\u2717"),
-      red(
-        `Failed to close status server: ${error instanceof Error ? error.message : "Unknown error"}`
-      )
-    );
-  }
-
-  try {
-    await (input.removePortFile ?? rm)(
-      orchestratorPortPath(input.configDir, input.projectId),
-      {
-        force: true,
-      }
-    );
-  } catch (error) {
-    logLine(
-      yellow("\u26A0"),
-      `Failed to remove persisted status port: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
   }
 
   try {
@@ -502,23 +458,4 @@ async function startDaemon(
       `Logs: ${logPath}\n` +
       `Stop with: gh-symphony project stop --project-id ${projectId}\n`
   );
-}
-
-async function persistStatusServerPort(
-  configDir: string,
-  projectId: string,
-  statusServer: ReturnType<typeof startOrchestratorStatusServer>
-): Promise<void> {
-  if (!statusServer.listening) {
-    await once(statusServer, "listening");
-  }
-
-  const address = statusServer.address();
-  if (!address || typeof address !== "object") {
-    return;
-  }
-
-  const portPath = orchestratorPortPath(configDir, projectId);
-  await mkdir(dirname(portPath), { recursive: true });
-  await writeFile(portPath, `${address.port}\n`, "utf8");
 }
