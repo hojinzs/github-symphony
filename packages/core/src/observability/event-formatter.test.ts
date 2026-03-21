@@ -26,6 +26,17 @@ describe("event-formatter", () => {
         outcome: "removed",
       })
     ).toBe("removed");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:02:00.000Z",
+        event: "workspace-cleanup",
+        workspaceKey: "workspace-2",
+        issueIdentifier: "acme/repo#1",
+        outcome: "skipped",
+        error: "cleanup failed",
+      })
+    ).toBe("skipped: cleanup failed");
   });
 
   it("formats run-recovered events", () => {
