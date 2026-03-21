@@ -129,7 +129,14 @@ function resolveLastEventAt(
     };
   }
 
-  if (apiLastEventAt) {
+  const persistedLastEventAtMs = parseTimestampMs(run.lastEventAt);
+  const apiLastEventAtMs = parseTimestampMs(apiLastEventAt);
+
+  if (
+    apiLastEventAt &&
+    apiLastEventAtMs !== null &&
+    (persistedLastEventAtMs === null || apiLastEventAtMs > persistedLastEventAtMs)
+  ) {
     return {
       lastEventAt: apiLastEventAt,
       lastEventAtSource: "worker-api",
@@ -1557,6 +1564,10 @@ export class OrchestratorService {
     // Attempt to capture final token usage and session info from the worker
     // state API before the worker process fully exits.
     const workerInfo = await this.fetchWorkerRunInfo(run);
+    const resolvedFinalActivityTimestamp = resolveLastEventAt(
+      run,
+      workerInfo.lastEventAt
+    );
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
       runtimeSession: buildRuntimeSession(
@@ -1569,9 +1580,9 @@ export class OrchestratorService {
       ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
-      lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
+      lastEventAt: resolvedFinalActivityTimestamp.lastEventAt ?? undefined,
       lastEventAtSource:
-        workerInfo.lastEventAtSource ?? run.lastEventAtSource ?? undefined,
+        resolvedFinalActivityTimestamp.lastEventAtSource ?? undefined,
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
       runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
       rateLimits: workerInfo.rateLimits ?? run.rateLimits ?? null,
