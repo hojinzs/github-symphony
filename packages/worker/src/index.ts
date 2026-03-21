@@ -121,6 +121,7 @@ let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let orchestratorChannelDrainPending = false;
 let pendingOrchestratorChannelPayload: string | null = null;
+const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
 
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
@@ -155,6 +156,7 @@ function shutdown(signal: NodeJS.Signals) {
     }
 
     await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
     server.close(() => {
       console.log(`Worker state server stopped on ${signal}`);
       process.exit(0);
@@ -188,6 +190,45 @@ function flushPendingOrchestratorChannelEvent(): void {
   pendingOrchestratorChannelPayload = payload;
   orchestratorChannelDrainPending = true;
   process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+}
+
+function waitForPendingOrchestratorChannelFlush(
+  timeoutMs = ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS
+): Promise<void> {
+  if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: NodeJS.Timeout | null = setTimeout(() => {
+      settled = true;
+      process.stderr.removeListener("drain", handleDrain);
+      timeout = null;
+      resolve();
+    }, timeoutMs);
+
+    const handleDrain = () => {
+      if (
+        orchestratorChannelDrainPending ||
+        pendingOrchestratorChannelPayload
+      ) {
+        return;
+      }
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      process.stderr.removeListener("drain", handleDrain);
+      resolve();
+    };
+
+    process.stderr.on("drain", handleDrain);
+  });
 }
 
 function emitOrchestratorChannelEvent(event?: string): void {
@@ -943,6 +984,7 @@ async function runCodexClientProtocol(
       ? "failed"
       : turnTerminalFailurePhase ?? "succeeded";
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
 
     // Brief delay so the state API can serve the final status once.
     setTimeout(() => {
@@ -973,6 +1015,7 @@ async function runCodexClientProtocol(
     }
 
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await waitForPendingOrchestratorChannelFlush();
 
     // Exit worker on protocol failure
     setTimeout(() => {

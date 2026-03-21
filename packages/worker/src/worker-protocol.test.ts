@@ -207,6 +207,45 @@ function createProtocolContext(options: {
     }
   }
 
+  function waitForPendingOrchestratorChannelFlush(
+    timeoutMs = 250
+  ): Promise<void> {
+    if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        settled = true;
+        channelWriter.removeListener?.("drain", handleDrain);
+        timeout = null;
+        resolve();
+      }, timeoutMs);
+
+      const handleDrain = () => {
+        if (
+          orchestratorChannelDrainPending ||
+          pendingOrchestratorChannelPayload
+        ) {
+          return;
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        channelWriter.removeListener?.("drain", handleDrain);
+        resolve();
+      };
+
+      channelWriter.on?.("drain", handleDrain);
+    });
+  }
+
   function extractRateLimitPayload(
     value: unknown
   ): Record<string, unknown> | null {
@@ -673,6 +712,7 @@ function createProtocolContext(options: {
     waitForTurnCompletion,
     waitForTurnWithTimeout,
     handleServerMessage,
+    waitForPendingOrchestratorChannelFlush,
     finalizeRunState,
     applyChildExit,
     maxTurns,
@@ -1783,6 +1823,63 @@ describe("orchestrator channel telemetry", () => {
         inputTokens: 7,
         outputTokens: 8,
         totalTokens: 15,
+      },
+    });
+  });
+
+  it("waits for the trailing codex_update payload to flush before exit when stderr is backpressured", async () => {
+    const drainEmitter = new EventEmitter();
+    const writtenPayloads: Array<Record<string, unknown>> = [];
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(chunk: string): boolean {
+          writtenPayloads.push(JSON.parse(chunk) as Record<string, unknown>);
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+        on(event: "drain", listener: () => void): void {
+          drainEmitter.on(event, listener);
+        },
+        removeListener(event: "drain", listener: () => void): void {
+          drainEmitter.removeListener(event, listener);
+        },
+      },
+    });
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 4, output_tokens: 5, total_tokens: 9 },
+    });
+
+    const flushPromise = ctx.waitForPendingOrchestratorChannelFlush(1000);
+    let resolved = false;
+    void flushPromise.then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(writtenPayloads).toHaveLength(1);
+
+    drainEmitter.emit("drain");
+    await flushPromise;
+
+    expect(resolved).toBe(true);
+    expect(writtenPayloads).toHaveLength(2);
+    expect(writtenPayloads[1]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 4,
+        outputTokens: 5,
+        totalTokens: 9,
       },
     });
   });
