@@ -4,13 +4,13 @@
 
 ```bash
 # Start with stall scenario
-STUB_SCENARIO=stall docker compose -f docker-compose.e2e.yml up -d --build
+STUB_SCENARIO=stall docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
 Or override after startup:
 ```bash
-docker compose -f docker-compose.e2e.yml up -d --build
+docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 # Set STUB_SCENARIO=stall in docker-compose.e2e.yml environment section
 ```
 
@@ -46,7 +46,14 @@ docker compose -f docker-compose.e2e.yml up -d --build
    # Expected: events showing stall detection and worker termination
    ```
 
-6. **Verify token usage artifact saved**
+6. **Verify legacy fallback behavior explicitly**
+   ```bash
+   curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0] | {startedAt, lastEventAt, status}'
+   # Expected in this stall stub: no stderr codex_update channel exists, and /api/v1/state lastEventAt does not keep advancing while the worker sleeps
+   # Expected orchestrator behavior: this scenario demonstrates true stall termination; continuous legacy API-refresh compatibility is covered by orchestrator unit tests, not this stub
+   ```
+
+7. **Verify token usage artifact saved**
    ```bash
    docker exec symphony-e2e sh -c 'find /app/.runtime -name token-usage.json -exec cat {} \;'
    # Expected: { "inputTokens": 150, "outputTokens": 42, "totalTokens": 192 }
@@ -58,10 +65,12 @@ docker compose -f docker-compose.e2e.yml up -d --build
 - Orchestrator detects stall after configured timeout
 - Worker receives SIGTERM and saves token-usage artifact before exiting
 - Orchestrator schedules retry for the issue
+- This stub remains a true stall scenario; legacy API-refresh compatibility is validated separately in orchestrator tests
 
 ## Cleanup
 
 ```bash
-docker compose -f docker-compose.e2e.yml down
+docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml down
 echo "[]" > e2e/fixtures/issues.json
+rm -rf evidence
 ```

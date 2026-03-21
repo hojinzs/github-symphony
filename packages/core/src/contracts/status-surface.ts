@@ -90,6 +90,8 @@ export type OrchestratorRunRecord = {
   lastEvent?: string | null;
   /** Last event timestamp */
   lastEventAt?: string | null;
+  /** Source used to derive `lastEventAt` for stall detection compatibility */
+  lastEventAtSource?: "event-channel" | "worker-api" | null;
   /** Current workflow execution phase reported by the worker */
   executionPhase?: WorkflowExecutionPhase | null;
   /** Technical run attempt phase aligned with Symphony spec 7.2 */

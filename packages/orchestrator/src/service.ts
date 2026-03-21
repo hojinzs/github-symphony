@@ -104,6 +104,40 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function resolveLastEventAt(
+  run: OrchestratorRunRecord,
+  apiLastEventAt: string | null
+): {
+  lastEventAt: string | null;
+  lastEventAtSource: OrchestratorRunRecord["lastEventAtSource"];
+} {
+  if (run.lastEventAtSource === "event-channel" && run.lastEventAt) {
+    return {
+      lastEventAt: run.lastEventAt,
+      lastEventAtSource: "event-channel",
+    };
+  }
+
+  const persistedLastEventAtMs = parseTimestampMs(run.lastEventAt);
+  const apiLastEventAtMs = parseTimestampMs(apiLastEventAt);
+
+  if (
+    apiLastEventAt &&
+    apiLastEventAtMs !== null &&
+    (persistedLastEventAtMs === null || apiLastEventAtMs > persistedLastEventAtMs)
+  ) {
+    return {
+      lastEventAt: apiLastEventAt,
+      lastEventAtSource: "worker-api",
+    };
+  }
+
+  return {
+    lastEventAt: run.lastEventAt ?? null,
+    lastEventAtSource: run.lastEventAtSource ?? null,
+  };
+}
+
 export class OrchestratorService {
   private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
@@ -1481,6 +1515,8 @@ export class OrchestratorService {
           tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
           lastEvent: liveState.lastEvent ?? undefined,
           lastEventAt: liveState.lastEventAt ?? run.lastEventAt ?? undefined,
+          lastEventAtSource:
+            liveState.lastEventAtSource ?? run.lastEventAtSource ?? undefined,
           executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
           runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
           rateLimits: liveState.rateLimits ?? run.rateLimits ?? null,
@@ -1517,6 +1553,10 @@ export class OrchestratorService {
     // Attempt to capture final token usage and session info from the worker
     // state API before the worker process fully exits.
     const workerInfo = await this.fetchWorkerRunInfo(run);
+    const resolvedFinalActivityTimestamp = resolveLastEventAt(
+      run,
+      workerInfo.lastEventAt
+    );
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
       runtimeSession: buildRuntimeSession(
@@ -1529,7 +1569,9 @@ export class OrchestratorService {
       ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
-      lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt,
+      lastEventAt: resolvedFinalActivityTimestamp.lastEventAt ?? undefined,
+      lastEventAtSource:
+        resolvedFinalActivityTimestamp.lastEventAtSource ?? undefined,
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
       runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
       rateLimits: workerInfo.rateLimits ?? run.rateLimits ?? null,
@@ -1743,6 +1785,7 @@ export class OrchestratorService {
       updatedAt: this.now().toISOString(),
       lastEvent: event.event ?? run.lastEvent ?? null,
       lastEventAt: event.lastEventAt,
+      lastEventAtSource: "event-channel",
       tokenUsage: event.tokenUsage ?? run.tokenUsage,
       rateLimits: event.rateLimits ?? run.rateLimits ?? null,
     });
@@ -1885,6 +1928,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    lastEventAtSource: OrchestratorRunRecord["lastEventAtSource"];
     executionPhase: OrchestratorRunRecord["executionPhase"];
     runPhase: OrchestratorRunRecord["runPhase"];
     rateLimits: Record<string, unknown> | null;
@@ -1903,6 +1947,7 @@ export class OrchestratorService {
       lastError: liveState.lastError,
       lastEvent: liveState.lastEvent,
       lastEventAt: liveState.lastEventAt,
+      lastEventAtSource: liveState.lastEventAtSource,
       executionPhase: liveState.executionPhase,
       runPhase: liveState.runPhase,
       rateLimits: liveState.rateLimits,
@@ -1917,6 +1962,7 @@ export class OrchestratorService {
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
+    lastEventAtSource: OrchestratorRunRecord["lastEventAtSource"];
     executionPhase: OrchestratorRunRecord["executionPhase"];
     runPhase: OrchestratorRunRecord["runPhase"];
     rateLimits: Record<string, unknown> | null;
@@ -1929,7 +1975,8 @@ export class OrchestratorService {
         turnCount: null,
         lastError: null,
         lastEvent: null,
-        lastEventAt: null,
+        lastEventAt: run.lastEventAt ?? null,
+        lastEventAtSource: run.lastEventAtSource ?? null,
         executionPhase: null,
         runPhase: null,
         rateLimits: null,
@@ -1950,7 +1997,8 @@ export class OrchestratorService {
           turnCount: null,
           lastError: null,
           lastEvent: null,
-          lastEventAt: null,
+          lastEventAt: run.lastEventAt ?? null,
+          lastEventAtSource: run.lastEventAtSource ?? null,
           executionPhase: null,
           runPhase: null,
           rateLimits: null,
@@ -1998,10 +2046,11 @@ export class OrchestratorService {
       const lastError =
         typeof state.run?.lastError === "string" ? state.run.lastError : null;
       const lastEvent = state.status ?? null;
-      const lastEventAt = asStringOrNull(state.lastEventAt);
+      const apiLastEventAt = asStringOrNull(state.lastEventAt);
       const executionPhase = parseExecutionPhase(state.executionPhase);
       const runPhase = parseRunPhase(state.runPhase);
       const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;
+      const activityTimestamp = resolveLastEventAt(run, apiLastEventAt);
 
       return {
         tokenUsage,
@@ -2010,7 +2059,8 @@ export class OrchestratorService {
         turnCount,
         lastError,
         lastEvent,
-        lastEventAt,
+        lastEventAt: activityTimestamp.lastEventAt,
+        lastEventAtSource: activityTimestamp.lastEventAtSource,
         executionPhase,
         runPhase,
         rateLimits,
@@ -2023,7 +2073,8 @@ export class OrchestratorService {
         turnCount: null,
         lastError: null,
         lastEvent: null,
-        lastEventAt: null,
+        lastEventAt: run.lastEventAt ?? null,
+        lastEventAtSource: run.lastEventAtSource ?? null,
         executionPhase: null,
         runPhase: null,
         rateLimits: null,
