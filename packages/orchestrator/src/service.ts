@@ -1610,6 +1610,7 @@ export class OrchestratorService {
           run.issueIdentifier
         ),
       state: "retry_queued",
+      completedOnce: retryKind === "continuation" ? true : undefined,
       currentRunId: run.runId,
       retryEntry: {
         attempt: retryRecord.attempt,
@@ -2639,12 +2640,22 @@ function isIssueOrchestrationClaimed(
 
 function upsertIssueOrchestration(
   issueRecords: IssueOrchestrationRecord[],
-  nextRecord: IssueOrchestrationRecord
+  nextRecord: Omit<IssueOrchestrationRecord, "completedOnce"> & {
+    completedOnce?: boolean;
+  }
 ): IssueOrchestrationRecord[] {
+  const existingRecord =
+    issueRecords.find((record) => record.issueId === nextRecord.issueId) ?? null;
   const remaining = issueRecords.filter(
     (record) => record.issueId !== nextRecord.issueId
   );
-  return [...remaining, nextRecord];
+  return [
+    ...remaining,
+    {
+      ...nextRecord,
+      completedOnce: nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
+    },
+  ];
 }
 
 function releaseIssueOrchestration(

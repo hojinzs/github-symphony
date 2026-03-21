@@ -31,7 +31,7 @@ export async function resolveDashboardResponse(options: {
       };
     }
 
-    const snapshot = await options.reader.loadProjectStatus();
+    const snapshot = await options.reader.loadProjectState();
     if (!snapshot) {
       return {
         status: 404,

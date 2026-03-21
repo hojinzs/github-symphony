@@ -7,7 +7,7 @@ import {
 
 function createReader() {
   return {
-    loadProjectStatus: vi.fn().mockResolvedValue(null),
+    loadProjectState: vi.fn().mockResolvedValue(null),
     loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
     loadRun: vi.fn(),
     loadAllRuns: vi.fn(),
@@ -47,9 +47,22 @@ describe("GET /api/v1/state", () => {
         remaining: 42,
       },
       lastError: null,
+      completedCount: 1,
+      issues: [
+        {
+          issueId: "issue-123",
+          identifier: "acme/repo#123",
+          workspaceKey: "acme_repo_123",
+          completedOnce: true,
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-16T00:00:00.000Z",
+        },
+      ],
     } as const;
     const reader = createReader();
-    reader.loadProjectStatus.mockResolvedValue(snapshot);
+    reader.loadProjectState.mockResolvedValue(snapshot);
 
     const result = await resolveDashboardResponse({
       pathname: "/api/v1/state",
@@ -58,7 +71,7 @@ describe("GET /api/v1/state", () => {
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
-    expect(reader.loadProjectStatus).toHaveBeenCalledOnce();
+    expect(reader.loadProjectState).toHaveBeenCalledOnce();
   });
 
   it("returns 405 for non-GET methods", async () => {
@@ -83,6 +96,7 @@ describe("GET /api/v1/<issue_identifier>", () => {
         issueId: "issue-123",
         identifier: "acme/repo#123",
         workspaceKey: "acme_repo_123",
+        completedOnce: true,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -148,6 +162,7 @@ describe("GET /api/v1/<issue_identifier>", () => {
       issue_id: "issue-123",
       status: "running",
       workspace: { path: "/tmp/workspace" },
+      tracked: { completed_once: true },
     });
   });
 
@@ -190,7 +205,7 @@ describe("GET /api/v1/<issue_identifier>", () => {
 describe("startDashboardServer", () => {
   it("returns a 500 JSON payload when request handling throws", async () => {
     const reader = createReader();
-    reader.loadProjectStatus.mockRejectedValue(new Error("boom"));
+    reader.loadProjectState.mockRejectedValue(new Error("boom"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const server = startDashboardServer({
       host: "127.0.0.1",

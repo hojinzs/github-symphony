@@ -19,6 +19,7 @@ export type IssueOrchestrationRecord = {
   issueId: string;
   identifier: string;
   workspaceKey: string;
+  completedOnce: boolean;
   state: IssueOrchestrationState;
   currentRunId: string | null;
   retryEntry: IssueRetryEntry | null;

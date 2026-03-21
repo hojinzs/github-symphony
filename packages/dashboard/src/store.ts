@@ -20,6 +20,13 @@ const RECENT_EVENT_CHUNK_SIZE = 4_096;
 const MAX_RECENT_EVENT_SCAN_BYTES = 64 * 1_024;
 const RUN_RECORD_LOAD_CONCURRENCY = 8;
 
+export type DashboardIssueSnapshot = IssueOrchestrationRecord;
+
+export type DashboardProjectStateSnapshot = ProjectStatusSnapshot & {
+  completedCount: number;
+  issues: DashboardIssueSnapshot[];
+};
+
 export class DashboardFsReader {
   private readonly resolvedRuntimeRoot: string;
 
@@ -46,13 +53,30 @@ export class DashboardFsReader {
     );
   }
 
+  async loadProjectState(): Promise<DashboardProjectStateSnapshot | null> {
+    const snapshot = await this.loadProjectStatus();
+    if (!snapshot) {
+      return null;
+    }
+
+    const issues = await this.loadProjectIssueOrchestrations();
+    return {
+      ...snapshot,
+      completedCount: issues.filter((issue) => issue.completedOnce).length,
+      issues,
+    };
+  }
+
   async loadProjectIssueOrchestrations(): Promise<IssueOrchestrationRecord[]> {
     const issues =
       await readJsonFile<IssueOrchestrationRecord[]>(
         join(this.projectDir(), "issues.json")
       );
     if (issues) {
-      return issues;
+      return issues.map((issue) => ({
+        ...issue,
+        completedOnce: issue.completedOnce ?? false,
+      }));
     }
 
     const legacyLeases =
@@ -72,6 +96,7 @@ export class DashboardFsReader {
       workspaceKey: deriveIssueWorkspaceKeyFromIdentifier(
         lease.issueIdentifier
       ),
+      completedOnce: false,
       state: lease.status === "active" ? "claimed" : "released",
       currentRunId: lease.status === "active" ? lease.runId : null,
       retryEntry: null,
@@ -245,14 +270,15 @@ export async function statusForIssue(
     },
     recent_events: recentEvents,
     last_error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
-    tracked: {
-      issue_orchestration_state: issueRecord.state,
-      current_run_id: issueRecord.currentRunId,
-      workspace_key: issueRecord.workspaceKey,
-      run_phase: currentRun?.runPhase ?? null,
-      execution_phase: currentRun?.executionPhase ?? null,
-    },
-  };
+      tracked: {
+        issue_orchestration_state: issueRecord.state,
+        current_run_id: issueRecord.currentRunId,
+        workspace_key: issueRecord.workspaceKey,
+        completed_once: issueRecord.completedOnce,
+        run_phase: currentRun?.runPhase ?? null,
+        execution_phase: currentRun?.executionPhase ?? null,
+      },
+    };
 }
 
 async function findLatestRunForIssue(
