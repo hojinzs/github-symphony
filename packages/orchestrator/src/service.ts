@@ -1,6 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync } from "node:fs";
-import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { join } from "node:path";
@@ -14,8 +13,6 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   executeWorkspaceHook,
-  isWorkflowExecutionPhase,
-  isRunAttemptPhase,
   isStateActive,
   isStateTerminal,
   isMatchingIssueRun,
@@ -43,7 +40,6 @@ import {
   type ProjectStatusSnapshot,
   type RepositoryRef,
   type RuntimeSessionRow,
-  type RunAttemptPhase,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
@@ -58,7 +54,6 @@ import { resolveTrackerAdapter } from "./tracker-adapters.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 3;
-const DEFAULT_PORT_BASE = 4600;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
@@ -82,14 +77,6 @@ type WorkerLogStreamLike = Pick<
 
 export type OrchestratorLogLevel = "normal" | "verbose";
 
-function parseExecutionPhase(value: unknown) {
-  return isWorkflowExecutionPhase(value) ? value : null;
-}
-
-function parseRunPhase(value: unknown): RunAttemptPhase | null {
-  return isRunAttemptPhase(value) ? value : null;
-}
-
 function isUsableWorkflowResolution(
   resolution: WorkflowResolution
 ): boolean {
@@ -105,42 +92,7 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function resolveLastEventAt(
-  run: OrchestratorRunRecord,
-  apiLastEventAt: string | null
-): {
-  lastEventAt: string | null;
-  lastEventAtSource: OrchestratorRunRecord["lastEventAtSource"];
-} {
-  if (run.lastEventAtSource === "event-channel" && run.lastEventAt) {
-    return {
-      lastEventAt: run.lastEventAt,
-      lastEventAtSource: "event-channel",
-    };
-  }
-
-  const persistedLastEventAtMs = parseTimestampMs(run.lastEventAt);
-  const apiLastEventAtMs = parseTimestampMs(apiLastEventAt);
-
-  if (
-    apiLastEventAt &&
-    apiLastEventAtMs !== null &&
-    (persistedLastEventAtMs === null || apiLastEventAtMs > persistedLastEventAtMs)
-  ) {
-    return {
-      lastEventAt: apiLastEventAt,
-      lastEventAtSource: "worker-api",
-    };
-  }
-
-  return {
-    lastEventAt: run.lastEventAt ?? null,
-    lastEventAtSource: run.lastEventAtSource ?? null,
-  };
-}
-
 export class OrchestratorService {
-  private nextPort = DEFAULT_PORT_BASE;
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
   private readonly workerStderrBuffers = new Map<string, string>();
@@ -408,8 +360,6 @@ export class OrchestratorService {
       (run) => run.projectId === tenant.projectId
     );
     const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
-    this.initializePortFrom(allRuns);
-
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(tenant, run, issueRecords);
       issueRecords = outcome.issueRecords;
@@ -559,9 +509,7 @@ export class OrchestratorService {
           issueId: run.issueId,
           issueState: issue.state,
         });
-        this.logVerbose(
-          `[dispatch] Issue ${issue.identifier} → run ${run.runId} (port=${run.port ?? "unknown"})`
-        );
+        this.logVerbose(`[dispatch] Issue ${issue.identifier} → run ${run.runId}`);
         dispatched += 1;
         slotsRemaining -= 1;
         activeByState.set(
@@ -1154,8 +1102,6 @@ export class OrchestratorService {
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
       );
     }
-    const port = await this.allocatePort();
-
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
@@ -1223,8 +1169,6 @@ export class OrchestratorService {
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-          PORT: String(port),
-          SYMPHONY_PORT: String(port),
           SYMPHONY_RUN_ID: runId,
           SYMPHONY_ISSUE_STATE: issue.state,
           SYMPHONY_ISSUE_ID: issue.id,
@@ -1380,7 +1324,7 @@ export class OrchestratorService {
       status: "running",
       attempt: 1,
       processId: child.pid ?? null,
-      port,
+      port: null,
       workingDirectory: repositoryDirectory,
       issueWorkspaceKey: workspaceKey,
       workspaceRuntimeDir,
@@ -1499,28 +1443,10 @@ export class OrchestratorService {
         this.sendSignal(run.processId, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
-        const liveState = await this.fetchLiveWorkerState(run);
         const runningRecord: OrchestratorRunRecord = {
           ...run,
           status: "running",
           updatedAt: now.toISOString(),
-          runtimeSession: buildRuntimeSession(
-            run.runtimeSession,
-            liveState.sessionId,
-            liveState.threadId,
-            "active",
-            run.startedAt ?? now.toISOString(),
-            now.toISOString()
-          ),
-          turnCount: liveState.turnCount ?? undefined,
-          tokenUsage: liveState.tokenUsage ?? run.tokenUsage,
-          lastEvent: liveState.lastEvent ?? undefined,
-          lastEventAt: liveState.lastEventAt ?? run.lastEventAt ?? undefined,
-          lastEventAtSource:
-            liveState.lastEventAtSource ?? run.lastEventAtSource ?? undefined,
-          executionPhase: liveState.executionPhase ?? run.executionPhase ?? null,
-          runPhase: liveState.runPhase ?? run.runPhase ?? "streaming_turn",
-          rateLimits: liveState.rateLimits ?? run.rateLimits ?? null,
         };
         await this.store.saveRun(runningRecord);
         issueRecords = upsertIssueOrchestration(issueRecords, {
@@ -1551,13 +1477,7 @@ export class OrchestratorService {
       this.retireWorkerPid(run.processId);
     }
 
-    // Attempt to capture final token usage and session info from the worker
-    // state API before the worker process fully exits.
     const workerInfo = await this.fetchWorkerRunInfo(run);
-    const resolvedFinalActivityTimestamp = resolveLastEventAt(
-      run,
-      workerInfo.lastEventAt
-    );
     const runWithTokens: OrchestratorRunRecord = {
       ...run,
       runtimeSession: buildRuntimeSession(
@@ -1570,9 +1490,9 @@ export class OrchestratorService {
       ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
-      lastEventAt: resolvedFinalActivityTimestamp.lastEventAt ?? undefined,
+      lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt ?? undefined,
       lastEventAtSource:
-        resolvedFinalActivityTimestamp.lastEventAtSource ?? undefined,
+        workerInfo.lastEventAtSource ?? run.lastEventAtSource ?? undefined,
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
       runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
       rateLimits: workerInfo.rateLimits ?? run.rateLimits ?? null,
@@ -1824,6 +1744,21 @@ export class OrchestratorService {
       lastEventAtSource: "event-channel",
       tokenUsage: event.tokenUsage ?? run.tokenUsage,
       rateLimits: event.rateLimits ?? run.rateLimits ?? null,
+      runtimeSession: buildRuntimeSession(
+        run.runtimeSession,
+        resolveChannelSessionId(event.sessionInfo),
+        event.sessionInfo?.threadId ?? run.runtimeSession?.threadId ?? null,
+        "active",
+        run.startedAt ?? run.runtimeSession?.startedAt ?? this.now().toISOString(),
+        this.now().toISOString()
+      ),
+      turnCount:
+        event.sessionInfo && event.sessionInfo.turnCount != null
+          ? event.sessionInfo.turnCount
+          : run.turnCount,
+      executionPhase: event.executionPhase ?? run.executionPhase ?? null,
+      runPhase: event.runPhase ?? run.runPhase ?? null,
+      lastError: event.lastError ?? run.lastError,
     });
   }
 
@@ -1861,30 +1796,6 @@ export class OrchestratorService {
     }
     this.sleepResolver?.();
     this.sleepResolver = null;
-  }
-
-  private async allocatePort(): Promise<number> {
-    // Skip ports that are still in use by lingering worker processes
-    const maxAttempts = 100;
-    for (let i = 0; i < maxAttempts; i++) {
-      this.nextPort += 1;
-      if (await isPortAvailable(this.nextPort)) {
-        return this.nextPort;
-      }
-    }
-    // Fallback: return next port even if availability check exhausted
-    this.nextPort += 1;
-    return this.nextPort;
-  }
-
-  private initializePortFrom(runs: OrchestratorRunRecord[]): void {
-    const maxPort = runs.reduce(
-      (max, run) => Math.max(max, run.port ?? 0),
-      DEFAULT_PORT_BASE
-    );
-    if (maxPort > this.nextPort) {
-      this.nextPort = maxPort;
-    }
   }
 
   /**
@@ -1952,10 +1863,6 @@ export class OrchestratorService {
     return issues[0] ?? null;
   }
 
-  /**
-   * Attempt to fetch final token usage from the worker state API.
-   * Returns the token usage object or null if the worker is unreachable.
-   */
   private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
     tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
     sessionId: string | null;
@@ -1969,152 +1876,19 @@ export class OrchestratorService {
     runPhase: OrchestratorRunRecord["runPhase"];
     rateLimits: Record<string, unknown> | null;
   }> {
-    const liveState = await this.fetchLiveWorkerState(run);
-    if (liveState.tokenUsage) {
-      return liveState;
-    }
-
     const persistedTokenUsage = await this.readPersistedWorkerTokenUsage(run);
     return {
       tokenUsage: persistedTokenUsage,
-      sessionId: liveState.sessionId,
-      threadId: liveState.threadId,
-      turnCount: liveState.turnCount,
-      lastError: liveState.lastError,
-      lastEvent: liveState.lastEvent,
-      lastEventAt: liveState.lastEventAt,
-      lastEventAtSource: liveState.lastEventAtSource,
-      executionPhase: liveState.executionPhase,
-      runPhase: liveState.runPhase,
-      rateLimits: liveState.rateLimits,
-    };
-  }
-
-  private async fetchLiveWorkerState(run: OrchestratorRunRecord): Promise<{
-    tokenUsage: OrchestratorRunRecord["tokenUsage"] | null;
-    sessionId: string | null;
-    threadId: string | null;
-    turnCount: number | null;
-    lastError: string | null;
-    lastEvent: string | null;
-    lastEventAt: string | null;
-    lastEventAtSource: OrchestratorRunRecord["lastEventAtSource"];
-    executionPhase: OrchestratorRunRecord["executionPhase"];
-    runPhase: OrchestratorRunRecord["runPhase"];
-    rateLimits: Record<string, unknown> | null;
-  }> {
-    if (!run.port) {
-      return {
-        tokenUsage: null,
-        sessionId: null,
-        threadId: null,
-        turnCount: null,
-        lastError: null,
-        lastEvent: null,
-        lastEventAt: run.lastEventAt ?? null,
-        lastEventAtSource: run.lastEventAtSource ?? null,
-        executionPhase: null,
-        runPhase: null,
-        rateLimits: null,
-      };
-    }
-
-    try {
-      const fetchImpl = this.dependencies.fetchImpl ?? fetch;
-      const response = await fetchImpl(
-        `http://127.0.0.1:${run.port}/api/v1/state`,
-        { signal: AbortSignal.timeout(2000) }
-      );
-      if (!response.ok) {
-        return {
-          tokenUsage: null,
-          sessionId: null,
-          threadId: null,
-          turnCount: null,
-          lastError: null,
-          lastEvent: null,
-          lastEventAt: run.lastEventAt ?? null,
-          lastEventAtSource: run.lastEventAtSource ?? null,
-          executionPhase: null,
-          runPhase: null,
-          rateLimits: null,
-        };
-      }
-
-      const state = (await response.json()) as {
-        status?: string;
-        executionPhase?: unknown;
-        runPhase?: unknown;
-        sessionId?: unknown;
-        tokenUsage?: {
-          inputTokens: number;
-          outputTokens: number;
-          totalTokens: number;
-        };
-        sessionInfo?: {
-          threadId: string | null;
-          turnId?: string | null;
-          turnCount: number;
-          sessionId?: string | null;
-        } | null;
-        run?: { lastError: string | null } | null;
-        lastEventAt?: unknown;
-        rateLimits?: Record<string, unknown> | null;
-      };
-
-      const tokenUsage = hasTokenUsage(state.tokenUsage)
-        ? state.tokenUsage
-        : null;
-      const topLevelSessionId = asStringOrNull(state.sessionId);
-      const nestedSessionId = asStringOrNull(state.sessionInfo?.sessionId);
-      const threadId = asStringOrNull(state.sessionInfo?.threadId);
-      const turnId = asStringOrNull(state.sessionInfo?.turnId);
-      const sessionId =
-        topLevelSessionId ??
-        nestedSessionId ??
-        (threadId && turnId
-          ? `${threadId}-${turnId}`
-          : null);
-      const turnCount =
-        typeof state.sessionInfo?.turnCount === "number"
-          ? state.sessionInfo.turnCount
-          : null;
-      const lastError =
-        typeof state.run?.lastError === "string" ? state.run.lastError : null;
-      const lastEvent = state.status ?? null;
-      const apiLastEventAt = asStringOrNull(state.lastEventAt);
-      const executionPhase = parseExecutionPhase(state.executionPhase);
-      const runPhase = parseRunPhase(state.runPhase);
-      const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;
-      const activityTimestamp = resolveLastEventAt(run, apiLastEventAt);
-
-      return {
-        tokenUsage,
-        sessionId,
-        threadId,
-        turnCount,
-        lastError,
-        lastEvent,
-        lastEventAt: activityTimestamp.lastEventAt,
-        lastEventAtSource: activityTimestamp.lastEventAtSource,
-        executionPhase,
-        runPhase,
-        rateLimits,
-      };
-    } catch {
-      return {
-        tokenUsage: null,
-        sessionId: null,
-        threadId: null,
-        turnCount: null,
-        lastError: null,
-        lastEvent: null,
-        lastEventAt: run.lastEventAt ?? null,
-        lastEventAtSource: run.lastEventAtSource ?? null,
-        executionPhase: null,
-        runPhase: null,
-        rateLimits: null,
-      };
+      sessionId: run.runtimeSession?.sessionId ?? null,
+      threadId: run.runtimeSession?.threadId ?? null,
+      turnCount: run.turnCount ?? null,
+      lastError: run.lastError ?? null,
+      lastEvent: run.lastEvent ?? null,
+      lastEventAt: run.lastEventAt ?? null,
+      lastEventAtSource: run.lastEventAtSource ?? null,
+      executionPhase: run.executionPhase ?? null,
+      runPhase: run.runPhase ?? null,
+      rateLimits: run.rateLimits ?? null,
     }
   }
 
@@ -2687,10 +2461,6 @@ function hasTokenUsage(
   );
 }
 
-function asStringOrNull(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -2758,7 +2528,7 @@ function buildRuntimeSession(
 }
 
 function resolveChannelSessionId(
-  sessionInfo: OrchestratorChannelSessionInfo | null
+  sessionInfo: OrchestratorChannelSessionInfo | null | undefined
 ): string | null {
   if (!sessionInfo) {
     return null;
@@ -2895,14 +2665,4 @@ function isActiveRunStatus(status: OrchestratorRunRecord["status"]): boolean {
     status === "running" ||
     status === "retrying"
   );
-}
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = createServer();
-    server.once("error", () => resolve(false));
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-  });
 }

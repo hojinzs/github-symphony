@@ -130,9 +130,7 @@ describe("OrchestratorService", () => {
     const runId = run?.runId;
 
     expect(runId).toBeTruthy();
-    expect(output).toContain(
-      `[dispatch] Issue acme/platform#1 → run ${runId} (port=${run?.port})\n`
-    );
+    expect(output).toContain(`[dispatch] Issue acme/platform#1 → run ${runId}\n`);
     expect(output).toContain(`[worker-started] ${runId} (pid=4102)\n`);
     expect(output).toContain(
       `[worker-exited] ${runId} (code=0, signal=null)\n`
@@ -2311,36 +2309,20 @@ Prefer focused changes.
       lastError: null,
       nextRetryAt: null,
       lastEventAt: "2026-03-08T00:04:00.000Z",
+      runtimeSession: {
+        sessionId: "thread-1-turn-xyz",
+        threadId: "thread-1",
+        status: "active",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:04:00.000Z",
+        exitClassification: null,
+      },
     });
 
     const killImpl = vi.fn();
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: "running",
-            executionPhase: "implementation",
-            tokenUsage: {
-              inputTokens: 10,
-              outputTokens: 4,
-              totalTokens: 14,
-            },
-            sessionInfo: {
-              threadId: "thread-1",
-              turnId: "turn-xyz",
-              turnCount: 2,
-              sessionId: "thread-1-turn-xyz",
-            },
-            run: {
-              lastError: null,
-            },
-          }),
-        } as Response;
-      }
-      return createTrackerResponseWithState(repository, "Todo");
-    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
@@ -2522,37 +2504,20 @@ Prefer focused changes.
         nextRetryAt: null,
         lastEventAt: "2026-03-08T00:04:00.000Z",
         lastEventAtSource: "event-channel",
+        runtimeSession: {
+          sessionId: "thread-1-turn-xyz",
+          threadId: "thread-1",
+          status: "active",
+          startedAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:04:00.000Z",
+          exitClassification: null,
+        },
       });
 
       const killImpl = vi.fn();
-      const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/v1/state")) {
-          return {
-            ok: true,
-            json: async () => ({
-              status: "running",
-              executionPhase: "implementation",
-              lastEventAt: "2026-03-08T00:05:30.000Z",
-              tokenUsage: {
-                inputTokens: 10,
-                outputTokens: 4,
-                totalTokens: 14,
-              },
-              sessionInfo: {
-                threadId: "thread-1",
-                turnId: "turn-xyz",
-                turnCount: 2,
-                sessionId: "thread-1-turn-xyz",
-              },
-              run: {
-                lastError: null,
-              },
-            }),
-          } as Response;
-        }
-        return createTrackerResponseWithState(repository, "Todo");
-      });
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: fetchImpl as typeof fetch,
         spawnImpl: vi.fn().mockReturnValue({
@@ -2680,7 +2645,7 @@ Prefer focused changes.
     }
   });
 
-  it("uses worker state API lastEventAt when no event-channel timestamp has been persisted yet", async () => {
+  it("falls back to startedAt for stall detection when no event-channel timestamp has been persisted yet", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-stall-api-fallback-")
@@ -2737,33 +2702,9 @@ Prefer focused changes.
 
       const killImpl = vi.fn();
       let currentTime = new Date("2026-03-08T00:04:00.000Z");
-      let statePollCount = 0;
-      const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/v1/state")) {
-          statePollCount += 1;
-          return {
-            ok: true,
-            json: async () => ({
-              status: "running",
-              executionPhase: "implementation",
-              lastEventAt:
-                statePollCount === 1
-                  ? "2026-03-08T00:05:30.000Z"
-                  : "2026-03-08T00:08:45.000Z",
-              sessionInfo: {
-                threadId: "thread-legacy",
-                turnId: "turn-1",
-                turnCount: 1,
-              },
-              run: {
-                lastError: null,
-              },
-            }),
-          } as Response;
-        }
-        return createTrackerResponseWithState(repository, "Todo");
-      });
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: fetchImpl as typeof fetch,
         spawnImpl: vi.fn().mockReturnValue({
@@ -2781,11 +2722,11 @@ Prefer focused changes.
 
       const updatedRun = await store.loadRun("run-1");
 
-      expect(killImpl).not.toHaveBeenCalled();
-      expect(updatedRun?.status).toBe("running");
-      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:08:45.000Z");
-      expect(updatedRun?.lastEventAtSource).toBe("worker-api");
-      expect(updatedRun?.runtimeSession?.threadId).toBe("thread-legacy");
+      expect(killImpl).toHaveBeenCalledWith(4111, "SIGTERM");
+      expect(updatedRun?.status).toBe("retrying");
+      expect(updatedRun?.lastEventAt).toBeUndefined();
+      expect(updatedRun?.lastEventAtSource).toBeUndefined();
+      expect(updatedRun?.runtimeSession?.threadId).toBeNull();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -2845,36 +2786,19 @@ Prefer focused changes.
         nextRetryAt: null,
         lastEventAt: "2026-03-08T00:04:00.000Z",
         lastEventAtSource: "event-channel",
+        runtimeSession: {
+          sessionId: "thread-1-turn-final",
+          threadId: "thread-1",
+          status: "active",
+          startedAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:04:00.000Z",
+          exitClassification: null,
+        },
       });
 
-      const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/v1/state")) {
-          return {
-            ok: true,
-            json: async () => ({
-              status: "running",
-              executionPhase: "implementation",
-              lastEventAt: "2026-03-08T00:05:30.000Z",
-              tokenUsage: {
-                inputTokens: 10,
-                outputTokens: 4,
-                totalTokens: 14,
-              },
-              sessionInfo: {
-                threadId: "thread-1",
-                turnId: "turn-final",
-                turnCount: 2,
-                sessionId: "thread-1-turn-final",
-              },
-              run: {
-                lastError: null,
-              },
-            }),
-          } as Response;
-        }
-        return createTrackerResponseWithState(repository, "Todo");
-      });
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
       const service = new OrchestratorService(store, projectConfig, {
         fetchImpl: fetchImpl as typeof fetch,
         spawnImpl: vi.fn().mockReturnValue({
@@ -3605,41 +3529,16 @@ Prefer focused changes.
       lastError: null,
       nextRetryAt: null,
       lastEventAt: "2026-03-08T00:04:00.000Z",
+      rateLimits: {
+        source: "codex",
+        remaining: 42,
+        resetAt: "2026-03-08T00:30:00.000Z",
+      },
     });
 
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: "running",
-            executionPhase: "implementation",
-            runPhase: "streaming_turn",
-            tokenUsage: {
-              inputTokens: 10,
-              outputTokens: 4,
-              totalTokens: 14,
-            },
-            rateLimits: {
-              source: "codex",
-              remaining: 42,
-              resetAt: "2026-03-08T00:30:00.000Z",
-            },
-            sessionInfo: {
-              threadId: "thread-1",
-              turnId: "turn-xyz",
-              turnCount: 2,
-              sessionId: "thread-1-turn-xyz",
-            },
-            run: {
-              lastError: null,
-            },
-          }),
-        } as Response;
-      }
-      return createTrackerResponseWithState(repository, "Todo");
-    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
@@ -3822,30 +3721,15 @@ Prefer focused changes.
       tokenUsage: null,
       executionPhase: "implementation",
       runPhase: "streaming_turn",
-      rateLimits: null,
+      rateLimits: {
+        source: "codex",
+        remaining: 41,
+        resetAt: "2026-03-08T00:45:00.000Z",
+      },
     });
 
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: "running",
-            executionPhase: "implementation",
-            runPhase: "streaming_turn",
-            rateLimits: {
-              source: "codex",
-              remaining: 41,
-              resetAt: "2026-03-08T00:45:00.000Z",
-            },
-            run: {
-              lastError: null,
-            },
-          }),
-        } as Response;
-      }
-
+      void input;
       throw new Error("tracker unavailable");
     });
 
@@ -4375,7 +4259,7 @@ Prefer focused changes.
     });
   });
 
-  it("captures worker executionPhase from the live state endpoint", async () => {
+  it("surfaces worker executionPhase from the persisted run record", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-phase-"));
     const repository = await createRepositoryFixture(
@@ -4421,36 +4305,23 @@ Prefer focused changes.
       completedAt: null,
       lastError: null,
       nextRetryAt: null,
+      executionPhase: "planning",
+      tokenUsage: {
+        inputTokens: 10,
+        outputTokens: 4,
+        totalTokens: 14,
+      },
+      runtimeSession: {
+        sessionId: "thread-1-turn-abc",
+        threadId: "thread-1",
+        status: "active",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:04:00.000Z",
+        exitClassification: null,
+      },
     });
 
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: "running",
-            sessionId: "thread-1-turn-abc",
-            executionPhase: "planning",
-            tokenUsage: {
-              inputTokens: 10,
-              outputTokens: 4,
-              totalTokens: 14,
-            },
-            sessionInfo: {
-              threadId: "thread-1",
-              turnId: "turn-abc",
-              turnCount: 2,
-              sessionId: "thread-1-turn-abc",
-            },
-            run: {
-              lastError: null,
-            },
-          }),
-        } as Response;
-      }
-      return createEmptyTrackerResponse();
-    });
+    const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({

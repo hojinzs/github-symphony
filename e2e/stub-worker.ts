@@ -8,13 +8,11 @@
  *   slow            — starting(2s) → running(30s) → completed, exit 0
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 // ── Environment ──────────────────────────────────────────────────
 
-const PORT = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? "4601");
 const RUN_ID = process.env.SYMPHONY_RUN_ID ?? "unknown";
 const ISSUE_ID = process.env.SYMPHONY_ISSUE_ID ?? null;
 const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
@@ -44,57 +42,32 @@ type WorkerStatus = "idle" | "starting" | "running" | "failed" | "completed";
 let status: WorkerStatus = "idle";
 let lastEventAt: string | null = null;
 const tokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+const sessionInfo = {
+  threadId: "stub-thread",
+  turnId: "stub-turn",
+  turnCount: 1,
+  sessionId: "stub-thread-stub-turn",
+};
 
-function buildState() {
-  return {
-    package: "@gh-symphony/stub-worker",
-    runtime: "self-hosted-sample",
-    status,
-    executionPhase: status === "running" ? "implementation" : null,
-    runPhase: status === "running" ? "streaming_turn" : null,
-    sessionId: null,
-    projectId: null,
-    workspaceRuntimeDir: WORKSPACE_RUNTIME_DIR,
-    run: {
-      runId: RUN_ID,
+function emitOrchestratorEvent(event: string): void {
+  if (!ISSUE_ID || !lastEventAt) {
+    return;
+  }
+
+  console.error(
+    JSON.stringify({
+      type: "codex_update",
       issueId: ISSUE_ID,
-      issueIdentifier: ISSUE_IDENTIFIER,
-      state: ISSUE_STATE,
-      processId: process.pid,
-      repository: {
-        owner: null,
-        name: null,
-        cloneUrl: null,
-        url: null,
-      },
+      event,
+      lastEventAt,
+      tokenUsage,
+      sessionInfo,
+      executionPhase: status === "running" ? "implementation" : null,
+      runPhase: status === "running" ? "streaming_turn" : status === "failed" ? "failed" : null,
       lastError: status === "failed" ? "Stub worker simulated failure" : null,
-    },
-    tokenUsage,
-    lastEventAt,
-    workflow: null,
-  };
+    })
+  );
 }
-
-// ── HTTP Server ──────────────────────────────────────────────────
-
-function handleRequest(req: IncomingMessage, res: ServerResponse) {
-  if (req.url === "/healthz") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("ok");
-    return;
-  }
-
-  if (req.url === "/api/v1/state") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(buildState()));
-    return;
-  }
-
-  res.writeHead(404, { "Content-Type": "text/plain" });
-  res.end("not found");
-}
-
-const server = createServer(handleRequest);
 
 // ── Lifecycle ────────────────────────────────────────────────────
 
@@ -124,18 +97,20 @@ async function saveTokenArtifact() {
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
-  console.error(`[stub-worker] scenario=${SCENARIO} port=${PORT} runId=${RUN_ID}`);
+  console.error(`[stub-worker] scenario=${SCENARIO} runId=${RUN_ID}`);
 
   // Starting phase
   status = "starting";
   lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=starting`);
+  emitOrchestratorEvent("starting");
   await sleep(durations.startMs);
 
   // Running phase
   status = "running";
   lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=running`);
+  emitOrchestratorEvent("running");
   await sleep(durations.runMs);
 
   // Terminal phase
@@ -143,15 +118,15 @@ async function run() {
     status = "failed";
     lastEventAt = new Date().toISOString();
     console.error(`[stub-worker] status=failed`);
+    emitOrchestratorEvent("failed");
     await saveTokenArtifact();
-    server.close();
     process.exit(1);
   } else {
     status = "completed";
     lastEventAt = new Date().toISOString();
     console.error(`[stub-worker] status=completed`);
+    emitOrchestratorEvent("completed");
     await saveTokenArtifact();
-    server.close();
     process.exit(0);
   }
 }
@@ -166,7 +141,6 @@ function handleSignal(signal: string) {
   console.error(`[stub-worker] received ${signal}, shutting down gracefully`);
 
   saveTokenArtifact().finally(() => {
-    server.close();
     process.exit(0);
   });
 }
@@ -176,7 +150,4 @@ process.on("SIGINT", () => handleSignal("SIGINT"));
 
 // ── Start ────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
-  console.error(`[stub-worker] listening on port ${PORT}`);
-  run();
-});
+run();
