@@ -46,11 +46,11 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
    # Expected: events showing stall detection and worker termination
    ```
 
-6. **Verify legacy fallback behavior explicitly**
+6. **Verify event-channel stall behavior explicitly**
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0] | {startedAt, lastEventAt, status}'
-   # Expected in this stall stub: no stderr codex_update channel exists, and /api/v1/state lastEventAt does not keep advancing while the worker sleeps
-   # Expected orchestrator behavior: this scenario demonstrates true stall termination; continuous legacy API-refresh compatibility is covered by orchestrator unit tests, not this stub
+   # Expected in this stall stub: stderr codex_update events stop once the worker enters its long sleep, so lastEventAt no longer advances
+   # Expected orchestrator behavior: stall detection is driven entirely from persisted event-channel timestamps
    ```
 
 7. **Verify token usage artifact saved**

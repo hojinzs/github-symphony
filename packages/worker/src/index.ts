@@ -18,10 +18,6 @@ import {
   resolveLocalRuntimeLaunchConfig,
 } from "@gh-symphony/runtime-codex";
 import {
-  buildWorkerRuntimeState,
-  startWorkerStateServer,
-} from "./state-server.js";
-import {
   resolveFinalExecutionPhase,
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
@@ -29,7 +25,6 @@ import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
-const port = Number(process.env.PORT ?? process.env.SYMPHONY_PORT ?? 4141);
 const launcherEnv = loadLauncherEnvironment(process.env);
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
@@ -99,18 +94,11 @@ const runtimeState: {
   },
 };
 
-const server = startWorkerStateServer({
-  port,
-  getState: async () =>
-    buildWorkerRuntimeState(launcherEnv, undefined, runtimeState),
-});
-
 console.log(
   JSON.stringify(
     {
       package: "@gh-symphony/worker",
       runtime: "self-hosted-sample",
-      port,
     },
     null,
     2
@@ -165,10 +153,8 @@ function shutdown(signal: NodeJS.Signals) {
     await waitForPendingOrchestratorChannelFlush(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
-    server.close(() => {
-      console.log(`Worker state server stopped on ${signal}`);
-      process.exit(0);
-    });
+    console.log(`Worker stopped on ${signal}`);
+    process.exit(0);
   })();
 }
 
@@ -331,6 +317,10 @@ function emitOrchestratorChannelEvent(event?: string): void {
     issueId,
     lastEventAt,
     tokenUsage: { ...runtimeState.tokenUsage },
+    sessionInfo: { ...runtimeState.sessionInfo },
+    executionPhase: runtimeState.executionPhase,
+    runPhase: runtimeState.runPhase,
+    lastError: runtimeState.run?.lastError ?? null,
   };
 
   if (runtimeState.rateLimits) {
@@ -1068,11 +1058,9 @@ async function runCodexClientProtocol(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
 
-    // Brief delay so the state API can serve the final status once.
+    // Brief delay so orchestrator log capture can flush before exit.
     setTimeout(() => {
-      server.close(() =>
-        process.exit(userInputRequired || turnTerminalFailurePhase ? 1 : 0)
-      );
+      process.exit(userInputRequired || turnTerminalFailurePhase ? 1 : 0);
     }, 1500);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -1103,9 +1091,9 @@ async function runCodexClientProtocol(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
 
-    // Exit worker on protocol failure
+    // Exit worker on protocol failure after flush.
     setTimeout(() => {
-      server.close(() => process.exit(1));
+      process.exit(1);
     }, 1500);
   }
 }

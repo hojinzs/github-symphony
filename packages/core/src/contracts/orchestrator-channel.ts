@@ -26,6 +26,10 @@ export type OrchestratorChannelCodexUpdateEvent = {
   lastEventAt: string;
   tokenUsage?: OrchestratorChannelTokenUsage;
   rateLimits?: Record<string, unknown>;
+  sessionInfo?: OrchestratorChannelSessionInfo;
+  executionPhase?: WorkflowExecutionPhase | null;
+  runPhase?: RunAttemptPhase | null;
+  lastError?: string | null;
   event?: string;
 };
 
@@ -114,6 +118,41 @@ export function isOrchestratorChannelEvent(
       "rateLimits" in value &&
       value.rateLimits !== undefined &&
       !isRecord(value.rateLimits)
+    ) {
+      return false;
+    }
+
+    if (
+      "sessionInfo" in value &&
+      value.sessionInfo !== undefined &&
+      !isSessionInfo(value.sessionInfo)
+    ) {
+      return false;
+    }
+
+    if (
+      "executionPhase" in value &&
+      value.executionPhase !== undefined &&
+      value.executionPhase !== null &&
+      !isWorkflowExecutionPhase(value.executionPhase)
+    ) {
+      return false;
+    }
+
+    if (
+      "runPhase" in value &&
+      value.runPhase !== undefined &&
+      value.runPhase !== null &&
+      !isRunAttemptPhase(value.runPhase)
+    ) {
+      return false;
+    }
+
+    if (
+      "lastError" in value &&
+      value.lastError !== undefined &&
+      value.lastError !== null &&
+      typeof value.lastError !== "string"
     ) {
       return false;
     }

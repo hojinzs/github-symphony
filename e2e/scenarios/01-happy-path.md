@@ -74,8 +74,8 @@ idle → [inject issue + refresh] → dispatching (git clone ~3s)
 ```
 
 - Issue `test-owner/test-repo#1` is dispatched to stub worker
-- Stub worker reports status via `/api/v1/state` endpoint
-- Orchestrator polls worker and tracks executionPhase, lastEvent
+- Stub worker reports status via stderr JSON `codex_update` events
+- Orchestrator tracks executionPhase, runPhase, and lastEvent from the event channel
 - After worker exit, orchestrator classifies retry as "continuation" (issue still active)
 - After issue removal, retry becomes "failure", and the due retry tick releases the run instead of restarting a worker
 

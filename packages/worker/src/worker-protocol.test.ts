@@ -227,6 +227,10 @@ function createProtocolContext(options: {
       issueId: runtimeState.run.issueId,
       lastEventAt: runtimeState.lastEventAt,
       tokenUsage: { ...runtimeState.tokenUsage },
+      sessionInfo: { ...runtimeState.sessionInfo },
+      executionPhase: runtimeState.executionPhase,
+      runPhase: runtimeState.runPhase,
+      lastError: runtimeState.run.lastError,
     };
 
     if (runtimeState.rateLimits) {
@@ -1834,6 +1838,15 @@ describe("orchestrator channel telemetry", () => {
         remaining: 7,
         resetAt: "2026-03-08T00:30:00.000Z",
       },
+      sessionInfo: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        turnCount: 1,
+        sessionId: "thread-1-turn-1",
+      },
+      executionPhase: "implementation",
+      runPhase: "streaming_turn",
+      lastError: null,
       event: "turn/completed",
     });
   });
