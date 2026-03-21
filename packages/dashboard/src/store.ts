@@ -18,6 +18,7 @@ import {
 const DEFAULT_RECENT_EVENT_LIMIT = 20;
 const RECENT_EVENT_CHUNK_SIZE = 4_096;
 const MAX_RECENT_EVENT_SCAN_BYTES = 64 * 1_024;
+const RUN_RECORD_LOAD_CONCURRENCY = 8;
 
 export class DashboardFsReader {
   private readonly resolvedRuntimeRoot: string;
@@ -35,6 +36,7 @@ export class DashboardFsReader {
   }
 
   runDir(runId: string): string {
+    assertValidDashboardRunId(runId);
     return join(this.projectDir(), "runs", runId);
   }
 
@@ -83,7 +85,11 @@ export class DashboardFsReader {
 
   async loadAllRuns(): Promise<OrchestratorRunRecord[]> {
     const runIds = await safeReadDir(join(this.projectDir(), "runs"));
-    const runs = await Promise.all(runIds.map((runId) => this.loadRun(runId)));
+    const runs = await mapWithConcurrency(
+      runIds,
+      RUN_RECORD_LOAD_CONCURRENCY,
+      (runId) => this.loadRun(runId)
+    );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
   }
 
@@ -254,6 +260,8 @@ async function findLatestRunForIssue(
   issueId: string,
   issueIdentifier: string
 ): Promise<OrchestratorRunRecord | null> {
+  // If the tracked currentRunId is stale, fall back to a bounded-concurrency scan
+  // across persisted runs rather than opening every run.json at once.
   const matchingRuns = (await reader.loadAllRuns())
     .filter((run) => run.issueId === issueId || run.issueIdentifier === issueIdentifier)
     .sort(
@@ -276,4 +284,39 @@ export function assertValidDashboardProjectId(projectId: string): void {
       `Invalid project ID "${projectId}". Project IDs must not contain path separators or traversal segments.`
     );
   }
+}
+
+export function assertValidDashboardRunId(runId: string): void {
+  if (
+    runId.length === 0 ||
+    runId === "." ||
+    runId === ".." ||
+    runId.includes("/") ||
+    runId.includes("\\")
+  ) {
+    throw new Error(
+      `Invalid run ID "${runId}". Run IDs must not contain path separators or traversal segments.`
+    );
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]);
+    }
+  };
+
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }

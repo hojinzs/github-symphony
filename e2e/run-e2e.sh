@@ -41,13 +41,15 @@ echo "[]" > e2e/fixtures/issues.json
 export STUB_SCENARIO="$SCENARIO"
 STUB_SCENARIO="$SCENARIO" $COMPOSE up -d --build 2>&1 | tail -1
 
-log "Waiting for healthz..."
+log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
-  if curl -sf http://localhost:4680/healthz >/dev/null 2>&1; then
+  STATUS_JSON=$(curl -sf http://localhost:4680/api/v1/state 2>/dev/null || true)
+  HEALTH=$(echo "$STATUS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data.get('health',''))" 2>/dev/null || true)
+  if [ -n "$HEALTH" ]; then
     break
   fi
   if [ "$i" -eq 20 ]; then
-    fail "Healthcheck failed after 20s"
+    fail "Dashboard state did not become ready after 20s"
     docker logs symphony-e2e 2>&1 | tail -20
     exit 1
   fi

@@ -11,6 +11,17 @@ describe("DashboardFsReader", () => {
     );
   });
 
+  it("rejects run IDs that would escape the runtime root", async () => {
+    const reader = new DashboardFsReader("/tmp/runtime", "tenant-1");
+
+    await expect(reader.loadRun("../run-1")).rejects.toThrow(
+      'Invalid run ID "../run-1"'
+    );
+    await expect(reader.loadRecentRunEvents("../run-1")).rejects.toThrow(
+      'Invalid run ID "../run-1"'
+    );
+  });
+
   it("reads project status snapshots from the runtime root", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
     const projectDir = join(runtimeRoot, "projects", "tenant-1");
@@ -304,6 +315,55 @@ describe("DashboardFsReader", () => {
         at: "2026-03-20T00:02:00.000Z",
         event: "worker-error",
         message: "worker failed",
+      },
+    ]);
+  });
+
+  it("skips missing run records while loading persisted runs in bounded batches", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    const runsDir = join(runtimeRoot, "projects", "tenant-1", "runs");
+    await mkdir(join(runsDir, "run-1"), { recursive: true });
+    await mkdir(join(runsDir, "run-2"), { recursive: true });
+    await writeFile(
+      join(runsDir, "run-1", "run.json"),
+      JSON.stringify({
+        runId: "run-1",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "Todo",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        status: "running",
+        attempt: 1,
+        processId: null,
+        port: null,
+        workingDirectory: join(runtimeRoot, "workspace", "run-1"),
+        issueWorkspaceKey: "acme_platform_1",
+        workspaceRuntimeDir: join(runsDir, "run-1", "workspace-runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-20T00:00:00.000Z",
+        updatedAt: "2026-03-20T00:03:00.000Z",
+        startedAt: "2026-03-20T00:00:00.000Z",
+        completedAt: null,
+        lastError: null,
+        nextRetryAt: null,
+      }) + "\n",
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+
+    await expect(reader.loadAllRuns()).resolves.toMatchObject([
+      {
+        runId: "run-1",
+        issueIdentifier: "acme/platform#1",
       },
     ]);
   });
