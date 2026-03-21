@@ -1,8 +1,6 @@
 import {
   mkdir,
   open,
-  readFile,
-  readdir,
   rename,
   rm,
   stat,
@@ -12,6 +10,7 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
+  isFileMissing,
   type IssueOrchestrationRecord,
   type IssueWorkspaceRecord,
   type IssueStatusEvent,
@@ -19,7 +18,10 @@ import {
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  parseRecentEvents,
   type ProjectStatusSnapshot,
+  readJsonFile,
+  safeReadDir,
 } from "@gh-symphony/core";
 
 export class OrchestratorFsStore implements OrchestratorStateStore {
@@ -362,36 +364,11 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 }
 
-async function readJsonFile<T>(path: string): Promise<T | null> {
-  try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch (error) {
-    if (isFileMissing(error)) {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
   await rename(temporaryPath, path);
-}
-
-async function safeReadDir(path: string): Promise<string[]> {
-  try {
-    return await readdir(path);
-  } catch (error) {
-    if (isFileMissing(error)) {
-      return [];
-    }
-
-    throw error;
-  }
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -404,84 +381,5 @@ async function pathExists(path: string): Promise<boolean> {
     }
 
     throw error;
-  }
-}
-
-function isFileMissing(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error.code === "ENOENT" || error.code === "ENOTDIR")
-  );
-}
-
-function formatEventMessage(event: OrchestratorEvent): string | null {
-  switch (event.event) {
-    case "run-dispatched":
-      return event.issueState
-        ? `Dispatched from ${event.issueState}`
-        : "Dispatched";
-    case "run-recovered":
-      return "Recovered existing run";
-    case "run-retried":
-      return `Retry ${event.attempt} scheduled (${event.retryKind})`;
-    case "run-failed":
-      return event.lastError;
-    case "run-suppressed":
-      return event.reason;
-    case "hook-executed":
-      return `${event.hook}: ${event.outcome}`;
-    case "hook-failed":
-      return event.error;
-    case "workspace-cleanup":
-      return event.error ? `${event.outcome}: ${event.error}` : event.outcome;
-    case "worker-error":
-      return event.error;
-    default:
-      return null;
-  }
-}
-
-function parseRecentEvents(
-  raw: string,
-  limit: number,
-  options: { allowPartialFirstLine: boolean }
-): IssueStatusEvent[] {
-  const lines = raw.split("\n");
-  if (options.allowPartialFirstLine) {
-    lines.shift();
-  }
-
-  const events: IssueStatusEvent[] = [];
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]?.trim();
-    if (!line) {
-      continue;
-    }
-
-    const event = parseRunEventLine(line);
-    if (!event) {
-      continue;
-    }
-
-    events.push({
-      at: event.at,
-      event: event.event,
-      message: formatEventMessage(event),
-    });
-    if (events.length === limit) {
-      break;
-    }
-  }
-
-  return events.reverse();
-}
-
-function parseRunEventLine(line: string): OrchestratorEvent | null {
-  try {
-    return JSON.parse(line) as OrchestratorEvent;
-  } catch {
-    return null;
   }
 }
