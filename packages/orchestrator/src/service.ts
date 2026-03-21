@@ -71,6 +71,11 @@ type SpawnLike = (
   options: SpawnOptions
 ) => ChildProcess;
 
+type WorkerLogStreamLike = Pick<
+  ReturnType<typeof createWriteStream>,
+  "write" | "end" | "on"
+>;
+
 export type OrchestratorLogLevel = "normal" | "verbose";
 
 function parseExecutionPhase(value: unknown) {
@@ -141,6 +146,10 @@ export class OrchestratorService {
       isProcessRunning?: (pid: number) => boolean;
       waitImpl?: (ms: number) => Promise<void>;
       stderr?: Pick<NodeJS.WriteStream, "write">;
+      createWriteStreamImpl?: (
+        path: string,
+        options: { flags: string }
+      ) => WorkerLogStreamLike;
       logLevel?: OrchestratorLogLevel;
     } = {}
   ) {}
@@ -1149,12 +1158,23 @@ export class OrchestratorService {
     );
 
     mkdirSync(runDir, { recursive: true });
-    const workerLogStream = createWriteStream(join(runDir, "worker.log"), {
+    const workerLogStream = (
+      this.dependencies.createWriteStreamImpl ?? createWriteStream
+    )(join(runDir, "worker.log"), {
       flags: "a",
     });
     let workerLogAvailable = true;
     let workerExited = false;
+    let workerLogBackpressured = false;
+    const resumeWorkerStderr = () => {
+      if (!workerLogBackpressured) {
+        return;
+      }
+      workerLogBackpressured = false;
+      child.stderr?.resume?.();
+    };
     const markWorkerLogUnavailable = (error: unknown) => {
+      resumeWorkerStderr();
       if (!workerLogAvailable) {
         return;
       }
@@ -1221,7 +1241,10 @@ export class OrchestratorService {
         : Buffer.from(String(chunk), "utf8");
       if (workerLogAvailable) {
         try {
-          workerLogStream.write(buffer);
+          if (!workerLogStream.write(buffer)) {
+            workerLogBackpressured = true;
+            child.stderr?.pause?.();
+          }
         } catch (error) {
           markWorkerLogUnavailable(error);
         }
@@ -1233,6 +1256,7 @@ export class OrchestratorService {
         return;
       }
       workerExited = true;
+      resumeWorkerStderr();
       child.stderr?.removeListener("data", handleWorkerStderrChunk);
       this.flushWorkerStderrBuffer(runId);
       workerLogStream.end();
@@ -1246,6 +1270,9 @@ export class OrchestratorService {
 
     workerLogStream.on("error", (error) => {
       markWorkerLogUnavailable(error);
+    });
+    workerLogStream.on("drain", () => {
+      resumeWorkerStderr();
     });
     child.stderr?.on("data", handleWorkerStderrChunk);
 

@@ -2687,6 +2687,103 @@ Prefer focused changes.
     ).toBe(false);
   });
 
+  it("pauses worker stderr until worker.log drain clears backpressure", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-backpressure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: PassThrough;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4113;
+    worker.stderr = new PassThrough();
+    worker.unref = vi.fn();
+
+    const pauseSpy = vi.spyOn(worker.stderr, "pause");
+    const resumeSpy = vi.spyOn(worker.stderr, "resume");
+    const workerLogStream = new EventEmitter() as EventEmitter & {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    workerLogStream.write = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+    workerLogStream.end = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      createWriteStreamImpl: vi
+        .fn()
+        .mockReturnValue(workerLogStream) as never,
+      isProcessRunning: (pid) => pid === 4113,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:05:00.000Z",
+        })}\n`
+      )
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:05:00.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(1);
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    const resumeCallsBeforeDrain = resumeSpy.mock.calls.length;
+
+    workerLogStream.emit("drain");
+
+    expect(resumeSpy.mock.calls.length).toBeGreaterThan(resumeCallsBeforeDrain);
+
+    worker.stderr.emit(
+      "data",
+      Buffer.from(
+        `${JSON.stringify({
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:05:30.000Z",
+        })}\n`
+      )
+    );
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:05:30.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(2);
+  });
+
   it("propagates worker rate-limit payloads into persisted runs and project snapshots", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-rate-limits-"));
