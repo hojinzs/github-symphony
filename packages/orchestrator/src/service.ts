@@ -2009,6 +2009,7 @@ export class OrchestratorService {
       const lastError =
         typeof state.run?.lastError === "string" ? state.run.lastError : null;
       const lastEvent = state.status ?? null;
+      const apiLastEventAt = asStringOrNull(state.lastEventAt);
       const executionPhase = parseExecutionPhase(state.executionPhase);
       const runPhase = parseRunPhase(state.runPhase);
       const rateLimits = isRecord(state.rateLimits) ? state.rateLimits : null;
@@ -2020,7 +2021,7 @@ export class OrchestratorService {
         turnCount,
         lastError,
         lastEvent,
-        lastEventAt: run.lastEventAt ?? null,
+        lastEventAt: run.lastEventAt ?? apiLastEventAt,
         executionPhase,
         runPhase,
         rateLimits,
