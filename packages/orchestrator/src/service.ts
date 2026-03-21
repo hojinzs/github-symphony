@@ -1782,12 +1782,13 @@ export class OrchestratorService {
     }
 
     if (event.type === "heartbeat") {
+      const nowIso = this.now().toISOString();
       const persistedLastEventAt =
         event.lastEventAt ?? run.lastEventAt ?? null;
 
       await this.store.saveRun({
         ...run,
-        updatedAt: this.now().toISOString(),
+        updatedAt: nowIso,
         lastEvent: "heartbeat",
         lastEventAt: persistedLastEventAt,
         lastEventAtSource:
@@ -1801,8 +1802,8 @@ export class OrchestratorService {
           resolveChannelSessionId(event.sessionInfo),
           event.sessionInfo?.threadId ?? null,
           "active",
-          run.startedAt ?? run.runtimeSession?.startedAt ?? this.now().toISOString(),
-          this.now().toISOString()
+          run.startedAt ?? run.runtimeSession?.startedAt ?? nowIso,
+          nowIso
         ),
         turnCount:
           event.sessionInfo && event.sessionInfo.turnCount != null
