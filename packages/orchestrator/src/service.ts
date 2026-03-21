@@ -1782,12 +1782,18 @@ export class OrchestratorService {
     }
 
     if (event.type === "heartbeat") {
+      const persistedLastEventAt =
+        event.lastEventAt ?? run.lastEventAt ?? null;
+
       await this.store.saveRun({
         ...run,
         updatedAt: this.now().toISOString(),
         lastEvent: "heartbeat",
-        lastEventAt: event.lastEventAt ?? undefined,
-        lastEventAtSource: event.lastEventAt ? "event-channel" : null,
+        lastEventAt: persistedLastEventAt,
+        lastEventAtSource:
+          event.lastEventAt != null
+            ? "event-channel"
+            : run.lastEventAtSource ?? null,
         tokenUsage: event.tokenUsage,
         rateLimits: event.rateLimits,
         runtimeSession: buildRuntimeSession(
@@ -1798,7 +1804,10 @@ export class OrchestratorService {
           run.startedAt ?? run.runtimeSession?.startedAt ?? this.now().toISOString(),
           this.now().toISOString()
         ),
-        turnCount: event.sessionInfo?.turnCount ?? 0,
+        turnCount:
+          event.sessionInfo && event.sessionInfo.turnCount != null
+            ? event.sessionInfo.turnCount
+            : run.turnCount,
         executionPhase: event.executionPhase,
         runPhase: event.runPhase,
         lastError: event.lastError,

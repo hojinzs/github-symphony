@@ -299,6 +299,14 @@ function createProtocolContext(options: {
     });
   }
 
+  function resolveTerminalOrchestratorChannelFlushTimeoutMs(): number {
+    const pendingPayloadCount =
+      pendingOrchestratorChannelPayloads.length +
+      (orchestratorChannelDrainPending ? 1 : 0);
+
+    return Math.max(250, pendingPayloadCount * 250);
+  }
+
   function extractRateLimitPayload(
     value: unknown
   ): Record<string, unknown> | null {
@@ -767,6 +775,7 @@ function createProtocolContext(options: {
     handleServerMessage,
     emitOrchestratorHeartbeat,
     waitForPendingOrchestratorChannelFlush,
+    resolveTerminalOrchestratorChannelFlushTimeoutMs,
     finalizeRunState,
     applyChildExit,
     maxTurns,
@@ -1991,6 +2000,35 @@ describe("orchestrator channel telemetry", () => {
         totalTokens: 9,
       },
     });
+  });
+
+  it("scales terminal flush timeout with the bounded queue depth", () => {
+    const drainEmitter = new EventEmitter();
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(_chunk: string): boolean {
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+      },
+    });
+
+    for (let i = 0; i < 17; i += 1) {
+      ctx.handleServerMessage({
+        method: "thread/tokenUsage/updated",
+        params: {
+          input_tokens: i + 1,
+          output_tokens: i + 2,
+          total_tokens: i + 3,
+        },
+      });
+    }
+
+    expect(ctx.resolveTerminalOrchestratorChannelFlushTimeoutMs()).toBe(4250);
   });
 
   it("emits heartbeat payloads as full runtime snapshots", () => {

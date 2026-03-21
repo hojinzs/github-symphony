@@ -162,7 +162,9 @@ function shutdown(signal: NodeJS.Signals) {
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
     server.close(() => {
       console.log(`Worker state server stopped on ${signal}`);
       process.exit(0);
@@ -250,6 +252,17 @@ function waitForPendingOrchestratorChannelFlush(
 
     process.stderr.on("drain", handleDrain);
   });
+}
+
+function resolveTerminalOrchestratorChannelFlushTimeoutMs(): number {
+  const pendingPayloadCount =
+    pendingOrchestratorChannelPayloads.length +
+    (orchestratorChannelDrainPending ? 1 : 0);
+
+  return Math.max(
+    ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS,
+    pendingPayloadCount * ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS
+  );
 }
 
 function writeOrQueueOrchestratorChannelPayload(serializedPayload: string): void {
@@ -1051,7 +1064,9 @@ async function runCodexClientProtocol(
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
 
     // Brief delay so the state API can serve the final status once.
     setTimeout(() => {
@@ -1084,7 +1099,9 @@ async function runCodexClientProtocol(
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
 
     // Exit worker on protocol failure
     setTimeout(() => {
