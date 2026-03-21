@@ -75,11 +75,18 @@ function createProtocolContext(options: {
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
   maxTurns?: number;
+  orchestratorChannelWriter?: {
+    write: (chunk: string) => boolean;
+    once: (event: "drain", listener: () => void) => unknown;
+    on?: (event: "drain", listener: () => void) => unknown;
+    removeListener?: (event: "drain", listener: () => void) => unknown;
+  };
 }) {
   const {
     readTimeoutMs = 5000,
     turnTimeoutMs = 3600000,
     maxTurns = 20,
+    orchestratorChannelWriter,
   } = options;
   const fake = createFakeChild();
 
@@ -94,11 +101,35 @@ function createProtocolContext(options: {
       }
     | null = null;
   const logs: string[] = [];
+  const orchestratorEvents: Array<Record<string, unknown>> = [];
+  let orchestratorChannelDrainPending = false;
+  let pendingOrchestratorChannelPayload: string | null = null;
+
+  const defaultOrchestratorChannelWriter = {
+    write(chunk: string): boolean {
+      orchestratorEvents.push(JSON.parse(chunk) as Record<string, unknown>);
+      return true;
+    },
+    once(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+    on(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+    removeListener(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+  };
+  const channelWriter =
+    orchestratorChannelWriter ?? defaultOrchestratorChannelWriter;
 
   const runtimeState = {
     status: "running" as string,
     runPhase: "streaming_turn" as string,
-    run: { lastError: null as string | null },
+    run: {
+      issueId: "issue-1",
+      lastError: null as string | null,
+    },
     tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
@@ -131,6 +162,96 @@ function createProtocolContext(options: {
     logs.push(
       `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits)}`
     );
+  }
+
+  function emitOrchestratorChannelEvent(event?: string): void {
+    if (!runtimeState.run.issueId || !runtimeState.lastEventAt) {
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      type: "codex_update",
+      issueId: runtimeState.run.issueId,
+      lastEventAt: runtimeState.lastEventAt,
+      tokenUsage: { ...runtimeState.tokenUsage },
+    };
+
+    if (runtimeState.rateLimits) {
+      payload.rateLimits = { ...runtimeState.rateLimits };
+    }
+    if (event) {
+      payload.event = event;
+    }
+
+    function flushPendingOrchestratorChannelEvent(): void {
+      if (!pendingOrchestratorChannelPayload) {
+        orchestratorChannelDrainPending = false;
+        return;
+      }
+
+      const pendingPayload = pendingOrchestratorChannelPayload;
+      pendingOrchestratorChannelPayload = null;
+      const pendingWriteSucceeded = channelWriter.write(pendingPayload);
+      if (pendingWriteSucceeded) {
+        orchestratorChannelDrainPending = false;
+        return;
+      }
+
+      pendingOrchestratorChannelPayload = pendingPayload;
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+    }
+
+    const serializedPayload = `${JSON.stringify(payload)}\n`;
+    if (orchestratorChannelDrainPending) {
+      pendingOrchestratorChannelPayload = serializedPayload;
+      return;
+    }
+
+    const wrote = channelWriter.write(serializedPayload);
+    if (!wrote) {
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+    }
+  }
+
+  function waitForPendingOrchestratorChannelFlush(
+    timeoutMs = 250
+  ): Promise<void> {
+    if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        settled = true;
+        channelWriter.removeListener?.("drain", handleDrain);
+        timeout = null;
+        resolve();
+      }, timeoutMs);
+
+      const handleDrain = () => {
+        if (
+          orchestratorChannelDrainPending ||
+          pendingOrchestratorChannelPayload
+        ) {
+          return;
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        channelWriter.removeListener?.("drain", handleDrain);
+        resolve();
+      };
+
+      channelWriter.on?.("drain", handleDrain);
+    });
   }
 
   function extractRateLimitPayload(
@@ -511,6 +632,8 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
+    const orchestratorEventName =
+      typeof msg.method === "string" ? msg.method : undefined;
 
     // User input required — hard failure
     if (
@@ -526,6 +649,7 @@ function createProtocolContext(options: {
       killCalled = true;
       // Resolve any pending turn completion
       resolvePendingTurnCompletion();
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -540,6 +664,7 @@ function createProtocolContext(options: {
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       resolvePendingTurnCompletion();
       return;
     }
@@ -550,6 +675,7 @@ function createProtocolContext(options: {
         msg.params ?? null
       );
       markTurnTerminalFailure("failed", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -559,6 +685,7 @@ function createProtocolContext(options: {
         msg.params ?? null
       );
       markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -572,6 +699,7 @@ function createProtocolContext(options: {
       if (tokenUsage) {
         applyTokenUsageUpdate(msg.method, tokenUsage);
       }
+      emitOrchestratorChannelEvent(orchestratorEventName);
       return;
     }
 
@@ -579,6 +707,7 @@ function createProtocolContext(options: {
     if (rateLimits && typeof msg.method === "string") {
       applyRateLimitUpdate(msg.method, rateLimits);
     }
+    emitOrchestratorChannelEvent(orchestratorEventName);
   }
 
   return {
@@ -591,10 +720,12 @@ function createProtocolContext(options: {
     waitForTurnCompletion,
     waitForTurnWithTimeout,
     handleServerMessage,
+    waitForPendingOrchestratorChannelFlush,
     finalizeRunState,
     applyChildExit,
     maxTurns,
     logs,
+    orchestratorEvents,
     get userInputRequired() {
       return userInputRequired;
     },
@@ -1614,6 +1745,151 @@ describe("refreshTrackerState", () => {
 
     expect(result).toBe("unknown");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("orchestrator channel telemetry", () => {
+  it("emits codex_update payloads with the latest counters and rate limits", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        usage: { input_tokens: 90, output_tokens: 30, total_tokens: 120 },
+        rate_limits: {
+          remaining: 7,
+          resetAt: "2026-03-08T00:30:00.000Z",
+        },
+      },
+    });
+
+    expect(ctx.orchestratorEvents).toHaveLength(1);
+    expect(ctx.orchestratorEvents[0]).toEqual({
+      type: "codex_update",
+      issueId: "issue-1",
+      lastEventAt: expect.any(String),
+      tokenUsage: {
+        inputTokens: 90,
+        outputTokens: 30,
+        totalTokens: 120,
+      },
+      rateLimits: {
+        source: "codex",
+        remaining: 7,
+        resetAt: "2026-03-08T00:30:00.000Z",
+      },
+      event: "turn/completed",
+    });
+  });
+
+  it("coalesces codex_update payloads while stderr is backpressured and flushes the latest on drain", () => {
+    const drainEmitter = new EventEmitter();
+    const writtenPayloads: Array<Record<string, unknown>> = [];
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(chunk: string): boolean {
+          writtenPayloads.push(JSON.parse(chunk) as Record<string, unknown>);
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+      },
+    });
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 4, output_tokens: 5, total_tokens: 9 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 7, output_tokens: 8, total_tokens: 15 },
+    });
+
+    expect(writtenPayloads).toHaveLength(1);
+    expect(writtenPayloads[0]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+      },
+    });
+
+    drainEmitter.emit("drain");
+
+    expect(writtenPayloads).toHaveLength(2);
+    expect(writtenPayloads[1]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 7,
+        outputTokens: 8,
+        totalTokens: 15,
+      },
+    });
+  });
+
+  it("waits for the trailing codex_update payload to flush before exit when stderr is backpressured", async () => {
+    const drainEmitter = new EventEmitter();
+    const writtenPayloads: Array<Record<string, unknown>> = [];
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(chunk: string): boolean {
+          writtenPayloads.push(JSON.parse(chunk) as Record<string, unknown>);
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+        on(event: "drain", listener: () => void): void {
+          drainEmitter.on(event, listener);
+        },
+        removeListener(event: "drain", listener: () => void): void {
+          drainEmitter.removeListener(event, listener);
+        },
+      },
+    });
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 4, output_tokens: 5, total_tokens: 9 },
+    });
+
+    const flushPromise = ctx.waitForPendingOrchestratorChannelFlush(1000);
+    let resolved = false;
+    void flushPromise.then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(writtenPayloads).toHaveLength(1);
+
+    drainEmitter.emit("drain");
+    await flushPromise;
+
+    expect(resolved).toBe(true);
+    expect(writtenPayloads).toHaveLength(2);
+    expect(writtenPayloads[1]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 4,
+        outputTokens: 5,
+        totalTokens: 9,
+      },
+    });
   });
 });
 
