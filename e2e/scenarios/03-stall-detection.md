@@ -49,8 +49,8 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 6. **Verify legacy fallback behavior explicitly**
    ```bash
    curl -s http://localhost:4680/api/v1/status | jq '.activeRuns[0] | {startedAt, lastEventAt, status}'
-   # Expected before SIGTERM: stub worker updates /api/v1/state lastEventAt, but no stderr codex_update channel exists
-   # Expected orchestrator behavior: legacy worker remains compatible because API lastEventAt backfills activity until an event-channel timestamp exists
+   # Expected in this stall stub: no stderr codex_update channel exists, and /api/v1/state lastEventAt does not keep advancing while the worker sleeps
+   # Expected orchestrator behavior: this scenario demonstrates true stall termination; continuous legacy API-refresh compatibility is covered by orchestrator unit tests, not this stub
    ```
 
 7. **Verify token usage artifact saved**
@@ -65,7 +65,7 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 - Orchestrator detects stall after configured timeout
 - Worker receives SIGTERM and saves token-usage artifact before exiting
 - Orchestrator schedules retry for the issue
-- Legacy worker path without stderr event channel can still refresh activity from `/api/v1/state`
+- This stub remains a true stall scenario; legacy API-refresh compatibility is validated separately in orchestrator tests
 
 ## Cleanup
 

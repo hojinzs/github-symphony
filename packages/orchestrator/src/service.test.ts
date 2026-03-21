@@ -2521,6 +2521,7 @@ Prefer focused changes.
         lastError: null,
         nextRetryAt: null,
         lastEventAt: "2026-03-08T00:04:00.000Z",
+        lastEventAtSource: "event-channel",
       });
 
       const killImpl = vi.fn();
@@ -2570,6 +2571,7 @@ Prefer focused changes.
       expect(killImpl).not.toHaveBeenCalled();
       expect(updatedRun?.status).toBe("running");
       expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:00.000Z");
+      expect(updatedRun?.lastEventAtSource).toBe("event-channel");
       expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -2633,15 +2635,20 @@ Prefer focused changes.
 
       const killImpl = vi.fn();
       let currentTime = new Date("2026-03-08T00:04:00.000Z");
+      let statePollCount = 0;
       const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/v1/state")) {
+          statePollCount += 1;
           return {
             ok: true,
             json: async () => ({
               status: "running",
               executionPhase: "implementation",
-              lastEventAt: "2026-03-08T00:05:30.000Z",
+              lastEventAt:
+                statePollCount === 1
+                  ? "2026-03-08T00:05:30.000Z"
+                  : "2026-03-08T00:08:45.000Z",
               sessionInfo: {
                 threadId: "thread-legacy",
                 turnId: "turn-1",
@@ -2674,7 +2681,8 @@ Prefer focused changes.
 
       expect(killImpl).not.toHaveBeenCalled();
       expect(updatedRun?.status).toBe("running");
-      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:05:30.000Z");
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:08:45.000Z");
+      expect(updatedRun?.lastEventAtSource).toBe("worker-api");
       expect(updatedRun?.runtimeSession?.threadId).toBe("thread-legacy");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
