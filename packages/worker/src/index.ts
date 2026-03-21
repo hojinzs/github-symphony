@@ -119,6 +119,8 @@ console.log(
 
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
+let orchestratorChannelDrainPending = false;
+let pendingOrchestratorChannelPayload: string | null = null;
 
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
@@ -169,6 +171,25 @@ type TokenUsageSnapshot = {
   totalTokens: number;
 };
 
+function flushPendingOrchestratorChannelEvent(): void {
+  if (!pendingOrchestratorChannelPayload) {
+    orchestratorChannelDrainPending = false;
+    return;
+  }
+
+  const payload = pendingOrchestratorChannelPayload;
+  pendingOrchestratorChannelPayload = null;
+  const wrote = process.stderr.write(payload);
+  if (wrote) {
+    orchestratorChannelDrainPending = false;
+    return;
+  }
+
+  pendingOrchestratorChannelPayload = payload;
+  orchestratorChannelDrainPending = true;
+  process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+}
+
 function emitOrchestratorChannelEvent(event?: string): void {
   const issueId = runtimeState.run?.issueId;
   const lastEventAt = runtimeState.lastEventAt;
@@ -190,7 +211,17 @@ function emitOrchestratorChannelEvent(event?: string): void {
     payload.event = event;
   }
 
-  process.stderr.write(`${JSON.stringify(payload)}\n`);
+  const serializedPayload = `${JSON.stringify(payload)}\n`;
+  if (orchestratorChannelDrainPending) {
+    pendingOrchestratorChannelPayload = serializedPayload;
+    return;
+  }
+
+  const wrote = process.stderr.write(serializedPayload);
+  if (!wrote) {
+    orchestratorChannelDrainPending = true;
+    process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+  }
 }
 
 async function startAssignedRun() {

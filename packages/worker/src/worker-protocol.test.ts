@@ -75,11 +75,16 @@ function createProtocolContext(options: {
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
   maxTurns?: number;
+  orchestratorChannelWriter?: {
+    write: (chunk: string) => boolean;
+    once: (event: "drain", listener: () => void) => unknown;
+  };
 }) {
   const {
     readTimeoutMs = 5000,
     turnTimeoutMs = 3600000,
     maxTurns = 20,
+    orchestratorChannelWriter,
   } = options;
   const fake = createFakeChild();
 
@@ -95,6 +100,20 @@ function createProtocolContext(options: {
     | null = null;
   const logs: string[] = [];
   const orchestratorEvents: Array<Record<string, unknown>> = [];
+  let orchestratorChannelDrainPending = false;
+  let pendingOrchestratorChannelPayload: string | null = null;
+
+  const defaultOrchestratorChannelWriter = {
+    write(chunk: string): boolean {
+      orchestratorEvents.push(JSON.parse(chunk) as Record<string, unknown>);
+      return true;
+    },
+    once(_event: "drain", _listener: () => void): void {
+      // No-op for the default sink because writes are always immediate.
+    },
+  };
+  const channelWriter =
+    orchestratorChannelWriter ?? defaultOrchestratorChannelWriter;
 
   const runtimeState = {
     status: "running" as string,
@@ -156,7 +175,36 @@ function createProtocolContext(options: {
       payload.event = event;
     }
 
-    orchestratorEvents.push(payload);
+    function flushPendingOrchestratorChannelEvent(): void {
+      if (!pendingOrchestratorChannelPayload) {
+        orchestratorChannelDrainPending = false;
+        return;
+      }
+
+      const pendingPayload = pendingOrchestratorChannelPayload;
+      pendingOrchestratorChannelPayload = null;
+      const pendingWriteSucceeded = channelWriter.write(pendingPayload);
+      if (pendingWriteSucceeded) {
+        orchestratorChannelDrainPending = false;
+        return;
+      }
+
+      pendingOrchestratorChannelPayload = pendingPayload;
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+    }
+
+    const serializedPayload = `${JSON.stringify(payload)}\n`;
+    if (orchestratorChannelDrainPending) {
+      pendingOrchestratorChannelPayload = serializedPayload;
+      return;
+    }
+
+    const wrote = channelWriter.write(serializedPayload);
+    if (!wrote) {
+      orchestratorChannelDrainPending = true;
+      channelWriter.once("drain", flushPendingOrchestratorChannelEvent);
+    }
   }
 
   function extractRateLimitPayload(
@@ -1683,6 +1731,59 @@ describe("orchestrator channel telemetry", () => {
         resetAt: "2026-03-08T00:30:00.000Z",
       },
       event: "turn/completed",
+    });
+  });
+
+  it("coalesces codex_update payloads while stderr is backpressured and flushes the latest on drain", () => {
+    const drainEmitter = new EventEmitter();
+    const writtenPayloads: Array<Record<string, unknown>> = [];
+    let writeCount = 0;
+    const ctx = createProtocolContext({
+      orchestratorChannelWriter: {
+        write(chunk: string): boolean {
+          writtenPayloads.push(JSON.parse(chunk) as Record<string, unknown>);
+          writeCount += 1;
+          return writeCount !== 1;
+        },
+        once(event: "drain", listener: () => void): void {
+          drainEmitter.once(event, listener);
+        },
+      },
+    });
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 4, output_tokens: 5, total_tokens: 9 },
+    });
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 7, output_tokens: 8, total_tokens: 15 },
+    });
+
+    expect(writtenPayloads).toHaveLength(1);
+    expect(writtenPayloads[0]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+      },
+    });
+
+    drainEmitter.emit("drain");
+
+    expect(writtenPayloads).toHaveLength(2);
+    expect(writtenPayloads[1]).toMatchObject({
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 7,
+        outputTokens: 8,
+        totalTokens: 15,
+      },
     });
   });
 });
