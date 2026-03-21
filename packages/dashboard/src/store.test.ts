@@ -63,6 +63,7 @@ describe("DashboardFsReader", () => {
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: true,
           state: "retry_queued",
           currentRunId: "run-1",
           retryEntry: {
@@ -192,6 +193,7 @@ describe("DashboardFsReader", () => {
         issue_orchestration_state: "retry_queued",
         current_run_id: "run-1",
         workspace_key: "acme_platform_1",
+        completed_once: true,
         run_phase: "failed",
         execution_phase: "implementation",
       },
@@ -211,6 +213,7 @@ describe("DashboardFsReader", () => {
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "missing-run",
           retryEntry: null,
@@ -265,6 +268,100 @@ describe("DashboardFsReader", () => {
         },
       }
     );
+  });
+
+  it("defaults completedOnce to false for legacy persisted issue records", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "issues.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "acme_platform_1",
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-20T00:02:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+
+    await expect(reader.loadProjectIssueOrchestrations()).resolves.toEqual([
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-20T00:02:00.000Z",
+      },
+    ]);
+  });
+
+  it("builds an aggregated state snapshot with completedCount", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "status.json"),
+      JSON.stringify({
+        projectId: "tenant-1",
+        slug: "tenant-1",
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        lastTickAt: "2026-03-20T00:00:00.000Z",
+        health: "idle",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      }) + "\n",
+      "utf8"
+    );
+    await writeFile(
+      join(projectDir, "issues.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "acme_platform_1",
+          completedOnce: true,
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-20T00:02:00.000Z",
+        },
+        {
+          issueId: "issue-2",
+          identifier: "acme/platform#2",
+          workspaceKey: "acme_platform_2",
+          completedOnce: false,
+          state: "unclaimed",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-20T00:03:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+
+    await expect(reader.loadProjectState()).resolves.toMatchObject({
+      projectId: "tenant-1",
+      completedCount: 1,
+      issues: [
+        { issueId: "issue-1", completedOnce: true },
+        { issueId: "issue-2", completedOnce: false },
+      ],
+    });
   });
 
   it("reads recent events from large ndjson logs without scanning the entire file", async () => {
