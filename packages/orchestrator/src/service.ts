@@ -32,6 +32,7 @@ import {
   type IssueSubjectIdentity,
   type IssueWorkspaceRecord,
   type OrchestratorChannelEvent,
+  type OrchestratorChannelSessionInfo,
   type OrchestratorRunRecord,
   type OrchestratorEvent,
   type OrchestratorStateStore,
@@ -1780,6 +1781,41 @@ export class OrchestratorService {
       return;
     }
 
+    if (event.type === "heartbeat") {
+      const nowIso = this.now().toISOString();
+      const persistedLastEventAt =
+        event.lastEventAt ?? run.lastEventAt ?? null;
+
+      await this.store.saveRun({
+        ...run,
+        updatedAt: nowIso,
+        lastEvent: "heartbeat",
+        lastEventAt: persistedLastEventAt,
+        lastEventAtSource:
+          event.lastEventAt != null
+            ? "event-channel"
+            : run.lastEventAtSource ?? null,
+        tokenUsage: event.tokenUsage,
+        rateLimits: event.rateLimits,
+        runtimeSession: buildRuntimeSession(
+          run.runtimeSession,
+          resolveChannelSessionId(event.sessionInfo),
+          event.sessionInfo?.threadId ?? null,
+          "active",
+          run.startedAt ?? run.runtimeSession?.startedAt ?? nowIso,
+          nowIso
+        ),
+        turnCount:
+          event.sessionInfo && event.sessionInfo.turnCount != null
+            ? event.sessionInfo.turnCount
+            : run.turnCount,
+        executionPhase: event.executionPhase ?? run.executionPhase,
+        runPhase: event.runPhase ?? run.runPhase,
+        lastError: event.lastError,
+      });
+      return;
+    }
+
     await this.store.saveRun({
       ...run,
       updatedAt: this.now().toISOString(),
@@ -2719,6 +2755,21 @@ function buildRuntimeSession(
     updatedAt,
     exitClassification: existing?.exitClassification ?? null,
   };
+}
+
+function resolveChannelSessionId(
+  sessionInfo: OrchestratorChannelSessionInfo | null
+): string | null {
+  if (!sessionInfo) {
+    return null;
+  }
+
+  return (
+    sessionInfo.sessionId ??
+    (sessionInfo.threadId && sessionInfo.turnId
+      ? `${sessionInfo.threadId}-${sessionInfo.turnId}`
+      : null)
+  );
 }
 
 function resolveWorkerCommand(): string {

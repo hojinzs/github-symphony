@@ -120,8 +120,11 @@ console.log(
 let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let orchestratorChannelDrainPending = false;
-let pendingOrchestratorChannelPayload: string | null = null;
+const pendingOrchestratorChannelPayloads: string[] = [];
+let orchestratorHeartbeatTimer: NodeJS.Timeout | null = null;
+const MAX_PENDING_ORCHESTRATOR_CHANNEL_PAYLOADS = 16;
 const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
+const ORCHESTRATOR_CHANNEL_HEARTBEAT_INTERVAL_MS = 10_000;
 
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
@@ -138,6 +141,7 @@ function composeTurnTitle(
 }
 
 if (launcherEnv.SYMPHONY_RUN_ID && launcherEnv.WORKING_DIRECTORY) {
+  startOrchestratorHeartbeatTimer();
   void startAssignedRun();
 }
 
@@ -155,8 +159,12 @@ function shutdown(signal: NodeJS.Signals) {
       }
     }
 
+    stopOrchestratorHeartbeatTimer();
+    emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
     server.close(() => {
       console.log(`Worker state server stopped on ${signal}`);
       process.exit(0);
@@ -173,29 +181,44 @@ type TokenUsageSnapshot = {
   totalTokens: number;
 };
 
+function enqueuePendingOrchestratorChannelPayload(payload: string): void {
+  if (
+    pendingOrchestratorChannelPayloads.length >=
+    MAX_PENDING_ORCHESTRATOR_CHANNEL_PAYLOADS
+  ) {
+    pendingOrchestratorChannelPayloads.shift();
+  }
+
+  pendingOrchestratorChannelPayloads.push(payload);
+}
+
 function flushPendingOrchestratorChannelEvent(): void {
-  if (!pendingOrchestratorChannelPayload) {
-    orchestratorChannelDrainPending = false;
+  while (pendingOrchestratorChannelPayloads.length > 0) {
+    const payload = pendingOrchestratorChannelPayloads.shift();
+    if (!payload) {
+      continue;
+    }
+
+    const wrote = process.stderr.write(payload);
+    if (wrote) {
+      continue;
+    }
+
+    orchestratorChannelDrainPending = true;
+    process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
     return;
   }
 
-  const payload = pendingOrchestratorChannelPayload;
-  pendingOrchestratorChannelPayload = null;
-  const wrote = process.stderr.write(payload);
-  if (wrote) {
-    orchestratorChannelDrainPending = false;
-    return;
-  }
-
-  pendingOrchestratorChannelPayload = payload;
-  orchestratorChannelDrainPending = true;
-  process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+  orchestratorChannelDrainPending = false;
 }
 
 function waitForPendingOrchestratorChannelFlush(
   timeoutMs = ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS
 ): Promise<void> {
-  if (!orchestratorChannelDrainPending && !pendingOrchestratorChannelPayload) {
+  if (
+    !orchestratorChannelDrainPending &&
+    pendingOrchestratorChannelPayloads.length === 0
+  ) {
     return Promise.resolve();
   }
 
@@ -211,7 +234,7 @@ function waitForPendingOrchestratorChannelFlush(
     const handleDrain = () => {
       if (
         orchestratorChannelDrainPending ||
-        pendingOrchestratorChannelPayload
+        pendingOrchestratorChannelPayloads.length > 0
       ) {
         return;
       }
@@ -229,6 +252,71 @@ function waitForPendingOrchestratorChannelFlush(
 
     process.stderr.on("drain", handleDrain);
   });
+}
+
+function resolveTerminalOrchestratorChannelFlushTimeoutMs(): number {
+  const pendingPayloadCount =
+    pendingOrchestratorChannelPayloads.length +
+    (orchestratorChannelDrainPending ? 1 : 0);
+
+  return Math.max(
+    ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS,
+    pendingPayloadCount * ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS
+  );
+}
+
+function writeOrQueueOrchestratorChannelPayload(serializedPayload: string): void {
+  if (orchestratorChannelDrainPending) {
+    enqueuePendingOrchestratorChannelPayload(serializedPayload);
+    return;
+  }
+
+  const wrote = process.stderr.write(serializedPayload);
+  if (!wrote) {
+    orchestratorChannelDrainPending = true;
+    process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
+  }
+}
+
+function emitOrchestratorHeartbeat(): void {
+  const issueId = runtimeState.run?.issueId;
+  if (!issueId) {
+    return;
+  }
+
+  const payload: OrchestratorChannelEvent = {
+    type: "heartbeat",
+    issueId,
+    lastEventAt: runtimeState.lastEventAt,
+    tokenUsage: { ...runtimeState.tokenUsage },
+    rateLimits: runtimeState.rateLimits ? { ...runtimeState.rateLimits } : null,
+    sessionInfo: { ...runtimeState.sessionInfo },
+    executionPhase: runtimeState.executionPhase,
+    runPhase: runtimeState.runPhase,
+    lastError: runtimeState.run?.lastError ?? null,
+  };
+
+  writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
+}
+
+function startOrchestratorHeartbeatTimer(): void {
+  if (orchestratorHeartbeatTimer) {
+    return;
+  }
+
+  orchestratorHeartbeatTimer = setInterval(() => {
+    emitOrchestratorHeartbeat();
+  }, ORCHESTRATOR_CHANNEL_HEARTBEAT_INTERVAL_MS);
+  orchestratorHeartbeatTimer.unref?.();
+}
+
+function stopOrchestratorHeartbeatTimer(): void {
+  if (!orchestratorHeartbeatTimer) {
+    return;
+  }
+
+  clearInterval(orchestratorHeartbeatTimer);
+  orchestratorHeartbeatTimer = null;
 }
 
 function emitOrchestratorChannelEvent(event?: string): void {
@@ -252,17 +340,7 @@ function emitOrchestratorChannelEvent(event?: string): void {
     payload.event = event;
   }
 
-  const serializedPayload = `${JSON.stringify(payload)}\n`;
-  if (orchestratorChannelDrainPending) {
-    pendingOrchestratorChannelPayload = serializedPayload;
-    return;
-  }
-
-  const wrote = process.stderr.write(serializedPayload);
-  if (!wrote) {
-    orchestratorChannelDrainPending = true;
-    process.stderr.once("drain", flushPendingOrchestratorChannelEvent);
-  }
+  writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
 }
 
 async function startAssignedRun() {
@@ -983,8 +1061,12 @@ async function runCodexClientProtocol(
     runtimeState.runPhase = userInputRequired
       ? "failed"
       : turnTerminalFailurePhase ?? "succeeded";
+    stopOrchestratorHeartbeatTimer();
+    emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
 
     // Brief delay so the state API can serve the final status once.
     setTimeout(() => {
@@ -1014,8 +1096,12 @@ async function runCodexClientProtocol(
       }
     }
 
+    stopOrchestratorHeartbeatTimer();
+    emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
-    await waitForPendingOrchestratorChannelFlush();
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
 
     // Exit worker on protocol failure
     setTimeout(() => {

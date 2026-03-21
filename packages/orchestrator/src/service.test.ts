@@ -2985,6 +2985,186 @@ Prefer focused changes.
     });
   });
 
+  it("applies heartbeat payloads as full runtime snapshots", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-heartbeat-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          stallTimeoutMs: 120000,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const worker = new EventEmitter() as EventEmitter & {
+        pid: number;
+        stderr: PassThrough;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      worker.pid = 4114;
+      worker.stderr = new PassThrough();
+      worker.unref = vi.fn();
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(
+            createTrackerResponseWithState(repository, "Todo")
+          ) as never,
+        spawnImpl: vi.fn().mockReturnValue(worker) as never,
+        isProcessRunning: (pid) => pid === 4114,
+        now: () => new Date("2026-03-08T00:06:00.000Z"),
+      });
+
+      await service.runOnce();
+      const initialRun = (await store.loadAllRuns())[0];
+      expect(initialRun).toBeTruthy();
+
+      worker.stderr.write(
+        `${JSON.stringify({
+          type: "heartbeat",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:04:30.000Z",
+          tokenUsage: {
+            inputTokens: 22,
+            outputTokens: 8,
+            totalTokens: 30,
+          },
+          rateLimits: null,
+          sessionInfo: {
+            threadId: "thread-1",
+            turnId: "turn-xyz",
+            turnCount: 2,
+            sessionId: "thread-1-turn-xyz",
+          },
+          executionPhase: "human-review",
+          runPhase: "failed",
+          lastError: "turn_input_required: agent requires user input",
+        })}\n`
+      );
+
+      await vi.waitFor(async () => {
+        const updatedRun = await store.loadRun(initialRun!.runId);
+        expect(updatedRun?.lastEvent).toBe("heartbeat");
+      });
+
+      const updatedRun = await store.loadRun(initialRun!.runId);
+
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:04:30.000Z");
+      expect(updatedRun?.lastEventAtSource).toBe("event-channel");
+      expect(updatedRun?.tokenUsage).toEqual({
+        inputTokens: 22,
+        outputTokens: 8,
+        totalTokens: 30,
+      });
+      expect(updatedRun?.rateLimits).toBeNull();
+      expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
+      expect(updatedRun?.runtimeSession?.threadId).toBe("thread-1");
+      expect(updatedRun?.turnCount).toBe(2);
+      expect(updatedRun?.executionPhase).toBe("human-review");
+      expect(updatedRun?.runPhase).toBe("failed");
+      expect(updatedRun?.lastError).toBe(
+        "turn_input_required: agent requires user input"
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves prior activity metadata when a heartbeat omits it", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-heartbeat-preserve-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const worker = new EventEmitter() as EventEmitter & {
+        pid: number;
+        stderr: PassThrough;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      worker.pid = 4115;
+      worker.stderr = new PassThrough();
+      worker.unref = vi.fn();
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(
+            createTrackerResponseWithState(repository, "Todo")
+          ) as never,
+        spawnImpl: vi.fn().mockReturnValue(worker) as never,
+        isProcessRunning: (pid) => pid === 4115,
+        now: () => new Date("2026-03-08T00:07:00.000Z"),
+      });
+
+      await service.runOnce();
+      const initialRun = (await store.loadAllRuns())[0];
+      expect(initialRun).toBeTruthy();
+
+      await store.saveRun({
+        ...initialRun!,
+        lastEventAt: "2026-03-08T00:06:30.000Z",
+        lastEventAtSource: "event-channel",
+        turnCount: 3,
+        executionPhase: "implementation",
+        runPhase: "streaming_turn",
+        lastError: "previous error",
+      });
+
+      worker.stderr.write(
+        `${JSON.stringify({
+          type: "heartbeat",
+          issueId: initialRun!.issueId,
+          lastEventAt: null,
+          tokenUsage: {
+            inputTokens: 30,
+            outputTokens: 12,
+            totalTokens: 42,
+          },
+          rateLimits: null,
+          sessionInfo: null,
+          executionPhase: null,
+          runPhase: null,
+          lastError: null,
+        })}\n`
+      );
+
+      await vi.waitFor(async () => {
+        const updatedRun = await store.loadRun(initialRun!.runId);
+        expect(updatedRun?.lastEvent).toBe("heartbeat");
+        expect(updatedRun?.tokenUsage).toEqual({
+          inputTokens: 30,
+          outputTokens: 12,
+          totalTokens: 42,
+        });
+      });
+
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:06:30.000Z");
+      expect(updatedRun?.lastEventAtSource).toBe("event-channel");
+      expect(updatedRun?.turnCount).toBe(3);
+      expect(updatedRun?.executionPhase).toBe("implementation");
+      expect(updatedRun?.runPhase).toBe("streaming_turn");
+      expect(updatedRun?.lastError).toBeNull();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("flushes a trailing codex_update line when worker stderr closes without a newline", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
