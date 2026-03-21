@@ -131,8 +131,9 @@ export function startDashboardServer(options: {
   port: number;
   reader: DashboardFsReader;
 }): Server {
+  const handler = createDashboardRequestHandler(options.reader);
   const server = createServer((request, response) => {
-    void createDashboardRequestHandler(options.reader)(request, response);
+    void handler(request, response);
   });
 
   server.listen(options.port, options.host);

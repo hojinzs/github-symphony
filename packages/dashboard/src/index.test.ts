@@ -73,7 +73,7 @@ describe("runCli", () => {
     );
   });
 
-  it.each(["4680abc", "1.5", "-1"])(
+  it.each(["4680abc", "1.5"])(
     "rejects non-integer port values: %s",
     async (port) => {
       await expect(
@@ -81,6 +81,12 @@ describe("runCli", () => {
       ).rejects.toThrow(`Expected an integer value but received "${port}".`);
     }
   );
+
+  it("treats a negative port token as a missing option value", async () => {
+    await expect(
+      runCli(["--project-id", "tenant-1", "--port", "-1"])
+    ).rejects.toThrow("Option '--port' argument missing");
+  });
 
   it("rejects out-of-range port values", async () => {
     await expect(

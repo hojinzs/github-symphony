@@ -135,7 +135,7 @@ function readNumericOptionValue(
   argument: string,
   value: string | undefined
 ): string {
-  if (!value || value.startsWith("--")) {
+  if (!value || value.startsWith("-")) {
     throw new Error(`Option '${argument}' argument missing`);
   }
 

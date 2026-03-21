@@ -37,3 +37,7 @@ forward_signal() {
 trap forward_signal INT TERM
 
 wait -n "$ORCHESTRATOR_PID" "$DASHBOARD_PID"
+EXIT_CODE=$?
+kill "$ORCHESTRATOR_PID" "$DASHBOARD_PID" 2>/dev/null || true
+wait || true
+exit "$EXIT_CODE"
