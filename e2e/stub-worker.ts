@@ -63,7 +63,14 @@ function emitOrchestratorEvent(event: string): void {
       tokenUsage,
       sessionInfo,
       executionPhase: status === "running" ? "implementation" : null,
-      runPhase: status === "running" ? "streaming_turn" : status === "failed" ? "failed" : null,
+      runPhase:
+        status === "running"
+          ? "streaming_turn"
+          : status === "failed"
+            ? "failed"
+            : status === "completed"
+              ? "succeeded"
+              : null,
       lastError: status === "failed" ? "Stub worker simulated failure" : null,
     })
   );

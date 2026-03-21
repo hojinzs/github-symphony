@@ -1697,7 +1697,11 @@ export class OrchestratorService {
     event: OrchestratorChannelEvent
   ): Promise<void> {
     const run = await this.store.loadRun(runId, this.projectConfig.projectId);
-    if (!run || run.status !== "running" || run.issueId !== event.issueId) {
+    if (
+      !run ||
+      !canApplyWorkerChannelUpdate(run.status) ||
+      run.issueId !== event.issueId
+    ) {
       return;
     }
 
@@ -1736,9 +1740,10 @@ export class OrchestratorService {
       return;
     }
 
+    const nowIso = this.now().toISOString();
     await this.store.saveRun({
       ...run,
-      updatedAt: this.now().toISOString(),
+      updatedAt: nowIso,
       lastEvent: event.event ?? run.lastEvent ?? null,
       lastEventAt: event.lastEventAt,
       lastEventAtSource: "event-channel",
@@ -1749,8 +1754,8 @@ export class OrchestratorService {
         resolveChannelSessionId(event.sessionInfo),
         event.sessionInfo?.threadId ?? run.runtimeSession?.threadId ?? null,
         "active",
-        run.startedAt ?? run.runtimeSession?.startedAt ?? this.now().toISOString(),
-        this.now().toISOString()
+        run.startedAt ?? run.runtimeSession?.startedAt ?? nowIso,
+        nowIso
       ),
       turnCount:
         event.sessionInfo && event.sessionInfo.turnCount != null
@@ -1876,20 +1881,23 @@ export class OrchestratorService {
     runPhase: OrchestratorRunRecord["runPhase"];
     rateLimits: Record<string, unknown> | null;
   }> {
-    const persistedTokenUsage = await this.readPersistedWorkerTokenUsage(run);
+    const latestRun =
+      (await this.store.loadRun(run.runId, run.projectId)) ?? run;
+    const persistedTokenUsage =
+      await this.readPersistedWorkerTokenUsage(latestRun);
     return {
       tokenUsage: persistedTokenUsage,
-      sessionId: run.runtimeSession?.sessionId ?? null,
-      threadId: run.runtimeSession?.threadId ?? null,
-      turnCount: run.turnCount ?? null,
-      lastError: run.lastError ?? null,
-      lastEvent: run.lastEvent ?? null,
-      lastEventAt: run.lastEventAt ?? null,
-      lastEventAtSource: run.lastEventAtSource ?? null,
-      executionPhase: run.executionPhase ?? null,
-      runPhase: run.runPhase ?? null,
-      rateLimits: run.rateLimits ?? null,
-    }
+      sessionId: latestRun.runtimeSession?.sessionId ?? null,
+      threadId: latestRun.runtimeSession?.threadId ?? null,
+      turnCount: latestRun.turnCount ?? null,
+      lastError: latestRun.lastError ?? null,
+      lastEvent: latestRun.lastEvent ?? null,
+      lastEventAt: latestRun.lastEventAt ?? null,
+      lastEventAtSource: latestRun.lastEventAtSource ?? null,
+      executionPhase: latestRun.executionPhase ?? null,
+      runPhase: latestRun.runPhase ?? null,
+      rateLimits: latestRun.rateLimits ?? null,
+    };
   }
 
   private async readPersistedWorkerTokenUsage(
@@ -2525,6 +2533,12 @@ function buildRuntimeSession(
     updatedAt,
     exitClassification: existing?.exitClassification ?? null,
   };
+}
+
+function canApplyWorkerChannelUpdate(
+  status: OrchestratorRunRecord["status"]
+): boolean {
+  return status === "running" || status === "retrying";
 }
 
 function resolveChannelSessionId(
