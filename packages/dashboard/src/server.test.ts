@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
-import { resolveDashboardResponse } from "./server.js";
+import { once } from "node:events";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  resolveDashboardResponse,
+  startDashboardServer,
+} from "./server.js";
 
 function createReader() {
   return {
@@ -14,6 +18,10 @@ function createReader() {
     runDir: vi.fn(),
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("GET /api/v1/state", () => {
   it("returns a single project snapshot", async () => {
@@ -176,5 +184,38 @@ describe("GET /api/v1/<issue_identifier>", () => {
         },
       },
     });
+  });
+});
+
+describe("startDashboardServer", () => {
+  it("returns a 500 JSON payload when request handling throws", async () => {
+    const reader = createReader();
+    reader.loadProjectStatus.mockRejectedValue(new Error("boom"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const server = startDashboardServer({
+      host: "127.0.0.1",
+      port: 0,
+      reader: reader as never,
+    });
+
+    try {
+      await once(server, "listening");
+      const addressInfo = server.address();
+      if (!addressInfo || typeof addressInfo !== "object") {
+        throw new Error("Expected server address information.");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:${addressInfo.port}/api/v1/state`
+      );
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: "Internal server error",
+      });
+      expect(errorSpy).toHaveBeenCalledOnce();
+    } finally {
+      server.close();
+    }
   });
 });

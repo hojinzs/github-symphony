@@ -105,13 +105,24 @@ export function createDashboardRequestHandler(
   reader: DashboardFsReader
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
-    const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    const resolved = await resolveDashboardResponse({
-      pathname: url.pathname,
-      method: request.method ?? "GET",
-      reader,
-    });
-    respondJson(response, resolved.status, resolved.payload);
+    try {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      const resolved = await resolveDashboardResponse({
+        pathname: url.pathname,
+        method: request.method ?? "GET",
+        reader,
+      });
+      respondJson(response, resolved.status, resolved.payload);
+    } catch (error) {
+      console.error("Dashboard request failed.", error);
+      if (!response.headersSent) {
+        respondJson(response, 500, {
+          error: "Internal server error",
+        });
+      } else {
+        response.end();
+      }
+    }
   };
 }
 

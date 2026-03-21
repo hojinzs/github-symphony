@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 import { DashboardFsReader, statusForIssue } from "./store.js";
 
 describe("DashboardFsReader", () => {
+  it("rejects project IDs that would escape the runtime root", () => {
+    expect(() => new DashboardFsReader("/tmp/runtime", "../tenant-1")).toThrow(
+      'Invalid project ID "../tenant-1"'
+    );
+  });
+
   it("reads project status snapshots from the runtime root", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
     const projectDir = join(runtimeRoot, "projects", "tenant-1");

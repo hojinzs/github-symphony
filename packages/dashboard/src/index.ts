@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { DashboardFsReader } from "./store.js";
+import { assertValidDashboardProjectId, DashboardFsReader } from "./store.js";
 import { startDashboardServer } from "./server.js";
 
 export { DashboardFsReader, statusForIssue } from "./store.js";
@@ -22,6 +22,7 @@ export async function runCli(
   if (!parsed.projectId) {
     throw new Error("Dashboard CLI requires --project-id.");
   }
+  assertValidDashboardProjectId(parsed.projectId);
 
   const runtimeRoot = resolve(parsed.runtimeRoot ?? ".runtime");
   const reader = new DashboardFsReader(runtimeRoot, parsed.projectId);
@@ -74,20 +75,20 @@ function parseArgs(args: string[]): {
 
     switch (argument) {
       case "--runtime-root":
-        parsed.runtimeRoot = value;
+        parsed.runtimeRoot = readOptionValue(argument, value);
         index += 1;
         break;
       case "--project":
       case "--project-id":
-        parsed.projectId = value;
+        parsed.projectId = readOptionValue(argument, value);
         index += 1;
         break;
       case "--host":
-        parsed.host = value;
+        parsed.host = readOptionValue(argument, value);
         index += 1;
         break;
       case "--port":
-        parsed.port = parseInteger(value);
+        parsed.port = parseInteger(readOptionValue(argument, value));
         index += 1;
         break;
       default:
@@ -98,11 +99,15 @@ function parseArgs(args: string[]): {
   return parsed;
 }
 
-function parseInteger(value: string | undefined): number {
-  if (!value) {
-    throw new Error("Option '--port' argument missing");
+function readOptionValue(argument: string, value: string | undefined): string {
+  if (!value || value.startsWith("-")) {
+    throw new Error(`Option '${argument}' argument missing`);
   }
 
+  return value;
+}
+
+function parseInteger(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) {
     throw new Error(`Expected an integer value but received "${value}".`);

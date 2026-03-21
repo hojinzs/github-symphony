@@ -24,6 +24,7 @@ export class DashboardFsReader {
     readonly runtimeRoot: string,
     readonly projectId: string
   ) {
+    assertValidDashboardProjectId(projectId);
     this.resolvedRuntimeRoot = resolve(runtimeRoot);
   }
 
@@ -105,8 +106,11 @@ export class DashboardFsReader {
           position -= readSize;
 
           const chunk = Buffer.allocUnsafe(readSize);
-          await handle.read(chunk, 0, readSize, position);
-          tail = Buffer.concat([chunk, tail]);
+          const { bytesRead } = await handle.read(chunk, 0, readSize, position);
+          if (bytesRead === 0) {
+            break;
+          }
+          tail = Buffer.concat([chunk.subarray(0, bytesRead), tail]);
 
           const events = parseRecentEvents(tail.toString("utf8"), limit, {
             allowPartialFirstLine: position > 0,
@@ -239,4 +243,18 @@ async function findLatestRunForIssue(
     );
 
   return matchingRuns[0] ?? null;
+}
+
+export function assertValidDashboardProjectId(projectId: string): void {
+  if (
+    projectId.length === 0 ||
+    projectId === "." ||
+    projectId === ".." ||
+    projectId.includes("/") ||
+    projectId.includes("\\")
+  ) {
+    throw new Error(
+      `Invalid project ID "${projectId}". Project IDs must not contain path separators or traversal segments.`
+    );
+  }
 }
