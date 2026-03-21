@@ -1165,6 +1165,7 @@ export class OrchestratorService {
     });
     let workerLogAvailable = true;
     let workerExited = false;
+    let workerStderrFinalizing = false;
     let workerLogBackpressured = false;
     const resumeWorkerStderr = () => {
       if (!workerLogBackpressured) {
@@ -1251,12 +1252,25 @@ export class OrchestratorService {
       }
       this.consumeWorkerStderrChunk(runId, buffer);
     };
-    const finalizeWorkerStderr = (code: number | null, signal: NodeJS.Signals | null) => {
+    const drainWorkerStderr = () => {
+      const stderr = child.stderr;
+      if (!stderr || typeof stderr.read !== "function") {
+        return;
+      }
+      let chunk: Buffer | string | null;
+      while ((chunk = stderr.read()) !== null) {
+        handleWorkerStderrChunk(chunk);
+      }
+    };
+    const completeWorkerStderrFinalization = (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
       if (workerExited) {
         return;
       }
       workerExited = true;
-      resumeWorkerStderr();
+      workerStderrFinalizing = false;
       child.stderr?.removeListener("data", handleWorkerStderrChunk);
       this.flushWorkerStderrBuffer(runId);
       workerLogStream.end();
@@ -1266,6 +1280,40 @@ export class OrchestratorService {
       this.logVerbose(
         `[worker-exited] ${runId} (code=${code ?? "null"}, signal=${signal ?? "null"})`
       );
+    };
+    const finalizeWorkerStderr = (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
+      if (workerExited || workerStderrFinalizing) {
+        return;
+      }
+      workerStderrFinalizing = true;
+      const stderr = child.stderr;
+      const finish = () => {
+        stderr?.removeListener("end", finish);
+        stderr?.removeListener("close", finish);
+        drainWorkerStderr();
+        completeWorkerStderrFinalization(code, signal);
+      };
+
+      resumeWorkerStderr();
+      drainWorkerStderr();
+      if (!stderr) {
+        completeWorkerStderrFinalization(code, signal);
+        return;
+      }
+
+      if (
+        (stderr as { readableEnded?: boolean }).readableEnded ||
+        (stderr as { readable?: boolean }).readable === false
+      ) {
+        finish();
+        return;
+      }
+
+      stderr.once("end", finish);
+      stderr.once("close", finish);
     };
 
     workerLogStream.on("error", (error) => {

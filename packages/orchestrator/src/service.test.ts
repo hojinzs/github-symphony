@@ -2784,6 +2784,98 @@ Prefer focused changes.
     expect(workerLogStream.write).toHaveBeenCalledTimes(2);
   });
 
+  it("drains paused worker stderr before finalize flushes trailing codex updates", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-finalize-drain-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        stallTimeoutMs: 120000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderr = new EventEmitter() as EventEmitter & {
+      pause: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      read: ReturnType<typeof vi.fn>;
+      readable: boolean;
+      readableEnded: boolean;
+    };
+    stderr.pause = vi.fn();
+    stderr.resume = vi.fn();
+    stderr.read = vi.fn().mockReturnValue(null);
+    stderr.readable = true;
+    stderr.readableEnded = false;
+
+    const worker = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stderr: typeof stderr;
+      unref: ReturnType<typeof vi.fn>;
+    };
+    worker.pid = 4114;
+    worker.stderr = stderr;
+    worker.unref = vi.fn();
+
+    const workerLogStream = new EventEmitter() as EventEmitter & {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
+    workerLogStream.write = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+    workerLogStream.end = vi.fn();
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+      spawnImpl: vi.fn().mockReturnValue(worker) as never,
+      createWriteStreamImpl: vi
+        .fn()
+        .mockReturnValue(workerLogStream) as never,
+      isProcessRunning: (pid) => pid === 4114,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const initialRun = (await store.loadAllRuns())[0];
+    expect(initialRun).toBeTruthy();
+
+    worker.stderr.emit("data", Buffer.from("[worker] backpressure\n"));
+    worker.stderr.readableEnded = true;
+    worker.stderr.read
+      .mockReturnValueOnce(
+        Buffer.from(
+          JSON.stringify({
+            type: "codex_update",
+            issueId: initialRun!.issueId,
+            lastEventAt: "2026-03-08T00:06:00.000Z",
+          })
+        )
+      )
+      .mockReturnValueOnce(null);
+    worker.emit("close", 0, null);
+
+    await vi.waitFor(async () => {
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:06:00.000Z");
+    });
+
+    expect(workerLogStream.write).toHaveBeenCalledTimes(2);
+    expect(workerLogStream.write.mock.calls[1]?.[0].toString("utf8")).toContain(
+      '"lastEventAt":"2026-03-08T00:06:00.000Z"'
+    );
+    expect(workerLogStream.end).toHaveBeenCalledTimes(1);
+  });
+
   it("propagates worker rate-limit payloads into persisted runs and project snapshots", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-rate-limits-"));
