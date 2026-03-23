@@ -76,6 +76,9 @@ type WorkerLogStreamLike = Pick<
 >;
 
 export type OrchestratorLogLevel = "normal" | "verbose";
+type OrchestratorTickHandler = (
+  snapshot: ProjectStatusSnapshot
+) => void | Promise<void>;
 
 function isUsableWorkflowResolution(
   resolution: WorkflowResolution
@@ -129,6 +132,7 @@ export class OrchestratorService {
         options: { flags: string }
       ) => WorkerLogStreamLike;
       logLevel?: OrchestratorLogLevel;
+      onTick?: OrchestratorTickHandler;
     } = {}
   ) {}
 
@@ -144,10 +148,11 @@ export class OrchestratorService {
     );
 
     while (this.running) {
-      await this.runOnceInternal(
+      const snapshot = await this.runOnceInternal(
         options.issueIdentifier,
         this.createTrackerDependencies()
       );
+      await this.dependencies.onTick?.(snapshot);
 
       if (options.once || !this.running) {
         return;

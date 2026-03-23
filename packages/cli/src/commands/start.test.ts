@@ -6,8 +6,10 @@ import type { CliProjectConfig } from "../config.js";
 
 const acquireProjectLock = vi.fn();
 const releaseProjectLock = vi.fn();
-const runOnce = vi.fn();
+const run = vi.fn();
 const status = vi.fn();
+const shutdown = vi.fn();
+const serviceDependencies: Array<Record<string, unknown>> = [];
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   acquireProjectLock,
@@ -16,9 +18,16 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
-    runOnce = runOnce;
+    constructor(
+      _store: unknown,
+      _projectConfig: unknown,
+      dependencies: Record<string, unknown> = {}
+    ) {
+      serviceDependencies.push(dependencies);
+    }
+    run = run;
     status = status;
-    shutdown = vi.fn().mockResolvedValue(undefined);
+    shutdown = shutdown;
   },
 }));
 
@@ -27,8 +36,11 @@ const startModule = await import("./start.js");
 afterEach(() => {
   acquireProjectLock.mockReset();
   releaseProjectLock.mockReset();
-  runOnce.mockReset();
+  run.mockReset();
   status.mockReset();
+  shutdown.mockReset();
+  shutdown.mockResolvedValue(undefined);
+  serviceDependencies.length = 0;
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -92,9 +104,11 @@ describe("start command foreground locking", () => {
     };
     acquireProjectLock.mockResolvedValue(lock);
     status.mockResolvedValue(null);
-    runOnce.mockImplementation(async () => {
-      process.emit("SIGINT");
-      return {
+    run.mockImplementation(async () => {
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
         projectId: "tenant-a",
         slug: "tenant-a",
         health: "idle",
@@ -103,7 +117,8 @@ describe("start command foreground locking", () => {
         activeRuns: [],
         retryQueue: [],
         lastError: null,
-      };
+      });
+      process.emit("SIGINT");
     });
 
     const exitSpy = vi
@@ -116,7 +131,9 @@ describe("start command foreground locking", () => {
       runtimeRoot: configDir,
       projectId: "tenant-a",
     });
+    expect(run).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });
