@@ -1,9 +1,13 @@
-import { writeFile, mkdir, readFile } from "node:fs/promises";
+import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath, orchestratorLogPath } from "../config.js";
+import {
+  daemonPidPath,
+  httpStatusPath,
+  orchestratorLogPath,
+} from "../config.js";
 import {
   OrchestratorService,
   acquireProjectLock,
@@ -46,6 +50,12 @@ type ForegroundShutdownOptions = {
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
+};
+
+type HttpBindingState = {
+  host: string;
+  port: number;
+  endpoint: string;
 };
 
 const DEFAULT_HTTP_PORT = 4680;
@@ -292,6 +302,23 @@ async function closeHttpServer(server?: Server): Promise<void> {
   });
 }
 
+async function writeHttpBindingState(
+  configDir: string,
+  projectId: string,
+  binding: HttpBindingState
+): Promise<void> {
+  const statePath = httpStatusPath(configDir, projectId);
+  await mkdir(dirname(statePath), { recursive: true });
+  await writeFile(statePath, JSON.stringify(binding, null, 2) + "\n", "utf8");
+}
+
+async function removeHttpBindingState(
+  configDir: string,
+  projectId: string
+): Promise<void> {
+  await rm(httpStatusPath(configDir, projectId), { force: true });
+}
+
 async function startHttpServer(input: {
   runtimeRoot: string;
   projectId: string;
@@ -409,6 +436,7 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
+  await removeHttpBindingState(options.configDir, projectId);
   let logLevel: OrchestratorLogLevel;
   try {
     logLevel = resolveOrchestratorLogLevel(
@@ -489,6 +517,13 @@ const handler = async (
             service,
           })
         : null;
+    if (httpServer) {
+      await writeHttpBindingState(options.configDir, projectId, {
+        host: HTTP_HOST,
+        port: httpServer.port,
+        endpoint: httpServer.url,
+      });
+    }
 
     logLine(
       green("\u25B2"),
@@ -581,6 +616,15 @@ export async function shutdownForegroundOrchestrator(
     logLine(
       yellow("\u26A0"),
       `Failed to stop HTTP server: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+
+  try {
+    await removeHttpBindingState(input.configDir, input.projectId);
+  } catch (error) {
+    logLine(
+      yellow("\u26A0"),
+      `Failed to remove HTTP state: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 

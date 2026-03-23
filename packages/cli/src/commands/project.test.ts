@@ -67,6 +67,7 @@ async function seedProject(
     displayName: string;
     pid?: number;
     snapshot?: ProjectStatusSnapshot;
+    endpoint?: string;
   }
 ): Promise<void> {
   const project: CliProjectConfig = {
@@ -104,6 +105,29 @@ async function seedProject(
       "utf8"
     );
   }
+
+  if (input.endpoint) {
+    const httpRuntimeDir = join(
+      configDir,
+      "orchestrator",
+      "workspaces",
+      input.projectId
+    );
+    await mkdir(httpRuntimeDir, { recursive: true });
+    await writeFile(
+      join(httpRuntimeDir, "http.json"),
+      JSON.stringify(
+        {
+          host: "127.0.0.1",
+          port: Number.parseInt(new URL(input.endpoint).port, 10),
+          endpoint: input.endpoint,
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+  }
 }
 
 describe("project list", () => {
@@ -130,6 +154,7 @@ describe("project list", () => {
       projectId: "backend-a1b2",
       displayName: "Backend Tasks",
       pid: process.pid,
+      endpoint: "http://localhost:4680",
       snapshot: {
         projectId: "backend-a1b2",
         slug: "backend-a1b2",
@@ -169,6 +194,8 @@ describe("project list", () => {
     expect(output).toContain("2m ago");
     expect(output).toContain("│ running ");
     expect(output).toContain("│ 2 ");
+    expect(output).toContain("Endpoint");
+    expect(output).toContain("http://localhost:4680");
     expect(output).toContain("│ - ");
   });
 
@@ -185,6 +212,7 @@ describe("project list", () => {
       projectId: "infra-e5f6",
       displayName: "Infra Automation",
       pid: process.pid,
+      endpoint: "http://localhost:4680",
       snapshot: {
         projectId: "infra-e5f6",
         slug: "infra-e5f6",
@@ -218,6 +246,7 @@ describe("project list", () => {
         health: "idle",
         activeRuns: 0,
         lastTick: "30s ago",
+        endpoint: "http://localhost:4680",
         active: true,
       }),
     ]);
@@ -260,9 +289,39 @@ describe("project list", () => {
         activeRuns: null,
         lastTick: "-",
         uptime: "-",
+        endpoint: null,
         active: false,
       },
     ]);
+  });
+
+  it("omits the endpoint column when no project has HTTP enabled", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-list-no-http-"));
+    const stdout = captureWrites(process.stdout);
+
+    await saveGlobalConfig(configDir, {
+      activeProject: null,
+      projects: ["front-c3d4"],
+    });
+
+    await seedProject(configDir, {
+      projectId: "front-c3d4",
+      displayName: "Frontend Features",
+      pid: 999999,
+    });
+
+    try {
+      await projectCommand(["list"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("Endpoint");
   });
 });
 

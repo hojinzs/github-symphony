@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -250,6 +250,23 @@ describe("start command foreground locking", () => {
       );
 
       const url = await waitForHttpUrl(stdout.output);
+      const httpState = JSON.parse(
+        await readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ) as { host: string; port: number; endpoint: string };
+      expect(httpState).toEqual({
+        host: "127.0.0.1",
+        port: Number.parseInt(new URL(url).port, 10),
+        endpoint: url,
+      });
       await expect(
         fetch(`${url}/api/v1/state`).then((response) => response.json())
       ).resolves.toEqual({
@@ -277,6 +294,18 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
+      await expect(
+        readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
