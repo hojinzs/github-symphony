@@ -49,7 +49,7 @@ type ForegroundShutdownOptions = {
 };
 
 const DEFAULT_HTTP_PORT = 4680;
-const HTTP_HOST = "0.0.0.0";
+const HTTP_HOST = "127.0.0.1";
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
@@ -260,11 +260,20 @@ function formatBoundUrl(server: Server): string {
   }
 
   const host =
-    address.address === "::" || address.address === "0.0.0.0"
+    address.address === "::" ||
+    address.address === "::1" ||
+    address.address === "0.0.0.0" ||
+    address.address === "127.0.0.1"
       ? "localhost"
       : address.address;
   const urlHost = host.includes(":") ? `[${host}]` : host;
   return `http://${urlHost}:${address.port}`;
+}
+
+function logHttpRequestError(error: unknown): void {
+  const message =
+    error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`[start] HTTP request failed: ${message}\n`);
 }
 
 async function closeHttpServer(server?: Server): Promise<void> {
@@ -300,6 +309,7 @@ async function startHttpServer(input: {
             request.method === "POST" &&
             url.pathname === "/api/v1/refresh"
           ) {
+            request.resume();
             input.service.requestReconcile();
             respondJson(response, 202, { ok: true });
             return;
@@ -312,10 +322,10 @@ async function startHttpServer(input: {
           });
           respondJson(response, resolved.status, resolved.payload);
         } catch (error) {
+          logHttpRequestError(error);
           if (!response.headersSent) {
             respondJson(response, 500, {
-              error:
-                error instanceof Error ? error.message : "Internal server error",
+              error: "Internal server error",
             });
           } else {
             response.end();

@@ -259,6 +259,10 @@ describe("start command foreground locking", () => {
 
       const refreshResponse = await fetch(`${url}/api/v1/refresh`, {
         method: "POST",
+        body: JSON.stringify({ reason: "manual" }),
+        headers: {
+          "content-type": "application/json",
+        },
       });
       expect(refreshResponse.status).toBe(202);
       await expect(refreshResponse.json()).resolves.toEqual({ ok: true });
@@ -279,6 +283,61 @@ describe("start command foreground locking", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(0);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+  });
+
+  it("logs handler failures to stderr and returns a generic 500 response", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+    resolveDashboardResponse.mockRejectedValue(new Error("reader exploded"));
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--http"],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      const response = await fetch(`${url}/api/v1/state`);
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        error: "Internal server error",
+      });
+      expect(stderr.output()).toContain("[start] HTTP request failed:");
+      expect(stderr.output()).toContain("reader exploded");
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("increments the port when the requested HTTP port is already in use", async () => {
