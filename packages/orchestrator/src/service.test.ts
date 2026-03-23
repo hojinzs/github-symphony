@@ -1820,6 +1820,18 @@ Prefer focused changes.
       completedAt: null,
       lastError: null,
       nextRetryAt: null,
+      threadId: "thread-1",
+      cumulativeTurnCount: 3,
+      lastTurnSummary: "turn/completed",
+      turnCount: 3,
+      runtimeSession: {
+        sessionId: "thread-1-turn-3",
+        threadId: "thread-1",
+        status: "completed",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        exitClassification: "completed",
+      },
     });
 
     const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
@@ -3252,6 +3264,7 @@ Prefer focused changes.
               turnId: "turn-final",
               turnCount: 2,
               sessionId: "thread-1-turn-final",
+              exitClassification: "max-turns-reached",
             },
             executionPhase: "implementation",
             runPhase: "failed",
@@ -3331,6 +3344,12 @@ Prefer focused changes.
         expect(updatedRun?.runtimeSession?.sessionId).toBe(
           "thread-1-turn-final"
         );
+        expect(updatedRun?.runtimeSession?.exitClassification).toBe(
+          "max-turns-reached"
+        );
+        expect(updatedRun?.threadId).toBe("thread-1");
+        expect(updatedRun?.cumulativeTurnCount).toBe(2);
+        expect(updatedRun?.lastTurnSummary).toBe("turn failed");
         expect(updatedRun?.runtimeSession?.updatedAt).toBe(
           "2026-03-08T00:06:00.000Z"
         );
@@ -3399,6 +3418,7 @@ Prefer focused changes.
             turnId: "turn-xyz",
             turnCount: 2,
             sessionId: "thread-1-turn-xyz",
+            exitClassification: "user-input-required",
           },
           executionPhase: "human-review",
           runPhase: "failed",
@@ -3423,7 +3443,12 @@ Prefer focused changes.
       expect(updatedRun?.rateLimits).toBeNull();
       expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
       expect(updatedRun?.runtimeSession?.threadId).toBe("thread-1");
+      expect(updatedRun?.runtimeSession?.exitClassification).toBe(
+        "user-input-required"
+      );
+      expect(updatedRun?.threadId).toBe("thread-1");
       expect(updatedRun?.turnCount).toBe(2);
+      expect(updatedRun?.cumulativeTurnCount).toBe(2);
       expect(updatedRun?.executionPhase).toBe("human-review");
       expect(updatedRun?.runPhase).toBe("failed");
       expect(updatedRun?.lastError).toBe(

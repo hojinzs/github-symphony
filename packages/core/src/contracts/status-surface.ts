@@ -51,6 +51,26 @@ export type OrchestratorRunStatus =
   | "failed"
   | "suppressed";
 
+export const SESSION_EXIT_CLASSIFICATIONS = [
+  "completed",
+  "max-turns-reached",
+  "user-input-required",
+  "timeout",
+  "error",
+] as const;
+
+export type SessionExitClassification =
+  (typeof SESSION_EXIT_CLASSIFICATIONS)[number];
+
+export function isSessionExitClassification(
+  value: unknown
+): value is SessionExitClassification {
+  return (
+    typeof value === "string" &&
+    SESSION_EXIT_CLASSIFICATIONS.includes(value as SessionExitClassification)
+  );
+}
+
 export type OrchestratorRunRecord = {
   runId: string;
   projectId: string;
@@ -70,6 +90,12 @@ export type OrchestratorRunRecord = {
   workspaceRuntimeDir: string;
   workflowPath: string | null;
   retryKind: RetryKind | null;
+  /** Persisted thread state shared across worker sessions. */
+  threadId?: string | null;
+  /** Total turns accumulated across worker sessions for the run. */
+  cumulativeTurnCount?: number;
+  /** Brief summary of the most recent completed/terminal turn. */
+  lastTurnSummary?: string | null;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -106,7 +132,7 @@ export type RuntimeSessionRow = {
   status: "active" | "completed" | "failed" | null;
   startedAt: string | null;
   updatedAt: string | null;
-  exitClassification: string | null;
+  exitClassification: SessionExitClassification | null;
 };
 
 export type LiveWorkerState = {
