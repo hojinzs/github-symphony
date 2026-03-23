@@ -24,6 +24,7 @@ import {
   loadProjectConfig,
   projectConfigDir,
   daemonPidPath,
+  httpStatusPath,
   type CliGlobalConfig,
   type CliProjectConfig,
 } from "../config.js";
@@ -43,7 +44,14 @@ type ProjectListRow = {
   activeRuns: number | null;
   lastTick: string;
   uptime: string;
+  endpoint: string | null;
   active: boolean;
+};
+
+type HttpBindingState = {
+  host?: unknown;
+  port?: unknown;
+  endpoint?: unknown;
 };
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
@@ -263,6 +271,21 @@ async function fetchProjectSnapshot(
   return readPersistedSnapshot(configDir, projectId);
 }
 
+async function readHttpEndpoint(
+  configDir: string,
+  projectId: string
+): Promise<string | null> {
+  try {
+    const content = await readFile(httpStatusPath(configDir, projectId), "utf8");
+    const state = JSON.parse(content) as HttpBindingState;
+    return typeof state.endpoint === "string" && state.endpoint.length > 0
+      ? state.endpoint
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readProcessUptime(pid: number): Promise<string> {
   if (process.platform === "win32") {
     return "-";
@@ -357,6 +380,7 @@ async function collectProjectListRows(
           ? relativeTimeFromNow(snapshot.lastTickAt)
           : "-",
         uptime: pid !== null && running ? await readProcessUptime(pid) : "-",
+        endpoint: running ? await readHttpEndpoint(configDir, projectId) : null,
         active: global.activeProject === projectId,
       } satisfies ProjectListRow;
     })
@@ -727,16 +751,19 @@ async function projectList(options: GlobalOptions): Promise<void> {
     return;
   }
 
+  const showEndpointColumn = rows.some((row) => row.endpoint !== null);
+  const headers = [
+    "ID",
+    "Name",
+    "Status",
+    "Health",
+    "Active Runs",
+    "Last Tick",
+    "Uptime",
+    ...(showEndpointColumn ? ["Endpoint"] : []),
+  ];
   const table = renderTable(
-    [
-      "ID",
-      "Name",
-      "Status",
-      "Health",
-      "Active Runs",
-      "Last Tick",
-      "Uptime",
-    ],
+    headers,
     rows.map((row) => [
       row.id,
       row.name,
@@ -745,6 +772,7 @@ async function projectList(options: GlobalOptions): Promise<void> {
       row.activeRuns === null ? "-" : String(row.activeRuns),
       row.lastTick,
       row.uptime,
+      ...(showEndpointColumn ? [row.endpoint ?? "-"] : []),
     ])
   );
   process.stdout.write(`${table}\n`);

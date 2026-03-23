@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
+import * as configModule from "../config.js";
 
 const acquireProjectLock = vi.fn();
 const releaseProjectLock = vi.fn();
@@ -250,6 +251,23 @@ describe("start command foreground locking", () => {
       );
 
       const url = await waitForHttpUrl(stdout.output);
+      const httpState = JSON.parse(
+        await readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ) as { host: string; port: number; endpoint: string };
+      expect(httpState).toEqual({
+        host: "127.0.0.1",
+        port: Number.parseInt(new URL(url).port, 10),
+        endpoint: url,
+      });
       await expect(
         fetch(`${url}/api/v1/state`).then((response) => response.json())
       ).resolves.toEqual({
@@ -277,6 +295,18 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
+      await expect(
+        readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -394,6 +424,97 @@ describe("start command foreground locking", () => {
       await new Promise<void>((resolve, reject) =>
         blocker.close((error) => (error ? reject(error) : resolve()))
       );
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("keeps an existing http.json when lock acquisition fails", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const statePath = join(
+      configDir,
+      "orchestrator",
+      "workspaces",
+      "tenant-a",
+      "http.json"
+    );
+    await mkdir(join(configDir, "orchestrator", "workspaces", "tenant-a"), {
+      recursive: true,
+    });
+    await writeFile(
+      statePath,
+      JSON.stringify(
+        {
+          host: "127.0.0.1",
+          port: 4680,
+          endpoint: "http://localhost:4680",
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+    acquireProjectLock.mockRejectedValue(new Error("lock busy"));
+
+    await expect(
+      startModule.default(["--project-id", "tenant-a"], baseOptions(configDir))
+    ).rejects.toThrow("lock busy");
+
+    await expect(readFile(statePath, "utf8")).resolves.toContain(
+      "\"endpoint\": \"http://localhost:4680\""
+    );
+  });
+
+  it("warns and keeps running when http.json persistence fails", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    vi.spyOn(configModule, "writeJsonFile").mockRejectedValueOnce(
+      new Error("disk full")
+    );
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--http"],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      expect(url).toMatch(/^http:\/\/localhost:\d+$/);
+      expect(stdout.output()).toContain(
+        "Failed to persist HTTP binding state (http.json): disk full"
+      );
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
     }
 
     expect(exitSpy).toHaveBeenCalledWith(0);

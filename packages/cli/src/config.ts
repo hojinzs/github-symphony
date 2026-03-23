@@ -7,6 +7,7 @@ export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
 export const DAEMON_PID_FILE = "daemon.pid";
 export const ORCHESTRATOR_LOG_FILE = "orchestrator.log";
+export const HTTP_STATUS_FILE = "http.json";
 
 export type CliGlobalConfig = {
   activeProject: string | null;
@@ -64,6 +65,20 @@ export function orchestratorLogPath(
   projectId: string
 ): string {
   return join(projectConfigDir(configDir, projectId), ORCHESTRATOR_LOG_FILE);
+}
+
+export function orchestratorWorkspaceRuntimeDir(
+  configDir: string,
+  projectId: string
+): string {
+  return join(configDir, "orchestrator", "workspaces", projectId);
+}
+
+export function httpStatusPath(configDir: string, projectId: string): string {
+  return join(
+    orchestratorWorkspaceRuntimeDir(configDir, projectId),
+    HTTP_STATUS_FILE
+  );
 }
 
 export async function loadGlobalConfig(
@@ -133,7 +148,10 @@ async function readJsonFile<T>(path: string): Promise<T | null> {
   }
 }
 
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(
+  path: string,
+  value: unknown
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
