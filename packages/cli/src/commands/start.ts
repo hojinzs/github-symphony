@@ -338,7 +338,23 @@ const handler = async (
     });
 
     try {
-      await service.run();
+      while (!shuttingDown) {
+        try {
+          await service.run();
+          break;
+        } catch (error) {
+          if (shuttingDown) {
+            break;
+          }
+
+          logLine(
+            red("\u2717"),
+            red(
+              `Run loop error: ${error instanceof Error ? error.message : "Unknown error"}`
+            )
+          );
+        }
+      }
     } finally {
       if (shutdownPromise) {
         await shutdownPromise;

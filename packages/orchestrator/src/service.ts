@@ -148,11 +148,21 @@ export class OrchestratorService {
     );
 
     while (this.running) {
-      const snapshot = await this.runOnceInternal(
-        options.issueIdentifier,
-        this.createTrackerDependencies()
-      );
-      await this.dependencies.onTick?.(snapshot);
+      try {
+        const snapshot = await this.runOnceInternal(
+          options.issueIdentifier,
+          this.createTrackerDependencies()
+        );
+        await this.notifyTick(snapshot);
+      } catch (error) {
+        if (options.once) {
+          throw error;
+        }
+
+        this.writeStderr(
+          `[orchestrator] run loop failed for ${this.projectConfig.projectId}: ${this.formatErrorMessage(error)}`
+        );
+      }
 
       if (options.once || !this.running) {
         return;
@@ -689,6 +699,28 @@ export class OrchestratorService {
         );
       }
     }
+  }
+
+  private async notifyTick(snapshot: ProjectStatusSnapshot): Promise<void> {
+    if (!this.dependencies.onTick) {
+      return;
+    }
+
+    try {
+      await this.dependencies.onTick(snapshot);
+    } catch (error) {
+      this.writeStderr(
+        `[orchestrator] onTick callback failed: ${this.formatErrorMessage(error)}`
+      );
+    }
+  }
+
+  private formatErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.stack ?? error.message;
+    }
+
+    return String(error);
   }
 
   private async resolveStartupCleanupTerminalStates(
