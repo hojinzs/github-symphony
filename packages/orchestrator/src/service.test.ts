@@ -141,6 +141,91 @@ describe("OrchestratorService", () => {
     expect(output).toContain(`[run-completed] ${runId} status=retrying\n`);
   });
 
+  it("invokes onTick with the reconciliation snapshot when run() completes a tick", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-on-tick-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const onTick = vi.fn();
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        onTick,
+      });
+
+      await service.run({ once: true });
+
+      expect(onTick).toHaveBeenCalledTimes(1);
+      expect(onTick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "tenant-1",
+          slug: "tenant-1",
+          health: "idle",
+          lastTickAt: "2026-03-08T00:00:00.000Z",
+          summary: expect.objectContaining({
+            activeRuns: 0,
+            dispatched: 0,
+            suppressed: 0,
+            recovered: 0,
+          }),
+        })
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("continues polling when onTick throws during long-running mode", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-on-tick-error-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const stderr = {
+        write: vi.fn().mockReturnValue(true),
+      };
+      let runningService: OrchestratorService | null = null;
+      const onTick = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("tick boom"))
+        .mockImplementationOnce(async () => {
+          await runningService?.shutdown();
+        });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        waitImpl: vi.fn().mockResolvedValue(undefined),
+        stderr,
+        onTick,
+      });
+      runningService = service;
+
+      await service.run();
+
+      expect(onTick).toHaveBeenCalledTimes(2);
+      expect(stderr.write).toHaveBeenCalledWith(
+        expect.stringContaining("[orchestrator] onTick callback failed: Error: tick boom")
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("cleans up terminal issue workspaces during startup before the first tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-cleanup-"));

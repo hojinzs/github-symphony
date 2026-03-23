@@ -270,8 +270,41 @@ const handler = async (
     });
 
     const store = createStore(runtimeRoot);
+    let prevSnapshot: ProjectStatusSnapshot | null = null;
+    let isFirst = true;
     const service = new OrchestratorService(store, projectConfig, {
       logLevel,
+      onTick: async (snapshot) => {
+        try {
+          logTickResult(snapshot, prevSnapshot, isFirst);
+
+          if (!isFirst) {
+            const currentRunIds = new Set(
+              snapshot.activeRuns.map((run) => run.runId)
+            );
+            for (const prevRun of prevSnapshot?.activeRuns ?? []) {
+              if (!currentRunIds.has(prevRun.runId)) {
+                await tailWorkerLog(
+                  runtimeRoot,
+                  projectId,
+                  prevRun.runId,
+                  prevRun.issueIdentifier
+                );
+              }
+            }
+          }
+
+          prevSnapshot = snapshot;
+          isFirst = false;
+        } catch (error) {
+          logLine(
+            red("\u2717"),
+            red(
+              `Tick error: ${error instanceof Error ? error.message : "Unknown error"}`
+            )
+          );
+        }
+      },
     });
 
     logLine(
@@ -280,7 +313,6 @@ const handler = async (
     );
     logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
-    let running = true;
     let shuttingDown = false;
     let shutdownPromise: Promise<never> | null = null;
     const shutdown = async () => {
@@ -288,7 +320,6 @@ const handler = async (
         return shutdownPromise;
       }
       shuttingDown = true;
-      running = false;
       const heldLock = projectLock;
       projectLock = null;
       shutdownPromise = shutdownForegroundOrchestrator({
@@ -306,50 +337,28 @@ const handler = async (
       void shutdown();
     });
 
-    let prevSnapshot: ProjectStatusSnapshot | null = null;
-    let isFirst = true;
-
-    while (running) {
-      try {
-        const snapshot = await service.runOnce();
-        logTickResult(snapshot, prevSnapshot, isFirst);
-
-        if (!isFirst) {
-          const currentRunIds = new Set(
-            snapshot.activeRuns.map((run) => run.runId)
-          );
-          for (const prevRun of prevSnapshot?.activeRuns ?? []) {
-            if (!currentRunIds.has(prevRun.runId)) {
-              await tailWorkerLog(
-                runtimeRoot,
-                projectId,
-                prevRun.runId,
-                prevRun.issueIdentifier
-              );
-            }
+    try {
+      while (!shuttingDown) {
+        try {
+          await service.run();
+          break;
+        } catch (error) {
+          if (shuttingDown) {
+            break;
           }
+
+          logLine(
+            red("\u2717"),
+            red(
+              `Run loop error: ${error instanceof Error ? error.message : "Unknown error"}`
+            )
+          );
         }
-
-        prevSnapshot = snapshot;
-        isFirst = false;
-      } catch (error) {
-        logLine(
-          red("\u2717"),
-          red(
-            `Tick error: ${error instanceof Error ? error.message : "Unknown error"}`
-          )
-        );
       }
-
-      if (!running) {
-        if (shutdownPromise) {
-          await shutdownPromise;
-        }
-        break;
+    } finally {
+      if (shutdownPromise) {
+        await shutdownPromise;
       }
-
-      // Poll interval: default 30s
-      await new Promise((r) => setTimeout(r, 30_000));
     }
   } finally {
     await releaseProjectLock(projectLock);

@@ -76,6 +76,9 @@ type WorkerLogStreamLike = Pick<
 >;
 
 export type OrchestratorLogLevel = "normal" | "verbose";
+type OrchestratorTickHandler = (
+  snapshot: ProjectStatusSnapshot
+) => void | Promise<void>;
 
 function isUsableWorkflowResolution(
   resolution: WorkflowResolution
@@ -129,6 +132,7 @@ export class OrchestratorService {
         options: { flags: string }
       ) => WorkerLogStreamLike;
       logLevel?: OrchestratorLogLevel;
+      onTick?: OrchestratorTickHandler;
     } = {}
   ) {}
 
@@ -144,10 +148,21 @@ export class OrchestratorService {
     );
 
     while (this.running) {
-      await this.runOnceInternal(
-        options.issueIdentifier,
-        this.createTrackerDependencies()
-      );
+      try {
+        const snapshot = await this.runOnceInternal(
+          options.issueIdentifier,
+          this.createTrackerDependencies()
+        );
+        await this.notifyTick(snapshot);
+      } catch (error) {
+        if (options.once) {
+          throw error;
+        }
+
+        this.writeStderr(
+          `[orchestrator] run loop failed for ${this.projectConfig.projectId}: ${this.formatErrorMessage(error)}`
+        );
+      }
 
       if (options.once || !this.running) {
         return;
@@ -684,6 +699,28 @@ export class OrchestratorService {
         );
       }
     }
+  }
+
+  private async notifyTick(snapshot: ProjectStatusSnapshot): Promise<void> {
+    if (!this.dependencies.onTick) {
+      return;
+    }
+
+    try {
+      await this.dependencies.onTick(snapshot);
+    } catch (error) {
+      this.writeStderr(
+        `[orchestrator] onTick callback failed: ${this.formatErrorMessage(error)}`
+      );
+    }
+  }
+
+  private formatErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.stack ?? error.message;
+    }
+
+    return String(error);
   }
 
   private async resolveStartupCleanupTerminalStates(

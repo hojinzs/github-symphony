@@ -6,8 +6,10 @@ import type { CliProjectConfig } from "../config.js";
 
 const acquireProjectLock = vi.fn();
 const releaseProjectLock = vi.fn();
-const runOnce = vi.fn();
+const run = vi.fn();
 const status = vi.fn();
+const shutdown = vi.fn();
+const serviceDependencies: Array<Record<string, unknown>> = [];
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   acquireProjectLock,
@@ -16,9 +18,16 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
-    runOnce = runOnce;
+    constructor(
+      _store: unknown,
+      _projectConfig: unknown,
+      dependencies: Record<string, unknown> = {}
+    ) {
+      serviceDependencies.push(dependencies);
+    }
+    run = run;
     status = status;
-    shutdown = vi.fn().mockResolvedValue(undefined);
+    shutdown = shutdown;
   },
 }));
 
@@ -27,8 +36,11 @@ const startModule = await import("./start.js");
 afterEach(() => {
   acquireProjectLock.mockReset();
   releaseProjectLock.mockReset();
-  runOnce.mockReset();
+  run.mockReset();
   status.mockReset();
+  shutdown.mockReset();
+  shutdown.mockResolvedValue(undefined);
+  serviceDependencies.length = 0;
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -92,9 +104,11 @@ describe("start command foreground locking", () => {
     };
     acquireProjectLock.mockResolvedValue(lock);
     status.mockResolvedValue(null);
-    runOnce.mockImplementation(async () => {
-      process.emit("SIGINT");
-      return {
+    run.mockImplementation(async () => {
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
         projectId: "tenant-a",
         slug: "tenant-a",
         health: "idle",
@@ -103,7 +117,8 @@ describe("start command foreground locking", () => {
         activeRuns: [],
         retryQueue: [],
         lastError: null,
-      };
+      });
+      process.emit("SIGINT");
     });
 
     const exitSpy = vi
@@ -116,7 +131,62 @@ describe("start command foreground locking", () => {
       runtimeRoot: configDir,
       projectId: "tenant-a",
     });
+    expect(run).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("retries the foreground run loop after a service.run error", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(
+        configDir,
+        "projects",
+        "tenant-a",
+        ".lock"
+      ),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    status.mockResolvedValue(null);
+    let attempts = 0;
+    run.mockImplementation(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("transient failure");
+      }
+
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
+        projectId: "tenant-a",
+        slug: "tenant-a",
+        health: "idle",
+        lastTickAt: "2026-03-17T00:00:00.000Z",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      });
+      process.emit("SIGINT");
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+
+    await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });
