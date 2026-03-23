@@ -110,6 +110,7 @@ export class OrchestratorService {
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepResolver: (() => void) | null = null;
   private reconcilePromise: Promise<void> = Promise.resolve();
+  private reconcileRequested = false;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -297,6 +298,11 @@ export class OrchestratorService {
 
   async recover(): Promise<ProjectStatusSnapshot> {
     return this.runOnce();
+  }
+
+  requestReconcile(): void {
+    this.reconcileRequested = true;
+    this.cancelPendingSleep();
   }
 
   async shutdown(): Promise<void> {
@@ -1810,23 +1816,28 @@ export class OrchestratorService {
   }
 
   private async waitForNextPoll(): Promise<void> {
-    const customWait = this.dependencies.waitImpl;
-    if (customWait) {
-      await customWait(this.getEffectivePollIntervalMs());
+    if (this.consumePendingReconcileRequest()) {
       return;
     }
 
-    await new Promise<void>((resolve) => {
-      this.sleepResolver = () => {
-        this.sleepResolver = null;
-        this.sleepTimer = null;
-        resolve();
-      };
-      this.sleepTimer = setTimeout(
-        this.sleepResolver,
-        this.getEffectivePollIntervalMs()
-      );
-    });
+    const customWait = this.dependencies.waitImpl;
+    const pollIntervalMs = this.getEffectivePollIntervalMs();
+    const waitPromise = this.createPendingSleepPromise();
+
+    try {
+      if (customWait) {
+        await Promise.race([customWait(pollIntervalMs), waitPromise]);
+      } else {
+        this.sleepTimer = setTimeout(() => {
+          this.sleepResolver?.();
+        }, pollIntervalMs);
+        await waitPromise;
+      }
+    } finally {
+      this.cancelPendingSleep();
+    }
+
+    this.consumePendingReconcileRequest();
   }
 
   private cancelPendingSleep(): void {
@@ -1836,6 +1847,25 @@ export class OrchestratorService {
     }
     this.sleepResolver?.();
     this.sleepResolver = null;
+  }
+
+  private createPendingSleepPromise(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.sleepResolver = () => {
+        this.sleepResolver = null;
+        this.sleepTimer = null;
+        resolve();
+      };
+    });
+  }
+
+  private consumePendingReconcileRequest(): boolean {
+    if (!this.reconcileRequested) {
+      return false;
+    }
+
+    this.reconcileRequested = false;
+    return true;
   }
 
   /**

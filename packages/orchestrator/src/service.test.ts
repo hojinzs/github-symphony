@@ -226,6 +226,168 @@ describe("OrchestratorService", () => {
     }
   });
 
+  it("wakes pending polling sleep immediately when requestReconcile is called", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-request-reconcile-")
+    );
+    let service: OrchestratorService | null = null;
+    let runPromise: Promise<void> | null = null;
+    let releaseWait: (() => void) | null = null;
+    let reconcileRequested = false;
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          schedulerPollIntervalMs: 60_000,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
+      const waitImpl = vi.fn().mockImplementation(async () => {
+        if (!reconcileRequested) {
+          reconcileRequested = true;
+          setTimeout(() => {
+            serviceRef.current?.requestReconcile();
+          }, 10);
+        }
+        await new Promise<void>((resolve) => {
+          releaseWait = resolve;
+        });
+      });
+      let tickCount = 0;
+      let resolveSecondTick!: () => void;
+      const secondTick = new Promise<void>((resolve) => {
+        resolveSecondTick = resolve;
+      });
+      const serviceRef: { current: OrchestratorService | null } = {
+        current: null,
+      };
+      const onTick = vi.fn().mockImplementation(async () => {
+        tickCount += 1;
+        if (tickCount === 1) {
+          return;
+        }
+
+        if (tickCount === 2) {
+          resolveSecondTick();
+          await serviceRef.current?.shutdown();
+        }
+      });
+      service = new OrchestratorService(store, projectConfig, {
+        fetchImpl,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        waitImpl,
+        onTick,
+      });
+      serviceRef.current = service;
+
+      runPromise = service.run();
+      await Promise.race([
+        secondTick,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error("requestReconcile did not wake the pending poll")
+            );
+          }, 500);
+        }),
+      ]);
+      await runPromise;
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(onTick).toHaveBeenCalledTimes(2);
+      expect(waitImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseWait?.();
+      await service?.shutdown();
+      await runPromise?.catch(() => undefined);
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("queues active-tick requestReconcile calls without scheduling duplicate ticks", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-request-reconcile-duplicate-")
+    );
+    let service: OrchestratorService | null = null;
+    let runPromise: Promise<void> | null = null;
+    let releaseFirstTick: (() => void) | null = null;
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          schedulerPollIntervalMs: 60_000,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
+      let tickCount = 0;
+      const firstTickRelease = new Promise<void>((resolve) => {
+        releaseFirstTick = resolve;
+      });
+      const serviceRef: { current: OrchestratorService | null } = {
+        current: null,
+      };
+      const onTick = vi.fn().mockImplementation(async () => {
+        tickCount += 1;
+        if (tickCount === 1) {
+          setTimeout(() => {
+            serviceRef.current?.requestReconcile();
+            serviceRef.current?.requestReconcile();
+          }, 10);
+          await firstTickRelease;
+          return;
+        }
+
+        if (tickCount === 2) {
+          await serviceRef.current?.shutdown();
+        }
+      });
+      service = new OrchestratorService(store, projectConfig, {
+        fetchImpl,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+        onTick,
+      });
+      serviceRef.current = service;
+
+      runPromise = service.run();
+      setTimeout(() => {
+        releaseFirstTick?.();
+      }, 25);
+
+      await Promise.race([
+        runPromise,
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error("duplicate requestReconcile calls did not settle")
+            );
+          }, 500);
+        }),
+      ]);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(onTick).toHaveBeenCalledTimes(2);
+    } finally {
+      releaseFirstTick?.();
+      await service?.shutdown();
+      await runPromise?.catch(() => undefined);
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("cleans up terminal issue workspaces during startup before the first tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-cleanup-"));
