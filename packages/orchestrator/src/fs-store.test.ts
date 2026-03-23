@@ -1,4 +1,11 @@
-import { appendFile, mkdtemp, mkdir, readFile, stat } from "node:fs/promises";
+import {
+  appendFile,
+  mkdtemp,
+  mkdir,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { chdir } from "node:process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -268,5 +275,41 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
+  it("defaults completedOnce to false for legacy persisted issue records", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await mkdir(join(runtimeRoot, "projects", "project-1"), { recursive: true });
+    await writeFile(
+      join(runtimeRoot, "projects", "project-1", "issues.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          identifier: "acme/repo#1",
+          workspaceKey: "acme_repo_1",
+          state: "released",
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: "2026-03-16T00:00:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+
+    await expect(store.loadProjectIssueOrchestrations("project-1")).resolves.toEqual([
+      {
+        issueId: "issue-1",
+        identifier: "acme/repo#1",
+        workspaceKey: "acme_repo_1",
+        completedOnce: false,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-16T00:00:00.000Z",
+      },
+    ]);
   });
 });

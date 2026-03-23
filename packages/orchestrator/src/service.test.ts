@@ -172,6 +172,7 @@ describe("OrchestratorService", () => {
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey,
+        completedOnce: false,
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -283,6 +284,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey,
+        completedOnce: false,
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -1033,6 +1035,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -1181,6 +1184,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -1263,6 +1267,7 @@ Prefer focused changes.
     );
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-1",
+      completedOnce: false,
       state: "released",
       currentRunId: null,
       retryEntry: null,
@@ -1287,6 +1292,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -1399,6 +1405,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -1535,6 +1542,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -1880,6 +1888,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -1951,6 +1960,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2038,6 +2048,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2084,11 +2095,13 @@ Prefer focused changes.
 
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
     expect(updatedRun?.status).toBe("retrying");
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:01.000Z");
     expect(updatedRun?.retryKind).toBe("continuation");
     expect(updatedRun?.lastError).toBeNull();
+    expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
   });
 
@@ -2113,6 +2126,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2195,6 +2209,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2278,6 +2293,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2365,6 +2381,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2472,6 +2489,7 @@ Prefer focused changes.
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -2565,6 +2583,7 @@ Prefer focused changes.
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -2667,6 +2686,7 @@ Prefer focused changes.
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -2754,6 +2774,7 @@ Prefer focused changes.
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -2929,6 +2950,7 @@ Prefer focused changes.
           issueId: "issue-1",
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
+          completedOnce: false,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -3663,6 +3685,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4085,6 +4108,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4192,6 +4216,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4257,6 +4282,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4352,6 +4378,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4440,6 +4467,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4525,6 +4553,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4615,6 +4644,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4751,6 +4781,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4859,6 +4890,7 @@ Prefer focused changes.
         issueId: "issue-record-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: true,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -4938,6 +4970,7 @@ Prefer focused changes.
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-record-1",
+      completedOnce: true,
       state: "released",
       currentRunId: null,
     });
@@ -4959,6 +4992,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5656,6 +5690,7 @@ Prefer focused changes.
         issueId: "issue-1",
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
+        completedOnce: false,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,

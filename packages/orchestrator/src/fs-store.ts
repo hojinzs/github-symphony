@@ -81,7 +81,10 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     const issuesPath = join(this.projectDir(projectId), "issues.json");
     const issues = await readJsonFile<IssueOrchestrationRecord[]>(issuesPath);
     if (issues) {
-      return issues;
+      return issues.map((issue) => ({
+        ...issue,
+        completedOnce: issue.completedOnce ?? false,
+      }));
     }
 
     const legacyLeases =
@@ -106,6 +109,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         workspaceKey: deriveIssueWorkspaceKeyFromIdentifier(
           lease.issueIdentifier
         ),
+        completedOnce: false,
         state: lease.status === "active" ? "claimed" : "released",
         currentRunId: lease.status === "active" ? lease.runId : null,
         retryEntry: null,
