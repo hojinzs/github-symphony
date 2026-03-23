@@ -148,7 +148,10 @@ async function readJsonFile<T>(path: string): Promise<T | null> {
   }
 }
 
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(
+  path: string,
+  value: unknown
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp`;
   await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");

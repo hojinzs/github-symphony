@@ -7,6 +7,7 @@ import {
   daemonPidPath,
   httpStatusPath,
   orchestratorLogPath,
+  writeJsonFile,
 } from "../config.js";
 import {
   OrchestratorService,
@@ -307,9 +308,7 @@ async function writeHttpBindingState(
   projectId: string,
   binding: HttpBindingState
 ): Promise<void> {
-  const statePath = httpStatusPath(configDir, projectId);
-  await mkdir(dirname(statePath), { recursive: true });
-  await writeFile(statePath, JSON.stringify(binding, null, 2) + "\n", "utf8");
+  await writeJsonFile(httpStatusPath(configDir, projectId), binding);
 }
 
 async function removeHttpBindingState(
@@ -436,7 +435,6 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
-  await removeHttpBindingState(options.configDir, projectId);
   let logLevel: OrchestratorLogLevel;
   try {
     logLevel = resolveOrchestratorLogLevel(
@@ -470,6 +468,7 @@ const handler = async (
       runtimeRoot,
       projectId,
     });
+    await removeHttpBindingState(options.configDir, projectId);
 
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
@@ -518,11 +517,22 @@ const handler = async (
           })
         : null;
     if (httpServer) {
-      await writeHttpBindingState(options.configDir, projectId, {
-        host: HTTP_HOST,
-        port: httpServer.port,
-        endpoint: httpServer.url,
-      });
+      try {
+        await writeHttpBindingState(options.configDir, projectId, {
+          host: HTTP_HOST,
+          port: httpServer.port,
+          endpoint: httpServer.url,
+        });
+      } catch (error) {
+        logLine(
+          yellow("\u26A0"),
+          yellow(
+            `Failed to persist HTTP binding state (http.json): ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`
+          )
+        );
+      }
     }
 
     logLine(
