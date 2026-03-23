@@ -18,6 +18,7 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[e2e]${NC} $*"; }
 warn() { echo -e "${YELLOW}[e2e]${NC} $*"; }
 fail() { echo -e "${RED}[e2e]${NC} $*"; }
+orch_curl() { $COMPOSE exec -T symphony-e2e curl "$@"; }
 
 cleanup() {
   log "Cleaning up..."
@@ -43,7 +44,7 @@ STUB_SCENARIO="$SCENARIO" $COMPOSE up -d --build 2>&1 | tail -1
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
-  STATUS_JSON=$(curl -sf http://localhost:4680/api/v1/state 2>/dev/null || true)
+  STATUS_JSON=$(orch_curl -sf http://localhost:4680/api/v1/state 2>/dev/null || true)
   HEALTH=$(echo "$STATUS_JSON" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data.get('health',''))" 2>/dev/null || true)
   if [ -n "$HEALTH" ]; then
     break
@@ -59,7 +60,7 @@ log "Dashboard ready"
 
 # ── Verify idle ───────────────────────────────────────────────
 
-HEALTH=$(curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json;print(json.load(sys.stdin)['health'])")
+HEALTH=$(orch_curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json;print(json.load(sys.stdin)['health'])")
 if [ "$HEALTH" != "idle" ]; then
   fail "Expected idle, got: $HEALTH"
   exit 1
@@ -69,7 +70,21 @@ log "Initial state: idle"
 # ── Inject issues ─────────────────────────────────────────────
 
 cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
-log "Issues injected; waiting for orchestrator reconciliation via existing polling loop"
+
+REFRESH_RESPONSE=$(
+  orch_curl -sS -X POST -w '\n__CURL_STATUS__:%{http_code}' \
+    http://localhost:4680/api/v1/refresh
+)
+REFRESH_STATUS=$(printf '%s\n' "$REFRESH_RESPONSE" | awk -F: '/^__CURL_STATUS__/ {print $2}' | tail -1)
+REFRESH_BODY=$(printf '%s\n' "$REFRESH_RESPONSE" | sed '/^__CURL_STATUS__/d')
+
+if [ "$REFRESH_STATUS" != "202" ]; then
+  fail "Expected refresh endpoint to return 202, got: $REFRESH_STATUS"
+  printf '%s\n' "$REFRESH_BODY"
+  exit 1
+fi
+
+log "Issues injected; refresh trigger accepted (202). Falling back to polling until dispatch is observed"
 
 # ── Poll for dispatch ─────────────────────────────────────────
 
@@ -82,7 +97,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   sleep 1
   ELAPSED=$((ELAPSED + 1))
 
-  STATUS_JSON=$(curl -s http://localhost:4680/api/v1/state 2>/dev/null || echo '{}')
+  STATUS_JSON=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null || echo '{}')
   HEALTH=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('health','?'))" 2>/dev/null || echo "?")
   ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['summary']['activeRuns'])" 2>/dev/null || echo "?")
   RUN_STATUS=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0]['status'] if r else '-')" 2>/dev/null || echo "?")

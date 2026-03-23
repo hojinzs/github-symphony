@@ -23,7 +23,8 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
 
 3. **Trigger reconciliation**
    ```bash
-   curl -X POST http://localhost:4680/api/v1/refresh
+   curl -s -o /tmp/e2e-refresh-body -w "%{http_code}" -X POST http://localhost:4680/api/v1/refresh
+   # Expected: 202
    ```
 
 4. **Wait for dispatch** (poll every 1s, allow ~5s for git clone + workspace prep)
