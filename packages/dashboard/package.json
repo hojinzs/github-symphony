@@ -3,7 +3,7 @@
   "version": "0.0.14",
   "license": "MIT",
   "author": "hojinzs",
-  "description": "Standalone filesystem-backed status dashboard for GitHub Symphony",
+  "description": "Filesystem-backed dashboard handlers for GitHub Symphony",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -33,9 +33,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node --watch src/index.ts",
     "lint": "eslint src --ext .ts",
-    "start": "node dist/index.js",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

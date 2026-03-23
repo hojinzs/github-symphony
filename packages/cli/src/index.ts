@@ -27,7 +27,6 @@ type LoaderKey =
   | "start"
   | "stop"
   | "status"
-  | "dashboard"
   | "run"
   | "recover"
   | "logs"
@@ -44,11 +43,11 @@ type CliOptionValues = Partial<
     dryRun?: boolean;
     follow?: boolean;
     force?: boolean;
+    http?: string | boolean;
     issue?: string;
     level?: string;
     logLevel?: string;
     nonInteractive?: boolean;
-    port?: string;
     project?: string;
     projectId?: string;
     run?: string;
@@ -64,7 +63,6 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     start: () => import("./commands/start.js"),
     stop: () => import("./commands/stop.js"),
     status: () => import("./commands/status.js"),
-    dashboard: () => import("./commands/dashboard.js"),
     run: () => import("./commands/run.js"),
     recover: () => import("./commands/recover.js"),
     logs: () => import("./commands/logs.js"),
@@ -189,6 +187,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start the orchestrator")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
@@ -199,6 +198,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("start", args, values);
   });
@@ -235,23 +235,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--watch", values.watch);
     await invokeHandler("status", args, values);
-  });
-
-  addGlobalOptions(
-    program
-      .command("dashboard")
-      .description("Start the standalone dashboard server")
-      .option("--port <port>", "Dashboard port")
-      .option("--project-id <projectId>", "Project identifier")
-      .addOption(new Option("--project <projectId>").hideHelp())
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = [];
-    pushOption(args, "--project-id", resolveProjectId(values));
-    pushOption(args, "--port", values.port);
-    await invokeHandler("dashboard", args, values);
   });
 
   addGlobalOptions(
@@ -371,6 +354,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start a specific project")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
@@ -381,6 +365,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args = ["start"];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("project", args, values);
   });

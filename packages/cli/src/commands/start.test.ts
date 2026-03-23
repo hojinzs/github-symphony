@@ -1,7 +1,8 @@
+import { createServer } from "node:http";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 
 const acquireProjectLock = vi.fn();
@@ -9,6 +10,8 @@ const releaseProjectLock = vi.fn();
 const run = vi.fn();
 const status = vi.fn();
 const shutdown = vi.fn();
+const requestReconcile = vi.fn();
+const resolveDashboardResponse = vi.fn();
 const serviceDependencies: Array<Record<string, unknown>> = [];
 
 vi.mock("@gh-symphony/orchestrator", () => ({
@@ -28,19 +31,41 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     run = run;
     status = status;
     shutdown = shutdown;
+    requestReconcile = requestReconcile;
   },
+}));
+
+vi.mock("@gh-symphony/dashboard", () => ({
+  DashboardFsReader: class {
+    constructor(
+      public runtimeRoot: string,
+      public projectId: string
+    ) {}
+  },
+  resolveDashboardResponse,
 }));
 
 const startModule = await import("./start.js");
 
-afterEach(() => {
+beforeEach(() => {
   acquireProjectLock.mockReset();
   releaseProjectLock.mockReset();
   run.mockReset();
   status.mockReset();
   shutdown.mockReset();
   shutdown.mockResolvedValue(undefined);
+  requestReconcile.mockReset();
+  resolveDashboardResponse.mockReset();
+  resolveDashboardResponse.mockImplementation(
+    async ({ pathname, method }: { pathname: string; method?: string }) => ({
+      status: 200,
+      payload: { pathname, method: method ?? "GET" },
+    })
+  );
   serviceDependencies.length = 0;
+});
+
+afterEach(() => {
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -189,7 +214,172 @@ describe("start command foreground locking", () => {
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
+
+  it("serves dashboard routes and refresh over HTTP when --http is enabled", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--http"],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      await expect(
+        fetch(`${url}/api/v1/state`).then((response) => response.json())
+      ).resolves.toEqual({
+        pathname: "/api/v1/state",
+        method: "GET",
+      });
+
+      const refreshResponse = await fetch(`${url}/api/v1/refresh`, {
+        method: "POST",
+      });
+      expect(refreshResponse.status).toBe(202);
+      await expect(refreshResponse.json()).resolves.toEqual({ ok: true });
+      expect(requestReconcile).toHaveBeenCalledTimes(1);
+
+      await expect(
+        fetch(`${url}/healthz`).then((response) => response.json())
+      ).resolves.toEqual({
+        pathname: "/healthz",
+        method: "GET",
+      });
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+  });
+
+  it("increments the port when the requested HTTP port is already in use", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const blocker = createServer();
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", () => resolve())
+    );
+    const address = blocker.address();
+    if (!address || typeof address === "string") {
+      blocker.close();
+      throw new Error("Expected TCP address");
+    }
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--http", String(address.port)],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      expect(new URL(url).port).toBe(String(address.port + 1));
+
+      process.emit("SIGINT");
+      await startPromise;
+    } finally {
+      stdout.restore();
+      await new Promise<void>((resolve, reject) =>
+        blocker.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
 });
+
+function captureWrites(stream: NodeJS.WriteStream): {
+  output: () => string;
+  restore: () => void;
+} {
+  let buffer = "";
+  const spy = vi.spyOn(stream, "write").mockImplementation(((
+    chunk: string | Uint8Array
+  ) => {
+    buffer +=
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    return true;
+  }) as typeof stream.write);
+
+  return {
+    output: () => buffer,
+    restore: () => spy.mockRestore(),
+  };
+}
+
+async function waitForHttpUrl(
+  output: () => string,
+  timeoutMs = 5_000
+): Promise<string> {
+  const ansiPattern = new RegExp(String.raw`\u001b\[[0-9;]*m`, "g");
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const match = output()
+      .replace(ansiPattern, "")
+      .match(
+      /HTTP dashboard listening on .*?(http:\/\/[^\s]+)/
+    );
+    if (match?.[1]) {
+      return match[1];
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Timed out waiting for HTTP server log. Output: ${output()}`);
+}
 
 function baseOptions(configDir: string) {
   return {

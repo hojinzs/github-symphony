@@ -1,6 +1,7 @@
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, orchestratorLogPath } from "../config.js";
 import {
@@ -14,8 +15,10 @@ import {
 } from "@gh-symphony/orchestrator";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import {
-  resolveRuntimeRoot,
-} from "../orchestrator-runtime.js";
+  DashboardFsReader,
+  resolveDashboardResponse,
+} from "@gh-symphony/dashboard";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -38,22 +41,28 @@ function logLine(icon: string, msg: string): void {
 type ForegroundShutdownOptions = {
   configDir: string;
   projectId: string;
+  httpServer?: Server;
   projectLock?: ProjectLockHandle | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
 };
 
+const DEFAULT_HTTP_PORT = 4680;
+const HTTP_HOST = "0.0.0.0";
+
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
 function parseStartArgs(args: string[]): {
   daemon: boolean;
+  httpPort?: number;
   projectId?: string;
   logLevel?: string;
   error?: string;
 } {
   const parsed: {
     daemon: boolean;
+    httpPort?: number;
     projectId?: string;
     logLevel?: string;
     error?: string;
@@ -65,6 +74,16 @@ function parseStartArgs(args: string[]): {
     const arg = args[i];
     if (arg === "--daemon" || arg === "-d") {
       parsed.daemon = true;
+      continue;
+    }
+    if (arg === "--http") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.httpPort = DEFAULT_HTTP_PORT;
+        continue;
+      }
+      parsed.httpPort = parsePort(value, arg);
+      i += 1;
       continue;
     }
     if (arg === "--project" || arg === "--project-id") {
@@ -208,6 +227,142 @@ function logTickResult(
   }
 }
 
+function parsePort(value: string, optionName: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Option '${optionName}' must be an integer port number`);
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65_535) {
+    throw new Error(
+      `Option '${optionName}' must be a port number between 0 and 65535`
+    );
+  }
+
+  return parsed;
+}
+
+function respondJson(
+  response: ServerResponse,
+  status: number,
+  payload: unknown
+): void {
+  response.writeHead(status, {
+    "content-type": "application/json",
+  });
+  response.end(JSON.stringify(payload));
+}
+
+function formatBoundUrl(server: Server): string {
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    return `http://${HTTP_HOST}`;
+  }
+
+  const host =
+    address.address === "::" || address.address === "0.0.0.0"
+      ? "localhost"
+      : address.address;
+  const urlHost = host.includes(":") ? `[${host}]` : host;
+  return `http://${urlHost}:${address.port}`;
+}
+
+async function closeHttpServer(server?: Server): Promise<void> {
+  if (!server) {
+    return;
+  }
+
+  await new Promise<void>((resolveClose, rejectClose) => {
+    server.close((error) => {
+      if (error) {
+        rejectClose(error);
+        return;
+      }
+      resolveClose();
+    });
+  });
+}
+
+async function startHttpServer(input: {
+  runtimeRoot: string;
+  projectId: string;
+  initialPort: number;
+  service: { requestReconcile(): void };
+}): Promise<{ server: Server; port: number; url: string }> {
+  const reader = new DashboardFsReader(input.runtimeRoot, input.projectId);
+
+  for (let port = input.initialPort; port <= 65_535; port += 1) {
+    const server = createServer((request, response) => {
+      void (async () => {
+        try {
+          const url = new URL(request.url ?? "/", `http://${HTTP_HOST}`);
+          if (
+            request.method === "POST" &&
+            url.pathname === "/api/v1/refresh"
+          ) {
+            input.service.requestReconcile();
+            respondJson(response, 202, { ok: true });
+            return;
+          }
+
+          const resolved = await resolveDashboardResponse({
+            pathname: url.pathname,
+            method: request.method ?? "GET",
+            reader,
+          });
+          respondJson(response, resolved.status, resolved.payload);
+        } catch (error) {
+          if (!response.headersSent) {
+            respondJson(response, 500, {
+              error:
+                error instanceof Error ? error.message : "Internal server error",
+            });
+          } else {
+            response.end();
+          }
+        }
+      })();
+    });
+
+    try {
+      await new Promise<void>((resolveReady, rejectReady) => {
+        const handleListening = () => {
+          cleanup();
+          resolveReady();
+        };
+        const handleError = (error: NodeJS.ErrnoException) => {
+          cleanup();
+          rejectReady(error);
+        };
+        const cleanup = () => {
+          server.off("listening", handleListening);
+          server.off("error", handleError);
+        };
+
+        server.once("listening", handleListening);
+        server.once("error", handleError);
+        server.listen(port, HTTP_HOST);
+      });
+
+      return {
+        server,
+        port,
+        url: formatBoundUrl(server),
+      };
+    } catch (error) {
+      await closeHttpServer(server).catch(() => {});
+      if ((error as NodeJS.ErrnoException)?.code === "EADDRINUSE") {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(
+    `Unable to bind HTTP server starting from port ${input.initialPort}`
+  );
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 const handler = async (
@@ -215,11 +370,20 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   setNoColor(options.noColor);
-  const parsed = parseStartArgs(args);
+  let parsed: ReturnType<typeof parseStartArgs>;
+  try {
+    parsed = parseStartArgs(args);
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Invalid arguments"}\n`
+    );
+    process.exitCode = 2;
+    return;
+  }
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony start --project-id <project-id> [--daemon]\n"
+      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--http [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -248,7 +412,7 @@ const handler = async (
     return;
   }
   if (parsed.daemon) {
-    await startDaemon(options, projectId, parsed.logLevel);
+    await startDaemon(options, projectId, parsed.logLevel, parsed.httpPort);
     return;
   }
 
@@ -306,11 +470,26 @@ const handler = async (
         }
       },
     });
+    const httpServer =
+      parsed.httpPort !== undefined
+        ? await startHttpServer({
+            runtimeRoot,
+            projectId,
+            initialPort: parsed.httpPort,
+            service,
+          })
+        : null;
 
     logLine(
       green("\u25B2"),
       `Starting orchestrator for project: ${bold(projectId)}`
     );
+    if (httpServer) {
+      logLine(
+        cyan("\u25A1"),
+        `HTTP dashboard listening on ${httpServer.url}`
+      );
+    }
     logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
 
     let shuttingDown = false;
@@ -325,6 +504,7 @@ const handler = async (
       shutdownPromise = shutdownForegroundOrchestrator({
         configDir: options.configDir,
         projectId,
+        httpServer: httpServer?.server,
         projectLock: heldLock,
         service,
       });
@@ -386,6 +566,15 @@ export async function shutdownForegroundOrchestrator(
   }
 
   try {
+    await closeHttpServer(input.httpServer);
+  } catch (error) {
+    logLine(
+      yellow("\u26A0"),
+      `Failed to stop HTTP server: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+
+  try {
     await (input.releaseLock ?? releaseProjectLock)(input.projectLock);
   } catch (error) {
     logLine(
@@ -425,7 +614,8 @@ export default handler;
 async function startDaemon(
   options: GlobalOptions,
   projectId: string,
-  logLevel?: string
+  logLevel?: string,
+  httpPort?: number
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -440,6 +630,7 @@ async function startDaemon(
       "start",
       "--project",
       projectId,
+      ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],
     {
