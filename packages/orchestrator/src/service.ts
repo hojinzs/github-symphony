@@ -299,6 +299,10 @@ export class OrchestratorService {
     return this.runOnce();
   }
 
+  requestReconcile(): void {
+    this.cancelPendingSleep();
+  }
+
   async shutdown(): Promise<void> {
     if (this.shutdownPromise) {
       return this.shutdownPromise;
