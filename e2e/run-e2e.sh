@@ -9,7 +9,6 @@ set -euo pipefail
 SCENARIO="${1:-happy}"
 TIMEOUT="${2:-30}"
 COMPOSE="docker compose -f docker-compose.e2e.yml"
-REFRESH_BODY=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -23,9 +22,6 @@ orch_curl() { $COMPOSE exec -T symphony-e2e curl "$@"; }
 
 cleanup() {
   log "Cleaning up..."
-  if [ -n "$REFRESH_BODY" ] && [ -f "$REFRESH_BODY" ]; then
-    rm -f "$REFRESH_BODY"
-  fi
   $COMPOSE exec -T symphony-e2e sh -lc '
     if [ -d /e2e/evidence ]; then
       find /e2e/evidence -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -75,15 +71,16 @@ log "Initial state: idle"
 
 cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 
-REFRESH_BODY=$(mktemp)
-REFRESH_STATUS=$(
-  orch_curl -sS -o "$REFRESH_BODY" -w "%{http_code}" -X POST \
+REFRESH_RESPONSE=$(
+  orch_curl -sS -X POST -w '\n__CURL_STATUS__:%{http_code}' \
     http://localhost:4680/api/v1/refresh
 )
+REFRESH_STATUS=$(printf '%s\n' "$REFRESH_RESPONSE" | awk -F: '/^__CURL_STATUS__/ {print $2}' | tail -1)
+REFRESH_BODY=$(printf '%s\n' "$REFRESH_RESPONSE" | sed '/^__CURL_STATUS__/d')
 
 if [ "$REFRESH_STATUS" != "202" ]; then
   fail "Expected refresh endpoint to return 202, got: $REFRESH_STATUS"
-  cat "$REFRESH_BODY" 2>/dev/null || true
+  printf '%s\n' "$REFRESH_BODY"
   exit 1
 fi
 
