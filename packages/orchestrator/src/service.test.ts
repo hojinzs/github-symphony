@@ -231,6 +231,10 @@ describe("OrchestratorService", () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-request-reconcile-")
     );
+    let service: OrchestratorService | null = null;
+    let runPromise: Promise<void> | null = null;
+    let releaseWait: (() => void) | null = null;
+    let reconcileRequested = false;
     try {
       const repository = await createRepositoryFixture(
         tempRoot,
@@ -245,12 +249,21 @@ describe("OrchestratorService", () => {
       await store.saveProjectConfig(projectConfig);
 
       const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
+      const waitImpl = vi.fn().mockImplementation(async () => {
+        if (!reconcileRequested) {
+          reconcileRequested = true;
+          setTimeout(() => {
+            serviceRef.current?.requestReconcile();
+          }, 10);
+        }
+        await new Promise<void>((resolve) => {
+          releaseWait = resolve;
+        });
+      });
       let tickCount = 0;
       let resolveSecondTick!: () => void;
-      let rejectSecondTick!: (error?: unknown) => void;
-      const secondTick = new Promise<void>((resolve, reject) => {
+      const secondTick = new Promise<void>((resolve) => {
         resolveSecondTick = resolve;
-        rejectSecondTick = reject;
       });
       const serviceRef: { current: OrchestratorService | null } = {
         current: null,
@@ -258,13 +271,6 @@ describe("OrchestratorService", () => {
       const onTick = vi.fn().mockImplementation(async () => {
         tickCount += 1;
         if (tickCount === 1) {
-          setTimeout(() => {
-            try {
-              serviceRef.current?.requestReconcile();
-            } catch (error) {
-              rejectSecondTick(error);
-            }
-          }, 10);
           return;
         }
 
@@ -273,14 +279,15 @@ describe("OrchestratorService", () => {
           await serviceRef.current?.shutdown();
         }
       });
-      const service = new OrchestratorService(store, projectConfig, {
+      service = new OrchestratorService(store, projectConfig, {
         fetchImpl,
         now: () => new Date("2026-03-08T00:00:00.000Z"),
+        waitImpl,
         onTick,
       });
       serviceRef.current = service;
 
-      const runPromise = service.run();
+      runPromise = service.run();
       await Promise.race([
         secondTick,
         new Promise<never>((_, reject) => {
@@ -295,16 +302,23 @@ describe("OrchestratorService", () => {
 
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(onTick).toHaveBeenCalledTimes(2);
+      expect(waitImpl).toHaveBeenCalledTimes(1);
     } finally {
+      releaseWait?.();
+      await service?.shutdown();
+      await runPromise?.catch(() => undefined);
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("handles duplicate requestReconcile calls without scheduling duplicate ticks", async () => {
+  it("queues active-tick requestReconcile calls without scheduling duplicate ticks", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-request-reconcile-duplicate-")
     );
+    let service: OrchestratorService | null = null;
+    let runPromise: Promise<void> | null = null;
+    let releaseFirstTick: (() => void) | null = null;
     try {
       const repository = await createRepositoryFixture(
         tempRoot,
@@ -320,6 +334,9 @@ describe("OrchestratorService", () => {
 
       const fetchImpl = vi.fn().mockResolvedValue(createEmptyTrackerResponse());
       let tickCount = 0;
+      const firstTickRelease = new Promise<void>((resolve) => {
+        releaseFirstTick = resolve;
+      });
       const serviceRef: { current: OrchestratorService | null } = {
         current: null,
       };
@@ -330,6 +347,7 @@ describe("OrchestratorService", () => {
             serviceRef.current?.requestReconcile();
             serviceRef.current?.requestReconcile();
           }, 10);
+          await firstTickRelease;
           return;
         }
 
@@ -337,15 +355,20 @@ describe("OrchestratorService", () => {
           await serviceRef.current?.shutdown();
         }
       });
-      const service = new OrchestratorService(store, projectConfig, {
+      service = new OrchestratorService(store, projectConfig, {
         fetchImpl,
         now: () => new Date("2026-03-08T00:00:00.000Z"),
         onTick,
       });
       serviceRef.current = service;
 
+      runPromise = service.run();
+      setTimeout(() => {
+        releaseFirstTick?.();
+      }, 25);
+
       await Promise.race([
-        service.run(),
+        runPromise,
         new Promise<never>((_, reject) => {
           setTimeout(() => {
             reject(
@@ -358,6 +381,9 @@ describe("OrchestratorService", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       expect(onTick).toHaveBeenCalledTimes(2);
     } finally {
+      releaseFirstTick?.();
+      await service?.shutdown();
+      await runPromise?.catch(() => undefined);
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
