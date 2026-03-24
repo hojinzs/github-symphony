@@ -97,6 +97,57 @@ export type WorkerErrorEvent = {
   attempt: number;
 };
 
+export type TurnStartedEvent = {
+  at: string;
+  event: "turn_started";
+  projectId?: string;
+  issueIdentifier: string;
+  issueId?: string;
+  sessionId?: string | null;
+  threadId?: string | null;
+  turnId?: string | null;
+  turnCount: number;
+};
+
+export type TurnCompletedEvent = {
+  at: string;
+  event: "turn_completed";
+  projectId?: string;
+  issueIdentifier: string;
+  issueId?: string;
+  sessionId?: string | null;
+  threadId?: string | null;
+  turnId?: string | null;
+  turnCount: number;
+  startedAt: string;
+  durationMs: number;
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+};
+
+export type TurnFailedEvent = {
+  at: string;
+  event: "turn_failed";
+  projectId?: string;
+  issueIdentifier: string;
+  issueId?: string;
+  sessionId?: string | null;
+  threadId?: string | null;
+  turnId?: string | null;
+  turnCount: number;
+  startedAt: string;
+  durationMs: number;
+  tokenUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  error: string | null;
+};
+
 /**
  * Union of all structured orchestration events. Discriminated on `event`.
  */
@@ -109,4 +160,7 @@ export type OrchestratorEvent =
   | HookExecutedEvent
   | HookFailedEvent
   | WorkspaceCleanupEvent
-  | WorkerErrorEvent;
+  | WorkerErrorEvent
+  | TurnStartedEvent
+  | TurnCompletedEvent
+  | TurnFailedEvent;

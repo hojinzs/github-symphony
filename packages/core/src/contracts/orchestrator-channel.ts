@@ -23,6 +23,43 @@ export type OrchestratorChannelSessionInfo = {
   exitClassification?: SessionExitClassification | null;
 };
 
+export type OrchestratorChannelTurnStartedEvent = {
+  type: "turn_started";
+  issueId: string;
+  startedAt: string;
+  threadId: string | null;
+  turnId: string | null;
+  turnCount: number;
+  sessionId: string | null;
+};
+
+export type OrchestratorChannelTurnCompletedEvent = {
+  type: "turn_completed";
+  issueId: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  threadId: string | null;
+  turnId: string | null;
+  turnCount: number;
+  sessionId: string | null;
+  tokenUsage: OrchestratorChannelTokenUsage;
+};
+
+export type OrchestratorChannelTurnFailedEvent = {
+  type: "turn_failed";
+  issueId: string;
+  startedAt: string;
+  failedAt: string;
+  durationMs: number;
+  threadId: string | null;
+  turnId: string | null;
+  turnCount: number;
+  sessionId: string | null;
+  tokenUsage: OrchestratorChannelTokenUsage;
+  error: string | null;
+};
+
 export type OrchestratorChannelCodexUpdateEvent = {
   type: "codex_update";
   issueId: string;
@@ -50,15 +87,16 @@ export type OrchestratorChannelHeartbeatEvent = {
 
 export type OrchestratorChannelEvent =
   | OrchestratorChannelCodexUpdateEvent
-  | OrchestratorChannelHeartbeatEvent;
+  | OrchestratorChannelHeartbeatEvent
+  | OrchestratorChannelTurnStartedEvent
+  | OrchestratorChannelTurnCompletedEvent
+  | OrchestratorChannelTurnFailedEvent;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isTokenUsage(
-  value: unknown
-): value is OrchestratorChannelTokenUsage {
+function isTokenUsage(value: unknown): value is OrchestratorChannelTokenUsage {
   if (!isRecord(value)) {
     return false;
   }
@@ -86,6 +124,20 @@ function isSessionInfo(
       value.exitClassification === undefined ||
       value.exitClassification === null ||
       isSessionExitClassification(value.exitClassification))
+  );
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return typeof value === "string" || value === null;
+}
+
+function isTurnEventBase(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.startedAt === "string" &&
+    isNullableString(value.threadId) &&
+    isNullableString(value.turnId) &&
+    typeof value.turnCount === "number" &&
+    isNullableString(value.sessionId)
   );
 }
 
@@ -200,6 +252,29 @@ export function isOrchestratorChannelEvent(
     }
 
     return true;
+  }
+
+  if (value.type === "turn_started") {
+    return isTurnEventBase(value);
+  }
+
+  if (value.type === "turn_completed") {
+    return (
+      isTurnEventBase(value) &&
+      typeof value.completedAt === "string" &&
+      typeof value.durationMs === "number" &&
+      isTokenUsage(value.tokenUsage)
+    );
+  }
+
+  if (value.type === "turn_failed") {
+    return (
+      isTurnEventBase(value) &&
+      typeof value.failedAt === "string" &&
+      typeof value.durationMs === "number" &&
+      isTokenUsage(value.tokenUsage) &&
+      isNullableString(value.error)
+    );
   }
 
   return false;

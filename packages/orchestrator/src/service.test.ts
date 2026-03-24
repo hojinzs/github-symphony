@@ -112,7 +112,9 @@ describe("OrchestratorService", () => {
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
       stderr,
@@ -130,7 +132,9 @@ describe("OrchestratorService", () => {
     const runId = run?.runId;
 
     expect(runId).toBeTruthy();
-    expect(output).toContain(`[dispatch] Issue acme/platform#1 → run ${runId}\n`);
+    expect(output).toContain(
+      `[dispatch] Issue acme/platform#1 → run ${runId}\n`
+    );
     expect(output).toContain(`[worker-started] ${runId} (pid=4102)\n`);
     expect(output).toContain(
       `[worker-exited] ${runId} (code=0, signal=null)\n`
@@ -185,7 +189,9 @@ describe("OrchestratorService", () => {
 
   it("continues polling when onTick throws during long-running mode", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-on-tick-error-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-on-tick-error-")
+    );
     try {
       const repository = await createRepositoryFixture(
         tempRoot,
@@ -219,7 +225,9 @@ describe("OrchestratorService", () => {
 
       expect(onTick).toHaveBeenCalledTimes(2);
       expect(stderr.write).toHaveBeenCalledWith(
-        expect.stringContaining("[orchestrator] onTick callback failed: Error: tick boom")
+        expect.stringContaining(
+          "[orchestrator] onTick callback failed: Error: tick boom"
+        )
       );
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -292,9 +300,7 @@ describe("OrchestratorService", () => {
         secondTick,
         new Promise<never>((_, reject) => {
           setTimeout(() => {
-            reject(
-              new Error("requestReconcile did not wake the pending poll")
-            );
+            reject(new Error("requestReconcile did not wake the pending poll"));
           }, 500);
         }),
       ]);
@@ -390,7 +396,9 @@ describe("OrchestratorService", () => {
 
   it("cleans up terminal issue workspaces during startup before the first tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-cleanup-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-cleanup-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -443,7 +451,9 @@ describe("OrchestratorService", () => {
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "Done")
+        )
         .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4102,
@@ -454,7 +464,10 @@ describe("OrchestratorService", () => {
 
     await service.run({ once: true });
 
-    const workspaceRecord = await store.loadIssueWorkspace("tenant-1", workspaceKey);
+    const workspaceRecord = await store.loadIssueWorkspace(
+      "tenant-1",
+      workspaceKey
+    );
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
   });
@@ -556,7 +569,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValueOnce(createTrackerResponseWithState(repository, "Done"))
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "Done")
+        )
         .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4103,
@@ -567,7 +582,10 @@ Prefer focused changes.
 
     await service.run({ once: true });
 
-    const workspaceRecord = await store.loadIssueWorkspace("tenant-1", workspaceKey);
+    const workspaceRecord = await store.loadIssueWorkspace(
+      "tenant-1",
+      workspaceKey
+    );
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
     expect(workspaceRecord?.lastError).toBeNull();
@@ -579,7 +597,9 @@ Prefer focused changes.
 
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-warn-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-warn-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -682,33 +702,35 @@ Prefer focused changes.
     const listIssues = vi.fn(async () => {
       throw new Error("listIssues should not be used for startup cleanup");
     });
-    const listIssuesByStates = vi.fn(async (_project, states: readonly string[]) => {
-      expect(states).toEqual(["Done"]);
-      return [
-        {
-          id: "issue-1",
-          identifier: "acme/platform#1",
-          number: 1,
-          title: "Terminal issue",
-          description: null,
-          priority: null,
-          state: "Done",
-          branchName: null,
-          url: "https://github.com/acme/platform/issues/1",
-          labels: [],
-          blockedBy: [],
-          createdAt: "2026-03-08T00:00:00.000Z",
-          updatedAt: "2026-03-08T00:00:00.000Z",
-          repository,
-          tracker: {
-            adapter: "github-project",
-            bindingId: "project-123",
-            itemId: "item-1",
+    const listIssuesByStates = vi.fn(
+      async (_project, states: readonly string[]) => {
+        expect(states).toEqual(["Done"]);
+        return [
+          {
+            id: "issue-1",
+            identifier: "acme/platform#1",
+            number: 1,
+            title: "Terminal issue",
+            description: null,
+            priority: null,
+            state: "Done",
+            branchName: null,
+            url: "https://github.com/acme/platform/issues/1",
+            labels: [],
+            blockedBy: [],
+            createdAt: "2026-03-08T00:00:00.000Z",
+            updatedAt: "2026-03-08T00:00:00.000Z",
+            repository,
+            tracker: {
+              adapter: "github-project",
+              bindingId: "project-123",
+              itemId: "item-1",
+            },
+            metadata: {},
           },
-          metadata: {},
-        },
-      ];
-    });
+        ];
+      }
+    );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates,
@@ -951,7 +973,10 @@ Prefer focused changes.
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const loadProjectWorkflowSpy = vi.spyOn(service as never, "loadProjectWorkflow");
+    const loadProjectWorkflowSpy = vi.spyOn(
+      service as never,
+      "loadProjectWorkflow"
+    );
 
     await (
       service as unknown as { performStartupCleanup: () => Promise<void> }
@@ -1029,15 +1054,20 @@ Prefer focused changes.
     };
 
     const listIssues = vi.fn(async (_project, dependencies = {}) => {
-      return dependencies.projectItemsCache?.getOrLoad("project-items", loadIssues);
-    });
-    const listIssuesByStates = vi.fn(async (_project, _states, dependencies = {}) => {
-      const issues = await dependencies.projectItemsCache?.getOrLoad(
+      return dependencies.projectItemsCache?.getOrLoad(
         "project-items",
         loadIssues
       );
-      return issues ?? [];
     });
+    const listIssuesByStates = vi.fn(
+      async (_project, _states, dependencies = {}) => {
+        const issues = await dependencies.projectItemsCache?.getOrLoad(
+          "project-items",
+          loadIssues
+        );
+        return issues ?? [];
+      }
+    );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates,
@@ -1084,10 +1114,13 @@ Prefer focused changes.
     const cacheInstances = new Set<unknown>();
     const listIssues = vi.fn(async (_project, dependencies = {}) => {
       cacheInstances.add(dependencies.projectItemsCache);
-      return dependencies.projectItemsCache?.getOrLoad("project-items", async () => {
-        fetchCount += 1;
-        return [];
-      });
+      return dependencies.projectItemsCache?.getOrLoad(
+        "project-items",
+        async () => {
+          fetchCount += 1;
+          return [];
+        }
+      );
     });
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
@@ -1113,7 +1146,9 @@ Prefer focused changes.
 
   it("serializes startup cleanup with concurrent runOnce calls", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-startup-lock-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-lock-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -1645,7 +1680,9 @@ Prefer focused changes.
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-issue-status-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-issue-status-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -1782,7 +1819,9 @@ Prefer focused changes.
   });
 
   it("uses currentRunId before falling back to a full run scan", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-issue-status-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-issue-status-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -1844,12 +1883,12 @@ Prefer focused changes.
     const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
     const service = new OrchestratorService(store, projectConfig);
 
-    await expect(service.statusForIssue("acme/platform#1")).resolves.toMatchObject(
-      {
-        issue_identifier: "acme/platform#1",
-        status: "running",
-      }
-    );
+    await expect(
+      service.statusForIssue("acme/platform#1")
+    ).resolves.toMatchObject({
+      issue_identifier: "acme/platform#1",
+      status: "running",
+    });
     expect(loadAllRunsSpy).not.toHaveBeenCalled();
   });
 
@@ -1929,7 +1968,9 @@ Prefer focused changes.
 
   it("respects an explicit workflow concurrency of zero", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-0-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-concurrency-0-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -1947,11 +1988,13 @@ Prefer focused changes.
       unref: vi.fn(),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(
-        createTrackerResponseWithItems(repository, [
-          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
-        ])
-      ),
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithItems(repository, [
+            { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          ])
+        ),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
@@ -1964,7 +2007,9 @@ Prefer focused changes.
 
   it("keeps the last known good workflow when a reload becomes invalid", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-lkg-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-lkg-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -2026,7 +2071,9 @@ Prefer focused changes.
 
   it("keeps a readable workflow snapshot when WORKFLOW.md is deleted", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-missing-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-missing-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -2095,7 +2142,9 @@ Prefer focused changes.
 
   it("reuses a single workflow sync per repository within one tick", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-workflow-cache-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-cache-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -2107,11 +2156,13 @@ Prefer focused changes.
 
     const syncSpy = vi.spyOn(gitModule, "syncRepositoryForRun");
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(
-        createTrackerResponseWithItems(repository, [
-          { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
-        ])
-      ),
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithItems(repository, [
+            { id: "issue-1", identifier: "acme/platform#1", state: "Todo" },
+          ])
+        ),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4307,
         unref: vi.fn(),
@@ -2350,7 +2401,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4105,
         unref: vi.fn(),
@@ -3111,7 +3164,9 @@ Prefer focused changes.
 
   it("updates lastEventAt from worker stderr events even when the worker state API is unavailable", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-channel-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-channel-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -3155,21 +3210,23 @@ Prefer focused changes.
     expect(initialRun).toBeTruthy();
 
     worker.stderr.write(
-      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify({
-        type: "codex_update",
-        issueId: initialRun!.issueId,
-        lastEventAt: "2026-03-08T00:04:30.000Z",
-        tokenUsage: {
-          inputTokens: 12,
-          outputTokens: 5,
-          totalTokens: 17,
-        },
-        rateLimits: {
-          source: "codex",
-          remaining: 3,
-        },
-        event: "thread/tokenUsage/updated",
-      })}\n`
+      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify(
+        {
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:04:30.000Z",
+          tokenUsage: {
+            inputTokens: 12,
+            outputTokens: 5,
+            totalTokens: 17,
+          },
+          rateLimits: {
+            source: "codex",
+            remaining: 3,
+          },
+          event: "thread/tokenUsage/updated",
+        }
+      )}\n`
     );
 
     await vi.waitFor(async () => {
@@ -3337,7 +3394,9 @@ Prefer focused changes.
       });
 
       const service = new OrchestratorService(store, projectConfig, {
-        fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()) as never,
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(createEmptyTrackerResponse()) as never,
         isProcessRunning: () => false,
         now: () => new Date("2026-03-08T00:06:00.000Z"),
       });
@@ -3557,6 +3616,165 @@ Prefer focused changes.
     }
   });
 
+  it("appends per-turn observability events to events.ndjson", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-turn-events-"));
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const worker = new EventEmitter() as EventEmitter & {
+        pid: number;
+        stderr: PassThrough;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      worker.pid = 4120;
+      worker.stderr = new PassThrough();
+      worker.unref = vi.fn();
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(
+            createTrackerResponseWithState(repository, "Todo")
+          ) as never,
+        spawnImpl: vi.fn().mockReturnValue(worker) as never,
+        isProcessRunning: (pid) => pid === 4120,
+        now: () => new Date("2026-03-08T00:06:00.000Z"),
+      });
+
+      await service.runOnce();
+      const initialRun = (await store.loadAllRuns())[0];
+      expect(initialRun).toBeTruthy();
+
+      worker.stderr.write(
+        `${JSON.stringify({
+          type: "turn_started",
+          issueId: initialRun!.issueId,
+          startedAt: "2026-03-08T00:01:00.000Z",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          turnCount: 1,
+          sessionId: "thread-1-turn-1",
+        })}\n${JSON.stringify({
+          type: "turn_completed",
+          issueId: initialRun!.issueId,
+          startedAt: "2026-03-08T00:01:00.000Z",
+          completedAt: "2026-03-08T00:01:45.000Z",
+          durationMs: 45000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          turnCount: 1,
+          sessionId: "thread-1-turn-1",
+          tokenUsage: {
+            inputTokens: 20,
+            outputTokens: 8,
+            totalTokens: 28,
+          },
+        })}\n${JSON.stringify({
+          type: "turn_failed",
+          issueId: initialRun!.issueId,
+          startedAt: "2026-03-08T00:02:00.000Z",
+          failedAt: "2026-03-08T00:02:10.000Z",
+          durationMs: 10000,
+          threadId: "thread-1",
+          turnId: "turn-2",
+          turnCount: 2,
+          sessionId: "thread-1-turn-2",
+          tokenUsage: {
+            inputTokens: 5,
+            outputTokens: 1,
+            totalTokens: 6,
+          },
+          error: "turn_failed: tool execution failed",
+        })}\n`
+      );
+
+      await vi.waitFor(async () => {
+        const raw = await readFile(
+          join(store.runDir(initialRun!.runId, "tenant-1"), "events.ndjson"),
+          "utf8"
+        );
+        const turnEvents = raw
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .filter((event) => String(event.event).startsWith("turn_"));
+
+        expect(turnEvents).toHaveLength(3);
+      });
+
+      const raw = await readFile(
+        join(store.runDir(initialRun!.runId, "tenant-1"), "events.ndjson"),
+        "utf8"
+      );
+      const turnEvents = raw
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((event) => String(event.event).startsWith("turn_"));
+
+      expect(turnEvents).toEqual([
+        {
+          at: "2026-03-08T00:01:00.000Z",
+          event: "turn_started",
+          projectId: "tenant-1",
+          issueIdentifier: "acme/platform#1",
+          issueId: initialRun!.issueId,
+          sessionId: "thread-1-turn-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          turnCount: 1,
+        },
+        {
+          at: "2026-03-08T00:01:45.000Z",
+          event: "turn_completed",
+          projectId: "tenant-1",
+          issueIdentifier: "acme/platform#1",
+          issueId: initialRun!.issueId,
+          sessionId: "thread-1-turn-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          turnCount: 1,
+          startedAt: "2026-03-08T00:01:00.000Z",
+          durationMs: 45000,
+          tokenUsage: {
+            inputTokens: 20,
+            outputTokens: 8,
+            totalTokens: 28,
+          },
+        },
+        {
+          at: "2026-03-08T00:02:10.000Z",
+          event: "turn_failed",
+          projectId: "tenant-1",
+          issueIdentifier: "acme/platform#1",
+          issueId: initialRun!.issueId,
+          sessionId: "thread-1-turn-2",
+          threadId: "thread-1",
+          turnId: "turn-2",
+          turnCount: 2,
+          startedAt: "2026-03-08T00:02:00.000Z",
+          durationMs: 10000,
+          tokenUsage: {
+            inputTokens: 5,
+            outputTokens: 1,
+            totalTokens: 6,
+          },
+          error: "turn_failed: tool execution failed",
+        },
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("flushes a trailing codex_update line when worker stderr closes without a newline", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -3586,7 +3804,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
       isProcessRunning: (pid) => pid === 4111,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -3758,7 +3978,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
       isProcessRunning: (pid) => pid === 41115,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -3798,7 +4020,9 @@ Prefer focused changes.
 
   it("skips JSON.parse for plain worker stderr log lines", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stderr-fast-path-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stderr-fast-path-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -3823,7 +4047,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
       isProcessRunning: (pid) => pid === 4112,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -3835,11 +4061,13 @@ Prefer focused changes.
 
     const parseSpy = vi.spyOn(JSON, "parse");
     worker.stderr.write(
-      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify({
-        type: "codex_update",
-        issueId: initialRun!.issueId,
-        lastEventAt: "2026-03-08T00:03:00.000Z",
-      })}\n`
+      `[worker] codex → thread/tokenUsage/updated {"input_tokens":12}\n${JSON.stringify(
+        {
+          type: "codex_update",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:03:00.000Z",
+        }
+      )}\n`
     );
 
     await vi.waitFor(async () => {
@@ -3851,9 +4079,8 @@ Prefer focused changes.
       expect.stringContaining('"type":"codex_update"')
     );
     expect(
-      parseSpy.mock.calls.some(
-        ([input]) =>
-          String(input).startsWith("[worker] codex → thread/tokenUsage/updated")
+      parseSpy.mock.calls.some(([input]) =>
+        String(input).startsWith("[worker] codex → thread/tokenUsage/updated")
       )
     ).toBe(false);
   });
@@ -3899,11 +4126,11 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
-      createWriteStreamImpl: vi
-        .fn()
-        .mockReturnValue(workerLogStream) as never,
+      createWriteStreamImpl: vi.fn().mockReturnValue(workerLogStream) as never,
       isProcessRunning: (pid) => pid === 4113,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
@@ -4007,11 +4234,11 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")) as never,
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo")
+        ) as never,
       spawnImpl: vi.fn().mockReturnValue(worker) as never,
-      createWriteStreamImpl: vi
-        .fn()
-        .mockReturnValue(workerLogStream) as never,
+      createWriteStreamImpl: vi.fn().mockReturnValue(workerLogStream) as never,
       isProcessRunning: (pid) => pid === 4114,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
@@ -4369,34 +4596,64 @@ Prefer focused changes.
       rateLimits: null,
     });
 
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/api/v1/state")) {
-        return {
-          ok: true,
-          json: async () => ({
-            status: "running",
-            executionPhase: "implementation",
-            runPhase: "streaming_turn",
-            run: {
-              lastError: null,
-            },
-          }),
-        } as Response;
-      }
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/v1/state")) {
+          return {
+            ok: true,
+            json: async () => ({
+              status: "running",
+              executionPhase: "implementation",
+              runPhase: "streaming_turn",
+              run: {
+                lastError: null,
+              },
+            }),
+          } as Response;
+        }
 
-      const body = JSON.parse(String(init?.body)) as {
-        query: string;
-      };
-      if (body.query.includes("query IssueStatesByIds")) {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+        };
+        if (body.query.includes("query IssueStatesByIds")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                nodes: [
+                  {
+                    ...makeTrackerIssueStateLookupNode(repository, "Todo"),
+                  },
+                ],
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4999",
+                "x-ratelimit-used": "1",
+                "x-ratelimit-reset": "1773892800",
+                "x-ratelimit-resource": "graphql",
+              },
+            }
+          );
+        }
+
         return new Response(
           JSON.stringify({
             data: {
-              nodes: [
-                {
-                  ...makeTrackerIssueStateLookupNode(repository, "Todo"),
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [makeTrackerProjectItem(repository, "Todo")],
+                  pageInfo: {
+                    hasNextPage: false,
+                    endCursor: null,
+                  },
                 },
-              ],
+              },
             },
           }),
           {
@@ -4404,45 +4661,15 @@ Prefer focused changes.
             headers: {
               "content-type": "application/json",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "4999",
-              "x-ratelimit-used": "1",
-              "x-ratelimit-reset": "1773892800",
+              "x-ratelimit-remaining": "4997",
+              "x-ratelimit-used": "3",
+              "x-ratelimit-reset": "1773892860",
               "x-ratelimit-resource": "graphql",
             },
           }
         );
       }
-
-      return new Response(
-        JSON.stringify({
-          data: {
-            node: {
-              __typename: "ProjectV2",
-              items: {
-                nodes: [
-                  makeTrackerProjectItem(repository, "Todo"),
-                ],
-                pageInfo: {
-                  hasNextPage: false,
-                  endCursor: null,
-                },
-              },
-            },
-          },
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            "x-ratelimit-limit": "5000",
-            "x-ratelimit-remaining": "4997",
-            "x-ratelimit-used": "3",
-            "x-ratelimit-reset": "1773892860",
-            "x-ratelimit-resource": "graphql",
-          },
-        }
-      );
-    });
+    );
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -5114,7 +5341,9 @@ Prefer focused changes.
     });
 
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()) as never,
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createEmptyTrackerResponse()) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4204,
         unref: vi.fn(),
@@ -5229,7 +5458,9 @@ Prefer focused changes.
     });
 
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()) as never,
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createEmptyTrackerResponse()) as never,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
@@ -5337,7 +5568,9 @@ Prefer focused changes.
     });
 
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()) as never,
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createEmptyTrackerResponse()) as never,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl: vi.fn(),
       isProcessRunning: vi.fn().mockReturnValue(true),
@@ -5538,7 +5771,9 @@ Workspace prompt.
 
   it("loads project .env for repository script hooks during workspace creation", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-hook-project-env-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-hook-project-env-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -5619,8 +5854,9 @@ Prefer focused changes.
       "repository"
     );
 
-    await expect(readFile(join(repositoryPath, ".after_create_host"), "utf8")).resolves
-      .toBe("https://staging.example.com\n");
+    await expect(
+      readFile(join(repositoryPath, ".after_create_host"), "utf8")
+    ).resolves.toBe("https://staging.example.com\n");
     await expect(
       readFile(join(repositoryPath, ".after_create_file_only"), "utf8")
     ).resolves.toBe("from-project-env\n");
@@ -5708,8 +5944,9 @@ Prefer focused changes.
         "repository"
       );
 
-      await expect(readFile(join(repositoryPath, ".before_run_host"), "utf8")).resolves
-        .toBe("https://ci.example.com\n");
+      await expect(
+        readFile(join(repositoryPath, ".before_run_host"), "utf8")
+      ).resolves.toBe("https://ci.example.com\n");
       await expect(
         readFile(join(repositoryPath, ".before_run_file_only"), "utf8")
       ).resolves.toBe("from-project-env\n");
@@ -5737,7 +5974,9 @@ Prefer focused changes.
     process.env.STAGING_API_HOST = "https://ci.example.com";
 
     try {
-      const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worker-project-env-"));
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-worker-project-env-")
+      );
       const repository = await createRepositoryFixture(
         tempRoot,
         "acme",
@@ -5818,7 +6057,9 @@ Prefer focused changes.
       await service.runOnce();
 
       const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
-      expect(Object.hasOwn(spawnEnv ?? {}, "TARGET_REPOSITORY_URL")).toBe(false);
+      expect(Object.hasOwn(spawnEnv ?? {}, "TARGET_REPOSITORY_URL")).toBe(
+        false
+      );
     } finally {
       if (originalTargetRepositoryUrl === undefined) {
         delete process.env.TARGET_REPOSITORY_URL;
@@ -5957,7 +6198,9 @@ Prefer focused changes.
 
   it("preserves existing behavior when the project .env file is missing", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-missing-project-env-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-missing-project-env-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -6263,11 +6506,7 @@ codex:
 ---
 Prefer focused changes.
 `;
-  await writeFile(
-    join(repositoryRoot, "WORKFLOW.md"),
-    content,
-    "utf8"
-  );
+  await writeFile(join(repositoryRoot, "WORKFLOW.md"), content, "utf8");
 }
 
 function createTrackerResponse(repository: {

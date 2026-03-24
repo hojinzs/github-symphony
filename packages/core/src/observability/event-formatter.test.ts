@@ -37,6 +37,48 @@ describe("event-formatter", () => {
         error: "cleanup failed",
       })
     ).toBe("skipped: cleanup failed");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:03:00.000Z",
+        event: "turn_started",
+        issueIdentifier: "acme/repo#1",
+        turnCount: 2,
+      })
+    ).toBe("Turn 2 started");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:04:00.000Z",
+        event: "turn_completed",
+        issueIdentifier: "acme/repo#1",
+        turnCount: 2,
+        startedAt: "2026-03-16T00:03:00.000Z",
+        durationMs: 1234,
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        },
+      })
+    ).toBe("Turn 2 completed in 1234ms");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:05:00.000Z",
+        event: "turn_failed",
+        issueIdentifier: "acme/repo#1",
+        turnCount: 2,
+        startedAt: "2026-03-16T00:03:00.000Z",
+        durationMs: 2345,
+        tokenUsage: {
+          inputTokens: 12,
+          outputTokens: 6,
+          totalTokens: 18,
+        },
+        error: "tool execution failed",
+      })
+    ).toBe("tool execution failed");
   });
 
   it("formats run-recovered events", () => {

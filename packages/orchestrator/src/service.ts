@@ -62,7 +62,7 @@ const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
 >;
-             
+
 const STUCK_WORKER_TIMEOUT_MS = 30 * 60 * 1000;
 
 type SpawnLike = (
@@ -81,9 +81,7 @@ type OrchestratorTickHandler = (
   snapshot: ProjectStatusSnapshot
 ) => void | Promise<void>;
 
-function isUsableWorkflowResolution(
-  resolution: WorkflowResolution
-): boolean {
+function isUsableWorkflowResolution(resolution: WorkflowResolution): boolean {
   return resolution.isValid || resolution.usedLastKnownGood;
 }
 
@@ -101,10 +99,15 @@ export class OrchestratorService {
   private readonly activeWorkerPids = new Set<number>();
   private readonly workerStderrBuffers = new Map<string, string>();
   private readonly workerStderrDecoders = new Map<string, StringDecoder>();
-  private readonly lastKnownGoodWorkflows = new Map<string, WorkflowResolution>();
+  private readonly lastKnownGoodWorkflows = new Map<
+    string,
+    WorkflowResolution
+  >();
   private readonly lastReportedWorkflowErrors = new Map<string, string>();
-  private workflowResolutionCache: Map<string, Promise<WorkflowResolution>> | null =
-    null;
+  private workflowResolutionCache: Map<
+    string,
+    Promise<WorkflowResolution>
+  > | null = null;
   private running = true;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | null = null;
@@ -234,7 +237,8 @@ export class OrchestratorService {
       issue_identifier: issueRecord.identifier,
       issue_id: issueRecord.issueId,
       status:
-        currentRun?.status ?? mapIssueOrchestrationStateToStatus(issueRecord.state),
+        currentRun?.status ??
+        mapIssueOrchestrationStateToStatus(issueRecord.state),
       workspace: {
         path: currentRun?.workingDirectory ?? null,
       },
@@ -262,12 +266,13 @@ export class OrchestratorService {
                 : null,
             },
       retry:
-        currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt
+        (currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt)
           ? {
               due_at:
                 currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
               kind: currentRun?.retryKind ?? null,
-              error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+              error:
+                currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
             }
           : null,
       logs: {
@@ -286,7 +291,8 @@ export class OrchestratorService {
               ],
       },
       recent_events: recentEvents,
-      last_error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+      last_error:
+        currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
       tracked: {
         issue_orchestration_state: issueRecord.state,
         current_run_id: issueRecord.currentRunId,
@@ -376,8 +382,9 @@ export class OrchestratorService {
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     let rateLimits: Record<string, unknown> | null = null;
 
-    let issueRecords =
-      await this.store.loadProjectIssueOrchestrations(tenant.projectId);
+    let issueRecords = await this.store.loadProjectIssueOrchestrations(
+      tenant.projectId
+    );
     const allRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
@@ -390,7 +397,8 @@ export class OrchestratorService {
       }
     }
     const reconciledRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.projectId === tenant.projectId && isActiveRunStatus(run.status)
+      (run) =>
+        run.projectId === tenant.projectId && isActiveRunStatus(run.status)
     );
     rateLimits = resolveProjectRateLimits(reconciledRuns, []);
 
@@ -409,7 +417,10 @@ export class OrchestratorService {
         currentActiveRuns,
         now
       );
-      const issues = await trackerAdapter.listIssues(tenant, trackerDependencies);
+      const issues = await trackerAdapter.listIssues(
+        tenant,
+        trackerDependencies
+      );
       const filteredIssues = issueIdentifier
         ? issues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
@@ -531,7 +542,9 @@ export class OrchestratorService {
           issueId: run.issueId,
           issueState: issue.state,
         });
-        this.logVerbose(`[dispatch] Issue ${issue.identifier} → run ${run.runId}`);
+        this.logVerbose(
+          `[dispatch] Issue ${issue.identifier} → run ${run.runId}`
+        );
         dispatched += 1;
         slotsRemaining -= 1;
         activeByState.set(
@@ -644,7 +657,9 @@ export class OrchestratorService {
   ): Promise<void> {
     const tenant = this.projectConfig;
     const now = this.now();
-    const workspaceRecords = await this.store.loadIssueWorkspaces(tenant.projectId);
+    const workspaceRecords = await this.store.loadIssueWorkspaces(
+      tenant.projectId
+    );
     if (workspaceRecords.length === 0) {
       return;
     }
@@ -697,10 +712,17 @@ export class OrchestratorService {
           continue;
         }
 
-        await this.cleanupTerminalIssueWorkspace(tenant, issue, now, resolution);
+        await this.cleanupTerminalIssueWorkspace(
+          tenant,
+          issue,
+          now,
+          resolution
+        );
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Unknown startup cleanup error";
+          error instanceof Error
+            ? error.message
+            : "Unknown startup cleanup error";
         console.warn(
           `[orchestrator] Startup cleanup skipped workspace for ${issue.identifier}: ${message}`
         );
@@ -844,7 +866,8 @@ export class OrchestratorService {
 
     const resolutionPromise = tenant.repositories.some(
       (candidate) =>
-        candidate.owner === repository.owner && candidate.name === repository.name
+        candidate.owner === repository.owner &&
+        candidate.name === repository.name
     )
       ? this.loadProjectWorkflow(tenant, repository)
       : loadRepositoryWorkflow(repository.cloneUrl, repository);
@@ -910,7 +933,8 @@ export class OrchestratorService {
       )
       .sort(
         (left, right) =>
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+          new Date(right.updatedAt).getTime() -
+          new Date(left.updatedAt).getTime()
       );
 
     return matchingRuns[0] ?? null;
@@ -963,10 +987,7 @@ export class OrchestratorService {
               (candidate) => candidate.identifier === blockerRef.identifier
             );
             if (blockerIssue?.state) {
-              return !isStateTerminal(
-                blockerIssue.state,
-                resolution.lifecycle
-              );
+              return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
             }
           }
 
@@ -1039,7 +1060,10 @@ export class OrchestratorService {
       repository,
       targetDirectory: cacheRoot,
     });
-    const resolution = await loadRepositoryWorkflow(repositoryDirectory, repository);
+    const resolution = await loadRepositoryWorkflow(
+      repositoryDirectory,
+      repository
+    );
     return this.resolveWorkflowResolution(
       repository,
       cacheRoot,
@@ -1053,7 +1077,9 @@ export class OrchestratorService {
     issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
-      throw new Error("Orchestrator is shutting down and cannot start new runs.");
+      throw new Error(
+        "Orchestrator is shutting down and cannot start new runs."
+      );
     }
 
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
@@ -1074,10 +1100,16 @@ export class OrchestratorService {
     );
     const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(identity);
     const existingWorkspaceRecord =
-      (await this.store.loadIssueWorkspace(tenant.projectId, preferredWorkspaceKey)) ??
+      (await this.store.loadIssueWorkspace(
+        tenant.projectId,
+        preferredWorkspaceKey
+      )) ??
       (legacyWorkspaceKey === preferredWorkspaceKey
         ? null
-        : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
+        : await this.store.loadIssueWorkspace(
+            tenant.projectId,
+            legacyWorkspaceKey
+          ));
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
     const projectDir = this.store.projectDir(tenant.projectId);
@@ -1230,8 +1262,7 @@ export class OrchestratorService {
           SYMPHONY_AGENT_COMMAND: workflow.workflow.codex.command,
           SYMPHONY_APPROVAL_POLICY:
             workflow.workflow.codex.approvalPolicy ?? "",
-          SYMPHONY_THREAD_SANDBOX:
-            workflow.workflow.codex.threadSandbox ?? "",
+          SYMPHONY_THREAD_SANDBOX: workflow.workflow.codex.threadSandbox ?? "",
           SYMPHONY_TURN_SANDBOX_POLICY:
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
@@ -1418,7 +1449,9 @@ export class OrchestratorService {
 
     const syncedRuns: OrchestratorRunRecord[] = [];
     for (const run of activeRuns) {
-      const currentTrackerState = issueStateByIdentifier.get(run.issueIdentifier);
+      const currentTrackerState = issueStateByIdentifier.get(
+        run.issueIdentifier
+      );
       if (!currentTrackerState || currentTrackerState === run.issueState) {
         syncedRuns.push(run);
         continue;
@@ -1452,7 +1485,9 @@ export class OrchestratorService {
     if (run.processId && this.isProcessRunning(run.processId)) {
       const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
       const configuredStallTimeoutMs = retryPolicy?.stallTimeoutMs ?? null;
-      const lastActivityAtMs = parseTimestampMs(run.lastEventAt ?? run.startedAt);
+      const lastActivityAtMs = parseTimestampMs(
+        run.lastEventAt ?? run.startedAt
+      );
       const startedAtMs = parseTimestampMs(run.startedAt);
       const elapsedSinceLastActivityMs =
         lastActivityAtMs === null ? null : now.getTime() - lastActivityAtMs;
@@ -1528,7 +1563,9 @@ export class OrchestratorService {
         run.runtimeSession,
         workerInfo.sessionId,
         workerInfo.threadId,
-        run.status === "running" ? "failed" : run.runtimeSession?.status ?? null,
+        run.status === "running"
+          ? "failed"
+          : (run.runtimeSession?.status ?? null),
         run.runtimeSession?.startedAt ?? run.startedAt ?? now.toISOString(),
         now.toISOString(),
         workerInfo.exitClassification
@@ -1542,7 +1579,10 @@ export class OrchestratorService {
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastTurnSummary: resolveLastTurnSummary(
         run.lastTurnSummary,
-        resolveLastTurnSummaryCandidate(workerInfo.lastEvent, workerInfo.lastError)
+        resolveLastTurnSummaryCandidate(
+          workerInfo.lastEvent,
+          workerInfo.lastError
+        )
       ),
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt ?? undefined,
       lastEventAtSource:
@@ -1573,19 +1613,11 @@ export class OrchestratorService {
         };
       }
 
-      if (
-        (await this.resolveRetryRestartAction(tenant, run)) === "release"
-      ) {
+      if ((await this.resolveRetryRestartAction(tenant, run)) === "release") {
         return this.releaseRetryingRun(runWithTokens, issueRecords, now);
       }
 
-      return this.restartRun(
-        tenant,
-        run,
-        issueRecords,
-        now,
-        workerSessionId
-      );
+      return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
     }
 
     if (run.issueWorkspaceKey) {
@@ -1772,8 +1804,7 @@ export class OrchestratorService {
 
     if (event.type === "heartbeat") {
       const nowIso = this.now().toISOString();
-      const persistedLastEventAt =
-        event.lastEventAt ?? run.lastEventAt ?? null;
+      const persistedLastEventAt = event.lastEventAt ?? run.lastEventAt ?? null;
 
       await this.store.saveRun({
         ...run,
@@ -1787,7 +1818,7 @@ export class OrchestratorService {
         lastEventAtSource:
           event.lastEventAt != null
             ? "event-channel"
-            : run.lastEventAtSource ?? null,
+            : (run.lastEventAtSource ?? null),
         tokenUsage: event.tokenUsage,
         rateLimits: event.rateLimits,
         runtimeSession: buildRuntimeSession(
@@ -1815,6 +1846,58 @@ export class OrchestratorService {
         executionPhase: event.executionPhase ?? run.executionPhase,
         runPhase: event.runPhase ?? run.runPhase,
         lastError: event.lastError,
+      });
+      return;
+    }
+
+    if (event.type === "turn_started") {
+      await this.store.appendRunEvent(runId, {
+        at: event.startedAt,
+        event: "turn_started",
+        projectId: run.projectId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        sessionId: event.sessionId,
+        threadId: event.threadId,
+        turnId: event.turnId,
+        turnCount: event.turnCount,
+      });
+      return;
+    }
+
+    if (event.type === "turn_completed") {
+      await this.store.appendRunEvent(runId, {
+        at: event.completedAt,
+        event: "turn_completed",
+        projectId: run.projectId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        sessionId: event.sessionId,
+        threadId: event.threadId,
+        turnId: event.turnId,
+        turnCount: event.turnCount,
+        startedAt: event.startedAt,
+        durationMs: event.durationMs,
+        tokenUsage: event.tokenUsage,
+      });
+      return;
+    }
+
+    if (event.type === "turn_failed") {
+      await this.store.appendRunEvent(runId, {
+        at: event.failedAt,
+        event: "turn_failed",
+        projectId: run.projectId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        sessionId: event.sessionId,
+        threadId: event.threadId,
+        turnId: event.turnId,
+        turnCount: event.turnCount,
+        startedAt: event.startedAt,
+        durationMs: event.durationMs,
+        tokenUsage: event.tokenUsage,
+        error: event.error,
       });
       return;
     }
@@ -1979,9 +2062,13 @@ export class OrchestratorService {
     issueId: string
   ): Promise<TrackedIssue | null> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-    const issues = await trackerAdapter.fetchIssueStatesByIds(tenant, [issueId], {
-      fetchImpl: this.dependencies.fetchImpl,
-    });
+    const issues = await trackerAdapter.fetchIssueStatesByIds(
+      tenant,
+      [issueId],
+      {
+        fetchImpl: this.dependencies.fetchImpl,
+      }
+    );
     return issues[0] ?? null;
   }
 
@@ -2006,7 +2093,8 @@ export class OrchestratorService {
     return {
       tokenUsage: persistedTokenUsage,
       sessionId: latestRun.runtimeSession?.sessionId ?? null,
-      threadId: latestRun.threadId ?? latestRun.runtimeSession?.threadId ?? null,
+      threadId:
+        latestRun.threadId ?? latestRun.runtimeSession?.threadId ?? null,
       turnCount: latestRun.turnCount ?? null,
       exitClassification: latestRun.runtimeSession?.exitClassification ?? null,
       lastError: latestRun.lastError ?? null,
@@ -2327,7 +2415,10 @@ export class OrchestratorService {
     const limits = await Promise.all(
       project.repositories.map(async (repository) => {
         try {
-          const resolution = await this.loadProjectWorkflow(project, repository);
+          const resolution = await this.loadProjectWorkflow(
+            project,
+            repository
+          );
           return isUsableWorkflowResolution(resolution)
             ? resolution.workflow.agent.maxConcurrentAgents
             : NaN;
@@ -2360,8 +2451,10 @@ export class OrchestratorService {
       let workflowPath = effectiveResolution.workflowPath;
       try {
         workflowPath =
-          (await this.persistLastKnownGoodWorkflow(cacheRoot, effectiveResolution)) ??
-          effectiveResolution.workflowPath;
+          (await this.persistLastKnownGoodWorkflow(
+            cacheRoot,
+            effectiveResolution
+          )) ?? effectiveResolution.workflowPath;
       } catch {
         workflowPath = effectiveResolution.workflowPath;
       }
@@ -2374,7 +2467,8 @@ export class OrchestratorService {
     }
 
     const cached = this.lastKnownGoodWorkflows.get(cacheKey);
-    const message = resolution.validationError ?? "Invalid repository WORKFLOW.md";
+    const message =
+      resolution.validationError ?? "Invalid repository WORKFLOW.md";
     const previousMessage = this.lastReportedWorkflowErrors.get(cacheKey);
     if (changed || previousMessage !== message) {
       process.stderr.write(
@@ -2514,10 +2608,16 @@ export class OrchestratorService {
             orchestrationRecord.workspaceKey
           )
         : null) ??
-      (await this.store.loadIssueWorkspace(tenant.projectId, preferredWorkspaceKey)) ??
+      (await this.store.loadIssueWorkspace(
+        tenant.projectId,
+        preferredWorkspaceKey
+      )) ??
       (legacyWorkspaceKey === preferredWorkspaceKey
         ? null
-        : await this.store.loadIssueWorkspace(tenant.projectId, legacyWorkspaceKey));
+        : await this.store.loadIssueWorkspace(
+            tenant.projectId,
+            legacyWorkspaceKey
+          ));
 
     if (!workspaceRecord || workspaceRecord.status === "removed") {
       return;
@@ -2654,7 +2754,7 @@ function buildRuntimeSession(
     updatedAt,
     exitClassification:
       exitClassification === undefined
-        ? existing?.exitClassification ?? null
+        ? (existing?.exitClassification ?? null)
         : exitClassification,
   };
 }
@@ -2825,7 +2925,8 @@ function upsertIssueOrchestration(
   }
 ): IssueOrchestrationRecord[] {
   const existingRecord =
-    issueRecords.find((record) => record.issueId === nextRecord.issueId) ?? null;
+    issueRecords.find((record) => record.issueId === nextRecord.issueId) ??
+    null;
   const remaining = issueRecords.filter(
     (record) => record.issueId !== nextRecord.issueId
   );
@@ -2833,7 +2934,8 @@ function upsertIssueOrchestration(
     ...remaining,
     {
       ...nextRecord,
-      completedOnce: nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
+      completedOnce:
+        nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
     },
   ];
 }

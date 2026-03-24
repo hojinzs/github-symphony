@@ -171,6 +171,15 @@ type TokenUsageSnapshot = {
   totalTokens: number;
 };
 
+type ActiveTurnTelemetry = {
+  startedAt: string;
+  threadId: string | null;
+  turnId: string | null;
+  turnCount: number;
+  sessionId: string | null;
+  tokenUsageBaseline: TokenUsageSnapshot;
+};
+
 function enqueuePendingOrchestratorChannelPayload(payload: string): void {
   if (
     pendingOrchestratorChannelPayloads.length >=
@@ -255,7 +264,9 @@ function resolveTerminalOrchestratorChannelFlushTimeoutMs(): number {
   );
 }
 
-function writeOrQueueOrchestratorChannelPayload(serializedPayload: string): void {
+function writeOrQueueOrchestratorChannelPayload(
+  serializedPayload: string
+): void {
   if (orchestratorChannelDrainPending) {
     enqueuePendingOrchestratorChannelPayload(serializedPayload);
     return;
@@ -333,6 +344,104 @@ function emitOrchestratorChannelEvent(event?: string): void {
   if (event) {
     payload.event = event;
   }
+
+  writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
+}
+
+function cloneTokenUsageSnapshot(): TokenUsageSnapshot {
+  return { ...runtimeState.tokenUsage };
+}
+
+function resolveTurnTokenUsageDelta(
+  baseline: TokenUsageSnapshot
+): TokenUsageSnapshot {
+  return {
+    inputTokens: Math.max(
+      0,
+      runtimeState.tokenUsage.inputTokens - baseline.inputTokens
+    ),
+    outputTokens: Math.max(
+      0,
+      runtimeState.tokenUsage.outputTokens - baseline.outputTokens
+    ),
+    totalTokens: Math.max(
+      0,
+      runtimeState.tokenUsage.totalTokens - baseline.totalTokens
+    ),
+  };
+}
+
+function emitTurnStartedEvent(turn: ActiveTurnTelemetry): void {
+  const issueId = runtimeState.run?.issueId;
+  if (!issueId) {
+    return;
+  }
+
+  const payload: OrchestratorChannelEvent = {
+    type: "turn_started",
+    issueId,
+    startedAt: turn.startedAt,
+    threadId: turn.threadId,
+    turnId: turn.turnId,
+    turnCount: turn.turnCount,
+    sessionId: turn.sessionId,
+  };
+
+  writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
+}
+
+function emitTurnCompletedEvent(turn: ActiveTurnTelemetry): void {
+  const issueId = runtimeState.run?.issueId;
+  if (!issueId) {
+    return;
+  }
+
+  const completedAt = new Date().toISOString();
+  const payload: OrchestratorChannelEvent = {
+    type: "turn_completed",
+    issueId,
+    startedAt: turn.startedAt,
+    completedAt,
+    durationMs: Math.max(
+      0,
+      new Date(completedAt).getTime() - new Date(turn.startedAt).getTime()
+    ),
+    threadId: turn.threadId,
+    turnId: turn.turnId,
+    turnCount: turn.turnCount,
+    sessionId: turn.sessionId,
+    tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
+  };
+
+  writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
+}
+
+function emitTurnFailedEvent(
+  turn: ActiveTurnTelemetry,
+  error: string | null
+): void {
+  const issueId = runtimeState.run?.issueId;
+  if (!issueId) {
+    return;
+  }
+
+  const failedAt = new Date().toISOString();
+  const payload: OrchestratorChannelEvent = {
+    type: "turn_failed",
+    issueId,
+    startedAt: turn.startedAt,
+    failedAt,
+    durationMs: Math.max(
+      0,
+      new Date(failedAt).getTime() - new Date(turn.startedAt).getTime()
+    ),
+    threadId: turn.threadId,
+    turnId: turn.turnId,
+    turnCount: turn.turnCount,
+    sessionId: turn.sessionId,
+    tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
+    error,
+  };
 
   writeOrQueueOrchestratorChannelPayload(`${JSON.stringify(payload)}\n`);
 }
@@ -481,6 +590,7 @@ async function runCodexClientProtocol(
   let userInputRequired = false;
   type TurnTerminalFailurePhase = "failed" | "canceled_by_reconciliation";
   let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
+  let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
 
   function resolvePendingTurnCompletion(): void {
     if (turnCompletedResolve) {
@@ -540,6 +650,10 @@ async function runCodexClientProtocol(
     }
     turnTerminalFailurePhase = runPhase;
     resolvePendingTurnCompletion();
+    if (activeTurnTelemetry) {
+      emitTurnFailedEvent(activeTurnTelemetry, lastError);
+      activeTurnTelemetry = null;
+    }
   }
 
   function sendMessage(msg: Record<string, unknown>): void {
@@ -745,12 +859,7 @@ async function runCodexClientProtocol(
     }
 
     // User input required — hard failure (agent cannot proceed autonomously)
-    if (
-      msg.method === "item/tool/requestUserInput" ||
-      (msg.method === "turn/completed" &&
-        msg.params != null &&
-        (msg.params as Record<string, unknown>).inputRequired === true)
-    ) {
+    if (msg.method === "item/tool/requestUserInput") {
       process.stderr.write(
         "[worker] user_input_required detected — terminating codex process\n"
       );
@@ -768,6 +877,13 @@ async function runCodexClientProtocol(
         }
       }
       // Resolve any pending turn completion
+      if (activeTurnTelemetry) {
+        emitTurnFailedEvent(
+          activeTurnTelemetry,
+          runtimeState.run?.lastError ?? null
+        );
+        activeTurnTelemetry = null;
+      }
       resolvePendingTurnCompletion();
       emitOrchestratorChannelEvent(orchestratorEventName);
       return;
@@ -776,7 +892,6 @@ async function runCodexClientProtocol(
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
       flushDeltaBuffer();
-      // Extract token usage from turn completion params if present
       const turnParams = (msg.params ?? {}) as Record<string, unknown>;
       const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
       if (turnUsage) {
@@ -786,7 +901,39 @@ async function runCodexClientProtocol(
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
+      if (turnParams.inputRequired === true) {
+        process.stderr.write(
+          "[worker] user_input_required detected — terminating codex process\n"
+        );
+        userInputRequired = true;
+        runtimeState.status = "failed";
+        if (runtimeState.run) {
+          runtimeState.run.lastError =
+            "turn_input_required: agent requires user input";
+        }
+        if (child.pid) {
+          try {
+            process.kill(child.pid, "SIGTERM");
+          } catch {
+            // Already gone.
+          }
+        }
+        if (activeTurnTelemetry) {
+          emitTurnFailedEvent(
+            activeTurnTelemetry,
+            runtimeState.run?.lastError ?? null
+          );
+          activeTurnTelemetry = null;
+        }
+        resolvePendingTurnCompletion();
+        emitOrchestratorChannelEvent(orchestratorEventName);
+        return;
+      }
       emitOrchestratorChannelEvent(orchestratorEventName);
+      if (activeTurnTelemetry) {
+        emitTurnCompletedEvent(activeTurnTelemetry);
+        activeTurnTelemetry = null;
+      }
       process.stderr.write("[worker] codex turn/completed\n");
       resolvePendingTurnCompletion();
       return;
@@ -980,10 +1127,7 @@ async function runCodexClientProtocol(
           threadId,
           input: [{ type: "text", text: turnInput }],
           cwd: plan.cwd,
-          title: composeTurnTitle(
-            issueIdentifier,
-            env.SYMPHONY_ISSUE_TITLE
-          ),
+          title: composeTurnTitle(issueIdentifier, env.SYMPHONY_ISSUE_TITLE),
           approvalPolicy,
           sandboxPolicy: turnSandboxPolicy,
         }
@@ -998,12 +1142,21 @@ async function runCodexClientProtocol(
       runtimeState.sessionInfo.turnId = turnId ?? null;
       runtimeState.sessionInfo.sessionId = sessionId;
       runtimeState.sessionId = sessionId;
+      activeTurnTelemetry = {
+        startedAt: new Date().toISOString(),
+        threadId: threadId ?? null,
+        turnId: turnId ?? null,
+        turnCount,
+        sessionId,
+        tokenUsageBaseline: cloneTokenUsageSnapshot(),
+      };
       process.stderr.write(
         `[worker] codex turn started (id=${String(turnId ?? "unknown")})\n`
       );
       process.stderr.write(
         `[worker] session_id=${String(sessionId ?? "unknown")}\n`
       );
+      emitTurnStartedEvent(activeTurnTelemetry);
 
       // Wait for turn completion with absolute timeout
       await waitForTurnWithTimeout();
@@ -1058,7 +1211,7 @@ async function runCodexClientProtocol(
       userInputRequired || turnTerminalFailurePhase ? "failed" : "completed";
     runtimeState.runPhase = userInputRequired
       ? "failed"
-      : turnTerminalFailurePhase ?? "succeeded";
+      : (turnTerminalFailurePhase ?? "succeeded");
     runtimeState.sessionInfo.exitClassification = classifySessionExit({
       runPhase: runtimeState.runPhase,
       userInputRequired,
@@ -1101,6 +1254,13 @@ async function runCodexClientProtocol(
       userInputRequired: false,
       maxTurnsReached: false,
     });
+    if (activeTurnTelemetry) {
+      emitTurnFailedEvent(
+        activeTurnTelemetry,
+        runtimeState.run?.lastError ?? errMsg
+      );
+      activeTurnTelemetry = null;
+    }
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
@@ -1141,7 +1301,9 @@ function applyRateLimitUpdate(
   );
 }
 
-function extractRateLimitPayload(value: unknown): Record<string, unknown> | null {
+function extractRateLimitPayload(
+  value: unknown
+): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -1305,8 +1467,7 @@ function parseTokenUsageSnapshot(value: unknown): TokenUsageSnapshot | null {
     inputTokens: normalizedInputTokens,
     outputTokens: normalizedOutputTokens,
     totalTokens:
-      normalizedTotalTokens ||
-      normalizedInputTokens + normalizedOutputTokens,
+      normalizedTotalTokens || normalizedInputTokens + normalizedOutputTokens,
   };
 }
 
