@@ -39,6 +39,7 @@ export type CodexRuntimeConfig = {
   extraEnv?: NodeJS.ProcessEnv;
   /** Shell command to launch codex app-server. Leading "bash -lc " is stripped if present, since the runtime always wraps in bash -lc. */
   agentCommand?: string;
+  resumeThreadId?: string;
 };
 
 export type CodexRuntimePlan = {
@@ -47,6 +48,7 @@ export type CodexRuntimePlan = {
   args: string[];
   env: NodeJS.ProcessEnv;
   tools: [RuntimeToolDefinition];
+  resumeThreadId: string | null;
 };
 
 export class AgentRuntimeResolutionError extends Error {}
@@ -156,6 +158,7 @@ export function buildCodexRuntimePlan(
       ...tool.env,
     },
     tools: [tool],
+    resumeThreadId: config.resumeThreadId?.trim() || null,
   };
 }
 

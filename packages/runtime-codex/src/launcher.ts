@@ -39,6 +39,7 @@ export function resolveLocalRuntimeLaunchConfig(
     githubProjectId: env.GITHUB_PROJECT_ID,
     githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
     agentCommand: env.SYMPHONY_AGENT_COMMAND,
+    resumeThreadId: env.SYMPHONY_RESUME_THREAD_ID,
   };
 }
 

@@ -1296,8 +1296,11 @@ export class OrchestratorService {
             process.env.SYMPHONY_SESSION_TIMEOUT_MS ?? "",
           SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? "",
           SYMPHONY_CUMULATIVE_TURN_COUNT: String(
-            resumeContext?.cumulativeTurnCount ??
+            Math.max(
+              0,
+              resumeContext?.cumulativeTurnCount ??
               issueBudgetSnapshot.cumulativeTurnCount
+            )
           ),
           SYMPHONY_CUMULATIVE_INPUT_TOKENS: String(
             issueBudgetSnapshot.tokenUsage.inputTokens
