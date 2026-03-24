@@ -64,6 +64,17 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
+    expect(plan.resumeThreadId).toBeNull();
+  });
+
+  it("carries a resume thread id into the runtime plan", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      resumeThreadId: "thread-123",
+    });
+
+    expect(plan.resumeThreadId).toBe("thread-123");
   });
 });
 

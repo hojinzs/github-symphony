@@ -1433,6 +1433,9 @@ Prefer focused changes.
         env: expect.objectContaining({
           SYMPHONY_ISSUE_STATE: "Todo",
           SYMPHONY_ISSUE_TITLE: "Test issue",
+          SYMPHONY_RESUME_THREAD_ID: "thread-legacy",
+          SYMPHONY_CUMULATIVE_TURN_COUNT: "4",
+          SYMPHONY_LAST_TURN_SUMMARY: "turn/completed",
         }),
       })
     );
@@ -6065,6 +6068,63 @@ Prefer focused changes.
         delete process.env.TARGET_REPOSITORY_URL;
       } else {
         process.env.TARGET_REPOSITORY_URL = originalTargetRepositoryUrl;
+      }
+    }
+  });
+
+  it("clears stale resume env values for non-recovery runs", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalResumeThreadId = process.env.SYMPHONY_RESUME_THREAD_ID;
+    const originalCumulativeTurnCount = process.env.SYMPHONY_CUMULATIVE_TURN_COUNT;
+    const originalLastTurnSummary = process.env.SYMPHONY_LAST_TURN_SUMMARY;
+    process.env.SYMPHONY_RESUME_THREAD_ID = "thread-stale";
+    process.env.SYMPHONY_CUMULATIVE_TURN_COUNT = "9";
+    process.env.SYMPHONY_LAST_TURN_SUMMARY = "stale summary";
+
+    try {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-worker-resume-env-clear-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4308,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+      expect(spawnEnv?.SYMPHONY_RESUME_THREAD_ID).toBe("");
+      expect(spawnEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("");
+      expect(spawnEnv?.SYMPHONY_LAST_TURN_SUMMARY).toBe("");
+    } finally {
+      if (originalResumeThreadId === undefined) {
+        delete process.env.SYMPHONY_RESUME_THREAD_ID;
+      } else {
+        process.env.SYMPHONY_RESUME_THREAD_ID = originalResumeThreadId;
+      }
+      if (originalCumulativeTurnCount === undefined) {
+        delete process.env.SYMPHONY_CUMULATIVE_TURN_COUNT;
+      } else {
+        process.env.SYMPHONY_CUMULATIVE_TURN_COUNT = originalCumulativeTurnCount;
+      }
+      if (originalLastTurnSummary === undefined) {
+        delete process.env.SYMPHONY_LAST_TURN_SUMMARY;
+      } else {
+        process.env.SYMPHONY_LAST_TURN_SUMMARY = originalLastTurnSummary;
       }
     }
   });

@@ -25,6 +25,12 @@ import {
 } from "./execution-phase.js";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
+import {
+  buildInitialTurnInput,
+  parseNonNegativeInteger,
+  resolveRemainingTurns,
+  type ThreadBootstrapMode,
+} from "./thread-resume.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -557,9 +563,14 @@ async function runCodexClientProtocol(
   }
 
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
+  const cumulativeTurnCount = parseNonNegativeInteger(
+    env.SYMPHONY_CUMULATIVE_TURN_COUNT
+  );
+  const remainingTurns = resolveRemainingTurns(maxTurns, cumulativeTurnCount);
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
+  const lastTurnSummary = env.SYMPHONY_LAST_TURN_SUMMARY ?? null;
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
 
@@ -1057,24 +1068,86 @@ async function runCodexClientProtocol(
       };
     }
 
+    if (remainingTurns <= 0) {
+      process.stderr.write(
+        `[worker] max_turns already exhausted by previous sessions (${cumulativeTurnCount}/${maxTurns})\n`
+      );
+      runtimeState.status = "completed";
+      runtimeState.runPhase = "succeeded";
+      runtimeState.sessionInfo.exitClassification = classifySessionExit({
+        runPhase: runtimeState.runPhase,
+        userInputRequired: false,
+        maxTurnsReached: true,
+      });
+      stopOrchestratorHeartbeatTimer();
+      emitOrchestratorHeartbeat();
+      await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+      await waitForPendingOrchestratorChannelFlush(
+        resolveTerminalOrchestratorChannelFlushTimeoutMs()
+      );
+      setTimeout(() => {
+        process.exit(0);
+      }, 1500);
+      return;
+    }
+
+    const baseThreadParams = {
+      cwd: plan.cwd,
+      developerInstructions: renderedPrompt,
+      approvalPolicy,
+      sandbox: threadSandbox,
+      config: {
+        mcp_servers: mcpServers,
+      },
+    };
+    const resumeThreadId = plan.resumeThreadId;
+    let threadBootstrapMode: ThreadBootstrapMode = "fresh";
+
     process.stderr.write(
-      `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})`
+      `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
     );
 
-    const threadResult = (await sendRequestWithTimeout(
-      "thread-1",
-      "thread/start",
-      {
-        cwd: plan.cwd,
-        developerInstructions: renderedPrompt,
-        approvalPolicy,
-        sandbox: threadSandbox,
-        ephemeral: false,
-        config: {
-          mcp_servers: mcpServers,
-        },
+    let threadResult: Record<string, unknown>;
+    if (resumeThreadId) {
+      process.stderr.write(
+        `[worker] attempting thread/resume for ${resumeThreadId}\n`
+      );
+      try {
+        threadResult = (await sendRequestWithTimeout(
+          "thread-resume-1",
+          "thread/resume",
+          {
+            ...baseThreadParams,
+            threadId: resumeThreadId,
+          }
+        )) as Record<string, unknown>;
+        threadBootstrapMode = "resume";
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error ?? "unknown");
+        threadBootstrapMode = "soft-resume";
+        process.stderr.write(
+          `[worker] thread/resume failed for ${resumeThreadId}: ${message}; falling back to thread/start\n`
+        );
+        threadResult = (await sendRequestWithTimeout(
+          "thread-1",
+          "thread/start",
+          {
+            ...baseThreadParams,
+            ephemeral: false,
+          }
+        )) as Record<string, unknown>;
       }
-    )) as Record<string, unknown>;
+    } else {
+      threadResult = (await sendRequestWithTimeout(
+        "thread-1",
+        "thread/start",
+        {
+          ...baseThreadParams,
+          ephemeral: false,
+        }
+      )) as Record<string, unknown>;
+    }
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??
@@ -1105,17 +1178,22 @@ async function runCodexClientProtocol(
 
     let maxTurnsReached = false;
 
-    for (let turn = 0; turn < maxTurns; turn++) {
+    for (let turn = 0; turn < remainingTurns; turn++) {
       turnCount = turn + 1;
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
       const turnInput = isFirstTurn
-        ? renderedPrompt
+        ? buildInitialTurnInput({
+            renderedPrompt,
+            mode: threadBootstrapMode,
+            lastTurnSummary,
+          })
         : "Continue working on the issue. Review your progress and complete any remaining tasks.";
+      const globalTurnCount = cumulativeTurnCount + turnCount;
 
       process.stderr.write(
-        `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
+        `[worker] starting codex turn ${globalTurnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
       );
 
       requestIdCounter += 1;
@@ -1175,10 +1253,10 @@ async function runCodexClientProtocol(
       }
 
       // Check if we should continue with another turn
-      if (turn + 1 >= maxTurns) {
+      if (turn + 1 >= remainingTurns) {
         maxTurnsReached = true;
         process.stderr.write(
-          `[worker] max_turns (${maxTurns}) reached — exiting\n`
+          `[worker] max_turns (${maxTurns}) reached across sessions — exiting\n`
         );
         break;
       }
