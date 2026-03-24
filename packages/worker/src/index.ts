@@ -25,9 +25,16 @@ import {
 } from "./execution-phase.js";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
+import {
+  resolveBudgetExceededReason,
+  resolveSessionBudgetState,
+  type BudgetExceededReason,
+  type TokenUsageSnapshot,
+} from "./session-budget.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
+const sessionBudgetState = resolveSessionBudgetState(launcherEnv);
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
@@ -83,9 +90,9 @@ const runtimeState: {
       }
     : null,
   tokenUsage: {
-    inputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
+    inputTokens: sessionBudgetState.tokenUsageBaseline.inputTokens,
+    outputTokens: sessionBudgetState.tokenUsageBaseline.outputTokens,
+    totalTokens: sessionBudgetState.tokenUsageBaseline.totalTokens,
   },
   lastEventAt: null,
   rateLimits: null,
@@ -164,12 +171,6 @@ function shutdown(signal: NodeJS.Signals) {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-
-type TokenUsageSnapshot = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-};
 
 type ActiveTurnTelemetry = {
   startedAt: string;
@@ -562,6 +563,7 @@ async function runCodexClientProtocol(
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
+  const budgetState = resolveSessionBudgetState(env);
 
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
@@ -591,6 +593,28 @@ async function runCodexClientProtocol(
   type TurnTerminalFailurePhase = "failed" | "canceled_by_reconciliation";
   let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
+  let budgetExceededReason: BudgetExceededReason | null = null;
+
+  function checkSessionBudgets(
+    currentSessionTurnCount: number
+  ): BudgetExceededReason | null {
+    return resolveBudgetExceededReason(
+      budgetState,
+      currentSessionTurnCount,
+      {
+        inputTokens:
+          runtimeState.tokenUsage.inputTokens -
+          budgetState.tokenUsageBaseline.inputTokens,
+        outputTokens:
+          runtimeState.tokenUsage.outputTokens -
+          budgetState.tokenUsageBaseline.outputTokens,
+        totalTokens:
+          runtimeState.tokenUsage.totalTokens -
+          budgetState.tokenUsageBaseline.totalTokens,
+      },
+      new Date()
+    );
+  }
 
   function resolvePendingTurnCompletion(): void {
     if (turnCompletedResolve) {
@@ -1106,6 +1130,14 @@ async function runCodexClientProtocol(
     let maxTurnsReached = false;
 
     for (let turn = 0; turn < maxTurns; turn++) {
+      budgetExceededReason = checkSessionBudgets(turn);
+      if (budgetExceededReason) {
+        process.stderr.write(
+          `[worker] session budget exceeded (${budgetExceededReason}) — exiting\n`
+        );
+        break;
+      }
+
       turnCount = turn + 1;
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
@@ -1174,6 +1206,14 @@ async function runCodexClientProtocol(
         break;
       }
 
+      budgetExceededReason = checkSessionBudgets(turnCount);
+      if (budgetExceededReason) {
+        process.stderr.write(
+          `[worker] session budget exceeded (${budgetExceededReason}) — exiting\n`
+        );
+        break;
+      }
+
       // Check if we should continue with another turn
       if (turn + 1 >= maxTurns) {
         maxTurnsReached = true;
@@ -1215,6 +1255,7 @@ async function runCodexClientProtocol(
     runtimeState.sessionInfo.exitClassification = classifySessionExit({
       runPhase: runtimeState.runPhase,
       userInputRequired,
+      budgetExceeded: budgetExceededReason !== null,
       maxTurnsReached,
     });
     stopOrchestratorHeartbeatTimer();
@@ -1252,6 +1293,7 @@ async function runCodexClientProtocol(
     runtimeState.sessionInfo.exitClassification = classifySessionExit({
       runPhase: runtimeState.runPhase,
       userInputRequired: false,
+      budgetExceeded: false,
       maxTurnsReached: false,
     });
     if (activeTurnTelemetry) {

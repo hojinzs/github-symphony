@@ -4,10 +4,15 @@ import type { RunAttemptPhase } from "../contracts/run-attempt-phase.js";
 export function classifySessionExit(params: {
   runPhase: RunAttemptPhase | null;
   userInputRequired: boolean;
+  budgetExceeded: boolean;
   maxTurnsReached: boolean;
 }): SessionExitClassification {
   if (params.userInputRequired) {
     return "user-input-required";
+  }
+
+  if (params.budgetExceeded) {
+    return "budget-exceeded";
   }
 
   if (params.runPhase === "timed_out" || params.runPhase === "stalled") {
