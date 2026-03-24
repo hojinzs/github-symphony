@@ -1085,7 +1085,12 @@ export class OrchestratorService {
 
   private async startRun(
     tenant: OrchestratorProjectConfig,
-    issue: TrackedIssue
+    issue: TrackedIssue,
+    resumeContext?: {
+      threadId: string | null;
+      cumulativeTurnCount: number;
+      lastTurnSummary: string | null;
+    }
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
       throw new Error(
@@ -1289,8 +1294,10 @@ export class OrchestratorService {
           SYMPHONY_MAX_TOKENS: process.env.SYMPHONY_MAX_TOKENS ?? "",
           SYMPHONY_SESSION_TIMEOUT_MS:
             process.env.SYMPHONY_SESSION_TIMEOUT_MS ?? "",
+          SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? "",
           SYMPHONY_CUMULATIVE_TURN_COUNT: String(
-            issueBudgetSnapshot.cumulativeTurnCount
+            resumeContext?.cumulativeTurnCount ??
+              issueBudgetSnapshot.cumulativeTurnCount
           ),
           SYMPHONY_CUMULATIVE_INPUT_TOKENS: String(
             issueBudgetSnapshot.tokenUsage.inputTokens
@@ -1301,6 +1308,7 @@ export class OrchestratorService {
           SYMPHONY_CUMULATIVE_TOTAL_TOKENS: String(
             issueBudgetSnapshot.tokenUsage.totalTokens
           ),
+          SYMPHONY_LAST_TURN_SUMMARY: resumeContext?.lastTurnSummary ?? "",
           SYMPHONY_SESSION_STARTED_AT:
             issueBudgetSnapshot.sessionStartedAt ?? "",
           SYMPHONY_READ_TIMEOUT_MS: String(
@@ -2318,7 +2326,11 @@ export class OrchestratorService {
       tenant,
       run
     );
-    const restarted = await this.startRun(tenant, issue);
+    const restarted = await this.startRun(tenant, issue, {
+      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
+      cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
+      lastTurnSummary: run.lastTurnSummary ?? null,
+    });
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
