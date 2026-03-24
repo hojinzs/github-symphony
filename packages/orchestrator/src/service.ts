@@ -40,6 +40,7 @@ import {
   type ProjectStatusSnapshot,
   type RepositoryRef,
   type RuntimeSessionRow,
+  type SessionExitClassification,
   type TrackedIssue,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
@@ -1370,6 +1371,9 @@ export class OrchestratorService {
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
       retryKind: null,
+      threadId: null,
+      cumulativeTurnCount: 0,
+      lastTurnSummary: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       startedAt: now.toISOString(),
@@ -1526,10 +1530,20 @@ export class OrchestratorService {
         workerInfo.threadId,
         run.status === "running" ? "failed" : run.runtimeSession?.status ?? null,
         run.runtimeSession?.startedAt ?? run.startedAt ?? now.toISOString(),
-        now.toISOString()
+        now.toISOString(),
+        workerInfo.exitClassification
+      ),
+      threadId: workerInfo.threadId ?? run.threadId ?? null,
+      cumulativeTurnCount: resolveCumulativeTurnCount(
+        run,
+        workerInfo.turnCount ?? null
       ),
       tokenUsage: workerInfo.tokenUsage ?? run.tokenUsage,
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
+      lastTurnSummary: resolveLastTurnSummary(
+        run.lastTurnSummary,
+        resolveLastTurnSummaryCandidate(workerInfo.lastEvent, workerInfo.lastError)
+      ),
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt ?? undefined,
       lastEventAtSource:
         workerInfo.lastEventAtSource ?? run.lastEventAtSource ?? undefined,
@@ -1626,6 +1640,16 @@ export class OrchestratorService {
       updatedAt: now.toISOString(),
       nextRetryAt,
       retryKind,
+      threadId:
+        runWithTokens.threadId ??
+        runWithTokens.runtimeSession?.threadId ??
+        run.threadId ??
+        run.runtimeSession?.threadId ??
+        null,
+      cumulativeTurnCount:
+        runWithTokens.cumulativeTurnCount ?? run.cumulativeTurnCount ?? 0,
+      lastTurnSummary:
+        runWithTokens.lastTurnSummary ?? run.lastTurnSummary ?? null,
       runPhase: runWithTokens.runPhase ?? "failed",
       lastError:
         retryKind === "continuation"
@@ -1755,6 +1779,10 @@ export class OrchestratorService {
         ...run,
         updatedAt: nowIso,
         lastEvent: "heartbeat",
+        lastTurnSummary: resolveLastTurnSummary(
+          run.lastTurnSummary,
+          event.lastError
+        ),
         lastEventAt: persistedLastEventAt,
         lastEventAtSource:
           event.lastEventAt != null
@@ -1768,12 +1796,22 @@ export class OrchestratorService {
           event.sessionInfo?.threadId ?? null,
           "active",
           run.startedAt ?? run.runtimeSession?.startedAt ?? nowIso,
-          nowIso
+          nowIso,
+          event.sessionInfo?.exitClassification ?? null
         ),
+        threadId:
+          event.sessionInfo?.threadId ??
+          run.threadId ??
+          run.runtimeSession?.threadId ??
+          null,
         turnCount:
           event.sessionInfo && event.sessionInfo.turnCount != null
             ? event.sessionInfo.turnCount
             : run.turnCount,
+        cumulativeTurnCount: resolveCumulativeTurnCount(
+          run,
+          event.sessionInfo?.turnCount ?? null
+        ),
         executionPhase: event.executionPhase ?? run.executionPhase,
         runPhase: event.runPhase ?? run.runPhase,
         lastError: event.lastError,
@@ -1786,6 +1824,10 @@ export class OrchestratorService {
       ...run,
       updatedAt: nowIso,
       lastEvent: event.event ?? run.lastEvent ?? null,
+      lastTurnSummary: resolveLastTurnSummary(
+        run.lastTurnSummary,
+        resolveLastTurnSummaryCandidate(event.event, event.lastError)
+      ),
       lastEventAt: event.lastEventAt,
       lastEventAtSource: "event-channel",
       tokenUsage: event.tokenUsage ?? run.tokenUsage,
@@ -1796,12 +1838,22 @@ export class OrchestratorService {
         event.sessionInfo?.threadId ?? run.runtimeSession?.threadId ?? null,
         "active",
         run.startedAt ?? run.runtimeSession?.startedAt ?? nowIso,
-        nowIso
+        nowIso,
+        event.sessionInfo?.exitClassification ?? null
       ),
+      threadId:
+        event.sessionInfo?.threadId ??
+        run.threadId ??
+        run.runtimeSession?.threadId ??
+        null,
       turnCount:
         event.sessionInfo && event.sessionInfo.turnCount != null
           ? event.sessionInfo.turnCount
           : run.turnCount,
+      cumulativeTurnCount: resolveCumulativeTurnCount(
+        run,
+        event.sessionInfo?.turnCount ?? null
+      ),
       executionPhase: event.executionPhase ?? run.executionPhase ?? null,
       runPhase: event.runPhase ?? run.runPhase ?? null,
       lastError: event.lastError ?? run.lastError,
@@ -1938,6 +1990,7 @@ export class OrchestratorService {
     sessionId: string | null;
     threadId: string | null;
     turnCount: number | null;
+    exitClassification: SessionExitClassification | null;
     lastError: string | null;
     lastEvent: string | null;
     lastEventAt: string | null;
@@ -1953,8 +2006,9 @@ export class OrchestratorService {
     return {
       tokenUsage: persistedTokenUsage,
       sessionId: latestRun.runtimeSession?.sessionId ?? null,
-      threadId: latestRun.runtimeSession?.threadId ?? null,
+      threadId: latestRun.threadId ?? latestRun.runtimeSession?.threadId ?? null,
       turnCount: latestRun.turnCount ?? null,
+      exitClassification: latestRun.runtimeSession?.exitClassification ?? null,
       lastError: latestRun.lastError ?? null,
       lastEvent: latestRun.lastEvent ?? null,
       lastEventAt: latestRun.lastEventAt ?? null,
@@ -2111,6 +2165,10 @@ export class OrchestratorService {
       retryKind: run.retryKind ?? "recovery",
       createdAt: run.createdAt,
       issueWorkspaceKey: run.issueWorkspaceKey,
+      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
+      cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
+      lastTurnSummary: run.lastTurnSummary ?? null,
+      turnCount: 0,
     };
     await this.store.saveRun(recoveredRecord);
     await this.store.appendRunEvent(run.runId, {
@@ -2575,13 +2633,15 @@ function buildRuntimeSession(
   threadId: string | null,
   status: RuntimeSessionRow["status"],
   startedAt: string | null,
-  updatedAt: string
+  updatedAt: string,
+  exitClassification: SessionExitClassification | null | undefined = undefined
 ): OrchestratorRunRecord["runtimeSession"] | undefined {
   if (
     existing === undefined &&
     sessionId === null &&
     threadId === null &&
-    status === null
+    status === null &&
+    (exitClassification === undefined || exitClassification === null)
   ) {
     return undefined;
   }
@@ -2592,8 +2652,61 @@ function buildRuntimeSession(
     status: status ?? existing?.status ?? null,
     startedAt: existing?.startedAt ?? startedAt,
     updatedAt,
-    exitClassification: existing?.exitClassification ?? null,
+    exitClassification:
+      exitClassification === undefined
+        ? existing?.exitClassification ?? null
+        : exitClassification,
   };
+}
+
+function resolvePersistedCumulativeTurnCount(
+  run: OrchestratorRunRecord
+): number {
+  return run.cumulativeTurnCount ?? run.turnCount ?? 0;
+}
+
+function resolveCumulativeTurnCount(
+  run: OrchestratorRunRecord,
+  turnCount: number | null
+): number {
+  const carriedTotal = resolvePersistedCumulativeTurnCount(run);
+  if (turnCount === null) {
+    return carriedTotal;
+  }
+
+  const previousSessionTurnCount = run.turnCount ?? 0;
+  const baseTurnCount = Math.max(0, carriedTotal - previousSessionTurnCount);
+  return baseTurnCount + turnCount;
+}
+
+function isTerminalTurnEvent(event: string | null | undefined): boolean {
+  return (
+    event === "turn/completed" ||
+    event === "turn/failed" ||
+    event === "turn/cancelled"
+  );
+}
+
+function resolveLastTurnSummaryCandidate(
+  event: string | null | undefined,
+  lastError: string | null | undefined
+): string | null {
+  if (typeof lastError === "string" && lastError.trim()) {
+    return lastError.trim();
+  }
+
+  return typeof event === "string" && isTerminalTurnEvent(event) ? event : null;
+}
+
+function resolveLastTurnSummary(
+  existing: string | null | undefined,
+  candidate: string | null | undefined
+): string | null {
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate.trim();
+  }
+
+  return existing ?? null;
 }
 
 function canApplyWorkerChannelUpdate(

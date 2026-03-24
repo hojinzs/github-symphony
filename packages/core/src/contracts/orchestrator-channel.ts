@@ -1,5 +1,7 @@
 import {
   isWorkflowExecutionPhase,
+  isSessionExitClassification,
+  type SessionExitClassification,
   type WorkflowExecutionPhase,
 } from "./status-surface.js";
 import {
@@ -18,6 +20,7 @@ export type OrchestratorChannelSessionInfo = {
   turnId: string | null;
   turnCount: number;
   sessionId: string | null;
+  exitClassification?: SessionExitClassification | null;
 };
 
 export type OrchestratorChannelCodexUpdateEvent = {
@@ -78,7 +81,11 @@ function isSessionInfo(
     (typeof value.threadId === "string" || value.threadId === null) &&
     (typeof value.turnId === "string" || value.turnId === null) &&
     typeof value.turnCount === "number" &&
-    (typeof value.sessionId === "string" || value.sessionId === null)
+    (typeof value.sessionId === "string" || value.sessionId === null) &&
+    (!("exitClassification" in value) ||
+      value.exitClassification === undefined ||
+      value.exitClassification === null ||
+      isSessionExitClassification(value.exitClassification))
   );
 }
 

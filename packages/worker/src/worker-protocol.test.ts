@@ -140,6 +140,7 @@ function createProtocolContext(options: {
       turnId: "turn-1" as string | null,
       turnCount: 1,
       sessionId: "thread-1-turn-1" as string | null,
+      exitClassification: null as string | null,
     },
   };
 
@@ -1843,6 +1844,7 @@ describe("orchestrator channel telemetry", () => {
         turnId: "turn-1",
         turnCount: 1,
         sessionId: "thread-1-turn-1",
+        exitClassification: null,
       },
       executionPhase: "implementation",
       runPhase: "streaming_turn",
@@ -2062,6 +2064,7 @@ describe("orchestrator channel telemetry", () => {
       turnId: "turn-xyz",
       turnCount: 2,
       sessionId: "thread-1-turn-xyz",
+      exitClassification: "user-input-required",
     };
     ctx.runtimeState.executionPhase = "human-review";
     ctx.runtimeState.runPhase = "failed";
@@ -2088,6 +2091,7 @@ describe("orchestrator channel telemetry", () => {
           turnId: "turn-xyz",
           turnCount: 2,
           sessionId: "thread-1-turn-xyz",
+          exitClassification: "user-input-required",
         },
         executionPhase: "human-review",
         runPhase: "failed",

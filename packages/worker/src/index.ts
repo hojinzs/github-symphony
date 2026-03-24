@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  classifySessionExit,
   parseWorkflowMarkdown,
   type OrchestratorChannelEvent,
   type RunAttemptPhase,
+  type SessionExitClassification,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
 import {
@@ -57,6 +59,7 @@ const runtimeState: {
     turnId: string | null;
     turnCount: number;
     sessionId: string | null;
+    exitClassification: SessionExitClassification | null;
   };
 } = {
   status: launcherEnv.SYMPHONY_RUN_ID ? "starting" : "idle",
@@ -91,6 +94,7 @@ const runtimeState: {
     turnId: null,
     turnCount: 0,
     sessionId: null,
+    exitClassification: null,
   },
 };
 
@@ -934,6 +938,7 @@ async function runCodexClientProtocol(
     runtimeState.sessionInfo.threadId = threadId ?? null;
     runtimeState.sessionInfo.turnId = null;
     runtimeState.sessionInfo.sessionId = null;
+    runtimeState.sessionInfo.exitClassification = null;
     runtimeState.sessionId = null;
 
     process.stderr.write(
@@ -950,6 +955,8 @@ async function runCodexClientProtocol(
     // Step 4: Multi-turn loop
     let turnCount = 0;
     let requestIdCounter = 0;
+
+    let maxTurnsReached = false;
 
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
@@ -1016,6 +1023,7 @@ async function runCodexClientProtocol(
 
       // Check if we should continue with another turn
       if (turn + 1 >= maxTurns) {
+        maxTurnsReached = true;
         process.stderr.write(
           `[worker] max_turns (${maxTurns}) reached — exiting\n`
         );
@@ -1051,6 +1059,11 @@ async function runCodexClientProtocol(
     runtimeState.runPhase = userInputRequired
       ? "failed"
       : turnTerminalFailurePhase ?? "succeeded";
+    runtimeState.sessionInfo.exitClassification = classifySessionExit({
+      runPhase: runtimeState.runPhase,
+      userInputRequired,
+      maxTurnsReached,
+    });
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
     await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
@@ -1083,6 +1096,11 @@ async function runCodexClientProtocol(
         runtimeState.run.lastError = errMsg;
       }
     }
+    runtimeState.sessionInfo.exitClassification = classifySessionExit({
+      runPhase: runtimeState.runPhase,
+      userInputRequired: false,
+      maxTurnsReached: false,
+    });
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();

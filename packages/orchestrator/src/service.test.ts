@@ -1314,6 +1314,9 @@ Prefer focused changes.
       completedAt: null,
       lastError: "Worker process exited unexpectedly.",
       nextRetryAt: "2026-03-08T00:00:20.000Z",
+      threadId: "thread-legacy",
+      turnCount: 4,
+      lastTurnSummary: "turn/completed",
     });
 
     const spawnImpl = vi.fn().mockReturnValue({
@@ -1411,6 +1414,10 @@ Prefer focused changes.
 
     expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");
+    expect(recoveredRun?.threadId).toBe("thread-legacy");
+    expect(recoveredRun?.cumulativeTurnCount).toBe(4);
+    expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");
+    expect(recoveredRun?.turnCount).toBe(0);
   });
 
   it("releases due retrying runs when the tracker issue is missing", async () => {
@@ -1820,6 +1827,18 @@ Prefer focused changes.
       completedAt: null,
       lastError: null,
       nextRetryAt: null,
+      threadId: "thread-1",
+      cumulativeTurnCount: 3,
+      lastTurnSummary: "turn/completed",
+      turnCount: 3,
+      runtimeSession: {
+        sessionId: "thread-1-turn-3",
+        threadId: "thread-1",
+        status: "completed",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        exitClassification: "completed",
+      },
     });
 
     const loadAllRunsSpy = vi.spyOn(store, "loadAllRuns");
@@ -3252,6 +3271,7 @@ Prefer focused changes.
               turnId: "turn-final",
               turnCount: 2,
               sessionId: "thread-1-turn-final",
+              exitClassification: "max-turns-reached",
             },
             executionPhase: "implementation",
             runPhase: "failed",
@@ -3331,6 +3351,12 @@ Prefer focused changes.
         expect(updatedRun?.runtimeSession?.sessionId).toBe(
           "thread-1-turn-final"
         );
+        expect(updatedRun?.runtimeSession?.exitClassification).toBe(
+          "max-turns-reached"
+        );
+        expect(updatedRun?.threadId).toBe("thread-1");
+        expect(updatedRun?.cumulativeTurnCount).toBe(2);
+        expect(updatedRun?.lastTurnSummary).toBe("turn failed");
         expect(updatedRun?.runtimeSession?.updatedAt).toBe(
           "2026-03-08T00:06:00.000Z"
         );
@@ -3399,6 +3425,7 @@ Prefer focused changes.
             turnId: "turn-xyz",
             turnCount: 2,
             sessionId: "thread-1-turn-xyz",
+            exitClassification: "user-input-required",
           },
           executionPhase: "human-review",
           runPhase: "failed",
@@ -3423,7 +3450,12 @@ Prefer focused changes.
       expect(updatedRun?.rateLimits).toBeNull();
       expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-xyz");
       expect(updatedRun?.runtimeSession?.threadId).toBe("thread-1");
+      expect(updatedRun?.runtimeSession?.exitClassification).toBe(
+        "user-input-required"
+      );
+      expect(updatedRun?.threadId).toBe("thread-1");
       expect(updatedRun?.turnCount).toBe(2);
+      expect(updatedRun?.cumulativeTurnCount).toBe(2);
       expect(updatedRun?.executionPhase).toBe("human-review");
       expect(updatedRun?.runPhase).toBe("failed");
       expect(updatedRun?.lastError).toBe(
@@ -3478,6 +3510,7 @@ Prefer focused changes.
         lastEventAt: "2026-03-08T00:06:30.000Z",
         lastEventAtSource: "event-channel",
         turnCount: 3,
+        lastTurnSummary: "turn/completed",
         executionPhase: "implementation",
         runPhase: "streaming_turn",
         lastError: "previous error",
@@ -3515,6 +3548,7 @@ Prefer focused changes.
       expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:06:30.000Z");
       expect(updatedRun?.lastEventAtSource).toBe("event-channel");
       expect(updatedRun?.turnCount).toBe(3);
+      expect(updatedRun?.lastTurnSummary).toBe("turn/completed");
       expect(updatedRun?.executionPhase).toBe("implementation");
       expect(updatedRun?.runPhase).toBe("streaming_turn");
       expect(updatedRun?.lastError).toBeNull();
@@ -3562,6 +3596,11 @@ Prefer focused changes.
     const initialRun = (await store.loadAllRuns())[0];
     expect(initialRun).toBeTruthy();
 
+    await store.saveRun({
+      ...initialRun!,
+      lastTurnSummary: "turn/completed",
+    });
+
     worker.stderr.write(
       JSON.stringify({
         type: "codex_update",
@@ -3598,6 +3637,98 @@ Prefer focused changes.
 
     const updatedRun = await store.loadRun(initialRun!.runId);
     expect(updatedRun?.lastEventAt).toBe("2026-03-08T00:01:30.000Z");
+    expect(updatedRun?.lastTurnSummary).toBe("turn/completed");
+  });
+
+  it("clears stale exit classification when a new active session is reported", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-heartbeat-clear-exit-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          stallTimeoutMs: 120000,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const worker = new EventEmitter() as EventEmitter & {
+        pid: number;
+        stderr: PassThrough;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      worker.pid = 4116;
+      worker.stderr = new PassThrough();
+      worker.unref = vi.fn();
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(
+            createTrackerResponseWithState(repository, "Todo")
+          ) as never,
+        spawnImpl: vi.fn().mockReturnValue(worker) as never,
+        isProcessRunning: (pid) => pid === 4116,
+        now: () => new Date("2026-03-08T00:08:00.000Z"),
+      });
+
+      await service.runOnce();
+      const initialRun = (await store.loadAllRuns())[0];
+      expect(initialRun).toBeTruthy();
+
+      await store.saveRun({
+        ...initialRun!,
+        runtimeSession: {
+          sessionId: "thread-1-turn-3",
+          threadId: "thread-1",
+          status: "completed",
+          startedAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:07:00.000Z",
+          exitClassification: "completed",
+        },
+      });
+
+      worker.stderr.write(
+        `${JSON.stringify({
+          type: "heartbeat",
+          issueId: initialRun!.issueId,
+          lastEventAt: "2026-03-08T00:07:30.000Z",
+          tokenUsage: {
+            inputTokens: 35,
+            outputTokens: 13,
+            totalTokens: 48,
+          },
+          rateLimits: null,
+          sessionInfo: {
+            threadId: "thread-1",
+            turnId: "turn-4",
+            turnCount: 1,
+            sessionId: "thread-1-turn-4",
+            exitClassification: null,
+          },
+          executionPhase: "implementation",
+          runPhase: null,
+          lastError: null,
+        })}\n`
+      );
+
+      await vi.waitFor(async () => {
+        const updatedRun = await store.loadRun(initialRun!.runId);
+        expect(updatedRun?.runtimeSession?.sessionId).toBe("thread-1-turn-4");
+      });
+
+      const updatedRun = await store.loadRun(initialRun!.runId);
+      expect(updatedRun?.runtimeSession?.status).toBe("active");
+      expect(updatedRun?.runtimeSession?.exitClassification).toBeNull();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("parses codex_update lines when UTF-8 multi-byte characters are split across stderr chunks", async () => {
