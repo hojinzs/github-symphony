@@ -24,6 +24,11 @@ import {
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
+import {
+  captureTurnWorkspaceSnapshot,
+  evaluateTurnProgress,
+  resolveMaxNonProductiveTurns,
+} from "./convergence-detection.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import {
   resolveBudgetExceededReason,
@@ -576,6 +581,7 @@ async function runCodexClientProtocol(
   const remainingTurns = resolveRemainingTurns(maxTurns, cumulativeTurnCount);
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
+  const maxNonProductiveTurns = resolveMaxNonProductiveTurns(env);
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
   const lastTurnSummary = env.SYMPHONY_LAST_TURN_SUMMARY ?? null;
   const continuationGuidance =
@@ -583,6 +589,10 @@ async function runCodexClientProtocol(
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
   const budgetState = resolveSessionBudgetState(env);
+  let previousTurnProgressSnapshot = {
+    ...captureTurnWorkspaceSnapshot(plan.cwd),
+    lastError: runtimeState.run?.lastError ?? null,
+  };
 
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
@@ -613,6 +623,8 @@ async function runCodexClientProtocol(
   let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
   let budgetExceededReason: BudgetExceededReason | null = null;
+  let consecutiveNonProductiveTurns = 0;
+  let convergenceDetected = false;
 
   function checkSessionBudgets(
     currentSessionTurnCount: number
@@ -1110,6 +1122,7 @@ async function runCodexClientProtocol(
         runPhase: runtimeState.runPhase,
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: true,
       });
       stopOrchestratorHeartbeatTimer();
@@ -1332,6 +1345,38 @@ async function runCodexClientProtocol(
         break;
       }
 
+      const currentTurnProgressSnapshot = {
+        ...captureTurnWorkspaceSnapshot(plan.cwd),
+        lastError: runtimeState.run?.lastError ?? null,
+      };
+      const turnProgress = evaluateTurnProgress(
+        previousTurnProgressSnapshot,
+        currentTurnProgressSnapshot
+      );
+      previousTurnProgressSnapshot = currentTurnProgressSnapshot;
+
+      if (turnProgress.nonProductive) {
+        consecutiveNonProductiveTurns += 1;
+        process.stderr.write(
+          `[worker] non-productive turn detected (${consecutiveNonProductiveTurns}/${maxNonProductiveTurns})${turnProgress.reason ? `: ${turnProgress.reason}` : ""}\n`
+        );
+      } else {
+        consecutiveNonProductiveTurns = 0;
+      }
+
+      if (consecutiveNonProductiveTurns >= maxNonProductiveTurns) {
+        convergenceDetected = true;
+        if (runtimeState.run) {
+          runtimeState.run.lastError = turnProgress.reason
+            ? `convergence_detected: ${turnProgress.reason}`
+            : "convergence_detected: repeated non-productive turn results";
+        }
+        process.stderr.write(
+          `[worker] convergence detected after ${consecutiveNonProductiveTurns} non-productive turns — exiting\n`
+        );
+        break;
+      }
+
       // trackerState is "active" or "unknown" — continue with next turn
     }
 
@@ -1341,13 +1386,16 @@ async function runCodexClientProtocol(
     runtimeState.runPhase = "finishing";
     runtimeState.status =
       userInputRequired || turnTerminalFailurePhase ? "failed" : "completed";
-    runtimeState.runPhase = userInputRequired
+    runtimeState.runPhase = convergenceDetected
       ? "failed"
-      : (turnTerminalFailurePhase ?? "succeeded");
+      : userInputRequired
+        ? "failed"
+        : (turnTerminalFailurePhase ?? "succeeded");
     runtimeState.sessionInfo.exitClassification = classifySessionExit({
       runPhase: runtimeState.runPhase,
       userInputRequired,
       budgetExceeded: budgetExceededReason !== null,
+      convergenceDetected,
       maxTurnsReached,
     });
     stopOrchestratorHeartbeatTimer();
@@ -1386,6 +1434,7 @@ async function runCodexClientProtocol(
       runPhase: runtimeState.runPhase,
       userInputRequired: false,
       budgetExceeded: false,
+      convergenceDetected: false,
       maxTurnsReached: false,
     });
     if (activeTurnTelemetry) {

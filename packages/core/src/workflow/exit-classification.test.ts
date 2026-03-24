@@ -8,6 +8,7 @@ describe("classifySessionExit", () => {
         runPhase: "failed",
         userInputRequired: true,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("user-input-required");
@@ -19,6 +20,7 @@ describe("classifySessionExit", () => {
         runPhase: "timed_out",
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("timeout");
@@ -27,6 +29,7 @@ describe("classifySessionExit", () => {
         runPhase: "stalled",
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("timeout");
@@ -38,9 +41,22 @@ describe("classifySessionExit", () => {
         runPhase: "succeeded",
         userInputRequired: false,
         budgetExceeded: true,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("budget-exceeded");
+  });
+
+  it("classifies convergence exits distinctly from other failures", () => {
+    expect(
+      classifySessionExit({
+        runPhase: "failed",
+        userInputRequired: false,
+        budgetExceeded: false,
+        convergenceDetected: true,
+        maxTurnsReached: false,
+      })
+    ).toBe("convergence-detected");
   });
 
   it("classifies max-turn exits distinctly from success", () => {
@@ -49,6 +65,7 @@ describe("classifySessionExit", () => {
         runPhase: "succeeded",
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: true,
       })
     ).toBe("max-turns-reached");
@@ -60,6 +77,7 @@ describe("classifySessionExit", () => {
         runPhase: "succeeded",
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("completed");
@@ -71,6 +89,7 @@ describe("classifySessionExit", () => {
         runPhase: "failed",
         userInputRequired: false,
         budgetExceeded: false,
+        convergenceDetected: false,
         maxTurnsReached: false,
       })
     ).toBe("error");

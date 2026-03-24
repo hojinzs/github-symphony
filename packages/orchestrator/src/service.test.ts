@@ -91,6 +91,7 @@ describe("OrchestratorService", () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "12";
     process.env.SYMPHONY_MAX_TOKENS = "900";
+    process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS = "7";
     process.env.SYMPHONY_SESSION_TIMEOUT_MS = "600000";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-budget-env-")
@@ -162,6 +163,7 @@ describe("OrchestratorService", () => {
         | undefined;
       expect(workerEnv?.SYMPHONY_GLOBAL_MAX_TURNS).toBe("12");
       expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("900");
+      expect(workerEnv?.SYMPHONY_MAX_NONPRODUCTIVE_TURNS).toBe("7");
       expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("600000");
       expect(workerEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("5");
       expect(workerEnv?.SYMPHONY_CUMULATIVE_INPUT_TOKENS).toBe("100");
@@ -173,7 +175,45 @@ describe("OrchestratorService", () => {
     } finally {
       delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
       delete process.env.SYMPHONY_MAX_TOKENS;
+      delete process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS;
       delete process.env.SYMPHONY_SESSION_TIMEOUT_MS;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults SYMPHONY_MAX_NONPRODUCTIVE_TURNS to 3 when unset", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    delete process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS;
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-convergence-env-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+        | NodeJS.ProcessEnv
+        | undefined;
+      expect(workerEnv?.SYMPHONY_MAX_NONPRODUCTIVE_TURNS).toBe("3");
+    } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
@@ -349,6 +389,106 @@ describe("OrchestratorService", () => {
       expect(issueRecords[0]?.state).toBe("released");
     } finally {
       delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("releases a converged worker session without scheduling a retry", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-convergence-release-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "workspace-1",
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          completedOnce: false,
+        },
+      ]);
+      await store.saveRun({
+        runId: "run-1",
+        projectId: projectConfig.projectId,
+        projectSlug: projectConfig.slug,
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueTitle: "Issue 1",
+        issueState: "Todo",
+        repository: {
+          cloneUrl: repository.cloneUrl,
+          owner: repository.owner,
+          name: repository.name,
+          url: `https://github.com/${repository.owner}/${repository.name}`,
+        },
+        status: "running",
+        attempt: 1,
+        processId: 9999,
+        port: null,
+        workingDirectory: repository.path,
+        issueWorkspaceKey: "workspace-1",
+        workspaceRuntimeDir: join(tempRoot, "runtime-run-1"),
+        workflowPath: join(repository.path, "WORKFLOW.md"),
+        retryKind: null,
+        threadId: "thread-1",
+        cumulativeTurnCount: 3,
+        lastTurnSummary: "turn/completed",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:10.000Z",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        completedAt: null,
+        lastError: "convergence_detected: workspace unchanged",
+        nextRetryAt: null,
+        runPhase: "failed",
+        runtimeSession: {
+          sessionId: "thread-1-turn-3",
+          threadId: "thread-1",
+          status: "completed",
+          startedAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:10.000Z",
+          exitClassification: "convergence-detected",
+        },
+      });
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValue(
+            createTrackerResponseWithState(repository, "Todo")
+          ) as never,
+        isProcessRunning: () => false,
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      const updatedRun = await store.loadRun("run-1");
+      const issueRecords = await store.loadProjectIssueOrchestrations(
+        projectConfig.projectId
+      );
+
+      expect(updatedRun?.status).toBe("failed");
+      expect(updatedRun?.retryKind).toBeNull();
+      expect(updatedRun?.nextRetryAt).toBeNull();
+      expect(updatedRun?.completedAt).toBe("2026-03-08T00:01:00.000Z");
+      expect(updatedRun?.lastError).toBe(
+        "convergence_detected: workspace unchanged"
+      );
+      expect(issueRecords[0]?.state).toBe("released");
+    } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
