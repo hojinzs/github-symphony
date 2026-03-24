@@ -7,6 +7,7 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "failed",
         userInputRequired: true,
+        budgetExceeded: false,
         maxTurnsReached: false,
       })
     ).toBe("user-input-required");
@@ -17,6 +18,7 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "timed_out",
         userInputRequired: false,
+        budgetExceeded: false,
         maxTurnsReached: false,
       })
     ).toBe("timeout");
@@ -24,9 +26,21 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "stalled",
         userInputRequired: false,
+        budgetExceeded: false,
         maxTurnsReached: false,
       })
     ).toBe("timeout");
+  });
+
+  it("classifies budget exits distinctly from per-session turn limits", () => {
+    expect(
+      classifySessionExit({
+        runPhase: "succeeded",
+        userInputRequired: false,
+        budgetExceeded: true,
+        maxTurnsReached: false,
+      })
+    ).toBe("budget-exceeded");
   });
 
   it("classifies max-turn exits distinctly from success", () => {
@@ -34,6 +48,7 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "succeeded",
         userInputRequired: false,
+        budgetExceeded: false,
         maxTurnsReached: true,
       })
     ).toBe("max-turns-reached");
@@ -44,6 +59,7 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "succeeded",
         userInputRequired: false,
+        budgetExceeded: false,
         maxTurnsReached: false,
       })
     ).toBe("completed");
@@ -54,6 +70,7 @@ describe("classifySessionExit", () => {
       classifySessionExit({
         runPhase: "failed",
         userInputRequired: false,
+        budgetExceeded: false,
         maxTurnsReached: false,
       })
     ).toBe("error");
