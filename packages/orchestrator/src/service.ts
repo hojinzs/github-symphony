@@ -1240,13 +1240,12 @@ export class OrchestratorService {
           SYMPHONY_TURN_SANDBOX_POLICY:
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
-          SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? undefined,
+          SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? "",
           SYMPHONY_CUMULATIVE_TURN_COUNT:
             resumeContext !== undefined
               ? String(Math.max(0, resumeContext.cumulativeTurnCount))
-              : undefined,
-          SYMPHONY_LAST_TURN_SUMMARY:
-            resumeContext?.lastTurnSummary ?? undefined,
+              : "",
+          SYMPHONY_LAST_TURN_SUMMARY: resumeContext?.lastTurnSummary ?? "",
           SYMPHONY_READ_TIMEOUT_MS: String(
             workflow.workflow.codex.readTimeoutMs
           ),

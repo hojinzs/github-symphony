@@ -29,6 +29,7 @@ import {
   buildInitialTurnInput,
   parseNonNegativeInteger,
   resolveRemainingTurns,
+  type ThreadBootstrapMode,
 } from "./thread-resume.js";
 import { persistTokenUsageArtifact } from "./token-usage.js";
 
@@ -953,7 +954,7 @@ async function runCodexClientProtocol(
       },
     };
     const resumeThreadId = plan.resumeThreadId;
-    let threadBootstrapMode: "fresh" | "resume" | "soft-resume" = "fresh";
+    let threadBootstrapMode: ThreadBootstrapMode = "fresh";
 
     process.stderr.write(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
