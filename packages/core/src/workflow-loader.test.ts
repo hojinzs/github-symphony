@@ -16,6 +16,7 @@ afterEach(async () => {
 });
 
 const SAMPLE_WORKFLOW = `---
+continuation_guidance: Continue from the latest state. Previous summary: {{lastTurnSummary}}
 tracker:
   kind: github-project
   project_id: project-123
@@ -54,6 +55,8 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow).toMatchObject({
       githubProjectId: "project-123",
       promptTemplate: "Prefer focused changes.",
+      continuationGuidance:
+        "Continue from the latest state. Previous summary: {{lastTurnSummary}}",
       agentCommand: "codex app-server",
       hookPath: "hooks/after_create.sh",
       format: "front-matter",
@@ -128,6 +131,22 @@ Labels:
     expect(workflow.promptTemplate).toContain("{% if issue.labels.size > 0 %}");
     expect(workflow.promptTemplate).toContain("{{ label | upcase }}");
     expect(workflow.promptTemplate).toContain("{% endfor %}");
+  });
+
+  it("accepts camelCase continuation guidance in front matter", () => {
+    const workflow = parseWorkflowMarkdown(`---
+continuationGuidance: Continue from turn {{cumulativeTurnCount}}.
+tracker:
+  kind: github-project
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.continuationGuidance).toBe(
+      "Continue from turn {{cumulativeTurnCount}}."
+    );
   });
 });
 

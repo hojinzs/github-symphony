@@ -26,6 +26,7 @@ import {
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import {
+  buildContinuationTurnInput,
   buildInitialTurnInput,
   parseNonNegativeInteger,
   resolveRemainingTurns,
@@ -480,7 +481,9 @@ async function startAssignedRun() {
     }
 
     // Wire up the codex app-server client protocol (multi-turn)
-    void runCodexClientProtocol(childProcess, plan, launcherEnv);
+    void runCodexClientProtocol(childProcess, plan, launcherEnv, {
+      continuationGuidance: workflow.continuationGuidance,
+    });
 
     childProcess.once(
       "exit",
@@ -545,7 +548,10 @@ async function startAssignedRun() {
 async function runCodexClientProtocol(
   child: ReturnType<typeof launchCodexAppServer>,
   plan: CodexRuntimePlan,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  options: {
+    continuationGuidance: string | null;
+  }
 ): Promise<void> {
   const renderedPrompt = env.SYMPHONY_RENDERED_PROMPT;
   if (!renderedPrompt) {
@@ -571,6 +577,8 @@ async function runCodexClientProtocol(
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
   const lastTurnSummary = env.SYMPHONY_LAST_TURN_SUMMARY ?? null;
+  const continuationGuidance =
+    env.SYMPHONY_CONTINUATION_GUIDANCE ?? options.continuationGuidance;
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
 
@@ -1180,6 +1188,7 @@ async function runCodexClientProtocol(
 
     for (let turn = 0; turn < remainingTurns; turn++) {
       turnCount = turn + 1;
+      const globalTurnCount = cumulativeTurnCount + turnCount;
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
@@ -1188,9 +1197,14 @@ async function runCodexClientProtocol(
             renderedPrompt,
             mode: threadBootstrapMode,
             lastTurnSummary,
+            cumulativeTurnCount,
+            continuationGuidance,
           })
-        : "Continue working on the issue. Review your progress and complete any remaining tasks.";
-      const globalTurnCount = cumulativeTurnCount + turnCount;
+        : buildContinuationTurnInput({
+            continuationGuidance,
+            lastTurnSummary,
+            cumulativeTurnCount: globalTurnCount - 1,
+          });
 
       process.stderr.write(
         `[worker] starting codex turn ${globalTurnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`

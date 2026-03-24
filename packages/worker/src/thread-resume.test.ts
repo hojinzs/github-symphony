@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildContinuationTurnInput,
   buildInitialTurnInput,
+  DEFAULT_CONTINUATION_GUIDANCE,
   parseNonNegativeInteger,
   resolveRemainingTurns,
 } from "./thread-resume.js";
@@ -41,12 +43,21 @@ describe("buildInitialTurnInput", () => {
   });
 
   it("builds a concise continuation prompt for hard resume", () => {
-    expect(
-      buildInitialTurnInput({
-        renderedPrompt: "original prompt",
-        mode: "resume",
-      })
-    ).toContain("existing thread context");
+    const prompt = buildInitialTurnInput({
+      renderedPrompt: "original prompt",
+      mode: "resume",
+      lastTurnSummary: "Finished the parser update.",
+      cumulativeTurnCount: 4,
+      continuationGuidance:
+        "Continue from turn {{cumulativeTurnCount}} with {{lastTurnSummary}}",
+    });
+
+    expect(prompt).toContain("existing thread context");
+    expect(prompt).toContain("Previous worker turns completed: 4.");
+    expect(prompt).toContain("Finished the parser update.");
+    expect(prompt).toContain(
+      "Continue from turn 4 with Finished the parser update."
+    );
   });
 
   it("embeds the last turn summary for soft resume", () => {
@@ -54,10 +65,36 @@ describe("buildInitialTurnInput", () => {
       renderedPrompt: "original prompt",
       mode: "soft-resume",
       lastTurnSummary: "Implemented the env passthrough.",
+      cumulativeTurnCount: 3,
+      continuationGuidance:
+        "Use summary {{lastTurnSummary}} after {{cumulativeTurnCount}} turns.",
     });
 
     expect(prompt).toContain("Original issue instructions:");
     expect(prompt).toContain("Implemented the env passthrough.");
-    expect(prompt).toContain("carry-over context");
+    expect(prompt).toContain(
+      "Use summary Implemented the env passthrough. after 3 turns."
+    );
+  });
+});
+
+describe("buildContinuationTurnInput", () => {
+  it("falls back to the default continuation guidance", () => {
+    expect(buildContinuationTurnInput({})).toBe(
+      DEFAULT_CONTINUATION_GUIDANCE
+    );
+  });
+
+  it("renders continuation template variables for resume-aware prompts", () => {
+    expect(
+      buildContinuationTurnInput({
+        continuationGuidance:
+          "Continue after {{cumulativeTurnCount}} turns. Summary: {{lastTurnSummary}}",
+        cumulativeTurnCount: 6,
+        lastTurnSummary: "worker resumed the same issue thread",
+      })
+    ).toBe(
+      "Continue after 6 turns. Summary: worker resumed the same issue thread"
+    );
   });
 });
