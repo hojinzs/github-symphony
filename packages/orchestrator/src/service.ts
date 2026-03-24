@@ -58,6 +58,7 @@ const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
+const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -465,6 +466,12 @@ export class OrchestratorService {
       const availableSlots = Math.max(0, concurrency - currentlyActive);
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
+        if (
+          hasConvergenceLockedRun(projectRunsAfterReconcile, issue.id, issue.state)
+        ) {
+          return false;
+        }
+
         return !issueRecords.some(
           (record) =>
             record.issueId === issue.id &&
@@ -1292,6 +1299,9 @@ export class OrchestratorService {
           SYMPHONY_GLOBAL_MAX_TURNS:
             process.env.SYMPHONY_GLOBAL_MAX_TURNS ?? "",
           SYMPHONY_MAX_TOKENS: process.env.SYMPHONY_MAX_TOKENS ?? "",
+          SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
+            process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
+            String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
           SYMPHONY_SESSION_TIMEOUT_MS:
             process.env.SYMPHONY_SESSION_TIMEOUT_MS ?? "",
           SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? "",
@@ -1668,17 +1678,30 @@ export class OrchestratorService {
       return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
     }
 
-    if (workerInfo.exitClassification === "budget-exceeded") {
+    if (
+      workerInfo.exitClassification === "budget-exceeded" ||
+      workerInfo.exitClassification === "convergence-detected"
+    ) {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
-        status: "succeeded",
+        status:
+          workerInfo.exitClassification === "budget-exceeded"
+            ? "succeeded"
+            : "failed",
         processId: null,
         updatedAt: now.toISOString(),
         completedAt: now.toISOString(),
         nextRetryAt: null,
         retryKind: null,
-        lastError: null,
-        runPhase: runWithTokens.runPhase ?? "succeeded",
+        lastError:
+          workerInfo.exitClassification === "budget-exceeded"
+            ? null
+            : runWithTokens.lastError,
+        runPhase:
+          runWithTokens.runPhase ??
+          (workerInfo.exitClassification === "budget-exceeded"
+            ? "succeeded"
+            : "failed"),
       };
       await this.store.saveRun(completedRun);
       this.logVerbose(
@@ -2850,6 +2873,24 @@ function resolvePersistedCumulativeTurnCount(
   run: OrchestratorRunRecord
 ): number {
   return run.cumulativeTurnCount ?? run.turnCount ?? 0;
+}
+
+function hasConvergenceLockedRun(
+  runs: readonly OrchestratorRunRecord[],
+  issueId: string,
+  issueState: string
+): boolean {
+  const latestRun = runs
+    .filter((run) => run.issueId === issueId)
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+    )[0];
+
+  return (
+    latestRun?.runtimeSession?.exitClassification === "convergence-detected" &&
+    latestRun.issueState === issueState
+  );
 }
 
 type IssueBudgetSnapshot = {

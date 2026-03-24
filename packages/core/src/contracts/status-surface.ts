@@ -54,6 +54,7 @@ export type OrchestratorRunStatus =
 export const SESSION_EXIT_CLASSIFICATIONS = [
   "completed",
   "budget-exceeded",
+  "convergence-detected",
   "max-turns-reached",
   "user-input-required",
   "timeout",

@@ -5,6 +5,7 @@ export function classifySessionExit(params: {
   runPhase: RunAttemptPhase | null;
   userInputRequired: boolean;
   budgetExceeded: boolean;
+  convergenceDetected: boolean;
   maxTurnsReached: boolean;
 }): SessionExitClassification {
   if (params.userInputRequired) {
@@ -13,6 +14,10 @@ export function classifySessionExit(params: {
 
   if (params.budgetExceeded) {
     return "budget-exceeded";
+  }
+
+  if (params.convergenceDetected) {
+    return "convergence-detected";
   }
 
   if (params.runPhase === "timed_out" || params.runPhase === "stalled") {
