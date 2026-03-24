@@ -58,6 +58,7 @@ export type WorkflowSourceFormat =
 
 export type WorkflowDefinition = {
   promptTemplate: string;
+  continuationGuidance: string | null;
   tracker: WorkflowTrackerConfig;
   polling: {
     intervalMs: number;
@@ -135,6 +136,7 @@ export const DEFAULT_WORKFLOW_CODEX: WorkflowCodexConfig = {
 
 export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   promptTemplate: "",
+  continuationGuidance: null,
   tracker: DEFAULT_WORKFLOW_TRACKER,
   polling: {
     intervalMs: DEFAULT_POLL_INTERVAL_MS,

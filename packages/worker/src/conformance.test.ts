@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 const SAMPLE_WORKFLOW = `---
+continuation_guidance: Resume using {{lastTurnSummary}}
 tracker:
   kind: github-project
   project_id: project-123
@@ -41,6 +42,7 @@ describe("Symphony core conformance", () => {
     expect(parseWorkflowMarkdown(SAMPLE_WORKFLOW)).toMatchObject({
       githubProjectId: "project-123",
       promptTemplate: "Prefer small changes and always explain risk.",
+      continuationGuidance: "Resume using {{lastTurnSummary}}",
       agentCommand: "codex app-server",
       hookPath: "hooks/after_create.sh",
       lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,

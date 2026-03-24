@@ -73,6 +73,12 @@ export function parseWorkflowMarkdown(
 
   const parsed: ParsedWorkflow = {
     promptTemplate,
+    continuationGuidance: readOptionalWorkflowString(
+      frontMatter,
+      "continuationGuidance",
+      "continuation_guidance",
+      env
+    ),
     tracker: {
       kind: trackerKind,
       endpoint: readOptionalString(tracker, "endpoint", env),
@@ -354,6 +360,18 @@ function readOptionalString(
     throw new Error(`Workflow front matter field "${key}" must be a string.`);
   }
   return resolveEnvironmentValue(value, env);
+}
+
+function readOptionalWorkflowString(
+  input: Record<string, WorkflowFrontMatterNode>,
+  primaryKey: string,
+  fallbackKey: string,
+  env: NodeJS.ProcessEnv
+): string | null {
+  return (
+    readOptionalString(input, primaryKey, env) ??
+    readOptionalString(input, fallbackKey, env)
+  );
 }
 
 function readRequiredString(
