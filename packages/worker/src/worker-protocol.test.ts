@@ -26,6 +26,21 @@ type PendingRequest = {
   reject: (e: Error) => void;
 };
 
+type TokenUsageSnapshot = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+type ActiveTurnTelemetry = {
+  startedAt: string;
+  threadId: string | null;
+  turnId: string | null;
+  turnCount: number;
+  sessionId: string | null;
+  tokenUsageBaseline: TokenUsageSnapshot;
+};
+
 /**
  * Minimal fake child process for testing: provides stdin/stdout/stderr streams
  * and basic process lifecycle (pid, kill, exit events).
@@ -94,17 +109,16 @@ function createProtocolContext(options: {
   let turnCompletedResolve: (() => void) | null = null;
   let userInputRequired = false;
   let killCalled = false;
-  let turnTerminalFailure:
-    | {
-        runPhase: "failed" | "canceled_by_reconciliation";
-        lastError: string | null;
-      }
-    | null = null;
+  let turnTerminalFailure: {
+    runPhase: "failed" | "canceled_by_reconciliation";
+    lastError: string | null;
+  } | null = null;
   const logs: string[] = [];
   const orchestratorEvents: Array<Record<string, unknown>> = [];
   let orchestratorChannelDrainPending = false;
   const pendingOrchestratorChannelPayloads: string[] = [];
   const maxPendingOrchestratorChannelPayloads = 16;
+  let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
 
   const defaultOrchestratorChannelWriter = {
     write(chunk: string): boolean {
@@ -204,7 +218,9 @@ function createProtocolContext(options: {
     orchestratorChannelDrainPending = false;
   }
 
-  function writeOrQueueOrchestratorChannelPayload(payload: Record<string, unknown>): void {
+  function writeOrQueueOrchestratorChannelPayload(
+    payload: Record<string, unknown>
+  ): void {
     const serializedPayload = `${JSON.stringify(payload)}\n`;
     if (orchestratorChannelDrainPending) {
       enqueuePendingOrchestratorChannelPayload(serializedPayload);
@@ -244,6 +260,83 @@ function createProtocolContext(options: {
     writeOrQueueOrchestratorChannelPayload(payload);
   }
 
+  function cloneTokenUsageSnapshot(): TokenUsageSnapshot {
+    return { ...runtimeState.tokenUsage };
+  }
+
+  function resolveTurnTokenUsageDelta(
+    baseline: TokenUsageSnapshot
+  ): TokenUsageSnapshot {
+    return {
+      inputTokens: Math.max(
+        0,
+        runtimeState.tokenUsage.inputTokens - baseline.inputTokens
+      ),
+      outputTokens: Math.max(
+        0,
+        runtimeState.tokenUsage.outputTokens - baseline.outputTokens
+      ),
+      totalTokens: Math.max(
+        0,
+        runtimeState.tokenUsage.totalTokens - baseline.totalTokens
+      ),
+    };
+  }
+
+  function emitTurnStartedEvent(turn: ActiveTurnTelemetry): void {
+    writeOrQueueOrchestratorChannelPayload({
+      type: "turn_started",
+      issueId: runtimeState.run.issueId,
+      startedAt: turn.startedAt,
+      threadId: turn.threadId,
+      turnId: turn.turnId,
+      turnCount: turn.turnCount,
+      sessionId: turn.sessionId,
+    });
+  }
+
+  function emitTurnCompletedEvent(turn: ActiveTurnTelemetry): void {
+    const completedAt = new Date().toISOString();
+    writeOrQueueOrchestratorChannelPayload({
+      type: "turn_completed",
+      issueId: runtimeState.run.issueId,
+      startedAt: turn.startedAt,
+      completedAt,
+      durationMs: Math.max(
+        0,
+        new Date(completedAt).getTime() - new Date(turn.startedAt).getTime()
+      ),
+      threadId: turn.threadId,
+      turnId: turn.turnId,
+      turnCount: turn.turnCount,
+      sessionId: turn.sessionId,
+      tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
+    });
+  }
+
+  function emitTurnFailedEvent(
+    turn: ActiveTurnTelemetry,
+    error: string | null
+  ): void {
+    const failedAt = new Date().toISOString();
+    writeOrQueueOrchestratorChannelPayload({
+      type: "turn_failed",
+      issueId: runtimeState.run.issueId,
+      startedAt: turn.startedAt,
+      failedAt,
+      durationMs: Math.max(
+        0,
+        new Date(failedAt).getTime() - new Date(turn.startedAt).getTime()
+      ),
+      threadId: turn.threadId,
+      turnId: turn.turnId,
+      turnCount: turn.turnCount,
+      sessionId: turn.sessionId,
+      tokenUsage: resolveTurnTokenUsageDelta(turn.tokenUsageBaseline),
+      error,
+    });
+  }
+
   function emitOrchestratorHeartbeat(): void {
     if (!runtimeState.run.issueId) {
       return;
@@ -254,7 +347,9 @@ function createProtocolContext(options: {
       issueId: runtimeState.run.issueId,
       lastEventAt: runtimeState.lastEventAt,
       tokenUsage: { ...runtimeState.tokenUsage },
-      rateLimits: runtimeState.rateLimits ? { ...runtimeState.rateLimits } : null,
+      rateLimits: runtimeState.rateLimits
+        ? { ...runtimeState.rateLimits }
+        : null,
       sessionInfo: { ...runtimeState.sessionInfo },
       executionPhase: runtimeState.executionPhase,
       runPhase: runtimeState.runPhase,
@@ -386,15 +481,11 @@ function createProtocolContext(options: {
     return { ...record };
   }
 
-  function extractAbsoluteTokenUsage(
-    value: unknown
-  ):
-    | {
-        inputTokens: number;
-        outputTokens: number;
-        totalTokens: number;
-      }
-    | null {
+  function extractAbsoluteTokenUsage(value: unknown): {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  } | null {
     const direct = parseTokenUsageSnapshot(value);
     if (direct) {
       return direct;
@@ -438,15 +529,11 @@ function createProtocolContext(options: {
     return null;
   }
 
-  function parseTokenUsageSnapshot(
-    value: unknown
-  ):
-    | {
-        inputTokens: number;
-        outputTokens: number;
-        totalTokens: number;
-      }
-    | null {
+  function parseTokenUsageSnapshot(value: unknown): {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  } | null {
     if (!value || typeof value !== "object") {
       return null;
     }
@@ -496,8 +583,7 @@ function createProtocolContext(options: {
       inputTokens: normalizedInputTokens,
       outputTokens: normalizedOutputTokens,
       totalTokens:
-        normalizedTotalTokens ||
-        normalizedInputTokens + normalizedOutputTokens,
+        normalizedTotalTokens || normalizedInputTokens + normalizedOutputTokens,
     };
   }
 
@@ -578,6 +664,18 @@ function createProtocolContext(options: {
     }
   }
 
+  function startTurnTelemetry(startedAt = new Date().toISOString()): void {
+    activeTurnTelemetry = {
+      startedAt,
+      threadId: runtimeState.sessionInfo.threadId,
+      turnId: runtimeState.sessionInfo.turnId,
+      turnCount: runtimeState.sessionInfo.turnCount,
+      sessionId: runtimeState.sessionInfo.sessionId,
+      tokenUsageBaseline: cloneTokenUsageSnapshot(),
+    };
+    emitTurnStartedEvent(activeTurnTelemetry);
+  }
+
   function describeTurnTerminalEvent(
     event: "turn/failed" | "turn/cancelled",
     params: unknown
@@ -627,6 +725,10 @@ function createProtocolContext(options: {
     runtimeState.run.lastError = lastError;
     turnTerminalFailure = { runPhase, lastError };
     resolvePendingTurnCompletion();
+    if (activeTurnTelemetry) {
+      emitTurnFailedEvent(activeTurnTelemetry, lastError);
+      activeTurnTelemetry = null;
+    }
   }
 
   function finalizeRunState(): void {
@@ -635,7 +737,7 @@ function createProtocolContext(options: {
       userInputRequired || turnTerminalFailure ? "failed" : "completed";
     runtimeState.runPhase = userInputRequired
       ? "failed"
-      : turnTerminalFailure?.runPhase ?? "succeeded";
+      : (turnTerminalFailure?.runPhase ?? "succeeded");
   }
 
   function applyChildExit(
@@ -706,6 +808,10 @@ function createProtocolContext(options: {
         "turn_input_required: agent requires user input";
       killCalled = true;
       // Resolve any pending turn completion
+      if (activeTurnTelemetry) {
+        emitTurnFailedEvent(activeTurnTelemetry, runtimeState.run.lastError);
+        activeTurnTelemetry = null;
+      }
       resolvePendingTurnCompletion();
       emitOrchestratorChannelEvent(orchestratorEventName);
       return;
@@ -723,6 +829,10 @@ function createProtocolContext(options: {
         applyRateLimitUpdate("turn/completed", rateLimits);
       }
       emitOrchestratorChannelEvent(orchestratorEventName);
+      if (activeTurnTelemetry) {
+        emitTurnCompletedEvent(activeTurnTelemetry);
+        activeTurnTelemetry = null;
+      }
       resolvePendingTurnCompletion();
       return;
     }
@@ -795,6 +905,7 @@ function createProtocolContext(options: {
     get killCalled() {
       return killCalled;
     },
+    startTurnTelemetry,
     signalTurnCompleted() {
       if (turnCompletedResolve) {
         turnCompletedResolve();
@@ -1413,7 +1524,9 @@ describe("read timeout (3.5)", () => {
       SYMPHONY_ISSUE_TITLE: "   ",
     });
 
-    const identifierOnlyMessages = readSentMessages(identifierOnlyCtx.fake.stdin);
+    const identifierOnlyMessages = readSentMessages(
+      identifierOnlyCtx.fake.stdin
+    );
 
     expect(identifierOnlyMessages[1]).toEqual({
       jsonrpc: "2.0",
@@ -1810,6 +1923,24 @@ describe("refreshTrackerState", () => {
 });
 
 describe("orchestrator channel telemetry", () => {
+  it("emits turn_started payloads when a turn begins", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.startTurnTelemetry("2026-03-08T00:00:00.000Z");
+
+    expect(ctx.orchestratorEvents).toEqual([
+      {
+        type: "turn_started",
+        issueId: "issue-1",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        turnCount: 1,
+        sessionId: "thread-1-turn-1",
+      },
+    ]);
+  });
+
   it("emits codex_update payloads with the latest counters and rate limits", () => {
     const ctx = createProtocolContext({});
 
@@ -1850,6 +1981,83 @@ describe("orchestrator channel telemetry", () => {
       runPhase: "streaming_turn",
       lastError: null,
       event: "turn/completed",
+    });
+  });
+
+  it("emits turn_completed payloads with per-turn token deltas", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.runtimeState.tokenUsage = {
+      inputTokens: 10,
+      outputTokens: 4,
+      totalTokens: 14,
+    };
+    ctx.startTurnTelemetry("2026-03-08T00:00:00.000Z");
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        usage: {
+          input_tokens: 25,
+          output_tokens: 10,
+          total_tokens: 35,
+        },
+      },
+    });
+
+    expect(ctx.orchestratorEvents).toHaveLength(3);
+    expect(ctx.orchestratorEvents[2]).toEqual({
+      type: "turn_completed",
+      issueId: "issue-1",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: expect.any(String),
+      durationMs: expect.any(Number),
+      threadId: "thread-1",
+      turnId: "turn-1",
+      turnCount: 1,
+      sessionId: "thread-1-turn-1",
+      tokenUsage: {
+        inputTokens: 15,
+        outputTokens: 6,
+        totalTokens: 21,
+      },
+    });
+  });
+
+  it("emits turn_failed payloads with the latest failure reason", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.runtimeState.tokenUsage = {
+      inputTokens: 3,
+      outputTokens: 1,
+      totalTokens: 4,
+    };
+    ctx.startTurnTelemetry("2026-03-08T00:01:00.000Z");
+    ctx.handleServerMessage({
+      method: "turn/failed",
+      params: {
+        error: {
+          message: "tool execution failed",
+        },
+      },
+    });
+
+    expect(ctx.orchestratorEvents).toHaveLength(3);
+    expect(ctx.orchestratorEvents[1]).toEqual({
+      type: "turn_failed",
+      issueId: "issue-1",
+      startedAt: "2026-03-08T00:01:00.000Z",
+      failedAt: expect.any(String),
+      durationMs: expect.any(Number),
+      threadId: "thread-1",
+      turnId: "turn-1",
+      turnCount: 1,
+      sessionId: "thread-1-turn-1",
+      tokenUsage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+      error: "turn_failed: tool execution failed",
     });
   });
 
@@ -2068,7 +2276,8 @@ describe("orchestrator channel telemetry", () => {
     };
     ctx.runtimeState.executionPhase = "human-review";
     ctx.runtimeState.runPhase = "failed";
-    ctx.runtimeState.run.lastError = "turn_input_required: agent requires user input";
+    ctx.runtimeState.run.lastError =
+      "turn_input_required: agent requires user input";
 
     ctx.emitOrchestratorHeartbeat();
 
