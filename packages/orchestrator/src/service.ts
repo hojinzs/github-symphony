@@ -1050,7 +1050,12 @@ export class OrchestratorService {
 
   private async startRun(
     tenant: OrchestratorProjectConfig,
-    issue: TrackedIssue
+    issue: TrackedIssue,
+    resumeContext?: {
+      threadId: string | null;
+      cumulativeTurnCount: number;
+      lastTurnSummary: string | null;
+    }
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
       throw new Error("Orchestrator is shutting down and cannot start new runs.");
@@ -1235,6 +1240,13 @@ export class OrchestratorService {
           SYMPHONY_TURN_SANDBOX_POLICY:
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
+          SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? undefined,
+          SYMPHONY_CUMULATIVE_TURN_COUNT:
+            resumeContext !== undefined
+              ? String(Math.max(0, resumeContext.cumulativeTurnCount))
+              : undefined,
+          SYMPHONY_LAST_TURN_SUMMARY:
+            resumeContext?.lastTurnSummary ?? undefined,
           SYMPHONY_READ_TIMEOUT_MS: String(
             workflow.workflow.codex.readTimeoutMs
           ),
@@ -2158,7 +2170,11 @@ export class OrchestratorService {
       tenant,
       run
     );
-    const restarted = await this.startRun(tenant, issue);
+    const restarted = await this.startRun(tenant, issue, {
+      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
+      cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
+      lastTurnSummary: run.lastTurnSummary ?? null,
+    });
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,

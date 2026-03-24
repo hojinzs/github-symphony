@@ -1398,6 +1398,9 @@ Prefer focused changes.
         env: expect.objectContaining({
           SYMPHONY_ISSUE_STATE: "Todo",
           SYMPHONY_ISSUE_TITLE: "Test issue",
+          SYMPHONY_RESUME_THREAD_ID: "thread-legacy",
+          SYMPHONY_CUMULATIVE_TURN_COUNT: "4",
+          SYMPHONY_LAST_TURN_SUMMARY: "turn/completed",
         }),
       })
     );
