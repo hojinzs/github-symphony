@@ -859,12 +859,7 @@ async function runCodexClientProtocol(
     }
 
     // User input required — hard failure (agent cannot proceed autonomously)
-    if (
-      msg.method === "item/tool/requestUserInput" ||
-      (msg.method === "turn/completed" &&
-        msg.params != null &&
-        (msg.params as Record<string, unknown>).inputRequired === true)
-    ) {
+    if (msg.method === "item/tool/requestUserInput") {
       process.stderr.write(
         "[worker] user_input_required detected — terminating codex process\n"
       );
@@ -897,7 +892,6 @@ async function runCodexClientProtocol(
     // Turn completed — signal the multi-turn loop
     if (msg.method === "turn/completed") {
       flushDeltaBuffer();
-      // Extract token usage from turn completion params if present
       const turnParams = (msg.params ?? {}) as Record<string, unknown>;
       const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
       if (turnUsage) {
@@ -906,6 +900,34 @@ async function runCodexClientProtocol(
       const rateLimits = extractRateLimitPayload(turnParams);
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
+      }
+      if (turnParams.inputRequired === true) {
+        process.stderr.write(
+          "[worker] user_input_required detected — terminating codex process\n"
+        );
+        userInputRequired = true;
+        runtimeState.status = "failed";
+        if (runtimeState.run) {
+          runtimeState.run.lastError =
+            "turn_input_required: agent requires user input";
+        }
+        if (child.pid) {
+          try {
+            process.kill(child.pid, "SIGTERM");
+          } catch {
+            // Already gone.
+          }
+        }
+        if (activeTurnTelemetry) {
+          emitTurnFailedEvent(
+            activeTurnTelemetry,
+            runtimeState.run?.lastError ?? null
+          );
+          activeTurnTelemetry = null;
+        }
+        resolvePendingTurnCompletion();
+        emitOrchestratorChannelEvent(orchestratorEventName);
+        return;
       }
       emitOrchestratorChannelEvent(orchestratorEventName);
       if (activeTurnTelemetry) {

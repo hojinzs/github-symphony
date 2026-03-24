@@ -3705,7 +3705,7 @@ Prefer focused changes.
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line) as Record<string, unknown>)
-          .filter((event) => String(event.event).startsWith("turn_"));
+          .filter((event) => String(event.event).startsWith("turn-"));
 
         expect(turnEvents).toHaveLength(3);
       });
@@ -3718,12 +3718,12 @@ Prefer focused changes.
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>)
-        .filter((event) => String(event.event).startsWith("turn_"));
+        .filter((event) => String(event.event).startsWith("turn-"));
 
       expect(turnEvents).toEqual([
         {
           at: "2026-03-08T00:01:00.000Z",
-          event: "turn_started",
+          event: "turn-started",
           projectId: "tenant-1",
           issueIdentifier: "acme/platform#1",
           issueId: initialRun!.issueId,
@@ -3734,7 +3734,7 @@ Prefer focused changes.
         },
         {
           at: "2026-03-08T00:01:45.000Z",
-          event: "turn_completed",
+          event: "turn-completed",
           projectId: "tenant-1",
           issueIdentifier: "acme/platform#1",
           issueId: initialRun!.issueId,
@@ -3752,7 +3752,7 @@ Prefer focused changes.
         },
         {
           at: "2026-03-08T00:02:10.000Z",
-          event: "turn_failed",
+          event: "turn-failed",
           projectId: "tenant-1",
           issueIdentifier: "acme/platform#1",
           issueId: initialRun!.issueId,

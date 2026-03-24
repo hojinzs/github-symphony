@@ -796,12 +796,7 @@ function createProtocolContext(options: {
       typeof msg.method === "string" ? msg.method : undefined;
 
     // User input required — hard failure
-    if (
-      msg.method === "item/tool/requestUserInput" ||
-      (msg.method === "turn/completed" &&
-        msg.params != null &&
-        (msg.params as Record<string, unknown>).inputRequired === true)
-    ) {
+    if (msg.method === "item/tool/requestUserInput") {
       userInputRequired = true;
       runtimeState.status = "failed";
       runtimeState.run.lastError =
@@ -827,6 +822,20 @@ function createProtocolContext(options: {
       const rateLimits = extractRateLimitPayload(turnParams);
       if (rateLimits) {
         applyRateLimitUpdate("turn/completed", rateLimits);
+      }
+      if (turnParams.inputRequired === true) {
+        userInputRequired = true;
+        runtimeState.status = "failed";
+        runtimeState.run.lastError =
+          "turn_input_required: agent requires user input";
+        killCalled = true;
+        if (activeTurnTelemetry) {
+          emitTurnFailedEvent(activeTurnTelemetry, runtimeState.run.lastError);
+          activeTurnTelemetry = null;
+        }
+        resolvePendingTurnCompletion();
+        emitOrchestratorChannelEvent(orchestratorEventName);
+        return;
       }
       emitOrchestratorChannelEvent(orchestratorEventName);
       if (activeTurnTelemetry) {
@@ -1786,6 +1795,53 @@ describe("user input required hard failure (4.3)", () => {
       "turn_input_required: agent requires user input"
     );
     expect(ctx.killCalled).toBe(true);
+  });
+
+  it("uses completion payload usage for inputRequired failures", () => {
+    const ctx = createProtocolContext({});
+
+    ctx.runtimeState.tokenUsage = {
+      inputTokens: 10,
+      outputTokens: 4,
+      totalTokens: 14,
+    };
+    ctx.startTurnTelemetry("2026-03-08T00:01:00.000Z");
+
+    ctx.handleServerMessage({
+      method: "turn/completed",
+      params: {
+        inputRequired: true,
+        usage: {
+          input_tokens: 25,
+          output_tokens: 10,
+          total_tokens: 35,
+        },
+      },
+    });
+
+    expect(ctx.orchestratorEvents).toHaveLength(3);
+    expect(ctx.orchestratorEvents[1]).toEqual({
+      type: "turn_failed",
+      issueId: "issue-1",
+      startedAt: "2026-03-08T00:01:00.000Z",
+      failedAt: expect.any(String),
+      durationMs: expect.any(Number),
+      threadId: "thread-1",
+      turnId: "turn-1",
+      turnCount: 1,
+      sessionId: "thread-1-turn-1",
+      tokenUsage: {
+        inputTokens: 15,
+        outputTokens: 6,
+        totalTokens: 21,
+      },
+      error: "turn_input_required: agent requires user input",
+    });
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 25,
+      outputTokens: 10,
+      totalTokens: 35,
+    });
   });
 
   it("does NOT trigger on normal turn/completed (inputRequired absent)", () => {

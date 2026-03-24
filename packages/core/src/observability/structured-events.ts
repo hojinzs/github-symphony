@@ -99,7 +99,7 @@ export type WorkerErrorEvent = {
 
 export type TurnStartedEvent = {
   at: string;
-  event: "turn_started";
+  event: "turn-started";
   projectId?: string;
   issueIdentifier: string;
   issueId?: string;
@@ -111,7 +111,7 @@ export type TurnStartedEvent = {
 
 export type TurnCompletedEvent = {
   at: string;
-  event: "turn_completed";
+  event: "turn-completed";
   projectId?: string;
   issueIdentifier: string;
   issueId?: string;
@@ -130,7 +130,7 @@ export type TurnCompletedEvent = {
 
 export type TurnFailedEvent = {
   at: string;
-  event: "turn_failed";
+  event: "turn-failed";
   projectId?: string;
   issueIdentifier: string;
   issueId?: string;

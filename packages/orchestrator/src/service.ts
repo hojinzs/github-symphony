@@ -1853,7 +1853,7 @@ export class OrchestratorService {
     if (event.type === "turn_started") {
       await this.store.appendRunEvent(runId, {
         at: event.startedAt,
-        event: "turn_started",
+        event: "turn-started",
         projectId: run.projectId,
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,
@@ -1868,7 +1868,7 @@ export class OrchestratorService {
     if (event.type === "turn_completed") {
       await this.store.appendRunEvent(runId, {
         at: event.completedAt,
-        event: "turn_completed",
+        event: "turn-completed",
         projectId: run.projectId,
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,
@@ -1886,7 +1886,7 @@ export class OrchestratorService {
     if (event.type === "turn_failed") {
       await this.store.appendRunEvent(runId, {
         at: event.failedAt,
-        event: "turn_failed",
+        event: "turn-failed",
         projectId: run.projectId,
         issueIdentifier: run.issueIdentifier,
         issueId: run.issueId,

@@ -23,11 +23,11 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return event.error ? `${event.outcome}: ${event.error}` : event.outcome;
     case "worker-error":
       return event.error;
-    case "turn_started":
+    case "turn-started":
       return `Turn ${event.turnCount} started`;
-    case "turn_completed":
+    case "turn-completed":
       return `Turn ${event.turnCount} completed in ${event.durationMs}ms`;
-    case "turn_failed":
+    case "turn-failed":
       return event.error ?? `Turn ${event.turnCount} failed`;
     default:
       return null;

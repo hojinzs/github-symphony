@@ -41,7 +41,7 @@ describe("event-formatter", () => {
     expect(
       formatEventMessage({
         at: "2026-03-16T00:03:00.000Z",
-        event: "turn_started",
+        event: "turn-started",
         issueIdentifier: "acme/repo#1",
         turnCount: 2,
       })
@@ -50,7 +50,7 @@ describe("event-formatter", () => {
     expect(
       formatEventMessage({
         at: "2026-03-16T00:04:00.000Z",
-        event: "turn_completed",
+        event: "turn-completed",
         issueIdentifier: "acme/repo#1",
         turnCount: 2,
         startedAt: "2026-03-16T00:03:00.000Z",
@@ -66,7 +66,7 @@ describe("event-formatter", () => {
     expect(
       formatEventMessage({
         at: "2026-03-16T00:05:00.000Z",
-        event: "turn_failed",
+        event: "turn-failed",
         issueIdentifier: "acme/repo#1",
         turnCount: 2,
         startedAt: "2026-03-16T00:03:00.000Z",
