@@ -1542,7 +1542,7 @@ export class OrchestratorService {
       lastEvent: workerInfo.lastEvent ?? run.lastEvent,
       lastTurnSummary: resolveLastTurnSummary(
         run.lastTurnSummary,
-        workerInfo.lastError ?? workerInfo.lastEvent ?? null
+        resolveLastTurnSummaryCandidate(workerInfo.lastEvent, workerInfo.lastError)
       ),
       lastEventAt: workerInfo.lastEventAt ?? run.lastEventAt ?? undefined,
       lastEventAtSource:
@@ -1781,7 +1781,7 @@ export class OrchestratorService {
         lastEvent: "heartbeat",
         lastTurnSummary: resolveLastTurnSummary(
           run.lastTurnSummary,
-          event.lastError ?? "heartbeat"
+          event.lastError
         ),
         lastEventAt: persistedLastEventAt,
         lastEventAtSource:
@@ -1826,7 +1826,7 @@ export class OrchestratorService {
       lastEvent: event.event ?? run.lastEvent ?? null,
       lastTurnSummary: resolveLastTurnSummary(
         run.lastTurnSummary,
-        event.lastError ?? event.event ?? null
+        resolveLastTurnSummaryCandidate(event.event, event.lastError)
       ),
       lastEventAt: event.lastEventAt,
       lastEventAtSource: "event-channel",
@@ -2166,7 +2166,7 @@ export class OrchestratorService {
       createdAt: run.createdAt,
       issueWorkspaceKey: run.issueWorkspaceKey,
       threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
-      cumulativeTurnCount: run.cumulativeTurnCount ?? 0,
+      cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
       lastTurnSummary: run.lastTurnSummary ?? null,
       turnCount: 0,
     };
@@ -2634,14 +2634,14 @@ function buildRuntimeSession(
   status: RuntimeSessionRow["status"],
   startedAt: string | null,
   updatedAt: string,
-  exitClassification: SessionExitClassification | null = null
+  exitClassification: SessionExitClassification | null | undefined = undefined
 ): OrchestratorRunRecord["runtimeSession"] | undefined {
   if (
     existing === undefined &&
     sessionId === null &&
     threadId === null &&
     status === null &&
-    exitClassification === null
+    (exitClassification === undefined || exitClassification === null)
   ) {
     return undefined;
   }
@@ -2652,15 +2652,24 @@ function buildRuntimeSession(
     status: status ?? existing?.status ?? null,
     startedAt: existing?.startedAt ?? startedAt,
     updatedAt,
-    exitClassification: exitClassification ?? existing?.exitClassification ?? null,
+    exitClassification:
+      exitClassification === undefined
+        ? existing?.exitClassification ?? null
+        : exitClassification,
   };
+}
+
+function resolvePersistedCumulativeTurnCount(
+  run: OrchestratorRunRecord
+): number {
+  return run.cumulativeTurnCount ?? run.turnCount ?? 0;
 }
 
 function resolveCumulativeTurnCount(
   run: OrchestratorRunRecord,
   turnCount: number | null
 ): number {
-  const carriedTotal = run.cumulativeTurnCount ?? 0;
+  const carriedTotal = resolvePersistedCumulativeTurnCount(run);
   if (turnCount === null) {
     return carriedTotal;
   }
@@ -2668,6 +2677,25 @@ function resolveCumulativeTurnCount(
   const previousSessionTurnCount = run.turnCount ?? 0;
   const baseTurnCount = Math.max(0, carriedTotal - previousSessionTurnCount);
   return baseTurnCount + turnCount;
+}
+
+function isTerminalTurnEvent(event: string | null | undefined): boolean {
+  return (
+    event === "turn/completed" ||
+    event === "turn/failed" ||
+    event === "turn/cancelled"
+  );
+}
+
+function resolveLastTurnSummaryCandidate(
+  event: string | null | undefined,
+  lastError: string | null | undefined
+): string | null {
+  if (typeof lastError === "string" && lastError.trim()) {
+    return lastError.trim();
+  }
+
+  return typeof event === "string" && isTerminalTurnEvent(event) ? event : null;
 }
 
 function resolveLastTurnSummary(
