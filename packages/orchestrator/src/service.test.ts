@@ -2333,6 +2333,115 @@ Prefer focused changes.
     expect(service.getEffectivePollIntervalMs()).toBe(5000);
   });
 
+  it("adapts the effective poll interval to GitHub rate-limit headroom and recovers automatically", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-rate-limit-"));
+    const createServiceWithRemaining = async (
+      suffix: string,
+      remainingRef: { value: number }
+    ) => {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        `platform-${suffix}`
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+
+      const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/v1/state")) {
+          throw new Error("worker offline");
+        }
+
+        return createTrackerResponseWithRateLimits(
+          repository,
+          remainingRef.value,
+          5000
+        );
+      });
+
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: fetchImpl as typeof fetch,
+        spawnImpl: vi.fn().mockReturnValue({
+          pid: 4306,
+          unref: vi.fn(),
+        }) as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      return service;
+    };
+
+    const healthyService = await createServiceWithRemaining("healthy", {
+      value: 4000,
+    });
+    await healthyService.runOnce();
+    expect(healthyService.getEffectivePollIntervalMs()).toBe(30_000);
+
+    const constrainedService = await createServiceWithRemaining("constrained", {
+      value: 2000,
+    });
+    await constrainedService.runOnce();
+    expect(constrainedService.getEffectivePollIntervalMs()).toBe(60_000);
+
+    const lowService = await createServiceWithRemaining("low", {
+      value: 500,
+    });
+    await lowService.runOnce();
+    expect(lowService.getEffectivePollIntervalMs()).toBe(120_000);
+
+    const exhaustedRemaining = { value: 100 };
+    const exhaustedService = await createServiceWithRemaining(
+      "exhausted",
+      exhaustedRemaining
+    );
+    await exhaustedService.runOnce();
+    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(300_000);
+
+    exhaustedRemaining.value = 4000;
+    await exhaustedService.runOnce();
+    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(30_000);
+  });
+
+  it("logs a warning when GitHub rate limits fall below five percent", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-rate-limit-warning-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithRateLimits(repository, 100, 5000)) as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4307,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+
+    expect(service.getEffectivePollIntervalMs()).toBe(300_000);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("low GitHub rate limit")
+    );
+  });
+
   it("reloads workflow concurrency limits for future dispatches without restart", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-"));
@@ -7126,6 +7235,83 @@ function createEmptyTrackerResponse() {
       },
     }),
   };
+}
+
+function createTrackerResponseWithRateLimits(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  remaining: number,
+  limit: number
+) {
+  return new Response(
+    JSON.stringify({
+      data: {
+        node: {
+          __typename: "ProjectV2",
+          items: {
+            nodes: [
+              {
+                id: "item-1",
+                updatedAt: "2026-03-08T00:00:00.000Z",
+                fieldValues: {
+                  nodes: [
+                    {
+                      __typename: "ProjectV2ItemFieldSingleSelectValue",
+                      name: "Todo",
+                      field: {
+                        name: "Status",
+                      },
+                    },
+                  ],
+                },
+                content: {
+                  __typename: "Issue",
+                  id: "issue-1",
+                  number: 1,
+                  title: "Implement orchestrator",
+                  body: null,
+                  url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
+                  createdAt: "2026-03-08T00:00:00.000Z",
+                  updatedAt: "2026-03-08T00:00:00.000Z",
+                  labels: {
+                    nodes: [],
+                  },
+                  blockedBy: {
+                    nodes: [],
+                  },
+                  repository: {
+                    name: repository.name,
+                    url: `file://${repository.cloneUrl}`,
+                    owner: {
+                      login: repository.owner,
+                    },
+                  },
+                },
+              },
+            ],
+            pageInfo: {
+              endCursor: null,
+              hasNextPage: false,
+            },
+          },
+        },
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-ratelimit-limit": String(limit),
+        "x-ratelimit-remaining": String(remaining),
+        "x-ratelimit-used": String(Math.max(0, limit - remaining)),
+        "x-ratelimit-reset": "1773892860",
+        "x-ratelimit-resource": "graphql",
+      },
+    }
+  );
 }
 
 async function createBareRepositoryFixture(

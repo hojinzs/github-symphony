@@ -7,6 +7,8 @@ import {
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
+const RATE_LIMIT_THRESHOLD = 100;
+const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
 export type GitHubTrackerConfig = {
   projectId: string;
@@ -191,6 +193,8 @@ type GitHubRateLimitPayload = {
   resetAt: string | null;
   resource: string | null;
 };
+
+let cachedGitHubGraphQLRateLimit: GitHubRateLimitPayload | null = null;
 
 export function normalizeProjectItem(
   projectId: string,
@@ -803,6 +807,8 @@ async function executeGraphQLQueryWithMetadata<TData>(
   data: TData;
   rateLimits: GitHubRateLimitPayload | null;
 }> {
+  await guardGraphQLRateLimit();
+
   const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
     method: "POST",
     headers: {
@@ -840,10 +846,39 @@ async function executeGraphQLQueryWithMetadata<TData>(
   }
 
   const data = payload.data as TData;
+  const rateLimits = extractGitHubRateLimits(response.headers);
+  cachedGitHubGraphQLRateLimit = rateLimits;
   return {
     data,
-    rateLimits: extractGitHubRateLimits(response.headers),
+    rateLimits,
   };
+}
+
+async function guardGraphQLRateLimit(): Promise<void> {
+  const rateLimit = cachedGitHubGraphQLRateLimit;
+  if (!rateLimit) {
+    return;
+  }
+
+  const remaining = rateLimit.remaining;
+  if (remaining === null || remaining > RATE_LIMIT_THRESHOLD) {
+    return;
+  }
+
+  const resetAtMs = parseTimestampMs(rateLimit.resetAt);
+  if (resetAtMs === null) {
+    throw new GitHubTrackerError("Rate limit near exhaustion");
+  }
+
+  const waitMs = Math.max(0, resetAtMs - Date.now());
+  if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
+    throw new GitHubTrackerError("Rate limit near exhaustion");
+  }
+
+  cachedGitHubGraphQLRateLimit = null;
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
 }
 
 function extractGitHubRateLimits(
@@ -887,6 +922,25 @@ function parseIntegerHeader(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseTimestampMs(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? timestampMs : null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+export function resetGitHubRateLimitCacheForTests(): void {
+  cachedGitHubGraphQLRateLimit = null;
 }
 
 const PROJECT_ITEMS_QUERY = `
