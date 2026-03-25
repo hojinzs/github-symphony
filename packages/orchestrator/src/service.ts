@@ -62,6 +62,7 @@ const DEFAULT_GLOBAL_MAX_TURNS = 100;
 const DEFAULT_MAX_TOKENS = 256_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
+const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON =
   "max_failure_retries_exceeded";
 
@@ -98,6 +99,19 @@ function parseTimestampMs(value: string | null | undefined): number | null {
 
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }
 
 export class OrchestratorService {
@@ -387,6 +401,7 @@ export class OrchestratorService {
     let recovered = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     let rateLimits: Record<string, unknown> | null = null;
+    let trackerRateLimits: Record<string, unknown> | null = null;
 
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
@@ -462,6 +477,9 @@ export class OrchestratorService {
       }
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
+        trackedIssuesByIdentifier.values()
+      );
+      trackerRateLimits = resolveTrackerRateLimits(
         trackedIssuesByIdentifier.values()
       );
       const concurrency = await this.getProjectConcurrency(tenant);
@@ -667,7 +685,21 @@ export class OrchestratorService {
         error instanceof Error ? error.message : "Unknown orchestration error";
     }
 
-    this.projectPollIntervals.set(tenant.projectId, pollIntervalMs);
+    const effectivePollIntervalMs = resolveAdaptivePollIntervalMs(
+      pollIntervalMs,
+      trackerRateLimits
+    );
+    if (
+      effectivePollIntervalMs > pollIntervalMs &&
+      isLowRateLimit(trackerRateLimits, LOW_RATE_LIMIT_WARNING_THRESHOLD)
+    ) {
+      this.writeStderr(
+        `[orchestrator] low GitHub rate limit for ${tenant.projectId}: interval=${effectivePollIntervalMs}ms rateLimits=${JSON.stringify(
+          trackerRateLimits
+        )}`
+      );
+    }
+    this.projectPollIntervals.set(tenant.projectId, effectivePollIntervalMs);
     await this.store.saveProjectIssueOrchestrations(
       tenant.projectId,
       issueRecords
@@ -2990,6 +3022,80 @@ function resolveProjectRateLimits(
   }
 
   return null;
+}
+
+function resolveTrackerRateLimits(
+  issues: Iterable<TrackedIssue>
+): Record<string, unknown> | null {
+  for (const issue of issues) {
+    if (isGitHubTrackerRateLimits(issue.rateLimits)) {
+      return issue.rateLimits;
+    }
+  }
+
+  return null;
+}
+
+function resolveAdaptivePollIntervalMs(
+  basePollIntervalMs: number,
+  rateLimits: Record<string, unknown> | null
+): number {
+  if (!Number.isFinite(basePollIntervalMs) || basePollIntervalMs <= 0) {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+
+  const ratio = extractRateLimitRatio(rateLimits);
+  if (ratio === null || ratio > 0.5) {
+    return basePollIntervalMs;
+  }
+
+  if (ratio >= 0.2) {
+    return basePollIntervalMs * 2;
+  }
+
+  if (ratio >= LOW_RATE_LIMIT_WARNING_THRESHOLD) {
+    return basePollIntervalMs * 4;
+  }
+
+  return basePollIntervalMs * 10;
+}
+
+function extractRateLimitRatio(
+  rateLimits: Record<string, unknown> | null
+): number | null {
+  if (!isRecord(rateLimits)) {
+    return null;
+  }
+
+  const limit = parseFiniteNumber(rateLimits.limit);
+  const remaining = parseFiniteNumber(rateLimits.remaining);
+  if (limit === null || remaining === null || limit <= 0 || remaining < 0) {
+    return null;
+  }
+
+  return remaining / limit;
+}
+
+function isGitHubTrackerRateLimits(
+  rateLimits: Record<string, unknown> | null | undefined
+): rateLimits is Record<string, unknown> {
+  if (!isRecord(rateLimits) || rateLimits.source !== "github") {
+    return false;
+  }
+
+  return (
+    rateLimits.resource === undefined ||
+    rateLimits.resource === null ||
+    rateLimits.resource === "graphql"
+  );
+}
+
+function isLowRateLimit(
+  rateLimits: Record<string, unknown> | null,
+  threshold: number
+): boolean {
+  const ratio = extractRateLimitRatio(rateLimits);
+  return ratio !== null && ratio < threshold;
 }
 
 function buildRuntimeSession(

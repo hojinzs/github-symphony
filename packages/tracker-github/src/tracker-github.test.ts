@@ -1,17 +1,26 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type ProjectItemsCache,
   type TrackedIssue,
 } from "@gh-symphony/core";
-import { normalizeGithubProjectItem } from "./adapter.js";
+import {
+  normalizeGithubProjectItem,
+  resetGitHubRateLimitCacheForTests,
+} from "./adapter.js";
 import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
 import {
   validateWorkflowFieldMapping,
   detectDuplicatePlacements,
   detectTransferRebindRequired,
 } from "./validation.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  resetGitHubRateLimitCacheForTests();
+});
 
 describe("resolveTrackerAdapter", () => {
   it("normalizes blocker refs into the workflow lifecycle state domain", () => {
@@ -513,6 +522,313 @@ describe("resolveTrackerAdapter", () => {
       resetAt: "2026-03-19T04:00:00.000Z",
       resource: "graphql",
     });
+  });
+
+  it("waits for the cached GraphQL rate limit reset when exhaustion is near", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
+
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "100",
+              "x-ratelimit-reset": "1773892830",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4999",
+              "x-ratelimit-reset": "1773892890",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      );
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    const pendingRequest = adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pendingRequest;
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the GraphQL request when the cached rate limit reset is too far away", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
+
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "100",
+              "x-ratelimit-reset": "1773892920",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      );
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    await expect(
+      adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+            },
+          },
+        },
+        {
+          token: "dependencies-token",
+          fetchImpl,
+        }
+      )
+    ).rejects.toThrow("Rate limit near exhaustion");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes the cached GraphQL rate limit to the current token", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
+
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "100",
+              "x-ratelimit-reset": "1773892920",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-ratelimit-limit": "5000",
+              "x-ratelimit-remaining": "4999",
+              "x-ratelimit-reset": "1773892890",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
+        )
+      );
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repositories: [],
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "token-a",
+        fetchImpl,
+      }
+    );
+
+    await expect(
+      adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: {
+              projectId: "project-123",
+            },
+          },
+        },
+        {
+          token: "token-b",
+          fetchImpl,
+        }
+      )
+    ).resolves.toEqual([]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("applies the latest paginated GitHub rate-limit headers to all listed issues", async () => {
