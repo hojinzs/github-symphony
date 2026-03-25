@@ -1,28 +1,12 @@
-import { readFile } from "node:fs/promises";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { GlobalOptions } from "../index.js";
+
+declare const __CLI_VERSION__: string;
 
 const handler = async (
   _args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  let version = "0.0.0";
-
-  try {
-    const pkgPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "package.json"
-    );
-    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
-      version?: string;
-    };
-    version = pkg.version ?? version;
-  } catch {
-    // Fall back to default
-  }
+  const version = __CLI_VERSION__;
 
   if (options.json) {
     process.stdout.write(JSON.stringify({ version }) + "\n");

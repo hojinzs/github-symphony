@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+  version: string;
+};
 
 export default defineConfig({
   entry: {
@@ -15,4 +20,7 @@ export default defineConfig({
     js: "#!/usr/bin/env node",
   },
   noExternal: [/^@gh-symphony\//],
+  define: {
+    __CLI_VERSION__: JSON.stringify(pkg.version),
+  },
 });
