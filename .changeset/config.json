@@ -10,5 +10,14 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": [
+    "@gh-symphony/core",
+    "@gh-symphony/dashboard",
+    "@gh-symphony/orchestrator",
+    "@gh-symphony/worker",
+    "@gh-symphony/runtime-codex",
+    "@gh-symphony/tracker-github",
+    "@gh-symphony/tracker-file",
+    "@gh-symphony/extension-github-workflow"
+  ]
 }

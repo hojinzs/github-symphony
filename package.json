@@ -18,7 +18,7 @@
     "format:write": "prettier --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && pnpm -r publish --provenance --access public"
+    "release": "pnpm build && pnpm --filter @gh-symphony/cli publish --provenance --access public"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",

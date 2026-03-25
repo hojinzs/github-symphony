@@ -35,18 +35,22 @@
     "url": "https://github.com/hojinzs/github-symphony/issues"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup",
     "lint": "eslint src --ext .ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "commander": "^14.0.1",
+    "liquidjs": "^10.25.0"
+  },
+  "devDependencies": {
     "@gh-symphony/core": "workspace:*",
     "@gh-symphony/dashboard": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/worker": "workspace:*",
-    "commander": "^14.0.1"
+    "tsup": "^8.5.1"
   }
 }

@@ -1,6 +1,7 @@
 {
   "name": "@gh-symphony/orchestrator",
   "version": "0.0.14",
+  "private": true,
   "license": "MIT",
   "author": "hojinzs",
   "description": "Headless CLI orchestrator with filesystem-backed state management for GitHub Symphony",

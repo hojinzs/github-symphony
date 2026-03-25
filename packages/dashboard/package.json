@@ -1,6 +1,7 @@
 {
   "name": "@gh-symphony/dashboard",
   "version": "0.0.14",
+  "private": true,
   "license": "MIT",
   "author": "hojinzs",
   "description": "Filesystem-backed dashboard handlers for GitHub Symphony",

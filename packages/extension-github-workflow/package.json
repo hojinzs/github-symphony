@@ -1,6 +1,7 @@
 {
   "name": "@gh-symphony/extension-github-workflow",
   "version": "0.0.14",
+  "private": true,
   "license": "MIT",
   "author": "hojinzs",
   "description": "GitHub-specific planning, approval, PR reporting, and handoff verification extensions for Symphony",

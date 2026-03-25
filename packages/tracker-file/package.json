@@ -1,6 +1,7 @@
 {
   "name": "@gh-symphony/tracker-file",
   "version": "0.0.14",
+  "private": true,
   "license": "MIT",
   "author": "hojinzs",
   "description": "File-based tracker adapter for E2E testing without external API dependencies",
