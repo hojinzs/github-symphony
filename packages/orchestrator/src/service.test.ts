@@ -2442,6 +2442,88 @@ Prefer focused changes.
     );
   });
 
+  it("ignores non-GitHub rate-limit payloads when computing the poll interval", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-non-github-rate-limit-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const resolveTrackerAdapterSpy = vi.spyOn(
+      trackerAdapters,
+      "resolveTrackerAdapter"
+    );
+    resolveTrackerAdapterSpy.mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Implement orchestrator",
+          description: null,
+          priority: null,
+          state: "Todo",
+          branchName: null,
+          url: "https://example.test/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository: {
+            owner: repository.owner,
+            name: repository.name,
+            cloneUrl: repository.cloneUrl,
+            url: `https://example.test/${repository.owner}/${repository.name}`,
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+          rateLimits: {
+            source: "codex",
+            limit: 100,
+            remaining: 1,
+          },
+        },
+      ]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn() as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4308,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+
+    expect(service.getEffectivePollIntervalMs()).toBe(30_000);
+    expect(stderr.write).not.toHaveBeenCalledWith(
+      expect.stringContaining("low GitHub rate limit")
+    );
+  });
+
   it("reloads workflow concurrency limits for future dispatches without restart", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-concurrency-"));

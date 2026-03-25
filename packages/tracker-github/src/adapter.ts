@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type TrackedIssue,
@@ -194,7 +195,10 @@ type GitHubRateLimitPayload = {
   resource: string | null;
 };
 
-let cachedGitHubGraphQLRateLimit: GitHubRateLimitPayload | null = null;
+const cachedGitHubGraphQLRateLimits = new Map<
+  string,
+  GitHubRateLimitPayload | null
+>();
 
 export function normalizeProjectItem(
   projectId: string,
@@ -807,7 +811,8 @@ async function executeGraphQLQueryWithMetadata<TData>(
   data: TData;
   rateLimits: GitHubRateLimitPayload | null;
 }> {
-  await guardGraphQLRateLimit();
+  const tokenFingerprint = fingerprintToken(config.token);
+  await guardGraphQLRateLimit(tokenFingerprint);
 
   const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
     method: "POST",
@@ -847,15 +852,15 @@ async function executeGraphQLQueryWithMetadata<TData>(
 
   const data = payload.data as TData;
   const rateLimits = extractGitHubRateLimits(response.headers);
-  cachedGitHubGraphQLRateLimit = rateLimits;
+  cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
   return {
     data,
     rateLimits,
   };
 }
 
-async function guardGraphQLRateLimit(): Promise<void> {
-  const rateLimit = cachedGitHubGraphQLRateLimit;
+async function guardGraphQLRateLimit(tokenFingerprint: string): Promise<void> {
+  const rateLimit = cachedGitHubGraphQLRateLimits.get(tokenFingerprint) ?? null;
   if (!rateLimit) {
     return;
   }
@@ -875,10 +880,14 @@ async function guardGraphQLRateLimit(): Promise<void> {
     throw new GitHubTrackerError("Rate limit near exhaustion");
   }
 
-  cachedGitHubGraphQLRateLimit = null;
+  cachedGitHubGraphQLRateLimits.delete(tokenFingerprint);
   if (waitMs > 0) {
     await sleep(waitMs);
   }
+}
+
+function fingerprintToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 function extractGitHubRateLimits(
@@ -940,7 +949,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function resetGitHubRateLimitCacheForTests(): void {
-  cachedGitHubGraphQLRateLimit = null;
+  cachedGitHubGraphQLRateLimits.clear();
 }
 
 const PROJECT_ITEMS_QUERY = `

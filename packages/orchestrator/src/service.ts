@@ -664,18 +664,15 @@ export class OrchestratorService {
 
     const effectivePollIntervalMs = resolveAdaptivePollIntervalMs(
       pollIntervalMs,
-      trackerRateLimits ?? rateLimits
+      trackerRateLimits
     );
     if (
       effectivePollIntervalMs > pollIntervalMs &&
-      isLowRateLimit(
-        trackerRateLimits ?? rateLimits,
-        LOW_RATE_LIMIT_WARNING_THRESHOLD
-      )
+      isLowRateLimit(trackerRateLimits, LOW_RATE_LIMIT_WARNING_THRESHOLD)
     ) {
       this.writeStderr(
         `[orchestrator] low GitHub rate limit for ${tenant.projectId}: interval=${effectivePollIntervalMs}ms rateLimits=${JSON.stringify(
-          trackerRateLimits ?? rateLimits
+          trackerRateLimits
         )}`
       );
     }
@@ -2876,7 +2873,7 @@ function resolveTrackerRateLimits(
   issues: Iterable<TrackedIssue>
 ): Record<string, unknown> | null {
   for (const issue of issues) {
-    if (isRecord(issue.rateLimits)) {
+    if (isGitHubTrackerRateLimits(issue.rateLimits)) {
       return issue.rateLimits;
     }
   }
@@ -2922,6 +2919,20 @@ function extractRateLimitRatio(
   }
 
   return remaining / limit;
+}
+
+function isGitHubTrackerRateLimits(
+  rateLimits: Record<string, unknown> | null | undefined
+): rateLimits is Record<string, unknown> {
+  if (!isRecord(rateLimits) || rateLimits.source !== "github") {
+    return false;
+  }
+
+  return (
+    rateLimits.resource === undefined ||
+    rateLimits.resource === null ||
+    rateLimits.resource === "graphql"
+  );
 }
 
 function isLowRateLimit(
