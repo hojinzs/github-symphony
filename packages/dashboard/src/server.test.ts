@@ -1,9 +1,6 @@
 import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  resolveDashboardResponse,
-  startDashboardServer,
-} from "./server.js";
+import { resolveDashboardResponse, startDashboardServer } from "./server.js";
 
 function createReader() {
   return {
@@ -54,6 +51,7 @@ describe("GET /api/v1/state", () => {
           identifier: "acme/repo#123",
           workspaceKey: "acme_repo_123",
           completedOnce: true,
+          failureRetryCount: 0,
           state: "released",
           currentRunId: null,
           retryEntry: null,
@@ -97,6 +95,7 @@ describe("GET /api/v1/<issue_identifier>", () => {
         identifier: "acme/repo#123",
         workspaceKey: "acme_repo_123",
         completedOnce: true,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,

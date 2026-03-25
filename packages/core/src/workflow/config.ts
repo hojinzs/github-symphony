@@ -32,6 +32,7 @@ export type WorkflowAgentConfig = {
   maxConcurrentAgents: number;
   maxRetryBackoffMs: number;
   maxConcurrentAgentsByState: Record<string, number>;
+  maxFailureRetries: number;
   maxTurns: number;
   retryBaseDelayMs: number;
 };
@@ -86,6 +87,7 @@ export const DEFAULT_MAX_RETRY_BACKOFF_MS = 300_000;
 export const DEFAULT_MAX_DELAY_MS = DEFAULT_MAX_RETRY_BACKOFF_MS;
 export const DEFAULT_BASE_DELAY_MS = 10_000;
 export const DEFAULT_MAX_TURNS = 20;
+export const DEFAULT_MAX_FAILURE_RETRIES = 10;
 export const DEFAULT_READ_TIMEOUT_MS = 5_000;
 export const DEFAULT_TURN_TIMEOUT_MS = 3_600_000;
 export const DEFAULT_STALL_TIMEOUT_MS = 300_000;
@@ -120,6 +122,7 @@ export const DEFAULT_WORKFLOW_AGENT: WorkflowAgentConfig = {
   maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
   maxRetryBackoffMs: DEFAULT_MAX_RETRY_BACKOFF_MS,
   maxConcurrentAgentsByState: {},
+  maxFailureRetries: DEFAULT_MAX_FAILURE_RETRIES,
   maxTurns: DEFAULT_MAX_TURNS,
   retryBaseDelayMs: DEFAULT_BASE_DELAY_MS,
 };
