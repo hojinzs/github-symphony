@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.0.16
+
+### Patch Changes
+
+- fix(release): bundle worker entrypoint for standalone CLI deployment
+
 ## 0.0.15
 
 ### Patch Changes
