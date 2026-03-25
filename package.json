@@ -5,6 +5,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "build:cli": "pnpm --filter @gh-symphony/cli... build",
+    "cli": "node packages/cli/dist/index.js --config .runtime",
+    "e2e:init": "bash e2e/seed/init-local.sh",
+    "e2e:start": "SYMPHONY_WORKER_COMMAND=\"node $(pwd)/e2e/dist/stub-worker.js\" node packages/cli/dist/index.js --config .runtime start --project-id e2e-project --http 4680",
     "dev:orchestrator": "pnpm --filter @gh-symphony/orchestrator dev",
     "dev:worker": "pnpm --filter @gh-symphony/worker dev",
     "lint": "pnpm -r lint",

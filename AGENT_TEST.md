@@ -1,6 +1,7 @@
 # AGENT_TEST.md
 
-AI Agent가 코드 변경 후 Docker 격리 환경에서 E2E 블랙박스 테스트를 수행하기 위한 가이드.
+AI Agent가 코드 변경 후 E2E 블랙박스 테스트를 수행하기 위한 가이드.
+로컬 실행(Docker 없이)과 Docker 격리 환경 두 가지 방식을 지원한다.
 
 ## 테스트 계층
 
@@ -9,7 +10,8 @@ AI Agent가 코드 변경 후 Docker 격리 환경에서 E2E 블랙박스 테스
 | Unit Test | `pnpm test` (Vitest) | 코드 변경 직후 |
 | Type Check | `pnpm typecheck` | 코드 변경 직후 |
 | Lint | `pnpm lint` | 코드 변경 직후 |
-| **E2E Test** | Docker + CLI | 통합 동작 검증이 필요할 때 |
+| **E2E Test (Local)** | pnpm cli + Stub Worker | 통합 동작을 빠르게 검증할 때 |
+| **E2E Test (Docker)** | Docker + CLI | 완전 격리된 환경에서 검증할 때 |
 
 ## 필수 검증 (모든 코드 변경 후)
 
@@ -19,7 +21,110 @@ pnpm lint && pnpm test && pnpm typecheck && pnpm build
 
 이 네 가지가 모두 통과해야 작업 완료로 간주한다.
 
-## E2E 테스트 환경
+## Local E2E 테스트 (Docker 없이)
+
+Docker 없이 로컬에서 바로 E2E 테스트를 실행하는 방법. 모든 상태는 `.runtime/`에 저장된다.
+
+### 아키텍처
+
+```
+pnpm e2e:start
+    │
+    ▼
+┌─────────────────────────────────────────────────┐
+│  Local Process                                   │
+│                                                  │
+│  CLI (start) ──→ Orchestrator ──spawn──→ Stub Worker │
+│       │                                          │
+│  Dashboard :4680     File Tracker                │
+│  /api/v1/state       (e2e/fixtures/issues.json)  │
+│                                                  │
+│  .runtime/           (프로젝트 루트, gitignored)  │
+│    ├─ e2e/repos/     (seed git repo)             │
+│    ├─ e2e/workspaces/(worker 작업 공간)           │
+│    └─ projects/      (orchestrator 상태)          │
+└─────────────────────────────────────────────────┘
+```
+
+### 초기 설정 (최초 1회)
+
+```bash
+pnpm build          # 전체 빌드
+pnpm e2e:init       # .runtime/ 구조 생성, stub worker 컴파일, seed repo 생성
+```
+
+`e2e:init`이 수행하는 작업:
+1. `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js` 컴파일
+2. `.runtime/e2e/repos/test-owner/test-repo` bare git repo 생성 (WORKFLOW.md 포함)
+3. `.runtime/projects/e2e-project/project.json` 프로젝트 설정
+4. `e2e/fixtures/issues.json` 빈 배열로 초기화
+
+### 실행
+
+```bash
+# 1. 이슈 주입 (로컬 fixture 사용 — cloneUrl이 로컬 경로로 치환됨)
+cp .runtime/e2e/fixtures/happy-path.json e2e/fixtures/issues.json
+
+# 2. 오케스트레이터 시작 (포그라운드, Ctrl+C로 종료)
+pnpm e2e:start
+```
+
+> **주의**: `e2e/fixtures/happy-path.json`(원본)이 아니라 `.runtime/e2e/fixtures/happy-path.json`(로컬용)을 사용해야 한다. 원본 fixture의 `cloneUrl`은 Docker 컨테이너 내부 경로를 가리킨다.
+
+다른 시나리오로 실행:
+
+```bash
+STUB_SCENARIO=fail pnpm e2e:start
+STUB_SCENARIO=stall pnpm e2e:start
+STUB_SCENARIO=slow pnpm e2e:start
+```
+
+### 상태 관찰 (별도 터미널)
+
+```bash
+# 프로젝트 전체 상태
+curl -s http://localhost:4680/api/v1/state | jq .
+
+# 핵심 필드만
+curl -s http://localhost:4680/api/v1/state | jq '{
+  health,
+  activeRuns: .summary.activeRuns,
+  runs: [.activeRuns[] | {status, executionPhase, lastEvent, retryKind}],
+  retryQueue: [.retryQueue[] | {retryKind, nextRetryAt}],
+  lastError
+}'
+
+# Reconciliation 수동 트리거
+curl -X POST http://localhost:4680/api/v1/refresh
+```
+
+### 이벤트 및 로그 확인
+
+```bash
+# 이벤트 로그 (구조화된 NDJSON)
+cat .runtime/projects/e2e-project/runs/*/events.ndjson | jq .
+
+# Worker 로그 (stderr 캡처)
+cat .runtime/projects/e2e-project/runs/*/worker.log
+```
+
+### 이슈 제거 (retry 중단)
+
+```bash
+echo "[]" > e2e/fixtures/issues.json
+```
+
+### 정리
+
+```bash
+rm -rf .runtime
+```
+
+`.runtime/`은 gitignored이므로 언제든 삭제하고 `pnpm e2e:init`으로 재생성할 수 있다.
+
+---
+
+## Docker E2E 테스트 환경
 
 ### 아키텍처
 
@@ -120,11 +225,10 @@ EOF
 ### 3. Reconciliation 트리거
 
 ```bash
-docker exec symphony-e2e \
-  node /app/packages/orchestrator/dist/index.js run-once \
-  --runtime-root /app/.runtime \
-  --project-id e2e-project
+curl -X POST http://localhost:4680/api/v1/refresh
 ```
+
+> 컨테이너의 entrypoint가 이미 `cli start`(지속 폴링)를 실행 중이므로, `docker exec run-once`는 사용하지 않는다. 두 인스턴스가 같은 state 파일을 경합하여 예측 불가능한 동작이 발생한다.
 
 ### 4. 상태 관찰
 

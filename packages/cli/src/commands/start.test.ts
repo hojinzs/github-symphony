@@ -264,7 +264,7 @@ describe("start command foreground locking", () => {
         )
       ) as { host: string; port: number; endpoint: string };
       expect(httpState).toEqual({
-        host: "127.0.0.1",
+        host: "0.0.0.0",
         port: Number.parseInt(new URL(url).port, 10),
         endpoint: url,
       });
@@ -395,7 +395,7 @@ describe("start command foreground locking", () => {
 
     const blocker = createServer();
     await new Promise<void>((resolve) =>
-      blocker.listen(0, "127.0.0.1", () => resolve())
+      blocker.listen(0, "0.0.0.0", () => resolve())
     );
     const address = blocker.address();
     if (!address || typeof address === "string") {
@@ -448,7 +448,7 @@ describe("start command foreground locking", () => {
       statePath,
       JSON.stringify(
         {
-          host: "127.0.0.1",
+          host: "0.0.0.0",
           port: 4680,
           endpoint: "http://localhost:4680",
         },

@@ -60,7 +60,7 @@ type HttpBindingState = {
 };
 
 const DEFAULT_HTTP_PORT = 4680;
-const HTTP_HOST = "127.0.0.1";
+const HTTP_HOST = "0.0.0.0";
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
