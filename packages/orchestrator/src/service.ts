@@ -3050,7 +3050,16 @@ function resolveWorkerCommand(): string {
     const workerUrl = import.meta.resolve("@gh-symphony/worker");
     return `node ${fileURLToPath(workerUrl)}`;
   } catch {
-    return DEFAULT_WORKER_COMMAND;
+    // When running from the bundled CLI, resolve worker-entry.js next to this file.
+    try {
+      const bundledWorker = join(
+        fileURLToPath(new URL(".", import.meta.url)),
+        "worker-entry.js"
+      );
+      return `node ${bundledWorker}`;
+    } catch {
+      return DEFAULT_WORKER_COMMAND;
+    }
   }
 }
 

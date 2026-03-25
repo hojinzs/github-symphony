@@ -70,7 +70,7 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", expect.stringContaining("packages/worker/dist/index.js")],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           GITHUB_PROJECT_ID: "project-123",
@@ -1834,7 +1834,7 @@ Prefer focused changes.
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_ISSUE_STATE: "Todo",
@@ -2466,7 +2466,7 @@ Prefer focused changes.
     expect(service.getEffectivePollIntervalMs()).toBe(5000);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", expect.stringContaining("packages/worker/dist/index.js")],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_AGENT_COMMAND: "codex --model gpt-5",

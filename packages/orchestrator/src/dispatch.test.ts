@@ -325,7 +325,7 @@ describe("blocker eligibility", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-1",
@@ -430,7 +430,7 @@ describe("blocker eligibility", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-2",
@@ -519,7 +519,7 @@ describe("blocker eligibility", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-2",
@@ -582,7 +582,7 @@ describe("codex policy propagation", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
-      ["-lc", "node packages/worker/dist/index.js"],
+      ["-lc", expect.stringMatching(/worker/)],
       expect.objectContaining({
         env: expect.objectContaining({
           SYMPHONY_APPROVAL_POLICY: "on-request",
