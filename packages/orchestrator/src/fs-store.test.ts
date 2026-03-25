@@ -282,7 +282,9 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
   it("defaults completedOnce to false for legacy persisted issue records", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
-    await mkdir(join(runtimeRoot, "projects", "project-1"), { recursive: true });
+    await mkdir(join(runtimeRoot, "projects", "project-1"), {
+      recursive: true,
+    });
     await writeFile(
       join(runtimeRoot, "projects", "project-1", "issues.json"),
       JSON.stringify([
@@ -299,12 +301,15 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
       "utf8"
     );
 
-    await expect(store.loadProjectIssueOrchestrations("project-1")).resolves.toEqual([
+    await expect(
+      store.loadProjectIssueOrchestrations("project-1")
+    ).resolves.toEqual([
       {
         issueId: "issue-1",
         identifier: "acme/repo#1",
         workspaceKey: "acme_repo_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "released",
         currentRunId: null,
         retryEntry: null,

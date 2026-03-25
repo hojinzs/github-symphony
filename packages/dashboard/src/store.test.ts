@@ -64,6 +64,7 @@ describe("DashboardFsReader", () => {
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: true,
+          failureRetryCount: 0,
           state: "retry_queued",
           currentRunId: "run-1",
           retryEntry: {
@@ -214,6 +215,7 @@ describe("DashboardFsReader", () => {
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "missing-run",
           retryEntry: null,
@@ -259,15 +261,15 @@ describe("DashboardFsReader", () => {
 
     const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
 
-    await expect(statusForIssue(reader, "acme/platform#1")).resolves.toMatchObject(
-      {
-        issue_identifier: "acme/platform#1",
-        status: "running",
-        tracked: {
-          current_run_id: "missing-run",
-        },
-      }
-    );
+    await expect(
+      statusForIssue(reader, "acme/platform#1")
+    ).resolves.toMatchObject({
+      issue_identifier: "acme/platform#1",
+      status: "running",
+      tracked: {
+        current_run_id: "missing-run",
+      },
+    });
   });
 
   it("defaults completedOnce to false for legacy persisted issue records", async () => {
@@ -298,6 +300,7 @@ describe("DashboardFsReader", () => {
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -333,6 +336,7 @@ describe("DashboardFsReader", () => {
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: true,
+          failureRetryCount: 0,
           state: "released",
           currentRunId: null,
           retryEntry: null,
@@ -343,6 +347,7 @@ describe("DashboardFsReader", () => {
           identifier: "acme/platform#2",
           workspaceKey: "acme_platform_2",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "unclaimed",
           currentRunId: null,
           retryEntry: null,
@@ -366,13 +371,7 @@ describe("DashboardFsReader", () => {
 
   it("reads recent events from large ndjson logs without scanning the entire file", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const runDir = join(
-      runtimeRoot,
-      "projects",
-      "tenant-1",
-      "runs",
-      "run-1"
-    );
+    const runDir = join(runtimeRoot, "projects", "tenant-1", "runs", "run-1");
     await mkdir(runDir, { recursive: true });
 
     const noisyPrefix = `${"x".repeat(70_000)}\n`;

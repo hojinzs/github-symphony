@@ -68,14 +68,14 @@ export class DashboardFsReader {
   }
 
   async loadProjectIssueOrchestrations(): Promise<IssueOrchestrationRecord[]> {
-    const issues =
-      await readJsonFile<IssueOrchestrationRecord[]>(
-        join(this.projectDir(), "issues.json")
-      );
+    const issues = await readJsonFile<IssueOrchestrationRecord[]>(
+      join(this.projectDir(), "issues.json")
+    );
     if (issues) {
       return issues.map((issue) => ({
         ...issue,
         completedOnce: issue.completedOnce ?? false,
+        failureRetryCount: issue.failureRetryCount ?? 0,
       }));
     }
 
@@ -97,6 +97,7 @@ export class DashboardFsReader {
         lease.issueIdentifier
       ),
       completedOnce: false,
+      failureRetryCount: 0,
       state: lease.status === "active" ? "claimed" : "released",
       currentRunId: lease.status === "active" ? lease.runId : null,
       retryEntry: null,
@@ -105,7 +106,9 @@ export class DashboardFsReader {
   }
 
   async loadRun(runId: string): Promise<OrchestratorRunRecord | null> {
-    return readJsonFile<OrchestratorRunRecord>(join(this.runDir(runId), "run.json"));
+    return readJsonFile<OrchestratorRunRecord>(
+      join(this.runDir(runId), "run.json")
+    );
   }
 
   async loadAllRuns(): Promise<OrchestratorRunRecord[]> {
@@ -159,9 +162,13 @@ export class DashboardFsReader {
           newlineCount += countNewlines(populatedChunk);
         }
 
-        return parseRecentEvents(Buffer.concat(chunks).toString("utf8"), limit, {
-          allowPartialFirstLine: position > 0,
-        });
+        return parseRecentEvents(
+          Buffer.concat(chunks).toString("utf8"),
+          limit,
+          {
+            allowPartialFirstLine: position > 0,
+          }
+        );
       } finally {
         await handle.close();
       }
@@ -211,7 +218,9 @@ export async function statusForIssue(
     : await findLatestRunForIssue(reader, issueRecord.issueId, issueIdentifier);
 
   const recentEvents =
-    currentRun === null ? [] : await reader.loadRecentRunEvents(currentRun.runId);
+    currentRun === null
+      ? []
+      : await reader.loadRecentRunEvents(currentRun.runId);
   const latestEventMessage =
     recentEvents[recentEvents.length - 1]?.message ?? null;
   const currentAttempt =
@@ -221,7 +230,8 @@ export async function statusForIssue(
     issue_identifier: issueRecord.identifier,
     issue_id: issueRecord.issueId,
     status:
-      currentRun?.status ?? mapIssueOrchestrationStateToStatus(issueRecord.state),
+      currentRun?.status ??
+      mapIssueOrchestrationStateToStatus(issueRecord.state),
     workspace: {
       path: currentRun?.workingDirectory ?? null,
     },
@@ -249,11 +259,13 @@ export async function statusForIssue(
               : null,
           },
     retry:
-      currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt
+      (currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt)
         ? {
-            due_at: currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
+            due_at:
+              currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
             kind: currentRun?.retryKind ?? null,
-            error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+            error:
+              currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
           }
         : null,
     logs: {
@@ -270,15 +282,15 @@ export async function statusForIssue(
     },
     recent_events: recentEvents,
     last_error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
-      tracked: {
-        issue_orchestration_state: issueRecord.state,
-        current_run_id: issueRecord.currentRunId,
-        workspace_key: issueRecord.workspaceKey,
-        completed_once: issueRecord.completedOnce,
-        run_phase: currentRun?.runPhase ?? null,
-        execution_phase: currentRun?.executionPhase ?? null,
-      },
-    };
+    tracked: {
+      issue_orchestration_state: issueRecord.state,
+      current_run_id: issueRecord.currentRunId,
+      workspace_key: issueRecord.workspaceKey,
+      completed_once: issueRecord.completedOnce,
+      run_phase: currentRun?.runPhase ?? null,
+      execution_phase: currentRun?.executionPhase ?? null,
+    },
+  };
 }
 
 async function findLatestRunForIssue(
@@ -289,7 +301,10 @@ async function findLatestRunForIssue(
   // If the tracked currentRunId is stale, fall back to a bounded-concurrency scan
   // across persisted runs rather than opening every run.json at once.
   const matchingRuns = (await reader.loadAllRuns())
-    .filter((run) => run.issueId === issueId || run.issueIdentifier === issueIdentifier)
+    .filter(
+      (run) =>
+        run.issueId === issueId || run.issueIdentifier === issueIdentifier
+    )
     .sort(
       (left, right) =>
         new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
