@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.0.15
+
+### Patch Changes
+
+- refactor(release): bundle internal packages and publish only cli
+  - Switch to tsup bundling with all @gh-symphony/\* packages inlined
+  - Mark internal packages as private (no longer published to npm)
+  - Add git tag and GitHub Release creation on publish
+  - Configure OIDC trusted publisher environment
+
 ## 0.0.11
 
 ### Patch Changes
