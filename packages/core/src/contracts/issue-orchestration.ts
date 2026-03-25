@@ -20,6 +20,7 @@ export type IssueOrchestrationRecord = {
   identifier: string;
   workspaceKey: string;
   completedOnce: boolean;
+  failureRetryCount: number;
   state: IssueOrchestrationState;
   currentRunId: string | null;
   retryEntry: IssueRetryEntry | null;

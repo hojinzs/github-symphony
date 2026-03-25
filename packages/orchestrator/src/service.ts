@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
   buildHookEnv,
   buildPromptVariables,
@@ -57,8 +58,12 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
+const DEFAULT_GLOBAL_MAX_TURNS = 100;
+const DEFAULT_MAX_TOKENS = 256_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
+const MAX_FAILURE_RETRIES_EXCEEDED_REASON =
+  "max_failure_retries_exceeded";
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -464,10 +469,17 @@ export class OrchestratorService {
         isIssueOrchestrationClaimed(record.state)
       ).length;
       const availableSlots = Math.max(0, concurrency - currentlyActive);
+      const latestRunsByIssueId = buildLatestRunMapByIssueId(
+        projectRunsAfterReconcile
+      );
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
         if (
-          hasConvergenceLockedRun(projectRunsAfterReconcile, issue.id, issue.state)
+          hasConvergenceLockedRun(
+            projectRunsAfterReconcile,
+            issue.id,
+            issue.state
+          )
         ) {
           return false;
         }
@@ -501,6 +513,16 @@ export class OrchestratorService {
         }
         if (slotsRemaining <= 0) break;
         if (
+          await this.isFailureRetrySuppressedIssue(
+            tenant,
+            issue,
+            issueRecords,
+            latestRunsByIssueId.get(issue.id) ?? null
+          )
+        ) {
+          continue;
+        }
+        if (
           isIssueBudgetExceeded(
             resolveIssueBudgetSnapshot(projectRunsAfterReconcile, issue.id),
             now
@@ -531,6 +553,7 @@ export class OrchestratorService {
           identifier: issue.identifier,
           workspaceKey: preferredWorkspaceKey,
           state: "claimed",
+          failureRetryCount: 0,
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -1309,7 +1332,7 @@ export class OrchestratorService {
             Math.max(
               0,
               resumeContext?.cumulativeTurnCount ??
-              issueBudgetSnapshot.cumulativeTurnCount
+                issueBudgetSnapshot.cumulativeTurnCount
             )
           ),
           SYMPHONY_CUMULATIVE_INPUT_TOKENS: String(
@@ -1740,6 +1763,70 @@ export class OrchestratorService {
     // Determine retry kind: continuation (issue still actionable) vs failure
     const retryKind = await this.classifyRetryKind(tenant, run);
 
+    const failureRetryCount =
+      retryKind === "failure"
+        ? (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0) + 1
+        : (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0);
+    const maxFailureRetries = await this.loadMaxFailureRetries(
+      tenant,
+      run.repository
+    );
+    if (
+      retryKind === "failure" &&
+      failureRetryCount >= maxFailureRetries
+    ) {
+      const lastError = [
+        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+        `failureRetryCount=${failureRetryCount}.`,
+        `maxFailureRetries=${maxFailureRetries}.`,
+      ].join(" ");
+      const suppressedRun: OrchestratorRunRecord = {
+        ...runWithTokens,
+        status: "suppressed",
+        processId: null,
+        updatedAt: now.toISOString(),
+        completedAt: now.toISOString(),
+        nextRetryAt: null,
+        retryKind: null,
+        runPhase: runWithTokens.runPhase ?? "failed",
+        lastError,
+      };
+      await this.store.saveRun(suppressedRun);
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "run-suppressed",
+        projectId: run.projectId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        reason: MAX_FAILURE_RETRIES_EXCEEDED_REASON,
+      } as OrchestratorEvent);
+      this.logVerbose(
+        `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+      );
+      return {
+        issueRecords: upsertIssueOrchestration(issueRecords, {
+          issueId: run.issueId,
+          identifier: run.issueIdentifier,
+          workspaceKey:
+            run.issueWorkspaceKey ??
+            deriveIssueWorkspaceKey(
+              {
+                projectId: tenant.projectId,
+                adapter: tenant.tracker.adapter,
+                issueSubjectId: run.issueSubjectId,
+              },
+              run.issueIdentifier
+            ),
+          state: "released",
+          failureRetryCount,
+          currentRunId: null,
+          retryEntry: null,
+          updatedAt: now.toISOString(),
+        }),
+        recovered: false,
+      };
+    }
+
     let nextRetryAt: string;
     if (retryKind === "continuation") {
       nextRetryAt = new Date(
@@ -1803,6 +1890,7 @@ export class OrchestratorService {
         ),
       state: "retry_queued",
       completedOnce: retryKind === "continuation" ? true : undefined,
+      failureRetryCount,
       currentRunId: run.runId,
       retryEntry: {
         attempt: retryRecord.attempt,
@@ -2785,6 +2873,73 @@ export class OrchestratorService {
     };
     await this.store.saveIssueWorkspace(removedRecord);
   }
+
+  private resolveFailureRetryCount(
+    issueRecords: IssueOrchestrationRecord[],
+    issueId: string
+  ): number | null {
+    return (
+      issueRecords.find((record) => record.issueId === issueId)
+        ?.failureRetryCount ?? null
+    );
+  }
+
+  private async isFailureRetrySuppressedIssue(
+    tenant: OrchestratorProjectConfig,
+    issue: TrackedIssue,
+    issueRecords: IssueOrchestrationRecord[],
+    latestRun: OrchestratorRunRecord | null
+  ): Promise<boolean> {
+    const issueRecord =
+      issueRecords.find(
+        (record) =>
+          record.issueId === issue.id || record.identifier === issue.identifier
+      ) ?? null;
+    if (!issueRecord || issueRecord.failureRetryCount <= 0) {
+      return false;
+    }
+
+    const maxFailureRetries = await this.loadMaxFailureRetries(
+      tenant,
+      issue.repository
+    );
+    if (issueRecord.failureRetryCount < maxFailureRetries) {
+      return false;
+    }
+
+    if (
+      !latestRun ||
+      latestRun.status !== "suppressed" ||
+      latestRun.issueState !== issue.state ||
+      !latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
+    ) {
+      return false;
+    }
+
+    const issueUpdatedAtMs = parseTimestampMs(issue.updatedAt);
+    const suppressedAtMs = parseTimestampMs(
+      latestRun.completedAt ?? latestRun.updatedAt
+    );
+    if (issueUpdatedAtMs === null || suppressedAtMs === null) {
+      return true;
+    }
+
+    return issueUpdatedAtMs <= suppressedAtMs;
+  }
+
+  private async loadMaxFailureRetries(
+    tenant: OrchestratorProjectConfig,
+    repository: RepositoryRef
+  ): Promise<number> {
+    try {
+      const resolution = await this.loadProjectWorkflow(tenant, repository);
+      return isUsableWorkflowResolution(resolution)
+        ? resolution.workflow.agent.maxFailureRetries
+        : DEFAULT_MAX_FAILURE_RETRIES;
+    } catch {
+      return DEFAULT_MAX_FAILURE_RETRIES;
+    }
+  }
 }
 
 function hasTokenUsage(
@@ -2940,18 +3095,16 @@ function isIssueBudgetExceeded(
   now: Date,
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const globalMaxTurns = parsePositiveInteger(
-    env.SYMPHONY_GLOBAL_MAX_TURNS ?? ""
-  );
-  if (
-    globalMaxTurns !== null &&
-    snapshot.cumulativeTurnCount >= globalMaxTurns
-  ) {
+  const globalMaxTurns =
+    parsePositiveInteger(env.SYMPHONY_GLOBAL_MAX_TURNS ?? "") ??
+    DEFAULT_GLOBAL_MAX_TURNS;
+  if (snapshot.cumulativeTurnCount >= globalMaxTurns) {
     return true;
   }
 
-  const maxTokens = parsePositiveInteger(env.SYMPHONY_MAX_TOKENS ?? "");
-  if (maxTokens !== null && snapshot.tokenUsage.totalTokens >= maxTokens) {
+  const maxTokens =
+    parsePositiveInteger(env.SYMPHONY_MAX_TOKENS ?? "") ?? DEFAULT_MAX_TOKENS;
+  if (snapshot.tokenUsage.totalTokens >= maxTokens) {
     return true;
   }
 
@@ -3133,6 +3286,28 @@ function createRunId(
   ].join("-");
 }
 
+function buildLatestRunMapByIssueId(
+  runs: OrchestratorRunRecord[]
+): Map<string, OrchestratorRunRecord> {
+  const latestRuns = new Map<string, OrchestratorRunRecord>();
+  for (const run of runs) {
+    const existing = latestRuns.get(run.issueId);
+    if (!existing) {
+      latestRuns.set(run.issueId, run);
+      continue;
+    }
+
+    const runUpdatedAtMs = parseTimestampMs(run.updatedAt) ?? -Infinity;
+    const existingUpdatedAtMs =
+      parseTimestampMs(existing.updatedAt) ?? -Infinity;
+    if (runUpdatedAtMs > existingUpdatedAtMs) {
+      latestRuns.set(run.issueId, run);
+    }
+  }
+
+  return latestRuns;
+}
+
 function isIssueOrchestrationClaimed(
   state: IssueOrchestrationRecord["state"]
 ): boolean {
@@ -3141,8 +3316,12 @@ function isIssueOrchestrationClaimed(
 
 function upsertIssueOrchestration(
   issueRecords: IssueOrchestrationRecord[],
-  nextRecord: Omit<IssueOrchestrationRecord, "completedOnce"> & {
+  nextRecord: Omit<
+    IssueOrchestrationRecord,
+    "completedOnce" | "failureRetryCount"
+  > & {
     completedOnce?: boolean;
+    failureRetryCount?: number;
   }
 ): IssueOrchestrationRecord[] {
   const existingRecord =
@@ -3157,6 +3336,8 @@ function upsertIssueOrchestration(
       ...nextRecord,
       completedOnce:
         nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
+      failureRetryCount:
+        nextRecord.failureRetryCount ?? existingRecord?.failureRetryCount ?? 0,
     },
   ];
 }

@@ -3,6 +3,7 @@ import {
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_MAX_CONCURRENT_AGENTS,
+  DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_MAX_RETRY_BACKOFF_MS,
   DEFAULT_MAX_TURNS,
   DEFAULT_POLL_INTERVAL_MS,
@@ -117,6 +118,9 @@ export function parseWorkflowMarkdown(
         readOptionalIntegerLike(agent, "max_retry_backoff_ms") ??
         DEFAULT_MAX_RETRY_BACKOFF_MS,
       maxConcurrentAgentsByState,
+      maxFailureRetries:
+        readOptionalIntegerLike(agent, "max_failure_retries") ??
+        DEFAULT_MAX_FAILURE_RETRIES,
       maxTurns:
         readOptionalIntegerLike(agent, "max_turns") ?? DEFAULT_MAX_TURNS,
       retryBaseDelayMs:

@@ -93,9 +93,7 @@ describe("OrchestratorService", () => {
     process.env.SYMPHONY_MAX_TOKENS = "900";
     process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS = "7";
     process.env.SYMPHONY_SESSION_TIMEOUT_MS = "600000";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-budget-env-")
-    );
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-budget-env-"));
     try {
       const repository = await createRepositoryFixture(
         tempRoot,
@@ -221,9 +219,7 @@ describe("OrchestratorService", () => {
   it("skips dispatch when an issue has already exhausted its global turn budget", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "4";
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-budget-skip-")
-    );
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-budget-skip-"));
     try {
       const repository = await createRepositoryFixture(
         tempRoot,
@@ -289,6 +285,94 @@ describe("OrchestratorService", () => {
     }
   });
 
+  it("skips dispatch when default budget limits are exceeded without env overrides", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalGlobalMaxTurns = process.env.SYMPHONY_GLOBAL_MAX_TURNS;
+    const originalMaxTokens = process.env.SYMPHONY_MAX_TOKENS;
+    delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
+    delete process.env.SYMPHONY_MAX_TOKENS;
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-budget-defaults-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await store.saveRun({
+        runId: "run-prev",
+        projectId: projectConfig.projectId,
+        projectSlug: projectConfig.slug,
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueTitle: "Issue 1",
+        issueState: "Todo",
+        repository: {
+          cloneUrl: repository.cloneUrl,
+          owner: repository.owner,
+          name: repository.name,
+          url: `https://github.com/${repository.owner}/${repository.name}`,
+        },
+        status: "failed",
+        attempt: 9,
+        processId: null,
+        port: null,
+        workingDirectory: repository.path,
+        issueWorkspaceKey: "workspace-1",
+        workspaceRuntimeDir: join(tempRoot, "runtime-prev"),
+        workflowPath: join(repository.path, "WORKFLOW.md"),
+        retryKind: null,
+        threadId: "thread-prev",
+        cumulativeTurnCount: 100,
+        lastTurnSummary: "turn/completed",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:30.000Z",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        completedAt: "2026-03-08T00:00:30.000Z",
+        lastError: "budget baseline",
+        nextRetryAt: null,
+        runPhase: "failed",
+        tokenUsage: {
+          inputTokens: 200_000,
+          outputTokens: 56_000,
+          totalTokens: 256_000,
+        },
+      });
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4104,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      });
+
+      const result = await service.runOnce();
+
+      expect(result.summary.dispatched).toBe(0);
+      expect(spawnImpl).not.toHaveBeenCalled();
+    } finally {
+      if (originalGlobalMaxTurns === undefined) {
+        delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
+      } else {
+        process.env.SYMPHONY_GLOBAL_MAX_TURNS = originalGlobalMaxTurns;
+      }
+      if (originalMaxTokens === undefined) {
+        delete process.env.SYMPHONY_MAX_TOKENS;
+      } else {
+        process.env.SYMPHONY_MAX_TOKENS = originalMaxTokens;
+      }
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("releases a completed worker session without retry when exitClassification is budget-exceeded", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "4";
@@ -314,6 +398,7 @@ describe("OrchestratorService", () => {
           retryEntry: null,
           updatedAt: "2026-03-08T00:00:00.000Z",
           completedOnce: false,
+          failureRetryCount: 0,
         },
       ]);
       await store.saveRun({
@@ -417,6 +502,7 @@ describe("OrchestratorService", () => {
           retryEntry: null,
           updatedAt: "2026-03-08T00:00:00.000Z",
           completedOnce: false,
+          failureRetryCount: 0,
         },
       ]);
       await store.saveRun({
@@ -834,6 +920,7 @@ describe("OrchestratorService", () => {
         identifier: "acme/platform#1",
         workspaceKey,
         completedOnce: false,
+        failureRetryCount: 0,
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -951,6 +1038,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey,
         completedOnce: false,
+        failureRetryCount: 0,
         state: "released",
         currentRunId: null,
         retryEntry: null,
@@ -1724,6 +1812,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -1883,6 +1972,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -1966,6 +2056,7 @@ Prefer focused changes.
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-1",
       completedOnce: false,
+      failureRetryCount: 0,
       state: "released",
       currentRunId: null,
       retryEntry: null,
@@ -1991,6 +2082,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -2106,6 +2198,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "retry_queued",
         currentRunId: "run-1",
         retryEntry: {
@@ -2245,6 +2338,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2615,6 +2709,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2664,7 +2759,378 @@ Prefer focused changes.
     expect(updatedRun?.retryKind).toBe("failure");
   });
 
-  it("keeps scheduling retries after the third failed attempt", async () => {
+  it("releases the issue when failure retry count reaches the configured limit", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-cap-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 2,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/v1/state")) {
+        return Promise.resolve({
+          ok: false,
+          json: vi.fn(),
+        } as Response);
+      }
+      return Promise.resolve(createEmptyTrackerResponse());
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+    const events = await store.loadRecentRunEvents("run-1", 5, "tenant-1");
+
+    expect(updatedRun?.status).toBe("suppressed");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.lastError).toBe(
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3."
+    );
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      retryEntry: null,
+      failureRetryCount: 3,
+    });
+    expect(events).toContainEqual({
+      at: "2026-03-08T00:00:00.000Z",
+      event: "run-suppressed",
+      message: "max_failure_retries_exceeded",
+    });
+  });
+
+  it("does not redispatch a max-failure-retry-suppressed issue until the tracker changes", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-suppressed-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "suppressed",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "suppressed-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "suppressed-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:05:00.000Z",
+      lastError:
+        "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3.",
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4105,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-08T00:04:00.000Z",
+          })
+        ) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
+    });
+  });
+
+  it("redispatches a max-failure-retry-suppressed issue after the tracker updates", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-recovery-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "suppressed",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "suppressed-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "suppressed-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:05:00.000Z",
+      lastError:
+        "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3.",
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4106,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-08T00:06:00.000Z",
+          })
+        ) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(issueRecords[0]).toMatchObject({
+      state: "running",
+      failureRetryCount: 0,
+    });
+    expect(issueRecords[0]?.currentRunId).not.toBeNull();
+  });
+
+  it("falls back to the default max failure retry limit when workflow loading fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-fallback-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 25,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 9,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 10,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/v1/state")) {
+        return Promise.resolve({
+          ok: false,
+          json: vi.fn(),
+        } as Response);
+      }
+      return Promise.resolve(createEmptyTrackerResponse());
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4107,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const originalLoadProjectWorkflow = (
+      service as unknown as {
+        loadProjectWorkflow: (
+          tenant: unknown,
+          repository: unknown
+        ) => Promise<unknown>;
+      }
+    ).loadProjectWorkflow.bind(service);
+    const loadProjectWorkflowSpy = vi.spyOn(
+      service as never,
+      "loadProjectWorkflow"
+    );
+    loadProjectWorkflowSpy
+      .mockRejectedValueOnce(new Error("workflow unavailable"))
+      .mockImplementation(originalLoadProjectWorkflow as never);
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun?.status).toBe("suppressed");
+    expect(updatedRun?.lastError).toBe(
+      "Run suppressed: max_failure_retries_exceeded. failureRetryCount=10. maxFailureRetries=10."
+    );
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 10,
+    });
+  });
+
+  it("keeps scheduling retries below the configured failure retry limit", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-unbounded-retry-")
@@ -2687,6 +3153,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 2,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2745,6 +3212,7 @@ Prefer focused changes.
     expect(updatedRun?.attempt).toBe(4);
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
     expect(issueRecords[0]?.state).toBe("retry_queued");
+    expect(issueRecords[0]?.failureRetryCount).toBe(3);
     expect(issueRecords[0]?.retryEntry).toEqual({
       attempt: 4,
       dueAt: "2026-03-08T00:00:07.000Z",
@@ -2775,6 +3243,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2830,6 +3299,7 @@ Prefer focused changes.
     expect(updatedRun?.retryKind).toBe("continuation");
     expect(updatedRun?.lastError).toBeNull();
     expect(issueRecords[0]?.completedOnce).toBe(true);
+    expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
   });
 
@@ -2855,6 +3325,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -2938,6 +3409,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -3022,6 +3494,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -3110,6 +3583,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -3218,6 +3692,7 @@ Prefer focused changes.
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -3312,6 +3787,7 @@ Prefer focused changes.
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -3415,6 +3891,7 @@ Prefer focused changes.
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -3503,6 +3980,7 @@ Prefer focused changes.
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -3683,6 +4161,7 @@ Prefer focused changes.
           identifier: "acme/platform#1",
           workspaceKey: "acme_platform_1",
           completedOnce: false,
+          failureRetryCount: 0,
           state: "running",
           currentRunId: "run-1",
           retryEntry: null,
@@ -4700,6 +5179,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5123,6 +5603,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5231,6 +5712,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5297,6 +5779,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5393,6 +5876,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5482,6 +5966,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5568,6 +6053,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5659,6 +6145,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5798,6 +6285,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5909,6 +6397,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: true,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -5991,6 +6480,7 @@ Prefer focused changes.
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-record-1",
       completedOnce: true,
+      failureRetryCount: 0,
       state: "released",
       currentRunId: null,
     });
@@ -6013,6 +6503,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -6526,7 +7017,8 @@ Prefer focused changes.
       if (originalCumulativeTurnCount === undefined) {
         delete process.env.SYMPHONY_CUMULATIVE_TURN_COUNT;
       } else {
-        process.env.SYMPHONY_CUMULATIVE_TURN_COUNT = originalCumulativeTurnCount;
+        process.env.SYMPHONY_CUMULATIVE_TURN_COUNT =
+          originalCumulativeTurnCount;
       }
       if (originalLastTurnSummary === undefined) {
         delete process.env.SYMPHONY_LAST_TURN_SUMMARY;
@@ -6779,6 +7271,7 @@ Prefer focused changes.
         identifier: "acme/platform#1",
         workspaceKey: "acme_platform_1",
         completedOnce: false,
+        failureRetryCount: 0,
         state: "running",
         currentRunId: "run-1",
         retryEntry: null,
@@ -6844,6 +7337,7 @@ async function createRepositoryFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxFailureRetries?: number;
     maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
@@ -6909,6 +7403,7 @@ async function commitWorkflowFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxFailureRetries?: number;
     maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
@@ -6932,6 +7427,7 @@ async function writeWorkflowFixture(
     schedulerPollIntervalMs?: number;
     retryBaseDelayMs?: number;
     retryMaxDelayMs?: number;
+    maxFailureRetries?: number;
     maxConcurrentAgents?: number;
     stallTimeoutMs?: number;
     includeAfterRunHook?: boolean;
@@ -6964,6 +7460,7 @@ workspace:
 agent:
   max_concurrent_agents: ${options.maxConcurrentAgents ?? 10}
   max_retry_backoff_ms: ${options.retryMaxDelayMs ?? 30000}
+  max_failure_retries: ${options.maxFailureRetries ?? 10}
   retry_base_delay_ms: ${options.retryBaseDelayMs ?? 1000}
 codex:
   command: ${options.codexCommand ?? "codex app-server"}
@@ -7163,8 +7660,12 @@ async function createBareRepositoryFixture(
 
 function createTrackerResponseWithState(
   repository: { owner: string; name: string; cloneUrl: string },
-  state: string
+  state: string,
+  options: {
+    updatedAt?: string;
+  } = {}
 ) {
+  const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
   return {
     ok: true,
     json: async () => ({
@@ -7173,41 +7674,7 @@ function createTrackerResponseWithState(
           __typename: "ProjectV2",
           items: {
             nodes: [
-              {
-                id: "item-1",
-                updatedAt: "2026-03-08T00:00:00.000Z",
-                fieldValues: {
-                  nodes: [
-                    {
-                      __typename: "ProjectV2ItemFieldSingleSelectValue",
-                      name: state,
-                      field: {
-                        name: "Status",
-                      },
-                    },
-                  ],
-                },
-                content: {
-                  __typename: "Issue",
-                  id: "issue-1",
-                  number: 1,
-                  title: "Test issue",
-                  body: null,
-                  url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
-                  createdAt: "2026-03-08T00:00:00.000Z",
-                  updatedAt: "2026-03-08T00:00:00.000Z",
-                  labels: {
-                    nodes: [],
-                  },
-                  repository: {
-                    name: repository.name,
-                    url: `file://${repository.cloneUrl}`,
-                    owner: {
-                      login: repository.owner,
-                    },
-                  },
-                },
-              },
+              makeTrackerProjectItem(repository, state, { updatedAt }),
             ],
             pageInfo: {
               endCursor: null,
@@ -7222,11 +7689,15 @@ function createTrackerResponseWithState(
 
 function makeTrackerProjectItem(
   repository: { owner: string; name: string; cloneUrl: string },
-  state: string
+  state: string,
+  options: {
+    updatedAt?: string;
+  } = {}
 ) {
+  const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
   return {
     id: "item-1",
-    updatedAt: "2026-03-08T00:00:00.000Z",
+    updatedAt,
     fieldValues: {
       nodes: [
         {
@@ -7246,7 +7717,7 @@ function makeTrackerProjectItem(
       body: null,
       url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
       createdAt: "2026-03-08T00:00:00.000Z",
-      updatedAt: "2026-03-08T00:00:00.000Z",
+      updatedAt,
       labels: {
         nodes: [],
       },

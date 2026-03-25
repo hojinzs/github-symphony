@@ -84,6 +84,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       return issues.map((issue) => ({
         ...issue,
         completedOnce: issue.completedOnce ?? false,
+        failureRetryCount: issue.failureRetryCount ?? 0,
       }));
     }
 
@@ -110,6 +111,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
           lease.issueIdentifier
         ),
         completedOnce: false,
+        failureRetryCount: 0,
         state: lease.status === "active" ? "claimed" : "released",
         currentRunId: lease.status === "active" ? lease.runId : null,
         retryEntry: null,

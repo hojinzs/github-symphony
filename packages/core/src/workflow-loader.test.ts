@@ -35,6 +35,7 @@ hooks:
   after_create: hooks/after_create.sh
 agent:
   max_retry_backoff_ms: 30000
+  max_failure_retries: 6
   max_turns: 20
   max_concurrent_agents_by_state:
     Todo: 1
@@ -64,7 +65,21 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.tracker.kind).toBe("github-project");
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
     expect(workflow.polling.intervalMs).toBe(30000);
+    expect(workflow.agent.maxFailureRetries).toBe(6);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
+  });
+
+  it("defaults max_failure_retries to 10 when unset", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.agent.maxFailureRetries).toBe(10);
   });
 
   it("resolves environment indirection from yaml front matter", () => {
