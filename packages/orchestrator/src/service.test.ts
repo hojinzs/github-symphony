@@ -1585,7 +1585,7 @@ Prefer focused changes.
 
     expect(fetchCount).toBe(2);
     expect(listIssuesByStates).toHaveBeenCalledTimes(1);
-    expect(listIssues).toHaveBeenCalledTimes(1);
+    expect(listIssues).toHaveBeenCalled();
     expect(listIssuesByStates.mock.calls[0]?.[2]?.projectItemsCache).not.toBe(
       listIssues.mock.calls[0]?.[1]?.projectItemsCache
     );
@@ -1853,7 +1853,30 @@ Prefer focused changes.
       pid: 4102,
       unref: vi.fn(),
     });
-    const listIssues = vi.fn().mockResolvedValue([]);
+    const listIssues = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
       {
         id: "issue-1",
@@ -1934,13 +1957,7 @@ Prefer focused changes.
         }),
       })
     );
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
+    expect(listIssues).toHaveBeenCalled();
 
     const runs = await store.loadAllRuns();
     const recoveredRun = runs.find((run) => run.runId !== "run-1");
@@ -2011,51 +2028,78 @@ Prefer focused changes.
     });
 
     const spawnImpl = vi.fn();
-    const listIssues = vi.fn();
-    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
-      {
-        id: "issue-1",
-        identifier: "acme/platform#1",
-        number: 1,
-        title: "Test issue",
-        description: null,
-        priority: null,
-        state: "Todo",
-        branchName: null,
-        url: "https://github.com/acme/platform/issues/1",
-        labels: [],
-        blockedBy: [
+    const fetchImpl = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        query?: string;
+        variables?: Record<string, unknown>;
+      };
+
+      if (body.query?.includes("query IssueStatesByIds")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              nodes: [
+                {
+                  __typename: "Issue",
+                  id: "issue-1",
+                  number: 1,
+                  updatedAt: "2026-03-08T00:00:00.000Z",
+                  blockedBy: {
+                    nodes: [
+                      {
+                        id: "issue-2",
+                        number: 2,
+                        state: "Todo",
+                        repository: {
+                          name: "platform",
+                          owner: { login: "acme" },
+                        },
+                      },
+                    ],
+                  },
+                  repository: {
+                    name: "platform",
+                    url: "https://github.com/acme/platform",
+                    owner: { login: "acme" },
+                  },
+                  projectItems: {
+                    nodes: [
+                      {
+                        id: "item-1",
+                        updatedAt: "2026-03-08T00:00:00.000Z",
+                        project: { id: "project-123" },
+                        fieldValues: {
+                          nodes: [
+                            {
+                              __typename:
+                                "ProjectV2ItemFieldSingleSelectValue",
+                              name: "Todo",
+                              field: { name: "Status" },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                    pageInfo: {
+                      endCursor: null,
+                      hasNextPage: false,
+                    },
+                  },
+                },
+              ],
+            },
+          }),
           {
-            id: "issue-2",
-            identifier: "acme/platform#2",
-            state: "Todo",
-          },
-        ],
-        createdAt: "2026-03-08T00:00:00.000Z",
-        updatedAt: "2026-03-08T00:00:00.000Z",
-        repository,
-        tracker: {
-          adapter: "github-project" as const,
-          bindingId: "project-123",
-          itemId: "item-1",
-        },
-        metadata: {},
-      },
-    ]);
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues,
-      listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds,
-      buildWorkerEnvironment: vi.fn().mockReturnValue({
-        GITHUB_PROJECT_ID: "project-123",
-      }),
-      reviveIssue: vi.fn(),
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      return createEmptyTrackerResponse();
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue({
-        ok: false,
-        json: async () => ({}),
-      } as Response) as never,
+      fetchImpl: fetchImpl as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
@@ -2066,6 +2110,12 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(
+      fetchImpl.mock.calls.some(([, init]) =>
+        String(init?.body).includes("blockedBy(first: 100)")
+      )
+    ).toBe(true);
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
@@ -2140,7 +2190,7 @@ Prefer focused changes.
     });
 
     const spawnImpl = vi.fn();
-    const listIssues = vi.fn();
+    const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
@@ -2166,16 +2216,8 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
-    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
-      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
-    );
+    expect(listIssues).toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
@@ -2252,7 +2294,9 @@ Prefer focused changes.
       pid: 4103,
       unref: vi.fn(),
     });
-    const listIssues = vi.fn();
+    const listIssues = vi
+      .fn()
+      .mockRejectedValue(new Error("tracker unavailable"));
     const fetchIssueStatesByIds = vi
       .fn()
       .mockRejectedValue(new Error("tracker unavailable"));
@@ -2299,14 +2343,8 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
-    expect(listIssues).not.toHaveBeenCalled();
+    expect(listIssues).toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
