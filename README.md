@@ -276,7 +276,7 @@ All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatic
 | `SYMPHONY_RUN_ID` | Current run ID (absent in `after_create`) |
 | `SYMPHONY_ISSUE_STATE` | Current tracker state (absent in `after_create`) |
 
-#### Example: Injecting Secrets via `after_create`
+#### Example: Inline Hook
 
 Keep the mapping logic in versioned hook code while actual values stay in the runtime-only project `.env`:
 
@@ -291,6 +291,34 @@ hooks:
 ```
 
 `$STAGING_API_HOST` and `$API_SECRET_KEY` are resolved from the project `.env` at runtime — nothing secret is committed to the repository.
+
+#### Example: External Script File
+
+For complex setup logic, point the hook to a shell script committed in the repository. Hook commands containing a `/` (without spaces) are automatically prefixed with `bash ./`, so a repository-relative path works as-is.
+
+```yaml
+# WORKFLOW.md
+hooks:
+  after_create: hooks/after_create.sh
+```
+
+```bash
+# hooks/after_create.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+# cwd is the repository root
+# Project .env variables are available as environment variables
+
+echo "API_HOST=$STAGING_API_HOST" >> .env.development
+echo "SECRET=$API_SECRET_KEY" >> .env.development
+
+# Use auto-injected SYMPHONY_* variables
+echo "Setting up workspace at $SYMPHONY_WORKSPACE_PATH"
+echo "Issue: $SYMPHONY_ISSUE_IDENTIFIER"
+```
+
+> Hooks always run with `cwd` set to the repository root. Script paths are relative to that root.
 
 ## Headless orchestration
 
