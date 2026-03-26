@@ -1585,7 +1585,7 @@ Prefer focused changes.
 
     expect(fetchCount).toBe(2);
     expect(listIssuesByStates).toHaveBeenCalledTimes(1);
-    expect(listIssues).toHaveBeenCalledTimes(1);
+    expect(listIssues).toHaveBeenCalled();
     expect(listIssuesByStates.mock.calls[0]?.[2]?.projectItemsCache).not.toBe(
       listIssues.mock.calls[0]?.[1]?.projectItemsCache
     );
@@ -1853,7 +1853,30 @@ Prefer focused changes.
       pid: 4102,
       unref: vi.fn(),
     });
-    const listIssues = vi.fn().mockResolvedValue([]);
+    const listIssues = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
       {
         id: "issue-1",
@@ -1934,13 +1957,7 @@ Prefer focused changes.
         }),
       })
     );
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
+    expect(listIssues).toHaveBeenCalled();
 
     const runs = await store.loadAllRuns();
     const recoveredRun = runs.find((run) => run.runId !== "run-1");
@@ -1951,6 +1968,168 @@ Prefer focused changes.
     expect(recoveredRun?.cumulativeTurnCount).toBe(4);
     expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");
     expect(recoveredRun?.turnCount).toBe(0);
+  });
+
+  it("releases due retrying runs when a Todo issue becomes blocked before restart", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-retry-blocked-release-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:10.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn();
+    const fetchImpl = vi.fn().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        query?: string;
+        variables?: Record<string, unknown>;
+      };
+
+      if (body.query?.includes("query IssueStatesByIds")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              nodes: [
+                {
+                  __typename: "Issue",
+                  id: "issue-1",
+                  number: 1,
+                  updatedAt: "2026-03-08T00:00:00.000Z",
+                  blockedBy: {
+                    nodes: [
+                      {
+                        id: "issue-2",
+                        number: 2,
+                        state: "Todo",
+                        repository: {
+                          name: "platform",
+                          owner: { login: "acme" },
+                        },
+                      },
+                    ],
+                  },
+                  repository: {
+                    name: "platform",
+                    url: "https://github.com/acme/platform",
+                    owner: { login: "acme" },
+                  },
+                  projectItems: {
+                    nodes: [
+                      {
+                        id: "item-1",
+                        updatedAt: "2026-03-08T00:00:00.000Z",
+                        project: { id: "project-123" },
+                        fieldValues: {
+                          nodes: [
+                            {
+                              __typename:
+                                "ProjectV2ItemFieldSingleSelectValue",
+                              name: "Todo",
+                              field: { name: "Status" },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                    pageInfo: {
+                      endCursor: null,
+                      hasNextPage: false,
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      return createEmptyTrackerResponse();
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.recovered).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(
+      fetchImpl.mock.calls.some(([, init]) =>
+        String(init?.body).includes("blockedBy(first: 100)")
+      )
+    ).toBe(true);
+    expect(updatedRun?.status).toBe("suppressed");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
+    expect(updatedRun?.lastError).toBe(
+      "Retry canceled because the tracker issue is no longer actionable."
+    );
+    expect(issueRecords[0]).toMatchObject({
+      issueId: "issue-1",
+      completedOnce: false,
+      failureRetryCount: 0,
+      state: "released",
+      currentRunId: null,
+      retryEntry: null,
+    });
   });
 
   it("releases due retrying runs when the tracker issue is missing", async () => {
@@ -2011,7 +2190,7 @@ Prefer focused changes.
     });
 
     const spawnImpl = vi.fn();
-    const listIssues = vi.fn();
+    const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([]);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
@@ -2037,16 +2216,8 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
-    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
-      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
-    );
+    expect(listIssues).toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
@@ -2123,7 +2294,9 @@ Prefer focused changes.
       pid: 4103,
       unref: vi.fn(),
     });
-    const listIssues = vi.fn();
+    const listIssues = vi
+      .fn()
+      .mockRejectedValue(new Error("tracker unavailable"));
     const fetchIssueStatesByIds = vi
       .fn()
       .mockRejectedValue(new Error("tracker unavailable"));
@@ -2170,14 +2343,8 @@ Prefer focused changes.
 
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
-    expect(listIssues).not.toHaveBeenCalled();
+    expect(listIssues).toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
@@ -3492,6 +3659,98 @@ Prefer focused changes.
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
+  });
+
+  it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-continuation-blocked-retry-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            blockedBy: [
+              {
+                id: "issue-2",
+                number: 2,
+                state: "Todo",
+                repository: {
+                  owner: "acme",
+                  name: "platform",
+                },
+              },
+            ],
+          })
+        ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
+    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:01.000Z");
+    expect(issueRecords[0]?.completedOnce).toBe(false);
+    expect(loadRetryPolicySpy).toHaveBeenCalled();
   });
 
   it("terminates a running worker when lastEventAt exceeds the workflow stall timeout", async () => {
@@ -7931,6 +8190,15 @@ function createTrackerResponseWithState(
   state: string,
   options: {
     updatedAt?: string;
+    blockedBy?: Array<{
+      id: string;
+      number: number;
+      state: string | null;
+      repository: {
+        owner: string;
+        name: string;
+      };
+    }>;
   } = {}
 ) {
   const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
@@ -7942,7 +8210,10 @@ function createTrackerResponseWithState(
           __typename: "ProjectV2",
           items: {
             nodes: [
-              makeTrackerProjectItem(repository, state, { updatedAt }),
+              makeTrackerProjectItem(repository, state, {
+                updatedAt,
+                blockedBy: options.blockedBy,
+              }),
             ],
             pageInfo: {
               endCursor: null,
@@ -7960,6 +8231,15 @@ function makeTrackerProjectItem(
   state: string,
   options: {
     updatedAt?: string;
+    blockedBy?: Array<{
+      id: string;
+      number: number;
+      state: string | null;
+      repository: {
+        owner: string;
+        name: string;
+      };
+    }>;
   } = {}
 ) {
   const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
@@ -7990,7 +8270,17 @@ function makeTrackerProjectItem(
         nodes: [],
       },
       blockedBy: {
-        nodes: [],
+        nodes: (options.blockedBy ?? []).map((blocker) => ({
+          id: blocker.id,
+          number: blocker.number,
+          state: blocker.state,
+          repository: {
+            name: blocker.repository.name,
+            owner: {
+              login: blocker.repository.owner,
+            },
+          },
+        })),
       },
       assignees: {
         nodes: [],

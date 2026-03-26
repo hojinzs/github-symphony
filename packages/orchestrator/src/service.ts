@@ -411,7 +411,12 @@ export class OrchestratorService {
     );
     const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
     for (const run of activeRuns) {
-      const outcome = await this.reconcileRun(tenant, run, issueRecords);
+      const outcome = await this.reconcileRun(
+        tenant,
+        run,
+        issueRecords,
+        trackerDependencies
+      );
       issueRecords = outcome.issueRecords;
       if (outcome.recovered) {
         recovered += 1;
@@ -1035,40 +1040,10 @@ export class OrchestratorService {
         lifecycle = resolution.lifecycle;
       }
 
-      if (!isStateActive(issue.state, resolution.lifecycle)) {
-        continue;
-      }
-
-      // Blocker eligibility: skip blocker-check-state issues with non-terminal blockers
       if (
-        matchesWorkflowState(
-          issue.state,
-          resolution.lifecycle.blockerCheckStates
-        ) &&
-        issue.blockedBy.length > 0
+        !this.isIssueCandidateEligible(issue, resolution.lifecycle, issues)
       ) {
-        const hasNonTerminalBlocker = issue.blockedBy.some((blockerRef) => {
-          if (
-            blockerRef.state &&
-            isStateTerminal(blockerRef.state, resolution.lifecycle)
-          ) {
-            return false;
-          }
-
-          if (blockerRef.identifier) {
-            const blockerIssue = issues.find(
-              (candidate) => candidate.identifier === blockerRef.identifier
-            );
-            if (blockerIssue?.state) {
-              return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
-            }
-          }
-
-          return true;
-        });
-        if (hasNonTerminalBlocker) {
-          continue;
-        }
+        continue;
       }
 
       candidates.push(issue);
@@ -1094,6 +1069,40 @@ export class OrchestratorService {
         blockerCheckStates: ["Todo"],
       },
     };
+  }
+
+  private isIssueCandidateEligible(
+    issue: TrackedIssue,
+    lifecycle: WorkflowLifecycleConfig,
+    issues: readonly TrackedIssue[]
+  ): boolean {
+    if (!isStateActive(issue.state, lifecycle)) {
+      return false;
+    }
+
+    if (
+      !matchesWorkflowState(issue.state, lifecycle.blockerCheckStates) ||
+      issue.blockedBy.length === 0
+    ) {
+      return true;
+    }
+
+    return !issue.blockedBy.some((blockerRef) => {
+      if (blockerRef.state && isStateTerminal(blockerRef.state, lifecycle)) {
+        return false;
+      }
+
+      if (blockerRef.identifier) {
+        const blockerIssue = issues.find(
+          (candidate) => candidate.identifier === blockerRef.identifier
+        );
+        if (blockerIssue?.state) {
+          return !isStateTerminal(blockerIssue.state, lifecycle);
+        }
+      }
+
+      return true;
+    });
   }
 
   private async loadProjectWorkflow(
@@ -1588,7 +1597,8 @@ export class OrchestratorService {
   private async reconcileRun(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    issueRecords: IssueOrchestrationRecord[]
+    issueRecords: IssueOrchestrationRecord[],
+    trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
@@ -1726,7 +1736,13 @@ export class OrchestratorService {
         };
       }
 
-      if ((await this.resolveRetryRestartAction(tenant, run)) === "release") {
+      if (
+        (await this.resolveRetryRestartAction(
+          tenant,
+          run,
+          trackerDependencies
+        )) === "release"
+      ) {
         return this.releaseRetryingRun(runWithTokens, issueRecords, now);
       }
 
@@ -1793,7 +1809,11 @@ export class OrchestratorService {
     }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = await this.classifyRetryKind(tenant, run);
+    const retryKind = await this.classifyRetryKind(
+      tenant,
+      run,
+      trackerDependencies
+    );
 
     const failureRetryCount =
       retryKind === "failure"
@@ -2224,24 +2244,27 @@ export class OrchestratorService {
    */
   private async classifyRetryKind(
     tenant: OrchestratorProjectConfig,
-    run: OrchestratorRunRecord
+    run: OrchestratorRunRecord,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<"continuation" | "failure"> {
     try {
-      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-      const issues = await trackerAdapter.listIssues(tenant, {
-        fetchImpl: this.dependencies.fetchImpl,
-      });
-      const runIssue = issues.find(
-        (issue: TrackedIssue) => issue.identifier === run.issueIdentifier
+      const eligibleContext = await this.fetchTrackedIssueEligibilityContext(
+        tenant,
+        run.issueIdentifier,
+        trackerDependencies
       );
-      if (!runIssue) {
+      if (!eligibleContext) {
         return "failure";
       }
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
         return "failure";
       }
-      return isStateActive(runIssue.state, resolution.lifecycle)
+      return this.isIssueCandidateEligible(
+        eligibleContext.issue,
+        resolution.lifecycle,
+        eligibleContext.issues
+      )
         ? "continuation"
         : "failure";
     } catch {
@@ -2251,7 +2274,8 @@ export class OrchestratorService {
 
   private async resolveRetryRestartAction(
     tenant: OrchestratorProjectConfig,
-    run: OrchestratorRunRecord
+    run: OrchestratorRunRecord,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<"restart" | "release"> {
     try {
       if (
@@ -2267,15 +2291,23 @@ export class OrchestratorService {
       ) {
         return "release";
       }
-      const runIssue = await this.fetchTrackedIssueById(tenant, run.issueId);
-      if (!runIssue) {
+      const eligibleContext = await this.fetchTrackedIssueEligibilityContext(
+        tenant,
+        run.issueIdentifier,
+        trackerDependencies
+      );
+      if (!eligibleContext) {
         return "release";
       }
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
         return "restart";
       }
-      return isStateActive(runIssue.state, resolution.lifecycle)
+      return this.isIssueCandidateEligible(
+        eligibleContext.issue,
+        resolution.lifecycle,
+        eligibleContext.issues
+      )
         ? "restart"
         : "release";
     } catch {
@@ -2283,19 +2315,20 @@ export class OrchestratorService {
     }
   }
 
-  private async fetchTrackedIssueById(
+  private async fetchTrackedIssueEligibilityContext(
     tenant: OrchestratorProjectConfig,
-    issueId: string
-  ): Promise<TrackedIssue | null> {
+    issueIdentifier: string,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
+  ): Promise<{ issue: TrackedIssue; issues: TrackedIssue[] } | null> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
-    const issues = await trackerAdapter.fetchIssueStatesByIds(
-      tenant,
-      [issueId],
-      {
-        fetchImpl: this.dependencies.fetchImpl,
-      }
+    const issues = await trackerAdapter.listIssues(tenant, {
+      fetchImpl: this.dependencies.fetchImpl,
+      ...trackerDependencies,
+    });
+    const issue = issues.find(
+      (candidate) => candidate.identifier === issueIdentifier
     );
-    return issues[0] ?? null;
+    return issue ? { issue, issues } : null;
   }
 
   private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
