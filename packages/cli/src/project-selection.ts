@@ -75,6 +75,13 @@ export async function inspectManagedProjectSelection(
     };
   }
 
+  if (projectIds.length > 1 && !isInteractiveTerminal()) {
+    return {
+      kind: "multiple_projects_require_selection",
+      message: explicitProjectRequiredMessage().trimEnd(),
+    };
+  }
+
   if (global.activeProject) {
     const projectConfig = await loadProjectConfig(
       input.configDir,

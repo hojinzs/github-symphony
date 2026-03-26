@@ -149,11 +149,28 @@ describe("resolveManagedProjectConfig", () => {
 });
 
 describe("inspectManagedProjectSelection", () => {
+  it("requires explicit project selection in non-interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
+    setTty(false, false);
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "multiple_projects_require_selection",
+      message:
+        "Multiple projects are configured. Re-run with --project-id in non-interactive environments.",
+    });
+  });
+
   it("uses the active project when one is configured", async () => {
     const configDir = await createConfigFixture(
       [createProject("tenant-a"), createProject("tenant-b")],
       "tenant-b"
     );
+    setTty(true, true);
 
     const result = await inspectManagedProjectSelection({ configDir });
 

@@ -71,6 +71,24 @@ async function createWorkflowFixture(command = "fake-agent"): Promise<{
   return { repoDir, pathEnv: binDir };
 }
 
+async function createWindowsWorkflowFixture(command = "agent"): Promise<{
+  repoDir: string;
+  pathEnv: string;
+}> {
+  const repoDir = await mkdtemp(join(tmpdir(), "doctor-win-repo-"));
+  const binDir = join(repoDir, "bin");
+  await mkdir(binDir, { recursive: true });
+  const executable = join(binDir, "agent.EXE");
+  await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(executable, 0o755);
+  await writeFile(
+    join(repoDir, "WORKFLOW.md"),
+    `---\ntracker:\n  kind: github-project\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
+    "utf8"
+  );
+  return { repoDir, pathEnv: binDir };
+}
+
 async function withCwd<T>(cwd: string, action: () => Promise<T>): Promise<T> {
   const previous = process.cwd();
   process.chdir(cwd);
@@ -220,6 +238,173 @@ describe("runDoctorDiagnostics", () => {
     ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("WORKFLOW.md is missing or invalid"),
+    });
+  });
+
+  it("fails writable-path checks when a configured path points to a file", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "doctor-path-file-"));
+    const configPath = join(rootDir, "config-file");
+    const workspacePath = join(rootDir, "workspace-file");
+    await writeFile(configPath, "not a directory", "utf8");
+    await writeFile(workspacePath, "not a directory", "utf8");
+    const { repoDir } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configPath), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspacePath),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv: "",
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "config_directory")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("not writable"),
+    });
+    expect(
+      report.checks.find((check) => check.id === "workspace_root")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("not writable"),
+    });
+  });
+
+  it("reports token retrieval errors distinctly from auth failures", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => {
+          throw new Error("keychain locked");
+        },
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        pathEnv: "",
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "github_project_resolution")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("token could not be retrieved"),
+      remediation: expect.stringContaining("gh auth token"),
+      details: expect.objectContaining({ error: "keychain locked" }),
+    });
+  });
+
+  it("reports a missing GitHub project binding with targeted remediation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, ""),
+        }),
+        pathEnv: "",
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "github_project_resolution")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("is not bound to a GitHub Project"),
+      remediation: expect.stringContaining("project add"),
+    });
+  });
+
+  it("detects Windows runtime commands via PATHEXT", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWindowsWorkflowFixture("agent");
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+        pathExtEnv: ".EXE;.CMD",
+        platform: "win32",
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "runtime_command")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ binary: "agent" }),
     });
   });
 });

@@ -5,7 +5,7 @@ import {
   readFile,
   stat,
 } from "node:fs/promises";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import {
   createClient,
   getProjectDetail,
@@ -89,6 +89,8 @@ export type DoctorDependencies = {
   stat: typeof stat;
   parseWorkflowMarkdown: typeof parseWorkflowMarkdown;
   pathEnv: string | undefined;
+  pathExtEnv: string | undefined;
+  platform: NodeJS.Platform;
 };
 
 const DEFAULT_DEPENDENCIES: DoctorDependencies = {
@@ -105,6 +107,8 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   stat,
   parseWorkflowMarkdown,
   pathEnv: process.env.PATH,
+  pathExtEnv: process.env.PATHEXT,
+  platform: process.platform,
 };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
@@ -161,50 +165,85 @@ function failCheck(
 
 async function checkWritablePath(
   targetPath: string,
-  deps: Pick<DoctorDependencies, "access" | "mkdir">
+  deps: Pick<DoctorDependencies, "access" | "mkdir" | "stat">
 ): Promise<boolean> {
   try {
     await deps.access(targetPath, constants.W_OK);
-    return true;
+    const target = await deps.stat(targetPath);
+    return target.isDirectory();
   } catch {
     try {
       await deps.mkdir(targetPath, { recursive: true });
       await deps.access(targetPath, constants.W_OK);
-      return true;
+      const target = await deps.stat(targetPath);
+      return target.isDirectory();
     } catch {
       return false;
     }
   }
 }
 
+function getCommandCandidates(
+  binary: string,
+  deps: Pick<DoctorDependencies, "platform" | "pathExtEnv">
+): string[] {
+  if (deps.platform !== "win32") {
+    return [binary];
+  }
+
+  const pathExts = (deps.pathExtEnv ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .map((ext) => ext.trim())
+    .filter(Boolean);
+  const normalizedBinary = binary.toLowerCase();
+  if (pathExts.some((ext) => normalizedBinary.endsWith(ext.toLowerCase()))) {
+    return [binary];
+  }
+
+  return [binary, ...pathExts.map((ext) => `${binary}${ext}`)];
+}
+
 async function commandExistsOnPath(
   binary: string,
-  deps: Pick<DoctorDependencies, "access" | "pathEnv">
+  deps: Pick<
+    DoctorDependencies,
+    "access" | "pathEnv" | "pathExtEnv" | "platform"
+  >
 ): Promise<boolean> {
   if (!binary) {
     return false;
   }
 
-  if (binary.includes("/")) {
-    try {
-      const candidate = resolve(binary);
-      await deps.access(candidate, constants.X_OK);
-      return true;
-    } catch {
-      return false;
+  const candidates = getCommandCandidates(binary, deps);
+  if (
+    isAbsolute(binary) ||
+    binary.includes("/") ||
+    binary.includes("\\")
+  ) {
+    for (const candidate of candidates) {
+      try {
+        await deps.access(resolve(candidate), constants.X_OK);
+        return true;
+      } catch {
+        continue;
+      }
     }
+
+    return false;
   }
 
   for (const segment of (deps.pathEnv ?? "").split(delimiter)) {
     if (!segment) {
       continue;
     }
-    const candidate = join(segment, binary);
-    try {
-      await deps.access(candidate, constants.X_OK);
-      return true;
-    } catch {
-      continue;
+    for (const command of candidates) {
+      const candidate = join(segment, command);
+      try {
+        await deps.access(candidate, constants.X_OK);
+        return true;
+      } catch {
+        continue;
+      }
     }
   }
 
@@ -299,6 +338,7 @@ export async function runDoctorDiagnostics(
 
   const checks: DoctorCheckResult[] = [];
   let token: string | null = null;
+  let tokenError: string | null = null;
   let resolvedProjectId: string | null = null;
   let resolvedProjectConfig:
     | Awaited<ReturnType<typeof inspectManagedProjectSelection>>
@@ -371,7 +411,9 @@ export async function runDoctorDiagnostics(
   if (ghInstalled && ghAuth.authenticated) {
     try {
       token = deps.getGhToken();
-    } catch {
+    } catch (error) {
+      tokenError =
+        error instanceof Error ? error.message : "Unknown token retrieval error.";
       token = null;
     }
   }
@@ -407,7 +449,34 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  if (
+  if (resolvedProjectConfig.kind === "resolved" && !token) {
+    checks.push(
+      failCheck(
+        "github_project_resolution",
+        "GitHub project resolution",
+        tokenError
+          ? "GitHub project resolution could not run because the GitHub token could not be retrieved."
+          : "GitHub project resolution could not run because authentication failed.",
+        tokenError
+          ? "Check the local keychain or environment used by 'gh auth token', then re-run 'gh-symphony doctor'."
+          : "Fix the gh authentication check first, then re-run 'gh-symphony doctor'.",
+        tokenError ? { error: tokenError } : undefined
+      )
+    );
+  } else if (
+    resolvedProjectConfig.kind === "resolved" &&
+    !resolvedProjectConfig.projectConfig.tracker.bindingId
+  ) {
+    checks.push(
+      failCheck(
+        "github_project_resolution",
+        "GitHub project resolution",
+        `Managed project "${resolvedProjectConfig.projectId}" is not bound to a GitHub Project.`,
+        "Re-run 'gh-symphony project add' and select a valid GitHub Project binding, then run the doctor command again.",
+        { projectId: resolvedProjectConfig.projectId }
+      )
+    );
+  } else if (
     token &&
     resolvedProjectConfig.kind === "resolved" &&
     resolvedProjectConfig.projectConfig.tracker.bindingId
@@ -454,8 +523,8 @@ export async function runDoctorDiagnostics(
       failCheck(
         "github_project_resolution",
         "GitHub project resolution",
-        "GitHub project resolution could not run because authentication or managed project selection failed.",
-        "Fix the gh authentication and managed project checks first, then re-run 'gh-symphony doctor'."
+        "GitHub project resolution could not run because managed project selection failed.",
+        "Fix the managed project selection check first, then re-run 'gh-symphony doctor'."
       )
     );
   }
