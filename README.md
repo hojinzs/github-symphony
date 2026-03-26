@@ -25,6 +25,13 @@ Verify the installation:
 gh-symphony --version
 ```
 
+Validate the local prerequisites before setup:
+
+```bash
+gh-symphony doctor
+gh-symphony doctor --json
+```
+
 ### 2. Set Repository
 
 Navigate to the repository you want to orchestrate, then run:
@@ -79,6 +86,7 @@ gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.g
 Managing projects:
 
 ```bash
+gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
@@ -136,6 +144,22 @@ gh-symphony repo remove owner/name  # Remove a repository
 gh-symphony config show             # Show configuration
 gh-symphony config set <key> <val>  # Set a configuration value
 gh-symphony config edit             # Open config in $EDITOR
+```
+
+### Diagnostics
+
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks:
+
+- `gh` installation, login status, and required scopes (`repo`, `read:org`, `project`)
+- active managed project resolution and GitHub Project binding lookup
+- config directory, runtime root, and managed workspace writability
+- repository `WORKFLOW.md` presence and parse validity
+- configured runtime command availability on `PATH`
+
+Use `--json` for setup automation and smoke checks:
+
+```bash
+gh-symphony doctor --json
 ```
 
 ### Shell Completion

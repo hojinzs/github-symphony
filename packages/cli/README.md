@@ -25,6 +25,13 @@ Verify the installation:
 gh-symphony --version
 ```
 
+Validate the machine and repo prerequisites before first use:
+
+```bash
+gh-symphony doctor
+gh-symphony doctor --json
+```
+
 Enable shell completion:
 
 ```bash
@@ -113,6 +120,7 @@ The interactive wizard will:
 ### Project Management
 
 ```bash
+gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 ```
@@ -154,11 +162,28 @@ gh-symphony recover                 # Recover stalled runs
 gh-symphony recover --dry-run       # Preview what would be recovered
 ```
 
+## Diagnostics
+
+`gh-symphony doctor` validates the most common first-run prerequisites in one pass:
+
+- `gh` installation, auth, and required scopes
+- managed project selection plus GitHub Project binding resolution
+- config/runtime/workspace path writability
+- repository `WORKFLOW.md` presence and parse validity
+- runtime command availability on `PATH`
+
+Use JSON output for scripts and CI smoke checks:
+
+```bash
+gh-symphony doctor --json
+```
+
 ## Command Reference
 
 ```
 Setup:
   init                Interactive repository setup wizard
+  doctor              Run first-run diagnostics
   config show         Show current configuration
   config set          Set a configuration value
   config edit         Open config in $EDITOR

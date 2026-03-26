@@ -10,7 +10,7 @@ type ExecError = Error & {
   stdout?: Buffer | string;
 };
 
-const REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
+export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
 
 export class GhAuthError extends Error {
   constructor(
@@ -78,7 +78,7 @@ export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
   }
 
   const normalized = scopes.map((scope) => scope.toLowerCase());
-  const missing = REQUIRED_SCOPES.filter(
+  const missing = REQUIRED_GH_SCOPES.filter(
     (scope) => !normalized.includes(scope)
   );
   return {

@@ -22,8 +22,11 @@ vi.mock("@clack/prompts", async () => {
   };
 });
 
-const { handleMissingManagedProjectConfig, resolveManagedProjectConfig } =
-  await import("./project-selection.js");
+const {
+  handleMissingManagedProjectConfig,
+  inspectManagedProjectSelection,
+  resolveManagedProjectConfig,
+} = await import("./project-selection.js");
 
 function createProject(projectId: string, displayName?: string): CliProjectConfig {
   return {
@@ -142,5 +145,53 @@ describe("resolveManagedProjectConfig", () => {
 
     expect(stderr).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(130);
+  });
+});
+
+describe("inspectManagedProjectSelection", () => {
+  it("requires explicit project selection in non-interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
+    setTty(false, false);
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "multiple_projects_require_selection",
+      message:
+        "Multiple projects are configured. Re-run with --project-id in non-interactive environments.",
+    });
+  });
+
+  it("uses the active project when one is configured", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
+    setTty(true, true);
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "tenant-b",
+    });
+  });
+
+  it("reports a missing project config for the active project", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-selection-"));
+    await saveGlobalConfig(configDir, {
+      activeProject: "tenant-a",
+      projects: ["tenant-a"],
+    });
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "active_project_missing",
+      projectId: "tenant-a",
+    });
   });
 });

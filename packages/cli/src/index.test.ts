@@ -116,7 +116,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("project repo config completion");
+    expect(output).toContain("init doctor start stop status");
   });
 
   it("reports a missing root config argument", async () => {
@@ -145,6 +145,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output() + stderr.output();
     expect(output).toContain("Usage: gh-symphony");
+    expect(output).toContain("doctor");
     expect(output).toContain("completion");
   });
 });

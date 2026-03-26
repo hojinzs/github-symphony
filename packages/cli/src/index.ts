@@ -23,6 +23,7 @@ export type CommandHandler = (
 
 type LoaderKey =
   | "init"
+  | "doctor"
   | "start"
   | "stop"
   | "status"
@@ -59,6 +60,7 @@ type CliOptionValues = Partial<
 const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
     init: () => import("./commands/init.js"),
+    doctor: () => import("./commands/doctor.js"),
     start: () => import("./commands/start.js"),
     stop: () => import("./commands/stop.js"),
     status: () => import("./commands/status.js"),
@@ -179,6 +181,21 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   ).action(async function (this: Command) {
     markInvoked();
     await invokeHandler("init", [], this.optsWithGlobals<CliOptionValues>());
+  });
+
+  addGlobalOptions(
+    program
+      .command("doctor")
+      .description("Run first-run diagnostics")
+      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = [];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    await invokeHandler("doctor", args, values);
   });
 
   addGlobalOptions(
