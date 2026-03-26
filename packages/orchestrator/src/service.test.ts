@@ -1953,6 +1953,135 @@ Prefer focused changes.
     expect(recoveredRun?.turnCount).toBe(0);
   });
 
+  it("releases due retrying runs when a Todo issue becomes blocked before restart", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-retry-blocked-release-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: "run-1",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:10.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn();
+    const listIssues = vi.fn();
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Test issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [
+          {
+            id: "issue-2",
+            identifier: "acme/platform#2",
+            state: "Todo",
+          },
+        ],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({}),
+      } as Response) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.recovered).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("suppressed");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
+    expect(updatedRun?.lastError).toBe(
+      "Retry canceled because the tracker issue is no longer actionable."
+    );
+    expect(issueRecords[0]).toMatchObject({
+      issueId: "issue-1",
+      completedOnce: false,
+      failureRetryCount: 0,
+      state: "released",
+      currentRunId: null,
+      retryEntry: null,
+    });
+  });
+
   it("releases due retrying runs when the tracker issue is missing", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -3492,6 +3621,98 @@ Prefer focused changes.
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
+  });
+
+  it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-continuation-blocked-retry-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 7000,
+        retryMaxDelayMs: 7000,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "stale-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "stale-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            blockedBy: [
+              {
+                id: "issue-2",
+                number: 2,
+                state: "Todo",
+                repository: {
+                  owner: "acme",
+                  name: "platform",
+                },
+              },
+            ],
+          })
+        ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+    const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
+
+    await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
+    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:01.000Z");
+    expect(issueRecords[0]?.completedOnce).toBe(false);
+    expect(loadRetryPolicySpy).toHaveBeenCalled();
   });
 
   it("terminates a running worker when lastEventAt exceeds the workflow stall timeout", async () => {
@@ -7931,6 +8152,15 @@ function createTrackerResponseWithState(
   state: string,
   options: {
     updatedAt?: string;
+    blockedBy?: Array<{
+      id: string;
+      number: number;
+      state: string | null;
+      repository: {
+        owner: string;
+        name: string;
+      };
+    }>;
   } = {}
 ) {
   const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
@@ -7942,7 +8172,10 @@ function createTrackerResponseWithState(
           __typename: "ProjectV2",
           items: {
             nodes: [
-              makeTrackerProjectItem(repository, state, { updatedAt }),
+              makeTrackerProjectItem(repository, state, {
+                updatedAt,
+                blockedBy: options.blockedBy,
+              }),
             ],
             pageInfo: {
               endCursor: null,
@@ -7960,6 +8193,15 @@ function makeTrackerProjectItem(
   state: string,
   options: {
     updatedAt?: string;
+    blockedBy?: Array<{
+      id: string;
+      number: number;
+      state: string | null;
+      repository: {
+        owner: string;
+        name: string;
+      };
+    }>;
   } = {}
 ) {
   const updatedAt = options.updatedAt ?? "2026-03-08T00:00:00.000Z";
@@ -7990,7 +8232,17 @@ function makeTrackerProjectItem(
         nodes: [],
       },
       blockedBy: {
-        nodes: [],
+        nodes: (options.blockedBy ?? []).map((blocker) => ({
+          id: blocker.id,
+          number: blocker.number,
+          state: blocker.state,
+          repository: {
+            name: blocker.repository.name,
+            owner: {
+              login: blocker.repository.owner,
+            },
+          },
+        })),
       },
       assignees: {
         nodes: [],

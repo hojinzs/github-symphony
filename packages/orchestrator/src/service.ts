@@ -1035,40 +1035,10 @@ export class OrchestratorService {
         lifecycle = resolution.lifecycle;
       }
 
-      if (!isStateActive(issue.state, resolution.lifecycle)) {
-        continue;
-      }
-
-      // Blocker eligibility: skip blocker-check-state issues with non-terminal blockers
       if (
-        matchesWorkflowState(
-          issue.state,
-          resolution.lifecycle.blockerCheckStates
-        ) &&
-        issue.blockedBy.length > 0
+        !this.isIssueCandidateEligible(issue, resolution.lifecycle, issues)
       ) {
-        const hasNonTerminalBlocker = issue.blockedBy.some((blockerRef) => {
-          if (
-            blockerRef.state &&
-            isStateTerminal(blockerRef.state, resolution.lifecycle)
-          ) {
-            return false;
-          }
-
-          if (blockerRef.identifier) {
-            const blockerIssue = issues.find(
-              (candidate) => candidate.identifier === blockerRef.identifier
-            );
-            if (blockerIssue?.state) {
-              return !isStateTerminal(blockerIssue.state, resolution.lifecycle);
-            }
-          }
-
-          return true;
-        });
-        if (hasNonTerminalBlocker) {
-          continue;
-        }
+        continue;
       }
 
       candidates.push(issue);
@@ -1094,6 +1064,40 @@ export class OrchestratorService {
         blockerCheckStates: ["Todo"],
       },
     };
+  }
+
+  private isIssueCandidateEligible(
+    issue: TrackedIssue,
+    lifecycle: WorkflowLifecycleConfig,
+    issues: readonly TrackedIssue[]
+  ): boolean {
+    if (!isStateActive(issue.state, lifecycle)) {
+      return false;
+    }
+
+    if (
+      !matchesWorkflowState(issue.state, lifecycle.blockerCheckStates) ||
+      issue.blockedBy.length === 0
+    ) {
+      return true;
+    }
+
+    return !issue.blockedBy.some((blockerRef) => {
+      if (blockerRef.state && isStateTerminal(blockerRef.state, lifecycle)) {
+        return false;
+      }
+
+      if (blockerRef.identifier) {
+        const blockerIssue = issues.find(
+          (candidate) => candidate.identifier === blockerRef.identifier
+        );
+        if (blockerIssue?.state) {
+          return !isStateTerminal(blockerIssue.state, lifecycle);
+        }
+      }
+
+      return true;
+    });
   }
 
   private async loadProjectWorkflow(
@@ -2241,7 +2245,11 @@ export class OrchestratorService {
       if (!isUsableWorkflowResolution(resolution)) {
         return "failure";
       }
-      return isStateActive(runIssue.state, resolution.lifecycle)
+      return this.isIssueCandidateEligible(
+        runIssue,
+        resolution.lifecycle,
+        issues
+      )
         ? "continuation"
         : "failure";
     } catch {
@@ -2275,7 +2283,11 @@ export class OrchestratorService {
       if (!isUsableWorkflowResolution(resolution)) {
         return "restart";
       }
-      return isStateActive(runIssue.state, resolution.lifecycle)
+      return this.isIssueCandidateEligible(
+        runIssue,
+        resolution.lifecycle,
+        [runIssue]
+      )
         ? "restart"
         : "release";
     } catch {
