@@ -232,35 +232,65 @@ This means you can:
 - Use a single project-level `WORKFLOW.md` for all repositories
 - Override per-repository by committing a `WORKFLOW.md` to the repo root
 
-### Project `.env` Injection For Hooks And Workers
+### Environment Variables
+
+#### Project `.env` File
 
 For project-specific secrets or staging settings, place a `.env` file under the orchestrator runtime project directory instead of committing values into `WORKFLOW.md` or repository scripts.
 
 - Default path: `~/.gh-symphony/projects/<project-id>/.env`
 - If you run the CLI with a custom `--config <dir>`, the path becomes `<dir>/projects/<project-id>/.env`
 - The file is loaded as base env for workspace hooks and worker processes
-- Merge order: `project .env` -> system environment -> Symphony context variables
-
-Example project runtime env:
 
 ```bash
-~/.gh-symphony/projects/my-project/.env
+# ~/.gh-symphony/projects/my-project/.env
 STAGING_API_HOST=https://staging.example.com
 PLAYWRIGHT_BASE_URL=http://localhost:3000
 API_SECRET_KEY=sk-secret-xxx
 ```
 
-Example `WORKFLOW.md` hook with no committed secret values:
+#### Merge Order
+
+Environment variables are merged from three sources (later overrides earlier):
+
+| Priority | Source | Description |
+| --- | --- | --- |
+| 1 (lowest) | Project `.env` | `~/.gh-symphony/projects/<project-id>/.env` |
+| 2 | System environment | Orchestrator process's `process.env` |
+| 3 (highest) | Symphony context | Auto-injected `SYMPHONY_*` variables |
+
+In CI, regular process env can override the project `.env` without changing `WORKFLOW.md`.
+
+#### Auto-injected Hook Variables
+
+All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatically receive the following variables in addition to the merged environment above:
+
+| Variable | Description |
+| --- | --- |
+| `SYMPHONY_PROJECT_ID` | Orchestrator project ID |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY` | Workspace key for the issue |
+| `SYMPHONY_ISSUE_SUBJECT_ID` | Issue subject ID (tracker-specific) |
+| `SYMPHONY_ISSUE_IDENTIFIER` | e.g. `acme/platform#42` |
+| `SYMPHONY_WORKSPACE_PATH` | Absolute path to the issue workspace |
+| `SYMPHONY_REPOSITORY_PATH` | Absolute path to the cloned repository |
+| `SYMPHONY_RUN_ID` | Current run ID (absent in `after_create`) |
+| `SYMPHONY_ISSUE_STATE` | Current tracker state (absent in `after_create`) |
+
+#### Example: Injecting Secrets via `after_create`
+
+Keep the mapping logic in versioned hook code while actual values stay in the runtime-only project `.env`:
 
 ```yaml
+# WORKFLOW.md
 hooks:
   after_create: |
     echo "API_HOST=$STAGING_API_HOST" >> .env.development
+    echo "SECRET=$API_SECRET_KEY" >> .env.development
   before_run: |
     echo "BASE_URL=$PLAYWRIGHT_BASE_URL" > playwright.env
 ```
 
-This keeps the mapping logic in versioned hook code while the actual values stay in the runtime-only project `.env`. In CI, regular process env can override the project file without changing `WORKFLOW.md`.
+`$STAGING_API_HOST` and `$API_SECRET_KEY` are resolved from the project `.env` at runtime — nothing secret is committed to the repository.
 
 ## Headless orchestration
 
