@@ -7,6 +7,7 @@ Usage: gh-symphony <command> [options]
 
 Setup:
   init            Interactive project setup wizard
+  doctor          Run first-run diagnostics
   config show     Show current configuration
   config set      Set a configuration value
   config edit     Open config in $EDITOR
@@ -43,6 +44,7 @@ Global Options:
 
 Examples:
   gh-symphony project add              # Add a project (interactive)
+  gh-symphony doctor                   # Validate local setup and prerequisites
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project

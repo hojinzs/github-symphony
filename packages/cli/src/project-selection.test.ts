@@ -22,8 +22,11 @@ vi.mock("@clack/prompts", async () => {
   };
 });
 
-const { handleMissingManagedProjectConfig, resolveManagedProjectConfig } =
-  await import("./project-selection.js");
+const {
+  handleMissingManagedProjectConfig,
+  inspectManagedProjectSelection,
+  resolveManagedProjectConfig,
+} = await import("./project-selection.js");
 
 function createProject(projectId: string, displayName?: string): CliProjectConfig {
   return {
@@ -142,5 +145,36 @@ describe("resolveManagedProjectConfig", () => {
 
     expect(stderr).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(130);
+  });
+});
+
+describe("inspectManagedProjectSelection", () => {
+  it("uses the active project when one is configured", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "tenant-b",
+    });
+  });
+
+  it("reports a missing project config for the active project", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-selection-"));
+    await saveGlobalConfig(configDir, {
+      activeProject: "tenant-a",
+      projects: ["tenant-a"],
+    });
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "active_project_missing",
+      projectId: "tenant-a",
+    });
   });
 });
