@@ -120,6 +120,40 @@ describe("upgrade command", () => {
     expect(stdout.output()).toContain("Upgrade complete (v0.0.19)");
   });
 
+  it("uses Windows-safe executables for npm and pnpm commands", async () => {
+    const stdout = captureWrites(process.stdout);
+    mockExecFileStdout('"0.0.19"\n');
+    mockExecFileStdout("C:\\Users\\test\\AppData\\Local\\pnpm\\global\n");
+    mockSpawnClose(0);
+
+    try {
+      await upgradeModule.runUpgradeCommand(baseOptions(), {
+        currentVersion: "0.0.18",
+        platform: "win32",
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      1,
+      "npm.cmd",
+      ["view", "@gh-symphony/cli", "dist-tags.latest", "--json"],
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      2,
+      "npm.cmd",
+      ["prefix", "-g"],
+      expect.any(Function)
+    );
+    expect(spawnMock).toHaveBeenCalledWith(
+      "pnpm.cmd",
+      ["add", "-g", "@gh-symphony/cli@latest"],
+      expect.objectContaining({ stdio: "inherit" })
+    );
+  });
+
   it("falls back to npm when package manager detection fails", async () => {
     const stdout = captureWrites(process.stdout);
     mockExecFileStdout('"0.0.20"\n');
@@ -148,5 +182,60 @@ describe("upgrade command", () => {
       expect.objectContaining({ stdio: "inherit" })
     );
     expect(stdout.output()).toContain("using npm");
+  });
+
+  it("keeps stdout as JSON-only output during installs", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+    mockExecFileStdout('"0.0.20"\n');
+    mockExecFileStdout("/usr/local\n");
+    spawnMock.mockImplementationOnce((_command, _args, options) => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+      };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+
+      queueMicrotask(() => {
+        child.stdout.emit("data", "npm notice installing\n");
+        child.stderr.emit("data", "npm warn deprecated\n");
+        child.emit("close", 0);
+      });
+
+      expect(options).toEqual(
+        expect.objectContaining({
+          stdio: ["ignore", "pipe", "pipe"],
+        })
+      );
+
+      return child;
+    });
+
+    try {
+      await upgradeModule.runUpgradeCommand(
+        {
+          ...baseOptions(),
+          json: true,
+        },
+        {
+          currentVersion: "0.0.18",
+        }
+      );
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(stdout.output().trim()).toBe(
+      JSON.stringify({
+        status: "upgraded",
+        previousVersion: "0.0.18",
+        latestVersion: "0.0.20",
+        packageManager: "npm",
+      })
+    );
+    expect(stderr.output()).toContain("npm notice installing");
+    expect(stderr.output()).toContain("npm warn deprecated");
   });
 });

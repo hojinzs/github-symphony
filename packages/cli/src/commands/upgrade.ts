@@ -21,6 +21,7 @@ type UpgradeDeps = {
     args: readonly string[]
   ) => Promise<ExecFileResult>;
   currentVersion?: string;
+  platform?: NodeJS.Platform;
   spawnImpl?: typeof spawn;
 };
 
@@ -56,16 +57,26 @@ function resolveCurrentCliVersion(): string {
   throw new Error("Unable to determine the current CLI version.");
 }
 
+function resolvePackageManagerExecutable(
+  command: PackageManager | "npm",
+  platform = process.platform
+): string {
+  return platform === "win32" ? `${command}.cmd` : command;
+}
+
 export async function fetchLatestCliVersion(
-  deps?: Pick<UpgradeDeps, "execFileImpl">
+  deps?: Pick<UpgradeDeps, "execFileImpl" | "platform">
 ): Promise<string> {
   const runExecFile = deps?.execFileImpl ?? execFileAsync;
-  const { stdout } = await runExecFile("npm", [
-    "view",
-    PACKAGE_NAME,
-    "dist-tags.latest",
-    "--json",
-  ]);
+  const { stdout } = await runExecFile(
+    resolvePackageManagerExecutable("npm", deps?.platform),
+    [
+      "view",
+      PACKAGE_NAME,
+      "dist-tags.latest",
+      "--json",
+    ]
+  );
 
   const raw = stdout.trim();
   if (raw.length === 0) {
@@ -81,37 +92,73 @@ export async function fetchLatestCliVersion(
 }
 
 export async function detectGlobalPackageManager(
-  deps?: Pick<UpgradeDeps, "execFileImpl">
+  deps?: Pick<UpgradeDeps, "execFileImpl" | "platform">
 ): Promise<PackageManager> {
   const runExecFile = deps?.execFileImpl ?? execFileAsync;
 
   try {
-    const { stdout } = await runExecFile("npm", ["prefix", "-g"]);
+    const { stdout } = await runExecFile(
+      resolvePackageManagerExecutable("npm", deps?.platform),
+      ["prefix", "-g"]
+    );
     return stdout.toLowerCase().includes("pnpm") ? "pnpm" : "npm";
   } catch {
     return "npm";
   }
 }
 
-function packageManagerCommand(manager: PackageManager): string[] {
+function packageManagerCommand(
+  manager: PackageManager,
+  platform?: NodeJS.Platform
+): string[] {
   if (manager === "pnpm") {
-    return ["pnpm", "add", "-g", `${PACKAGE_NAME}@latest`];
+    return [
+      resolvePackageManagerExecutable("pnpm", platform),
+      "add",
+      "-g",
+      `${PACKAGE_NAME}@latest`,
+    ];
   }
 
-  return ["npm", "install", "-g", `${PACKAGE_NAME}@latest`];
+  return [
+    resolvePackageManagerExecutable("npm", platform),
+    "install",
+    "-g",
+    `${PACKAGE_NAME}@latest`,
+  ];
+}
+
+function pipeInstallOutput(child: ChildProcess): void {
+  child.stdout?.on("data", (chunk: string | Uint8Array) => {
+    process.stderr.write(chunk);
+  });
+  child.stderr?.on("data", (chunk: string | Uint8Array) => {
+    process.stderr.write(chunk);
+  });
 }
 
 export async function runUpgradeInstall(
   manager: PackageManager,
-  deps?: Pick<UpgradeDeps, "spawnImpl">
+  deps?: Pick<UpgradeDeps, "platform" | "spawnImpl">,
+  jsonOutput = false
 ): Promise<void> {
   const spawnCommand = deps?.spawnImpl ?? spawn;
-  const [command, ...args] = packageManagerCommand(manager);
+  const [command, ...args] = packageManagerCommand(manager, deps?.platform);
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawnCommand(command, args, {
-      stdio: "inherit",
-    }) as ChildProcess;
+    const child = (
+      jsonOutput
+        ? spawnCommand(command, args, {
+            stdio: ["ignore", "pipe", "pipe"],
+          })
+        : spawnCommand(command, args, {
+            stdio: "inherit",
+          })
+    ) as ChildProcess;
+
+    if (jsonOutput) {
+      pipeInstallOutput(child);
+    }
 
     child.once("error", reject);
     child.once("close", (code) => {
@@ -157,7 +204,7 @@ export async function runUpgradeCommand(
     );
   }
 
-  await runUpgradeInstall(manager, deps);
+  await runUpgradeInstall(manager, deps, options.json);
 
   if (options.json) {
     process.stdout.write(
