@@ -24,6 +24,7 @@ export type CommandHandler = (
 type LoaderKey =
   | "init"
   | "doctor"
+  | "upgrade"
   | "start"
   | "stop"
   | "status"
@@ -61,6 +62,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
     init: () => import("./commands/init.js"),
     doctor: () => import("./commands/doctor.js"),
+    upgrade: () => import("./commands/upgrade.js"),
     start: () => import("./commands/start.js"),
     stop: () => import("./commands/stop.js"),
     status: () => import("./commands/status.js"),
@@ -196,6 +198,16 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     await invokeHandler("doctor", args, values);
+  });
+
+  addGlobalOptions(
+    program
+      .command("upgrade")
+      .description("Upgrade the CLI to the latest published version")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeHandler("upgrade", [], this.optsWithGlobals<CliOptionValues>());
   });
 
   addGlobalOptions(
