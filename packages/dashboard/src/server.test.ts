@@ -8,6 +8,7 @@ function createReader() {
     loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([]),
     loadRun: vi.fn(),
     loadAllRuns: vi.fn(),
+    loadRunsForIssue: vi.fn(),
     loadRecentRunEvents: vi.fn(),
     projectId: "tenant-1",
     runtimeRoot: "/tmp/runtime",
@@ -147,7 +148,7 @@ describe("GET /api/v1/<issue_identifier>", () => {
       lastEvent: "notification",
       lastEventAt: "2026-03-16T00:10:00.000Z",
     });
-    reader.loadAllRuns.mockResolvedValue([
+    reader.loadRunsForIssue.mockResolvedValue([
       {
         runId: "run-0",
         projectId: "tenant-1",
@@ -250,6 +251,70 @@ describe("GET /api/v1/<issue_identifier>", () => {
       },
       tracked: { completed_once: true },
     });
+  });
+
+  it("does not scan issue runs when the current run has no token usage", async () => {
+    const reader = createReader();
+    reader.loadProjectIssueOrchestrations.mockResolvedValue([
+      {
+        issueId: "issue-123",
+        identifier: "acme/repo#123",
+        workspaceKey: "acme_repo_123",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-16T00:00:00.000Z",
+      },
+    ]);
+    reader.loadRun.mockResolvedValue({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-123",
+      issueSubjectId: "issue-123",
+      issueIdentifier: "acme/repo#123",
+      issueState: "In Progress",
+      repository: {
+        owner: "acme",
+        name: "repo",
+        cloneUrl: "https://github.com/acme/repo.git",
+      },
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: "/tmp/workspace",
+      issueWorkspaceKey: "acme_repo_123",
+      workspaceRuntimeDir: "/tmp/runtime",
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-16T00:00:00.000Z",
+      updatedAt: "2026-03-16T00:10:00.000Z",
+      startedAt: "2026-03-16T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      tokenUsage: undefined,
+      turnCount: 7,
+      lastEvent: "notification",
+      lastEventAt: "2026-03-16T00:10:00.000Z",
+    });
+    reader.loadRecentRunEvents.mockResolvedValue([]);
+    reader.runDir.mockReturnValue("/tmp/runtime/projects/tenant-1/runs/run-1");
+
+    const result = await resolveDashboardResponse({
+      pathname: "/api/v1/acme%2Frepo%23123",
+      reader: reader as never,
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.payload).toMatchObject({
+      issue_identifier: "acme/repo#123",
+      running: { tokens: null },
+    });
+    expect(reader.loadRunsForIssue).not.toHaveBeenCalled();
   });
 
   it("returns 400 for invalid URL encoding", async () => {

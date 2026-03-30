@@ -121,6 +121,37 @@ export class DashboardFsReader {
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
   }
 
+  async loadRunsForIssue(
+    issueId: string,
+    issueIdentifier: string
+  ): Promise<OrchestratorRunRecord[]> {
+    const runIds = await safeReadDir(join(this.projectDir(), "runs"));
+    const runs = await mapWithConcurrency(
+      runIds,
+      RUN_RECORD_LOAD_CONCURRENCY,
+      async (runId) => {
+        try {
+          const run = await this.loadRun(runId);
+          if (!run) {
+            return null;
+          }
+
+          return run.issueId === issueId || run.issueIdentifier === issueIdentifier
+            ? run
+            : null;
+        } catch (error) {
+          if (isFileMissing(error)) {
+            return null;
+          }
+
+          return null;
+        }
+      }
+    );
+
+    return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
+  }
+
   async loadRecentRunEvents(
     runId: string,
     limit = DEFAULT_RECENT_EVENT_LIMIT
@@ -215,48 +246,55 @@ export async function statusForIssue(
     issueIdentifier
   )
     ? currentRunCandidate
-    : await findLatestRunForIssue(reader, issueRecord.issueId, issueIdentifier);
+    : null;
+  const issueRuns =
+    currentRun === null
+      ? await reader.loadRunsForIssue(issueRecord.issueId, issueIdentifier)
+      : currentRun.tokenUsage
+        ? await reader.loadRunsForIssue(issueRecord.issueId, issueIdentifier)
+        : null;
+  const resolvedRun =
+    currentRun ?? findLatestRunForIssue(issueRuns ?? []);
 
   const recentEvents =
-    currentRun === null
+    resolvedRun === null
       ? []
-      : await reader.loadRecentRunEvents(currentRun.runId);
-  const issueRuns = await loadIssueRuns(reader, issueRecord.issueId, issueIdentifier);
-  const cumulativeTokens = aggregateIssueTokenUsage(issueRuns);
+      : await reader.loadRecentRunEvents(resolvedRun.runId);
+  const cumulativeTokens = aggregateIssueTokenUsage(issueRuns ?? []);
   const latestEventMessage =
     recentEvents[recentEvents.length - 1]?.message ?? null;
   const currentAttempt =
-    currentRun?.attempt ?? issueRecord.retryEntry?.attempt ?? 0;
+    resolvedRun?.attempt ?? issueRecord.retryEntry?.attempt ?? 0;
 
   return {
     issue_identifier: issueRecord.identifier,
     issue_id: issueRecord.issueId,
     status:
-      currentRun?.status ??
+      resolvedRun?.status ??
       mapIssueOrchestrationStateToStatus(issueRecord.state),
     workspace: {
-      path: currentRun?.workingDirectory ?? null,
+      path: resolvedRun?.workingDirectory ?? null,
     },
     attempts: {
       restart_count: Math.max(0, currentAttempt - 1),
       current_retry_attempt: currentAttempt,
     },
     running:
-      currentRun === null
+      resolvedRun === null
         ? null
         : {
-            session_id: currentRun.runtimeSession?.sessionId ?? null,
-            turn_count: currentRun.turnCount ?? null,
-            state: currentRun.issueState ?? null,
-            started_at: currentRun.startedAt ?? null,
-            last_event: currentRun.lastEvent ?? null,
+            session_id: resolvedRun.runtimeSession?.sessionId ?? null,
+            turn_count: resolvedRun.turnCount ?? null,
+            state: resolvedRun.issueState ?? null,
+            started_at: resolvedRun.startedAt ?? null,
+            last_event: resolvedRun.lastEvent ?? null,
             last_message: latestEventMessage,
-            last_event_at: currentRun.lastEventAt ?? null,
-            tokens: currentRun.tokenUsage
+            last_event_at: resolvedRun.lastEventAt ?? null,
+            tokens: resolvedRun.tokenUsage
               ? {
-                  input_tokens: currentRun.tokenUsage.inputTokens,
-                  output_tokens: currentRun.tokenUsage.outputTokens,
-                  total_tokens: currentRun.tokenUsage.totalTokens,
+                  input_tokens: resolvedRun.tokenUsage.inputTokens,
+                  output_tokens: resolvedRun.tokenUsage.outputTokens,
+                  total_tokens: resolvedRun.tokenUsage.totalTokens,
                   cumulative_input_tokens: cumulativeTokens.inputTokens,
                   cumulative_output_tokens: cumulativeTokens.outputTokens,
                   cumulative_total_tokens: cumulativeTokens.totalTokens,
@@ -264,48 +302,38 @@ export async function statusForIssue(
               : null,
           },
     retry:
-      (currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt)
+      (resolvedRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt)
         ? {
             due_at:
-              currentRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
-            kind: currentRun?.retryKind ?? null,
+              resolvedRun?.nextRetryAt ?? issueRecord.retryEntry?.dueAt ?? "",
+            kind: resolvedRun?.retryKind ?? null,
             error:
-              currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+              resolvedRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
           }
         : null,
     logs: {
       codex_session_logs:
-        currentRun === null
+        resolvedRun === null
           ? []
           : [
               {
                 label: "worker",
-                path: join(reader.runDir(currentRun.runId), "worker.log"),
+                path: join(reader.runDir(resolvedRun.runId), "worker.log"),
                 url: null,
               },
             ],
     },
     recent_events: recentEvents,
-    last_error: currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
+    last_error: resolvedRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
     tracked: {
       issue_orchestration_state: issueRecord.state,
       current_run_id: issueRecord.currentRunId,
       workspace_key: issueRecord.workspaceKey,
       completed_once: issueRecord.completedOnce,
-      run_phase: currentRun?.runPhase ?? null,
-      execution_phase: currentRun?.executionPhase ?? null,
+      run_phase: resolvedRun?.runPhase ?? null,
+      execution_phase: resolvedRun?.executionPhase ?? null,
     },
   };
-}
-
-async function loadIssueRuns(
-  reader: DashboardFsReader,
-  issueId: string,
-  issueIdentifier: string
-): Promise<OrchestratorRunRecord[]> {
-  return (await reader.loadAllRuns()).filter(
-    (run) => run.issueId === issueId || run.issueIdentifier === issueIdentifier
-  );
 }
 
 function aggregateIssueTokenUsage(runs: OrchestratorRunRecord[]): {
@@ -327,24 +355,18 @@ function aggregateIssueTokenUsage(runs: OrchestratorRunRecord[]): {
   );
 }
 
-async function findLatestRunForIssue(
-  reader: DashboardFsReader,
-  issueId: string,
-  issueIdentifier: string
-): Promise<OrchestratorRunRecord | null> {
+function findLatestRunForIssue(
+  matchingRuns: OrchestratorRunRecord[]
+): OrchestratorRunRecord | null {
   // If the tracked currentRunId is stale, fall back to a bounded-concurrency scan
   // across persisted runs rather than opening every run.json at once.
-  const matchingRuns = (await reader.loadAllRuns())
-    .filter(
-      (run) =>
-        run.issueId === issueId || run.issueIdentifier === issueIdentifier
-    )
+  const sortedRuns = [...matchingRuns]
     .sort(
       (left, right) =>
         new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
     );
 
-  return matchingRuns[0] ?? null;
+  return sortedRuns[0] ?? null;
 }
 
 export function assertValidDashboardProjectId(projectId: string): void {

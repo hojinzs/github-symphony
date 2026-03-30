@@ -52,7 +52,7 @@ function resolveProjectTokenDelta(snapshot: ProjectStatusSnapshot): number {
   );
 }
 
-export function renderLegacyStatus(
+function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean
 ): string {
