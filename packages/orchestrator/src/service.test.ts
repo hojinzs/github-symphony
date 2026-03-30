@@ -87,7 +87,7 @@ describe("OrchestratorService", () => {
     );
   });
 
-  it("passes issue budget limits and cumulative usage baselines to worker env", async () => {
+  it("passes issue budget limits and cumulative delta usage baselines to worker env", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "12";
     process.env.SYMPHONY_MAX_TOKENS = "900";
@@ -143,6 +143,47 @@ describe("OrchestratorService", () => {
           totalTokens: 150,
         },
       });
+      await store.saveRun({
+        runId: "run-retry",
+        projectId: projectConfig.projectId,
+        projectSlug: projectConfig.slug,
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueTitle: "Issue 1",
+        issueState: "Todo",
+        repository: {
+          cloneUrl: repository.cloneUrl,
+          owner: repository.owner,
+          name: repository.name,
+          url: `https://github.com/${repository.owner}/${repository.name}`,
+        },
+        status: "failed",
+        attempt: 3,
+        processId: null,
+        port: null,
+        workingDirectory: repository.path,
+        issueWorkspaceKey: "workspace-1",
+        workspaceRuntimeDir: join(tempRoot, "runtime-retry"),
+        workflowPath: join(repository.path, "WORKFLOW.md"),
+        retryKind: "failure",
+        threadId: "thread-retry",
+        cumulativeTurnCount: null,
+        turnCount: 1,
+        lastTurnSummary: "thread/tokenUsage/updated",
+        createdAt: "2026-03-08T00:00:10.000Z",
+        updatedAt: "2026-03-08T00:00:20.000Z",
+        startedAt: "2026-03-08T00:00:10.000Z",
+        completedAt: "2026-03-08T00:00:20.000Z",
+        lastError: "retry failure",
+        nextRetryAt: null,
+        runPhase: "failed",
+        tokenUsage: {
+          inputTokens: 12,
+          outputTokens: 8,
+          totalTokens: 20,
+        },
+      });
 
       const spawnImpl = vi.fn().mockReturnValue({
         pid: 4103,
@@ -163,10 +204,10 @@ describe("OrchestratorService", () => {
       expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("900");
       expect(workerEnv?.SYMPHONY_MAX_NONPRODUCTIVE_TURNS).toBe("7");
       expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("600000");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("5");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_INPUT_TOKENS).toBe("100");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_OUTPUT_TOKENS).toBe("50");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_TOTAL_TOKENS).toBe("150");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("6");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_INPUT_TOKENS).toBe("112");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_OUTPUT_TOKENS).toBe("58");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_TOTAL_TOKENS).toBe("170");
       expect(workerEnv?.SYMPHONY_SESSION_STARTED_AT).toBe(
         "2026-03-07T23:59:00.000Z"
       );
