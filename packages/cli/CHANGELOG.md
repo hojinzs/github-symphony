@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.0.18
+
+### Patch Changes
+
+- [`8bb3618`](https://github.com/hojinzs/github-symphony/commit/8bb361859bbf02e8aa470b4c56188943544ce85a) Thanks [@hojinzs](https://github.com/hojinzs)! - Fix GitHub tracker polling rate-limit backoff and harden orchestrator retry suppression per issue
+
 ## 0.0.17
 
 ### Patch Changes
