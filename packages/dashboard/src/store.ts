@@ -221,6 +221,8 @@ export async function statusForIssue(
     currentRun === null
       ? []
       : await reader.loadRecentRunEvents(currentRun.runId);
+  const issueRuns = await loadIssueRuns(reader, issueRecord.issueId, issueIdentifier);
+  const cumulativeTokens = aggregateIssueTokenUsage(issueRuns);
   const latestEventMessage =
     recentEvents[recentEvents.length - 1]?.message ?? null;
   const currentAttempt =
@@ -255,6 +257,9 @@ export async function statusForIssue(
                   input_tokens: currentRun.tokenUsage.inputTokens,
                   output_tokens: currentRun.tokenUsage.outputTokens,
                   total_tokens: currentRun.tokenUsage.totalTokens,
+                  cumulative_input_tokens: cumulativeTokens.inputTokens,
+                  cumulative_output_tokens: cumulativeTokens.outputTokens,
+                  cumulative_total_tokens: cumulativeTokens.totalTokens,
                 }
               : null,
           },
@@ -291,6 +296,35 @@ export async function statusForIssue(
       execution_phase: currentRun?.executionPhase ?? null,
     },
   };
+}
+
+async function loadIssueRuns(
+  reader: DashboardFsReader,
+  issueId: string,
+  issueIdentifier: string
+): Promise<OrchestratorRunRecord[]> {
+  return (await reader.loadAllRuns()).filter(
+    (run) => run.issueId === issueId || run.issueIdentifier === issueIdentifier
+  );
+}
+
+function aggregateIssueTokenUsage(runs: OrchestratorRunRecord[]): {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+} {
+  return runs.reduce(
+    (total, run) => ({
+      inputTokens: total.inputTokens + (run.tokenUsage?.inputTokens ?? 0),
+      outputTokens: total.outputTokens + (run.tokenUsage?.outputTokens ?? 0),
+      totalTokens: total.totalTokens + (run.tokenUsage?.totalTokens ?? 0),
+    }),
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    }
+  );
 }
 
 async function findLatestRunForIssue(

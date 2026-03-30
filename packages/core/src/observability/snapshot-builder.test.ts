@@ -521,6 +521,7 @@ describe("buildProjectSnapshot", () => {
   it("passes through processId, turnCount, startedAt, lastEvent, lastEventAt, tokenUsage to activeRuns", () => {
     const run = mockRun({
       runId: "run-live-001",
+      issueId: "issue-live-001",
       processId: 54321,
       turnCount: 5,
       startedAt: "2024-01-01T00:01:00Z",
@@ -552,6 +553,51 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns[0].tokenUsage?.inputTokens).toBe(2500);
     expect(snapshot.activeRuns[0].tokenUsage?.outputTokens).toBe(1200);
     expect(snapshot.activeRuns[0].tokenUsage?.totalTokens).toBe(3700);
+    expect(snapshot.activeRuns[0].tokenUsage?.cumulativeInputTokens).toBe(2500);
+    expect(snapshot.activeRuns[0].tokenUsage?.cumulativeOutputTokens).toBe(1200);
+    expect(snapshot.activeRuns[0].tokenUsage?.cumulativeTotalTokens).toBe(3700);
+  });
+
+  it("annotates active run token usage with cumulative issue totals", () => {
+    const currentRun = mockRun({
+      runId: "run-live-current",
+      issueId: "issue-live-shared",
+      issueIdentifier: "acme/repo#99",
+      tokenUsage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+      },
+    });
+    const previousRun = mockRun({
+      runId: "run-live-previous",
+      issueId: "issue-live-shared",
+      issueIdentifier: "acme/repo#99",
+      status: "succeeded",
+      tokenUsage: {
+        inputTokens: 400,
+        outputTokens: 100,
+        totalTokens: 500,
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [currentRun],
+      allRuns: [currentRun, previousRun],
+      summary: { dispatched: 1, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.activeRuns[0].tokenUsage).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+      cumulativeInputTokens: 500,
+      cumulativeOutputTokens: 150,
+      cumulativeTotalTokens: 650,
+    });
   });
 
   it("sets live fields to null/undefined when missing from run record", () => {

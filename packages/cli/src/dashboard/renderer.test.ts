@@ -121,4 +121,24 @@ describe("renderDashboard", () => {
     expect(output).toContain("In Progress");
     expect(output).not.toContain("implementation ");
   });
+
+  it("renders token usage as delta over cumulative total", () => {
+    const snapshot = loadFixture("busy");
+    snapshot.activeRuns[0] = {
+      ...snapshot.activeRuns[0],
+      tokenUsage: {
+        ...snapshot.activeRuns[0]!.tokenUsage!,
+        totalTokens: 3200,
+        cumulativeTotalTokens: 15650,
+      },
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).toContain("3,200 / 15,650");
+  });
 });

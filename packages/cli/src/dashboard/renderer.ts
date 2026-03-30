@@ -51,7 +51,7 @@ const COL_ID = 24;
 const COL_STATUS = 14;
 const COL_PID = 8;
 const COL_AGE_TURN = 12;
-const COL_TOKENS = 10;
+const COL_TOKENS = 17;
 const COL_SESSION = 14;
 /** ID header width accounts for "● " prefix in data rows */
 const COL_ID_HEADER = COL_ID + 2;
@@ -95,6 +95,15 @@ function compactSessionId(id: string | null | undefined): string {
 
 function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+function fmtTokenPair(
+  delta: number | null | undefined,
+  cumulative: number | null | undefined
+): string {
+  const left = fmtTokens(delta ?? 0);
+  const right = fmtTokens(cumulative ?? delta ?? 0);
+  return `${left} / ${right}`;
 }
 
 function fmtAge(startedAt: string | null | undefined, now: number): string {
@@ -251,7 +260,10 @@ function activeRunRow(
   const turn = run.turnCount ?? 0;
   const ageTurn = pad(`${age}/${turn}`, COL_AGE_TURN);
   const tokens = pad(
-    fmtTokens(run.tokenUsage?.totalTokens ?? 0),
+    fmtTokenPair(
+      run.tokenUsage?.totalTokens,
+      run.tokenUsage?.cumulativeTotalTokens
+    ),
     COL_TOKENS,
     "right"
   );

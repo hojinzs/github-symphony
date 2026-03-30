@@ -109,6 +109,9 @@ export type OrchestratorRunRecord = {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    cumulativeInputTokens?: number;
+    cumulativeOutputTokens?: number;
+    cumulativeTotalTokens?: number;
   };
   /** Turn count from live worker polling (Symphony spec 4.1.6) */
   turnCount?: number;
@@ -187,6 +190,9 @@ export type ProjectStatusSnapshot = {
       inputTokens: number;
       outputTokens: number;
       totalTokens: number;
+      cumulativeInputTokens?: number;
+      cumulativeOutputTokens?: number;
+      cumulativeTotalTokens?: number;
     };
   }>;
   runtimeSession?: RuntimeSessionRow | null;
@@ -235,6 +241,9 @@ export type IssueStatusSnapshot = {
       input_tokens: number;
       output_tokens: number;
       total_tokens: number;
+      cumulative_input_tokens?: number;
+      cumulative_output_tokens?: number;
+      cumulative_total_tokens?: number;
     } | null;
   } | null;
   retry: {
