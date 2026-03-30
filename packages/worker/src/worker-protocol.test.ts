@@ -90,6 +90,7 @@ function createProtocolContext(options: {
   readTimeoutMs?: number;
   turnTimeoutMs?: number;
   maxTurns?: number;
+  tokenUsageBaseline?: TokenUsageSnapshot;
   orchestratorChannelWriter?: {
     write: (chunk: string) => boolean;
     once: (event: "drain", listener: () => void) => unknown;
@@ -101,6 +102,11 @@ function createProtocolContext(options: {
     readTimeoutMs = 5000,
     turnTimeoutMs = 3600000,
     maxTurns = 20,
+    tokenUsageBaseline = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    },
     orchestratorChannelWriter,
   } = options;
   const fake = createFakeChild();
@@ -146,7 +152,7 @@ function createProtocolContext(options: {
       issueId: "issue-1",
       lastError: null as string | null,
     },
-    tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    tokenUsage: { ...tokenUsageBaseline },
     lastEventAt: null as string | null,
     rateLimits: null as Record<string, unknown> | null,
     sessionInfo: {
@@ -243,7 +249,7 @@ function createProtocolContext(options: {
       type: "codex_update",
       issueId: runtimeState.run.issueId,
       lastEventAt: runtimeState.lastEventAt,
-      tokenUsage: { ...runtimeState.tokenUsage },
+      tokenUsage: resolveSessionTokenUsageDelta(),
       sessionInfo: { ...runtimeState.sessionInfo },
       executionPhase: runtimeState.executionPhase,
       runPhase: runtimeState.runPhase,
@@ -281,6 +287,10 @@ function createProtocolContext(options: {
         runtimeState.tokenUsage.totalTokens - baseline.totalTokens
       ),
     };
+  }
+
+  function resolveSessionTokenUsageDelta(): TokenUsageSnapshot {
+    return resolveTurnTokenUsageDelta(tokenUsageBaseline);
   }
 
   function emitTurnStartedEvent(turn: ActiveTurnTelemetry): void {
@@ -346,7 +356,7 @@ function createProtocolContext(options: {
       type: "heartbeat",
       issueId: runtimeState.run.issueId,
       lastEventAt: runtimeState.lastEventAt,
-      tokenUsage: { ...runtimeState.tokenUsage },
+      tokenUsage: resolveSessionTokenUsageDelta(),
       rateLimits: runtimeState.rateLimits
         ? { ...runtimeState.rateLimits }
         : null,
@@ -2517,6 +2527,47 @@ describe("token usage tracking", () => {
       inputTokens: 200,
       outputTokens: 100,
       totalTokens: 300,
+    });
+  });
+
+  it("emits session token usage deltas on orchestrator channel events", () => {
+    const ctx = createProtocolContext({
+      tokenUsageBaseline: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+      },
+    });
+
+    ctx.handleServerMessage({
+      method: "thread/tokenUsage/updated",
+      params: { input_tokens: 140, output_tokens: 70, total_tokens: 210 },
+    });
+
+    expect(ctx.runtimeState.tokenUsage).toEqual({
+      inputTokens: 140,
+      outputTokens: 70,
+      totalTokens: 210,
+    });
+    expect(ctx.orchestratorEvents.at(-1)).toMatchObject({
+      type: "codex_update",
+      event: "thread/tokenUsage/updated",
+      tokenUsage: {
+        inputTokens: 40,
+        outputTokens: 20,
+        totalTokens: 60,
+      },
+    });
+
+    ctx.emitOrchestratorHeartbeat();
+
+    expect(ctx.orchestratorEvents.at(-1)).toMatchObject({
+      type: "heartbeat",
+      tokenUsage: {
+        inputTokens: 40,
+        outputTokens: 20,
+        totalTokens: 60,
+      },
     });
   });
 

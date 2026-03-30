@@ -172,7 +172,7 @@ function shutdown(signal: NodeJS.Signals) {
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
-    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    await persistSessionTokenUsageArtifact(launcherEnv);
     await waitForPendingOrchestratorChannelFlush(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
@@ -302,7 +302,7 @@ function emitOrchestratorHeartbeat(): void {
     type: "heartbeat",
     issueId,
     lastEventAt: runtimeState.lastEventAt,
-    tokenUsage: { ...runtimeState.tokenUsage },
+    tokenUsage: resolveSessionTokenUsageDelta(),
     rateLimits: runtimeState.rateLimits ? { ...runtimeState.rateLimits } : null,
     sessionInfo: { ...runtimeState.sessionInfo },
     executionPhase: runtimeState.executionPhase,
@@ -344,7 +344,7 @@ function emitOrchestratorChannelEvent(event?: string): void {
     type: "codex_update",
     issueId,
     lastEventAt,
-    tokenUsage: { ...runtimeState.tokenUsage },
+    tokenUsage: resolveSessionTokenUsageDelta(),
     sessionInfo: { ...runtimeState.sessionInfo },
     executionPhase: runtimeState.executionPhase,
     runPhase: runtimeState.runPhase,
@@ -382,6 +382,16 @@ function resolveTurnTokenUsageDelta(
       runtimeState.tokenUsage.totalTokens - baseline.totalTokens
     ),
   };
+}
+
+function resolveSessionTokenUsageDelta(): TokenUsageSnapshot {
+  return resolveTurnTokenUsageDelta(sessionBudgetState.tokenUsageBaseline);
+}
+
+async function persistSessionTokenUsageArtifact(
+  env: NodeJS.ProcessEnv
+): Promise<void> {
+  await persistTokenUsageArtifact(env, resolveSessionTokenUsageDelta());
 }
 
 function emitTurnStartedEvent(turn: ActiveTurnTelemetry): void {
@@ -515,7 +525,7 @@ async function startAssignedRun() {
                 : `codex app-server exited with ${signal ?? code ?? "unknown"}`;
           }
         }
-        void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+        void persistSessionTokenUsageArtifact(launcherEnv);
       }
     );
     childProcess.once("error", (error: Error) => {
@@ -525,7 +535,7 @@ async function startAssignedRun() {
       if (runtimeState.run) {
         runtimeState.run.lastError = error.message;
       }
-      void persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+      void persistSessionTokenUsageArtifact(launcherEnv);
     });
   } catch (error) {
     runtimeState.status = "failed";
@@ -535,7 +545,7 @@ async function startAssignedRun() {
       runtimeState.run.lastError =
         error instanceof Error ? error.message : "Unknown worker startup error";
     }
-    await persistTokenUsageArtifact(launcherEnv, runtimeState.tokenUsage);
+    await persistSessionTokenUsageArtifact(launcherEnv);
   }
 }
 
@@ -1127,7 +1137,7 @@ async function runCodexClientProtocol(
       });
       stopOrchestratorHeartbeatTimer();
       emitOrchestratorHeartbeat();
-      await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+      await persistSessionTokenUsageArtifact(env);
       await waitForPendingOrchestratorChannelFlush(
         resolveTerminalOrchestratorChannelFlushTimeoutMs()
       );
@@ -1400,7 +1410,7 @@ async function runCodexClientProtocol(
     });
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
-    await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await persistSessionTokenUsageArtifact(env);
     await waitForPendingOrchestratorChannelFlush(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
@@ -1447,7 +1457,7 @@ async function runCodexClientProtocol(
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
-    await persistTokenUsageArtifact(env, runtimeState.tokenUsage);
+    await persistSessionTokenUsageArtifact(env);
     await waitForPendingOrchestratorChannelFlush(
       resolveTerminalOrchestratorChannelFlushTimeoutMs()
     );
