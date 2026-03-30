@@ -1,6 +1,7 @@
 const TOP_LEVEL_COMMANDS = [
   "init",
   "doctor",
+  "upgrade",
   "start",
   "stop",
   "status",
@@ -33,6 +34,7 @@ const GLOBAL_OPTIONS_WITH_VALUES = ["--config", "--config-dir"] as const;
 const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   completion: ["bash", "zsh", "fish"],
   doctor: ["--project-id", "--project", ...GLOBAL_OPTIONS],
+  upgrade: [...GLOBAL_OPTIONS],
   start: ["--project-id", "--project", "--daemon", "-d", ...GLOBAL_OPTIONS],
   stop: ["--project-id", "--project", "--force", ...GLOBAL_OPTIONS],
   status: ["--project-id", "--project", "--watch", "-w", ...GLOBAL_OPTIONS],
