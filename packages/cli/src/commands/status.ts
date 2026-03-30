@@ -41,6 +41,17 @@ function truncate(s: string, len: number): string {
   return s.slice(0, len - 3) + "...";
 }
 
+function formatTokenPair(delta: number, cumulative: number): string {
+  return `${delta.toLocaleString("en-US")} / ${cumulative.toLocaleString("en-US")}`;
+}
+
+function resolveProjectTokenDelta(snapshot: ProjectStatusSnapshot): number {
+  return snapshot.activeRuns.reduce(
+    (sum, run) => sum + (run.tokenUsage?.totalTokens ?? 0),
+    0
+  );
+}
+
 function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean
@@ -135,12 +146,13 @@ function renderLegacyStatus(
 
   // Token usage
   if (snapshot.codexTotals) {
+    const tokenDelta = resolveProjectTokenDelta(snapshot);
     const tokenStr = apply(
-      `Tokens: ${snapshot.codexTotals.inputTokens} in / ${snapshot.codexTotals.outputTokens} out / ${snapshot.codexTotals.totalTokens} total`
+      `Tokens: ${formatTokenPair(tokenDelta, snapshot.codexTotals.totalTokens)} total`
     );
     lines.push(`  ${tokenStr}`);
   } else {
-    lines.push("  Tokens: 0 in / 0 out / 0 total");
+    lines.push("  Tokens: 0 / 0 total");
   }
 
   return lines.join("\n");

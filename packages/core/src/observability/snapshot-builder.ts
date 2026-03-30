@@ -44,6 +44,9 @@ export function buildProjectSnapshot(
     lastError,
     rateLimits,
   } = input;
+  const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
+    allRuns ?? activeRuns
+  );
 
   return {
     projectId: project.projectId,
@@ -76,7 +79,10 @@ export function buildProjectSnapshot(
       lastEventAt: run.lastEventAt ?? null,
       executionPhase: run.executionPhase ?? null,
       runPhase: run.runPhase ?? null,
-      tokenUsage: run.tokenUsage,
+      tokenUsage: attachCumulativeTokenUsage(
+        run.tokenUsage,
+        cumulativeTokenUsageByIssue.get(run.issueId)
+      ),
     })),
     retryQueue: activeRuns
       .filter((run) => run.status === "retrying" && run.retryKind)
@@ -89,6 +95,47 @@ export function buildProjectSnapshot(
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
+  };
+}
+
+function aggregateTokenUsageByIssue(
+  runs: OrchestratorRunRecord[]
+): Map<string, NonNullable<OrchestratorRunRecord["tokenUsage"]>> {
+  const totals = new Map<string, NonNullable<OrchestratorRunRecord["tokenUsage"]>>();
+
+  for (const run of runs) {
+    if (!run.tokenUsage) {
+      continue;
+    }
+
+    const current = totals.get(run.issueId) ?? {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+    current.inputTokens += run.tokenUsage.inputTokens;
+    current.outputTokens += run.tokenUsage.outputTokens;
+    current.totalTokens += run.tokenUsage.totalTokens;
+    totals.set(run.issueId, current);
+  }
+
+  return totals;
+}
+
+function attachCumulativeTokenUsage(
+  tokenUsage: OrchestratorRunRecord["tokenUsage"] | undefined,
+  cumulative: OrchestratorRunRecord["tokenUsage"] | undefined
+): OrchestratorRunRecord["tokenUsage"] | undefined {
+  if (!tokenUsage) {
+    return undefined;
+  }
+
+  return {
+    ...tokenUsage,
+    cumulativeInputTokens: cumulative?.inputTokens ?? tokenUsage.inputTokens,
+    cumulativeOutputTokens:
+      cumulative?.outputTokens ?? tokenUsage.outputTokens,
+    cumulativeTotalTokens: cumulative?.totalTokens ?? tokenUsage.totalTokens,
   };
 }
 

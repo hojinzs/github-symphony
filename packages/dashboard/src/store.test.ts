@@ -54,7 +54,9 @@ describe("DashboardFsReader", () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
     const projectDir = join(runtimeRoot, "projects", "tenant-1");
     const runDir = join(projectDir, "runs", "run-1");
+    const priorRunDir = join(projectDir, "runs", "run-0");
     await mkdir(runDir, { recursive: true });
+    await mkdir(priorRunDir, { recursive: true });
 
     await writeFile(
       join(projectDir, "issues.json"),
@@ -128,6 +130,44 @@ describe("DashboardFsReader", () => {
       }) + "\n",
       "utf8"
     );
+    await writeFile(
+      join(priorRunDir, "run.json"),
+      JSON.stringify({
+        runId: "run-0",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "Done",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        status: "succeeded",
+        attempt: 1,
+        processId: null,
+        port: null,
+        workingDirectory: join(runtimeRoot, "workspace", "run-0"),
+        issueWorkspaceKey: "acme_platform_1",
+        workspaceRuntimeDir: join(priorRunDir, "workspace-runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-19T23:50:00.000Z",
+        updatedAt: "2026-03-19T23:59:00.000Z",
+        startedAt: "2026-03-19T23:50:00.000Z",
+        completedAt: "2026-03-19T23:59:00.000Z",
+        lastError: null,
+        nextRetryAt: null,
+        tokenUsage: {
+          inputTokens: 80,
+          outputTokens: 20,
+          totalTokens: 100,
+        },
+      }) + "\n",
+      "utf8"
+    );
     await appendFile(
       join(runDir, "events.ndjson"),
       JSON.stringify({
@@ -166,6 +206,9 @@ describe("DashboardFsReader", () => {
           input_tokens: 120,
           output_tokens: 40,
           total_tokens: 160,
+          cumulative_input_tokens: 200,
+          cumulative_output_tokens: 60,
+          cumulative_total_tokens: 260,
         },
       },
       retry: {
@@ -268,6 +311,127 @@ describe("DashboardFsReader", () => {
       status: "running",
       tracked: {
         current_run_id: "missing-run",
+      },
+    });
+  });
+
+  it("ignores malformed unrelated run artifacts when computing cumulative tokens", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    const runsDir = join(projectDir, "runs");
+    const runDir = join(runsDir, "run-1");
+    const priorRunDir = join(runsDir, "run-0");
+    const malformedRunDir = join(runsDir, "run-bad");
+    await mkdir(runDir, { recursive: true });
+    await mkdir(priorRunDir, { recursive: true });
+    await mkdir(malformedRunDir, { recursive: true });
+
+    await writeFile(
+      join(projectDir, "issues.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "acme_platform_1",
+          completedOnce: false,
+          failureRetryCount: 0,
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-03-20T00:02:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+    await writeFile(
+      join(runDir, "run.json"),
+      JSON.stringify({
+        runId: "run-1",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "In Progress",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        status: "running",
+        attempt: 2,
+        processId: null,
+        port: null,
+        workingDirectory: join(runtimeRoot, "workspace", "run-1"),
+        issueWorkspaceKey: "acme_platform_1",
+        workspaceRuntimeDir: join(runDir, "workspace-runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-20T00:00:00.000Z",
+        updatedAt: "2026-03-20T00:02:00.000Z",
+        startedAt: "2026-03-20T00:00:00.000Z",
+        completedAt: null,
+        lastError: null,
+        nextRetryAt: null,
+        tokenUsage: {
+          inputTokens: 120,
+          outputTokens: 40,
+          totalTokens: 160,
+        },
+      }) + "\n",
+      "utf8"
+    );
+    await writeFile(
+      join(priorRunDir, "run.json"),
+      JSON.stringify({
+        runId: "run-0",
+        projectId: "tenant-1",
+        projectSlug: "tenant-1",
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "Done",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        status: "succeeded",
+        attempt: 1,
+        processId: null,
+        port: null,
+        workingDirectory: join(runtimeRoot, "workspace", "run-0"),
+        issueWorkspaceKey: "acme_platform_1",
+        workspaceRuntimeDir: join(priorRunDir, "workspace-runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-03-19T23:50:00.000Z",
+        updatedAt: "2026-03-19T23:59:00.000Z",
+        startedAt: "2026-03-19T23:50:00.000Z",
+        completedAt: "2026-03-19T23:59:00.000Z",
+        lastError: null,
+        nextRetryAt: null,
+        tokenUsage: {
+          inputTokens: 80,
+          outputTokens: 20,
+          totalTokens: 100,
+        },
+      }) + "\n",
+      "utf8"
+    );
+    await writeFile(join(malformedRunDir, "run.json"), "{not-json\n", "utf8");
+
+    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+
+    await expect(
+      statusForIssue(reader, "acme/platform#1")
+    ).resolves.toMatchObject({
+      issue_identifier: "acme/platform#1",
+      running: {
+        tokens: {
+          total_tokens: 160,
+          cumulative_total_tokens: 260,
+        },
       },
     });
   });
