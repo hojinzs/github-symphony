@@ -41,6 +41,12 @@ cd your-repo
 gh-symphony init
 ```
 
+Preview the generated files without writing anything:
+
+```bash
+gh-symphony init --dry-run
+```
+
 The interactive wizard will:
 
 1. Authenticate via `gh` CLI
@@ -54,6 +60,8 @@ The interactive wizard will:
 | `.gh-symphony/context.yaml` | Project metadata and environment context |
 | `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+
+`gh-symphony init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
 #### Customizing Agent Behavior
 
@@ -234,12 +242,18 @@ With a project already registered:
 ```bash
 cd my-repo
 gh-symphony init        # generates ./WORKFLOW.md from active project config
+gh-symphony init --dry-run
 ```
+
+`--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
+`.gh-symphony/reference-workflow.md`, and runtime skill files, then prints whether
+each path would be created, updated, or left unchanged without writing anything.
 
 Without a project (standalone):
 
 ```bash
 gh-symphony init --non-interactive --project PVT_xxx --output WORKFLOW.md
+gh-symphony init --non-interactive --project PVT_xxx --dry-run
 ```
 
 ### Resolution order

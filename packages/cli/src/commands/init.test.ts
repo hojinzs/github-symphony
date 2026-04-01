@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import type { CliProjectConfig } from "../config.js";
-import { generateProjectId, writeConfig, writeEcosystem } from "./init.js";
+import {
+  generateProjectId,
+  planEcosystem,
+  renderDryRunPreview,
+  writeConfig,
+  writeEcosystem,
+} from "./init.js";
 
 describe("init command config output", () => {
   it("writes the simplified project config", async () => {
@@ -147,6 +153,41 @@ const MOCK_STATUS_FIELD = {
 };
 
 describe("init ecosystem generation", () => {
+  it("plans dry-run output without writing files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-plan-"));
+
+    const plan = await planEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    expect(plan.files.every((file) => file.status === "create")).toBe(true);
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
+
+    const preview = renderDryRunPreview(
+      join(cwd, "WORKFLOW.md"),
+      {
+        path: join(cwd, "WORKFLOW.md"),
+        label: "WORKFLOW.md",
+        content: "# workflow",
+        mode: "overwrite",
+        status: "create",
+      },
+      plan
+    );
+    expect(preview).toContain("Init dry-run preview");
+    expect(preview).toContain("create");
+    expect(preview).toContain(".gh-symphony/context.yaml");
+    expect(preview).toContain("Detected environment inputs");
+    expect(preview).toContain("Dry run only. No files were written.");
+  });
+
   it("generates context.yaml and reference-workflow.md", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-"));
 
@@ -300,5 +341,43 @@ describe("init ecosystem generation", () => {
     expect(contextYaml).toContain("PVTSSF_myfield");
     expect(contextYaml).toContain("opt_abc");
     expect(contextYaml).toContain("opt_def");
+  });
+
+  it("marks existing skill files as unchanged in dry-run plans", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-existing-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const plan = await planEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const referenceWorkflow = plan.files.find((file) =>
+      file.path.endsWith(".gh-symphony/reference-workflow.md")
+    );
+    expect(referenceWorkflow?.status).toBe("unchanged");
+
+    const contextYaml = plan.files.find((file) =>
+      file.path.endsWith(".gh-symphony/context.yaml")
+    );
+    expect(contextYaml?.status).toBe("update");
+
+    const skillStatuses = plan.files
+      .filter((file) => file.label.startsWith("Skill "))
+      .map((file) => file.status);
+    expect(skillStatuses.length).toBeGreaterThan(0);
+    expect(skillStatuses.every((status) => status === "unchanged")).toBe(true);
   });
 });

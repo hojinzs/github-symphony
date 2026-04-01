@@ -52,6 +52,7 @@ Navigate to the repository you want to orchestrate, then run:
 
 ```bash
 gh-symphony init
+gh-symphony init --dry-run
 ```
 
 The interactive wizard will:
@@ -60,6 +61,11 @@ The interactive wizard will:
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate `WORKFLOW.md` and supporting files in the repository
+
+Use `--dry-run` to preview the generated write plan first. The preview reports
+whether `WORKFLOW.md`, `.gh-symphony/context.yaml`,
+`.gh-symphony/reference-workflow.md`, and runtime skill files would be created,
+updated, or left unchanged, and then exits without modifying the repository.
 
 ### Customizing Agent Behavior
 
@@ -183,6 +189,7 @@ gh-symphony doctor --json
 ```
 Setup:
   init                Interactive repository setup wizard
+  init --dry-run      Preview generated setup files without writing them
   doctor              Run first-run diagnostics
   config show         Show current configuration
   config set          Set a configuration value

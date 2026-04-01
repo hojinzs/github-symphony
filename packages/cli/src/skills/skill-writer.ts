@@ -2,6 +2,11 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
 
+export type SkillFilePlan = {
+  path: string;
+  content: string;
+};
+
 function normalizeRuntimeForSkills(
   runtime: string
 ): "claude-code" | "codex" | null {
@@ -26,6 +31,26 @@ export function resolveSkillsDir(
     return join(repoRoot, ".codex", "skills");
   }
   return null;
+}
+
+export function buildSkillFilePlans(
+  repoRoot: string,
+  runtime: string,
+  templates: SkillTemplate[],
+  context: SkillTemplateContext
+): { skillsDir: string | null; files: SkillFilePlan[] } {
+  const skillsDir = resolveSkillsDir(repoRoot, runtime);
+  if (!skillsDir) {
+    return { skillsDir: null, files: [] };
+  }
+
+  return {
+    skillsDir,
+    files: templates.map((template) => ({
+      path: join(skillsDir, template.name, template.fileName),
+      content: template.generate(context),
+    })),
+  };
 }
 
 export async function writeSkillFile(
@@ -66,7 +91,12 @@ export async function writeAllSkills(
   context: SkillTemplateContext,
   options?: { overwrite?: boolean }
 ): Promise<{ written: string[]; skipped: string[] }> {
-  const skillsDir = resolveSkillsDir(repoRoot, runtime);
+  const { skillsDir, files } = buildSkillFilePlans(
+    repoRoot,
+    runtime,
+    templates,
+    context
+  );
   if (!skillsDir) {
     return { written: [], skipped: [] };
   }
@@ -74,12 +104,19 @@ export async function writeAllSkills(
   const written: string[] = [];
   const skipped: string[] = [];
 
-  for (const template of templates) {
-    const result = await writeSkillFile(skillsDir, template, context, options);
+  for (let index = 0; index < templates.length; index += 1) {
+    const template = templates[index]!;
+    const plannedFile = files[index]!;
+    const result = await writeSkillFile(
+      skillsDir,
+      template,
+      context,
+      options
+    );
     if (result.written) {
-      written.push(result.path);
+      written.push(plannedFile.path);
     } else {
-      skipped.push(result.path);
+      skipped.push(plannedFile.path);
     }
   }
 
