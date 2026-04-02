@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
 
@@ -57,7 +57,7 @@ export async function writeSkillFile(
   skillsDir: string,
   template: SkillTemplate,
   context: SkillTemplateContext,
-  options?: { overwrite?: boolean }
+  options?: { overwrite?: boolean; content?: string }
 ): Promise<{ written: boolean; path: string }> {
   const skillDir = join(skillsDir, template.name);
   const filePath = join(skillDir, template.fileName);
@@ -75,10 +75,9 @@ export async function writeSkillFile(
   }
 
   await mkdir(skillDir, { recursive: true });
-  const content = template.generate(context);
+  const content = options?.content ?? template.generate(context);
   const temporaryPath = `${filePath}.tmp`;
   await writeFile(temporaryPath, content, "utf8");
-  const { rename } = await import("node:fs/promises");
   await rename(temporaryPath, filePath);
 
   return { written: true, path: filePath };
@@ -111,7 +110,10 @@ export async function writeAllSkills(
       skillsDir,
       template,
       context,
-      options
+      {
+        ...options,
+        content: plannedFile.content,
+      }
     );
     if (result.written) {
       written.push(plannedFile.path);

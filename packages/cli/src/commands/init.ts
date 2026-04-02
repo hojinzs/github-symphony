@@ -186,6 +186,21 @@ export type EcosystemPlan = {
   files: PlannedFileChange[];
 };
 
+export type DryRunJsonResult = {
+  dryRun: true;
+  output: string;
+  projectId: string;
+  githubProjectTitle: string;
+  runtime: string;
+  files: Array<{
+    path: string;
+    label: string;
+    status: PlannedChangeStatus;
+    mode: PlannedWriteMode;
+  }>;
+  environment: Awaited<ReturnType<typeof detectEnvironment>>;
+};
+
 async function resolveChangeStatus(
   path: string,
   content: string,
@@ -219,7 +234,7 @@ async function planFileChange(input: {
 }
 
 async function writePlannedFile(file: PlannedFileChange): Promise<boolean> {
-  if (file.mode === "create-only" && file.status === "unchanged") {
+  if (file.status === "unchanged") {
     return false;
   }
 
@@ -293,28 +308,28 @@ export async function planEcosystem(
     })
   );
 
-  const skillsDir = resolveSkillsDir(cwd, runtime);
+  const skillsDir = skipSkills ? null : resolveSkillsDir(cwd, runtime);
   if (!skipSkills && skillsDir) {
     const { files: plannedSkills } = buildSkillFilePlans(
       cwd,
       runtime,
       ALL_SKILL_TEMPLATES,
       {
-      runtime,
-      projectId: projectDetail.id,
-      githubProjectTitle: projectDetail.title,
-      repositories: projectDetail.linkedRepositories.map((r) => ({
-        owner: r.owner,
-        name: r.name,
-      })),
-      statusColumns: statusField.options.map((o) => ({
-        id: o.id,
-        name: o.name,
-        role: null as "active" | "wait" | "terminal" | null,
-      })),
-      statusFieldId: statusField.id,
-      contextYamlPath: ".gh-symphony/context.yaml",
-      referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+        runtime,
+        projectId: projectDetail.id,
+        githubProjectTitle: projectDetail.title,
+        repositories: projectDetail.linkedRepositories.map((r) => ({
+          owner: r.owner,
+          name: r.name,
+        })),
+        statusColumns: statusField.options.map((o) => ({
+          id: o.id,
+          name: o.name,
+          role: null as "active" | "wait" | "terminal" | null,
+        })),
+        statusFieldId: statusField.id,
+        contextYamlPath: ".gh-symphony/context.yaml",
+        referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
       }
     );
 
@@ -345,6 +360,12 @@ export async function writeEcosystem(
 ): Promise<EcosystemResult> {
   const plan = await planEcosystem(opts);
   await mkdir(join(opts.cwd, ".gh-symphony"), { recursive: true });
+  const contextYamlPath = join(opts.cwd, ".gh-symphony", "context.yaml");
+  const referenceWorkflowPath = join(
+    opts.cwd,
+    ".gh-symphony",
+    "reference-workflow.md"
+  );
 
   let contextYamlWritten = false;
   let referenceWorkflowWritten = false;
@@ -353,11 +374,11 @@ export async function writeEcosystem(
 
   for (const file of plan.files) {
     const written = await writePlannedFile(file);
-    if (file.path.endsWith(".gh-symphony/context.yaml")) {
+    if (file.path === contextYamlPath) {
       contextYamlWritten = written;
       continue;
     }
-    if (file.path.endsWith(".gh-symphony/reference-workflow.md")) {
+    if (file.path === referenceWorkflowPath) {
       referenceWorkflowWritten = written;
       continue;
     }
@@ -472,6 +493,27 @@ export function renderDryRunPreview(
   lines.push("Dry run only. No files were written.");
 
   return lines.join("\n") + "\n";
+}
+
+export function buildDryRunJsonResult(
+  workflowPath: string,
+  workflowPlan: PlannedFileChange,
+  ecosystemPlan: EcosystemPlan
+): DryRunJsonResult {
+  return {
+    dryRun: true,
+    output: workflowPath,
+    projectId: ecosystemPlan.projectId,
+    githubProjectTitle: ecosystemPlan.githubProjectTitle,
+    runtime: ecosystemPlan.runtime,
+    files: [workflowPlan, ...ecosystemPlan.files].map((file) => ({
+      path: file.path,
+      label: file.label,
+      status: file.status,
+      mode: file.mode,
+    })),
+    environment: ecosystemPlan.environment,
+  };
 }
 
 function printDryRunPreview(
@@ -601,6 +643,14 @@ async function runNonInteractive(
   });
 
   if (flags.dryRun) {
+    if (options.json) {
+      process.stdout.write(
+        JSON.stringify(
+          buildDryRunJsonResult(outputPath, workflowPlan, ecosystemPlan)
+        ) + "\n"
+      );
+      return;
+    }
     printDryRunPreview(outputPath, workflowPlan, ecosystemPlan);
     return;
   }

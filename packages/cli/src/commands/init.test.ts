@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import {
+  buildDryRunJsonResult,
   generateProjectId,
   planEcosystem,
   renderDryRunPreview,
@@ -188,6 +189,43 @@ describe("init ecosystem generation", () => {
     expect(preview).toContain("Dry run only. No files were written.");
   });
 
+  it("builds JSON-friendly dry-run results", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-json-"));
+
+    const plan = await planEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const result = buildDryRunJsonResult(
+      join(cwd, "WORKFLOW.md"),
+      {
+        path: join(cwd, "WORKFLOW.md"),
+        label: "WORKFLOW.md",
+        content: "# workflow",
+        mode: "overwrite",
+        status: "create",
+      },
+      plan
+    );
+
+    expect(result.dryRun).toBe(true);
+    expect(result.output).toBe(join(cwd, "WORKFLOW.md"));
+    expect(result.files[0]).toMatchObject({
+      label: "WORKFLOW.md",
+      status: "create",
+      mode: "overwrite",
+    });
+    expect(
+      result.files.some((file) => file.path.endsWith(".gh-symphony/context.yaml"))
+    ).toBe(true);
+    expect(result.environment.packageManager).toBeDefined();
+  });
+
   it("generates context.yaml and reference-workflow.md", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-"));
 
@@ -272,7 +310,7 @@ describe("init ecosystem generation", () => {
   it("--skip-skills skips skill files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-skip-skill-"));
 
-    await writeEcosystem({
+    const result = await writeEcosystem({
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
@@ -290,6 +328,7 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
     expect(contextYaml).toContain("schema_version: 1");
+    expect(result.skillsDir).toBeNull();
   });
 
   it("--skip-context skips context.yaml", async () => {
@@ -379,5 +418,30 @@ describe("init ecosystem generation", () => {
       .map((file) => file.status);
     expect(skillStatuses.length).toBeGreaterThan(0);
     expect(skillStatuses.every((status) => status === "unchanged")).toBe(true);
+  });
+
+  it("does not rewrite unchanged overwrite files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-unchanged-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    const secondRun = await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    expect(secondRun.referenceWorkflowWritten).toBe(false);
+    expect(secondRun.contextYamlWritten).toBe(false);
   });
 });
