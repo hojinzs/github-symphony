@@ -49,9 +49,12 @@ type CliOptionValues = Partial<
     level?: string;
     logLevel?: string;
     nonInteractive?: boolean;
+    output?: string;
     project?: string;
     projectId?: string;
     run?: string;
+    skipContext?: boolean;
+    skipSkills?: boolean;
     version?: boolean;
     workspaceDir?: string;
     watch?: boolean;
@@ -179,10 +182,24 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     program
       .command("init")
       .description("Interactive project setup wizard")
+      .option("--non-interactive", "Run without prompts")
+      .option("--project <id>", "GitHub Project ID or URL")
+      .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option("--skip-skills", "Skip runtime skill generation")
+      .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
+      .option("--dry-run", "Preview generated files without writing them")
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();
-    await invokeHandler("init", [], this.optsWithGlobals<CliOptionValues>());
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = [];
+    pushOption(args, "--non-interactive", values.nonInteractive);
+    pushOption(args, "--project", values.project);
+    pushOption(args, "--output", values.output);
+    pushOption(args, "--skip-skills", values.skipSkills);
+    pushOption(args, "--skip-context", values.skipContext);
+    pushOption(args, "--dry-run", values.dryRun);
+    await invokeHandler("init", args, values);
   });
 
   addGlobalOptions(

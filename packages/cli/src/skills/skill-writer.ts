@@ -1,6 +1,11 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
+
+export type SkillFilePlan = {
+  path: string;
+  content: string;
+};
 
 function normalizeRuntimeForSkills(
   runtime: string
@@ -28,11 +33,31 @@ export function resolveSkillsDir(
   return null;
 }
 
+export function buildSkillFilePlans(
+  repoRoot: string,
+  runtime: string,
+  templates: SkillTemplate[],
+  context: SkillTemplateContext
+): { skillsDir: string | null; files: SkillFilePlan[] } {
+  const skillsDir = resolveSkillsDir(repoRoot, runtime);
+  if (!skillsDir) {
+    return { skillsDir: null, files: [] };
+  }
+
+  return {
+    skillsDir,
+    files: templates.map((template) => ({
+      path: join(skillsDir, template.name, template.fileName),
+      content: template.generate(context),
+    })),
+  };
+}
+
 export async function writeSkillFile(
   skillsDir: string,
   template: SkillTemplate,
   context: SkillTemplateContext,
-  options?: { overwrite?: boolean }
+  options?: { overwrite?: boolean; content?: string }
 ): Promise<{ written: boolean; path: string }> {
   const skillDir = join(skillsDir, template.name);
   const filePath = join(skillDir, template.fileName);
@@ -50,10 +75,9 @@ export async function writeSkillFile(
   }
 
   await mkdir(skillDir, { recursive: true });
-  const content = template.generate(context);
+  const content = options?.content ?? template.generate(context);
   const temporaryPath = `${filePath}.tmp`;
   await writeFile(temporaryPath, content, "utf8");
-  const { rename } = await import("node:fs/promises");
   await rename(temporaryPath, filePath);
 
   return { written: true, path: filePath };
@@ -66,7 +90,12 @@ export async function writeAllSkills(
   context: SkillTemplateContext,
   options?: { overwrite?: boolean }
 ): Promise<{ written: string[]; skipped: string[] }> {
-  const skillsDir = resolveSkillsDir(repoRoot, runtime);
+  const { skillsDir, files } = buildSkillFilePlans(
+    repoRoot,
+    runtime,
+    templates,
+    context
+  );
   if (!skillsDir) {
     return { written: [], skipped: [] };
   }
@@ -74,12 +103,22 @@ export async function writeAllSkills(
   const written: string[] = [];
   const skipped: string[] = [];
 
-  for (const template of templates) {
-    const result = await writeSkillFile(skillsDir, template, context, options);
+  for (let index = 0; index < templates.length; index += 1) {
+    const template = templates[index]!;
+    const plannedFile = files[index]!;
+    const result = await writeSkillFile(
+      skillsDir,
+      template,
+      context,
+      {
+        ...options,
+        content: plannedFile.content,
+      }
+    );
     if (result.written) {
-      written.push(result.path);
+      written.push(plannedFile.path);
     } else {
-      skipped.push(result.path);
+      skipped.push(plannedFile.path);
     }
   }
 

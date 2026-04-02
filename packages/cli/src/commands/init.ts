@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import { createHash } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -34,10 +34,10 @@ import { getGhToken, ensureGhAuth, GhAuthError } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import {
   buildContextYaml,
-  writeContextYaml,
+  generateContextYamlString,
 } from "../context/generate-context-yaml.js";
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
-import { resolveSkillsDir, writeAllSkills } from "../skills/skill-writer.js";
+import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 
 // ── Scope error display ───────────────────────────────────────────────────────
@@ -80,6 +80,7 @@ export async function abortIfCancelled<T>(
 // ── Non-interactive flag parsing ─────────────────────────────────────────────
 
 type InitFlags = {
+  dryRun: boolean;
   nonInteractive: boolean;
   project?: string;
   output?: string;
@@ -89,6 +90,7 @@ type InitFlags = {
 
 function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
+    dryRun: false,
     nonInteractive: false,
     skipSkills: false,
     skipContext: false,
@@ -98,6 +100,9 @@ function parseInitFlags(args: string[]): InitFlags {
     const arg = args[i];
     const next = args[i + 1];
     switch (arg) {
+      case "--dry-run":
+        flags.dryRun = true;
+        break;
       case "--non-interactive":
         flags.nonInteractive = true;
         break;
@@ -134,7 +139,7 @@ const handler = async (
     return;
   }
 
-  await runInteractive(options);
+  await runInteractive(flags, options);
 };
 
 export default handler;
@@ -161,24 +166,111 @@ export type EcosystemResult = {
   skillsSkipped: string[];
 };
 
-export async function writeEcosystem(
+type PlannedWriteMode = "overwrite" | "create-only";
+type PlannedChangeStatus = "create" | "update" | "unchanged";
+
+export type PlannedFileChange = {
+  path: string;
+  label: string;
+  content: string;
+  mode: PlannedWriteMode;
+  status: PlannedChangeStatus;
+};
+
+export type EcosystemPlan = {
+  projectId: string;
+  githubProjectTitle: string;
+  runtime: string;
+  skillsDir: string | null;
+  environment: Awaited<ReturnType<typeof detectEnvironment>>;
+  files: PlannedFileChange[];
+};
+
+export type DryRunJsonResult = {
+  dryRun: true;
+  output: string;
+  projectId: string;
+  githubProjectTitle: string;
+  runtime: string;
+  files: Array<{
+    path: string;
+    label: string;
+    status: PlannedChangeStatus;
+    mode: PlannedWriteMode;
+  }>;
+  environment: Awaited<ReturnType<typeof detectEnvironment>>;
+};
+
+async function resolveChangeStatus(
+  path: string,
+  content: string,
+  mode: PlannedWriteMode
+): Promise<PlannedChangeStatus> {
+  try {
+    const existing = await readFile(path, "utf8");
+    if (mode === "create-only") {
+      return "unchanged";
+    }
+    return existing === content ? "unchanged" : "update";
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") {
+      return "create";
+    }
+    throw error;
+  }
+}
+
+async function planFileChange(input: {
+  path: string;
+  label: string;
+  content: string;
+  mode: PlannedWriteMode;
+}): Promise<PlannedFileChange> {
+  return {
+    ...input,
+    status: await resolveChangeStatus(input.path, input.content, input.mode),
+  };
+}
+
+async function writePlannedFile(file: PlannedFileChange): Promise<boolean> {
+  if (file.status === "unchanged") {
+    return false;
+  }
+
+  await mkdir(dirname(file.path), { recursive: true });
+  const temporaryPath = `${file.path}.tmp`;
+  await writeFile(temporaryPath, file.content, "utf8");
+  await rename(temporaryPath, file.path);
+  return true;
+}
+
+function summarizeEnvironment(
+  env: Awaited<ReturnType<typeof detectEnvironment>>
+): string[] {
+  return [
+    `Package manager   ${env.packageManager ?? "none"}${env.lockfile ? ` (${env.lockfile})` : ""}`,
+    `Scripts   test=${env.testCommand ?? "none"} | lint=${env.lintCommand ?? "none"} | build=${env.buildCommand ?? "none"}`,
+    `CI   ${env.ciPlatform ?? "none"}`,
+    `Monorepo   ${env.monorepo ? "yes" : "no"}`,
+    `Existing skills   ${env.existingSkills.length === 0 ? "none" : env.existingSkills.join(", ")}`,
+  ];
+}
+
+export async function planEcosystem(
   opts: EcosystemOptions
-): Promise<EcosystemResult> {
+): Promise<EcosystemPlan> {
   const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
     opts;
   const ghSymphonyDir = join(cwd, ".gh-symphony");
-  await mkdir(ghSymphonyDir, { recursive: true });
+  const environment = await detectEnvironment(cwd);
+  const files: PlannedFileChange[] = [];
 
-  // 1. Detect environment
-  const env = await detectEnvironment(cwd);
-
-  // 2. Write context.yaml (unless --skip-context)
-  let contextYamlWritten = false;
   if (!skipContext) {
     const contextYaml = buildContextYaml({
       projectDetail,
       statusField,
-      detectedEnvironment: env,
+      detectedEnvironment: environment,
       runtime: {
         agent: runtime,
         agent_command:
@@ -189,12 +281,17 @@ export async function writeEcosystem(
               : runtime,
       },
     });
-    await writeContextYaml(cwd, contextYaml);
-    contextYamlWritten = true;
+    files.push(
+      await planFileChange({
+        path: join(ghSymphonyDir, "context.yaml"),
+        label: "Context metadata",
+        content: generateContextYamlString(contextYaml),
+        mode: "overwrite",
+      })
+    );
   }
 
-  // 3. Write reference-workflow.md
-  const refWorkflow = generateReferenceWorkflow({
+  const referenceWorkflow = generateReferenceWorkflow({
     runtime,
     statusColumns: statusField.options.map((o) => ({
       name: o.name,
@@ -202,35 +299,50 @@ export async function writeEcosystem(
     })),
     projectId: projectDetail.id,
   });
-  const refPath = join(ghSymphonyDir, "reference-workflow.md");
-  const tmpRef = refPath + ".tmp";
-  await writeFile(tmpRef, refWorkflow, "utf8");
-  await rename(tmpRef, refPath);
+  files.push(
+    await planFileChange({
+      path: join(ghSymphonyDir, "reference-workflow.md"),
+      label: "Reference workflow",
+      content: referenceWorkflow,
+      mode: "overwrite",
+    })
+  );
 
-  // 4. Write skills (unless --skip-skills)
-  const skillsDir = resolveSkillsDir(cwd, runtime);
-  let skillsWritten: string[] = [];
-  let skillsSkipped: string[] = [];
+  const skillsDir = skipSkills ? null : resolveSkillsDir(cwd, runtime);
   if (!skipSkills && skillsDir) {
-    const result = await writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, {
+    const { files: plannedSkills } = buildSkillFilePlans(
+      cwd,
       runtime,
-      projectId: projectDetail.id,
-      githubProjectTitle: projectDetail.title,
-      repositories: projectDetail.linkedRepositories.map((r) => ({
-        owner: r.owner,
-        name: r.name,
-      })),
-      statusColumns: statusField.options.map((o) => ({
-        id: o.id,
-        name: o.name,
-        role: null as "active" | "wait" | "terminal" | null,
-      })),
-      statusFieldId: statusField.id,
-      contextYamlPath: ".gh-symphony/context.yaml",
-      referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
-    });
-    skillsWritten = result.written.map((p) => basename(dirname(p)));
-    skillsSkipped = result.skipped.map((p) => basename(dirname(p)));
+      ALL_SKILL_TEMPLATES,
+      {
+        runtime,
+        projectId: projectDetail.id,
+        githubProjectTitle: projectDetail.title,
+        repositories: projectDetail.linkedRepositories.map((r) => ({
+          owner: r.owner,
+          name: r.name,
+        })),
+        statusColumns: statusField.options.map((o) => ({
+          id: o.id,
+          name: o.name,
+          role: null as "active" | "wait" | "terminal" | null,
+        })),
+        statusFieldId: statusField.id,
+        contextYamlPath: ".gh-symphony/context.yaml",
+        referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+      }
+    );
+
+    for (const plannedSkill of plannedSkills) {
+      files.push(
+        await planFileChange({
+          path: plannedSkill.path,
+          label: `Skill ${basename(dirname(plannedSkill.path))}`,
+          content: plannedSkill.content,
+          mode: "create-only",
+        })
+      );
+    }
   }
 
   return {
@@ -238,10 +350,57 @@ export async function writeEcosystem(
     githubProjectTitle: projectDetail.title,
     runtime,
     skillsDir,
+    environment,
+    files,
+  };
+}
+
+export async function writeEcosystem(
+  opts: EcosystemOptions
+): Promise<EcosystemResult> {
+  const plan = await planEcosystem(opts);
+  await mkdir(join(opts.cwd, ".gh-symphony"), { recursive: true });
+  const contextYamlPath = join(opts.cwd, ".gh-symphony", "context.yaml");
+  const referenceWorkflowPath = join(
+    opts.cwd,
+    ".gh-symphony",
+    "reference-workflow.md"
+  );
+
+  let contextYamlWritten = false;
+  let referenceWorkflowWritten = false;
+  const skillsWritten: string[] = [];
+  const skillsSkipped: string[] = [];
+
+  for (const file of plan.files) {
+    const written = await writePlannedFile(file);
+    if (file.path === contextYamlPath) {
+      contextYamlWritten = written;
+      continue;
+    }
+    if (file.path === referenceWorkflowPath) {
+      referenceWorkflowWritten = written;
+      continue;
+    }
+    if (file.label.startsWith("Skill ")) {
+      const skillName = basename(dirname(file.path));
+      if (written) {
+        skillsWritten.push(skillName);
+      } else {
+        skillsSkipped.push(skillName);
+      }
+    }
+  }
+
+  return {
+    projectId: plan.projectId,
+    githubProjectTitle: plan.githubProjectTitle,
+    runtime: plan.runtime,
+    skillsDir: plan.skillsDir,
     contextYamlWritten,
-    referenceWorkflowWritten: true,
-    skillsWritten,
-    skillsSkipped,
+    referenceWorkflowWritten,
+    skillsWritten: skillsWritten.sort(),
+    skillsSkipped: skillsSkipped.sort(),
   };
 }
 
@@ -293,6 +452,78 @@ function printEcosystemSummary(
   } else {
     process.stdout.write(lines.map((l) => `  ${l}`).join("\n") + "\n");
   }
+}
+
+export function renderDryRunPreview(
+  workflowPath: string,
+  workflowPlan: PlannedFileChange,
+  ecosystemPlan: EcosystemPlan
+): string {
+  const cwd = process.cwd();
+  const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
+  const statusIcon: Record<PlannedChangeStatus, string> = {
+    create: "+",
+    update: "~",
+    unchanged: "=",
+  };
+  const lines: string[] = [];
+
+  lines.push("Init dry-run preview");
+  lines.push(
+    `GitHub Project   ${ecosystemPlan.githubProjectTitle}  (${ecosystemPlan.projectId})`
+  );
+  lines.push(`Runtime   ${ecosystemPlan.runtime}`);
+  lines.push("");
+  lines.push("Planned file changes");
+  lines.push(
+    `  ${statusIcon[workflowPlan.status]} ${workflowPlan.status.padEnd(9)} WORKFLOW.md                          ${relWorkflow}`
+  );
+  for (const file of ecosystemPlan.files) {
+    const relPath = relative(cwd, file.path) || file.path;
+    lines.push(
+      `  ${statusIcon[file.status]} ${file.status.padEnd(9)} ${file.label.padEnd(36)} ${relPath}`
+    );
+  }
+  lines.push("");
+  lines.push("Detected environment inputs");
+  for (const line of summarizeEnvironment(ecosystemPlan.environment)) {
+    lines.push(`  ${line}`);
+  }
+  lines.push("");
+  lines.push("Dry run only. No files were written.");
+
+  return lines.join("\n") + "\n";
+}
+
+export function buildDryRunJsonResult(
+  workflowPath: string,
+  workflowPlan: PlannedFileChange,
+  ecosystemPlan: EcosystemPlan
+): DryRunJsonResult {
+  return {
+    dryRun: true,
+    output: workflowPath,
+    projectId: ecosystemPlan.projectId,
+    githubProjectTitle: ecosystemPlan.githubProjectTitle,
+    runtime: ecosystemPlan.runtime,
+    files: [workflowPlan, ...ecosystemPlan.files].map((file) => ({
+      path: file.path,
+      label: file.label,
+      status: file.status,
+      mode: file.mode,
+    })),
+    environment: ecosystemPlan.environment,
+  };
+}
+
+function printDryRunPreview(
+  workflowPath: string,
+  workflowPlan: PlannedFileChange,
+  ecosystemPlan: EcosystemPlan
+): void {
+  process.stdout.write(
+    renderDryRunPreview(workflowPath, workflowPlan, ecosystemPlan)
+  );
 }
 
 // ── Non-interactive mode: WORKFLOW.md only ───────────────────────────────────
@@ -396,7 +627,35 @@ async function runNonInteractive(
     runtime: "codex",
   });
 
-  await writeFile(outputPath, workflowMd, "utf8");
+  const workflowPlan = await planFileChange({
+    path: outputPath,
+    label: "WORKFLOW.md",
+    content: workflowMd,
+    mode: "overwrite",
+  });
+  const ecosystemPlan = await planEcosystem({
+    cwd: process.cwd(),
+    projectDetail: githubProject,
+    statusField,
+    runtime: "codex",
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
+  });
+
+  if (flags.dryRun) {
+    if (options.json) {
+      process.stdout.write(
+        JSON.stringify(
+          buildDryRunJsonResult(outputPath, workflowPlan, ecosystemPlan)
+        ) + "\n"
+      );
+      return;
+    }
+    printDryRunPreview(outputPath, workflowPlan, ecosystemPlan);
+    return;
+  }
+
+  await writePlannedFile(workflowPlan);
 
   const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
@@ -409,7 +668,7 @@ async function runNonInteractive(
 
   if (options.json) {
     process.stdout.write(
-      JSON.stringify({ output: outputPath, status: "created" }) + "\n"
+      JSON.stringify({ output: outputPath, status: workflowPlan.status }) + "\n"
     );
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
@@ -421,14 +680,18 @@ async function runNonInteractive(
 
 // ── Interactive mode: WORKFLOW.md generation ─────────────────────────────────
 
-async function runInteractive(options: GlobalOptions): Promise<void> {
+async function runInteractive(
+  flags: InitFlags,
+  options: GlobalOptions
+): Promise<void> {
   p.intro("gh-symphony — WORKFLOW.md Setup");
-  await runInteractiveStandalone(options);
+  await runInteractiveStandalone(flags, options);
 }
 
 // ── Interactive WORKFLOW.md generation ────────────────────────────────────────
 
 async function runInteractiveStandalone(
+  flags: InitFlags,
   _options: GlobalOptions
 ): Promise<void> {
   const s1 = p.spinner();
@@ -588,16 +851,36 @@ async function runInteractiveStandalone(
     runtime: "codex",
   });
 
-  const outputPath = resolve("WORKFLOW.md");
-  await writeFile(outputPath, workflowMd, "utf8");
+  const outputPath = resolve(flags.output ?? "WORKFLOW.md");
+  const workflowPlan = await planFileChange({
+    path: outputPath,
+    label: "WORKFLOW.md",
+    content: workflowMd,
+    mode: "overwrite",
+  });
+  const ecosystemPlan = await planEcosystem({
+    cwd: process.cwd(),
+    projectDetail,
+    statusField,
+    runtime: "codex",
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
+  });
+
+  if (flags.dryRun) {
+    printDryRunPreview(outputPath, workflowPlan, ecosystemPlan);
+    return;
+  }
+
+  await writePlannedFile(workflowPlan);
 
   const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
     projectDetail,
     statusField,
     runtime: "codex",
-    skipSkills: false,
-    skipContext: false,
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
   });
 
   printEcosystemSummary(ecosystemResult, outputPath, {

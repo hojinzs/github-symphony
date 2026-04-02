@@ -1,7 +1,7 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   resolveSkillsDir,
   writeSkillFile,
@@ -286,6 +286,40 @@ describe("skill-writer", () => {
       );
       expect(secondResult.written).toHaveLength(0);
       expect(secondResult.skipped).toHaveLength(2);
+    });
+
+    it("reuses planned skill content when writing files", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
+      const generate = vi.fn(() => "---\nname: sample\n---\n");
+
+      const result = await writeAllSkills(
+        tempDir,
+        "codex",
+        [
+          {
+            name: "sample",
+            description: "sample skill",
+            fileName: "SKILL.md",
+            generate,
+          },
+        ],
+        {
+          runtime: "codex",
+          projectId: "proj-123",
+          githubProjectTitle: "Test Project",
+          repositories: [],
+          statusColumns: [],
+          statusFieldId: "field-123",
+          contextYamlPath: "context.yaml",
+          referenceWorkflowPath: "WORKFLOW.md",
+        }
+      );
+
+      expect(result.written).toHaveLength(1);
+      expect(generate).toHaveBeenCalledTimes(1);
+      await expect(
+        readFile(join(tempDir, ".codex", "skills", "sample", "SKILL.md"), "utf8")
+      ).resolves.toContain("name: sample");
     });
   });
 });
