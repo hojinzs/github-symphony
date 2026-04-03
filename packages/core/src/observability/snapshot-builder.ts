@@ -162,9 +162,11 @@ function buildMonitoringSnapshot(input: {
       run.lastError.includes("max_failure_retries_exceeded")
   );
   const previousMonitoring = input.previousSnapshot?.monitoring;
+  const dispatchableEligibleIssues =
+    input.unscheduledEligibleIssues ?? input.eligibleIssues;
   const starvationConsecutiveCycles =
-    input.eligibleIssues !== null &&
-    input.eligibleIssues > 0 &&
+    dispatchableEligibleIssues !== null &&
+    dispatchableEligibleIssues > 0 &&
     input.summary.dispatched === 0
       ? (previousMonitoring?.dispatch.starvationConsecutiveCycles ?? 0) + 1
       : 0;

@@ -570,7 +570,12 @@ describe("DashboardFsReader", () => {
         { id: "project-health", severity: "critical" },
         { id: "retry-queue", severity: "warning" },
         { id: "stalled-runs", severity: "critical" },
-        { id: "dispatch-starvation", severity: "critical" },
+        {
+          id: "dispatch-starvation",
+          severity: "critical",
+          message:
+            "unscheduledEligibleIssues=3, eligibleIssues=3, consecutiveCycles=3",
+        },
         { id: "retry-exhaustion", severity: "critical" },
         { id: "rate-limit", severity: "critical" },
         { id: "heartbeat-stale", severity: "warning" },

@@ -699,4 +699,34 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.monitoring?.trackerApi.consecutiveFailures).toBe(2);
     expect(snapshot.monitoring?.trackerApi.failedCycles).toBe(2);
   });
+
+  it("does not increment dispatch starvation when only already-scheduled work remains", () => {
+    const previousSnapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+      eligibleIssues: 2,
+      unscheduledEligibleIssues: 1,
+      trackerCycleSucceeded: true,
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:11:00Z",
+      lastError: null,
+      previousSnapshot,
+      eligibleIssues: 2,
+      unscheduledEligibleIssues: 0,
+      trackerCycleSucceeded: true,
+    });
+
+    expect(snapshot.monitoring?.dispatch.eligibleIssues).toBe(2);
+    expect(snapshot.monitoring?.dispatch.unscheduledEligibleIssues).toBe(0);
+    expect(snapshot.monitoring?.dispatch.starvationConsecutiveCycles).toBe(0);
+    expect(snapshot.monitoring?.dispatch.starved).toBe(false);
+  });
 });

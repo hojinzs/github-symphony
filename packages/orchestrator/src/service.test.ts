@@ -5928,6 +5928,85 @@ Prefer focused changes.
     });
   });
 
+  it("does not count pre-tracker reconciliation errors as tracker API failures", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-pre-tracker-error-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectStatus({
+      projectId: projectConfig.projectId,
+      slug: projectConfig.slug,
+      tracker: {
+        adapter: projectConfig.tracker.adapter,
+        bindingId: projectConfig.tracker.bindingId,
+      },
+      lastTickAt: "2026-03-08T00:05:00.000Z",
+      health: "idle",
+      summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+      activeRuns: [],
+      retryQueue: [],
+      monitoring: {
+        stalledRuns: { count: 0, runIds: [], issueIdentifiers: [] },
+        heartbeat: {
+          maxAgeMs: null,
+          oldestLastEventAt: null,
+          runningCount: 0,
+        },
+        retryQueue: { size: 0, nextRetryAt: null },
+        retryExhaustion: { count: 0, issueIdentifiers: [] },
+        dispatch: {
+          eligibleIssues: 0,
+          unscheduledEligibleIssues: 0,
+          starvationConsecutiveCycles: 0,
+          starvationThresholdCycles: 3,
+          starved: false,
+        },
+        trackerApi: {
+          availability: "healthy",
+          totalCycles: 1,
+          failedCycles: 0,
+          consecutiveFailures: 0,
+          errorRate: 0,
+          lastSuccessAt: "2026-03-08T00:05:00.000Z",
+          lastFailureAt: null,
+        },
+      },
+      lastError: null,
+      rateLimits: null,
+    });
+
+    const fetchImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: fetchImpl as typeof fetch,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+    vi.spyOn(service as never, "loadProjectPollInterval").mockRejectedValue(
+      new Error("poll interval unavailable")
+    );
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.lastError).toContain("poll interval unavailable");
+    expect(snapshot.monitoring?.trackerApi).toMatchObject({
+      availability: "healthy",
+      totalCycles: 1,
+      failedCycles: 0,
+      consecutiveFailures: 0,
+      errorRate: 0,
+      lastSuccessAt: "2026-03-08T00:05:00.000Z",
+      lastFailureAt: null,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("prefers the latest tracker rate-limit payload over earlier sync metadata", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

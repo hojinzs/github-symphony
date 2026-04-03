@@ -406,6 +406,7 @@ export class OrchestratorService {
     let rateLimits: Record<string, unknown> | null = null;
     let trackerRateLimits: Record<string, unknown> | null = null;
     let trackerCycleSucceeded: boolean | null = null;
+    let trackerListAttempted = false;
 
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
@@ -450,6 +451,7 @@ export class OrchestratorService {
         currentActiveRuns,
         now
       );
+      trackerListAttempted = true;
       const issues = await trackerAdapter.listIssues(
         tenant,
         trackerDependencies
@@ -693,7 +695,7 @@ export class OrchestratorService {
         await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
       }
     } catch (error) {
-      if (trackerCycleSucceeded === null) {
+      if (trackerListAttempted && trackerCycleSucceeded === null) {
         trackerCycleSucceeded = false;
       }
       lastError =

@@ -260,7 +260,7 @@ function buildDashboardAlerts(
       id: "dispatch-starvation",
       severity: "critical",
       title: "Dispatch starvation detected",
-      message: `eligibleIssues=${monitoring.dispatch.eligibleIssues ?? 0}, consecutiveCycles=${monitoring.dispatch.starvationConsecutiveCycles}`,
+      message: `unscheduledEligibleIssues=${monitoring.dispatch.unscheduledEligibleIssues ?? 0}, eligibleIssues=${monitoring.dispatch.eligibleIssues ?? 0}, consecutiveCycles=${monitoring.dispatch.starvationConsecutiveCycles}`,
     });
   }
 
