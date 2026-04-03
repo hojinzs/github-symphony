@@ -32,7 +32,39 @@ gh-symphony doctor
 gh-symphony doctor --json
 ```
 
-### 2. Set Repository
+### 2. Run Setup
+
+Navigate to the repository you want to orchestrate, then run:
+
+```bash
+cd your-repo
+gh-symphony setup
+```
+
+The one-command setup flow will:
+
+1. Authenticate via `gh` CLI
+2. Let you select a **GitHub Project**
+3. Map project status columns to workflow phases (active / wait / terminal)
+4. Configure managed-project settings for the orchestrator
+5. Generate the following files:
+
+| File | Description |
+| --- | --- |
+| `WORKFLOW.md` | Workflow policy — the agent prompt template with lifecycle config |
+| `.gh-symphony/context.yaml` | Project metadata and environment context |
+| `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+
+Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the managed-project configuration that will be saved under `~/.gh-symphony/`.
+
+Non-interactive mode:
+
+```bash
+gh-symphony setup --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+```
+
+### 3. Set Repository Only
 
 Navigate to the repository you want to orchestrate, then run:
 
@@ -71,7 +103,7 @@ The generated skill files (under `.codex/skills/` or `.claude/skills/`) define h
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
-### 3. Set Orchestrator Runner (Project)
+### 4. Set Orchestrator Runner (Project)
 
 On the machine where you want the orchestrator to run, register a project:
 
@@ -105,7 +137,7 @@ gh-symphony project start            # Start a specific project
 gh-symphony project stop             # Stop a specific project
 ```
 
-### 4. Run the Orchestrator
+### 5. Run the Orchestrator
 
 ```bash
 gh-symphony start                   # Start (foreground)

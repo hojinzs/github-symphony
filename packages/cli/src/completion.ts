@@ -1,5 +1,6 @@
 const TOP_LEVEL_COMMANDS = [
   "workflow",
+  "setup",
   "doctor",
   "upgrade",
   "start",
@@ -48,6 +49,16 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
     "--file",
     "--sample",
     "--attempt",
+    ...GLOBAL_OPTIONS,
+  ],
+  setup: [
+    "--non-interactive",
+    "--project",
+    "--workspace-dir",
+    "--assigned-only",
+    "--output",
+    "--skip-skills",
+    "--skip-context",
     ...GLOBAL_OPTIONS,
   ],
   doctor: ["--project-id", "--project", ...GLOBAL_OPTIONS],

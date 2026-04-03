@@ -16,6 +16,7 @@ import {
   type GitHubClient,
   type ProjectSummary,
   type ProjectDetail,
+  type LinkedRepository,
 } from "../github/client.js";
 import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
 import {
@@ -61,6 +62,12 @@ type ProjectAddFlags = {
   project?: string;
   workspaceDir?: string;
   assignedOnly: boolean;
+};
+
+export type ProjectRegistrationOptions = {
+  assignedOnly: boolean;
+  selectedRepos: LinkedRepository[];
+  workspaceDir: string;
 };
 
 function displayScopeError(
@@ -632,58 +639,13 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
     return;
   }
 
-  const assignedOnly = await abortIfCancelled(
-    p.confirm({
-      message:
+  const { assignedOnly, selectedRepos, workspaceDir } =
+    await promptProjectRegistrationOptions({
+      projectDetail,
+      defaultWorkspaceDir,
+      assignedOnlyMessage:
         "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
-      initialValue: false,
-    })
-  );
-
-  const customizeAdvancedOptions = await abortIfCancelled(
-    p.confirm({
-      message: "Customize advanced options? (default: No)",
-      initialValue: false,
-    })
-  );
-
-  let selectedRepos = projectDetail.linkedRepositories;
-  let workspaceDir = defaultWorkspaceDir;
-
-  if (customizeAdvancedOptions) {
-    const filterRepositories = await abortIfCancelled(
-      p.confirm({
-        message: "Filter specific repositories? (default: No)",
-        initialValue: false,
-      })
-    );
-
-    if (filterRepositories) {
-      selectedRepos = await abortIfCancelled(
-        p.multiselect({
-          message: "Select repositories to orchestrate:",
-          options: projectDetail.linkedRepositories.map((repo) => ({
-            value: repo,
-            label: `${repo.owner}/${repo.name}`,
-          })),
-          required: true,
-        })
-      );
-    }
-
-    workspaceDir = await abortIfCancelled(
-      p.text({
-        message: "Workspace root directory:",
-        placeholder: defaultWorkspaceDir,
-        defaultValue: defaultWorkspaceDir,
-        validate(value: string) {
-          return value.trim().length > 0
-            ? undefined
-            : "Workspace directory is required.";
-        },
-      })
-    );
-  }
+    });
 
   const repoSummary =
     selectedRepos.length === projectDetail.linkedRepositories.length
@@ -691,13 +653,13 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
       : `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${projectDetail.linkedRepositories.length} linked)`;
 
   p.note(
-    [
-      `User:       ${login}`,
-      `Project:    ${projectDetail.title}`,
-      `Repos:      ${repoSummary}`,
-      `Assigned:   ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
-      `Workspace:  ${workspaceDir}`,
-    ].join("\n"),
+    renderProjectRegistrationSummary({
+      login,
+      projectTitle: projectDetail.title,
+      repoSummary,
+      assignedOnly,
+      workspaceDir,
+    }),
     "Configuration Summary"
   );
 
@@ -735,6 +697,88 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
   p.outro(
     `Project "${projectId}" created.\n  Run 'gh-symphony start' to begin orchestration.`
   );
+}
+
+export async function promptProjectRegistrationOptions(input: {
+  projectDetail: ProjectDetail;
+  defaultWorkspaceDir: string;
+  assignedOnlyMessage?: string;
+}): Promise<ProjectRegistrationOptions> {
+  const assignedOnly = await abortIfCancelled(
+    p.confirm({
+      message:
+        input.assignedOnlyMessage ??
+        "Only process issues assigned to the authenticated GitHub user?",
+      initialValue: false,
+    })
+  );
+
+  const customizeAdvancedOptions = await abortIfCancelled(
+    p.confirm({
+      message: "Customize advanced options? (default: No)",
+      initialValue: false,
+    })
+  );
+
+  let selectedRepos = input.projectDetail.linkedRepositories;
+  let workspaceDir = input.defaultWorkspaceDir;
+
+  if (customizeAdvancedOptions) {
+    const filterRepositories = await abortIfCancelled(
+      p.confirm({
+        message: "Filter specific repositories? (default: No)",
+        initialValue: false,
+      })
+    );
+
+    if (filterRepositories) {
+      selectedRepos = await abortIfCancelled(
+        p.multiselect({
+          message: "Select repositories to orchestrate:",
+          options: input.projectDetail.linkedRepositories.map((repo) => ({
+            value: repo,
+            label: `${repo.owner}/${repo.name}`,
+          })),
+          required: true,
+        })
+      );
+    }
+
+    workspaceDir = await abortIfCancelled(
+      p.text({
+        message: "Workspace root directory:",
+        placeholder: input.defaultWorkspaceDir,
+        defaultValue: input.defaultWorkspaceDir,
+        validate(value: string) {
+          return value.trim().length > 0
+            ? undefined
+            : "Workspace directory is required.";
+        },
+      })
+    );
+  }
+
+  return {
+    assignedOnly,
+    selectedRepos,
+    workspaceDir,
+  };
+}
+
+export function renderProjectRegistrationSummary(input: {
+  login: string;
+  projectTitle: string;
+  repoSummary: string;
+  assignedOnly: boolean;
+  workspaceDir: string;
+}): string {
+  return [
+    `User:       ${input.login}`,
+    `Project:    ${input.projectTitle}`,
+    `Repos:      ${input.repoSummary}`,
+    `Assigned:   ${input.assignedOnly ? `Only issues assigned to ${input.login}` : "All project issues"}`,
+    `Workspace:  ${input.workspaceDir}`,
+  ].join("\n");
 }
 
 async function projectList(options: GlobalOptions): Promise<void> {
