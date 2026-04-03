@@ -51,8 +51,10 @@ autoload -Uz compinit && compinit
 Navigate to the repository you want to orchestrate, then run:
 
 ```bash
-gh-symphony init
-gh-symphony init --dry-run
+gh-symphony workflow init
+gh-symphony workflow init --dry-run
+gh-symphony workflow validate
+gh-symphony workflow preview --sample ./fixtures/sample-issue.json
 ```
 
 The interactive wizard will:
@@ -69,7 +71,7 @@ updated, or left unchanged, and then exits without modifying the repository.
 
 ### Customizing Agent Behavior
 
-`gh-symphony init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions.
+`gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions.
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
@@ -188,8 +190,9 @@ gh-symphony doctor --json
 
 ```
 Setup:
-  init                Interactive repository setup wizard
-  init --dry-run      Preview generated setup files without writing them
+  workflow init       Interactive repository setup wizard
+  workflow validate   Parse and strictly validate WORKFLOW.md
+  workflow preview    Render the final worker prompt from a sample issue
   doctor              Run first-run diagnostics
   config show         Show current configuration
   config set          Set a configuration value

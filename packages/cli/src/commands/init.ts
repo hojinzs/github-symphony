@@ -740,7 +740,7 @@ async function runInteractiveStandalone(
   } catch (error) {
     s2.stop("Failed to load projects.");
     if (error instanceof GitHubScopeError) {
-      displayScopeError(error, "gh-symphony init");
+      displayScopeError(error, "gh-symphony workflow init");
     } else {
       p.log.error(error instanceof Error ? error.message : "Unknown error");
     }

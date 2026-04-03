@@ -116,7 +116,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("init doctor upgrade start stop status");
+    expect(output).toContain("workflow doctor upgrade start stop status");
   });
 
   it("reports a missing root config argument", async () => {
@@ -145,17 +145,18 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output() + stderr.output();
     expect(output).toContain("Usage: gh-symphony");
+    expect(output).toContain("workflow");
     expect(output).toContain("doctor");
     expect(output).toContain("upgrade");
     expect(output).toContain("completion");
   });
 
-  it("shows init dry-run in command help", async () => {
+  it("shows workflow init dry-run in command help", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
 
     try {
-      await runCli(["init", "--help"]);
+      await runCli(["workflow", "init", "--help"]);
     } finally {
       stdout.restore();
       stderr.restore();

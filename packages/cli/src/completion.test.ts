@@ -34,6 +34,8 @@ describe("completion renderer", () => {
   it("renders bash completion with top-level commands", () => {
     const output = renderCompletionScript("bash");
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
+    expect(output).toContain("workflow doctor upgrade");
+    expect(output).toContain("workflow:init");
     expect(output).toContain("project repo config completion");
     expect(output).toContain("project:add");
   });
@@ -49,8 +51,16 @@ describe("completion renderer", () => {
     const output = renderCompletionScript("fish");
     expect(output).toContain("complete -c gh-symphony -f -l config");
     expect(output).toContain("complete -c gh-symphony -f -s v");
+    expect(output).toContain("__fish_seen_subcommand_from workflow");
     expect(output).toContain("__fish_seen_subcommand_from project");
     expect(output).toContain("__fish_seen_subcommand_from completion");
+  });
+
+  it("suggests workflow subcommands when completing the second token", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "workflow", ""], 2);
+    expect(suggestions).toEqual(
+      expect.arrayContaining(["init", "validate", "preview"])
+    );
   });
 
   it("suggests project subcommands when completing the second token", () => {

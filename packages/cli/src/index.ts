@@ -22,6 +22,7 @@ export type CommandHandler = (
 ) => Promise<void>;
 
 type LoaderKey =
+  | "workflow"
   | "init"
   | "doctor"
   | "upgrade"
@@ -42,6 +43,7 @@ type CliOptionValues = Partial<
     config?: string;
     daemon?: boolean;
     dryRun?: boolean;
+    file?: string;
     follow?: boolean;
     force?: boolean;
     http?: string | boolean;
@@ -58,11 +60,14 @@ type CliOptionValues = Partial<
     version?: boolean;
     workspaceDir?: string;
     watch?: boolean;
+    sample?: string;
+    attempt?: string;
   }
 >;
 
 const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
+    workflow: () => import("./commands/workflow.js"),
     init: () => import("./commands/init.js"),
     doctor: () => import("./commands/doctor.js"),
     upgrade: () => import("./commands/upgrade.js"),
@@ -180,8 +185,8 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
 
   addGlobalOptions(
     program
-      .command("init")
-      .description("Interactive project setup wizard")
+      .command("init", { hidden: true })
+      .description("Alias for 'gh-symphony workflow init'")
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
@@ -192,14 +197,83 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   ).action(async function (this: Command) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = [];
+    const args: string[] = ["init"];
     pushOption(args, "--non-interactive", values.nonInteractive);
     pushOption(args, "--project", values.project);
     pushOption(args, "--output", values.output);
     pushOption(args, "--skip-skills", values.skipSkills);
     pushOption(args, "--skip-context", values.skipContext);
     pushOption(args, "--dry-run", values.dryRun);
-    await invokeHandler("init", args, values);
+    await invokeHandler("workflow", args, values);
+  });
+
+  const workflow = addGlobalOptions(
+    program.command("workflow").description("Manage WORKFLOW.md authoring")
+  );
+
+  workflow.action(async function (this: Command) {
+    markInvoked();
+    await invokeHandler(
+      "workflow",
+      [],
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
+
+  addGlobalOptions(
+    workflow
+      .command("init")
+      .description("Generate WORKFLOW.md and workflow support files")
+      .option("--non-interactive", "Run without prompts")
+      .option("--project <id>", "GitHub Project ID or URL")
+      .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option("--skip-skills", "Skip runtime skill generation")
+      .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
+      .option("--dry-run", "Preview generated files without writing them")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["init"];
+    pushOption(args, "--non-interactive", values.nonInteractive);
+    pushOption(args, "--project", values.project);
+    pushOption(args, "--output", values.output);
+    pushOption(args, "--skip-skills", values.skipSkills);
+    pushOption(args, "--skip-context", values.skipContext);
+    pushOption(args, "--dry-run", values.dryRun);
+    await invokeHandler("workflow", args, values);
+  });
+
+  addGlobalOptions(
+    workflow
+      .command("validate")
+      .description("Parse and strictly validate a WORKFLOW.md file")
+      .option("--file <path>", "Validate a custom WORKFLOW.md path")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["validate"];
+    pushOption(args, "--file", values.file);
+    await invokeHandler("workflow", args, values);
+  });
+
+  addGlobalOptions(
+    workflow
+      .command("preview")
+      .description("Render the final worker prompt from a sample issue")
+      .option("--file <path>", "Read a custom WORKFLOW.md path")
+      .option("--sample <json>", "Read sample issue JSON from a file")
+      .option("--attempt <n>", "Render as retry attempt n")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["preview"];
+    pushOption(args, "--file", values.file);
+    pushOption(args, "--sample", values.sample);
+    pushOption(args, "--attempt", values.attempt);
+    await invokeHandler("workflow", args, values);
   });
 
   addGlobalOptions(

@@ -827,7 +827,9 @@ async function projectRemove(
 async function projectSwitch(options: GlobalOptions): Promise<void> {
   const global = await loadGlobalConfig(options.configDir);
   if (!global || global.projects.length === 0) {
-    process.stderr.write("No projects configured. Run 'gh-symphony init'.\n");
+    process.stderr.write(
+      "No projects configured. Run 'gh-symphony workflow init'.\n"
+    );
     process.exitCode = 1;
     return;
   }

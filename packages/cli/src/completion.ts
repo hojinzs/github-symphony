@@ -1,5 +1,5 @@
 const TOP_LEVEL_COMMANDS = [
-  "init",
+  "workflow",
   "doctor",
   "upgrade",
   "start",
@@ -33,6 +33,23 @@ const GLOBAL_OPTIONS_WITH_VALUES = ["--config", "--config-dir"] as const;
 
 const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   completion: ["bash", "zsh", "fish"],
+  workflow: ["init", "validate", "preview"],
+  "workflow:init": [
+    "--non-interactive",
+    "--project",
+    "--output",
+    "--skip-skills",
+    "--skip-context",
+    "--dry-run",
+    ...GLOBAL_OPTIONS,
+  ],
+  "workflow:validate": ["--file", ...GLOBAL_OPTIONS],
+  "workflow:preview": [
+    "--file",
+    "--sample",
+    "--attempt",
+    ...GLOBAL_OPTIONS,
+  ],
   doctor: ["--project-id", "--project", ...GLOBAL_OPTIONS],
   upgrade: [...GLOBAL_OPTIONS],
   start: ["--project-id", "--project", "--daemon", "-d", ...GLOBAL_OPTIONS],
@@ -99,6 +116,7 @@ function renderBashCasePatterns(): string {
           return `    completion)\n      COMPREPLY=( $(compgen -W "${quoteWords(values)}" -- "$cur") )\n      return\n      ;;`;
         }
         if (
+          command === "workflow" ||
           command === "project" ||
           command === "repo" ||
           command === "config"
@@ -141,6 +159,12 @@ function renderFishLines(): string {
   for (const subcommand of COMMAND_OPTIONS.config ?? []) {
     lines.push(
       `complete -c gh-symphony -f -n '__fish_seen_subcommand_from config' -a '${subcommand}'`
+    );
+  }
+
+  for (const subcommand of COMMAND_OPTIONS.workflow ?? []) {
+    lines.push(
+      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from workflow' -a '${subcommand}'`
     );
   }
 
@@ -215,7 +239,7 @@ _gh_symphony_completion() {
     return
   fi
 
-  if [[ "\${path}" == "project" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
+  if [[ "\${path}" == "workflow" || "\${path}" == "project" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
     if [[ -n "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
       path="\${path}:\${GH_SYMPHONY_SUBCOMMAND}"
     fi
