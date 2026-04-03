@@ -5,8 +5,10 @@ import {
   checkGhAuthenticated,
   checkGhInstalled,
   checkGhScopes,
+  detectGitHubAuthSource,
   ensureGhAuth,
   getGhToken,
+  getGhTokenWithSource,
 } from "./gh-auth.js";
 
 type ExecMock = ReturnType<typeof vi.fn> & typeof execFileSync;
@@ -115,6 +117,30 @@ describe("getGhToken", () => {
   });
 });
 
+describe("detectGitHubAuthSource", () => {
+  it("returns env when GITHUB_GRAPHQL_TOKEN is present", () => {
+    expect(detectGitHubAuthSource("env-token")).toBe("env");
+  });
+
+  it("returns gh when GITHUB_GRAPHQL_TOKEN is absent", () => {
+    expect(detectGitHubAuthSource("")).toBe("gh");
+  });
+});
+
+describe("getGhTokenWithSource", () => {
+  it("returns env token metadata before subprocess lookup", () => {
+    const execImpl = vi.fn(() => "should-not-be-used") as ExecMock;
+
+    expect(
+      getGhTokenWithSource({ execImpl, envToken: "env-token" })
+    ).toEqual({
+      token: "env-token",
+      source: "env",
+    });
+    expect(execImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe("ensureGhAuth", () => {
   it("returns login and token on success", () => {
     delete process.env.GITHUB_GRAPHQL_TOKEN;
@@ -150,6 +176,7 @@ describe("ensureGhAuth", () => {
     expect(ensureGhAuth({ execImpl, spawnImpl })).toEqual({
       login: "testuser",
       token: "ghp_test123",
+      source: "gh",
     });
   });
 

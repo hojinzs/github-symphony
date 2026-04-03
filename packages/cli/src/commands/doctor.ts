@@ -8,14 +8,17 @@ import {
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import {
   createClient,
+  checkRequiredScopes,
   getProjectDetail,
   GitHubApiError,
+  validateToken,
 } from "../github/client.js";
 import {
   checkGhAuthenticated,
   checkGhInstalled,
-  checkGhScopes,
-  getGhToken,
+  detectGitHubAuthSource,
+  getGhTokenWithSource,
+  type GitHubAuthSource,
   REQUIRED_GH_SCOPES,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
@@ -52,6 +55,8 @@ export type DoctorReport = {
   checkedAt: string;
   configDir: string;
   projectId: string | null;
+  authSource: GitHubAuthSource | null;
+  authLogin: string | null;
   checks: DoctorCheckResult[];
 };
 
@@ -78,10 +83,12 @@ type WorkflowCheckState =
 export type DoctorDependencies = {
   checkGhInstalled: typeof checkGhInstalled;
   checkGhAuthenticated: typeof checkGhAuthenticated;
-  checkGhScopes: typeof checkGhScopes;
-  getGhToken: typeof getGhToken;
+  detectGitHubAuthSource: typeof detectGitHubAuthSource;
+  getGhTokenWithSource: typeof getGhTokenWithSource;
   inspectManagedProjectSelection: typeof inspectManagedProjectSelection;
   createClient: typeof createClient;
+  validateToken: typeof validateToken;
+  checkRequiredScopes: typeof checkRequiredScopes;
   getProjectDetail: typeof getProjectDetail;
   readFile: typeof readFile;
   access: typeof access;
@@ -96,10 +103,12 @@ export type DoctorDependencies = {
 const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   checkGhInstalled,
   checkGhAuthenticated,
-  checkGhScopes,
-  getGhToken,
+  detectGitHubAuthSource,
+  getGhTokenWithSource,
   inspectManagedProjectSelection,
   createClient,
+  validateToken,
+  checkRequiredScopes,
   getProjectDetail,
   readFile,
   access,
@@ -339,82 +348,187 @@ export async function runDoctorDiagnostics(
   const checks: DoctorCheckResult[] = [];
   let token: string | null = null;
   let tokenError: string | null = null;
+  let authSource: GitHubAuthSource | null = null;
+  let authLogin: string | null = null;
   let resolvedProjectId: string | null = null;
   let resolvedProjectConfig:
     | Awaited<ReturnType<typeof inspectManagedProjectSelection>>
     | null = null;
+  const preferredAuthSource = deps.detectGitHubAuthSource();
 
-  const ghInstalled = deps.checkGhInstalled();
-  if (ghInstalled) {
+  const ghInstalled =
+    preferredAuthSource === "gh" ? deps.checkGhInstalled() : true;
+  const ghAuth =
+    preferredAuthSource === "gh" && ghInstalled
+      ? deps.checkGhAuthenticated()
+      : { authenticated: false as const };
+
+  if (preferredAuthSource === "env") {
     checks.push(
-      passCheck("gh_installation", "gh CLI installation", "gh CLI is installed.")
+      passCheck(
+        "gh_installation",
+        "gh CLI availability",
+        "Using GITHUB_GRAPHQL_TOKEN from the environment; gh CLI is optional for this doctor run.",
+        { authSource: "env" }
+      )
+    );
+  } else if (ghInstalled) {
+    checks.push(
+      passCheck("gh_installation", "gh CLI availability", "gh CLI is installed.")
     );
   } else {
     checks.push(
       failCheck(
         "gh_installation",
-        "gh CLI installation",
-        "gh CLI is not installed.",
-        "Install GitHub CLI from https://cli.github.com and re-run 'gh-symphony doctor'."
+        "gh CLI availability",
+        "gh CLI is not installed and GITHUB_GRAPHQL_TOKEN is not set.",
+        "Install GitHub CLI from https://cli.github.com, or export GITHUB_GRAPHQL_TOKEN and re-run 'gh-symphony doctor'."
       )
     );
   }
 
-  const ghAuth = ghInstalled ? deps.checkGhAuthenticated() : { authenticated: false };
-  if (ghInstalled && ghAuth.authenticated) {
-    checks.push(
-      passCheck(
-        "gh_authentication",
-        "gh authentication",
-        `gh auth status succeeded${ghAuth.login ? ` as ${ghAuth.login}` : ""}.`,
-        ghAuth.login ? { login: ghAuth.login } : undefined
-      )
-    );
-  } else {
-    checks.push(
-      failCheck(
-        "gh_authentication",
-        "gh authentication",
-        "gh auth status failed or no GitHub login is configured.",
-        `Run 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}' and re-run the doctor command.`
-      )
-    );
-  }
-
-  const ghScopes =
-    ghInstalled && ghAuth.authenticated
-      ? deps.checkGhScopes()
-      : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
-  if (ghInstalled && ghAuth.authenticated && ghScopes.valid) {
-    checks.push(
-      passCheck(
-        "gh_scopes",
-        "GitHub token scopes",
-        `Required scopes are present: ${REQUIRED_GH_SCOPES.join(", ")}.`,
-        { scopes: ghScopes.scopes }
-      )
-    );
-  } else {
-    const missingScopes =
-      ghInstalled && ghAuth.authenticated ? ghScopes.missing : [...REQUIRED_GH_SCOPES];
-    checks.push(
-      failCheck(
-        "gh_scopes",
-        "GitHub token scopes",
-        `Missing required scopes: ${missingScopes.join(", ")}.`,
-        `Run 'gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}' and confirm 'gh auth status' shows the updated scopes.`,
-        { missing: missingScopes, scopes: ghScopes.scopes }
-      )
-    );
-  }
-
-  if (ghInstalled && ghAuth.authenticated) {
+  if (preferredAuthSource === "env") {
     try {
-      token = deps.getGhToken();
+      const resolved = deps.getGhTokenWithSource();
+      token = resolved.token;
+      authSource = resolved.source;
     } catch (error) {
       tokenError =
         error instanceof Error ? error.message : "Unknown token retrieval error.";
+    }
+  } else if (ghInstalled && ghAuth.authenticated) {
+    try {
+      const resolved = deps.getGhTokenWithSource();
+      token = resolved.token;
+      authSource = resolved.source;
+    } catch (error) {
+      tokenError =
+        error instanceof Error ? error.message : "Unknown token retrieval error.";
+    }
+  }
+
+  if (preferredAuthSource === "gh" && !ghInstalled) {
+    checks.push(
+      failCheck(
+        "gh_authentication",
+        "GitHub authentication",
+        "GitHub authentication could not run because neither GITHUB_GRAPHQL_TOKEN nor gh CLI is available.",
+        `Install and authenticate gh with 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}', or export GITHUB_GRAPHQL_TOKEN and re-run the doctor command.`
+      )
+    );
+    checks.push(
+      failCheck(
+        "gh_scopes",
+        "GitHub token scopes",
+        "GitHub token scopes could not be checked because authentication failed.",
+        "Fix the GitHub authentication check first, then re-run the doctor command."
+      )
+    );
+  } else if (preferredAuthSource === "gh" && !ghAuth.authenticated) {
+    checks.push(
+      failCheck(
+        "gh_authentication",
+        "GitHub authentication",
+        "gh auth status failed or no GitHub login is configured.",
+        `Run 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}' or export GITHUB_GRAPHQL_TOKEN, then re-run the doctor command.`
+      )
+    );
+    checks.push(
+      failCheck(
+        "gh_scopes",
+        "GitHub token scopes",
+        "GitHub token scopes could not be checked because authentication failed.",
+        "Fix the GitHub authentication check first, then re-run the doctor command."
+      )
+    );
+  } else if (!token) {
+    checks.push(
+      failCheck(
+        "gh_authentication",
+        "GitHub authentication",
+        `GitHub authentication failed because ${preferredAuthSource === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh auth token"} could not be retrieved.`,
+        preferredAuthSource === "env"
+          ? "Set GITHUB_GRAPHQL_TOKEN to a valid token, or unset it and authenticate with gh before re-running the doctor command."
+          : "Check the local keychain used by 'gh auth token', or export GITHUB_GRAPHQL_TOKEN and re-run the doctor command.",
+        tokenError ? { error: tokenError, authSource: preferredAuthSource } : undefined
+      )
+    );
+    checks.push(
+      failCheck(
+        "gh_scopes",
+        "GitHub token scopes",
+        "GitHub token scopes could not be checked because authentication failed.",
+        "Fix the GitHub authentication check first, then re-run the doctor command."
+      )
+    );
+  } else {
+    try {
+      const viewer = await deps.validateToken(deps.createClient(token));
+      authSource = authSource ?? preferredAuthSource;
+      authLogin = viewer.login;
+      checks.push(
+        passCheck(
+          "gh_authentication",
+          "GitHub authentication",
+          `Validated ${authSource === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh auth token"} as ${viewer.login}.`,
+          { authSource, login: viewer.login }
+        )
+      );
+
+      const scopeCheck = deps.checkRequiredScopes(viewer.scopes);
+      if (scopeCheck.valid) {
+        checks.push(
+          passCheck(
+            "gh_scopes",
+            "GitHub token scopes",
+            `Required scopes are present on the active ${authSource} token: ${REQUIRED_GH_SCOPES.join(", ")}.`,
+            { authSource, scopes: viewer.scopes }
+          )
+        );
+      } else {
+        checks.push(
+          failCheck(
+            "gh_scopes",
+            "GitHub token scopes",
+            `Missing required scopes on the active ${authSource} token: ${scopeCheck.missing.join(", ")}.`,
+            authSource === "env"
+              ? "Create a token with repo, read:org, and project scopes, export it as GITHUB_GRAPHQL_TOKEN, and re-run the doctor command."
+              : `Run 'gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}' and confirm the active login has the updated scopes.`,
+            {
+              authSource,
+              missing: scopeCheck.missing,
+              scopes: viewer.scopes,
+            }
+          )
+        );
+      }
+    } catch (error) {
+      tokenError =
+        error instanceof GitHubApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unknown GitHub API error.";
       token = null;
+      checks.push(
+        failCheck(
+          "gh_authentication",
+          "GitHub authentication",
+          `Failed to validate the active ${preferredAuthSource} token.`,
+          preferredAuthSource === "env"
+            ? "Set GITHUB_GRAPHQL_TOKEN to a valid token, or unset it and authenticate with gh before re-running the doctor command."
+            : `Run 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}' or export a valid GITHUB_GRAPHQL_TOKEN, then re-run the doctor command.`,
+          { authSource: preferredAuthSource, error: tokenError }
+        )
+      );
+      checks.push(
+        failCheck(
+          "gh_scopes",
+          "GitHub token scopes",
+          "GitHub token scopes could not be checked because authentication failed.",
+          "Fix the GitHub authentication check first, then re-run the doctor command."
+        )
+      );
     }
   }
 
@@ -458,9 +572,13 @@ export async function runDoctorDiagnostics(
           ? "GitHub project resolution could not run because the GitHub token could not be retrieved."
           : "GitHub project resolution could not run because authentication failed.",
         tokenError
-          ? "Check the local keychain or environment used by 'gh auth token', then re-run 'gh-symphony doctor'."
-          : "Fix the gh authentication check first, then re-run 'gh-symphony doctor'.",
-        tokenError ? { error: tokenError } : undefined
+          ? preferredAuthSource === "env"
+            ? "Check GITHUB_GRAPHQL_TOKEN and re-run 'gh-symphony doctor'."
+            : "Check the local keychain or environment used by 'gh auth token', then re-run 'gh-symphony doctor'."
+          : "Fix the GitHub authentication check first, then re-run 'gh-symphony doctor'.",
+        tokenError
+          ? { error: tokenError, authSource: preferredAuthSource }
+          : undefined
       )
     );
   } else if (
@@ -659,12 +777,19 @@ export async function runDoctorDiagnostics(
     checkedAt: new Date().toISOString(),
     configDir: options.configDir,
     projectId: resolvedProjectId,
+    authSource,
+    authLogin,
     checks,
   };
 }
 
 function renderTextReport(report: DoctorReport): string {
-  const lines = [`gh-symphony doctor`, ""];
+  const lines = [
+    `gh-symphony doctor`,
+    `Auth source: ${report.authSource ?? "unavailable"}`,
+    ...(report.authLogin ? [`Authenticated GitHub user: ${report.authLogin}`] : []),
+    "",
+  ];
   for (const check of report.checks) {
     lines.push(`${check.status === "pass" ? "PASS" : "FAIL"} ${check.title}`);
     lines.push(`  ${check.summary}`);

@@ -17,7 +17,11 @@ import {
   type ProjectSummary,
   type ProjectDetail,
 } from "../github/client.js";
-import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
+import {
+  ensureGhAuth,
+  getGhTokenWithSource,
+  GhAuthError,
+} from "../github/gh-auth.js";
 import {
   loadGlobalConfig,
   saveGlobalConfig,
@@ -443,7 +447,7 @@ async function projectAddNonInteractive(
 ): Promise<void> {
   let token: string;
   try {
-    token = getGhToken();
+    token = getGhTokenWithSource().token;
   } catch {
     process.stderr.write(
       "Error: GitHub token not found. Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.\n"

@@ -30,7 +30,11 @@ import {
   type StateRole,
   type StateMapping,
 } from "../config.js";
-import { getGhToken, ensureGhAuth, GhAuthError } from "../github/gh-auth.js";
+import {
+  getGhTokenWithSource,
+  ensureGhAuth,
+  GhAuthError,
+} from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import {
   buildContextYaml,
@@ -534,7 +538,7 @@ async function runNonInteractive(
 ): Promise<void> {
   let token: string;
   try {
-    token = getGhToken();
+    token = getGhTokenWithSource().token;
   } catch {
     process.stderr.write(
       "Error: GitHub token not found. Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.\n"

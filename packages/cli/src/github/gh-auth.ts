@@ -11,6 +11,7 @@ type ExecError = Error & {
 };
 
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
+export type GitHubAuthSource = "env" | "gh";
 
 export class GhAuthError extends Error {
   constructor(
@@ -89,8 +90,32 @@ export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
 }
 
 export function getGhToken(opts?: { execImpl?: ExecImpl }): string {
+  return getGhTokenWithSource(opts).token;
+}
+
+export function detectGitHubAuthSource(
+  envToken = process.env.GITHUB_GRAPHQL_TOKEN
+): GitHubAuthSource {
+  return envToken ? "env" : "gh";
+}
+
+export function getGhTokenWithSource(opts?: {
+  execImpl?: ExecImpl;
+  envToken?: string | undefined;
+}): {
+  token: string;
+  source: GitHubAuthSource;
+} {
+  const envToken = opts?.envToken ?? process.env.GITHUB_GRAPHQL_TOKEN;
+  if (envToken) {
+    return { token: envToken, source: "env" };
+  }
+
   if (process.env.GITHUB_GRAPHQL_TOKEN) {
-    return process.env.GITHUB_GRAPHQL_TOKEN;
+    return {
+      token: process.env.GITHUB_GRAPHQL_TOKEN,
+      source: "env",
+    };
   }
 
   const execImpl = opts?.execImpl ?? execFileSync;
@@ -110,7 +135,7 @@ export function getGhToken(opts?: { execImpl?: ExecImpl }): string {
       );
     }
 
-    return token;
+    return { token, source: "gh" };
   } catch (error) {
     if (error instanceof GhAuthError) {
       throw error;
@@ -129,6 +154,7 @@ export function ensureGhAuth(opts?: {
 }): {
   login: string;
   token: string;
+  source: "gh";
 } {
   const execImpl = opts?.execImpl ?? execFileSync;
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
@@ -156,8 +182,11 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const token = getGhToken({ execImpl });
-  return { login: auth.login ?? "unknown", token };
+  const { token } = getGhTokenWithSource({
+    execImpl,
+    envToken: undefined,
+  });
+  return { login: auth.login ?? "unknown", token, source: "gh" };
 }
 
 function parseLogin(output: string): string | undefined {
