@@ -23,6 +23,10 @@ export type SnapshotInput = {
   };
   lastTickAt: string;
   lastError: string | null;
+  previousSnapshot?: ProjectStatusSnapshot | null;
+  eligibleIssues?: number | null;
+  unscheduledEligibleIssues?: number | null;
+  trackerCycleSucceeded?: boolean | null;
   rateLimits?: Record<string, unknown> | null;
 };
 
@@ -42,11 +46,34 @@ export function buildProjectSnapshot(
     summary,
     lastTickAt,
     lastError,
+    previousSnapshot,
+    eligibleIssues,
+    unscheduledEligibleIssues,
+    trackerCycleSucceeded,
     rateLimits,
   } = input;
+  const retryQueue = activeRuns
+    .filter((run) => run.status === "retrying" && run.retryKind)
+    .map((run) => ({
+      runId: run.runId,
+      issueIdentifier: run.issueIdentifier,
+      retryKind: run.retryKind ?? "failure",
+      nextRetryAt: run.nextRetryAt,
+    }));
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
   );
+  const monitoring = buildMonitoringSnapshot({
+    activeRuns,
+    allRuns: allRuns ?? activeRuns,
+    retryQueue,
+    lastTickAt,
+    summary,
+    previousSnapshot,
+    eligibleIssues: eligibleIssues ?? null,
+    unscheduledEligibleIssues: unscheduledEligibleIssues ?? null,
+    trackerCycleSucceeded: trackerCycleSucceeded ?? null,
+  });
 
   return {
     projectId: project.projectId,
@@ -84,18 +111,164 @@ export function buildProjectSnapshot(
         cumulativeTokenUsageByIssue.get(run.issueId)
       ),
     })),
-    retryQueue: activeRuns
-      .filter((run) => run.status === "retrying" && run.retryKind)
-      .map((run) => ({
-        runId: run.runId,
-        issueIdentifier: run.issueIdentifier,
-        retryKind: run.retryKind ?? "failure",
-        nextRetryAt: run.nextRetryAt,
-      })),
+    retryQueue,
+    monitoring,
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
   };
+}
+
+const DISPATCH_STARVATION_THRESHOLD_CYCLES = 3;
+const TRACKER_DEGRADED_FAILURE_THRESHOLD = 1;
+const TRACKER_DOWN_FAILURE_THRESHOLD = 3;
+
+function buildMonitoringSnapshot(input: {
+  activeRuns: OrchestratorRunRecord[];
+  allRuns: OrchestratorRunRecord[];
+  retryQueue: ProjectStatusSnapshot["retryQueue"];
+  lastTickAt: string;
+  summary: SnapshotInput["summary"];
+  previousSnapshot?: ProjectStatusSnapshot | null;
+  eligibleIssues: number | null;
+  unscheduledEligibleIssues: number | null;
+  trackerCycleSucceeded: boolean | null;
+}): NonNullable<ProjectStatusSnapshot["monitoring"]> {
+  const stalledRuns = input.activeRuns.filter((run) => run.runPhase === "stalled");
+  const runningRuns = input.activeRuns.filter(
+    (run) => run.status === "running" || run.status === "starting"
+  );
+  const heartbeatAges = runningRuns
+    .map((run) => ({
+      ageMs: resolveHeartbeatAgeMs(run, input.lastTickAt),
+      lastEventAt: run.lastEventAt ?? run.startedAt ?? null,
+    }))
+    .filter(
+      (
+        entry
+      ): entry is {
+        ageMs: number;
+        lastEventAt: string | null;
+      } => entry.ageMs !== null
+    );
+  const nextRetryAt = input.retryQueue
+    .map((entry) => entry.nextRetryAt)
+    .filter((value): value is string => typeof value === "string")
+    .sort()[0] ?? null;
+  const retryExhaustedRuns = buildLatestRunByIssue(input.allRuns).filter(
+    (run) =>
+      run.status === "suppressed" &&
+      typeof run.lastError === "string" &&
+      run.lastError.includes("max_failure_retries_exceeded")
+  );
+  const previousMonitoring = input.previousSnapshot?.monitoring;
+  const starvationConsecutiveCycles =
+    input.eligibleIssues !== null &&
+    input.eligibleIssues > 0 &&
+    input.summary.dispatched === 0
+      ? (previousMonitoring?.dispatch.starvationConsecutiveCycles ?? 0) + 1
+      : 0;
+  const previousTrackerApi = previousMonitoring?.trackerApi;
+  const totalCycles =
+    (previousTrackerApi?.totalCycles ?? 0) +
+    (input.trackerCycleSucceeded === null ? 0 : 1);
+  const failedCycles =
+    (previousTrackerApi?.failedCycles ?? 0) +
+    (input.trackerCycleSucceeded === false ? 1 : 0);
+  const consecutiveFailures =
+    input.trackerCycleSucceeded === null
+      ? (previousTrackerApi?.consecutiveFailures ?? 0)
+      : input.trackerCycleSucceeded
+        ? 0
+        : (previousTrackerApi?.consecutiveFailures ?? 0) + 1;
+  const errorRate = totalCycles > 0 ? failedCycles / totalCycles : 0;
+  const availability =
+    consecutiveFailures >= TRACKER_DOWN_FAILURE_THRESHOLD
+      ? "down"
+      : consecutiveFailures >= TRACKER_DEGRADED_FAILURE_THRESHOLD
+        ? "degraded"
+        : "healthy";
+
+  return {
+    stalledRuns: {
+      count: stalledRuns.length,
+      runIds: stalledRuns.map((run) => run.runId),
+      issueIdentifiers: stalledRuns.map((run) => run.issueIdentifier),
+    },
+    heartbeat: {
+      maxAgeMs:
+        heartbeatAges.length > 0
+          ? Math.max(...heartbeatAges.map((entry) => entry.ageMs))
+          : null,
+      oldestLastEventAt:
+        heartbeatAges.sort((left, right) => right.ageMs - left.ageMs)[0]
+          ?.lastEventAt ?? null,
+      runningCount: runningRuns.length,
+    },
+    retryQueue: {
+      size: input.retryQueue.length,
+      nextRetryAt,
+    },
+    retryExhaustion: {
+      count: retryExhaustedRuns.length,
+      issueIdentifiers: retryExhaustedRuns.map((run) => run.issueIdentifier),
+    },
+    dispatch: {
+      eligibleIssues: input.eligibleIssues,
+      unscheduledEligibleIssues: input.unscheduledEligibleIssues,
+      starvationConsecutiveCycles,
+      starvationThresholdCycles: DISPATCH_STARVATION_THRESHOLD_CYCLES,
+      starved:
+        starvationConsecutiveCycles >= DISPATCH_STARVATION_THRESHOLD_CYCLES,
+    },
+    trackerApi: {
+      availability,
+      totalCycles,
+      failedCycles,
+      consecutiveFailures,
+      errorRate,
+      lastSuccessAt:
+        input.trackerCycleSucceeded === true
+          ? input.lastTickAt
+          : (previousTrackerApi?.lastSuccessAt ?? null),
+      lastFailureAt:
+        input.trackerCycleSucceeded === false
+          ? input.lastTickAt
+          : (previousTrackerApi?.lastFailureAt ?? null),
+    },
+  };
+}
+
+function buildLatestRunByIssue(
+  runs: OrchestratorRunRecord[]
+): OrchestratorRunRecord[] {
+  const byIssue = new Map<string, OrchestratorRunRecord>();
+  for (const run of runs) {
+    const existing = byIssue.get(run.issueId);
+    if (!existing) {
+      byIssue.set(run.issueId, run);
+      continue;
+    }
+    if (
+      new Date(run.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()
+    ) {
+      byIssue.set(run.issueId, run);
+    }
+  }
+  return [...byIssue.values()];
+}
+
+function resolveHeartbeatAgeMs(
+  run: OrchestratorRunRecord,
+  lastTickAt: string
+): number | null {
+  const lastActivityAt = run.lastEventAt ?? run.startedAt;
+  if (!lastActivityAt) {
+    return null;
+  }
+
+  const ageMs = new Date(lastTickAt).getTime() - new Date(lastActivityAt).getTime();
+  return Number.isFinite(ageMs) ? Math.max(0, ageMs) : null;
 }
 
 function aggregateTokenUsageByIssue(

@@ -3249,6 +3249,11 @@ Prefer focused changes.
       retryEntry: null,
       failureRetryCount: 3,
     });
+    const snapshot = await service.status();
+    expect(snapshot?.monitoring?.retryExhaustion.count).toBe(1);
+    expect(snapshot?.monitoring?.retryExhaustion.issueIdentifiers).toContain(
+      "acme/platform#1"
+    );
     expect(events).toContainEqual({
       at: "2026-03-08T00:00:00.000Z",
       event: "run-suppressed",
@@ -3876,6 +3881,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("retrying");
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:05:01.000Z");
     expect(updatedRun?.retryKind).toBe("continuation");
+    expect(updatedRun?.runPhase).toBe("stalled");
   });
 
   it("formats stall detection as a structured verbose log when enabled", async () => {

@@ -208,6 +208,42 @@ export type ProjectStatusSnapshot = {
     totalTokens: number;
     secondsRunning: number;
   };
+  monitoring?: {
+    stalledRuns: {
+      count: number;
+      runIds: string[];
+      issueIdentifiers: string[];
+    };
+    heartbeat: {
+      maxAgeMs: number | null;
+      oldestLastEventAt: string | null;
+      runningCount: number;
+    };
+    retryQueue: {
+      size: number;
+      nextRetryAt: string | null;
+    };
+    retryExhaustion: {
+      count: number;
+      issueIdentifiers: string[];
+    };
+    dispatch: {
+      eligibleIssues: number | null;
+      unscheduledEligibleIssues: number | null;
+      starvationConsecutiveCycles: number;
+      starvationThresholdCycles: number;
+      starved: boolean;
+    };
+    trackerApi: {
+      availability: "healthy" | "degraded" | "down";
+      totalCycles: number;
+      failedCycles: number;
+      consecutiveFailures: number;
+      errorRate: number;
+      lastSuccessAt: string | null;
+      lastFailureAt: string | null;
+    };
+  };
   rateLimits?: Record<string, unknown> | null;
   lastError: string | null;
 };

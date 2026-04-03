@@ -25,6 +25,14 @@ export type DashboardIssueSnapshot = IssueOrchestrationRecord;
 export type DashboardProjectStateSnapshot = ProjectStatusSnapshot & {
   completedCount: number;
   issues: DashboardIssueSnapshot[];
+  alerts: DashboardAlert[];
+};
+
+export type DashboardAlert = {
+  id: string;
+  severity: "warning" | "critical";
+  title: string;
+  message: string;
 };
 
 export class DashboardFsReader {
@@ -64,6 +72,7 @@ export class DashboardFsReader {
       ...snapshot,
       completedCount: issues.filter((issue) => issue.completedOnce).length,
       issues,
+      alerts: buildDashboardAlerts(snapshot),
     };
   }
 
@@ -211,6 +220,113 @@ export class DashboardFsReader {
       throw error;
     }
   }
+}
+
+function buildDashboardAlerts(
+  snapshot: ProjectStatusSnapshot
+): DashboardAlert[] {
+  const alerts: DashboardAlert[] = [];
+  const monitoring = snapshot.monitoring;
+
+  if (snapshot.health === "degraded" || snapshot.lastError) {
+    alerts.push({
+      id: "project-health",
+      severity: "critical",
+      title: "Project health degraded",
+      message: snapshot.lastError ?? "The orchestrator reported a degraded health state.",
+    });
+  }
+
+  if (monitoring?.retryQueue.size) {
+    alerts.push({
+      id: "retry-queue",
+      severity: monitoring.retryQueue.size >= 3 ? "critical" : "warning",
+      title: "Retry queue active",
+      message: `retryQueue=${monitoring.retryQueue.size}, nextRetryAt=${monitoring.retryQueue.nextRetryAt ?? "unknown"}`,
+    });
+  }
+
+  if (monitoring?.stalledRuns.count) {
+    alerts.push({
+      id: "stalled-runs",
+      severity: "critical",
+      title: "Stalled runs detected",
+      message: monitoring.stalledRuns.issueIdentifiers.join(", "),
+    });
+  }
+
+  if (monitoring?.dispatch.starved) {
+    alerts.push({
+      id: "dispatch-starvation",
+      severity: "critical",
+      title: "Dispatch starvation detected",
+      message: `eligibleIssues=${monitoring.dispatch.eligibleIssues ?? 0}, consecutiveCycles=${monitoring.dispatch.starvationConsecutiveCycles}`,
+    });
+  }
+
+  if (monitoring?.retryExhaustion.count) {
+    alerts.push({
+      id: "retry-exhaustion",
+      severity: "critical",
+      title: "Retry exhaustion detected",
+      message: monitoring.retryExhaustion.issueIdentifiers.join(", "),
+    });
+  }
+
+  const rateLimitAlert = resolveRateLimitAlert(snapshot.rateLimits);
+  if (rateLimitAlert) {
+    alerts.push(rateLimitAlert);
+  }
+
+  const heartbeat = monitoring?.heartbeat;
+  if (heartbeat && heartbeat.maxAgeMs !== null) {
+    const heartbeatAgeMinutes = heartbeat.maxAgeMs / 60_000;
+    if (heartbeatAgeMinutes >= 10) {
+      alerts.push({
+        id: "heartbeat-stale",
+        severity: heartbeatAgeMinutes >= 30 ? "critical" : "warning",
+        title: "Turn heartbeat stale",
+        message: `maxHeartbeatAgeMs=${heartbeat.maxAgeMs}, oldestLastEventAt=${heartbeat.oldestLastEventAt ?? "unknown"}`,
+      });
+    }
+  }
+
+  const trackerApi = monitoring?.trackerApi;
+  if (trackerApi && trackerApi.availability !== "healthy") {
+    alerts.push({
+      id: "tracker-api",
+      severity: trackerApi.availability === "down" ? "critical" : "warning",
+      title: "Tracker API degraded",
+      message: `availability=${trackerApi.availability}, errorRate=${trackerApi.errorRate.toFixed(3)}, consecutiveFailures=${trackerApi.consecutiveFailures}`,
+    });
+  }
+
+  return alerts;
+}
+
+function resolveRateLimitAlert(
+  rateLimits: ProjectStatusSnapshot["rateLimits"]
+): DashboardAlert | null {
+  if (
+    !rateLimits ||
+    typeof rateLimits.limit !== "number" ||
+    typeof rateLimits.remaining !== "number" ||
+    rateLimits.limit <= 0
+  ) {
+    return null;
+  }
+
+  const ratio = rateLimits.remaining / rateLimits.limit;
+  if (ratio >= 0.2) {
+    return null;
+  }
+
+  return {
+    id: "rate-limit",
+    severity: ratio < 0.1 ? "critical" : "warning",
+    title: "Rate limit low",
+    message: `remaining=${rateLimits.remaining}, limit=${rateLimits.limit}`,
+  };
 }
 
 function countNewlines(chunk: Uint8Array): number {

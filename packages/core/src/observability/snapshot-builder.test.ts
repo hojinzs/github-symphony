@@ -629,4 +629,74 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns[0].lastEventAt).toBeNull();
     expect(snapshot.activeRuns[0].tokenUsage).toBeUndefined();
   });
+
+  it("builds monitoring metrics for stalled runs, heartbeat age, retry exhaustion, and tracker health", () => {
+    const stalledRun = mockRun({
+      runId: "run-stalled",
+      issueId: "issue-stalled",
+      issueIdentifier: "acme/platform#77",
+      status: "retrying",
+      retryKind: "failure",
+      nextRetryAt: "2024-01-01T00:12:00Z",
+      runPhase: "stalled",
+      lastEventAt: "2024-01-01T00:03:00Z",
+    });
+    const exhaustedRun = mockRun({
+      runId: "run-exhausted",
+      issueId: "issue-exhausted",
+      issueIdentifier: "acme/platform#88",
+      status: "suppressed",
+      updatedAt: "2024-01-01T00:10:00Z",
+      lastError:
+        "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3.",
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [stalledRun],
+      allRuns: [stalledRun, exhaustedRun],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:15:00Z",
+      lastError: null,
+      eligibleIssues: 2,
+      unscheduledEligibleIssues: 2,
+      trackerCycleSucceeded: false,
+    });
+
+    expect(snapshot.monitoring?.stalledRuns.count).toBe(1);
+    expect(snapshot.monitoring?.retryQueue.size).toBe(1);
+    expect(snapshot.monitoring?.retryExhaustion.count).toBe(1);
+    expect(snapshot.monitoring?.trackerApi.availability).toBe("degraded");
+    expect(snapshot.monitoring?.dispatch.starvationConsecutiveCycles).toBe(1);
+  });
+
+  it("increments dispatch starvation and tracker failure counters from the previous snapshot", () => {
+    const previousSnapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: "tracker unavailable",
+      eligibleIssues: 1,
+      unscheduledEligibleIssues: 1,
+      trackerCycleSucceeded: false,
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:11:00Z",
+      lastError: "tracker unavailable",
+      previousSnapshot,
+      eligibleIssues: 1,
+      unscheduledEligibleIssues: 1,
+      trackerCycleSucceeded: false,
+    });
+
+    expect(snapshot.monitoring?.dispatch.starvationConsecutiveCycles).toBe(2);
+    expect(snapshot.monitoring?.dispatch.starved).toBe(false);
+    expect(snapshot.monitoring?.trackerApi.consecutiveFailures).toBe(2);
+    expect(snapshot.monitoring?.trackerApi.failedCycles).toBe(2);
+  });
 });

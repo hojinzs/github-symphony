@@ -395,13 +395,17 @@ export class OrchestratorService {
   ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
+    const previousSnapshot = await this.store.loadProjectStatus(tenant.projectId);
     let lastError: string | null = null;
     let dispatched = 0;
     let suppressed = 0;
     let recovered = 0;
+    let eligibleIssues: number | null = null;
+    let unscheduledEligibleIssues: number | null = null;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     let rateLimits: Record<string, unknown> | null = null;
     let trackerRateLimits: Record<string, unknown> | null = null;
+    let trackerCycleSucceeded: boolean | null = null;
 
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
@@ -450,6 +454,7 @@ export class OrchestratorService {
         tenant,
         trackerDependencies
       );
+      trackerCycleSucceeded = true;
       const filteredIssues = issueIdentifier
         ? issues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
@@ -457,6 +462,7 @@ export class OrchestratorService {
         : issues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
+      eligibleIssues = actionableCandidates.length;
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         syncedIssuesByIdentifier
       );
@@ -513,6 +519,7 @@ export class OrchestratorService {
             isIssueOrchestrationClaimed(record.state)
         );
       });
+      unscheduledEligibleIssues = unscheduledCandidates.length;
 
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
@@ -686,6 +693,9 @@ export class OrchestratorService {
         await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
       }
     } catch (error) {
+      if (trackerCycleSucceeded === null) {
+        trackerCycleSucceeded = false;
+      }
       lastError =
         error instanceof Error ? error.message : "Unknown orchestration error";
     }
@@ -724,6 +734,10 @@ export class OrchestratorService {
       summary: { dispatched, suppressed, recovered },
       lastTickAt: now.toISOString(),
       lastError,
+      previousSnapshot,
+      eligibleIssues,
+      unscheduledEligibleIssues,
+      trackerCycleSucceeded,
       rateLimits,
     });
     await this.store.saveProjectStatus(status);
@@ -1604,6 +1618,7 @@ export class OrchestratorService {
     recovered: boolean;
   }> {
     const now = this.now();
+    let stalledByTimeout = false;
 
     if (run.processId && this.isProcessRunning(run.processId)) {
       const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
@@ -1625,6 +1640,7 @@ export class OrchestratorService {
         runningSinceMs !== null && runningSinceMs > STUCK_WORKER_TIMEOUT_MS;
 
       if (isStalledByWorkflowTimeout || isStalledByFallbackTimeout) {
+        stalledByTimeout = true;
         const elapsedMs = isStalledByWorkflowTimeout
           ? elapsedSinceLastActivityMs
           : runningSinceMs;
@@ -1914,11 +1930,13 @@ export class OrchestratorService {
         runWithTokens.cumulativeTurnCount ?? run.cumulativeTurnCount ?? 0,
       lastTurnSummary:
         runWithTokens.lastTurnSummary ?? run.lastTurnSummary ?? null,
-      runPhase: runWithTokens.runPhase ?? "failed",
+      runPhase: stalledByTimeout ? "stalled" : (runWithTokens.runPhase ?? "failed"),
       lastError:
         retryKind === "continuation"
           ? null
-          : "Worker process exited unexpectedly.",
+          : stalledByTimeout
+            ? "Worker stalled due to heartbeat timeout."
+            : "Worker process exited unexpectedly.",
     };
     await this.store.saveRun(retryRecord);
     this.logVerbose(

@@ -484,11 +484,51 @@ describe("DashboardFsReader", () => {
         slug: "tenant-1",
         tracker: { adapter: "github-project", bindingId: "project-1" },
         lastTickAt: "2026-03-20T00:00:00.000Z",
-        health: "idle",
+        health: "degraded",
         summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
         activeRuns: [],
         retryQueue: [],
-        lastError: null,
+        lastError: "tracker unavailable",
+        monitoring: {
+          stalledRuns: {
+            count: 1,
+            runIds: ["run-1"],
+            issueIdentifiers: ["acme/platform#9"],
+          },
+          heartbeat: {
+            maxAgeMs: 900000,
+            oldestLastEventAt: "2026-03-19T23:45:00.000Z",
+            runningCount: 1,
+          },
+          retryQueue: {
+            size: 2,
+            nextRetryAt: "2026-03-20T00:05:00.000Z",
+          },
+          retryExhaustion: {
+            count: 1,
+            issueIdentifiers: ["acme/platform#10"],
+          },
+          dispatch: {
+            eligibleIssues: 3,
+            unscheduledEligibleIssues: 3,
+            starvationConsecutiveCycles: 3,
+            starvationThresholdCycles: 3,
+            starved: true,
+          },
+          trackerApi: {
+            availability: "down",
+            totalCycles: 3,
+            failedCycles: 3,
+            consecutiveFailures: 3,
+            errorRate: 1,
+            lastSuccessAt: null,
+            lastFailureAt: "2026-03-20T00:00:00.000Z",
+          },
+        },
+        rateLimits: {
+          remaining: 40,
+          limit: 500,
+        },
       }) + "\n",
       "utf8"
     );
@@ -526,6 +566,16 @@ describe("DashboardFsReader", () => {
     await expect(reader.loadProjectState()).resolves.toMatchObject({
       projectId: "tenant-1",
       completedCount: 1,
+      alerts: [
+        { id: "project-health", severity: "critical" },
+        { id: "retry-queue", severity: "warning" },
+        { id: "stalled-runs", severity: "critical" },
+        { id: "dispatch-starvation", severity: "critical" },
+        { id: "retry-exhaustion", severity: "critical" },
+        { id: "rate-limit", severity: "critical" },
+        { id: "heartbeat-stale", severity: "warning" },
+        { id: "tracker-api", severity: "critical" },
+      ],
       issues: [
         { issueId: "issue-1", completedOnce: true },
         { issueId: "issue-2", completedOnce: false },
