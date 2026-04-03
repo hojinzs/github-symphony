@@ -41,6 +41,11 @@ export type PromptVariables = {
   attempt: number | null;
 };
 
+export type ContinuationGuidanceVariables = {
+  lastTurnSummary: string;
+  cumulativeTurnCount: string;
+};
+
 /**
  * Build normalized prompt variables from a tracked issue and execution context.
  */
@@ -185,4 +190,48 @@ function renderLegacyPrompt(
       return String(value);
     }
   );
+}
+
+const CONTINUATION_GUIDANCE_PATTERN =
+  /\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}/g;
+
+export function renderContinuationGuidance(
+  template: string,
+  variables: ContinuationGuidanceVariables
+): string {
+  if (template.includes("{%") || template.includes("%}")) {
+    throw new Error(
+      "template_parse_error: continuation guidance does not support Liquid tags."
+    );
+  }
+
+  let rendered = "";
+  let lastIndex = 0;
+
+  for (const match of template.matchAll(CONTINUATION_GUIDANCE_PATTERN)) {
+    const matchedText = match[0];
+    const expression = match[1];
+    const index = match.index ?? 0;
+    rendered += template.slice(lastIndex, index);
+
+    if (!(expression in variables)) {
+      throw new Error(
+        `template_render_error: unsupported continuation guidance variable '${expression}'.`
+      );
+    }
+
+    rendered += variables[expression as keyof ContinuationGuidanceVariables];
+    lastIndex = index + matchedText.length;
+  }
+
+  rendered += template.slice(lastIndex);
+
+  const strayLiquidExpression = rendered.match(/\{\{[^}]*\}\}/);
+  if (strayLiquidExpression) {
+    throw new Error(
+      `template_parse_error: invalid continuation guidance expression '${strayLiquidExpression[0]}'.`
+    );
+  }
+
+  return rendered;
 }

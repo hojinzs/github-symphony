@@ -36,7 +36,9 @@ export default handler;
 async function configShow(options: GlobalOptions): Promise<void> {
   const config = await loadGlobalConfig(options.configDir);
   if (!config) {
-    process.stderr.write("No configuration found. Run 'gh-symphony init'.\n");
+    process.stderr.write(
+      "No configuration found. Run 'gh-symphony workflow init'.\n"
+    );
     process.exitCode = 1;
     return;
   }

@@ -97,4 +97,14 @@ describe("buildContinuationTurnInput", () => {
       "Continue after 6 turns. Summary: worker resumed the same issue thread"
     );
   });
+
+  it("rejects unsupported Liquid syntax in continuation guidance", () => {
+    expect(() =>
+      buildContinuationTurnInput({
+        continuationGuidance: "{% if cumulativeTurnCount %}resume{% endif %}",
+        cumulativeTurnCount: 6,
+        lastTurnSummary: "worker resumed the same issue thread",
+      })
+    ).toThrow("continuation guidance does not support Liquid tags");
+  });
 });

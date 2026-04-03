@@ -38,13 +38,15 @@ Navigate to the repository you want to orchestrate, then run:
 
 ```bash
 cd your-repo
-gh-symphony init
+gh-symphony workflow init
 ```
 
 Preview the generated files without writing anything:
 
 ```bash
-gh-symphony init --dry-run
+gh-symphony workflow init --dry-run
+gh-symphony workflow validate
+gh-symphony workflow preview
 ```
 
 The interactive wizard will:
@@ -61,7 +63,7 @@ The interactive wizard will:
 | `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
 
-`gh-symphony init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
+`gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
 #### Customizing Agent Behavior
 
@@ -212,7 +214,7 @@ The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
 The generated file includes:
 
 - **Lifecycle**: `active_states`, `terminal_states`, `blocker_check_states` derived from the status column mapping
-- **Runtime**: `agent_command` derived from `gh-symphony init`
+- **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`
 - **Retry**: `base_delay_ms`, `max_delay_ms`
@@ -235,14 +237,16 @@ Available template variables:
 
 ### Generating WORKFLOW.md
 
-`gh-symphony init` generates a `WORKFLOW.md` in the current directory.
+`gh-symphony workflow init` generates a `WORKFLOW.md` in the current directory.
 
 With a project already registered:
 
 ```bash
 cd my-repo
-gh-symphony init        # generates ./WORKFLOW.md from active project config
-gh-symphony init --dry-run
+gh-symphony workflow init        # generates ./WORKFLOW.md from active project config
+gh-symphony workflow init --dry-run
+gh-symphony workflow validate
+gh-symphony workflow preview
 ```
 
 `--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
@@ -252,9 +256,13 @@ each path would be created, updated, or left unchanged without writing anything.
 Without a project (standalone):
 
 ```bash
-gh-symphony init --non-interactive --project PVT_xxx --output WORKFLOW.md
-gh-symphony init --non-interactive --project PVT_xxx --dry-run
+gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
+gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 ```
+
+`gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary.
+
+`gh-symphony workflow preview` renders the exact worker prompt that will be sent for either the built-in sample issue or a custom `--sample <path-to-json>` payload. Use `--attempt <n>` to inspect retry prompts before changing policy files.
 
 ### Resolution order
 

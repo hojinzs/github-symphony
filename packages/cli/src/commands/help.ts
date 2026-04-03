@@ -6,7 +6,11 @@ gh-symphony — AI Coding Agent Orchestrator
 Usage: gh-symphony <command> [options]
 
 Setup:
-  init            Interactive project setup wizard
+  workflow init   Generate WORKFLOW.md and workflow support files
+  workflow validate
+                  Parse and strictly validate WORKFLOW.md
+  workflow preview
+                  Render the final worker prompt from a sample issue
   doctor          Run first-run diagnostics
   config show     Show current configuration
   config set      Set a configuration value
@@ -43,6 +47,9 @@ Global Options:
   --version, -V   Show version
 
 Examples:
+  gh-symphony workflow init           # Generate WORKFLOW.md for the current repo
+  gh-symphony workflow validate       # Strictly validate WORKFLOW.md authoring changes
+  gh-symphony workflow preview --attempt 2
   gh-symphony project add              # Add a project (interactive)
   gh-symphony doctor                   # Validate local setup and prerequisites
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>

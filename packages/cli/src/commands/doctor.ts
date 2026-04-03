@@ -299,7 +299,7 @@ async function checkWorkflow(
       workflowPath,
       summary: "WORKFLOW.md was not found in the repository root.",
       remediation:
-        "Run 'gh-symphony init' in this repository or add a valid WORKFLOW.md at the repo root.",
+        "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
     };
   }
 
@@ -317,7 +317,7 @@ async function checkWorkflow(
       workflowPath,
       summary: "WORKFLOW.md could not be parsed.",
       remediation:
-        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony init' to regenerate it.",
+        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
       error: error instanceof Error ? error.message : "Unknown workflow parse error.",
     };
   }

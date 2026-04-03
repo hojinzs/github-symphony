@@ -1,0 +1,20 @@
+{
+  "id": "sample-issue-157",
+  "identifier": "acme/platform#157",
+  "number": 157,
+  "title": "Preview WORKFLOW.md prompt rendering",
+  "description": "Use this sample issue payload to inspect the exact worker prompt before committing workflow policy changes.",
+  "priority": 1,
+  "state": "In progress",
+  "labels": ["enhancement", "cli"],
+  "blocked_by": [],
+  "branch_name": "feat/workflow-preview",
+  "url": "https://github.com/acme/platform/issues/157",
+  "created_at": "2026-03-31T02:06:39Z",
+  "updated_at": "2026-04-03T02:28:21Z",
+  "repository": {
+    "owner": "acme",
+    "name": "platform",
+    "url": "https://github.com/acme/platform"
+  }
+}
