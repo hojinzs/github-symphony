@@ -46,7 +46,7 @@ Preview the generated files without writing anything:
 ```bash
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview --sample ./fixtures/sample-issue.json
+gh-symphony workflow preview
 ```
 
 The interactive wizard will:
@@ -246,7 +246,7 @@ cd my-repo
 gh-symphony workflow init        # generates ./WORKFLOW.md from active project config
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview --sample ./fixtures/sample-issue.json
+gh-symphony workflow preview
 ```
 
 `--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
@@ -262,7 +262,7 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 
 `gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary.
 
-`gh-symphony workflow preview` renders the exact worker prompt that will be sent for either the built-in sample issue or a custom `--sample` JSON payload. Use `--attempt <n>` to inspect retry prompts before changing policy files.
+`gh-symphony workflow preview` renders the exact worker prompt that will be sent for either the built-in sample issue or a custom `--sample <path-to-json>` payload. Use `--attempt <n>` to inspect retry prompts before changing policy files.
 
 ### Resolution order
 

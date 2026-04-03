@@ -155,4 +155,79 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("acme/api#9: Fix preview rendering");
     expect(stdout.output()).toContain("Attempt=3");
   });
+
+  it("rejects unsupported continuation guidance Liquid syntax during validation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-invalid-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace(
+        "Continue after {{ cumulativeTurnCount }} turns. Summary: {{ lastTurnSummary }}",
+        "{% if attempt %}Retry{% endif %}"
+      ),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "continuation guidance does not support Liquid tags"
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports field-aware sample JSON validation errors", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-invalid-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const samplePath = join(root, "sample-issue.json");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+    await writeFile(
+      samplePath,
+      JSON.stringify({
+        id: "sample-1",
+        identifier: "acme/api#9",
+        number: 9,
+        title: "Fix preview rendering",
+        description: 42,
+        state: "Ready",
+        repository: {
+          owner: "acme",
+          name: "api",
+        },
+      }),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "--sample", samplePath],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Sample JSON field 'description' must be a string."
+    );
+    expect(process.exitCode).toBe(1);
+  });
 });

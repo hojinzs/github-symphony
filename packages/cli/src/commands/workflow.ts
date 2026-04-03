@@ -105,8 +105,6 @@ const SAMPLE_ISSUE: TrackedIssue = {
 };
 
 const SAMPLE_CONTINUATION_VARIABLES = {
-  issue: buildPromptVariables(SAMPLE_ISSUE, { attempt: 2 }).issue,
-  attempt: 2,
   lastTurnSummary: "Validated the prompt template and updated the CLI routing.",
   cumulativeTurnCount: 3,
 };
@@ -254,34 +252,43 @@ function normalizeIssue(value: unknown): TrackedIssue {
     repositoryRecord.name,
     "repository.name"
   );
-  const repositoryUrl = readOptionalString(repositoryRecord.url);
+  const repositoryUrl = readOptionalString(repositoryRecord.url, "repository.url");
 
   return {
     id: readRequiredString(record.id, "id"),
     identifier: readRequiredString(record.identifier, "identifier"),
     number: readRequiredNumber(record.number, "number"),
     title: readRequiredString(record.title, "title"),
-    description: readOptionalString(record.description),
-    priority: readOptionalNumber(record.priority),
+    description: readOptionalString(record.description, "description"),
+    priority: readOptionalNumber(record.priority, "priority"),
     state: readRequiredString(record.state, "state"),
-    branchName: readOptionalString(record.branchName ?? record.branch_name),
-    url: readOptionalString(record.url),
+    branchName: readOptionalString(
+      record.branchName ?? record.branch_name,
+      "branchName/branch_name"
+    ),
+    url: readOptionalString(record.url, "url"),
     labels: readStringArray(record.labels, "labels"),
     blockedBy: readBlockers(record.blockedBy ?? record.blocked_by),
-    createdAt: readOptionalString(record.createdAt ?? record.created_at),
-    updatedAt: readOptionalString(record.updatedAt ?? record.updated_at),
+    createdAt: readOptionalString(
+      record.createdAt ?? record.created_at,
+      "createdAt/created_at"
+    ),
+    updatedAt: readOptionalString(
+      record.updatedAt ?? record.updated_at,
+      "updatedAt/updated_at"
+    ),
     repository: {
       owner: repositoryOwner,
       name: repositoryName,
       cloneUrl:
-        readOptionalString(repositoryRecord.cloneUrl) ??
+        readOptionalString(repositoryRecord.cloneUrl, "repository.cloneUrl") ??
         `https://github.com/${repositoryOwner}/${repositoryName}.git`,
       ...(repositoryUrl ? { url: repositoryUrl } : {}),
     },
     tracker: {
       adapter: "github-project",
       bindingId: "preview-sample",
-      itemId: readOptionalString(record.itemId) ?? "preview-sample",
+      itemId: readOptionalString(record.itemId, "itemId") ?? "preview-sample",
     },
     metadata: {},
   };
@@ -303,12 +310,12 @@ function readRequiredString(value: unknown, field: string): string {
   return value;
 }
 
-function readOptionalString(value: unknown): string | null {
+function readOptionalString(value: unknown, field: string): string | null {
   if (value === null || value === undefined || value === "") {
     return null;
   }
   if (typeof value !== "string") {
-    throw new Error("Expected a string value.");
+    throw new Error(`Sample JSON field '${field}' must be a string.`);
   }
   return value;
 }
@@ -321,12 +328,12 @@ function readRequiredNumber(value: unknown, field: string): number {
   return value;
 }
 
-function readOptionalNumber(value: unknown): number | null {
+function readOptionalNumber(value: unknown, field: string): number | null {
   if (value === null || value === undefined || value === "") {
     return null;
   }
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error("Expected a numeric value.");
+    throw new Error(`Sample JSON field '${field}' must be a number.`);
   }
   return value;
 }
@@ -347,17 +354,63 @@ function readBlockers(value: unknown): TrackedIssue["blockedBy"] {
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new Error("Sample JSON field 'blockedBy' must be an array.");
+    throw new Error("Sample JSON field 'blockedBy/blocked_by' must be an array.");
   }
 
   return value.map((entry, index) => {
-    const record = asRecord(entry, `blockedBy[${index}]`);
+    const record = asRecord(entry, `blockedBy/blocked_by[${index}]`);
     return {
-      id: readOptionalString(record.id),
-      identifier: readOptionalString(record.identifier),
-      state: readOptionalString(record.state),
+      id: readOptionalString(record.id, `blockedBy/blocked_by[${index}].id`),
+      identifier: readOptionalString(
+        record.identifier,
+        `blockedBy/blocked_by[${index}].identifier`
+      ),
+      state: readOptionalString(
+        record.state,
+        `blockedBy/blocked_by[${index}].state`
+      ),
     };
   });
+}
+
+function validateContinuationGuidance(template: string): void {
+  if (template.includes("{%") || template.includes("%}")) {
+    throw new Error(
+      "template_parse_error: continuation guidance does not support Liquid tags."
+    );
+  }
+
+  const pattern = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}/g;
+  let rendered = "";
+  let lastIndex = 0;
+
+  for (const match of template.matchAll(pattern)) {
+    const expression = match[1];
+    const index = match.index ?? 0;
+    rendered += template.slice(lastIndex, index);
+
+    if (!(expression in SAMPLE_CONTINUATION_VARIABLES)) {
+      throw new Error(
+        `template_render_error: unsupported continuation guidance variable '${expression}'.`
+      );
+    }
+
+    rendered += String(
+      SAMPLE_CONTINUATION_VARIABLES[
+        expression as keyof typeof SAMPLE_CONTINUATION_VARIABLES
+      ]
+    );
+    lastIndex = index + match[0].length;
+  }
+
+  rendered += template.slice(lastIndex);
+
+  const strayLiquidExpression = rendered.match(/\{\{[^}]*\}\}/);
+  if (strayLiquidExpression) {
+    throw new Error(
+      `template_parse_error: invalid continuation guidance expression '${strayLiquidExpression[0]}'.`
+    );
+  }
 }
 
 async function loadSampleIssue(samplePath?: string): Promise<{
@@ -394,11 +447,7 @@ function validateWorkflow(
 
   const continuationGuidanceStatus = workflow.continuationGuidance
     ? (() => {
-        renderPrompt(
-          workflow.continuationGuidance,
-          SAMPLE_CONTINUATION_VARIABLES as typeof promptRetryVariables,
-          { strict: true }
-        );
+        validateContinuationGuidance(workflow.continuationGuidance);
         return "pass" as const;
       })()
     : ("skip" as const);

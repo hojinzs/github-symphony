@@ -115,8 +115,40 @@ function renderContinuationGuidance(
   template: string,
   variables: Record<string, string>
 ): string {
-  return template.replace(
-    /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g,
-    (match, key: string) => variables[key] ?? match
-  );
+  if (template.includes("{%") || template.includes("%}")) {
+    throw new Error(
+      "template_parse_error: continuation guidance does not support Liquid tags."
+    );
+  }
+
+  let rendered = "";
+  let lastIndex = 0;
+  const pattern = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}/g;
+
+  for (const match of template.matchAll(pattern)) {
+    const matchedText = match[0];
+    const expression = match[1];
+    const index = match.index ?? 0;
+    rendered += template.slice(lastIndex, index);
+
+    if (!(expression in variables)) {
+      throw new Error(
+        `template_render_error: unsupported continuation guidance variable '${expression}'.`
+      );
+    }
+
+    rendered += variables[expression] ?? "";
+    lastIndex = index + matchedText.length;
+  }
+
+  rendered += template.slice(lastIndex);
+
+  const strayLiquidExpression = rendered.match(/\{\{[^}]*\}\}/);
+  if (strayLiquidExpression) {
+    throw new Error(
+      `template_parse_error: invalid continuation guidance expression '${strayLiquidExpression[0]}'.`
+    );
+  }
+
+  return rendered;
 }

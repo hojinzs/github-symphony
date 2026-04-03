@@ -54,7 +54,7 @@ Navigate to the repository you want to orchestrate, then run:
 gh-symphony workflow init
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview --sample ./fixtures/sample-issue.json
+gh-symphony workflow preview
 ```
 
 The interactive wizard will:
