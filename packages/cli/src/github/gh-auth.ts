@@ -1,4 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import {
+  checkRequiredScopes,
+  createClient,
+  type GitHubClient,
+  validateToken,
+} from "./client.js";
 
 type ExecImpl = typeof execFileSync;
 type SpawnImpl = typeof spawnSync;
@@ -18,12 +24,27 @@ export class GhAuthError extends Error {
       | "not_installed"
       | "not_authenticated"
       | "missing_scopes"
-      | "token_failed",
+      | "token_failed"
+      | "invalid_token",
     message: string
   ) {
     super(message);
     this.name = "GhAuthError";
   }
+}
+
+export type GitHubAuthSource = "env" | "gh";
+
+export type ResolvedGitHubAuth = {
+  source: GitHubAuthSource;
+  token: string;
+  login: string;
+  scopes: string[];
+};
+
+export function getEnvGitHubToken(): string | null {
+  const token = process.env.GITHUB_GRAPHQL_TOKEN?.trim();
+  return token ? token : null;
 }
 
 export function checkGhInstalled(opts?: { execImpl?: ExecImpl }): boolean {
@@ -88,9 +109,13 @@ export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
   };
 }
 
-export function getGhToken(opts?: { execImpl?: ExecImpl }): string {
-  if (process.env.GITHUB_GRAPHQL_TOKEN) {
-    return process.env.GITHUB_GRAPHQL_TOKEN;
+export function getGhToken(opts?: {
+  execImpl?: ExecImpl;
+  allowEnv?: boolean;
+}): string {
+  const envToken = opts?.allowEnv === false ? null : getEnvGitHubToken();
+  if (envToken) {
+    return envToken;
   }
 
   const execImpl = opts?.execImpl ?? execFileSync;
@@ -120,6 +145,94 @@ export function getGhToken(opts?: { execImpl?: ExecImpl }): string {
       "token_failed",
       "gh auth token 실패. gh auth status 를 확인하세요."
     );
+  }
+}
+
+export async function validateGitHubToken(
+  token: string,
+  source: GitHubAuthSource,
+  opts?: {
+    createClientImpl?: typeof createClient;
+    validateTokenImpl?: typeof validateToken;
+    checkRequiredScopesImpl?: typeof checkRequiredScopes;
+  }
+): Promise<ResolvedGitHubAuth> {
+  const createClientImpl = opts?.createClientImpl ?? createClient;
+  const validateTokenImpl = opts?.validateTokenImpl ?? validateToken;
+  const checkRequiredScopesImpl =
+    opts?.checkRequiredScopesImpl ?? checkRequiredScopes;
+
+  let viewer: Awaited<ReturnType<typeof validateToken>>;
+  try {
+    const client = createClientImpl(token) as GitHubClient;
+    viewer = await validateTokenImpl(client);
+  } catch {
+    if (source === "env") {
+      throw new GhAuthError(
+        "invalid_token",
+        "GITHUB_GRAPHQL_TOKEN is invalid or expired."
+      );
+    }
+
+    throw new GhAuthError(
+      "token_failed",
+      "gh auth token 실패. gh auth status 를 확인하세요."
+    );
+  }
+
+  const scopeCheck = checkRequiredScopesImpl(viewer.scopes);
+  if (!scopeCheck.valid) {
+    if (source === "env") {
+      throw new GhAuthError(
+        "missing_scopes",
+        `GITHUB_GRAPHQL_TOKEN is missing required scopes: ${scopeCheck.missing.join(", ")}`
+      );
+    }
+
+    throw new GhAuthError(
+      "missing_scopes",
+      `gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: ${scopeCheck.missing.join(", ")})`
+    );
+  }
+
+  return {
+    source,
+    token,
+    login: viewer.login,
+    scopes: viewer.scopes,
+  };
+}
+
+export async function resolveGitHubAuth(opts?: {
+  execImpl?: ExecImpl;
+  spawnImpl?: SpawnImpl;
+  createClientImpl?: typeof createClient;
+  validateTokenImpl?: typeof validateToken;
+  checkRequiredScopesImpl?: typeof checkRequiredScopes;
+}): Promise<ResolvedGitHubAuth> {
+  const envToken = getEnvGitHubToken();
+  let envError: GhAuthError | null = null;
+
+  if (envToken) {
+    try {
+      return await validateGitHubToken(envToken, "env", opts);
+    } catch (error) {
+      if (error instanceof GhAuthError) {
+        envError = error;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  try {
+    const auth = ensureGhAuth(opts);
+    return await validateGitHubToken(auth.token, "gh", opts);
+  } catch (error) {
+    if (envError && error instanceof GhAuthError) {
+      throw envError;
+    }
+    throw error;
   }
 }
 
@@ -156,7 +269,7 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const token = getGhToken({ execImpl });
+  const token = getGhToken({ execImpl, allowEnv: false });
   return { login: auth.login ?? "unknown", token };
 }
 

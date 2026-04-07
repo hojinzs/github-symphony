@@ -8,10 +8,11 @@ The following tools must be installed before using the CLI:
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
-- **[GitHub CLI (`gh`)](https://cli.github.com/)** — authenticated with required scopes:
+- **Either** **[GitHub CLI (`gh`)](https://cli.github.com/)** authenticated with required scopes:
   ```bash
   gh auth login --scopes repo,read:org,project
   ```
+  **or** `GITHUB_GRAPHQL_TOKEN` set with `repo`, `read:org`, and `project`
 
 ## 1. Install Package
 
@@ -59,10 +60,17 @@ gh-symphony workflow preview
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate `WORKFLOW.md` and supporting files in the repository
+
+Token-only interactive setup is supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony workflow init
+```
 
 Use `--dry-run` to preview the generated write plan first. The preview reports
 whether `WORKFLOW.md`, `.gh-symphony/context.yaml`,
@@ -119,11 +127,18 @@ gh-symphony project add
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
+
+Token-only project registration is also supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony project add
+```
 
 ### Project Management
 
@@ -184,7 +199,7 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
-- `gh` installation, auth, and required scopes
+- GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
 - managed project selection plus GitHub Project binding resolution
 - config/runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity

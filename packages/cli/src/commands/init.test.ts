@@ -1,8 +1,40 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("@clack/prompts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@clack/prompts")>();
+
+  return {
+    ...actual,
+    intro: vi.fn(),
+    outro: vi.fn(),
+    cancel: vi.fn(),
+    note: vi.fn(),
+    select: vi.fn(),
+    confirm: vi.fn(),
+    multiselect: vi.fn(),
+    text: vi.fn(),
+    spinner: vi.fn(() => ({
+      start: vi.fn(),
+      stop: vi.fn(),
+    })),
+    log: {
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      step: vi.fn(),
+      success: vi.fn(),
+      message: vi.fn(),
+    },
+  };
+});
+
+import * as p from "@clack/prompts";
 import type { CliProjectConfig } from "../config.js";
+import * as ghAuth from "../github/gh-auth.js";
+import * as githubClient from "../github/client.js";
+import initCommand from "./init.js";
 import {
   buildDryRunJsonResult,
   generateProjectId,
@@ -11,6 +43,66 @@ import {
   writeConfig,
   writeEcosystem,
 } from "./init.js";
+
+function mockSpinner() {
+  return {
+    start: vi.fn(),
+    stop: vi.fn(),
+  };
+}
+
+describe("init interactive auth", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(p.intro).mockImplementation(() => undefined);
+    vi.mocked(p.outro).mockImplementation(() => undefined);
+    vi.mocked(p.cancel).mockImplementation(() => undefined);
+    vi.mocked(p.note).mockImplementation(() => undefined);
+    vi.mocked(p.spinner).mockImplementation(mockSpinner);
+    vi.mocked(p.log.error).mockImplementation(() => undefined);
+    vi.mocked(p.log.warn).mockImplementation(() => undefined);
+    vi.mocked(p.log.info).mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it("reports env auth usage before loading projects", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-env-auth-"));
+    const authSpinner = mockSpinner();
+    vi.mocked(p.spinner)
+      .mockReturnValueOnce(authSpinner as never)
+      .mockImplementation(mockSpinner);
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    const ensureSpy = vi.spyOn(ghAuth, "ensureGhAuth");
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([]);
+
+    await initCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(ensureSpy).not.toHaveBeenCalled();
+    expect(authSpinner.start).toHaveBeenCalledWith(
+      "Checking GitHub authentication..."
+    );
+    expect(authSpinner.stop).toHaveBeenCalledWith(
+      "Authenticated via GITHUB_GRAPHQL_TOKEN as env-user"
+    );
+    expect(p.log.error).toHaveBeenCalledWith(
+      "No GitHub Projects found. Create a project at https://github.com/orgs/YOUR_ORG/projects and re-run."
+    );
+  });
+});
 
 describe("init command config output", () => {
   it("writes the simplified project config", async () => {

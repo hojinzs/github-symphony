@@ -6,7 +6,10 @@ import {
   checkGhInstalled,
   checkGhScopes,
   ensureGhAuth,
+  getEnvGitHubToken,
   getGhToken,
+  resolveGitHubAuth,
+  validateGitHubToken,
 } from "./gh-auth.js";
 
 type ExecMock = ReturnType<typeof vi.fn> & typeof execFileSync;
@@ -112,6 +115,49 @@ describe("getGhToken", () => {
 
     expect(getGhToken({ execImpl })).toBe("env-token");
     expect(execImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("getEnvGitHubToken", () => {
+  it("returns a trimmed env token when configured", () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "  env-token  ";
+
+    expect(getEnvGitHubToken()).toBe("env-token");
+  });
+});
+
+describe("validateGitHubToken", () => {
+  it("returns viewer info for a valid env token", async () => {
+    const result = await validateGitHubToken("env-token", "env", {
+      createClientImpl: vi.fn((token: string) => ({ token })) as never,
+      validateTokenImpl: vi.fn(async () => ({
+        login: "env-user",
+        name: "Env User",
+        scopes: ["repo", "read:org", "project"],
+      })) as never,
+    });
+
+    expect(result).toEqual({
+      source: "env",
+      token: "env-token",
+      login: "env-user",
+      scopes: ["repo", "read:org", "project"],
+    });
+  });
+
+  it("throws missing_scopes for an env token without required scopes", async () => {
+    await expect(
+      validateGitHubToken("env-token", "env", {
+        createClientImpl: vi.fn((token: string) => ({ token })) as never,
+        validateTokenImpl: vi.fn(async () => ({
+          login: "env-user",
+          name: "Env User",
+          scopes: ["repo", "read:org"],
+        })) as never,
+      })
+    ).rejects.toThrowError(
+      expect.objectContaining({ code: "missing_scopes" })
+    );
   });
 });
 
@@ -223,5 +269,92 @@ describe("ensureGhAuth", () => {
     expect(() => ensureGhAuth({ execImpl, spawnImpl })).toThrowError(
       "gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: project)"
     );
+  });
+});
+
+describe("resolveGitHubAuth", () => {
+  it("prefers a valid env token even when gh is not installed", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "env-token";
+
+    const execImpl = vi.fn((command: string, args?: string[]) => {
+      if (command === "gh" && (args ?? []).join(" ") === "--version") {
+        const error = buildExitError(1) as Error & { code: string };
+        error.code = "ENOENT";
+        throw error;
+      }
+      throw new Error("unexpected command");
+    }) as ExecMock;
+
+    await expect(
+      resolveGitHubAuth({
+        execImpl,
+        createClientImpl: vi.fn((token: string) => ({ token })) as never,
+        validateTokenImpl: vi.fn(async () => ({
+          login: "env-user",
+          name: "Env User",
+          scopes: ["repo", "read:org", "project"],
+        })) as never,
+      })
+    ).resolves.toEqual({
+      source: "env",
+      token: "env-token",
+      login: "env-user",
+      scopes: ["repo", "read:org", "project"],
+    });
+  });
+
+  it("falls back to gh auth when the env token is unusable", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "bad-env-token";
+
+    const execImpl = vi.fn((command: string, args?: string[]) => {
+      if (command !== "gh") {
+        throw new Error("unexpected command");
+      }
+
+      const argKey = (args ?? []).join(" ");
+      if (argKey === "--version") {
+        return "gh version 2.0.0";
+      }
+      if (argKey === "auth token") {
+        return "ghp_good_token\n";
+      }
+
+      throw new Error(`unexpected args: ${argKey}`);
+    }) as ExecMock;
+
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        "",
+        [
+          "github.com",
+          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
+          "  - Token scopes: 'repo', 'read:org', 'project'",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    const validateTokenImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("invalid env token"))
+      .mockResolvedValueOnce({
+        login: "gh-user",
+        name: "GH User",
+        scopes: ["repo", "read:org", "project"],
+      });
+
+    await expect(
+      resolveGitHubAuth({
+        execImpl,
+        spawnImpl,
+        createClientImpl: vi.fn((token: string) => ({ token })) as never,
+        validateTokenImpl: validateTokenImpl as never,
+      })
+    ).resolves.toEqual({
+      source: "gh",
+      token: "ghp_good_token",
+      login: "gh-user",
+      scopes: ["repo", "read:org", "project"],
+    });
   });
 });

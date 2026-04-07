@@ -83,7 +83,7 @@ gh-symphony workflow preview
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate the following files:
@@ -96,6 +96,13 @@ The interactive wizard will:
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
+
+Token-only interactive setup is supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony workflow init
+```
 
 #### Customizing Agent Behavior
 
@@ -113,11 +120,18 @@ gh-symphony project add
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
+
+Token-only project registration is supported too:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony project add
+```
 
 Non-interactive mode:
 
@@ -235,7 +249,12 @@ gh-symphony completion fish         # Print fish completion script
 
 ## Authentication
 
-GitHub Symphony uses the `gh` CLI for authentication. Run once:
+GitHub Symphony supports two authentication paths:
+
+1. `GITHUB_GRAPHQL_TOKEN` for local shells, containers, and CI-like environments
+2. `gh` CLI for interactive developer machines
+
+Run `gh` setup once if you want to use the CLI-managed path:
 
 ```bash
 gh auth login --scopes repo,read:org,project
@@ -247,13 +266,14 @@ Or if you need to add scopes to an existing login:
 gh auth refresh --scopes repo,read:org,project
 ```
 
-For CI/CD pipelines (where `gh` CLI is not available), set:
+To use a token directly, set:
 
 ```bash
 export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 ```
 
 The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
+Interactive `gh-symphony workflow init` and `gh-symphony project add` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available.
 
 ## WORKFLOW.md
 

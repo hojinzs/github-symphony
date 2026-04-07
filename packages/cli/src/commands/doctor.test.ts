@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import doctorCommand, {
@@ -52,6 +52,8 @@ function createProjectConfig(
     },
   };
 }
+
+const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
 
 async function createWorkflowFixture(
   command = "fake-agent",
@@ -113,7 +115,16 @@ async function withCwd<T>(cwd: string, action: () => Promise<T>): Promise<T> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (originalGraphQlToken === undefined) {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+  } else {
+    process.env.GITHUB_GRAPHQL_TOKEN = originalGraphQlToken;
+  }
   process.exitCode = undefined;
+});
+
+beforeEach(() => {
+  delete process.env.GITHUB_GRAPHQL_TOKEN;
 });
 
 describe("runDoctorDiagnostics", () => {
@@ -133,6 +144,13 @@ describe("runDoctorDiagnostics", () => {
           scopes: ["repo", "read:org", "project"],
         }),
         getGhToken: () => "ghp_test",
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -356,6 +374,57 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("accepts env-token auth when gh CLI is unavailable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => false,
+        getEnvGitHubToken: () => "env-token",
+        validateGitHubToken: (async () =>
+          ({
+            source: "env",
+            token: "env-token",
+            login: "env-user",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "gh_installation")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("gh is optional"),
+    });
+    expect(
+      report.checks.find((check) => check.id === "gh_authentication")
+    ).toMatchObject({
+      status: "pass",
+      summary: "Using GITHUB_GRAPHQL_TOKEN as env-user.",
+    });
+  });
+
   it("reports missing scopes with a refresh command", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
@@ -371,6 +440,13 @@ describe("runDoctorDiagnostics", () => {
           scopes: ["repo", "read:org"],
         }),
         getGhToken: () => "ghp_test",
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -438,6 +514,13 @@ describe("runDoctorDiagnostics", () => {
           scopes: ["repo", "read:org", "project"],
         }),
         getGhToken: () => "ghp_test",
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -489,6 +572,13 @@ describe("runDoctorDiagnostics", () => {
         getGhToken: () => {
           throw new Error("keychain locked");
         },
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -524,6 +614,13 @@ describe("runDoctorDiagnostics", () => {
           scopes: ["repo", "read:org", "project"],
         }),
         getGhToken: () => "ghp_test",
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -558,6 +655,13 @@ describe("runDoctorDiagnostics", () => {
           scopes: ["repo", "read:org", "project"],
         }),
         getGhToken: () => "ghp_test",
+        validateGitHubToken: (async (token: string, source) =>
+          ({
+            source,
+            token,
+            login: "tester",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -607,6 +711,13 @@ describe("doctor command handler", () => {
             scopes: ["repo", "read:org", "project"],
           }),
           getGhToken: () => "ghp_test",
+          validateGitHubToken: (async (token: string, source) =>
+            ({
+              source,
+              token,
+              login: "tester",
+              scopes: ["repo", "read:org", "project"],
+            }) as never) as never,
           inspectManagedProjectSelection: async () => ({
             kind: "resolved",
             projectId: "tenant-a",
