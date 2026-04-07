@@ -53,7 +53,10 @@ function createProjectConfig(
   };
 }
 
-async function createWorkflowFixture(command = "fake-agent"): Promise<{
+async function createWorkflowFixture(
+  command = "fake-agent",
+  options?: { includeGit?: boolean }
+): Promise<{
   repoDir: string;
   pathEnv: string;
 }> {
@@ -63,6 +66,15 @@ async function createWorkflowFixture(command = "fake-agent"): Promise<{
   const executable = join(binDir, "fake-agent");
   await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
   await chmod(executable, 0o755);
+  if (options?.includeGit !== false) {
+    const gitExecutable = join(binDir, "git");
+    await writeFile(
+      gitExecutable,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'git version 2.44.0'\n  exit 0\nfi\nexit 1\n",
+      "utf8"
+    );
+    await chmod(gitExecutable, 0o755);
+  }
   await writeFile(
     join(repoDir, "WORKFLOW.md"),
     `---\ntracker:\n  kind: github-project\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
@@ -136,6 +148,7 @@ describe("runDoctorDiagnostics", () => {
             textFields: [],
             linkedRepositories: [],
           }) as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
         pathEnv,
       })
     );
@@ -143,6 +156,172 @@ describe("runDoctorDiagnostics", () => {
     expect(report.ok).toBe(true);
     expect(report.projectId).toBe("tenant-a");
     expect(report.checks.every((check) => check.status === "pass")).toBe(true);
+    expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
+      status: "pass",
+      details: {
+        currentVersion: process.version,
+        minimumVersion: "v24.0.0",
+      },
+    });
+    expect(
+      report.checks.find((check) => check.id === "git_installation")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({
+        version: expect.stringContaining("git version"),
+      }),
+    });
+  });
+
+  it("reports an actionable failure for unsupported Node.js versions", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+        processVersion: "v22.11.0",
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("v22.11.0"),
+      remediation: expect.stringContaining("v24.0.0"),
+      details: {
+        currentVersion: "v22.11.0",
+        minimumVersion: "v24.0.0",
+      },
+    });
+  });
+
+  it("reports an actionable failure when Git is missing from PATH", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture("fake-agent", {
+      includeGit: false,
+    });
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+        execFileSync: (() => {
+          const error = new Error("git: command not found") as Error & {
+            code?: string;
+          };
+          error.code = "ENOENT";
+          throw error;
+        }) as never,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "git_installation")
+    ).toMatchObject({
+      status: "fail",
+      summary: "Git could not be found on PATH.",
+      remediation: expect.stringContaining("git --version"),
+    });
+  });
+
+  it("fails the Git prerequisite when git --version cannot execute", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+        execFileSync: (() => {
+          throw new Error("permission denied");
+        }) as never,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "git_installation")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("permission denied"),
+      remediation: expect.stringContaining("git --version"),
+      details: expect.objectContaining({ error: "permission denied" }),
+    });
   });
 
   it("reports actionable failures for missing authentication and managed project config", async () => {
@@ -443,6 +622,7 @@ describe("doctor command handler", () => {
               textFields: [],
               linkedRepositories: [],
             }) as never) as never,
+          execFileSync: (() => "git version 2.43.0") as never,
           pathEnv,
         })
       );
@@ -452,13 +632,21 @@ describe("doctor command handler", () => {
 
     const report = JSON.parse(stdout.output()) as {
       ok: boolean;
-      checks: Array<{ id: string }>;
+      checks: Array<{
+        id: string;
+        details?: Record<string, unknown>;
+      }>;
     };
     expect(report.ok).toBe(true);
     expect(process.exitCode).toBe(0);
     expect(report.checks.some((check) => check.id === "runtime_command")).toBe(
       true
     );
+    expect(report.checks.find((check) => check.id === "node_runtime")?.details)
+      .toMatchObject({
+        currentVersion: process.version,
+        minimumVersion: "v24.0.0",
+      });
   });
 
   it("sets exit code 2 for invalid args", async () => {

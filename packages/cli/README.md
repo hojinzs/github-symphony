@@ -128,7 +128,7 @@ The interactive wizard will:
 ### Project Management
 
 ```bash
-gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
+gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 ```
@@ -174,11 +174,15 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass:
 
+- Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
+- Git installation availability on `PATH`, including `git --version` when available
 - `gh` installation, auth, and required scopes
 - managed project selection plus GitHub Project binding resolution
 - config/runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
+
+This makes `doctor` useful before the first `init` or sync step, not just for GitHub auth troubleshooting.
 
 Use JSON output for scripts and CI smoke checks:
 
