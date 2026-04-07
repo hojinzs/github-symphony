@@ -232,6 +232,7 @@ describe("setup command", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never);
     vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(false as never)
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);

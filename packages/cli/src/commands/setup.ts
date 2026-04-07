@@ -434,7 +434,7 @@ async function runInteractive(
         "Step 3/3 — Only process issues assigned to the authenticated GitHub user?",
       assignedOnlyInitialValue: flags.assignedOnly,
     });
-  const assignedOnly = flags.assignedOnly ?? promptAssignedOnly;
+  const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({

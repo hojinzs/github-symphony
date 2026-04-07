@@ -595,7 +595,7 @@ describe("project add interactive", () => {
     );
     vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
     vi.mocked(p.confirm)
-      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(false as never)
       .mockResolvedValueOnce(true as never);
 

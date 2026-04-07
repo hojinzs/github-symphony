@@ -642,7 +642,11 @@ async function projectAddInteractive(
     return;
   }
 
-  const { assignedOnly, selectedRepos, workspaceDir } =
+  const {
+    assignedOnly: promptAssignedOnly,
+    selectedRepos,
+    workspaceDir,
+  } =
     await promptProjectRegistrationOptions({
       projectDetail,
       defaultWorkspaceDir,
@@ -650,6 +654,7 @@ async function projectAddInteractive(
         "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
       assignedOnlyInitialValue: flags.assignedOnly,
     });
+  const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const repoSummary =
     selectedRepos.length === projectDetail.linkedRepositories.length
