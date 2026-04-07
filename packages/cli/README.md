@@ -150,7 +150,7 @@ gh-symphony start --daemon          # Start in background
 gh-symphony stop                    # Stop the daemon
 ```
 
-Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md`, performs exactly one poll/reconcile/dispatch cycle, and exits instead of entering the long-running loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API is available during that one-shot run so you can inspect the current snapshot before the process exits.
+Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
 
 ### Monitor
 

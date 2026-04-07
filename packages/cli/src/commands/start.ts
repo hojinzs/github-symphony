@@ -605,6 +605,8 @@ const handler = async (
               await new Promise<void>((resolve) => {
                 keepHttpAliveResolve = resolve;
               });
+            } else {
+              await shutdown();
             }
           }
           break;
@@ -623,30 +625,28 @@ const handler = async (
           );
           if (parsed.once) {
             process.exitCode = 1;
-            if (httpServer) {
-              await closeHttpServer(httpServer.server).catch((closeError) => {
+            await closeHttpServer(httpServer?.server).catch((closeError) => {
+              logLine(
+                yellow("\u26A0"),
+                `Failed to stop HTTP server: ${
+                  closeError instanceof Error
+                    ? closeError.message
+                    : "Unknown error"
+                }`
+              );
+            });
+            await removeHttpBindingState(options.configDir, projectId).catch(
+              (removeError) => {
                 logLine(
                   yellow("\u26A0"),
-                  `Failed to stop HTTP server: ${
-                    closeError instanceof Error
-                      ? closeError.message
+                  `Failed to remove HTTP state: ${
+                    removeError instanceof Error
+                      ? removeError.message
                       : "Unknown error"
                   }`
                 );
-              });
-              await removeHttpBindingState(options.configDir, projectId).catch(
-                (removeError) => {
-                  logLine(
-                    yellow("\u26A0"),
-                    `Failed to remove HTTP state: ${
-                      removeError instanceof Error
-                        ? removeError.message
-                        : "Unknown error"
-                    }`
-                  );
-                }
-              );
-            }
+              }
+            );
             return;
           }
         }

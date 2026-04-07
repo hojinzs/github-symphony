@@ -151,9 +151,9 @@ describe("start command foreground locking", () => {
     );
 
     expect(run).toHaveBeenCalledTimes(1);
-    expect(shutdown).not.toHaveBeenCalled();
+    expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
-    expect(exitSpy).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("rejects the conflicting --daemon --once combination", async () => {
