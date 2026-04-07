@@ -54,6 +54,7 @@ type CliOptionValues = Partial<
     output?: string;
     project?: string;
     projectId?: string;
+    prune?: boolean;
     run?: string;
     skipContext?: boolean;
     skipSkills?: boolean;
@@ -584,6 +585,22 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       ["remove", repoSpec],
       this.optsWithGlobals<CliOptionValues>()
     );
+  });
+
+  addGlobalOptions(
+    repo
+      .command("sync")
+      .description("Sync repositories from the active GitHub Project")
+      .option("--dry-run", "Preview repository changes without writing config")
+      .option("--prune", "Remove local repositories that are no longer linked")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args = ["sync"];
+    pushOption(args, "--dry-run", values.dryRun);
+    pushOption(args, "--prune", values.prune);
+    await invokeHandler("repo", args, values);
   });
 
   const config = addGlobalOptions(

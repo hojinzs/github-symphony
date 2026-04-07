@@ -37,6 +37,7 @@ Project / Repo:
   repo list       List configured repositories
   repo add        Add a repository
   repo remove     Remove a repository
+  repo sync       Sync repositories from the linked GitHub Project
 
 Global Options:
   --config <dir>  Config directory (default: ~/.gh-symphony)
@@ -55,6 +56,7 @@ Examples:
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project
+  gh-symphony repo sync --dry-run      # Preview linked repository drift
   gh-symphony start                   # Start orchestrator
   gh-symphony start --daemon          # Start in background
   gh-symphony run org/repo#123        # Dispatch a specific issue
