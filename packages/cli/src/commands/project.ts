@@ -18,7 +18,7 @@ import {
   type ProjectDetail,
   type LinkedRepository,
 } from "../github/client.js";
-import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
+import { resolveGitHubAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
 import {
   loadGlobalConfig,
   saveGlobalConfig,
@@ -547,34 +547,22 @@ async function projectAddInteractive(
   }
 
   const s1 = p.spinner();
-  s1.start("Checking gh CLI authentication...");
+  s1.start("Checking GitHub authentication...");
 
   let login: string;
   let client: GitHubClient;
 
   try {
-    const { login: ghLogin, token } = ensureGhAuth();
-    login = ghLogin;
-    client = createClient(token);
-    s1.stop(`Authenticated as ${login}`);
+    const auth = await resolveGitHubAuth();
+    const sourceLabel =
+      auth.source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
+    login = auth.login;
+    client = createClient(auth.token);
+    s1.stop(`Authenticated via ${sourceLabel} as ${login}`);
   } catch (error) {
     s1.stop("Authentication failed.");
     if (error instanceof GhAuthError) {
-      if (error.code === "not_installed") {
-        p.log.error(
-          "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
-        );
-      } else if (error.code === "not_authenticated") {
-        p.log.error(
-          "gh auth login --scopes repo,read:org,project 를 실행하세요."
-        );
-      } else if (error.code === "missing_scopes") {
-        p.log.error(
-          "gh auth refresh --scopes repo,read:org,project 를 실행하세요."
-        );
-      } else {
-        p.log.error(error.message);
-      }
+      p.log.error(error.message);
     } else {
       p.log.error(error instanceof Error ? error.message : "Unknown error");
     }

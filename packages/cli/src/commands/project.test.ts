@@ -380,9 +380,11 @@ describe("project add interactive", () => {
     vi.mocked(p.spinner).mockImplementation(mockSpinner);
     vi.mocked(p.log.error).mockImplementation(() => undefined);
     vi.mocked(p.log.warn).mockImplementation(() => undefined);
-    vi.spyOn(ghAuth, "ensureGhAuth").mockReturnValue({
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "gh",
       login: "stevelee",
       token: "test-token",
+      scopes: ["repo", "read:org", "project"],
     });
     vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
     vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
@@ -616,5 +618,40 @@ describe("project add interactive", () => {
         "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
       initialValue: true,
     });
+  });
+
+  it("reports env auth usage when GITHUB_GRAPHQL_TOKEN is selected", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-env-auth-"));
+    const authSpinner = mockSpinner();
+    vi.mocked(p.spinner)
+      .mockReturnValueOnce(authSpinner as never)
+      .mockImplementation(mockSpinner);
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    const ensureSpy = vi.spyOn(ghAuth, "ensureGhAuth");
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(ensureSpy).not.toHaveBeenCalled();
+    expect(authSpinner.start).toHaveBeenCalledWith(
+      "Checking GitHub authentication..."
+    );
+    expect(authSpinner.stop).toHaveBeenCalledWith(
+      "Authenticated via GITHUB_GRAPHQL_TOKEN as env-user"
+    );
   });
 });

@@ -16,8 +16,12 @@ import {
   checkGhAuthenticated,
   checkGhInstalled,
   checkGhScopes,
+  getEnvGitHubToken,
   getGhToken,
+  type GitHubAuthSource,
+  type ResolvedGitHubAuth,
   REQUIRED_GH_SCOPES,
+  validateGitHubToken,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
@@ -82,7 +86,9 @@ export type DoctorDependencies = {
   checkGhInstalled: typeof checkGhInstalled;
   checkGhAuthenticated: typeof checkGhAuthenticated;
   checkGhScopes: typeof checkGhScopes;
+  getEnvGitHubToken: typeof getEnvGitHubToken;
   getGhToken: typeof getGhToken;
+  validateGitHubToken: typeof validateGitHubToken;
   inspectManagedProjectSelection: typeof inspectManagedProjectSelection;
   createClient: typeof createClient;
   getProjectDetail: typeof getProjectDetail;
@@ -102,7 +108,9 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   checkGhInstalled,
   checkGhAuthenticated,
   checkGhScopes,
+  getEnvGitHubToken,
   getGhToken,
+  validateGitHubToken,
   inspectManagedProjectSelection,
   createClient,
   getProjectDetail,
@@ -181,6 +189,10 @@ function failCheck(
     remediation,
     details,
   };
+}
+
+function formatAuthSource(source: GitHubAuthSource): string {
+  return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
 }
 
 async function checkWritablePath(
@@ -397,12 +409,14 @@ export async function runDoctorDiagnostics(
   }
 
   const checks: DoctorCheckResult[] = [];
-  let token: string | null = null;
+  let auth: ResolvedGitHubAuth | null = null;
   let tokenError: string | null = null;
+  let envTokenError: string | null = null;
   let resolvedProjectId: string | null = null;
   let resolvedProjectConfig:
     | Awaited<ReturnType<typeof inspectManagedProjectSelection>>
     | null = null;
+  const envToken = deps.getEnvGitHubToken();
 
   const currentNodeVersion = deps.processVersion;
   const currentNodeMajor = parseMajorNodeVersion(currentNodeVersion);
@@ -466,48 +480,98 @@ export async function runDoctorDiagnostics(
       passCheck("gh_installation", "gh CLI installation", "gh CLI is installed.")
     );
   } else {
-    checks.push(
-      failCheck(
-        "gh_installation",
-        "gh CLI installation",
-        "gh CLI is not installed.",
-        "Install GitHub CLI from https://cli.github.com and re-run 'gh-symphony doctor'."
-      )
-    );
+    if (envToken) {
+      checks.push(
+        passCheck(
+          "gh_installation",
+          "gh CLI installation",
+          "gh CLI is not installed, but GITHUB_GRAPHQL_TOKEN is configured so gh is optional."
+        )
+      );
+    } else {
+      checks.push(
+        failCheck(
+          "gh_installation",
+          "gh CLI installation",
+          "gh CLI is not installed.",
+          "Install GitHub CLI from https://cli.github.com and re-run 'gh-symphony doctor'."
+        )
+      );
+    }
   }
 
   const ghAuth = ghInstalled ? deps.checkGhAuthenticated() : { authenticated: false };
-  if (ghInstalled && ghAuth.authenticated) {
+  const ghScopes =
+    ghInstalled && ghAuth.authenticated
+      ? deps.checkGhScopes()
+      : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
+
+  if (envToken) {
+    try {
+      auth = await deps.validateGitHubToken(envToken, "env");
+    } catch (error) {
+      envTokenError =
+        error instanceof Error ? error.message : "Unknown token validation error.";
+    }
+  }
+
+  if (!auth && ghInstalled && ghAuth.authenticated && ghScopes.valid) {
+    try {
+      const ghToken = deps.getGhToken({ allowEnv: false });
+      auth = await deps.validateGitHubToken(ghToken, "gh");
+    } catch (error) {
+      tokenError =
+        error instanceof Error ? error.message : "Unknown token retrieval error.";
+    }
+  }
+
+  if (auth) {
     checks.push(
       passCheck(
         "gh_authentication",
-        "gh authentication",
-        `gh auth status succeeded${ghAuth.login ? ` as ${ghAuth.login}` : ""}.`,
-        ghAuth.login ? { login: ghAuth.login } : undefined
+        "GitHub authentication",
+        `Using ${formatAuthSource(auth.source)} as ${auth.login}.`,
+        { source: auth.source, login: auth.login }
+      )
+    );
+  } else if (envTokenError) {
+    checks.push(
+      failCheck(
+        "gh_authentication",
+        "GitHub authentication",
+        "Configured GITHUB_GRAPHQL_TOKEN could not be used.",
+        `${envTokenError} Fix GITHUB_GRAPHQL_TOKEN or configure gh auth, then re-run the doctor command.`,
+        { source: "env", error: envTokenError }
       )
     );
   } else {
     checks.push(
       failCheck(
         "gh_authentication",
-        "gh authentication",
+        "GitHub authentication",
         "gh auth status failed or no GitHub login is configured.",
         `Run 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}' and re-run the doctor command.`
       )
     );
   }
 
-  const ghScopes =
-    ghInstalled && ghAuth.authenticated
-      ? deps.checkGhScopes()
-      : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
-  if (ghInstalled && ghAuth.authenticated && ghScopes.valid) {
+  if (auth) {
     checks.push(
       passCheck(
         "gh_scopes",
         "GitHub token scopes",
-        `Required scopes are present: ${REQUIRED_GH_SCOPES.join(", ")}.`,
-        { scopes: ghScopes.scopes }
+        `Required scopes are present via ${formatAuthSource(auth.source)}: ${REQUIRED_GH_SCOPES.join(", ")}.`,
+        { source: auth.source, scopes: auth.scopes }
+      )
+    );
+  } else if (envTokenError) {
+    checks.push(
+      failCheck(
+        "gh_scopes",
+        "GitHub token scopes",
+        envTokenError,
+        "Update GITHUB_GRAPHQL_TOKEN to include repo, read:org, and project, or configure gh auth with the same scopes.",
+        { source: "env" }
       )
     );
   } else {
@@ -522,16 +586,6 @@ export async function runDoctorDiagnostics(
         { missing: missingScopes, scopes: ghScopes.scopes }
       )
     );
-  }
-
-  if (ghInstalled && ghAuth.authenticated) {
-    try {
-      token = deps.getGhToken();
-    } catch (error) {
-      tokenError =
-        error instanceof Error ? error.message : "Unknown token retrieval error.";
-      token = null;
-    }
   }
 
   resolvedProjectConfig = await deps.inspectManagedProjectSelection({
@@ -565,18 +619,24 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  if (resolvedProjectConfig.kind === "resolved" && !token) {
+  if (resolvedProjectConfig.kind === "resolved" && !auth) {
     checks.push(
       failCheck(
         "github_project_resolution",
         "GitHub project resolution",
         tokenError
           ? "GitHub project resolution could not run because the GitHub token could not be retrieved."
-          : "GitHub project resolution could not run because authentication failed.",
+          : envTokenError
+            ? "GitHub project resolution could not run because the configured GITHUB_GRAPHQL_TOKEN could not be used."
+            : "GitHub project resolution could not run because authentication failed.",
         tokenError
           ? "Check the local keychain or environment used by 'gh auth token', then re-run 'gh-symphony doctor'."
-          : "Fix the gh authentication check first, then re-run 'gh-symphony doctor'.",
-        tokenError ? { error: tokenError } : undefined
+          : envTokenError
+            ? "Fix GITHUB_GRAPHQL_TOKEN or gh authentication first, then re-run 'gh-symphony doctor'."
+            : "Fix the GitHub authentication check first, then re-run 'gh-symphony doctor'.",
+        tokenError || envTokenError
+          ? { error: tokenError ?? envTokenError }
+          : undefined
       )
     );
   } else if (
@@ -593,12 +653,12 @@ export async function runDoctorDiagnostics(
       )
     );
   } else if (
-    token &&
+    auth &&
     resolvedProjectConfig.kind === "resolved" &&
     resolvedProjectConfig.projectConfig.tracker.bindingId
   ) {
     try {
-      const client = deps.createClient(token);
+      const client = deps.createClient(auth.token);
       const detail = await deps.getProjectDetail(
         client,
         resolvedProjectConfig.projectConfig.tracker.bindingId
