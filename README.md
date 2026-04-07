@@ -108,7 +108,7 @@ GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony project add --non-intera
 Managing projects:
 
 ```bash
-gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
+gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
@@ -170,9 +170,11 @@ gh-symphony config edit             # Open config in $EDITOR
 
 ### Diagnostics
 
-`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks:
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks local runtime prerequisites as well as GitHub setup:
 
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes (`repo`, `read:org`, `project`)
+- Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
+- Git installation availability on `PATH`, including `git --version` when available
 - active managed project resolution and GitHub Project binding lookup
 - config directory, runtime root, and managed workspace writability
 - repository `WORKFLOW.md` presence and parse validity
