@@ -201,6 +201,24 @@ export type DryRunJsonResult = {
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
 };
 
+export type WorkflowArtifactsOptions = {
+  cwd: string;
+  outputPath: string;
+  projectDetail: ProjectDetail;
+  statusField: ProjectStatusField;
+  mappings: Record<string, StateMapping>;
+  runtime: string;
+  skipSkills: boolean;
+  skipContext: boolean;
+};
+
+export type WorkflowArtifactsPlan = {
+  outputPath: string;
+  workflowMd: string;
+  workflowPlan: PlannedFileChange;
+  ecosystemPlan: EcosystemPlan;
+};
+
 async function resolveChangeStatus(
   path: string,
   content: string,
@@ -243,6 +261,107 @@ async function writePlannedFile(file: PlannedFileChange): Promise<boolean> {
   await writeFile(temporaryPath, file.content, "utf8");
   await rename(temporaryPath, file.path);
   return true;
+}
+
+export function resolveStatusField(
+  projectDetail: ProjectDetail
+): ProjectStatusField | null {
+  return (
+    projectDetail.statusFields.find((f) => f.name.toLowerCase() === "status") ??
+    projectDetail.statusFields[0] ??
+    null
+  );
+}
+
+export function buildAutomaticStateMappings(
+  statusField: ProjectStatusField
+): Record<string, StateMapping> {
+  const mappings: Record<string, StateMapping> = {};
+  for (const mapping of inferAllStateRoles(statusField.options.map((o) => o.name))) {
+    if (mapping.role) {
+      mappings[mapping.columnName] = { role: mapping.role };
+    }
+  }
+  return mappings;
+}
+
+export async function promptStateMappings(
+  statusField: ProjectStatusField,
+  options?: {
+    stepLabel?: string;
+  }
+): Promise<Record<string, StateMapping>> {
+  const mappings: Record<string, StateMapping> = {};
+  const inferred = inferAllStateRoles(statusField.options.map((o) => o.name));
+
+  p.log.info(
+    `Found ${statusField.options.length} status columns on field "${statusField.name}".`
+  );
+
+  for (const mapping of inferred) {
+    const roleOptions: Array<{ value: StateRole; label: string }> = [
+      { value: "active", label: "Active (agent works on this)" },
+      { value: "wait", label: "Wait (human review / hold)" },
+      { value: "terminal", label: "Terminal (completed)" },
+    ];
+
+    const defaultRole = mapping.role ?? "wait";
+    const sortedOptions = [
+      roleOptions.find((o) => o.value === defaultRole)!,
+      ...roleOptions.filter((o) => o.value !== defaultRole),
+    ];
+
+    const selectedRole = await abortIfCancelled(
+      p.select({
+        message: `${options?.stepLabel ?? "Step 2/2"} — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
+        options: sortedOptions,
+      })
+    );
+
+    mappings[mapping.columnName] = { role: selectedRole };
+  }
+
+  return mappings;
+}
+
+export async function planWorkflowArtifacts(
+  opts: WorkflowArtifactsOptions
+): Promise<WorkflowArtifactsPlan> {
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: opts.projectDetail.id,
+    stateFieldName: opts.statusField.name,
+    mappings: opts.mappings,
+    lifecycle: toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings),
+    runtime: opts.runtime,
+  });
+
+  const workflowPlan = await planFileChange({
+    path: opts.outputPath,
+    label: "WORKFLOW.md",
+    content: workflowMd,
+    mode: "overwrite",
+  });
+  const ecosystemPlan = await planEcosystem({
+    cwd: opts.cwd,
+    projectDetail: opts.projectDetail,
+    statusField: opts.statusField,
+    runtime: opts.runtime,
+    skipSkills: opts.skipSkills,
+    skipContext: opts.skipContext,
+  });
+
+  return {
+    outputPath: opts.outputPath,
+    workflowMd,
+    workflowPlan,
+    ecosystemPlan,
+  };
+}
+
+export async function writeWorkflowPlan(
+  workflowPlan: PlannedFileChange
+): Promise<boolean> {
+  return writePlannedFile(workflowPlan);
 }
 
 function summarizeEnvironment(
@@ -588,9 +707,7 @@ async function runNonInteractive(
   }
 
   // Auto-map with smart defaults
-  const statusField =
-    githubProject.statusFields.find((f) => f.name.toLowerCase() === "status") ??
-    githubProject.statusFields[0];
+  const statusField = resolveStatusField(githubProject);
 
   if (!statusField) {
     process.stderr.write("Error: No status field found on the project.\n");
@@ -598,14 +715,7 @@ async function runNonInteractive(
     return;
   }
 
-  const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllStateRoles(columnNames);
-  const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferred) {
-    if (mapping.role) {
-      mappings[mapping.columnName] = { role: mapping.role };
-    }
-  }
+  const mappings = buildAutomaticStateMappings(statusField);
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -616,27 +726,13 @@ async function runNonInteractive(
     return;
   }
 
-  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
-
-  const workflowMd = generateWorkflowMarkdown({
-    projectId: githubProject.id,
-    stateFieldName: statusField.name,
-    mappings,
-    lifecycle: lifecycleConfig,
-    runtime: "codex",
-  });
-
-  const workflowPlan = await planFileChange({
-    path: outputPath,
-    label: "WORKFLOW.md",
-    content: workflowMd,
-    mode: "overwrite",
-  });
-  const ecosystemPlan = await planEcosystem({
+  const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
+    outputPath,
     projectDetail: githubProject,
     statusField,
+    mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -655,7 +751,7 @@ async function runNonInteractive(
     return;
   }
 
-  await writePlannedFile(workflowPlan);
+  await writeWorkflowPlan(workflowPlan);
 
   const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),
@@ -782,9 +878,7 @@ async function runInteractiveStandalone(
   }
 
   // Step 3: Status column mapping
-  const statusField =
-    projectDetail.statusFields.find((f) => f.name.toLowerCase() === "status") ??
-    projectDetail.statusFields[0];
+  const statusField = resolveStatusField(projectDetail);
 
   if (!statusField) {
     p.log.error(
@@ -794,38 +888,7 @@ async function runInteractiveStandalone(
     return;
   }
 
-  const columnNames = statusField.options.map((o) => o.name);
-  const inferred = inferAllStateRoles(columnNames);
-
-  p.log.info(
-    `Found ${columnNames.length} status columns on field "${statusField.name}".`
-  );
-
-  const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferred) {
-    const roleOptions: Array<{ value: StateRole | "skip"; label: string }> = [
-      { value: "active", label: "Active (agent works on this)" },
-      { value: "wait", label: "Wait (human review / hold)" },
-      { value: "terminal", label: "Terminal (completed)" },
-    ];
-
-    const defaultRole = mapping.role ?? "wait";
-    const sortedOptions = [
-      roleOptions.find((o) => o.value === defaultRole)!,
-      ...roleOptions.filter((o) => o.value !== defaultRole),
-    ];
-
-    const selectedRole = await abortIfCancelled(
-      p.select({
-        message: `Step 2/2 — Map column "${mapping.columnName}":${mapping.confidence === "high" ? " (auto-detected)" : ""}`,
-        options: sortedOptions,
-      })
-    );
-
-    if (selectedRole !== "skip") {
-      mappings[mapping.columnName] = { role: selectedRole as StateRole };
-    }
-  }
+  const mappings = await promptStateMappings(statusField);
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -840,28 +903,13 @@ async function runInteractiveStandalone(
     p.log.warn(`  ⚠ ${warn}`);
   }
 
-  const lifecycleConfig = toWorkflowLifecycleConfig(statusField.name, mappings);
-
-  // Generate WORKFLOW.md only — no config files written
-  const workflowMd = generateWorkflowMarkdown({
-    projectId: projectDetail.id,
-    stateFieldName: statusField.name,
-    mappings,
-    lifecycle: lifecycleConfig,
-    runtime: "codex",
-  });
-
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
-  const workflowPlan = await planFileChange({
-    path: outputPath,
-    label: "WORKFLOW.md",
-    content: workflowMd,
-    mode: "overwrite",
-  });
-  const ecosystemPlan = await planEcosystem({
+  const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
+    outputPath,
     projectDetail,
     statusField,
+    mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -872,7 +920,7 @@ async function runInteractiveStandalone(
     return;
   }
 
-  await writePlannedFile(workflowPlan);
+  await writeWorkflowPlan(workflowPlan);
 
   const ecosystemResult = await writeEcosystem({
     cwd: process.cwd(),

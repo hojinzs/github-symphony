@@ -586,4 +586,35 @@ describe("project add interactive", () => {
     expect(project.repositories).toHaveLength(3);
     expect(project.workspaceDir).toBe(join(configDir, "custom-workspaces"));
   });
+
+  it("uses --assigned-only as the interactive prompt default", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-assigned-only-"));
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await projectCommand(["add", "--assigned-only"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = JSON.parse(
+      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(project.tracker.settings?.assignedOnly).toBe(true);
+    expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
+      message:
+        "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
+      initialValue: true,
+    });
+  });
 });
