@@ -53,7 +53,10 @@ function createProjectConfig(
   };
 }
 
-async function createWorkflowFixture(command = "fake-agent"): Promise<{
+async function createWorkflowFixture(
+  command = "fake-agent",
+  options?: { includeGit?: boolean }
+): Promise<{
   repoDir: string;
   pathEnv: string;
 }> {
@@ -63,6 +66,15 @@ async function createWorkflowFixture(command = "fake-agent"): Promise<{
   const executable = join(binDir, "fake-agent");
   await writeFile(executable, "#!/bin/sh\nexit 0\n", "utf8");
   await chmod(executable, 0o755);
+  if (options?.includeGit !== false) {
+    const gitExecutable = join(binDir, "git");
+    await writeFile(
+      gitExecutable,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'git version 2.44.0'\n  exit 0\nfi\nexit 1\n",
+      "utf8"
+    );
+    await chmod(gitExecutable, 0o755);
+  }
   await writeFile(
     join(repoDir, "WORKFLOW.md"),
     `---\ntracker:\n  kind: github-project\ncodex:\n  command: ${command}\n---\nPrompt body\n`,
@@ -136,6 +148,7 @@ describe("runDoctorDiagnostics", () => {
             textFields: [],
             linkedRepositories: [],
           }) as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
         pathEnv,
       })
     );
@@ -212,7 +225,9 @@ describe("runDoctorDiagnostics", () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await mkdir(workspaceDir, { recursive: true });
-    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const { repoDir, pathEnv } = await createWorkflowFixture("fake-agent", {
+      includeGit: false,
+    });
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
@@ -558,6 +573,7 @@ describe("doctor command handler", () => {
               textFields: [],
               linkedRepositories: [],
             }) as never) as never,
+          execFileSync: (() => "git version 2.43.0") as never,
           pathEnv,
         })
       );
