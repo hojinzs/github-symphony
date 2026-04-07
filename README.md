@@ -8,13 +8,13 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 - **[Git](https://git-scm.com/)**
 - One GitHub auth source with required scopes (`repo`, `read:org`, `project`):
   - **[GitHub CLI (`gh`)](https://cli.github.com/)**:
-  ```bash
-  gh auth login --scopes repo,read:org,project
-  ```
+    ```bash
+    gh auth login --scopes repo,read:org,project
+    ```
   - Or `GITHUB_GRAPHQL_TOKEN` for CI, containers, or token-only shells:
-  ```bash
-  export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
-  ```
+    ```bash
+    export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+    ```
 
 ## Getting Started
 

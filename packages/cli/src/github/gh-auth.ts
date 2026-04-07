@@ -106,16 +106,14 @@ export function getGhTokenWithSource(opts?: {
   token: string;
   source: GitHubAuthSource;
 } {
-  const envToken = opts?.envToken ?? process.env.GITHUB_GRAPHQL_TOKEN;
+  const hasExplicitEnvToken =
+    opts !== undefined &&
+    Object.prototype.hasOwnProperty.call(opts, "envToken");
+  const envToken = hasExplicitEnvToken
+    ? opts.envToken
+    : process.env.GITHUB_GRAPHQL_TOKEN;
   if (envToken) {
     return { token: envToken, source: "env" };
-  }
-
-  if (process.env.GITHUB_GRAPHQL_TOKEN) {
-    return {
-      token: process.env.GITHUB_GRAPHQL_TOKEN,
-      source: "env",
-    };
   }
 
   const execImpl = opts?.execImpl ?? execFileSync;
