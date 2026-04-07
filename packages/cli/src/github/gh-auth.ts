@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   checkRequiredScopes,
   createClient,
+  GitHubApiError,
   type GitHubClient,
   validateToken,
 } from "./client.js";
@@ -41,6 +42,55 @@ export type ResolvedGitHubAuth = {
   login: string;
   scopes: string[];
 };
+
+function ghTokenReadErrorMessage(): string {
+  return "Failed to read a GitHub token from gh CLI. Run 'gh auth status' and try again.";
+}
+
+function missingGhScopesMessage(missing: string[]): string {
+  return `Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: ${missing.join(", ")}`;
+}
+
+function classifyTokenValidationError(
+  error: unknown,
+  source: GitHubAuthSource
+): GhAuthError {
+  if (error instanceof GhAuthError) {
+    return error;
+  }
+
+  if (error instanceof GitHubApiError) {
+    if (error.status === 401) {
+      return new GhAuthError(
+        source === "env" ? "invalid_token" : "token_failed",
+        source === "env"
+          ? "GITHUB_GRAPHQL_TOKEN is invalid or expired."
+          : ghTokenReadErrorMessage()
+      );
+    }
+
+    const prefix =
+      source === "env"
+        ? "GITHUB_GRAPHQL_TOKEN could not be validated"
+        : "gh CLI token could not be validated";
+    return new GhAuthError("token_failed", `${prefix}: ${error.message}`);
+  }
+
+  if (error instanceof Error) {
+    const prefix =
+      source === "env"
+        ? "GITHUB_GRAPHQL_TOKEN could not be validated"
+        : "gh CLI token could not be validated";
+    return new GhAuthError("token_failed", `${prefix}: ${error.message}`);
+  }
+
+  return new GhAuthError(
+    "token_failed",
+    source === "env"
+      ? "GITHUB_GRAPHQL_TOKEN could not be validated."
+      : "gh CLI token could not be validated."
+  );
+}
 
 export function getEnvGitHubToken(): string | null {
   const token = process.env.GITHUB_GRAPHQL_TOKEN?.trim();
@@ -129,10 +179,7 @@ export function getGhToken(opts?: {
       .trim();
 
     if (!token) {
-      throw new GhAuthError(
-        "token_failed",
-        "gh auth token 실패. gh auth status 를 확인하세요."
-      );
+      throw new GhAuthError("token_failed", ghTokenReadErrorMessage());
     }
 
     return token;
@@ -141,10 +188,7 @@ export function getGhToken(opts?: {
       throw error;
     }
 
-    throw new GhAuthError(
-      "token_failed",
-      "gh auth token 실패. gh auth status 를 확인하세요."
-    );
+    throw new GhAuthError("token_failed", ghTokenReadErrorMessage());
   }
 }
 
@@ -166,18 +210,8 @@ export async function validateGitHubToken(
   try {
     const client = createClientImpl(token) as GitHubClient;
     viewer = await validateTokenImpl(client);
-  } catch {
-    if (source === "env") {
-      throw new GhAuthError(
-        "invalid_token",
-        "GITHUB_GRAPHQL_TOKEN is invalid or expired."
-      );
-    }
-
-    throw new GhAuthError(
-      "token_failed",
-      "gh auth token 실패. gh auth status 를 확인하세요."
-    );
+  } catch (error) {
+    throw classifyTokenValidationError(error, source);
   }
 
   const scopeCheck = checkRequiredScopesImpl(viewer.scopes);
@@ -191,7 +225,7 @@ export async function validateGitHubToken(
 
     throw new GhAuthError(
       "missing_scopes",
-      `gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: ${scopeCheck.missing.join(", ")})`
+      missingGhScopesMessage(scopeCheck.missing)
     );
   }
 
@@ -249,7 +283,7 @@ export function ensureGhAuth(opts?: {
   if (!checkGhInstalled({ execImpl })) {
     throw new GhAuthError(
       "not_installed",
-      "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
+      "gh CLI is not installed. Install it from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN."
     );
   }
 
@@ -257,7 +291,7 @@ export function ensureGhAuth(opts?: {
   if (!auth.authenticated) {
     throw new GhAuthError(
       "not_authenticated",
-      "gh auth login --scopes repo,read:org,project 를 실행하세요."
+      "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN."
     );
   }
 
@@ -265,7 +299,7 @@ export function ensureGhAuth(opts?: {
   if (!scopeCheck.valid) {
     throw new GhAuthError(
       "missing_scopes",
-      `gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: ${scopeCheck.missing.join(", ")})`
+      missingGhScopesMessage(scopeCheck.missing)
     );
   }
 

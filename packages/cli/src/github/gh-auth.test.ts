@@ -1,6 +1,9 @@
 import type { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  GitHubApiError,
+} from "./client.js";
+import {
   GhAuthError,
   checkGhAuthenticated,
   checkGhInstalled,
@@ -159,6 +162,23 @@ describe("validateGitHubToken", () => {
       expect.objectContaining({ code: "missing_scopes" })
     );
   });
+
+  it("preserves non-auth GitHub API failures for env-token validation", async () => {
+    await expect(
+      validateGitHubToken("env-token", "env", {
+        createClientImpl: vi.fn((token: string) => ({ token })) as never,
+        validateTokenImpl: vi.fn(async () => {
+          throw new GitHubApiError("GitHub API error: 502 Bad Gateway", 502);
+        }) as never,
+      })
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        code: "token_failed",
+        message:
+          "GITHUB_GRAPHQL_TOKEN could not be validated: GitHub API error: 502 Bad Gateway",
+      })
+    );
+  });
 });
 
 describe("ensureGhAuth", () => {
@@ -211,7 +231,7 @@ describe("ensureGhAuth", () => {
 
     expect(() => ensureGhAuth({ execImpl })).toThrowError(GhAuthError);
     expect(() => ensureGhAuth({ execImpl })).toThrowError(
-      "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
+      "gh CLI is not installed. Install it from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN."
     );
     expect(() => ensureGhAuth({ execImpl })).toThrowError(
       expect.objectContaining({ code: "not_installed" })
@@ -267,7 +287,7 @@ describe("ensureGhAuth", () => {
       expect.objectContaining({ code: "missing_scopes" })
     );
     expect(() => ensureGhAuth({ execImpl, spawnImpl })).toThrowError(
-      "gh auth refresh --scopes repo,read:org,project 를 실행하세요. (missing: project)"
+      "Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: project"
     );
   });
 });

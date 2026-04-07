@@ -6,10 +6,11 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
-- **[GitHub CLI (`gh`)](https://cli.github.com/)** — authenticated with required scopes:
+- **Either** **[GitHub CLI (`gh`)](https://cli.github.com/)** authenticated with required scopes:
   ```bash
   gh auth login --scopes repo,read:org,project
   ```
+  **or** `GITHUB_GRAPHQL_TOKEN` set with `repo`, `read:org`, and `project`
 
 ## Getting Started
 

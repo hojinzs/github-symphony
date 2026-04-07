@@ -425,6 +425,65 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("falls back to gh auth without reusing an invalid env token", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const getGhToken = vi.fn(() => "gh-token");
+    const validateGitHubToken = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("GITHUB_GRAPHQL_TOKEN is invalid or expired."))
+      .mockResolvedValueOnce({
+        source: "gh",
+        token: "gh-token",
+        login: "gh-user",
+        scopes: ["repo", "read:org", "project"],
+      });
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "gh-user" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getEnvGitHubToken: () => "bad-env-token",
+        getGhToken: getGhToken as never,
+        validateGitHubToken: validateGitHubToken as never,
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(getGhToken).toHaveBeenCalledWith({ allowEnv: false });
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(1, "bad-env-token", "env");
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(2, "gh-token", "gh");
+    expect(
+      report.checks.find((check) => check.id === "gh_authentication")
+    ).toMatchObject({
+      status: "pass",
+      summary: "Using gh CLI as gh-user.",
+    });
+  });
+
   it("reports missing scopes with a refresh command", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

@@ -517,7 +517,7 @@ export async function runDoctorDiagnostics(
 
   if (!auth && ghInstalled && ghAuth.authenticated && ghScopes.valid) {
     try {
-      const ghToken = deps.getGhToken();
+      const ghToken = deps.getGhToken({ allowEnv: false });
       auth = await deps.validateGitHubToken(ghToken, "gh");
     } catch (error) {
       tokenError =
