@@ -37,7 +37,7 @@ type SetupFlags = {
   nonInteractive: boolean;
   project?: string;
   workspaceDir?: string;
-  assignedOnly: boolean;
+  assignedOnly?: boolean;
   output?: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -46,7 +46,6 @@ type SetupFlags = {
 function parseSetupFlags(args: string[]): SetupFlags {
   const flags: SetupFlags = {
     nonInteractive: false,
-    assignedOnly: false,
     skipSkills: false,
     skipContext: false,
   };
@@ -423,13 +422,19 @@ async function runInteractive(
     p.log.warn(`  ⚠ ${warning}`);
   }
 
-  const { assignedOnly, selectedRepos, workspaceDir } =
+  const {
+    assignedOnly: promptAssignedOnly,
+    selectedRepos,
+    workspaceDir,
+  } =
     await promptProjectRegistrationOptions({
       projectDetail,
       defaultWorkspaceDir: flags.workspaceDir ?? join(options.configDir, "workspaces"),
       assignedOnlyMessage:
         "Step 3/3 — Only process issues assigned to the authenticated GitHub user?",
+      assignedOnlyInitialValue: flags.assignedOnly,
     });
+  const assignedOnly = flags.assignedOnly ?? promptAssignedOnly;
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({

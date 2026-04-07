@@ -218,4 +218,47 @@ describe("setup command", () => {
       "Final summary"
     );
   });
+
+  it("uses --assigned-only as the interactive prompt default and preserves the setting", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-assigned-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-assigned-config-")
+    );
+    process.chdir(cwd);
+
+    vi.mocked(p.select)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
+
+    await setupCommand(["--assigned-only"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    const project = JSON.parse(
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(project.tracker.settings?.assignedOnly).toBe(true);
+    expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
+      message:
+        "Step 3/3 — Only process issues assigned to the authenticated GitHub user?",
+      initialValue: true,
+    });
+  });
 });

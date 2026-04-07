@@ -61,7 +61,7 @@ type ProjectAddFlags = {
   nonInteractive: boolean;
   project?: string;
   workspaceDir?: string;
-  assignedOnly: boolean;
+  assignedOnly?: boolean;
 };
 
 export type ProjectRegistrationOptions = {
@@ -91,7 +91,7 @@ function displayScopeError(
 }
 
 function parseProjectAddFlags(args: string[]): ProjectAddFlags {
-  const flags: ProjectAddFlags = { nonInteractive: false, assignedOnly: false };
+  const flags: ProjectAddFlags = { nonInteractive: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -441,7 +441,7 @@ async function projectAdd(
     return;
   }
 
-  await projectAddInteractive(options);
+  await projectAddInteractive(flags, options);
 }
 
 async function projectAddNonInteractive(
@@ -523,7 +523,10 @@ async function projectAddNonInteractive(
   }
 }
 
-async function projectAddInteractive(options: GlobalOptions): Promise<void> {
+async function projectAddInteractive(
+  flags: ProjectAddFlags,
+  options: GlobalOptions
+): Promise<void> {
   p.intro("gh-symphony - Project Setup");
   const defaultWorkspaceDir = join(options.configDir, "workspaces");
 
@@ -645,6 +648,7 @@ async function projectAddInteractive(options: GlobalOptions): Promise<void> {
       defaultWorkspaceDir,
       assignedOnlyMessage:
         "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
+      assignedOnlyInitialValue: flags.assignedOnly,
     });
 
   const repoSummary =
@@ -703,13 +707,14 @@ export async function promptProjectRegistrationOptions(input: {
   projectDetail: ProjectDetail;
   defaultWorkspaceDir: string;
   assignedOnlyMessage?: string;
+  assignedOnlyInitialValue?: boolean;
 }): Promise<ProjectRegistrationOptions> {
   const assignedOnly = await abortIfCancelled(
     p.confirm({
       message:
         input.assignedOnlyMessage ??
         "Only process issues assigned to the authenticated GitHub user?",
-      initialValue: false,
+      initialValue: input.assignedOnlyInitialValue ?? false,
     })
   );
 
