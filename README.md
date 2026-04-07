@@ -34,6 +34,7 @@ Validate the local prerequisites before setup:
 
 ```bash
 gh-symphony doctor
+gh-symphony doctor --fix
 gh-symphony doctor --json
 ```
 
@@ -155,6 +156,7 @@ Managing projects:
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
+gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
@@ -226,7 +228,15 @@ gh-symphony config edit             # Open config in $EDITOR
 
 ### Diagnostics
 
-`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks local runtime prerequisites as well as GitHub setup:
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. It can:
+
+- create missing config, runtime, and workspace directories
+- launch `gh auth login` / `gh auth refresh` in TTY environments, or print the exact command in non-interactive environments
+- launch `gh-symphony init` when `WORKFLOW.md` is missing or invalid
+- launch `gh-symphony project add` when the managed project or GitHub Project binding must be reconfigured
+- print environment-specific runtime install guidance when the configured command is missing from `PATH`
+
+The diagnostic checks cover:
 
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes (`repo`, `read:org`, `project`)
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
@@ -236,10 +246,11 @@ gh-symphony config edit             # Open config in $EDITOR
 - repository `WORKFLOW.md` presence and parse validity
 - configured runtime command availability on `PATH`
 
-Use `--json` for setup automation and smoke checks:
+Use `--json` for setup automation and smoke checks. When combined with `--fix`, the JSON report also includes a structured remediation step list with `applied`, `skipped`, or `manual` outcomes.
 
 ```bash
 gh-symphony doctor --json
+gh-symphony doctor --fix --json
 gh-symphony start --once
 ```
 

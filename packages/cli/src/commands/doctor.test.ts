@@ -1,9 +1,11 @@
-import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import doctorCommand, {
   type DoctorDependencies,
   runDoctorCommand,
@@ -139,6 +141,16 @@ async function withCwd<T>(cwd: string, action: () => Promise<T>): Promise<T> {
   }
 }
 
+async function prepareDoctorPaths(
+  configDir: string,
+  workspaceDir?: string
+): Promise<void> {
+  await mkdir(resolveRuntimeRoot(configDir), { recursive: true });
+  if (workspaceDir) {
+    await mkdir(workspaceDir, { recursive: true });
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   if (originalGraphQlToken === undefined) {
@@ -157,7 +169,7 @@ describe("runDoctorDiagnostics", () => {
   it("reports success when all required checks pass", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
@@ -477,6 +489,7 @@ describe("runDoctorDiagnostics", () => {
   it("reports missing scopes with a refresh command", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
@@ -624,20 +637,67 @@ describe("runDoctorDiagnostics", () => {
       report.checks.find((check) => check.id === "config_directory")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("not writable"),
+      summary: expect.stringContaining("not a directory"),
     });
     expect(
       report.checks.find((check) => check.id === "workspace_root")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("not writable"),
+      summary: expect.stringContaining("not a directory"),
+    });
+  });
+
+  it("does not create missing directories during diagnostics", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "doctor-missing-paths-"));
+    const configDir = join(rootDir, "config");
+    const workspaceDir = join(rootDir, "workspace");
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    await expect(access(configDir, constants.F_OK)).rejects.toBeDefined();
+    await expect(access(workspaceDir, constants.F_OK)).rejects.toBeDefined();
+    expect(
+      report.checks.find((check) => check.id === "config_directory")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("does not exist"),
+      remediation: expect.stringContaining("mkdir -p"),
     });
   });
 
   it("reports token retrieval errors distinctly from auth failures", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
@@ -669,7 +729,7 @@ describe("runDoctorDiagnostics", () => {
   it("reports a missing GitHub project binding with targeted remediation", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
@@ -696,7 +756,7 @@ describe("runDoctorDiagnostics", () => {
   it("detects Windows runtime commands via PATHEXT", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWindowsWorkflowFixture("agent");
 
     const report = await withCwd(repoDir, () =>
@@ -735,7 +795,7 @@ describe("doctor command handler", () => {
   it("prints JSON output and exits 0 on success", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
     const stdout = captureWrites(process.stdout);
 
@@ -795,5 +855,213 @@ describe("doctor command handler", () => {
 
     expect(process.exitCode).toBe(2);
     expect(stderr.output()).toContain("Usage: gh-symphony doctor");
+  });
+
+  it("applies missing directory fixes and reports structured JSON remediation steps", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "doctor-fix-paths-"));
+    const configDir = join(rootDir, "config");
+    const workspaceDir = join(rootDir, "workspace");
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir),
+          }),
+          getProjectDetail: (async () =>
+            ({
+              id: "PVT_test",
+              title: "Acme Platform",
+              url: "https://github.com/orgs/acme/projects/1",
+              statusFields: [],
+              textFields: [],
+              linkedRepositories: [],
+            }) as never) as never,
+          pathEnv,
+        })
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      ok: boolean;
+      remediation?: { attempted: boolean; steps: Array<{ checkId: string; status: string }> };
+      checks: Array<{ id: string; status: string }>;
+    };
+    expect(report.ok).toBe(true);
+    expect(report.remediation).toMatchObject({
+      attempted: true,
+    });
+    expect(report.remediation?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "config_directory",
+          status: "applied",
+        }),
+        expect.objectContaining({
+          checkId: "runtime_root",
+          status: "applied",
+        }),
+        expect.objectContaining({
+          checkId: "workspace_root",
+          status: "applied",
+        }),
+      ])
+    );
+    expect(
+      report.checks.find((check) => check.id === "config_directory")
+    ).toMatchObject({ status: "pass" });
+  });
+
+  it("reports manual remediation commands in non-interactive fix mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const { repoDir } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
+          checkGhInstalled: () => true,
+          checkGhAuthenticated: () => ({ authenticated: false }),
+          inspectManagedProjectSelection: async () => ({
+            kind: "no_projects",
+            message:
+              "No managed projects are configured. Run 'gh-symphony project add' first.",
+          }),
+          stdinIsTTY: false,
+          stdoutIsTTY: false,
+        })
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      ok: boolean;
+      remediation?: {
+        steps: Array<{ checkId: string; status: string; command?: string }>;
+      };
+    };
+    expect(report.ok).toBe(false);
+    expect(report.remediation?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "gh_authentication",
+          status: "manual",
+          command: "gh auth login --scopes repo,read:org,project",
+        }),
+        expect.objectContaining({
+          checkId: "managed_project",
+          status: "manual",
+          command: `gh-symphony --config ${configDir} project add`,
+        }),
+      ])
+    );
+  });
+
+  it("does not launch remediation subprocesses while preserving JSON-only stdout", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-json-fix-"));
+    const { repoDir } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+    const spawnSync = vi.fn(() => ({
+      status: 0,
+      pid: 1,
+      signal: null,
+      stdout: "",
+      stderr: "",
+      output: [null, "", ""],
+    })) as never;
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
+          checkGhInstalled: () => true,
+          checkGhAuthenticated: () => ({ authenticated: false }),
+          inspectManagedProjectSelection: async () => ({
+            kind: "no_projects",
+            message:
+              "No managed projects are configured. Run 'gh-symphony project add' first.",
+          }),
+          stdinIsTTY: true,
+          stdoutIsTTY: true,
+          spawnSync,
+        })
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    expect(spawnSync).not.toHaveBeenCalled();
+    const report = JSON.parse(stdout.output()) as {
+      remediation?: { steps: Array<{ checkId: string; status: string }> };
+    };
+    expect(report.remediation?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "gh_authentication",
+          status: "manual",
+        }),
+        expect.objectContaining({
+          checkId: "managed_project",
+          status: "manual",
+        }),
+      ])
+    );
+  });
+
+  it("forwards config context to interactive remediation subprocesses", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-fix-config-"));
+    const { repoDir } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+    const spawnSync = vi
+      .fn()
+      .mockReturnValueOnce({
+        status: 0,
+        pid: 1,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        output: [null, "", ""],
+      })
+      .mockReturnValue({
+        status: 0,
+        pid: 2,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        output: [null, "", ""],
+      }) as never;
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(["--fix"], baseOptions(configDir), {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "no_projects",
+            message:
+              "No managed projects are configured. Run 'gh-symphony project add' first.",
+          }),
+          stdinIsTTY: true,
+          stdoutIsTTY: true,
+          execPath: process.execPath,
+          cliArgv: [process.execPath, "/tmp/gh-symphony.js"],
+          spawnSync,
+        })
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    expect(spawnSync).toHaveBeenCalledWith(
+      process.execPath,
+      ["/tmp/gh-symphony.js", "--config", configDir, "project", "add"],
+      { stdio: "inherit" }
+    );
   });
 });

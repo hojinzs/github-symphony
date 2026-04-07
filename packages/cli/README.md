@@ -34,6 +34,7 @@ Validate the machine and repo prerequisites before first use:
 
 ```bash
 gh-symphony doctor
+gh-symphony doctor --fix
 gh-symphony doctor --json
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
@@ -159,6 +160,7 @@ gh-symphony project add
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
+gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
@@ -214,7 +216,15 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 ## Diagnostics
 
-`gh-symphony doctor` validates the most common first-run prerequisites in one pass:
+`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --fix` extends that flow with safe remediation and guided follow-up:
+
+- creates missing config/runtime/workspace directories
+- launches `gh auth login` or `gh auth refresh` when a TTY is available, otherwise prints the exact command to run
+- launches `gh-symphony init` when `WORKFLOW.md` is missing or invalid
+- launches `gh-symphony project add` when managed project setup or GitHub Project binding must be repaired
+- prints concrete runtime install guidance when the configured command is missing on `PATH`
+
+The diagnostic checks cover:
 
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
@@ -225,12 +235,11 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 - repository `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
 
-This makes `doctor` useful before the first `init` or sync step, not just for GitHub auth troubleshooting.
-
-Use JSON output for scripts and CI smoke checks:
+Use JSON output for scripts and CI smoke checks. `--fix --json` includes a remediation section where each step is reported as `applied`, `skipped`, or `manual`.
 
 ```bash
 gh-symphony doctor --json
+gh-symphony doctor --fix --json
 gh-symphony start --once
 ```
 
@@ -243,7 +252,7 @@ Setup:
   workflow init       Interactive repository setup wizard
   workflow validate   Parse and strictly validate WORKFLOW.md
   workflow preview    Render the final worker prompt from a sample issue
-  doctor              Run first-run diagnostics
+  doctor              Run diagnostics and optional first-run remediation
   config show         Show current configuration
   config set          Set a configuration value
   config edit         Open config in $EDITOR

@@ -185,4 +185,20 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--prune");
     expect(output).toContain("Sync repositories from the active GitHub Project");
   });
+
+  it("shows doctor remediation help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["doctor", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("--fix");
+    expect(output).toContain("remediation");
+  });
 });

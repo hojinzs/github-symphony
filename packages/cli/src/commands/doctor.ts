@@ -1,12 +1,8 @@
 import { constants } from "node:fs";
-import { execFileSync } from "node:child_process";
-import {
-  access,
-  mkdir,
-  readFile,
-  stat,
-} from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
+import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   createClient,
   getProjectDetail,
@@ -22,13 +18,15 @@ import {
   type ResolvedGitHubAuth,
   REQUIRED_GH_SCOPES,
   validateGitHubToken,
+  runGhAuthLogin,
+  runGhAuthRefresh,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
 
 type DoctorStatus = "pass" | "fail";
+type DoctorRemediationStatus = "applied" | "skipped" | "manual";
 
 type DoctorCheckId =
   | "node_runtime"
@@ -44,6 +42,14 @@ type DoctorCheckId =
   | "workflow_file"
   | "runtime_command";
 
+type PathCheckReason = "missing" | "not_directory" | "not_writable";
+type WorkflowCheckReason = "missing" | "invalid";
+type ProjectResolutionReason =
+  | "token_unavailable"
+  | "missing_binding"
+  | "api_error"
+  | "selection_failed";
+
 export type DoctorCheckResult = {
   id: DoctorCheckId;
   title: string;
@@ -51,6 +57,16 @@ export type DoctorCheckResult = {
   required: true;
   summary: string;
   remediation?: string;
+  details?: Record<string, unknown>;
+};
+
+export type DoctorRemediationStep = {
+  id: string;
+  checkId: DoctorCheckId;
+  title: string;
+  status: DoctorRemediationStatus;
+  summary: string;
+  command?: string;
   details?: Record<string, unknown>;
 };
 
@@ -62,10 +78,15 @@ export type DoctorReport = {
   authSource: GitHubAuthSource | null;
   authLogin: string | null;
   checks: DoctorCheckResult[];
+  remediation?: {
+    attempted: boolean;
+    steps: DoctorRemediationStep[];
+  };
 };
 
 type ParsedDoctorArgs = {
   projectId?: string;
+  fix: boolean;
   error?: string;
 };
 
@@ -78,11 +99,19 @@ type WorkflowCheckState =
     }
   | {
       status: "fail";
+      reason: WorkflowCheckReason;
       summary: string;
       remediation: string;
       workflowPath: string;
       error?: string;
     };
+
+type PathState = {
+  exists: boolean;
+  isDirectory: boolean;
+  writable: boolean;
+  code?: string;
+};
 
 export type DoctorDependencies = {
   checkGhInstalled: typeof checkGhInstalled;
@@ -100,10 +129,17 @@ export type DoctorDependencies = {
   stat: typeof stat;
   parseWorkflowMarkdown: typeof parseWorkflowMarkdown;
   execFileSync: typeof execFileSync;
+  runGhAuthLogin: typeof runGhAuthLogin;
+  runGhAuthRefresh: typeof runGhAuthRefresh;
+  spawnSync: typeof spawnSync;
   pathEnv: string | undefined;
   pathExtEnv: string | undefined;
   platform: NodeJS.Platform;
   processVersion: string;
+  stdinIsTTY: boolean;
+  stdoutIsTTY: boolean;
+  execPath: string;
+  cliArgv: string[];
 };
 
 const DEFAULT_DEPENDENCIES: DoctorDependencies = {
@@ -122,10 +158,17 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   stat,
   parseWorkflowMarkdown,
   execFileSync,
+  runGhAuthLogin,
+  runGhAuthRefresh,
+  spawnSync,
   pathEnv: process.env.PATH,
   pathExtEnv: process.env.PATHEXT,
   platform: process.platform,
   processVersion: process.version,
+  stdinIsTTY: process.stdin.isTTY === true,
+  stdoutIsTTY: process.stdout.isTTY === true,
+  execPath: process.execPath,
+  cliArgv: [...process.argv],
 };
 
 const MINIMUM_NODE_MAJOR = 24;
@@ -142,7 +185,7 @@ type GitInstallationState =
     };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
-  const parsed: ParsedDoctorArgs = {};
+  const parsed: ParsedDoctorArgs = { fix: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -154,6 +197,11 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       }
       parsed.projectId = value;
       i += 1;
+      continue;
+    }
+
+    if (arg === "--fix") {
+      parsed.fix = true;
       continue;
     }
 
@@ -197,24 +245,134 @@ function formatAuthSource(source: GitHubAuthSource): string {
   return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
 }
 
-async function checkWritablePath(
+function remediationStep(
+  id: string,
+  checkId: DoctorCheckId,
+  title: string,
+  status: DoctorRemediationStatus,
+  summary: string,
+  command?: string,
+  details?: Record<string, unknown>
+): DoctorRemediationStep {
+  return { id, checkId, title, status, summary, command, details };
+}
+
+async function inspectPathState(
   targetPath: string,
-  deps: Pick<DoctorDependencies, "access" | "mkdir" | "stat">
-): Promise<boolean> {
+  deps: Pick<DoctorDependencies, "access" | "stat">
+): Promise<PathState> {
   try {
-    await deps.access(targetPath, constants.W_OK);
     const target = await deps.stat(targetPath);
-    return target.isDirectory();
-  } catch {
-    try {
-      await deps.mkdir(targetPath, { recursive: true });
-      await deps.access(targetPath, constants.W_OK);
-      const target = await deps.stat(targetPath);
-      return target.isDirectory();
-    } catch {
-      return false;
+    if (!target.isDirectory()) {
+      return {
+        exists: true,
+        isDirectory: false,
+        writable: false,
+      };
     }
+
+    try {
+      await deps.access(targetPath, constants.W_OK);
+      return {
+        exists: true,
+        isDirectory: true,
+        writable: true,
+      };
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      return {
+        exists: true,
+        isDirectory: true,
+        writable: false,
+        code: err.code,
+      };
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") {
+      return {
+        exists: false,
+        isDirectory: false,
+        writable: false,
+        code: err.code,
+      };
+    }
+    throw error;
   }
+}
+
+function buildPathCheck(
+  id: "config_directory" | "runtime_root" | "workspace_root",
+  title: string,
+  targetPath: string,
+  state: PathState,
+  createCommand: string,
+  fallbackRemediation: string
+): DoctorCheckResult {
+  if (state.exists && state.isDirectory && state.writable) {
+    return passCheck(id, title, `${title} is writable: ${targetPath}.`, {
+      path: targetPath,
+    });
+  }
+
+  let summary = `${title} is not writable: ${targetPath}.`;
+  let reason: PathCheckReason = "not_writable";
+  let remediation = fallbackRemediation;
+
+  if (!state.exists) {
+    summary = `${title} does not exist: ${targetPath}.`;
+    reason = "missing";
+    remediation = `Create the directory before re-running doctor with: ${createCommand}.`;
+  } else if (!state.isDirectory) {
+    summary = `${title} is not a directory: ${targetPath}.`;
+    reason = "not_directory";
+    remediation =
+      `Move or remove the conflicting file at '${targetPath}', then create the directory with: ${createCommand}.`;
+  }
+
+  return failCheck(id, title, summary, remediation, {
+    path: targetPath,
+    reason,
+  });
+}
+
+function quotePosixShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function quotePowerShellArg(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function quoteCommandArg(value: string, platform: NodeJS.Platform): string {
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(value)) {
+    return value;
+  }
+  return platform === "win32"
+    ? quotePowerShellArg(value)
+    : quotePosixShellArg(value);
+}
+
+function formatEnsureDirectoryCommand(
+  pathValue: string,
+  platform: NodeJS.Platform
+): string {
+  if (platform === "win32") {
+    return `powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path ${quotePowerShellArg(pathValue)} | Out-Null"`;
+  }
+
+  return `mkdir -p -- ${quotePosixShellArg(pathValue)}`;
+}
+
+function formatGhSymphonyCommand(
+  args: string[],
+  deps: Pick<DoctorDependencies, "platform">,
+  options: Pick<GlobalOptions, "configDir">
+): string {
+  const commandArgs = ["--config", options.configDir, ...args].map((arg) =>
+    quoteCommandArg(arg, deps.platform)
+  );
+  return `gh-symphony ${commandArgs.join(" ")}`;
 }
 
 function getCommandCandidates(
@@ -249,11 +407,7 @@ async function commandExistsOnPath(
   }
 
   const candidates = getCommandCandidates(binary, deps);
-  if (
-    isAbsolute(binary) ||
-    binary.includes("/") ||
-    binary.includes("\\")
-  ) {
+  if (isAbsolute(binary) || binary.includes("/") || binary.includes("\\")) {
     for (const candidate of candidates) {
       try {
         await deps.access(resolve(candidate), constants.X_OK);
@@ -370,10 +524,11 @@ async function checkWorkflow(
   } catch {
     return {
       status: "fail",
+      reason: "missing",
       workflowPath,
       summary: "WORKFLOW.md was not found in the repository root.",
       remediation:
-        "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
+        "Run 'gh-symphony init' in this repository or add a valid WORKFLOW.md at the repo root.",
     };
   }
 
@@ -388,10 +543,11 @@ async function checkWorkflow(
   } catch (error) {
     return {
       status: "fail",
+      reason: "invalid",
       workflowPath,
       summary: "WORKFLOW.md could not be parsed.",
       remediation:
-        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
+        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony init' to regenerate it.",
       error: error instanceof Error ? error.message : "Unknown workflow parse error.",
     };
   }
@@ -406,7 +562,7 @@ export async function runDoctorDiagnostics(
   const parsedArgs = parseDoctorArgs(args);
   if (parsedArgs.error) {
     throw new Error(
-      `${parsedArgs.error}\nUsage: gh-symphony doctor [--project-id <project-id>]`
+      `${parsedArgs.error}\nUsage: gh-symphony doctor [--project-id <project-id>] [--fix]`
     );
   }
 
@@ -617,9 +773,12 @@ export async function runDoctorDiagnostics(
         "Managed project selection",
         resolvedProjectConfig.message,
         "Run 'gh-symphony project add' to register a project, or select one with 'gh-symphony project switch' / '--project-id'.",
-        resolvedProjectConfig.projectId
-          ? { projectId: resolvedProjectConfig.projectId }
-          : undefined
+        {
+          reason: resolvedProjectConfig.kind,
+          ...(resolvedProjectConfig.projectId
+            ? { projectId: resolvedProjectConfig.projectId }
+            : {}),
+        }
       )
     );
   }
@@ -657,7 +816,10 @@ export async function runDoctorDiagnostics(
         "GitHub project resolution",
         `Managed project "${resolvedProjectConfig.projectId}" is not bound to a GitHub Project.`,
         "Re-run 'gh-symphony project add' and select a valid GitHub Project binding, then run the doctor command again.",
-        { projectId: resolvedProjectConfig.projectId }
+        {
+          reason: "missing_binding" satisfies ProjectResolutionReason,
+          projectId: resolvedProjectConfig.projectId,
+        }
       )
     );
   } else if (
@@ -696,6 +858,7 @@ export async function runDoctorDiagnostics(
           `Failed to resolve configured project binding '${resolvedProjectConfig.projectConfig.tracker.bindingId}'.`,
           "Re-run 'gh-symphony project add' and select a valid GitHub Project, then run the doctor command again.",
           {
+            reason: "api_error" satisfies ProjectResolutionReason,
             bindingId: resolvedProjectConfig.projectConfig.tracker.bindingId,
             error: message,
           }
@@ -708,66 +871,51 @@ export async function runDoctorDiagnostics(
         "github_project_resolution",
         "GitHub project resolution",
         "GitHub project resolution could not run because managed project selection failed.",
-        "Fix the managed project selection check first, then re-run 'gh-symphony doctor'."
+        "Fix the managed project selection check first, then re-run 'gh-symphony doctor'.",
+        {
+          reason: "selection_failed" satisfies ProjectResolutionReason,
+        }
       )
     );
   }
 
-  const configDirWritable = await checkWritablePath(options.configDir, deps);
+  const configDirState = await inspectPathState(options.configDir, deps);
   checks.push(
-    configDirWritable
-      ? passCheck(
-          "config_directory",
-          "Config directory",
-          `Config directory is writable: ${options.configDir}.`,
-          { path: options.configDir }
-        )
-      : failCheck(
-          "config_directory",
-          "Config directory",
-          `Config directory is not writable: ${options.configDir}.`,
-          `Create the directory and ensure your user can write to it: 'mkdir -p ${options.configDir}' and fix ownership/permissions as needed.`,
-          { path: options.configDir }
-        )
+    buildPathCheck(
+      "config_directory",
+      "Config directory",
+      options.configDir,
+      configDirState,
+      formatEnsureDirectoryCommand(options.configDir, deps.platform),
+      `Ensure your user can write to '${options.configDir}'.`
+    )
   );
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
-  const runtimeRootWritable = await checkWritablePath(runtimeRoot, deps);
+  const runtimeRootState = await inspectPathState(runtimeRoot, deps);
   checks.push(
-    runtimeRootWritable
-      ? passCheck(
-          "runtime_root",
-          "Runtime root",
-          `Runtime root is writable: ${runtimeRoot}.`,
-          { path: runtimeRoot }
-        )
-      : failCheck(
-          "runtime_root",
-          "Runtime root",
-          `Runtime root is not writable: ${runtimeRoot}.`,
-          `Create the runtime root and ensure your user can write to it: 'mkdir -p ${runtimeRoot}'.`,
-          { path: runtimeRoot }
-        )
+    buildPathCheck(
+      "runtime_root",
+      "Runtime root",
+      runtimeRoot,
+      runtimeRootState,
+      formatEnsureDirectoryCommand(runtimeRoot, deps.platform),
+      `Ensure your user can write to '${runtimeRoot}'.`
+    )
   );
 
   if (resolvedProjectConfig.kind === "resolved") {
     const workspaceDir = resolvedProjectConfig.projectConfig.workspaceDir;
-    const workspaceWritable = await checkWritablePath(workspaceDir, deps);
+    const workspaceState = await inspectPathState(workspaceDir, deps);
     checks.push(
-      workspaceWritable
-        ? passCheck(
-            "workspace_root",
-            "Workspace root",
-            `Workspace root is writable: ${workspaceDir}.`,
-            { path: workspaceDir }
-          )
-        : failCheck(
-            "workspace_root",
-            "Workspace root",
-            `Workspace root is not writable: ${workspaceDir}.`,
-            "Update the managed project workspaceDir to a writable path or fix the filesystem permissions.",
-            { path: workspaceDir }
-          )
+      buildPathCheck(
+        "workspace_root",
+        "Workspace root",
+        workspaceDir,
+        workspaceState,
+        formatEnsureDirectoryCommand(workspaceDir, deps.platform),
+        "Update the managed project workspaceDir to a writable path or fix the filesystem permissions."
+      )
     );
   } else {
     checks.push(
@@ -775,7 +923,8 @@ export async function runDoctorDiagnostics(
         "workspace_root",
         "Workspace root",
         "Workspace root could not be checked because no managed project was resolved.",
-        "Fix the managed project selection check first, then re-run 'gh-symphony doctor'."
+        "Fix the managed project selection check first, then re-run 'gh-symphony doctor'.",
+        { blockedBy: "managed_project" }
       )
     );
   }
@@ -799,6 +948,7 @@ export async function runDoctorDiagnostics(
         workflow.remediation,
         {
           path: workflow.workflowPath,
+          reason: workflow.reason,
           ...(workflow.error ? { error: workflow.error } : {}),
         }
       )
@@ -822,7 +972,7 @@ export async function runDoctorDiagnostics(
           "runtime_command",
           "Runtime command detection",
           `Configured runtime command could not be found on PATH: ${workflow.command}.`,
-          "Install the configured runtime binary or update the workflow/context configuration to a command that exists on this machine.",
+          buildRuntimeInstallGuidance(binary, deps.platform),
           { command: workflow.command, binary }
         )
       );
@@ -833,7 +983,8 @@ export async function runDoctorDiagnostics(
         "runtime_command",
         "Runtime command detection",
         "Runtime command detection could not run because WORKFLOW.md is missing or invalid.",
-        "Fix the WORKFLOW.md check first so the configured runtime command can be validated."
+        "Fix the WORKFLOW.md check first so the configured runtime command can be validated.",
+        { blockedBy: "workflow_file" }
       )
     );
   }
@@ -849,6 +1000,404 @@ export async function runDoctorDiagnostics(
   };
 }
 
+function buildRuntimeInstallGuidance(
+  binary: string | null | undefined,
+  platform: NodeJS.Platform
+): string {
+  if (binary === "codex") {
+    return "Install Codex CLI using its official installation instructions and ensure 'codex' is on PATH.";
+  }
+
+  if (binary === "claude" || binary === "claude-code") {
+    return "Install Claude Code using its official installation instructions and ensure the runtime binary is on PATH.";
+  }
+
+  if (platform === "win32" && binary) {
+    return `Install '${binary}' using its official installation instructions and ensure the directory containing '${binary}.exe' is on PATH.`;
+  }
+
+  if (binary) {
+    return `Install '${binary}' using its official installation instructions and ensure it is available on PATH.`;
+  }
+
+  return "Install the configured runtime command using its official installation instructions and ensure it is available on PATH.";
+}
+
+function isInteractiveTerminal(
+  deps: Pick<DoctorDependencies, "stdinIsTTY" | "stdoutIsTTY">
+): boolean {
+  return deps.stdinIsTTY && deps.stdoutIsTTY;
+}
+
+function runCliRemediation(
+  title: string,
+  checkId: DoctorCheckId,
+  args: string[],
+  deps: Pick<
+    DoctorDependencies,
+    | "spawnSync"
+    | "execPath"
+    | "cliArgv"
+    | "stdinIsTTY"
+    | "stdoutIsTTY"
+    | "platform"
+  >,
+  options: Pick<GlobalOptions, "configDir">,
+  interactive: boolean,
+  details?: Record<string, unknown>
+): DoctorRemediationStep {
+  const command = formatGhSymphonyCommand(args, deps, options);
+
+  if (!interactive) {
+    return remediationStep(
+      `remediate_${checkId}`,
+      checkId,
+      title,
+      "manual",
+      `Interactive terminal not available. Run this command manually: ${command}.`,
+      command,
+      details
+    );
+  }
+
+  const cliEntry = deps.cliArgv[1];
+  if (!cliEntry) {
+    return remediationStep(
+      `remediate_${checkId}`,
+      checkId,
+      title,
+      "manual",
+      `Could not determine the current CLI entrypoint. Run this command manually: ${command}.`,
+      command,
+      details
+    );
+  }
+
+  const result = deps.spawnSync(deps.execPath, [cliEntry, "--config", options.configDir, ...args], {
+    stdio: "inherit",
+  });
+  if ((result.status ?? 1) === 0) {
+    return remediationStep(
+      `remediate_${checkId}`,
+      checkId,
+      title,
+      "applied",
+      `Executed: ${command}.`,
+      command,
+      details
+    );
+  }
+
+  return remediationStep(
+    `remediate_${checkId}`,
+    checkId,
+    title,
+    "manual",
+    `Failed to complete this command automatically. Re-run it manually: ${command}.`,
+    command,
+    details
+  );
+}
+
+async function ensureDirectoryRemediation(
+  check: DoctorCheckResult,
+  deps: Pick<DoctorDependencies, "mkdir" | "access" | "stat" | "platform">
+): Promise<DoctorRemediationStep> {
+  const pathValue = typeof check.details?.path === "string" ? check.details.path : null;
+  const reason = typeof check.details?.reason === "string" ? check.details.reason : null;
+  const command =
+    pathValue === null
+      ? undefined
+      : formatEnsureDirectoryCommand(pathValue, deps.platform);
+
+  if (!pathValue) {
+    return remediationStep(
+      `remediate_${check.id}`,
+      check.id,
+      check.title,
+      "manual",
+      "No filesystem path was recorded for this failing check.",
+      command
+    );
+  }
+
+  if (reason === "not_directory") {
+    return remediationStep(
+      `remediate_${check.id}`,
+      check.id,
+      check.title,
+      "manual",
+      `A file already exists at '${pathValue}'. Remove or move it before creating the directory.`,
+      command,
+      { path: pathValue }
+    );
+  }
+
+  try {
+    await deps.mkdir(pathValue, { recursive: true });
+    await deps.access(pathValue, constants.W_OK);
+    const target = await deps.stat(pathValue);
+    if (!target.isDirectory()) {
+      return remediationStep(
+        `remediate_${check.id}`,
+        check.id,
+        check.title,
+        "manual",
+        `Created path '${pathValue}', but it is not a directory.`,
+        command,
+        { path: pathValue }
+      );
+    }
+
+    return remediationStep(
+      `remediate_${check.id}`,
+      check.id,
+      check.title,
+      "applied",
+      `Ensured writable directory '${pathValue}'.`,
+      command,
+      { path: pathValue }
+    );
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "unknown error";
+    const summary =
+      reason === "not_writable"
+        ? `Directory '${pathValue}' exists but is not writable. Update its permissions or choose a writable location: ${errorMessage}.`
+        : `Failed to create '${pathValue}' automatically: ${errorMessage}.`;
+    return remediationStep(
+      `remediate_${check.id}`,
+      check.id,
+      check.title,
+      "manual",
+      summary,
+      command,
+      { path: pathValue }
+    );
+  }
+}
+
+async function runDoctorFixes(
+  report: DoctorReport,
+  deps: DoctorDependencies,
+  options: Pick<GlobalOptions, "configDir" | "json">
+): Promise<DoctorRemediationStep[]> {
+  const steps: DoctorRemediationStep[] = [];
+  const interactive = !options.json && isInteractiveTerminal(deps);
+  const failed = new Map(
+    report.checks
+      .filter((check) => check.status === "fail")
+      .map((check) => [check.id, check] as const)
+  );
+
+  for (const check of report.checks) {
+    if (check.status !== "fail") {
+      continue;
+    }
+
+    switch (check.id) {
+      case "gh_installation":
+        steps.push(
+          remediationStep(
+            "remediate_gh_installation",
+            check.id,
+            check.title,
+            "manual",
+            "Install GitHub CLI first. Automatic installation is not attempted by doctor.",
+            "https://cli.github.com"
+          )
+        );
+        break;
+      case "gh_authentication": {
+        if (failed.has("gh_installation")) {
+          steps.push(
+            remediationStep(
+              "remediate_gh_authentication",
+              check.id,
+              check.title,
+              "skipped",
+              "Skipped because gh CLI is not installed."
+            )
+          );
+          break;
+        }
+        const result = deps.runGhAuthLogin({
+          spawnImpl: deps.spawnSync,
+          interactive,
+        });
+        steps.push(
+          remediationStep(
+            "remediate_gh_authentication",
+            check.id,
+            check.title,
+            result.status,
+            result.summary,
+            result.command
+          )
+        );
+        break;
+      }
+      case "gh_scopes": {
+        if (failed.has("gh_installation") || failed.has("gh_authentication")) {
+          steps.push(
+            remediationStep(
+              "remediate_gh_scopes",
+              check.id,
+              check.title,
+              "skipped",
+              "Skipped because gh installation/authentication must be fixed first."
+            )
+          );
+          break;
+        }
+        const result = deps.runGhAuthRefresh({
+          spawnImpl: deps.spawnSync,
+          interactive,
+        });
+        steps.push(
+          remediationStep(
+            "remediate_gh_scopes",
+            check.id,
+            check.title,
+            result.status,
+            result.summary,
+            result.command,
+            check.details
+          )
+        );
+        break;
+      }
+      case "managed_project":
+        if (check.details?.reason === "multiple_projects_require_selection") {
+          steps.push(
+            runCliRemediation(
+              "Managed project selection",
+              check.id,
+              ["project", "switch"],
+              deps,
+              options,
+              interactive,
+              check.details
+            )
+          );
+          break;
+        }
+        steps.push(
+          runCliRemediation(
+            "Managed project setup",
+            check.id,
+            ["project", "add"],
+            deps,
+            options,
+            interactive,
+            check.details
+          )
+        );
+        break;
+      case "github_project_resolution": {
+        if (failed.has("managed_project")) {
+          steps.push(
+            remediationStep(
+              "remediate_github_project_resolution",
+              check.id,
+              check.title,
+              "skipped",
+              "Skipped because managed project selection must be fixed first."
+            )
+          );
+          break;
+        }
+        const reason =
+          typeof check.details?.reason === "string" ? check.details.reason : null;
+        if (reason === "missing_binding" || reason === "api_error") {
+          steps.push(
+            runCliRemediation(
+              "GitHub project binding setup",
+              check.id,
+              ["project", "add"],
+              deps,
+              options,
+              interactive,
+              check.details
+            )
+          );
+          break;
+        }
+        steps.push(
+          remediationStep(
+            "remediate_github_project_resolution",
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ?? "Resolve the GitHub Project binding manually.",
+            formatGhSymphonyCommand(["project", "add"], deps, options),
+            check.details
+          )
+        );
+        break;
+      }
+      case "config_directory":
+      case "runtime_root":
+      case "workspace_root":
+        if (check.details?.blockedBy === "managed_project") {
+          steps.push(
+            remediationStep(
+              `remediate_${check.id}`,
+              check.id,
+              check.title,
+              "skipped",
+              "Skipped because managed project selection must be fixed first."
+            )
+          );
+          break;
+        }
+        steps.push(await ensureDirectoryRemediation(check, deps));
+        break;
+      case "workflow_file": {
+        const reason =
+          typeof check.details?.reason === "string" ? check.details.reason : null;
+        const title =
+          reason === "missing"
+            ? "Repository workflow initialization"
+            : "Repository workflow regeneration";
+        steps.push(
+          runCliRemediation(title, check.id, ["init"], deps, options, interactive, check.details)
+        );
+        break;
+      }
+      case "runtime_command": {
+        if (failed.has("workflow_file")) {
+          steps.push(
+            remediationStep(
+              "remediate_runtime_command",
+              check.id,
+              check.title,
+              "skipped",
+              "Skipped because WORKFLOW.md must be fixed first."
+            )
+          );
+          break;
+        }
+        steps.push(
+          remediationStep(
+            "remediate_runtime_command",
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ?? "Install the configured runtime command manually.",
+            typeof check.details?.binary === "string"
+              ? String(check.details.binary)
+              : undefined,
+            check.details
+          )
+        );
+        break;
+      }
+    }
+  }
+
+  return steps;
+}
+
 function renderTextReport(report: DoctorReport): string {
   const lines = [
     `gh-symphony doctor`,
@@ -856,6 +1405,17 @@ function renderTextReport(report: DoctorReport): string {
     ...(report.authLogin ? [`Authenticated GitHub user: ${report.authLogin}`] : []),
     "",
   ];
+  if (report.remediation) {
+    lines.push("Remediation");
+    for (const step of report.remediation.steps) {
+      lines.push(`${step.status.toUpperCase()} ${step.title}`);
+      lines.push(`  ${step.summary}`);
+      if (step.command) {
+        lines.push(`  Command: ${step.command}`);
+      }
+    }
+    lines.push("");
+  }
   for (const check of report.checks) {
     lines.push(`${check.status === "pass" ? "PASS" : "FAIL"} ${check.title}`);
     lines.push(`  ${check.summary}`);
@@ -878,7 +1438,36 @@ export async function runDoctorCommand(
   dependencies: Partial<DoctorDependencies> = {}
 ): Promise<void> {
   try {
-    const report = await runDoctorDiagnostics(options, args, dependencies);
+    const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+    const parsedArgs = parseDoctorArgs(args);
+    if (parsedArgs.error) {
+      throw new Error(
+        `${parsedArgs.error}\nUsage: gh-symphony doctor [--project-id <project-id>] [--fix]`
+      );
+    }
+
+    const initialReport = await runDoctorDiagnostics(options, args, deps);
+    if (parsedArgs.fix) {
+      const remediation = {
+        attempted: true,
+        steps: await runDoctorFixes(initialReport, deps, options),
+      };
+      const report = await runDoctorDiagnostics(
+        options,
+        args.filter((arg) => arg !== "--fix"),
+        deps
+      );
+      report.remediation = remediation;
+      if (options.json) {
+        process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      } else {
+        process.stdout.write(renderTextReport(report) + "\n");
+      }
+      process.exitCode = report.ok ? 0 : 1;
+      return;
+    }
+
+    const report = initialReport;
     if (options.json) {
       process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     } else {
