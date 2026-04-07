@@ -66,6 +66,7 @@ const HTTP_HOST = "0.0.0.0";
 
 function parseStartArgs(args: string[]): {
   daemon: boolean;
+  once: boolean;
   httpPort?: number;
   projectId?: string;
   logLevel?: string;
@@ -73,18 +74,24 @@ function parseStartArgs(args: string[]): {
 } {
   const parsed: {
     daemon: boolean;
+    once: boolean;
     httpPort?: number;
     projectId?: string;
     logLevel?: string;
     error?: string;
   } = {
     daemon: false,
+    once: false,
   };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--daemon" || arg === "-d") {
       parsed.daemon = true;
+      continue;
+    }
+    if (arg === "--once") {
+      parsed.once = true;
       continue;
     }
     if (arg === "--http") {
@@ -419,8 +426,13 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--http [port]]\n"
+      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--once] [--http [port]]\n"
     );
+    process.exitCode = 2;
+    return;
+  }
+  if (parsed.daemon && parsed.once) {
+    process.stderr.write("Options '--daemon' and '--once' cannot be used together\n");
     process.exitCode = 2;
     return;
   }
@@ -545,15 +557,21 @@ const handler = async (
         `HTTP dashboard listening on ${httpServer.url}`
       );
     }
-    logLine(dim("\u00B7"), dim("Press Ctrl+C to stop"));
+    logLine(
+      dim("\u00B7"),
+      dim(parsed.once ? "Running one orchestration tick" : "Press Ctrl+C to stop")
+    );
 
     let shuttingDown = false;
     let shutdownPromise: Promise<never> | null = null;
+    let keepHttpAliveResolve: (() => void) | null = null;
     const shutdown = async () => {
       if (shuttingDown) {
         return shutdownPromise;
       }
       shuttingDown = true;
+      keepHttpAliveResolve?.();
+      keepHttpAliveResolve = null;
       const heldLock = projectLock;
       projectLock = null;
       shutdownPromise = shutdownForegroundOrchestrator({
@@ -565,17 +583,32 @@ const handler = async (
       });
       return shutdownPromise;
     };
-    process.on("SIGINT", () => {
+    const handleSigint = () => {
       void shutdown();
-    });
-    process.on("SIGTERM", () => {
+    };
+    const handleSigterm = () => {
       void shutdown();
-    });
+    };
+    process.on("SIGINT", handleSigint);
+    process.on("SIGTERM", handleSigterm);
 
     try {
       while (!shuttingDown) {
         try {
-          await service.run();
+          await service.run({ once: parsed.once });
+          if (parsed.once) {
+            if (httpServer) {
+              logLine(
+                cyan("\u25A1"),
+                "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
+              );
+              await new Promise<void>((resolve) => {
+                keepHttpAliveResolve = resolve;
+              });
+            } else {
+              await shutdown();
+            }
+          }
           break;
         } catch (error) {
           if (shuttingDown) {
@@ -585,12 +618,42 @@ const handler = async (
           logLine(
             red("\u2717"),
             red(
-              `Run loop error: ${error instanceof Error ? error.message : "Unknown error"}`
+              `${parsed.once ? "One-shot run failed" : "Run loop error"}: ${
+                error instanceof Error ? error.message : "Unknown error"
+              }`
             )
           );
+          if (parsed.once) {
+            process.exitCode = 1;
+            await closeHttpServer(httpServer?.server).catch((closeError) => {
+              logLine(
+                yellow("\u26A0"),
+                `Failed to stop HTTP server: ${
+                  closeError instanceof Error
+                    ? closeError.message
+                    : "Unknown error"
+                }`
+              );
+            });
+            await removeHttpBindingState(options.configDir, projectId).catch(
+              (removeError) => {
+                logLine(
+                  yellow("\u26A0"),
+                  `Failed to remove HTTP state: ${
+                    removeError instanceof Error
+                      ? removeError.message
+                      : "Unknown error"
+                  }`
+                );
+              }
+            );
+            return;
+          }
         }
       }
     } finally {
+      process.off("SIGINT", handleSigint);
+      process.off("SIGTERM", handleSigterm);
       if (shutdownPromise) {
         await shutdownPromise;
       }

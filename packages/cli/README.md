@@ -162,6 +162,8 @@ removed, unchanged, and final repository sets.
 
 ```bash
 gh-symphony start
+gh-symphony start --once            # Run startup cleanup + one orchestration tick, then exit
+gh-symphony project start --once    # Same one-shot flow for an explicit project
 ```
 
 ### Background (daemon)
@@ -170,6 +172,8 @@ gh-symphony start
 gh-symphony start --daemon          # Start in background
 gh-symphony stop                    # Stop the daemon
 ```
+
+Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
 
 ### Monitor
 
@@ -211,6 +215,7 @@ Use JSON output for scripts and CI smoke checks:
 
 ```bash
 gh-symphony doctor --json
+gh-symphony start --once
 ```
 
 ## Command Reference
@@ -227,6 +232,7 @@ Setup:
 
 Orchestration:
   start               Start the orchestrator (foreground)
+  start --once        Run a single orchestration tick and exit
   start --daemon      Start the orchestrator (background)
   stop                Stop the background orchestrator
   status              Show orchestrator status

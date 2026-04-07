@@ -52,6 +52,7 @@ type CliOptionValues = Partial<
     level?: string;
     logLevel?: string;
     nonInteractive?: boolean;
+    once?: boolean;
     output?: string;
     project?: string;
     projectId?: string;
@@ -335,6 +336,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start the orchestrator")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
@@ -346,6 +348,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("start", args, values);
@@ -502,6 +505,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start a specific project")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
@@ -513,6 +517,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args = ["start"];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("project", args, values);
