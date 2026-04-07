@@ -275,6 +275,55 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("fails the Git prerequisite when git --version cannot execute", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getGhToken: () => "ghp_test",
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+        execFileSync: (() => {
+          throw new Error("permission denied");
+        }) as never,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "git_installation")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("permission denied"),
+      remediation: expect.stringContaining("git --version"),
+      details: expect.objectContaining({ error: "permission denied" }),
+    });
+  });
+
   it("reports actionable failures for missing authentication and managed project config", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const { repoDir } = await createWorkflowFixture();

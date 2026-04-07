@@ -124,11 +124,11 @@ const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 type GitInstallationState =
   | {
       installed: true;
-      version?: string;
-      error?: string;
+      version: string;
     }
   | {
       installed: false;
+      error?: string;
     };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
@@ -333,10 +333,12 @@ async function checkGitInstallation(
       .toString()
       .trim();
 
-    return version ? { installed: true, version } : { installed: true };
+    return version
+      ? { installed: true, version }
+      : { installed: false, error: "git --version returned an empty response." };
   } catch (error) {
     return {
-      installed: true,
+      installed: false,
       error: error instanceof Error ? error.message : "Unknown Git execution error.",
     };
   }
@@ -440,14 +442,8 @@ export async function runDoctorDiagnostics(
       passCheck(
         "git_installation",
         "Git installation",
-        gitInstallation.version
-          ? `Git is installed: ${gitInstallation.version}.`
-          : "Git is installed on PATH, but 'git --version' could not be recorded.",
-        gitInstallation.version
-          ? { version: gitInstallation.version }
-          : gitInstallation.error
-            ? { error: gitInstallation.error }
-            : undefined
+        `Git is installed: ${gitInstallation.version}.`,
+        { version: gitInstallation.version }
       )
     );
   } else {
@@ -455,8 +451,11 @@ export async function runDoctorDiagnostics(
       failCheck(
         "git_installation",
         "Git installation",
-        "Git could not be found on PATH.",
+        gitInstallation.error
+          ? `Git could not be executed successfully from PATH: ${gitInstallation.error}.`
+          : "Git could not be found on PATH.",
         "Install Git, confirm 'git --version' works in this shell, and re-run 'gh-symphony doctor'.",
+        gitInstallation.error ? { error: gitInstallation.error } : undefined
       )
     );
   }
