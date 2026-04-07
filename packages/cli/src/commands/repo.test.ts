@@ -293,15 +293,15 @@ describe("repo sync", () => {
       linkedRepositories: [
         {
           owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-        {
-          owner: "acme",
           name: "api",
           url: "https://github.com/acme/api",
           cloneUrl: "https://github.com/acme/api.git",
+        },
+        {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
         },
       ],
     });
@@ -380,6 +380,92 @@ describe("repo sync", () => {
         },
       ],
     });
+  });
+
+  it("preserves existing order for retained repositories in prune mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-prune-order-"));
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, [
+      {
+        owner: "acme",
+        name: "zeta",
+        cloneUrl: "https://github.com/acme/zeta.git",
+      },
+      {
+        owner: "acme",
+        name: "alpha",
+        cloneUrl: "https://github.com/acme/alpha.git",
+      },
+      {
+        owner: "acme",
+        name: "legacy-tools",
+        cloneUrl: "https://github.com/acme/legacy-tools.git",
+      },
+    ]);
+
+    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
+    githubClientMock.validateToken.mockResolvedValue({
+      login: "octocat",
+      name: "Octocat",
+      scopes: ["repo", "read:org", "project"],
+    });
+    githubClientMock.checkRequiredScopes.mockReturnValue({
+      valid: true,
+      missing: [],
+    });
+    githubClientMock.getProjectDetail.mockResolvedValue({
+      id: "PVT_project_123",
+      title: "Acme Project",
+      url: "https://github.com/orgs/acme/projects/1",
+      statusFields: [],
+      textFields: [],
+      linkedRepositories: [
+        {
+          owner: "acme",
+          name: "beta",
+          url: "https://github.com/acme/beta",
+          cloneUrl: "https://github.com/acme/beta.git",
+        },
+        {
+          owner: "acme",
+          name: "alpha",
+          url: "https://github.com/acme/alpha",
+          cloneUrl: "https://github.com/acme/alpha.git",
+        },
+        {
+          owner: "acme",
+          name: "zeta",
+          url: "https://github.com/acme/zeta",
+          cloneUrl: "https://github.com/acme/zeta.git",
+        },
+      ],
+    });
+
+    await repoCommand(["sync", "--prune"], baseOptions(configDir));
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([
+      {
+        owner: "acme",
+        name: "zeta",
+        cloneUrl: "https://github.com/acme/zeta.git",
+      },
+      {
+        owner: "acme",
+        name: "alpha",
+        cloneUrl: "https://github.com/acme/alpha.git",
+      },
+      {
+        owner: "acme",
+        name: "beta",
+        cloneUrl: "https://github.com/acme/beta.git",
+      },
+    ]);
   });
 
   it("fails when the active project has no GitHub Project binding", async () => {

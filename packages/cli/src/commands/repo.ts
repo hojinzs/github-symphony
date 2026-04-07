@@ -44,7 +44,7 @@ const handler = async (
 
 export default handler;
 
-// ── 6.4: repo list / add / remove ────────────────────────────────────────────
+// ── 6.4: repo list / add / remove / sync ─────────────────────────────────────
 
 type RepoConfigEntry = {
   owner: string;
@@ -129,6 +129,28 @@ function renderRepoGroup(label: string, repos: RepoConfigEntry[]): string[] {
   }
 
   return [label, ...sortRepos(repos).map((repo) => `  ${formatRepoSpec(repo)}`)];
+}
+
+function buildSyncedRepositories(
+  currentRepos: RepoConfigEntry[],
+  linkedMap: Map<string, LinkedRepository>,
+  linkedRepositories: LinkedRepository[],
+  prune: boolean
+): RepoConfigEntry[] {
+  const retained = currentRepos
+    .filter((repo) => linkedMap.has(repoKey(repo)) || !prune)
+    .map((repo) => {
+      const linked = linkedMap.get(repoKey(repo));
+      return linked ? toRepoConfigEntry(linked) : { ...repo };
+    });
+  const currentKeys = new Set(currentRepos.map((repo) => repoKey(repo)));
+  const additions = sortRepos(
+    linkedRepositories
+      .filter((repo) => !currentKeys.has(repoKey(repo)))
+      .map(toRepoConfigEntry)
+  );
+
+  return [...retained, ...additions];
 }
 
 function writeRepoSummary(summary: RepoSyncSummary, options: GlobalOptions): void {
@@ -361,17 +383,12 @@ async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
         return linked ? toRepoConfigEntry(linked) : { ...repo };
       });
 
-  const nextRepositories = flags.prune
-    ? projectDetail.linkedRepositories.map(toRepoConfigEntry)
-    : [
-        ...currentRepos.map((repo: RepoConfigEntry) => {
-          const linked = linkedMap.get(repoKey(repo));
-          return linked ? toRepoConfigEntry(linked) : repo;
-        }),
-        ...projectDetail.linkedRepositories
-          .filter((repo: LinkedRepository) => !currentMap.has(repoKey(repo)))
-          .map(toRepoConfigEntry),
-      ];
+  const nextRepositories = buildSyncedRepositories(
+    currentRepos,
+    linkedMap,
+    projectDetail.linkedRepositories,
+    flags.prune
+  );
 
   if (!flags.dryRun) {
     await saveProjectConfig(options.configDir, global.activeProject, {
