@@ -38,6 +38,7 @@ describe("completion renderer", () => {
     expect(output).toContain("workflow:init");
     expect(output).toContain("project repo config completion");
     expect(output).toContain("project:add");
+    expect(output).toContain("repo:sync");
   });
 
   it("renders zsh completion wrapper", () => {
@@ -76,7 +77,14 @@ describe("completion renderer", () => {
       3
     );
     expect(suggestions).toEqual(
-      expect.arrayContaining(["list", "add", "remove"])
+      expect.arrayContaining(["list", "add", "remove", "sync"])
+    );
+  });
+
+  it("suggests repo sync flags after the sync subcommand", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "repo", "sync", ""], 3);
+    expect(suggestions).toEqual(
+      expect.arrayContaining(["--dry-run", "--prune", "--json"])
     );
   });
 });

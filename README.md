@@ -146,7 +146,15 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 gh-symphony repo list               # List repositories in active project
 gh-symphony repo add owner/name     # Add a repository
 gh-symphony repo remove owner/name  # Remove a repository
+gh-symphony repo sync               # Add newly linked repositories from GitHub Project
+gh-symphony repo sync --dry-run     # Preview linked repository changes
+gh-symphony repo sync --prune       # Fully realign with linked repositories
 ```
+
+`gh-symphony repo sync` refreshes the active managed project's repository list
+from the current GitHub Project `linkedRepositories`. The default mode is
+additive: newly linked repositories are added, while existing local-only
+entries stay in place until you opt into `--prune`.
 
 ### Configuration
 
@@ -170,6 +178,12 @@ Use `--json` for setup automation and smoke checks:
 
 ```bash
 gh-symphony doctor --json
+```
+
+Repository sync also supports structured output:
+
+```bash
+gh-symphony repo sync --json
 ```
 
 ### Shell Completion

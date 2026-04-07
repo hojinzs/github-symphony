@@ -131,7 +131,15 @@ The interactive wizard will:
 gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
+gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
+gh-symphony repo sync --dry-run      # Preview linked repository drift
+gh-symphony repo sync --prune        # Remove local repositories no longer linked
 ```
+
+Use `gh-symphony repo sync` when the GitHub Project board has gained or lost
+linked repositories since the project was first added locally. Default sync is
+additive; `--prune` switches to strict alignment, and `--json` prints the added,
+removed, unchanged, and final repository sets.
 
 ## 4. Run the Orchestrator
 
@@ -212,6 +220,7 @@ Project Management:
   project add          Add a new project (interactive wizard)
   project list         List all configured projects
   project remove       Remove a project
+  repo sync            Refresh repositories from the linked GitHub Project
 
 Global Options:
   --config <dir>      Config directory (default: ~/.gh-symphony)

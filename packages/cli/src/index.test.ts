@@ -167,4 +167,21 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--skip-skills");
     expect(output).toContain("--skip-context");
   });
+
+  it("shows repo sync options in command help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["repo", "sync", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("--dry-run");
+    expect(output).toContain("--prune");
+    expect(output).toContain("Sync repositories from the active GitHub Project");
+  });
 });
