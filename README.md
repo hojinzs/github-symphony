@@ -102,6 +102,7 @@ gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
 gh-symphony project status           # Show status for a specific project
 gh-symphony project start            # Start a specific project
+gh-symphony project start --once     # Run one orchestration tick for a specific project
 gh-symphony project stop             # Stop a specific project
 ```
 
@@ -109,6 +110,7 @@ gh-symphony project stop             # Stop a specific project
 
 ```bash
 gh-symphony start                   # Start (foreground)
+gh-symphony start --once            # First managed-project smoke run, then exit
 gh-symphony start --daemon          # Start (background)
 gh-symphony stop                    # Stop the daemon
 gh-symphony stop --force            # Force stop with SIGKILL
@@ -170,6 +172,7 @@ Use `--json` for setup automation and smoke checks:
 
 ```bash
 gh-symphony doctor --json
+gh-symphony start --once
 ```
 
 ### Shell Completion
@@ -373,6 +376,8 @@ The orchestrator runs independently as long as project config exists under `~/.g
 ```bash
 # Via the CLI daemon
 gh-symphony start                    # continuous polling + status API on 127.0.0.1:4680
+gh-symphony start --once             # run startup cleanup + one poll/reconcile/dispatch tick
+gh-symphony start --once --http      # expose the dashboard/API during the one-shot tick
 gh-symphony run beta/api#42          # dispatch a single issue
 
 # Via the orchestrator package directly
@@ -396,6 +401,8 @@ Runtime state lives under `.runtime/orchestrator/`:
 | `runs/<run-id>/events.ndjson`  | Structured orchestration events                |
 
 Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
+
+`gh-symphony start --once` is the safest first production-like run when you want to validate the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility without immediately starting a long-lived poller. It is also a useful CI smoke check for a managed project. Add `--http` when you want the dashboard/API available during that one-shot tick.
 
 ## Verification
 
