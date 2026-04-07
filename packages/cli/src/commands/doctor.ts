@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { execFileSync } from "node:child_process";
 import {
   access,
   mkdir,
@@ -26,6 +27,8 @@ import { parseWorkflowMarkdown } from "@gh-symphony/core";
 type DoctorStatus = "pass" | "fail";
 
 type DoctorCheckId =
+  | "node_runtime"
+  | "git_installation"
   | "gh_installation"
   | "gh_authentication"
   | "gh_scopes"
@@ -88,9 +91,11 @@ export type DoctorDependencies = {
   mkdir: typeof mkdir;
   stat: typeof stat;
   parseWorkflowMarkdown: typeof parseWorkflowMarkdown;
+  execFileSync: typeof execFileSync;
   pathEnv: string | undefined;
   pathExtEnv: string | undefined;
   platform: NodeJS.Platform;
+  processVersion: string;
 };
 
 const DEFAULT_DEPENDENCIES: DoctorDependencies = {
@@ -106,10 +111,25 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   mkdir,
   stat,
   parseWorkflowMarkdown,
+  execFileSync,
   pathEnv: process.env.PATH,
   pathExtEnv: process.env.PATHEXT,
   platform: process.platform,
+  processVersion: process.version,
 };
+
+const MINIMUM_NODE_MAJOR = 24;
+const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
+
+type GitInstallationState =
+  | {
+      installed: true;
+      version?: string;
+      error?: string;
+    }
+  | {
+      installed: false;
+    };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
   const parsed: ParsedDoctorArgs = {};
@@ -284,6 +304,44 @@ function stripQuotes(value: string): string {
   return value.replace(/^['"]|['"]$/g, "");
 }
 
+function parseMajorNodeVersion(version: string): number | null {
+  const matched = version.match(/^v?(\d+)(?:\.\d+)?(?:\.\d+)?$/);
+  if (!matched) {
+    return null;
+  }
+
+  return Number.parseInt(matched[1]!, 10);
+}
+
+async function checkGitInstallation(
+  deps: Pick<
+    DoctorDependencies,
+    "access" | "pathEnv" | "pathExtEnv" | "platform" | "execFileSync"
+  >
+): Promise<GitInstallationState> {
+  const installed = await commandExistsOnPath("git", deps);
+  if (!installed) {
+    return { installed: false };
+  }
+
+  try {
+    const version = deps
+      .execFileSync("git", ["--version"], {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+      .toString()
+      .trim();
+
+    return version ? { installed: true, version } : { installed: true };
+  } catch (error) {
+    return {
+      installed: true,
+      error: error instanceof Error ? error.message : "Unknown Git execution error.",
+    };
+  }
+}
+
 async function checkWorkflow(
   repoRoot: string,
   deps: Pick<DoctorDependencies, "readFile" | "parseWorkflowMarkdown">
@@ -343,6 +401,65 @@ export async function runDoctorDiagnostics(
   let resolvedProjectConfig:
     | Awaited<ReturnType<typeof inspectManagedProjectSelection>>
     | null = null;
+
+  const currentNodeVersion = deps.processVersion;
+  const currentNodeMajor = parseMajorNodeVersion(currentNodeVersion);
+  if (
+    currentNodeMajor !== null &&
+    currentNodeMajor >= MINIMUM_NODE_MAJOR
+  ) {
+    checks.push(
+      passCheck(
+        "node_runtime",
+        "Node.js runtime",
+        `Node.js ${currentNodeVersion} satisfies the minimum supported version ${MINIMUM_NODE_VERSION}.`,
+        {
+          currentVersion: currentNodeVersion,
+          minimumVersion: MINIMUM_NODE_VERSION,
+        }
+      )
+    );
+  } else {
+    checks.push(
+      failCheck(
+        "node_runtime",
+        "Node.js runtime",
+        `Node.js ${currentNodeVersion} does not satisfy the minimum supported version ${MINIMUM_NODE_VERSION}.`,
+        `Install Node.js ${MINIMUM_NODE_VERSION} or newer and re-run 'gh-symphony doctor'.`,
+        {
+          currentVersion: currentNodeVersion,
+          minimumVersion: MINIMUM_NODE_VERSION,
+        }
+      )
+    );
+  }
+
+  const gitInstallation = await checkGitInstallation(deps);
+  if (gitInstallation.installed) {
+    checks.push(
+      passCheck(
+        "git_installation",
+        "Git installation",
+        gitInstallation.version
+          ? `Git is installed: ${gitInstallation.version}.`
+          : "Git is installed on PATH, but 'git --version' could not be recorded.",
+        gitInstallation.version
+          ? { version: gitInstallation.version }
+          : gitInstallation.error
+            ? { error: gitInstallation.error }
+            : undefined
+      )
+    );
+  } else {
+    checks.push(
+      failCheck(
+        "git_installation",
+        "Git installation",
+        "Git could not be found on PATH.",
+        "Install Git, confirm 'git --version' works in this shell, and re-run 'gh-symphony doctor'.",
+      )
+    );
+  }
 
   const ghInstalled = deps.checkGhInstalled();
   if (ghInstalled) {

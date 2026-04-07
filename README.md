@@ -96,7 +96,7 @@ gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.g
 Managing projects:
 
 ```bash
-gh-symphony doctor                   # Validate auth, config, WORKFLOW.md, and runtime command
+gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
@@ -158,8 +158,10 @@ gh-symphony config edit             # Open config in $EDITOR
 
 ### Diagnostics
 
-`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks:
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks local runtime prerequisites as well as GitHub setup:
 
+- Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
+- Git installation availability on `PATH`, including `git --version` when available
 - `gh` installation, login status, and required scopes (`repo`, `read:org`, `project`)
 - active managed project resolution and GitHub Project binding lookup
 - config directory, runtime root, and managed workspace writability
