@@ -34,10 +34,12 @@ describe("completion renderer", () => {
   it("renders bash completion with top-level commands", () => {
     const output = renderCompletionScript("bash");
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow doctor upgrade");
+    expect(output).toContain("workflow setup doctor upgrade");
     expect(output).toContain("workflow:init");
     expect(output).toContain("project repo config completion");
+    expect(output).toContain("setup)");
     expect(output).toContain("project:add");
+    expect(output).toContain("repo:sync");
   });
 
   it("renders zsh completion wrapper", () => {
@@ -76,7 +78,14 @@ describe("completion renderer", () => {
       3
     );
     expect(suggestions).toEqual(
-      expect.arrayContaining(["list", "add", "remove"])
+      expect.arrayContaining(["list", "add", "remove", "sync"])
+    );
+  });
+
+  it("suggests repo sync flags after the sync subcommand", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "repo", "sync", ""], 3);
+    expect(suggestions).toEqual(
+      expect.arrayContaining(["--dry-run", "--prune", "--json"])
     );
   });
 });

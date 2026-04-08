@@ -116,7 +116,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow doctor upgrade start stop status");
+    expect(output).toContain("workflow setup doctor upgrade start stop status");
   });
 
   it("reports a missing root config argument", async () => {
@@ -146,6 +146,7 @@ describe("Commander CLI entrypoint", () => {
     const output = stdout.output() + stderr.output();
     expect(output).toContain("Usage: gh-symphony");
     expect(output).toContain("workflow");
+    expect(output).toContain("setup");
     expect(output).toContain("doctor");
     expect(output).toContain("upgrade");
     expect(output).toContain("completion");
@@ -166,5 +167,22 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--dry-run");
     expect(output).toContain("--skip-skills");
     expect(output).toContain("--skip-context");
+  });
+
+  it("shows repo sync options in command help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["repo", "sync", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("--dry-run");
+    expect(output).toContain("--prune");
+    expect(output).toContain("Sync repositories from the active GitHub Project");
   });
 });

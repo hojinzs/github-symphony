@@ -112,6 +112,74 @@ describe("shutdownForegroundOrchestrator", () => {
 });
 
 describe("start command foreground locking", () => {
+  it("runs a single orchestration tick and exits naturally with --once", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async (options?: { once?: boolean }) => {
+      expect(options).toEqual({ once: true });
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
+        projectId: "tenant-a",
+        slug: "tenant-a",
+        health: "idle",
+        lastTickAt: "2026-03-17T00:00:00.000Z",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      });
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+
+    await startModule.default(
+      ["--project-id", "tenant-a", "--once"],
+      baseOptions(configDir)
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("rejects the conflicting --daemon --once combination", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default(
+        ["--project-id", "tenant-a", "--daemon", "--once"],
+        baseOptions(configDir)
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Options '--daemon' and '--once' cannot be used together"
+    );
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+  });
+
   it("acquires and releases the project lock in foreground mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -312,6 +380,85 @@ describe("start command foreground locking", () => {
     }
 
     expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+  });
+
+  it("keeps the HTTP dashboard available after a one-shot tick until interrupted", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(
+      async (options?: { once?: boolean }) => {
+        expect(options).toEqual({ once: true });
+        const onTick = serviceDependencies.at(-1)?.onTick as
+          | ((snapshot: Record<string, unknown>) => Promise<void>)
+          | undefined;
+        await onTick?.({
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          health: "idle",
+          lastTickAt: "2026-03-17T00:00:00.000Z",
+          summary: {
+            dispatched: 0,
+            suppressed: 0,
+            recovered: 0,
+            activeRuns: 0,
+          },
+          activeRuns: [],
+          retryQueue: [],
+          lastError: null,
+        });
+      }
+    );
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--once", "--http"],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      await expect(fetchJsonWithRetry(`${url}/api/v1/state`)).resolves.toEqual({
+        pathname: "/api/v1/state",
+        method: "GET",
+      });
+      expect(stdout.output()).toContain(
+        "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
+      );
+
+      process.emit("SIGINT");
+      await startPromise;
+      await expect(
+        readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
   });
 
@@ -559,6 +706,26 @@ async function waitForHttpUrl(
   }
 
   throw new Error(`Timed out waiting for HTTP server log. Output: ${output()}`);
+}
+
+async function fetchJsonWithRetry(
+  url: string,
+  timeoutMs = 5_000
+): Promise<unknown> {
+  const startedAt = Date.now();
+  let lastError: unknown;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  throw lastError ?? new Error(`Timed out fetching ${url}`);
 }
 
 function baseOptions(configDir: string) {

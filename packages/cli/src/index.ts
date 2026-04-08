@@ -24,6 +24,7 @@ export type CommandHandler = (
 type LoaderKey =
   | "workflow"
   | "init"
+  | "setup"
   | "doctor"
   | "upgrade"
   | "start"
@@ -51,9 +52,11 @@ type CliOptionValues = Partial<
     level?: string;
     logLevel?: string;
     nonInteractive?: boolean;
+    once?: boolean;
     output?: string;
     project?: string;
     projectId?: string;
+    prune?: boolean;
     run?: string;
     skipContext?: boolean;
     skipSkills?: boolean;
@@ -69,6 +72,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
   {
     workflow: () => import("./commands/workflow.js"),
     init: () => import("./commands/init.js"),
+    setup: () => import("./commands/setup.js"),
     doctor: () => import("./commands/doctor.js"),
     upgrade: () => import("./commands/upgrade.js"),
     start: () => import("./commands/start.js"),
@@ -278,6 +282,32 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
 
   addGlobalOptions(
     program
+      .command("setup")
+      .description("Run the one-command first-run setup flow")
+      .option("--non-interactive", "Run without prompts")
+      .option("--project <id>", "GitHub Project ID or URL")
+      .option("--workspace-dir <path>", "Workspace directory")
+      .option("--assigned-only", "Limit processing to assigned issues")
+      .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option("--skip-skills", "Skip runtime skill generation")
+      .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = [];
+    pushOption(args, "--non-interactive", values.nonInteractive);
+    pushOption(args, "--project", values.project);
+    pushOption(args, "--workspace-dir", values.workspaceDir);
+    pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--output", values.output);
+    pushOption(args, "--skip-skills", values.skipSkills);
+    pushOption(args, "--skip-context", values.skipContext);
+    await invokeHandler("setup", args, values);
+  });
+
+  addGlobalOptions(
+    program
       .command("doctor")
       .description("Run first-run diagnostics")
       .option("--project-id <projectId>", "Project identifier")
@@ -306,6 +336,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start the orchestrator")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
@@ -317,6 +348,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("start", args, values);
@@ -473,6 +505,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("start")
       .description("Start a specific project")
       .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
@@ -484,6 +517,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args = ["start"];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("project", args, values);
@@ -584,6 +618,22 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       ["remove", repoSpec],
       this.optsWithGlobals<CliOptionValues>()
     );
+  });
+
+  addGlobalOptions(
+    repo
+      .command("sync")
+      .description("Sync repositories from the active GitHub Project")
+      .option("--dry-run", "Preview repository changes without writing config")
+      .option("--prune", "Remove local repositories that are no longer linked")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args = ["sync"];
+    pushOption(args, "--dry-run", values.dryRun);
+    pushOption(args, "--prune", values.prune);
+    await invokeHandler("repo", args, values);
   });
 
   const config = addGlobalOptions(

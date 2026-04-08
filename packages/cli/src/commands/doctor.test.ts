@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import doctorCommand, {
@@ -58,21 +58,28 @@ function authDependencies(
   overrides: Partial<DoctorDependencies> = {}
 ): Partial<DoctorDependencies> {
   return {
-    detectGitHubAuthSource: () => "gh",
     checkGhInstalled: () => true,
     checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-    getGhTokenWithSource: () => ({ token: "ghp_test", source: "gh" }),
-    createClient: ((token: string) => ({ token })) as never,
-    validateToken: (async () =>
+    checkGhScopes: () => ({
+      valid: true,
+      missing: [],
+      scopes: ["repo", "read:org", "project"],
+    }),
+    getEnvGitHubToken: () => null,
+    getGhToken: () => "ghp_test",
+    validateGitHubToken: (async (token: string, source) =>
       ({
+        source,
+        token,
         login: "tester",
-        name: "Test User",
         scopes: ["repo", "read:org", "project"],
       }) as never) as never,
-    checkRequiredScopes: () => ({ valid: true, missing: [] }),
+    createClient: ((token: string) => ({ token })) as never,
     ...overrides,
   };
 }
+
+const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
 
 async function createWorkflowFixture(
   command = "fake-agent",
@@ -134,7 +141,16 @@ async function withCwd<T>(cwd: string, action: () => Promise<T>): Promise<T> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (originalGraphQlToken === undefined) {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+  } else {
+    process.env.GITHUB_GRAPHQL_TOKEN = originalGraphQlToken;
+  }
   process.exitCode = undefined;
+});
+
+beforeEach(() => {
+  delete process.env.GITHUB_GRAPHQL_TOKEN;
 });
 
 describe("runDoctorDiagnostics", () => {
@@ -348,6 +364,116 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("accepts env-token auth when gh CLI is unavailable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => false,
+        getEnvGitHubToken: () => "env-token",
+        validateGitHubToken: (async () =>
+          ({
+            source: "env",
+            token: "env-token",
+            login: "env-user",
+            scopes: ["repo", "read:org", "project"],
+          }) as never) as never,
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "gh_installation")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("gh is optional"),
+    });
+    expect(
+      report.checks.find((check) => check.id === "gh_authentication")
+    ).toMatchObject({
+      status: "pass",
+      summary: "Using GITHUB_GRAPHQL_TOKEN as env-user.",
+    });
+  });
+
+  it("falls back to gh auth without reusing an invalid env token", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const getGhToken = vi.fn(() => "gh-token");
+    const validateGitHubToken = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("GITHUB_GRAPHQL_TOKEN is invalid or expired."))
+      .mockResolvedValueOnce({
+        source: "gh",
+        token: "gh-token",
+        login: "gh-user",
+        scopes: ["repo", "read:org", "project"],
+      });
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        checkGhInstalled: () => true,
+        checkGhAuthenticated: () => ({ authenticated: true, login: "gh-user" }),
+        checkGhScopes: () => ({
+          valid: true,
+          missing: [],
+          scopes: ["repo", "read:org", "project"],
+        }),
+        getEnvGitHubToken: () => "bad-env-token",
+        getGhToken: getGhToken as never,
+        validateGitHubToken: validateGitHubToken as never,
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        createClient: ((token: string) => ({ token })) as never,
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(getGhToken).toHaveBeenCalledWith({ allowEnv: false });
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(1, "bad-env-token", "env");
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(2, "gh-token", "gh");
+    expect(
+      report.checks.find((check) => check.id === "gh_authentication")
+    ).toMatchObject({
+      status: "pass",
+      summary: "Using gh CLI as gh-user.",
+    });
+  });
+
   it("reports missing scopes with a refresh command", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
@@ -356,15 +482,10 @@ describe("runDoctorDiagnostics", () => {
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
         ...authDependencies({
-          validateToken: (async () =>
-            ({
-              login: "tester",
-              name: "Test User",
-              scopes: ["repo", "read:org"],
-            }) as never) as never,
-          checkRequiredScopes: () => ({
+          checkGhScopes: () => ({
             valid: false,
             missing: ["project"],
+            scopes: ["repo", "read:org"],
           }),
         }),
         inspectManagedProjectSelection: async () => ({
@@ -425,13 +546,13 @@ describe("runDoctorDiagnostics", () => {
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
         ...authDependencies({
-          detectGitHubAuthSource: () => "env",
           checkGhInstalled: () => false,
-          getGhTokenWithSource: () => ({ token: "env-token", source: "env" }),
-          validateToken: (async () =>
+          getEnvGitHubToken: () => "env-token",
+          validateGitHubToken: (async () =>
             ({
+              source: "env",
+              token: "env-token",
               login: "env-user",
-              name: "Env User",
               scopes: ["repo", "read:org", "project"],
             }) as never) as never,
         }),
@@ -522,7 +643,7 @@ describe("runDoctorDiagnostics", () => {
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
         ...authDependencies({
-          getGhTokenWithSource: () => {
+          getGhToken: () => {
             throw new Error("keychain locked");
           },
         }),

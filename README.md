@@ -43,7 +43,39 @@ Token-only validation works without `gh`:
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
-### 2. Set Repository
+### 2. Run Setup
+
+Navigate to the repository you want to orchestrate, then run:
+
+```bash
+cd your-repo
+gh-symphony setup
+```
+
+The one-command setup flow will:
+
+1. Authenticate via `gh` CLI
+2. Let you select a **GitHub Project**
+3. Map project status columns to workflow phases (active / wait / terminal)
+4. Configure managed-project settings for the orchestrator
+5. Generate the following files:
+
+| File | Description |
+| --- | --- |
+| `WORKFLOW.md` | Workflow policy — the agent prompt template with lifecycle config |
+| `.gh-symphony/context.yaml` | Project metadata and environment context |
+| `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+
+Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the managed-project configuration that will be saved under `~/.gh-symphony/`.
+
+Non-interactive mode:
+
+```bash
+gh-symphony setup --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+```
+
+### 3. Set Repository Only
 
 Navigate to the repository you want to orchestrate, then run:
 
@@ -62,7 +94,7 @@ gh-symphony workflow preview
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate the following files:
@@ -76,13 +108,20 @@ The interactive wizard will:
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
+Token-only interactive setup is supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony workflow init
+```
+
 #### Customizing Agent Behavior
 
 The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
-### 3. Set Orchestrator Runner (Project)
+### 4. Set Orchestrator Runner (Project)
 
 On the machine where you want the orchestrator to run, register a project:
 
@@ -92,11 +131,18 @@ gh-symphony project add
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
+
+Token-only project registration is supported too:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony project add
+```
 
 Non-interactive mode:
 
@@ -114,13 +160,15 @@ gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
 gh-symphony project status           # Show status for a specific project
 gh-symphony project start            # Start a specific project
+gh-symphony project start --once     # Run one orchestration tick for a specific project
 gh-symphony project stop             # Stop a specific project
 ```
 
-### 4. Run the Orchestrator
+### 5. Run the Orchestrator
 
 ```bash
 gh-symphony start                   # Start (foreground)
+gh-symphony start --once            # First managed-project smoke run, then exit
 gh-symphony start --daemon          # Start (background)
 gh-symphony stop                    # Stop the daemon
 gh-symphony stop --force            # Force stop with SIGKILL
@@ -158,7 +206,15 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 gh-symphony repo list               # List repositories in active project
 gh-symphony repo add owner/name     # Add a repository
 gh-symphony repo remove owner/name  # Remove a repository
+gh-symphony repo sync               # Add newly linked repositories from GitHub Project
+gh-symphony repo sync --dry-run     # Preview linked repository changes
+gh-symphony repo sync --prune       # Fully realign with linked repositories
 ```
+
+`gh-symphony repo sync` refreshes the active managed project's repository list
+from the current GitHub Project `linkedRepositories`. The default mode is
+additive: newly linked repositories are added, while existing local-only
+entries stay in place until you opt into `--prune`.
 
 ### Configuration
 
@@ -184,6 +240,13 @@ Use `--json` for setup automation and smoke checks:
 
 ```bash
 gh-symphony doctor --json
+gh-symphony start --once
+```
+
+Repository sync also supports structured output:
+
+```bash
+gh-symphony repo sync --json
 ```
 
 JSON output includes the resolved auth source as `env` or `gh`.
@@ -205,7 +268,10 @@ gh-symphony completion fish         # Print fish completion script
 
 GitHub Symphony supports two authentication paths.
 
-Use `gh` CLI on developer machines:
+1. `GITHUB_GRAPHQL_TOKEN` for local shells, containers, and CI-like environments
+2. `gh` CLI for interactive developer machines
+
+Run `gh` setup once if you want to use the CLI-managed path:
 
 ```bash
 gh auth login --scopes repo,read:org,project
@@ -223,7 +289,7 @@ Use `GITHUB_GRAPHQL_TOKEN` when `gh` is unavailable or undesirable:
 export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 ```
 
-`GITHUB_GRAPHQL_TOKEN` takes priority over `gh` CLI for `doctor` and non-interactive setup flows.
+`GITHUB_GRAPHQL_TOKEN` takes priority over `gh` CLI. Interactive `gh-symphony workflow init` and `gh-symphony project add` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available. `gh-symphony doctor` also reports the resolved auth source as `env` or `gh`.
 
 ## WORKFLOW.md
 
@@ -391,6 +457,8 @@ The orchestrator runs independently as long as project config exists under `~/.g
 ```bash
 # Via the CLI daemon
 gh-symphony start                    # continuous polling + status API on 127.0.0.1:4680
+gh-symphony start --once             # run startup cleanup + one poll/reconcile/dispatch tick
+gh-symphony start --once --http      # keep the dashboard/API available after the one-shot tick until Ctrl+C
 gh-symphony run beta/api#42          # dispatch a single issue
 
 # Via the orchestrator package directly
@@ -414,6 +482,8 @@ Runtime state lives under `.runtime/orchestrator/`:
 | `runs/<run-id>/events.ndjson`  | Structured orchestration events                |
 
 Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
+
+`gh-symphony start --once` is the safest first production-like run when you want to validate the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility without immediately starting a long-lived poller. It is also a useful CI smoke check for a managed project. Add `--http` when you want the dashboard/API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`.
 
 ## Verification
 

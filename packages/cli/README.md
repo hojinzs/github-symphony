@@ -65,10 +65,17 @@ gh-symphony workflow preview
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project** to bind
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate `WORKFLOW.md` and supporting files in the repository
+
+Token-only interactive setup is supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony workflow init
+```
 
 Use `--dry-run` to preview the generated write plan first. The preview reports
 whether `WORKFLOW.md`, `.gh-symphony/context.yaml`,
@@ -125,7 +132,7 @@ gh-symphony project add
 
 The interactive wizard will:
 
-1. Authenticate via `gh` CLI
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
@@ -141,13 +148,28 @@ GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
   gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
 ```
 
+Token-only project registration is also supported:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony project add
+```
+
 ### Project Management
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
+gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
+gh-symphony repo sync --dry-run      # Preview linked repository drift
+gh-symphony repo sync --prune        # Remove local repositories no longer linked
 ```
+
+Use `gh-symphony repo sync` when the GitHub Project board has gained or lost
+linked repositories since the project was first added locally. Default sync is
+additive; `--prune` switches to strict alignment, and `--json` prints the added,
+removed, unchanged, and final repository sets.
 
 ## 4. Run the Orchestrator
 
@@ -155,6 +177,8 @@ gh-symphony project remove <id>      # Remove a project
 
 ```bash
 gh-symphony start
+gh-symphony start --once            # Run startup cleanup + one orchestration tick, then exit
+gh-symphony project start --once    # Same one-shot flow for an explicit project
 ```
 
 ### Background (daemon)
@@ -163,6 +187,8 @@ gh-symphony start
 gh-symphony start --daemon          # Start in background
 gh-symphony stop                    # Stop the daemon
 ```
+
+Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
 
 ### Monitor
 
@@ -193,6 +219,7 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
+- GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
 - managed project selection plus GitHub Project binding resolution
 - config/runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity
@@ -204,6 +231,7 @@ Use JSON output for scripts and CI smoke checks:
 
 ```bash
 gh-symphony doctor --json
+gh-symphony start --once
 ```
 
 JSON output includes the resolved auth source as `env` or `gh`.
@@ -222,6 +250,7 @@ Setup:
 
 Orchestration:
   start               Start the orchestrator (foreground)
+  start --once        Run a single orchestration tick and exit
   start --daemon      Start the orchestrator (background)
   stop                Stop the background orchestrator
   status              Show orchestrator status
@@ -234,6 +263,7 @@ Project Management:
   project add          Add a new project (interactive wizard)
   project list         List all configured projects
   project remove       Remove a project
+  repo sync            Refresh repositories from the linked GitHub Project
 
 Global Options:
   --config <dir>      Config directory (default: ~/.gh-symphony)
