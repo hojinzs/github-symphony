@@ -20,6 +20,13 @@ type ExecError = Error & {
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
 export type GitHubAuthSource = "env" | "gh";
 
+export type GhAuthRemediationResult = {
+  mode: "login" | "refresh";
+  status: "applied" | "manual";
+  command: string;
+  summary: string;
+};
+
 export class GhAuthError extends Error {
   constructor(
     public readonly code:
@@ -337,6 +344,66 @@ export function ensureGhAuth(opts?: {
     envToken: undefined,
   });
   return { login: auth.login ?? "unknown", token, source: "gh" };
+}
+
+function isInteractiveTerminal(): boolean {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+function runGhAuthCommand(
+  mode: "login" | "refresh",
+  opts?: { spawnImpl?: SpawnImpl; interactive?: boolean }
+): GhAuthRemediationResult {
+  const spawnImpl = opts?.spawnImpl ?? spawnSync;
+  const command = `gh auth ${mode} --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
+  const interactive = opts?.interactive ?? isInteractiveTerminal();
+
+  if (!interactive) {
+    return {
+      mode,
+      status: "manual",
+      command,
+      summary: `Interactive terminal not available. Run '${command}' manually.`,
+    };
+  }
+
+  const result = spawnImpl(
+    "gh",
+    ["auth", mode, "--scopes", REQUIRED_GH_SCOPES.join(",")],
+    {
+      stdio: "inherit",
+    }
+  );
+
+  if ((result.status ?? 1) === 0) {
+    return {
+      mode,
+      status: "applied",
+      command,
+      summary: `Executed '${command}'.`,
+    };
+  }
+
+  return {
+    mode,
+    status: "manual",
+    command,
+    summary: `Failed to complete '${command}' automatically. Re-run it manually.`,
+  };
+}
+
+export function runGhAuthLogin(opts?: {
+  spawnImpl?: SpawnImpl;
+  interactive?: boolean;
+}): GhAuthRemediationResult {
+  return runGhAuthCommand("login", opts);
+}
+
+export function runGhAuthRefresh(opts?: {
+  spawnImpl?: SpawnImpl;
+  interactive?: boolean;
+}): GhAuthRemediationResult {
+  return runGhAuthCommand("refresh", opts);
 }
 
 function parseLogin(output: string): string | undefined {

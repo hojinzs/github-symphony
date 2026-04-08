@@ -15,6 +15,8 @@ import {
   getGhTokenWithSource,
   resolveGitHubAuth,
   validateGitHubToken,
+  runGhAuthLogin,
+  runGhAuthRefresh,
 } from "./gh-auth.js";
 
 type ExecMock = ReturnType<typeof vi.fn> & typeof execFileSync;
@@ -461,5 +463,36 @@ describe("resolveGitHubAuth", () => {
       login: "gh-user",
       scopes: ["repo", "read:org", "project"],
     });
+  });
+});
+
+describe("runGhAuthLogin", () => {
+  it("returns manual when no interactive terminal is available", () => {
+    expect(runGhAuthLogin({ interactive: false })).toEqual({
+      mode: "login",
+      status: "manual",
+      command: "gh auth login --scopes repo,read:org,project",
+      summary:
+        "Interactive terminal not available. Run 'gh auth login --scopes repo,read:org,project' manually.",
+    });
+  });
+});
+
+describe("runGhAuthRefresh", () => {
+  it("runs gh auth refresh in interactive terminals", () => {
+    const spawnImpl = vi.fn(() => buildSpawnResult(0)) as SpawnMock;
+
+    expect(
+      runGhAuthRefresh({ spawnImpl, interactive: true })
+    ).toMatchObject({
+      mode: "refresh",
+      status: "applied",
+      command: "gh auth refresh --scopes repo,read:org,project",
+    });
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "refresh", "--scopes", "repo,read:org,project"],
+      { stdio: "inherit" }
+    );
   });
 });

@@ -45,6 +45,7 @@ type CliOptionValues = Partial<
     daemon?: boolean;
     dryRun?: boolean;
     file?: string;
+    fix?: boolean;
     follow?: boolean;
     force?: boolean;
     http?: string | boolean;
@@ -309,8 +310,9 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   addGlobalOptions(
     program
       .command("doctor")
-      .description("Run first-run diagnostics")
+      .description("Run diagnostics and optional first-run remediation")
       .option("--project-id <projectId>", "Project identifier")
+      .option("--fix", "Apply safe remediation steps and print manual follow-ups")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -318,6 +320,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--fix", values.fix);
     await invokeHandler("doctor", args, values);
   });
 
