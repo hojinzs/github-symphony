@@ -8,11 +8,15 @@ The following tools must be installed before using the CLI:
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
-- **Either** **[GitHub CLI (`gh`)](https://cli.github.com/)** authenticated with required scopes:
-  ```bash
-  gh auth login --scopes repo,read:org,project
-  ```
-  **or** `GITHUB_GRAPHQL_TOKEN` set with `repo`, `read:org`, and `project`
+- One GitHub auth source with required scopes (`repo`, `read:org`, `project`):
+  - **[GitHub CLI (`gh`)](https://cli.github.com/)**:
+    ```bash
+    gh auth login --scopes repo,read:org,project
+    ```
+  - Or `GITHUB_GRAPHQL_TOKEN` for CI or minimal shells:
+    ```bash
+    export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+    ```
 
 ## 1. Install Package
 
@@ -31,6 +35,7 @@ Validate the machine and repo prerequisites before first use:
 ```bash
 gh-symphony doctor
 gh-symphony doctor --json
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
 Enable shell completion:
@@ -133,6 +138,16 @@ The interactive wizard will:
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
 
+Token-only non-interactive setup:
+
+```bash
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
+
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+```
+
 Token-only project registration is also supported:
 
 ```bash
@@ -201,6 +216,7 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass:
 
+- the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
 - GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
@@ -217,6 +233,8 @@ Use JSON output for scripts and CI smoke checks:
 gh-symphony doctor --json
 gh-symphony start --once
 ```
+
+JSON output includes the resolved auth source as `env` or `gh`.
 
 ## Command Reference
 

@@ -59,6 +59,8 @@ export type DoctorReport = {
   checkedAt: string;
   configDir: string;
   projectId: string | null;
+  authSource: GitHubAuthSource | null;
+  authLogin: string | null;
   checks: DoctorCheckResult[];
 };
 
@@ -411,6 +413,8 @@ export async function runDoctorDiagnostics(
   const checks: DoctorCheckResult[] = [];
   let auth: ResolvedGitHubAuth | null = null;
   let tokenError: string | null = null;
+  let authSource: GitHubAuthSource | null = null;
+  let authLogin: string | null = null;
   let envTokenError: string | null = null;
   let resolvedProjectId: string | null = null;
   let resolvedProjectConfig:
@@ -479,25 +483,24 @@ export async function runDoctorDiagnostics(
     checks.push(
       passCheck("gh_installation", "gh CLI installation", "gh CLI is installed.")
     );
+  } else if (envToken) {
+    checks.push(
+      passCheck(
+        "gh_installation",
+        "gh CLI installation",
+        "gh CLI is not installed, but GITHUB_GRAPHQL_TOKEN is configured so gh is optional.",
+        { authSource: "env" }
+      )
+    );
   } else {
-    if (envToken) {
-      checks.push(
-        passCheck(
-          "gh_installation",
-          "gh CLI installation",
-          "gh CLI is not installed, but GITHUB_GRAPHQL_TOKEN is configured so gh is optional."
-        )
-      );
-    } else {
-      checks.push(
-        failCheck(
-          "gh_installation",
-          "gh CLI installation",
-          "gh CLI is not installed.",
-          "Install GitHub CLI from https://cli.github.com and re-run 'gh-symphony doctor'."
-        )
-      );
-    }
+    checks.push(
+      failCheck(
+        "gh_installation",
+        "gh CLI installation",
+        "gh CLI is not installed.",
+        "Install GitHub CLI from https://cli.github.com and re-run 'gh-symphony doctor'."
+      )
+    );
   }
 
   const ghAuth = ghInstalled ? deps.checkGhAuthenticated() : { authenticated: false };
@@ -526,12 +529,14 @@ export async function runDoctorDiagnostics(
   }
 
   if (auth) {
+    authSource = auth.source;
+    authLogin = auth.login;
     checks.push(
       passCheck(
         "gh_authentication",
         "GitHub authentication",
         `Using ${formatAuthSource(auth.source)} as ${auth.login}.`,
-        { source: auth.source, login: auth.login }
+        { authSource: auth.source, login: auth.login }
       )
     );
   } else if (envTokenError) {
@@ -541,7 +546,7 @@ export async function runDoctorDiagnostics(
         "GitHub authentication",
         "Configured GITHUB_GRAPHQL_TOKEN could not be used.",
         `${envTokenError} Fix GITHUB_GRAPHQL_TOKEN or configure gh auth, then re-run the doctor command.`,
-        { source: "env", error: envTokenError }
+        { authSource: "env", error: envTokenError }
       )
     );
   } else {
@@ -561,7 +566,7 @@ export async function runDoctorDiagnostics(
         "gh_scopes",
         "GitHub token scopes",
         `Required scopes are present via ${formatAuthSource(auth.source)}: ${REQUIRED_GH_SCOPES.join(", ")}.`,
-        { source: auth.source, scopes: auth.scopes }
+        { authSource: auth.source, scopes: auth.scopes }
       )
     );
   } else if (envTokenError) {
@@ -571,7 +576,7 @@ export async function runDoctorDiagnostics(
         "GitHub token scopes",
         envTokenError,
         "Update GITHUB_GRAPHQL_TOKEN to include repo, read:org, and project, or configure gh auth with the same scopes.",
-        { source: "env" }
+        { authSource: "env" }
       )
     );
   } else {
@@ -635,7 +640,10 @@ export async function runDoctorDiagnostics(
             ? "Fix GITHUB_GRAPHQL_TOKEN or gh authentication first, then re-run 'gh-symphony doctor'."
             : "Fix the GitHub authentication check first, then re-run 'gh-symphony doctor'.",
         tokenError || envTokenError
-          ? { error: tokenError ?? envTokenError }
+          ? {
+              error: tokenError ?? envTokenError,
+              ...(authSource ? { authSource } : {}),
+            }
           : undefined
       )
     );
@@ -835,12 +843,19 @@ export async function runDoctorDiagnostics(
     checkedAt: new Date().toISOString(),
     configDir: options.configDir,
     projectId: resolvedProjectId,
+    authSource,
+    authLogin,
     checks,
   };
 }
 
 function renderTextReport(report: DoctorReport): string {
-  const lines = [`gh-symphony doctor`, ""];
+  const lines = [
+    `gh-symphony doctor`,
+    `Auth source: ${report.authSource ?? "unavailable"}`,
+    ...(report.authLogin ? [`Authenticated GitHub user: ${report.authLogin}`] : []),
+    "",
+  ];
   for (const check of report.checks) {
     lines.push(`${check.status === "pass" ? "PASS" : "FAIL"} ${check.title}`);
     lines.push(`  ${check.summary}`);

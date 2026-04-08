@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import doctorCommand, {
+  type DoctorDependencies,
   runDoctorCommand,
   runDoctorDiagnostics,
 } from "./doctor.js";
@@ -50,6 +51,31 @@ function createProjectConfig(
       adapter: "github-project",
       bindingId,
     },
+  };
+}
+
+function authDependencies(
+  overrides: Partial<DoctorDependencies> = {}
+): Partial<DoctorDependencies> {
+  return {
+    checkGhInstalled: () => true,
+    checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
+    checkGhScopes: () => ({
+      valid: true,
+      missing: [],
+      scopes: ["repo", "read:org", "project"],
+    }),
+    getEnvGitHubToken: () => null,
+    getGhToken: () => "ghp_test",
+    validateGitHubToken: (async (token: string, source) =>
+      ({
+        source,
+        token,
+        login: "tester",
+        scopes: ["repo", "read:org", "project"],
+      }) as never) as never,
+    createClient: ((token: string) => ({ token })) as never,
+    ...overrides,
   };
 }
 
@@ -136,27 +162,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
-            scopes: ["repo", "read:org", "project"],
-          }) as never) as never,
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspaceDir),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -173,6 +184,8 @@ describe("runDoctorDiagnostics", () => {
 
     expect(report.ok).toBe(true);
     expect(report.projectId).toBe("tenant-a");
+    expect(report.authSource).toBe("gh");
+    expect(report.authLogin).toBe("tester");
     expect(report.checks.every((check) => check.status === "pass")).toBe(true);
     expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
       status: "pass",
@@ -199,20 +212,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspaceDir),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -249,20 +254,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspaceDir),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -301,20 +298,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspaceDir),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -348,8 +337,9 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: false }),
+        ...authDependencies({
+          checkGhAuthenticated: () => ({ authenticated: false }),
+        }),
         inspectManagedProjectSelection: async () => ({
           kind: "no_projects",
           message:
@@ -491,21 +481,13 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: false,
-          missing: ["project"],
-          scopes: ["repo", "read:org"],
-        }),
-        getGhToken: () => "ghp_test",
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
+        ...authDependencies({
+          checkGhScopes: () => ({
+            valid: false,
+            missing: ["project"],
             scopes: ["repo", "read:org"],
-          }) as never) as never,
+          }),
+        }),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -555,6 +537,60 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("uses env auth when GITHUB_GRAPHQL_TOKEN is present and gh is unavailable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await mkdir(workspaceDir, { recursive: true });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies({
+          checkGhInstalled: () => false,
+          getEnvGitHubToken: () => "env-token",
+          validateGitHubToken: (async () =>
+            ({
+              source: "env",
+              token: "env-token",
+              login: "env-user",
+              scopes: ["repo", "read:org", "project"],
+            }) as never) as never,
+        }),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.authSource).toBe("env");
+    expect(report.authLogin).toBe("env-user");
+    expect(
+      report.checks.find((check) => check.id === "gh_installation")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ authSource: "env" }),
+    });
+    expect(
+      report.checks.find((check) => check.id === "gh_authentication")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ authSource: "env", login: "env-user" }),
+    });
+  });
+
   it("fails writable-path checks when a configured path points to a file", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "doctor-path-file-"));
     const configPath = join(rootDir, "config-file");
@@ -565,27 +601,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configPath), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
-            scopes: ["repo", "read:org", "project"],
-          }) as never) as never,
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspacePath),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -621,23 +642,11 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
+        ...authDependencies({
+          getGhToken: () => {
+            throw new Error("keychain locked");
+          },
         }),
-        getGhToken: () => {
-          throw new Error("keychain locked");
-        },
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
-            scopes: ["repo", "read:org", "project"],
-          }) as never) as never,
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -665,21 +674,7 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
-            scopes: ["repo", "read:org", "project"],
-          }) as never) as never,
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
@@ -706,27 +701,12 @@ describe("runDoctorDiagnostics", () => {
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
-        checkGhInstalled: () => true,
-        checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-        checkGhScopes: () => ({
-          valid: true,
-          missing: [],
-          scopes: ["repo", "read:org", "project"],
-        }),
-        getGhToken: () => "ghp_test",
-        validateGitHubToken: (async (token: string, source) =>
-          ({
-            source,
-            token,
-            login: "tester",
-            scopes: ["repo", "read:org", "project"],
-          }) as never) as never,
+        ...authDependencies(),
         inspectManagedProjectSelection: async () => ({
           kind: "resolved",
           projectId: "tenant-a",
           projectConfig: createProjectConfig(workspaceDir),
         }),
-        createClient: ((token: string) => ({ token })) as never,
         getProjectDetail: (async () =>
           ({
             id: "PVT_test",
@@ -762,27 +742,12 @@ describe("doctor command handler", () => {
     try {
       await withCwd(repoDir, () =>
         runDoctorCommand([], { ...baseOptions(configDir), json: true }, {
-          checkGhInstalled: () => true,
-          checkGhAuthenticated: () => ({ authenticated: true, login: "tester" }),
-          checkGhScopes: () => ({
-            valid: true,
-            missing: [],
-            scopes: ["repo", "read:org", "project"],
-          }),
-          getGhToken: () => "ghp_test",
-          validateGitHubToken: (async (token: string, source) =>
-            ({
-              source,
-              token,
-              login: "tester",
-              scopes: ["repo", "read:org", "project"],
-            }) as never) as never,
+          ...authDependencies(),
           inspectManagedProjectSelection: async () => ({
             kind: "resolved",
             projectId: "tenant-a",
             projectConfig: createProjectConfig(workspaceDir),
           }),
-          createClient: ((token: string) => ({ token })) as never,
           getProjectDetail: (async () =>
             ({
               id: "PVT_test",
@@ -802,12 +767,11 @@ describe("doctor command handler", () => {
 
     const report = JSON.parse(stdout.output()) as {
       ok: boolean;
-      checks: Array<{
-        id: string;
-        details?: Record<string, unknown>;
-      }>;
+      authSource: string | null;
+      checks: Array<{ id: string }>;
     };
     expect(report.ok).toBe(true);
+    expect(report.authSource).toBe("gh");
     expect(process.exitCode).toBe(0);
     expect(report.checks.some((check) => check.id === "runtime_command")).toBe(
       true

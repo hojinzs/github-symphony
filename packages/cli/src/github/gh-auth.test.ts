@@ -8,9 +8,11 @@ import {
   checkGhAuthenticated,
   checkGhInstalled,
   checkGhScopes,
+  detectGitHubAuthSource,
   ensureGhAuth,
   getEnvGitHubToken,
   getGhToken,
+  getGhTokenWithSource,
   resolveGitHubAuth,
   validateGitHubToken,
 } from "./gh-auth.js";
@@ -121,6 +123,50 @@ describe("getGhToken", () => {
   });
 });
 
+describe("detectGitHubAuthSource", () => {
+  it("returns env when GITHUB_GRAPHQL_TOKEN is present", () => {
+    expect(detectGitHubAuthSource("env-token")).toBe("env");
+  });
+
+  it("returns gh when GITHUB_GRAPHQL_TOKEN is absent", () => {
+    expect(detectGitHubAuthSource("")).toBe("gh");
+  });
+});
+
+describe("getGhTokenWithSource", () => {
+  it("returns env token metadata before subprocess lookup", () => {
+    const execImpl = vi.fn(() => "should-not-be-used") as ExecMock;
+
+    expect(
+      getGhTokenWithSource({ execImpl, envToken: "env-token" })
+    ).toEqual({
+      token: "env-token",
+      source: "env",
+    });
+    expect(execImpl).not.toHaveBeenCalled();
+  });
+
+  it("allows callers to bypass env-token precedence explicitly", () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "env-token";
+    const execImpl = vi.fn(() => "ghp_test123\n") as ExecMock;
+
+    expect(
+      getGhTokenWithSource({ execImpl, envToken: undefined })
+    ).toEqual({
+      token: "ghp_test123",
+      source: "gh",
+    });
+    expect(execImpl).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "token"],
+      expect.objectContaining({
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+    );
+  });
+});
+
 describe("getEnvGitHubToken", () => {
   it("returns a trimmed env token when configured", () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "  env-token  ";
@@ -216,6 +262,45 @@ describe("ensureGhAuth", () => {
     expect(ensureGhAuth({ execImpl, spawnImpl })).toEqual({
       login: "testuser",
       token: "ghp_test123",
+      source: "gh",
+    });
+  });
+
+  it("does not relabel GITHUB_GRAPHQL_TOKEN as gh auth", () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "env-token";
+
+    const execImpl = vi.fn((command: string, args?: string[]) => {
+      if (command !== "gh") {
+        throw new Error("unexpected command");
+      }
+
+      const argKey = (args ?? []).join(" ");
+      if (argKey === "--version") {
+        return "gh version 2.0.0";
+      }
+      if (argKey === "auth token") {
+        return "ghp_test123\n";
+      }
+
+      throw new Error(`unexpected args: ${argKey}`);
+    }) as ExecMock;
+
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        "",
+        [
+          "github.com",
+          "  ✓ Logged in to github.com account testuser (/home/test/.config/gh/hosts.yml)",
+          "  - Token scopes: 'repo', 'read:org', 'project'",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    expect(ensureGhAuth({ execImpl, spawnImpl })).toEqual({
+      login: "testuser",
+      token: "ghp_test123",
+      source: "gh",
     });
   });
 

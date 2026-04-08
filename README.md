@@ -6,11 +6,15 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
-- **Either** **[GitHub CLI (`gh`)](https://cli.github.com/)** authenticated with required scopes:
-  ```bash
-  gh auth login --scopes repo,read:org,project
-  ```
-  **or** `GITHUB_GRAPHQL_TOKEN` set with `repo`, `read:org`, and `project`
+- One GitHub auth source with required scopes (`repo`, `read:org`, `project`):
+  - **[GitHub CLI (`gh`)](https://cli.github.com/)**:
+    ```bash
+    gh auth login --scopes repo,read:org,project
+    ```
+  - Or `GITHUB_GRAPHQL_TOKEN` for CI, containers, or token-only shells:
+    ```bash
+    export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+    ```
 
 ## Getting Started
 
@@ -31,6 +35,12 @@ Validate the local prerequisites before setup:
 ```bash
 gh-symphony doctor
 gh-symphony doctor --json
+```
+
+Token-only validation works without `gh`:
+
+```bash
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
 ### 2. Run Setup
@@ -137,7 +147,8 @@ gh-symphony project add
 Non-interactive mode:
 
 ```bash
-gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
 ```
 
 Managing projects:
@@ -217,9 +228,9 @@ gh-symphony config edit             # Open config in $EDITOR
 
 `gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. It checks local runtime prerequisites as well as GitHub setup:
 
+- the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes (`repo`, `read:org`, `project`)
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
-- `gh` installation, login status, and required scopes (`repo`, `read:org`, `project`)
 - active managed project resolution and GitHub Project binding lookup
 - config directory, runtime root, and managed workspace writability
 - repository `WORKFLOW.md` presence and parse validity
@@ -238,6 +249,8 @@ Repository sync also supports structured output:
 gh-symphony repo sync --json
 ```
 
+JSON output includes the resolved auth source as `env` or `gh`.
+
 ### Shell Completion
 
 ```bash
@@ -253,7 +266,7 @@ gh-symphony completion fish         # Print fish completion script
 
 ## Authentication
 
-GitHub Symphony supports two authentication paths:
+GitHub Symphony supports two authentication paths.
 
 1. `GITHUB_GRAPHQL_TOKEN` for local shells, containers, and CI-like environments
 2. `gh` CLI for interactive developer machines
@@ -270,14 +283,13 @@ Or if you need to add scopes to an existing login:
 gh auth refresh --scopes repo,read:org,project
 ```
 
-To use a token directly, set:
+Use `GITHUB_GRAPHQL_TOKEN` when `gh` is unavailable or undesirable:
 
 ```bash
 export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 ```
 
-The `GITHUB_GRAPHQL_TOKEN` environment variable takes priority over `gh` CLI.
-Interactive `gh-symphony workflow init` and `gh-symphony project add` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available.
+`GITHUB_GRAPHQL_TOKEN` takes priority over `gh` CLI. Interactive `gh-symphony workflow init` and `gh-symphony project add` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available. `gh-symphony doctor` also reports the resolved auth source as `env` or `gh`.
 
 ## WORKFLOW.md
 

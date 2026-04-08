@@ -18,6 +18,7 @@ type ExecError = Error & {
 };
 
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
+export type GitHubAuthSource = "env" | "gh";
 
 export class GhAuthError extends Error {
   constructor(
@@ -33,8 +34,6 @@ export class GhAuthError extends Error {
     this.name = "GhAuthError";
   }
 }
-
-export type GitHubAuthSource = "env" | "gh";
 
 export type ResolvedGitHubAuth = {
   source: GitHubAuthSource;
@@ -95,6 +94,12 @@ function classifyTokenValidationError(
 export function getEnvGitHubToken(): string | null {
   const token = process.env.GITHUB_GRAPHQL_TOKEN?.trim();
   return token ? token : null;
+}
+
+export function detectGitHubAuthSource(
+  envToken = process.env.GITHUB_GRAPHQL_TOKEN
+): GitHubAuthSource {
+  return envToken?.trim() ? "env" : "gh";
 }
 
 export function checkGhInstalled(opts?: { execImpl?: ExecImpl }): boolean {
@@ -168,6 +173,29 @@ export function getGhToken(opts?: {
     return envToken;
   }
 
+  return getGhTokenWithSource({
+    execImpl: opts?.execImpl,
+    envToken: undefined,
+  }).token;
+}
+
+export function getGhTokenWithSource(opts?: {
+  execImpl?: ExecImpl;
+  envToken?: string | undefined;
+}): {
+  token: string;
+  source: GitHubAuthSource;
+} {
+  const hasExplicitEnvToken =
+    opts !== undefined &&
+    Object.prototype.hasOwnProperty.call(opts, "envToken");
+  const envToken = hasExplicitEnvToken
+    ? opts.envToken?.trim() ?? null
+    : getEnvGitHubToken();
+  if (envToken) {
+    return { token: envToken, source: "env" };
+  }
+
   const execImpl = opts?.execImpl ?? execFileSync;
 
   try {
@@ -182,7 +210,7 @@ export function getGhToken(opts?: {
       throw new GhAuthError("token_failed", ghTokenReadErrorMessage());
     }
 
-    return token;
+    return { token, source: "gh" };
   } catch (error) {
     if (error instanceof GhAuthError) {
       throw error;
@@ -276,6 +304,7 @@ export function ensureGhAuth(opts?: {
 }): {
   login: string;
   token: string;
+  source: "gh";
 } {
   const execImpl = opts?.execImpl ?? execFileSync;
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
@@ -303,8 +332,11 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const token = getGhToken({ execImpl, allowEnv: false });
-  return { login: auth.login ?? "unknown", token };
+  const { token } = getGhTokenWithSource({
+    execImpl,
+    envToken: undefined,
+  });
+  return { login: auth.login ?? "unknown", token, source: "gh" };
 }
 
 function parseLogin(output: string): string | undefined {
