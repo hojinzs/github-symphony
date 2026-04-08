@@ -501,7 +501,8 @@ export class OrchestratorService {
           hasConvergenceLockedRun(
             projectRunsAfterReconcile,
             issue.id,
-            issue.state
+            issue.state,
+            issue.updatedAt
           )
         ) {
           return false;
@@ -3172,7 +3173,8 @@ function resolvePersistedCumulativeTurnCount(
 function hasConvergenceLockedRun(
   runs: readonly OrchestratorRunRecord[],
   issueId: string,
-  issueState: string
+  issueState: string,
+  issueUpdatedAt: string | null | undefined
 ): boolean {
   const latestRun = runs
     .filter((run) => run.issueId === issueId)
@@ -3181,10 +3183,22 @@ function hasConvergenceLockedRun(
         new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
     )[0];
 
-  return (
-    latestRun?.runtimeSession?.exitClassification === "convergence-detected" &&
-    latestRun.issueState === issueState
+  if (
+    latestRun?.runtimeSession?.exitClassification !== "convergence-detected" ||
+    latestRun.issueState !== issueState
+  ) {
+    return false;
+  }
+
+  const convergedAtMs = parseTimestampMs(
+    latestRun.completedAt ?? latestRun.updatedAt
   );
+  const issueUpdatedAtMs = parseTimestampMs(issueUpdatedAt);
+  if (convergedAtMs === null || issueUpdatedAtMs === null) {
+    return true;
+  }
+
+  return issueUpdatedAtMs <= convergedAtMs;
 }
 
 type IssueBudgetSnapshot = {

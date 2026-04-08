@@ -231,6 +231,13 @@ export function normalizeProjectItem(
           ]
         : []
   );
+  const issueUpdatedAtMs = parseTimestampMs(item.content.updatedAt);
+  const itemUpdatedAtMs = parseTimestampMs(item.updatedAt);
+  const trackedUpdatedAt =
+    itemUpdatedAtMs !== null &&
+    (issueUpdatedAtMs === null || itemUpdatedAtMs > issueUpdatedAtMs)
+      ? item.updatedAt
+      : item.content.updatedAt ?? item.updatedAt;
 
   return {
     id: item.content.id,
@@ -247,7 +254,7 @@ export function normalizeProjectItem(
       .sort(),
     blockedBy,
     createdAt: item.content.createdAt,
-    updatedAt: item.content.updatedAt ?? item.updatedAt,
+    updatedAt: trackedUpdatedAt,
     repository: {
       owner: repository.owner.login,
       name: repository.name,

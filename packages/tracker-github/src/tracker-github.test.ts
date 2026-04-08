@@ -152,6 +152,48 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.priority).toBe(1);
   });
 
+  it("uses the newer project item timestamp when it is later than the issue timestamp", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        id: "item-1",
+        updatedAt: "2026-03-14T00:05:00.000Z",
+        fieldValues: {
+          nodes: [
+            {
+              __typename: "ProjectV2ItemFieldSingleSelectValue",
+              name: "Ready",
+              field: { name: "Status" },
+            },
+          ],
+        },
+        content: {
+          __typename: "Issue",
+          id: "issue-1",
+          number: 1,
+          title: "Timestamp test",
+          body: null,
+          url: "https://github.com/acme/platform/issues/1",
+          createdAt: "2026-03-14T00:00:00.000Z",
+          updatedAt: "2026-03-14T00:04:00.000Z",
+          labels: { nodes: [] },
+          assignees: { nodes: [] },
+          repository: {
+            name: "platform",
+            url: "https://github.com/acme/platform",
+            owner: { login: "acme" },
+          },
+          blockedBy: {
+            nodes: [],
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.updatedAt).toBe("2026-03-14T00:05:00.000Z");
+  });
+
   it("keeps priority null when the configured project field cannot be mapped", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
