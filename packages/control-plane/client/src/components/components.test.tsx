@@ -2,6 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Badge, type BadgeVariant } from "./Badge.js";
 import { Button } from "./Button.js";
+import badgeStories from "./Badge.stories.js";
+import buttonStories from "./Button.stories.js";
+import foundationsPageStories from "../pages/FoundationsPage.stories.js";
 
 describe("Badge", () => {
   it.each<[BadgeVariant, string, string]>([
@@ -55,5 +58,26 @@ describe("Button", () => {
     expect(markup).toContain("<a");
     expect(markup).toContain("href=\"/issues/demo\"");
     expect(markup).not.toContain("<button");
+  });
+
+  it("maps disabled asChild state to aria/data attributes without forwarding disabled", () => {
+    const markup = renderToStaticMarkup(
+      <Button asChild disabled variant="ghost">
+        <a href="/issues/demo">Details</a>
+      </Button>
+    );
+
+    expect(markup).toContain("aria-disabled=\"true\"");
+    expect(markup).toContain("data-disabled=\"\"");
+    expect(markup).not.toMatch(/\sdisabled=/);
+    expect(markup).toContain("tabindex=\"-1\"");
+  });
+});
+
+describe("Storybook", () => {
+  it("registers component and page previews for regression checks", () => {
+    expect(badgeStories.title).toBe("Components/Badge");
+    expect(buttonStories.title).toBe("Components/Button");
+    expect(foundationsPageStories.title).toBe("Pages/Foundations");
   });
 });

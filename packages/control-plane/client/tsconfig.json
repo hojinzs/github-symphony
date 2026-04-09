@@ -4,5 +4,11 @@
     "jsx": "react-jsx",
     "types": ["react", "react-dom/client", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
+    "vite.config.ts"
+  ]
 }
