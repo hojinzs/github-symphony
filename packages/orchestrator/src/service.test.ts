@@ -87,7 +87,7 @@ describe("OrchestratorService", () => {
     );
   });
 
-  it("passes issue budget limits and cumulative delta usage baselines to worker env", async () => {
+  it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "12";
     process.env.SYMPHONY_MAX_TOKENS = "900";
@@ -200,17 +200,17 @@ describe("OrchestratorService", () => {
       const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
         | NodeJS.ProcessEnv
         | undefined;
-      expect(workerEnv?.SYMPHONY_GLOBAL_MAX_TURNS).toBe("12");
-      expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("900");
       expect(workerEnv?.SYMPHONY_MAX_NONPRODUCTIVE_TURNS).toBe("7");
-      expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("600000");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("6");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_INPUT_TOKENS).toBe("112");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_OUTPUT_TOKENS).toBe("58");
-      expect(workerEnv?.SYMPHONY_CUMULATIVE_TOTAL_TOKENS).toBe("170");
-      expect(workerEnv?.SYMPHONY_SESSION_STARTED_AT).toBe(
-        "2026-03-07T23:59:00.000Z"
-      );
+      expect(workerEnv?.SYMPHONY_GLOBAL_MAX_TURNS).toBe("");
+      expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("");
+      expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("");
+      expect(workerEnv?.SYMPHONY_RESUME_THREAD_ID).toBe("");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_TURN_COUNT).toBe("0");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_INPUT_TOKENS).toBe("0");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_OUTPUT_TOKENS).toBe("0");
+      expect(workerEnv?.SYMPHONY_CUMULATIVE_TOTAL_TOKENS).toBe("0");
+      expect(workerEnv?.SYMPHONY_LAST_TURN_SUMMARY).toBe("");
+      expect(workerEnv?.SYMPHONY_SESSION_STARTED_AT).toBe("");
     } finally {
       delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
       delete process.env.SYMPHONY_MAX_TOKENS;
@@ -257,7 +257,7 @@ describe("OrchestratorService", () => {
     }
   });
 
-  it("skips dispatch when an issue has already exhausted its global turn budget", async () => {
+  it("dispatches active issues even when previous runs hit the removed global turn budget override", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "4";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-budget-skip-"));
@@ -318,20 +318,16 @@ describe("OrchestratorService", () => {
 
       const result = await service.runOnce();
 
-      expect(result.summary.dispatched).toBe(0);
-      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(result.summary.dispatched).toBe(1);
+      expect(spawnImpl).toHaveBeenCalledTimes(1);
     } finally {
       delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("skips dispatch when default budget limits are exceeded without env overrides", async () => {
+  it("dispatches active issues even when previous runs exceeded legacy default budgets", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const originalGlobalMaxTurns = process.env.SYMPHONY_GLOBAL_MAX_TURNS;
-    const originalMaxTokens = process.env.SYMPHONY_MAX_TOKENS;
-    delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
-    delete process.env.SYMPHONY_MAX_TOKENS;
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-budget-defaults-")
     );
@@ -397,26 +393,15 @@ describe("OrchestratorService", () => {
 
       const result = await service.runOnce();
 
-      expect(result.summary.dispatched).toBe(0);
-      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(result.summary.dispatched).toBe(1);
+      expect(spawnImpl).toHaveBeenCalledTimes(1);
     } finally {
-      if (originalGlobalMaxTurns === undefined) {
-        delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
-      } else {
-        process.env.SYMPHONY_GLOBAL_MAX_TURNS = originalGlobalMaxTurns;
-      }
-      if (originalMaxTokens === undefined) {
-        delete process.env.SYMPHONY_MAX_TOKENS;
-      } else {
-        process.env.SYMPHONY_MAX_TOKENS = originalMaxTokens;
-      }
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("releases a completed worker session without retry when exitClassification is budget-exceeded", async () => {
+  it("redispatches an active issue after a legacy budget-exceeded session completes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    process.env.SYMPHONY_GLOBAL_MAX_TURNS = "4";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-budget-release-")
     );
@@ -497,24 +482,28 @@ describe("OrchestratorService", () => {
           .mockResolvedValue(
             createTrackerResponseWithState(repository, "Todo")
           ) as never,
+        spawnImpl: vi.fn().mockReturnValue({
+          pid: 4106,
+          unref: vi.fn(),
+        }) as never,
         isProcessRunning: () => false,
         now: () => new Date("2026-03-08T00:01:00.000Z"),
       });
 
-      await service.runOnce();
+      const result = await service.runOnce();
 
       const updatedRun = await store.loadRun("run-1");
       const issueRecords = await store.loadProjectIssueOrchestrations(
         projectConfig.projectId
       );
 
-      expect(updatedRun?.status).toBe("succeeded");
-      expect(updatedRun?.retryKind).toBeNull();
-      expect(updatedRun?.nextRetryAt).toBeNull();
-      expect(updatedRun?.completedAt).toBe("2026-03-08T00:01:00.000Z");
-      expect(issueRecords[0]?.state).toBe("released");
+      expect(updatedRun?.status).toBe("retrying");
+      expect(updatedRun?.retryKind).toBe("continuation");
+      expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:01:01.000Z");
+      expect(updatedRun?.lastError).toBeNull();
+      expect(result.summary.dispatched).toBe(0);
+      expect(issueRecords[0]?.state).toBe("retry_queued");
     } finally {
-      delete process.env.SYMPHONY_GLOBAL_MAX_TURNS;
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
@@ -1992,9 +1981,9 @@ Prefer focused changes.
         env: expect.objectContaining({
           SYMPHONY_ISSUE_STATE: "Todo",
           SYMPHONY_ISSUE_TITLE: "Test issue",
-          SYMPHONY_RESUME_THREAD_ID: "thread-legacy",
-          SYMPHONY_CUMULATIVE_TURN_COUNT: "4",
-          SYMPHONY_LAST_TURN_SUMMARY: "turn/completed",
+          SYMPHONY_RESUME_THREAD_ID: "",
+          SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
+          SYMPHONY_LAST_TURN_SUMMARY: "",
         }),
       })
     );
@@ -2005,7 +1994,7 @@ Prefer focused changes.
 
     expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");
-    expect(recoveredRun?.threadId).toBe("thread-legacy");
+    expect(recoveredRun?.threadId).toBeNull();
     expect(recoveredRun?.cumulativeTurnCount).toBe(4);
     expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");
     expect(recoveredRun?.turnCount).toBe(0);

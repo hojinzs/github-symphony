@@ -39,16 +39,6 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     expect(config.projectId).toBe("workspace-fallback");
   });
 
-  it("reads the resume thread id from environment", () => {
-    const config = resolveLocalRuntimeLaunchConfig({
-      PROJECT_ID: "workspace-resume",
-      WORKING_DIRECTORY: "/tmp/workspace-resume",
-      SYMPHONY_RESUME_THREAD_ID: "thread-123",
-    });
-
-    expect(config.resumeThreadId).toBe("thread-123");
-  });
-
   it("fails when the working directory is missing", () => {
     expect(() =>
       resolveLocalRuntimeLaunchConfig({
@@ -93,7 +83,6 @@ describe("runLocalRuntimeLauncher", () => {
       command: "bash",
       args: ["-lc", "codex app-server"],
       env: {},
-      resumeThreadId: null,
       tools: [
         {
           name: "github_graphql",
