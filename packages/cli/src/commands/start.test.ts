@@ -886,7 +886,7 @@ async function waitForHttpUrl(
   throw new Error(`Timed out waiting for HTTP server log. Output: ${output()}`);
 }
 
-async function createMockControlPlaneStartResult(port: number): Promise<{
+async function createMockControlPlaneStartResult(_port: number): Promise<{
   server: ReturnType<typeof createServer>;
   port: number;
   url: string;
@@ -897,7 +897,7 @@ async function createMockControlPlaneStartResult(port: number): Promise<{
   });
 
   await new Promise<void>((resolve) => {
-    server.listen(port, "0.0.0.0", () => resolve());
+    server.listen(0, "0.0.0.0", () => resolve());
   });
 
   const address = server.address();

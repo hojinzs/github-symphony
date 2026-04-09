@@ -34,6 +34,7 @@ const CLIENT_DIST_DIR_CANDIDATES = [
   WORKSPACE_CLIENT_DIST_DIR,
   NODE_MODULES_CLIENT_DIST_DIR,
 ];
+let clientDistDirPromise: Promise<string | null> | undefined;
 
 const TEXT_CONTENT_TYPES = new Set([
   "application/javascript",
@@ -278,17 +279,21 @@ async function existsAsFile(path: string): Promise<boolean> {
 }
 
 async function resolveClientDistDir(): Promise<string | null> {
-  for (const candidate of CLIENT_DIST_DIR_CANDIDATES) {
-    try {
-      if ((await stat(candidate)).isDirectory()) {
-        return candidate;
+  clientDistDirPromise ??= (async () => {
+    for (const candidate of CLIENT_DIST_DIR_CANDIDATES) {
+      try {
+        if ((await stat(candidate)).isDirectory()) {
+          return candidate;
+        }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
     }
-  }
 
-  return null;
+    return null;
+  })();
+
+  return clientDistDirPromise;
 }
 
 async function respondFile(
