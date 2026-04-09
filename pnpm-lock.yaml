@@ -54,6 +54,9 @@ importers:
         specifier: ^10.25.0
         version: 10.25.0
     devDependencies:
+      '@gh-symphony/control-plane':
+        specifier: workspace:*
+        version: link:../control-plane
       '@gh-symphony/core':
         specifier: workspace:*
         version: link:../core

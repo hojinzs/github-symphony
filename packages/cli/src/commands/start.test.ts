@@ -13,6 +13,7 @@ const status = vi.fn();
 const shutdown = vi.fn();
 const requestReconcile = vi.fn();
 const resolveDashboardResponse = vi.fn();
+const startControlPlaneServer = vi.fn();
 const serviceDependencies: Array<Record<string, unknown>> = [];
 
 vi.mock("@gh-symphony/orchestrator", () => ({
@@ -46,6 +47,10 @@ vi.mock("@gh-symphony/dashboard", () => ({
   resolveDashboardResponse,
 }));
 
+vi.mock("@gh-symphony/control-plane", () => ({
+  startControlPlaneServer,
+}));
+
 const startModule = await import("./start.js");
 
 beforeEach(() => {
@@ -57,11 +62,15 @@ beforeEach(() => {
   shutdown.mockResolvedValue(undefined);
   requestReconcile.mockReset();
   resolveDashboardResponse.mockReset();
+  startControlPlaneServer.mockReset();
   resolveDashboardResponse.mockImplementation(
     async ({ pathname, method }: { pathname: string; method?: string }) => ({
       status: 200,
       payload: { pathname, method: method ?? "GET" },
     })
+  );
+  startControlPlaneServer.mockImplementation(async ({ port }: { port: number }) =>
+    createMockControlPlaneStartResult(port)
   );
   serviceDependencies.length = 0;
 });
@@ -177,6 +186,31 @@ describe("start command foreground locking", () => {
     );
     expect(acquireProjectLock).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("rejects the conflicting --http --web combination", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default(
+        ["--project-id", "tenant-a", "--http", "--web"],
+        baseOptions(configDir)
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Options '--http' and '--web' cannot be used together"
+    );
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(startControlPlaneServer).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(2);
   });
 
@@ -381,6 +415,150 @@ describe("start command foreground locking", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(0);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+  });
+
+  it("starts the control plane server when --web is enabled", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      const startPromise = startModule.default(
+        ["--project-id", "tenant-a", "--web"],
+        baseOptions(configDir)
+      );
+
+      const url = await waitForHttpUrl(stdout.output);
+      expect(startControlPlaneServer).toHaveBeenCalledWith({
+        host: "0.0.0.0",
+        port: 4680,
+        runtimeRoot: configDir,
+        projectId: "tenant-a",
+        onRefreshRequest: expect.any(Function),
+      });
+
+      const httpState = JSON.parse(
+        await readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ) as { host: string; port: number; endpoint: string };
+      expect(httpState).toEqual({
+        host: "0.0.0.0",
+        port: Number.parseInt(new URL(url).port, 10),
+        endpoint: url,
+      });
+      expect(stdout.output()).toContain("Web dashboard listening on");
+
+      const onRefreshRequest = (
+        startControlPlaneServer.mock.calls[0]?.[0] as
+          | { onRefreshRequest?: () => void }
+          | undefined
+      )?.onRefreshRequest;
+      if (!onRefreshRequest) {
+        throw new Error("Expected onRefreshRequest callback");
+      }
+      onRefreshRequest();
+      expect(requestReconcile).toHaveBeenCalledTimes(1);
+
+      process.emit("SIGINT");
+      await startPromise;
+      await expect(
+        readFile(
+          join(
+            configDir,
+            "orchestrator",
+            "workspaces",
+            "tenant-a",
+            "http.json"
+          ),
+          "utf8"
+        )
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(releaseProjectLock).toHaveBeenCalledWith(lock);
+    expect(resolveDashboardResponse).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit port to the control plane server", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    let resolveRun: (() => void) | undefined;
+    run.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRun = resolve;
+        })
+    );
+    shutdown.mockImplementation(async () => {
+      resolveRun?.();
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+
+    const startPromise = startModule.default(
+      ["--project-id", "tenant-a", "--web", "4900"],
+      baseOptions(configDir)
+    );
+
+    await vi.waitFor(() => {
+      expect(startControlPlaneServer).toHaveBeenCalledWith({
+        host: "0.0.0.0",
+        port: 4900,
+        runtimeRoot: configDir,
+        projectId: "tenant-a",
+        onRefreshRequest: expect.any(Function),
+      });
+    });
+
+    process.emit("SIGINT");
+    await startPromise;
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("keeps the HTTP dashboard available after a one-shot tick until interrupted", async () => {
@@ -697,15 +875,41 @@ async function waitForHttpUrl(
     const match = output()
       .replace(ansiPattern, "")
       .match(
-      /HTTP dashboard listening on .*?(http:\/\/[^\s]+)/
+      /(HTTP|Web) dashboard listening on .*?(http:\/\/[^\s]+)/
     );
-    if (match?.[1]) {
-      return match[1];
+    if (match?.[2]) {
+      return match[2];
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 
   throw new Error(`Timed out waiting for HTTP server log. Output: ${output()}`);
+}
+
+async function createMockControlPlaneStartResult(port: number): Promise<{
+  server: ReturnType<typeof createServer>;
+  port: number;
+  url: string;
+}> {
+  const server = createServer((_, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "0.0.0.0", () => resolve());
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected TCP address");
+  }
+
+  return {
+    server,
+    port: address.port,
+    url: `http://localhost:${address.port}`,
+  };
 }
 
 async function fetchJsonWithRetry(

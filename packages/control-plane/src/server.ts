@@ -16,6 +16,24 @@ const CLIENT_DIST_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
   "../client/dist"
 );
+const BUNDLED_CLIENT_DIST_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../control-plane/client/dist"
+);
+const WORKSPACE_CLIENT_DIST_DIR = join(
+  process.cwd(),
+  "packages/control-plane/client/dist"
+);
+const NODE_MODULES_CLIENT_DIST_DIR = join(
+  process.cwd(),
+  "node_modules/@gh-symphony/control-plane/client/dist"
+);
+const CLIENT_DIST_DIR_CANDIDATES = [
+  CLIENT_DIST_DIR,
+  BUNDLED_CLIENT_DIST_DIR,
+  WORKSPACE_CLIENT_DIST_DIR,
+  NODE_MODULES_CLIENT_DIST_DIR,
+];
 
 const TEXT_CONTENT_TYPES = new Set([
   "application/javascript",
@@ -205,7 +223,12 @@ async function resolveStaticAsset(
   | { kind: "error"; status: 400 }
   | null
 > {
-  const indexPath = join(CLIENT_DIST_DIR, "index.html");
+  const clientDistDir = await resolveClientDistDir();
+  if (!clientDistDir) {
+    return null;
+  }
+
+  const indexPath = join(clientDistDir, "index.html");
   if (pathname === "/") {
     return (await existsAsFile(indexPath))
       ? { kind: "asset", path: indexPath, fallback: true }
@@ -219,8 +242,8 @@ async function resolveStaticAsset(
     return { kind: "error", status: 400 };
   }
 
-  const resolvedPath = resolve(CLIENT_DIST_DIR, `.${decodedPathname}`);
-  if (!isPathInsideClientDist(resolvedPath)) {
+  const resolvedPath = resolve(clientDistDir, `.${decodedPathname}`);
+  if (!isPathInsideClientDist(clientDistDir, resolvedPath)) {
     return null;
   }
 
@@ -237,8 +260,8 @@ async function resolveStaticAsset(
     : null;
 }
 
-function isPathInsideClientDist(path: string): boolean {
-  return path === CLIENT_DIST_DIR || path.startsWith(`${CLIENT_DIST_DIR}${sep}`);
+function isPathInsideClientDist(clientDistDir: string, path: string): boolean {
+  return path === clientDistDir || path.startsWith(`${clientDistDir}${sep}`);
 }
 
 function hasFileExtension(pathname: string): boolean {
@@ -252,6 +275,20 @@ async function existsAsFile(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function resolveClientDistDir(): Promise<string | null> {
+  for (const candidate of CLIENT_DIST_DIR_CANDIDATES) {
+    try {
+      if ((await stat(candidate)).isDirectory()) {
+        return candidate;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 async function respondFile(
