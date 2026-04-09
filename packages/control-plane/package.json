@@ -1,0 +1,61 @@
+{
+  "name": "@gh-symphony/control-plane",
+  "version": "0.0.14",
+  "private": true,
+  "license": "MIT",
+  "author": "hojinzs",
+  "description": "Operator-facing HTTP control plane for GitHub Symphony",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "client/dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hojinzs/github-symphony.git",
+    "directory": "packages/control-plane"
+  },
+  "homepage": "https://github.com/hojinzs/github-symphony#readme",
+  "bugs": {
+    "url": "https://github.com/hojinzs/github-symphony/issues"
+  },
+  "scripts": {
+    "build": "pnpm build:client && pnpm build:server",
+    "build:client": "vite build --config client/vite.config.ts",
+    "build:server": "tsup src/index.ts --format esm --dts --clean",
+    "dev:client": "vite --config client/vite.config.ts",
+    "dev:server": "tsup src/index.ts --watch --format esm",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/dashboard": "workspace:*"
+  },
+  "devDependencies": {
+    "@tanstack/router-plugin": "^1.132.6",
+    "@tanstack/react-router": "^1.132.6",
+    "@types/react": "^19.1.4",
+    "@types/react-dom": "^19.1.4",
+    "@vitejs/plugin-react": "^5.0.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tsup": "^8.5.1",
+    "vite": "^7.1.12"
+  }
+}
