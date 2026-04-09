@@ -96,6 +96,11 @@ export function createControlPlaneHandler(options: ControlPlaneHandlerOptions): 
         return;
       }
 
+      if (asset.kind === "error") {
+        respondJson(response, asset.status, { error: "Bad request" });
+        return;
+      }
+
       await respondFile(response, asset.path, method, asset.fallback);
     } catch (error) {
       console.error("Control plane request failed.", error);
@@ -195,30 +200,40 @@ function isStaticRequestMethod(method: string): boolean {
 
 async function resolveStaticAsset(
   pathname: string
-): Promise<{ path: string; fallback: boolean } | null> {
+): Promise<
+  | { kind: "asset"; path: string; fallback: boolean }
+  | { kind: "error"; status: 400 }
+  | null
+> {
   const indexPath = join(CLIENT_DIST_DIR, "index.html");
   if (pathname === "/") {
     return (await existsAsFile(indexPath))
-      ? { path: indexPath, fallback: true }
+      ? { kind: "asset", path: indexPath, fallback: true }
       : null;
   }
 
-  const decodedPathname = decodeURIComponent(pathname);
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return { kind: "error", status: 400 };
+  }
+
   const resolvedPath = resolve(CLIENT_DIST_DIR, `.${decodedPathname}`);
   if (!isPathInsideClientDist(resolvedPath)) {
     return null;
   }
 
   if (await existsAsFile(resolvedPath)) {
-    return { path: resolvedPath, fallback: false };
+    return { kind: "asset", path: resolvedPath, fallback: false };
   }
 
-  if (hasFileExtension(pathname)) {
+  if (hasFileExtension(decodedPathname)) {
     return null;
   }
 
   return (await existsAsFile(indexPath))
-    ? { path: indexPath, fallback: true }
+    ? { kind: "asset", path: indexPath, fallback: true }
     : null;
 }
 
@@ -247,8 +262,12 @@ async function respondFile(
 ): Promise<void> {
   const contentType = contentTypeForPath(path);
   const body = method === "HEAD" ? undefined : await readFile(path);
+  const cacheControl =
+    fallback || path.endsWith(`${sep}index.html`)
+      ? "no-cache"
+      : "public, max-age=31536000, immutable";
   response.writeHead(200, {
-    "cache-control": fallback ? "no-cache" : "public, max-age=31536000, immutable",
+    "cache-control": cacheControl,
     "content-type": contentType,
   });
   response.end(body);

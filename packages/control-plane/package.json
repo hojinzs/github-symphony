@@ -36,11 +36,11 @@
   "scripts": {
     "build": "pnpm build:client && pnpm build:server",
     "build:client": "vite build --config client/vite.config.ts",
-    "build:server": "pnpm --filter @gh-symphony/core build && pnpm --filter @gh-symphony/dashboard build && tsup src/index.ts --format esm --dts --clean",
+    "build:server": "tsup src/index.ts --format esm --dts --clean",
     "dev:client": "vite --config client/vite.config.ts",
     "dev:server": "tsup src/index.ts --watch --format esm",
     "lint": "eslint src --ext .ts",
-    "typecheck": "pnpm --filter @gh-symphony/core build && pnpm --filter @gh-symphony/dashboard build && tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

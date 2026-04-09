@@ -100,6 +100,34 @@ describe("createControlPlaneHandler", () => {
     await expect(response.text()).resolves.toBe("console.log(1);");
   });
 
+  it("returns 404 for missing assets with percent-encoded extensions", async () => {
+    await mkdir(CLIENT_DIST_DIR, { recursive: true });
+    await writeFile(
+      join(CLIENT_DIST_DIR, "index.html"),
+      "<!doctype html><div id=\"root\"></div>"
+    );
+    const handler = createControlPlaneHandler({ reader: createReader() as never });
+
+    const response = await fetchWithHandler(handler, "/assets/app%2Ejs");
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Not found" });
+  });
+
+  it("returns 400 for malformed percent-encoded paths", async () => {
+    await mkdir(CLIENT_DIST_DIR, { recursive: true });
+    await writeFile(
+      join(CLIENT_DIST_DIR, "index.html"),
+      "<!doctype html><div id=\"root\"></div>"
+    );
+    const handler = createControlPlaneHandler({ reader: createReader() as never });
+
+    const response = await fetchWithHandler(handler, "/%E0%A4%A");
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Bad request" });
+  });
+
   it("falls back to client/dist/index.html for SPA routes", async () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
@@ -113,6 +141,20 @@ describe("createControlPlaneHandler", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     await expect(response.text()).resolves.toContain("<div id=\"root\"></div>");
+  });
+
+  it("serves index.html with no-cache even when requested directly", async () => {
+    await mkdir(CLIENT_DIST_DIR, { recursive: true });
+    await writeFile(
+      join(CLIENT_DIST_DIR, "index.html"),
+      "<!doctype html><div id=\"root\"></div>"
+    );
+    const handler = createControlPlaneHandler({ reader: createReader() as never });
+
+    const response = await fetchWithHandler(handler, "/index.html");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-cache");
   });
 });
 
