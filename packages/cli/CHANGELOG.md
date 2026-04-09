@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.0.20
+
+### Patch Changes
+
+- [#196](https://github.com/hojinzs/github-symphony/pull/196) [`9a5dcca`](https://github.com/hojinzs/github-symphony/commit/9a5dcca7dc5549091b3f4e2c9f99a828f6d1b5a4) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Align worker session restarts with the Symphony spec so active issues are not suppressed after legacy issue-level budget totals are exceeded.
+
 ## 0.0.19
 
 ### Patch Changes
