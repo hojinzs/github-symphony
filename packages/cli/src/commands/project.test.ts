@@ -654,4 +654,25 @@ describe("project add interactive", () => {
       "Authenticated via GITHUB_GRAPHQL_TOKEN as env-user"
     );
   });
+
+  it("guides empty projects toward repo add validation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-empty-project-"));
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
+    );
+  });
 });

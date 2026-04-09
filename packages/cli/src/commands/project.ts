@@ -625,7 +625,7 @@ async function projectAddInteractive(
 
   if (projectDetail.linkedRepositories.length === 0) {
     p.log.warn(
-      "No linked repositories found in this project. Add issues from repositories to the project first."
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
     process.exitCode = 1;
     return;

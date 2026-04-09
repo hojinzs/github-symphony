@@ -16,6 +16,11 @@ const githubClientMock = vi.hoisted(() => ({
   validateToken: vi.fn(),
   checkRequiredScopes: vi.fn(),
   getProjectDetail: vi.fn(),
+  getRepositoryMetadata: vi.fn(),
+}));
+
+const ghAuthMock = vi.hoisted(() => ({
+  getGhToken: vi.fn(),
 }));
 
 vi.mock("../github/client.js", async (importOriginal) => {
@@ -26,8 +31,13 @@ vi.mock("../github/client.js", async (importOriginal) => {
     validateToken: githubClientMock.validateToken,
     checkRequiredScopes: githubClientMock.checkRequiredScopes,
     getProjectDetail: githubClientMock.getProjectDetail,
+    getRepositoryMetadata: githubClientMock.getRepositoryMetadata,
   };
 });
+
+vi.mock("../github/gh-auth.js", () => ({
+  getGhToken: ghAuthMock.getGhToken,
+}));
 
 async function loadRepoCommand() {
   vi.resetModules();
@@ -98,6 +108,7 @@ async function seedActiveProject(
 describe("repo sync", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    ghAuthMock.getGhToken.mockReset();
     delete process.env.GITHUB_GRAPHQL_TOKEN;
     process.exitCode = undefined;
   });
@@ -121,6 +132,7 @@ describe("repo sync", () => {
     ]);
 
     process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
     githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
     githubClientMock.validateToken.mockResolvedValue({
       login: "octocat",
@@ -202,6 +214,7 @@ describe("repo sync", () => {
     ]);
 
     process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
     githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
     githubClientMock.validateToken.mockResolvedValue({
       login: "octocat",
@@ -274,6 +287,7 @@ describe("repo sync", () => {
     ]);
 
     process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
     githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
     githubClientMock.validateToken.mockResolvedValue({
       login: "octocat",
@@ -494,5 +508,208 @@ describe("repo sync", () => {
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain("Active project is missing its GitHub Project binding");
+  });
+});
+
+describe("repo add", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    ghAuthMock.getGhToken.mockReset();
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+    process.exitCode = undefined;
+  });
+
+  it("stores canonical repository metadata after validation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-add-validated-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, []);
+    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
+    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
+    githubClientMock.getRepositoryMetadata.mockResolvedValue({
+      owner: "AcmeOrg",
+      name: "Platform",
+      url: "https://github.com/AcmeOrg/Platform",
+      cloneUrl: "git@github.com:AcmeOrg/Platform.git",
+      visibility: "private",
+    });
+
+    try {
+      await repoCommand(["add", "acmeorg/platform"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(githubClientMock.getRepositoryMetadata).toHaveBeenCalledWith(
+      { token: "gho_test" },
+      "acmeorg",
+      "platform"
+    );
+    expect(saved.repositories).toEqual([
+      {
+        owner: "AcmeOrg",
+        name: "Platform",
+        cloneUrl: "git@github.com:AcmeOrg/Platform.git",
+      },
+    ]);
+    expect(stdout.output()).toContain(
+      "Added repository after validation: AcmeOrg/Platform"
+    );
+  });
+
+  it("falls back to unvalidated save when authentication is unavailable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-add-no-auth-"));
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, []);
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
+    ghAuthMock.getGhToken.mockImplementation(() => {
+      throw new Error("no auth");
+    });
+
+    try {
+      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([
+      {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+    ]);
+    expect(stderr.output()).toContain(
+      "Warning: GitHub authentication is unavailable"
+    );
+    expect(stdout.output()).toContain(
+      "Added repository without validation: acme/platform"
+    );
+  });
+
+  it("falls back to unvalidated save when the GitHub API is offline", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-add-offline-"));
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, []);
+    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
+    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
+    const { GitHubRepositoryLookupError } = await import("../github/client.js");
+    githubClientMock.getRepositoryMetadata.mockRejectedValue(
+      new GitHubRepositoryLookupError(
+        "offline",
+        "GitHub repository validation could not reach the API.",
+        "Check your network connection and re-run the command to validate before saving."
+      )
+    );
+
+    try {
+      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([
+      {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+    ]);
+    expect(stderr.output()).toContain(
+      "Warning: GitHub repository validation could not reach the API. Saved the repository without validation."
+    );
+    expect(stdout.output()).toContain(
+      "Added repository without validation: acme/platform"
+    );
+  });
+
+  it("reports a missing repository with remediation and does not save it", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-add-not-found-"));
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, []);
+    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
+    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
+    const { GitHubRepositoryLookupError } = await import("../github/client.js");
+    githubClientMock.getRepositoryMetadata.mockRejectedValue(
+      new GitHubRepositoryLookupError(
+        "not_found",
+        "Repository acme/missing was not found.",
+        "Check the owner/name spelling. If the repository is private, confirm the current token can access it.",
+        404
+      )
+    );
+
+    try {
+      await repoCommand(["add", "acme/missing"], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([]);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("Repository acme/missing was not found.");
+    expect(stderr.output()).toContain("Check the owner/name spelling.");
+  });
+
+  it("reports rate limits with a distinct remediation message", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-add-rate-limit-"));
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, []);
+    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
+    ghAuthMock.getGhToken.mockReturnValue("gho_test");
+    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
+    const { GitHubRepositoryLookupError } = await import("../github/client.js");
+    githubClientMock.getRepositoryMetadata.mockRejectedValue(
+      new GitHubRepositoryLookupError(
+        "rate_limited",
+        "GitHub API rate limit blocked repository validation.",
+        "Wait for the rate limit window to reset, then re-run 'gh-symphony repo add owner/name'.",
+        403
+      )
+    );
+
+    try {
+      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "GitHub API rate limit blocked repository validation."
+    );
+    expect(stderr.output()).toContain("Wait for the rate limit window to reset");
   });
 });

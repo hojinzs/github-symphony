@@ -163,10 +163,18 @@ gh-symphony doctor                   # Validate local prerequisites, auth, confi
 gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
+gh-symphony repo add owner/name      # Validate and save a repo target manually
 gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
 gh-symphony repo sync --dry-run      # Preview linked repository drift
 gh-symphony repo sync --prune        # Remove local repositories no longer linked
 ```
+
+Use `gh-symphony repo add owner/name` as the onboarding safety check when a
+project starts empty or when you want to register a repository before it is
+linked on the GitHub Project board. Successful validation stores the canonical
+clone URL from the GitHub API. If auth is unavailable or the API is offline,
+the CLI still saves the repo with the fallback HTTPS clone URL and prints a
+warning that validation was skipped.
 
 Use `gh-symphony repo sync` when the GitHub Project board has gained or lost
 linked repositories since the project was first added locally. Default sync is
