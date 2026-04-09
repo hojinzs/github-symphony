@@ -145,6 +145,11 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 gh-symphony project add
 ```
 
+If the selected GitHub Project does not have any linked repositories yet, `gh-symphony project add` still saves the project. The CLI reports `0 repositories` and points to the two supported follow-up paths:
+
+- run `gh-symphony repo add <owner/name>` to register a repository immediately
+- add a repo-linked issue to the GitHub Project, then re-run setup later if you want the local repository list refreshed
+
 Non-interactive mode:
 
 ```bash
@@ -224,6 +229,8 @@ saved without validation.
 from the current GitHub Project `linkedRepositories`. The default mode is
 additive: newly linked repositories are added, while existing local-only
 entries stay in place until you opt into `--prune`.
+
+This is also the intended first-run recovery path when a newly created GitHub Project is still empty.
 
 ### Configuration
 

@@ -10,6 +10,7 @@ secrets
 .runtime
 evidence
 .idea
+packages/control-plane/client/src/routeTree.gen.ts
 
 # E2E runtime file (injected at test time, not committed)
 e2e/fixtures/issues.json

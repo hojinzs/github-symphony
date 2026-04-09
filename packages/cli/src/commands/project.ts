@@ -71,6 +71,41 @@ export type ProjectRegistrationOptions = {
   workspaceDir: string;
 };
 
+function formatProjectRepoSummary(
+  selectedRepos: ProjectDetail["linkedRepositories"],
+  totalLinked: number
+): string {
+  if (totalLinked === 0) {
+    return "none linked yet (0 linked)";
+  }
+
+  if (selectedRepos.length === totalLinked) {
+    return `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (all ${selectedRepos.length} linked)`;
+  }
+
+  if (selectedRepos.length === 0) {
+    return `none selected  (0 of ${totalLinked} linked)`;
+  }
+
+  return `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${totalLinked} linked)`;
+}
+
+function projectCreatedMessage(projectId: string, repositoryCount: number): string {
+  const lines = [
+    `Project "${projectId}" created with ${repositoryCount} repositor${repositoryCount === 1 ? "y" : "ies"}.`,
+    "Run 'gh-symphony start' to begin orchestration.",
+  ];
+
+  if (repositoryCount === 0) {
+    lines.push(
+      "Next step: run 'gh-symphony repo add <owner/name>' to register a repository.",
+      "Or add a repo-linked issue to the GitHub Project and re-run setup later."
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function displayScopeError(
   error: GitHubScopeError,
   retryCommand: string
@@ -519,8 +554,9 @@ async function projectAddNonInteractive(
       JSON.stringify({ projectId, status: "created" }) + "\n"
     );
   } else {
-    process.stdout.write(`Project created: ${projectId}\n`);
-    process.stdout.write(`Run 'gh-symphony start' to begin orchestration.\n`);
+    process.stdout.write(
+      projectCreatedMessage(projectId, project.linkedRepositories.length) + "\n"
+    );
   }
 }
 
@@ -627,8 +663,6 @@ async function projectAddInteractive(
     p.log.warn(
       "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
-    process.exitCode = 1;
-    return;
   }
 
   const {
@@ -645,10 +679,10 @@ async function projectAddInteractive(
     });
   const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
-  const repoSummary =
-    selectedRepos.length === projectDetail.linkedRepositories.length
-      ? `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (all ${selectedRepos.length} linked)`
-      : `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${projectDetail.linkedRepositories.length} linked)`;
+  const repoSummary = formatProjectRepoSummary(
+    selectedRepos,
+    projectDetail.linkedRepositories.length
+  );
 
   p.note(
     renderProjectRegistrationSummary({
@@ -692,9 +726,7 @@ async function projectAddInteractive(
     return;
   }
 
-  p.outro(
-    `Project "${projectId}" created.\n  Run 'gh-symphony start' to begin orchestration.`
-  );
+  p.outro(projectCreatedMessage(projectId, selectedRepos.length));
 }
 
 export async function promptProjectRegistrationOptions(input: {
@@ -723,24 +755,26 @@ export async function promptProjectRegistrationOptions(input: {
   let workspaceDir = input.defaultWorkspaceDir;
 
   if (customizeAdvancedOptions) {
-    const filterRepositories = await abortIfCancelled(
-      p.confirm({
-        message: "Filter specific repositories? (default: No)",
-        initialValue: false,
-      })
-    );
-
-    if (filterRepositories) {
-      selectedRepos = await abortIfCancelled(
-        p.multiselect({
-          message: "Select repositories to orchestrate:",
-          options: input.projectDetail.linkedRepositories.map((repo) => ({
-            value: repo,
-            label: `${repo.owner}/${repo.name}`,
-          })),
-          required: true,
+    if (input.projectDetail.linkedRepositories.length > 0) {
+      const filterRepositories = await abortIfCancelled(
+        p.confirm({
+          message: "Filter specific repositories? (default: No)",
+          initialValue: false,
         })
       );
+
+      if (filterRepositories) {
+        selectedRepos = await abortIfCancelled(
+          p.multiselect({
+            message: "Select repositories to orchestrate:",
+            options: input.projectDetail.linkedRepositories.map((repo) => ({
+              value: repo,
+              label: `${repo.owner}/${repo.name}`,
+            })),
+            required: true,
+          })
+        );
+      }
     }
 
     workspaceDir = await abortIfCancelled(

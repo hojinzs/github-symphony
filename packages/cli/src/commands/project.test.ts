@@ -363,6 +363,13 @@ const MOCK_PROJECT_DETAIL = {
   linkedRepositories: MOCK_REPOS,
 };
 
+const EMPTY_PROJECT_DETAIL = {
+  ...MOCK_PROJECT_DETAIL,
+  id: "PVT_project_empty",
+  title: "Empty Project",
+  linkedRepositories: [],
+};
+
 function mockSpinner() {
   return {
     start: vi.fn(),
@@ -373,6 +380,7 @@ function mockSpinner() {
 describe("project add interactive", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    process.exitCode = undefined;
     vi.mocked(p.intro).mockImplementation(() => undefined);
     vi.mocked(p.outro).mockImplementation(() => undefined);
     vi.mocked(p.cancel).mockImplementation(() => undefined);
@@ -620,6 +628,56 @@ describe("project add interactive", () => {
     });
   });
 
+  it("allows saving a project with no linked repositories and shows next actions", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-empty-"));
+    const projectId = generateProjectId(
+      EMPTY_PROJECT_DETAIL.title,
+      EMPTY_PROJECT_DETAIL.id
+    );
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
+      EMPTY_PROJECT_DETAIL
+    );
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    const confirmSpy = vi
+      .mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const project = JSON.parse(
+      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(confirmSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        message: "Customize advanced options? (default: No)",
+      })
+    );
+    expect(project.repositories).toEqual([]);
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "No linked repositories found in this project yet. You can save it now and add repositories later with 'gh-symphony repo add <owner/name>' or by adding a repo-linked issue to the GitHub Project."
+    );
+    expect(p.note).toHaveBeenCalledWith(
+      expect.stringContaining("Repos:      none linked yet (0 linked)"),
+      "Configuration Summary"
+    );
+    expect(p.outro).toHaveBeenCalledWith(
+      expect.stringContaining(`Project "${projectId}" created with 0 repositories.`)
+    );
+    expect(p.outro).toHaveBeenCalledWith(
+      expect.stringContaining("gh-symphony repo add <owner/name>")
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it("reports env auth usage when GITHUB_GRAPHQL_TOKEN is selected", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "project-add-env-auth-"));
     const authSpinner = mockSpinner();
@@ -674,5 +732,108 @@ describe("project add interactive", () => {
     expect(p.log.warn).toHaveBeenCalledWith(
       "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
+  });
+});
+
+describe("project add non-interactive", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
+    vi.spyOn(ghAuth, "getGhTokenWithSource").mockReturnValue({
+      token: "test-token",
+      source: "gh",
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "validateToken").mockResolvedValue({
+      login: "stevelee",
+      scopes: ["repo", "read:org", "project"],
+    } as never);
+    vi.spyOn(githubClient, "checkRequiredScopes").mockReturnValue({
+      valid: true,
+      missing: [],
+    });
+    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
+      MOCK_PROJECT_SUMMARY,
+    ]);
+  });
+
+  it("prints zero-repository completion guidance in non-interactive mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-non-interactive-empty-"));
+    const stdout = captureWrites(process.stdout);
+    const projectId = generateProjectId(
+      EMPTY_PROJECT_DETAIL.title,
+      EMPTY_PROJECT_DETAIL.id
+    );
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
+      EMPTY_PROJECT_DETAIL
+    );
+
+    try {
+      await projectCommand(
+        ["add", "--non-interactive", "--project", MOCK_PROJECT_SUMMARY.id],
+        {
+          configDir,
+          verbose: false,
+          json: false,
+          noColor: true,
+        }
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const project = JSON.parse(
+      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(project.repositories).toEqual([]);
+    expect(stdout.output()).toContain(
+      `Project "${projectId}" created with 0 repositories.`
+    );
+    expect(stdout.output()).toContain("gh-symphony repo add <owner/name>");
+    expect(stdout.output()).toContain(
+      "Or add a repo-linked issue to the GitHub Project and re-run setup later."
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("prints repository count without zero-repository follow-up when linked repositories exist", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-non-interactive-linked-"));
+    const stdout = captureWrites(process.stdout);
+    const projectId = generateProjectId(
+      MOCK_PROJECT_DETAIL.title,
+      MOCK_PROJECT_DETAIL.id
+    );
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
+      MOCK_PROJECT_DETAIL
+    );
+
+    try {
+      await projectCommand(
+        ["add", "--non-interactive", "--project", MOCK_PROJECT_DETAIL.url],
+        {
+          configDir,
+          verbose: false,
+          json: false,
+          noColor: true,
+        }
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const project = JSON.parse(
+      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(project.repositories).toHaveLength(3);
+    expect(stdout.output()).toContain(
+      `Project "${projectId}" created with 3 repositories.`
+    );
+    expect(stdout.output()).toContain(
+      "Run 'gh-symphony start' to begin orchestration."
+    );
+    expect(stdout.output()).not.toContain("gh-symphony repo add <owner/name>");
+    expect(process.exitCode).toBeUndefined();
   });
 });

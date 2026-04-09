@@ -156,6 +156,8 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 gh-symphony project add
 ```
 
+If the selected GitHub Project is brand new and has no linked repositories yet, the setup still succeeds. The completion message reports `0 repositories` and suggests either `gh-symphony repo add <owner/name>` or adding a repo-linked issue to the GitHub Project.
+
 ### Project Management
 
 ```bash
@@ -180,6 +182,8 @@ Use `gh-symphony repo sync` when the GitHub Project board has gained or lost
 linked repositories since the project was first added locally. Default sync is
 additive; `--prune` switches to strict alignment, and `--json` prints the added,
 removed, unchanged, and final repository sets.
+
+For empty projects, use `gh-symphony repo add owner/name` after setup to seed the local repository list without re-running the whole wizard.
 
 ## 4. Run the Orchestrator
 
