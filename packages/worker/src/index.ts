@@ -33,6 +33,7 @@ import { resolveExitRunPhase } from "./run-phase.js";
 import {
   buildContinuationTurnInput,
 } from "./thread-resume.js";
+import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -574,7 +575,9 @@ async function runCodexClientProtocol(
     return;
   }
 
-  const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
+  const { maxTurns, exhaustedBeforeStart } = resolveMaxTurns(
+    env.SYMPHONY_MAX_TURNS
+  );
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
   const maxNonProductiveTurns = resolveMaxNonProductiveTurns(env);
@@ -1130,7 +1133,12 @@ async function runCodexClientProtocol(
     let turnCount = 0;
     let requestIdCounter = 0;
 
-    let maxTurnsReached = false;
+    let maxTurnsReached = exhaustedBeforeStart;
+    if (exhaustedBeforeStart) {
+      process.stderr.write(
+        `[worker] max_turns (${String(env.SYMPHONY_MAX_TURNS ?? maxTurns)}) does not allow any turns for this worker session — exiting\n`
+      );
+    }
 
     for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
