@@ -31,22 +31,12 @@ import {
 } from "./convergence-detection.js";
 import { resolveExitRunPhase } from "./run-phase.js";
 import {
-  resolveBudgetExceededReason,
-  resolveSessionBudgetState,
-  type BudgetExceededReason,
-  type TokenUsageSnapshot,
-} from "./session-budget.js";
-import {
   buildContinuationTurnInput,
-  buildInitialTurnInput,
-  parseNonNegativeInteger,
-  resolveRemainingTurns,
-  type ThreadBootstrapMode,
 } from "./thread-resume.js";
-import { persistTokenUsageArtifact } from "./token-usage.js";
+import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
-const sessionBudgetState = resolveSessionBudgetState(launcherEnv);
+type TokenUsageSnapshot = TokenUsage;
 const runtimeState: {
   status: "idle" | "starting" | "running" | "failed" | "completed";
   executionPhase: WorkflowExecutionPhase | null;
@@ -102,9 +92,9 @@ const runtimeState: {
       }
     : null,
   tokenUsage: {
-    inputTokens: sessionBudgetState.tokenUsageBaseline.inputTokens,
-    outputTokens: sessionBudgetState.tokenUsageBaseline.outputTokens,
-    totalTokens: sessionBudgetState.tokenUsageBaseline.totalTokens,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
   },
   lastEventAt: null,
   rateLimits: null,
@@ -385,7 +375,7 @@ function resolveTurnTokenUsageDelta(
 }
 
 function resolveSessionTokenUsageDelta(): TokenUsageSnapshot {
-  return resolveTurnTokenUsageDelta(sessionBudgetState.tokenUsageBaseline);
+  return cloneTokenUsageSnapshot();
 }
 
 async function persistSessionTokenUsageArtifact(
@@ -585,20 +575,14 @@ async function runCodexClientProtocol(
   }
 
   const maxTurns = Number(env.SYMPHONY_MAX_TURNS) || 20;
-  const cumulativeTurnCount = parseNonNegativeInteger(
-    env.SYMPHONY_CUMULATIVE_TURN_COUNT
-  );
-  const remainingTurns = resolveRemainingTurns(maxTurns, cumulativeTurnCount);
   const readTimeoutMs = Number(env.SYMPHONY_READ_TIMEOUT_MS) || 5000;
   const turnTimeoutMs = Number(env.SYMPHONY_TURN_TIMEOUT_MS) || 3600000;
   const maxNonProductiveTurns = resolveMaxNonProductiveTurns(env);
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER ?? "";
-  const lastTurnSummary = env.SYMPHONY_LAST_TURN_SUMMARY ?? null;
   const continuationGuidance =
     env.SYMPHONY_CONTINUATION_GUIDANCE ?? options.continuationGuidance;
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
-  const budgetState = resolveSessionBudgetState(env);
   let previousTurnProgressSnapshot = {
     ...captureTurnWorkspaceSnapshot(plan.cwd),
     lastError: runtimeState.run?.lastError ?? null,
@@ -632,30 +616,8 @@ async function runCodexClientProtocol(
   type TurnTerminalFailurePhase = "failed" | "canceled_by_reconciliation";
   let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
-  let budgetExceededReason: BudgetExceededReason | null = null;
   let consecutiveNonProductiveTurns = 0;
   let convergenceDetected = false;
-
-  function checkSessionBudgets(
-    currentSessionTurnCount: number
-  ): BudgetExceededReason | null {
-    return resolveBudgetExceededReason(
-      budgetState,
-      currentSessionTurnCount,
-      {
-        inputTokens:
-          runtimeState.tokenUsage.inputTokens -
-          budgetState.tokenUsageBaseline.inputTokens,
-        outputTokens:
-          runtimeState.tokenUsage.outputTokens -
-          budgetState.tokenUsageBaseline.outputTokens,
-        totalTokens:
-          runtimeState.tokenUsage.totalTokens -
-          budgetState.tokenUsageBaseline.totalTokens,
-      },
-      new Date()
-    );
-  }
 
   function resolvePendingTurnCompletion(): void {
     if (turnCompletedResolve) {
@@ -1122,31 +1084,6 @@ async function runCodexClientProtocol(
       };
     }
 
-    if (remainingTurns <= 0) {
-      process.stderr.write(
-        `[worker] max_turns already exhausted by previous sessions (${cumulativeTurnCount}/${maxTurns})\n`
-      );
-      runtimeState.status = "completed";
-      runtimeState.runPhase = "succeeded";
-      runtimeState.sessionInfo.exitClassification = classifySessionExit({
-        runPhase: runtimeState.runPhase,
-        userInputRequired: false,
-        budgetExceeded: false,
-        convergenceDetected: false,
-        maxTurnsReached: true,
-      });
-      stopOrchestratorHeartbeatTimer();
-      emitOrchestratorHeartbeat();
-      await persistSessionTokenUsageArtifact(env);
-      await waitForPendingOrchestratorChannelFlush(
-        resolveTerminalOrchestratorChannelFlushTimeoutMs()
-      );
-      setTimeout(() => {
-        process.exit(0);
-      }, 1500);
-      return;
-    }
-
     const baseThreadParams = {
       cwd: plan.cwd,
       developerInstructions: renderedPrompt,
@@ -1156,54 +1093,15 @@ async function runCodexClientProtocol(
         mcp_servers: mcpServers,
       },
     };
-    const resumeThreadId = plan.resumeThreadId;
-    let threadBootstrapMode: ThreadBootstrapMode = "fresh";
 
     process.stderr.write(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
     );
 
-    let threadResult: Record<string, unknown>;
-    if (resumeThreadId) {
-      process.stderr.write(
-        `[worker] attempting thread/resume for ${resumeThreadId}\n`
-      );
-      try {
-        threadResult = (await sendRequestWithTimeout(
-          "thread-resume-1",
-          "thread/resume",
-          {
-            ...baseThreadParams,
-            threadId: resumeThreadId,
-          }
-        )) as Record<string, unknown>;
-        threadBootstrapMode = "resume";
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error ?? "unknown");
-        threadBootstrapMode = "soft-resume";
-        process.stderr.write(
-          `[worker] thread/resume failed for ${resumeThreadId}: ${message}; falling back to thread/start\n`
-        );
-        threadResult = (await sendRequestWithTimeout(
-          "thread-1",
-          "thread/start",
-          {
-            ...baseThreadParams,
-            ephemeral: false,
-          }
-        )) as Record<string, unknown>;
-      }
-    } else {
-      threadResult = (await sendRequestWithTimeout(
-        "thread-1",
-        "thread/start",
-        {
-          ...baseThreadParams,
-          ephemeral: false,
-        }
-      )) as Record<string, unknown>;
-    }
+    const threadResult = (await sendRequestWithTimeout("thread-1", "thread/start", {
+      ...baseThreadParams,
+      ephemeral: false,
+    })) as Record<string, unknown>;
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??
@@ -1234,35 +1132,20 @@ async function runCodexClientProtocol(
 
     let maxTurnsReached = false;
 
-    for (let turn = 0; turn < remainingTurns; turn++) {
-      budgetExceededReason = checkSessionBudgets(turn);
-      if (budgetExceededReason) {
-        process.stderr.write(
-          `[worker] session budget exceeded (${budgetExceededReason}) — exiting\n`
-        );
-        break;
-      }
+    for (let turn = 0; turn < maxTurns; turn++) {
       turnCount = turn + 1;
-      const globalTurnCount = cumulativeTurnCount + turnCount;
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
       const turnInput = isFirstTurn
-        ? buildInitialTurnInput({
-            renderedPrompt,
-            mode: threadBootstrapMode,
-            lastTurnSummary,
-            cumulativeTurnCount,
-            continuationGuidance,
-          })
+        ? renderedPrompt
         : buildContinuationTurnInput({
             continuationGuidance,
-            lastTurnSummary,
-            cumulativeTurnCount: globalTurnCount - 1,
+            cumulativeTurnCount: turn,
           });
 
       process.stderr.write(
-        `[worker] starting codex turn ${globalTurnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
+        `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
       );
 
       requestIdCounter += 1;
@@ -1321,19 +1204,11 @@ async function runCodexClientProtocol(
         break;
       }
 
-      budgetExceededReason = checkSessionBudgets(turnCount);
-      if (budgetExceededReason) {
-        process.stderr.write(
-          `[worker] session budget exceeded (${budgetExceededReason}) — exiting\n`
-        );
-        break;
-      }
-
       // Check if we should continue with another turn
-      if (turn + 1 >= remainingTurns) {
+      if (turn + 1 >= maxTurns) {
         maxTurnsReached = true;
         process.stderr.write(
-          `[worker] max_turns (${maxTurns}) reached across sessions — exiting\n`
+          `[worker] max_turns (${maxTurns}) reached for this worker session — exiting\n`
         );
         break;
       }
@@ -1404,7 +1279,7 @@ async function runCodexClientProtocol(
     runtimeState.sessionInfo.exitClassification = classifySessionExit({
       runPhase: runtimeState.runPhase,
       userInputRequired,
-      budgetExceeded: budgetExceededReason !== null,
+      budgetExceeded: false,
       convergenceDetected,
       maxTurnsReached,
     });

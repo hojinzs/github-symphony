@@ -58,8 +58,6 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
-const DEFAULT_GLOBAL_MAX_TURNS = 100;
-const DEFAULT_MAX_TOKENS = 256_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
@@ -545,15 +543,6 @@ export class OrchestratorService {
         ) {
           continue;
         }
-        if (
-          isIssueBudgetExceeded(
-            resolveIssueBudgetSnapshot(projectRunsAfterReconcile, issue.id),
-            now
-          )
-        ) {
-          continue;
-        }
-
         // Per-state concurrency check: skip if state limit reached
         const stateLimit = maxConcurrentByState[issue.state];
         if (stateLimit !== undefined) {
@@ -1156,12 +1145,7 @@ export class OrchestratorService {
 
   private async startRun(
     tenant: OrchestratorProjectConfig,
-    issue: TrackedIssue,
-    resumeContext?: {
-      threadId: string | null;
-      cumulativeTurnCount: number;
-      lastTurnSummary: string | null;
-    }
+    issue: TrackedIssue
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
       throw new Error(
@@ -1262,13 +1246,6 @@ export class OrchestratorService {
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
       );
     }
-    const allProjectRuns = (await this.store.loadAllRuns()).filter(
-      (run) => run.projectId === tenant.projectId
-    );
-    const issueBudgetSnapshot = resolveIssueBudgetSnapshot(
-      allProjectRuns,
-      issue.id
-    );
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
@@ -1360,34 +1337,21 @@ export class OrchestratorService {
           SYMPHONY_TURN_SANDBOX_POLICY:
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
-          SYMPHONY_GLOBAL_MAX_TURNS:
-            process.env.SYMPHONY_GLOBAL_MAX_TURNS ?? "",
-          SYMPHONY_MAX_TOKENS: process.env.SYMPHONY_MAX_TOKENS ?? "",
           SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
             process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
             String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),
-          SYMPHONY_SESSION_TIMEOUT_MS:
-            process.env.SYMPHONY_SESSION_TIMEOUT_MS ?? "",
-          SYMPHONY_RESUME_THREAD_ID: resumeContext?.threadId ?? "",
-          SYMPHONY_CUMULATIVE_TURN_COUNT: String(
-            Math.max(
-              0,
-              resumeContext?.cumulativeTurnCount ??
-                issueBudgetSnapshot.cumulativeTurnCount
-            )
-          ),
-          SYMPHONY_CUMULATIVE_INPUT_TOKENS: String(
-            issueBudgetSnapshot.tokenUsage.inputTokens
-          ),
-          SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: String(
-            issueBudgetSnapshot.tokenUsage.outputTokens
-          ),
-          SYMPHONY_CUMULATIVE_TOTAL_TOKENS: String(
-            issueBudgetSnapshot.tokenUsage.totalTokens
-          ),
-          SYMPHONY_LAST_TURN_SUMMARY: resumeContext?.lastTurnSummary ?? "",
-          SYMPHONY_SESSION_STARTED_AT:
-            issueBudgetSnapshot.sessionStartedAt ?? "",
+          // Clear legacy resume/budget env so fresh worker sessions do not
+          // inherit stale process-level values.
+          SYMPHONY_GLOBAL_MAX_TURNS: "",
+          SYMPHONY_MAX_TOKENS: "",
+          SYMPHONY_SESSION_TIMEOUT_MS: "",
+          SYMPHONY_RESUME_THREAD_ID: "",
+          SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
+          SYMPHONY_CUMULATIVE_INPUT_TOKENS: "0",
+          SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
+          SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
+          SYMPHONY_LAST_TURN_SUMMARY: "",
+          SYMPHONY_SESSION_STARTED_AT: "",
           SYMPHONY_READ_TIMEOUT_MS: String(
             workflow.workflow.codex.readTimeoutMs
           ),
@@ -1749,30 +1713,17 @@ export class OrchestratorService {
       return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
     }
 
-    if (
-      workerInfo.exitClassification === "budget-exceeded" ||
-      workerInfo.exitClassification === "convergence-detected"
-    ) {
+    if (workerInfo.exitClassification === "convergence-detected") {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
-        status:
-          workerInfo.exitClassification === "budget-exceeded"
-            ? "succeeded"
-            : "failed",
+        status: "failed",
         processId: null,
         updatedAt: now.toISOString(),
         completedAt: now.toISOString(),
         nextRetryAt: null,
         retryKind: null,
-        lastError:
-          workerInfo.exitClassification === "budget-exceeded"
-            ? null
-            : runWithTokens.lastError,
-        runPhase:
-          runWithTokens.runPhase ??
-          (workerInfo.exitClassification === "budget-exceeded"
-            ? "succeeded"
-            : "failed"),
+        lastError: runWithTokens.lastError,
+        runPhase: runWithTokens.runPhase ?? "failed",
       };
       await this.store.saveRun(completedRun);
       this.logVerbose(
@@ -2278,19 +2229,6 @@ export class OrchestratorService {
     trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<"restart" | "release"> {
     try {
-      if (
-        isIssueBudgetExceeded(
-          resolveIssueBudgetSnapshot(
-            (await this.store.loadAllRuns()).filter(
-              (candidate) => candidate.projectId === tenant.projectId
-            ),
-            run.issueId
-          ),
-          this.now()
-        )
-      ) {
-        return "release";
-      }
       const eligibleContext = await this.fetchTrackedIssueEligibilityContext(
         tenant,
         run.issueIdentifier,
@@ -2505,18 +2443,14 @@ export class OrchestratorService {
       tenant,
       run
     );
-    const restarted = await this.startRun(tenant, issue, {
-      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
-      cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
-      lastTurnSummary: run.lastTurnSummary ?? null,
-    });
+    const restarted = await this.startRun(tenant, issue);
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
       retryKind: run.retryKind ?? "recovery",
       createdAt: run.createdAt,
       issueWorkspaceKey: run.issueWorkspaceKey,
-      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
+      threadId: null,
       cumulativeTurnCount: resolvePersistedCumulativeTurnCount(run),
       lastTurnSummary: run.lastTurnSummary ?? null,
       turnCount: 0,
@@ -3185,88 +3119,6 @@ function hasConvergenceLockedRun(
     latestRun?.runtimeSession?.exitClassification === "convergence-detected" &&
     latestRun.issueState === issueState
   );
-}
-
-type IssueBudgetSnapshot = {
-  cumulativeTurnCount: number;
-  tokenUsage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  sessionStartedAt: string | null;
-};
-
-function resolveIssueBudgetSnapshot(
-  runs: OrchestratorRunRecord[],
-  issueId: string
-): IssueBudgetSnapshot {
-  const issueRuns = runs.filter((run) => run.issueId === issueId);
-  const startedAtCandidates = issueRuns
-    .map((run) => run.startedAt)
-    .filter((value): value is string => typeof value === "string");
-
-  return {
-    cumulativeTurnCount: issueRuns.reduce(
-      (total, run) => total + resolvePersistedCumulativeTurnCount(run),
-      0
-    ),
-    tokenUsage: issueRuns.reduce(
-      (total, run) => ({
-        inputTokens: total.inputTokens + (run.tokenUsage?.inputTokens ?? 0),
-        outputTokens: total.outputTokens + (run.tokenUsage?.outputTokens ?? 0),
-        totalTokens: total.totalTokens + (run.tokenUsage?.totalTokens ?? 0),
-      }),
-      {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      }
-    ),
-    sessionStartedAt:
-      startedAtCandidates.sort((left, right) => left.localeCompare(right))[0] ??
-      null,
-  };
-}
-
-function isIssueBudgetExceeded(
-  snapshot: IssueBudgetSnapshot,
-  now: Date,
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  const globalMaxTurns =
-    parsePositiveInteger(env.SYMPHONY_GLOBAL_MAX_TURNS ?? "") ??
-    DEFAULT_GLOBAL_MAX_TURNS;
-  if (snapshot.cumulativeTurnCount >= globalMaxTurns) {
-    return true;
-  }
-
-  const maxTokens =
-    parsePositiveInteger(env.SYMPHONY_MAX_TOKENS ?? "") ?? DEFAULT_MAX_TOKENS;
-  if (snapshot.tokenUsage.totalTokens >= maxTokens) {
-    return true;
-  }
-
-  const sessionTimeoutMs = parsePositiveInteger(
-    env.SYMPHONY_SESSION_TIMEOUT_MS ?? ""
-  );
-  if (sessionTimeoutMs === null || snapshot.sessionStartedAt === null) {
-    return false;
-  }
-
-  return (
-    now.getTime() - new Date(snapshot.sessionStartedAt).getTime() >=
-    sessionTimeoutMs
-  );
-}
-
-function parsePositiveInteger(value: string): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  return Math.floor(parsed);
 }
 
 function resolveCumulativeTurnCount(
