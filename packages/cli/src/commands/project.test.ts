@@ -663,7 +663,7 @@ describe("project add interactive", () => {
     );
     expect(project.repositories).toEqual([]);
     expect(p.log.warn).toHaveBeenCalledWith(
-      "No linked repositories found in this project yet. You can save it now and add repositories later with 'gh-symphony repo add <owner/name>' or by adding a repo-linked issue to the GitHub Project."
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Repos:      none linked yet (0 linked)"),
@@ -720,6 +720,10 @@ describe("project add interactive", () => {
       linkedRepositories: [],
     });
     vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
 
     await projectCommand(["add"], {
       configDir,
@@ -728,7 +732,7 @@ describe("project add interactive", () => {
       noColor: true,
     });
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBeUndefined();
     expect(p.log.warn).toHaveBeenCalledWith(
       "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
