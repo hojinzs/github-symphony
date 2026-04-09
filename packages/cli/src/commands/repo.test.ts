@@ -532,7 +532,7 @@ describe("repo add", () => {
       owner: "AcmeOrg",
       name: "Platform",
       url: "https://github.com/AcmeOrg/Platform",
-      cloneUrl: "git@github.com:AcmeOrg/Platform.git",
+      cloneUrl: "https://github.com/AcmeOrg/Platform.git",
       visibility: "private",
     });
 
@@ -555,12 +555,39 @@ describe("repo add", () => {
       {
         owner: "AcmeOrg",
         name: "Platform",
-        cloneUrl: "git@github.com:AcmeOrg/Platform.git",
+        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
       },
     ]);
     expect(stdout.output()).toContain(
       "Added repository after validation: AcmeOrg/Platform"
     );
+  });
+
+  it("removes a validated repository regardless of input casing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-remove-casing-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, [
+      {
+        owner: "AcmeOrg",
+        name: "Platform",
+        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
+      },
+    ]);
+
+    try {
+      await repoCommand(["remove", "acmeorg/platform"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([]);
+    expect(stdout.output()).toContain("Removed repository: acmeorg/platform");
   });
 
   it("falls back to unvalidated save when authentication is unavailable", async () => {

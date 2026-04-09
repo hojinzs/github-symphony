@@ -326,8 +326,9 @@ async function repoRemove(
   }
 
   const [owner, name] = repoSpec.split("/");
+  const requestedRepo = { owner, name };
   const idx = ws.repositories.findIndex(
-    (r: RepoConfigEntry) => r.owner === owner && r.name === name
+    (r: RepoConfigEntry) => repoKey(r) === repoKey(requestedRepo)
   );
 
   if (idx === -1) {
@@ -338,7 +339,7 @@ async function repoRemove(
 
   ws.repositories.splice(idx, 1);
   await saveProjectConfig(options.configDir, global.activeProject, ws);
-  process.stdout.write(`Removed repository: ${repoSpec}\n`);
+  process.stdout.write(`Removed repository: ${formatRepoSpec(requestedRepo)}\n`);
 }
 
 async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
