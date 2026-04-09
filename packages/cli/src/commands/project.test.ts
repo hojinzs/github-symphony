@@ -718,7 +718,10 @@ describe("project add non-interactive", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.exitCode = undefined;
-    vi.spyOn(ghAuth, "getGhToken").mockReturnValue("test-token");
+    vi.spyOn(ghAuth, "getGhTokenWithSource").mockReturnValue({
+      token: "test-token",
+      source: "gh",
+    });
     vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
     vi.spyOn(githubClient, "validateToken").mockResolvedValue({
       login: "stevelee",
