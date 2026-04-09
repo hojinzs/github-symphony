@@ -39,7 +39,7 @@
     "build:server": "tsup src/index.ts --format esm --dts --clean",
     "dev:client": "vite --config client/vite.config.ts",
     "dev:server": "tsup src/index.ts --watch --format esm",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src client/src client/vite.config.ts client/tailwind.config.ts --ext .ts,.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
@@ -48,13 +48,19 @@
     "@gh-symphony/dashboard": "workspace:*"
   },
   "devDependencies": {
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/themes": "^3.2.1",
+    "@tailwindcss/vite": "^4.1.14",
+    "@tanstack/react-query": "^5.90.5",
     "@tanstack/router-plugin": "^1.132.6",
     "@tanstack/react-router": "^1.132.6",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.4",
     "@vitejs/plugin-react": "^5.0.4",
+    "axios": "^1.12.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.14",
     "tsup": "^8.5.1",
     "vite": "^7.1.12"
   }
