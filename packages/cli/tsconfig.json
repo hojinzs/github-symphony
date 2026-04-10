@@ -6,6 +6,7 @@
     "noEmit": false,
     "declaration": true,
     "paths": {
+      "@gh-symphony/control-plane": ["../control-plane/src/index.ts"],
       "@gh-symphony/core": ["../core/src/index.ts"],
       "@gh-symphony/dashboard": ["../dashboard/src/index.ts"],
       "@gh-symphony/extension-github-workflow": ["../extension-github-workflow/src/index.ts"],
