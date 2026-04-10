@@ -9,6 +9,8 @@ import {
   createClient,
   getProjectDetail,
   GitHubScopeError,
+  GitHubRepositoryLookupError,
+  getRepositoryMetadata,
   validateToken,
   type LinkedRepository,
   type ProjectDetail,
@@ -117,6 +119,10 @@ function formatRepoSpec(repo: { owner: string; name: string }): string {
   return `${repo.owner}/${repo.name}`;
 }
 
+function fallbackCloneUrl(repo: { owner: string; name: string }): string {
+  return `https://github.com/${repo.owner}/${repo.name}.git`;
+}
+
 function sortRepos(repos: RepoConfigEntry[]): RepoConfigEntry[] {
   return [...repos].sort((left, right) =>
     formatRepoSpec(left).localeCompare(formatRepoSpec(right))
@@ -211,6 +217,7 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const activeProjectId = global.activeProject;
 
   const [owner, name] = repoSpec.split("/");
   if (!owner || !name) {
@@ -219,23 +226,78 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
     return;
   }
 
-  if (
-    ws.repositories.some(
-      (r: RepoConfigEntry) => r.owner === owner && r.name === name
-    )
-  ) {
-    process.stdout.write(`Repository ${repoSpec} is already configured.\n`);
+  const requestedRepo = { owner, name };
+  const addRepository = async (
+    repo: RepoConfigEntry,
+    message: string,
+    warning?: string
+  ): Promise<void> => {
+    if (ws.repositories.some((entry: RepoConfigEntry) => repoKey(entry) === repoKey(repo))) {
+      process.stdout.write(
+        `Repository ${formatRepoSpec(repo)} is already configured.\n`
+      );
+      return;
+    }
+
+    ws.repositories.push(repo);
+    await saveProjectConfig(options.configDir, activeProjectId, ws);
+
+    if (warning) {
+      process.stderr.write(`${warning}\n`);
+    }
+    process.stdout.write(`${message}\n`);
+  };
+
+  let token: string;
+  try {
+    token = getGhToken();
+  } catch {
+    await addRepository(
+      {
+        ...requestedRepo,
+        cloneUrl: fallbackCloneUrl(requestedRepo),
+      },
+      `Added repository without validation: ${formatRepoSpec(requestedRepo)}`,
+      "Warning: GitHub authentication is unavailable, so the repository was saved without validation. Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN to validate access before saving."
+    );
     return;
   }
 
-  ws.repositories.push({
-    owner,
-    name,
-    cloneUrl: `https://github.com/${owner}/${name}.git`,
-  });
+  try {
+    const repository = await getRepositoryMetadata(createClient(token), owner, name);
+    await addRepository(
+      {
+        owner: repository.owner,
+        name: repository.name,
+        cloneUrl: repository.cloneUrl || fallbackCloneUrl(repository),
+      },
+      `Added repository after validation: ${formatRepoSpec(repository)}`
+    );
+  } catch (error) {
+    if (
+      error instanceof GitHubRepositoryLookupError &&
+      error.reason === "offline"
+    ) {
+      await addRepository(
+        {
+          ...requestedRepo,
+          cloneUrl: fallbackCloneUrl(requestedRepo),
+        },
+        `Added repository without validation: ${formatRepoSpec(requestedRepo)}`,
+        `Warning: ${error.message} Saved the repository without validation. ${error.remediation}`
+      );
+      return;
+    }
 
-  await saveProjectConfig(options.configDir, global.activeProject, ws);
-  process.stdout.write(`Added repository: ${repoSpec}\n`);
+    if (error instanceof GitHubRepositoryLookupError) {
+      process.stderr.write(`${error.message}\n${error.remediation}\n`);
+    } else {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : "Repository validation failed."}\n`
+      );
+    }
+    process.exitCode = 1;
+  }
 }
 
 async function repoRemove(
@@ -264,8 +326,9 @@ async function repoRemove(
   }
 
   const [owner, name] = repoSpec.split("/");
+  const requestedRepo = { owner, name };
   const idx = ws.repositories.findIndex(
-    (r: RepoConfigEntry) => r.owner === owner && r.name === name
+    (r: RepoConfigEntry) => repoKey(r) === repoKey(requestedRepo)
   );
 
   if (idx === -1) {
@@ -276,7 +339,7 @@ async function repoRemove(
 
   ws.repositories.splice(idx, 1);
   await saveProjectConfig(options.configDir, global.activeProject, ws);
-  process.stdout.write(`Removed repository: ${repoSpec}\n`);
+  process.stdout.write(`Removed repository: ${formatRepoSpec(requestedRepo)}\n`);
 }
 
 async function repoSync(args: string[], options: GlobalOptions): Promise<void> {

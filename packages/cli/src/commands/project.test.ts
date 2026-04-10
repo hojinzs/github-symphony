@@ -663,7 +663,7 @@ describe("project add interactive", () => {
     );
     expect(project.repositories).toEqual([]);
     expect(p.log.warn).toHaveBeenCalledWith(
-      "No linked repositories found in this project yet. You can save it now and add repositories later with 'gh-symphony repo add <owner/name>' or by adding a repo-linked issue to the GitHub Project."
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Repos:      none linked yet (0 linked)"),
@@ -710,6 +710,31 @@ describe("project add interactive", () => {
     );
     expect(authSpinner.stop).toHaveBeenCalledWith(
       "Authenticated via GITHUB_GRAPHQL_TOKEN as env-user"
+    );
+  });
+
+  it("guides empty projects toward repo add validation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-empty-project-"));
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      linkedRepositories: [],
+    });
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBeUndefined();
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
   });
 });

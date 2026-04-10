@@ -211,12 +211,19 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 ```bash
 gh-symphony repo list               # List repositories in active project
-gh-symphony repo add owner/name     # Add a repository
+gh-symphony repo add owner/name     # Validate and add a repository
 gh-symphony repo remove owner/name  # Remove a repository
 gh-symphony repo sync               # Add newly linked repositories from GitHub Project
 gh-symphony repo sync --dry-run     # Preview linked repository changes
 gh-symphony repo sync --prune       # Fully realign with linked repositories
 ```
+
+`gh-symphony repo add owner/name` is the safest onboarding path when a project is
+still empty. It validates the target repository against the GitHub API before
+saving config and stores the canonical clone URL returned by GitHub. If
+authentication is unavailable or the network is offline, the CLI keeps the
+current fallback behavior but prints an explicit warning that the repository was
+saved without validation.
 
 `gh-symphony repo sync` refreshes the active managed project's repository list
 from the current GitHub Project `linkedRepositories`. The default mode is

@@ -661,7 +661,7 @@ async function projectAddInteractive(
 
   if (projectDetail.linkedRepositories.length === 0) {
     p.log.warn(
-      "No linked repositories found in this project yet. You can save it now and add repositories later with 'gh-symphony repo add <owner/name>' or by adding a repo-linked issue to the GitHub Project."
+      "No linked repositories found in this project. Add issues from repositories to the project, or run 'gh-symphony repo add owner/name' to validate and save a repository before your first orchestration run."
     );
   }
 
