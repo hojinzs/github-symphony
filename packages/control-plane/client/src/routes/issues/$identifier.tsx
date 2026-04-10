@@ -1,4 +1,4 @@
-import { createRoute, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Tooltip } from "@radix-ui/themes";
 import { isAxiosError } from "axios";
 import type { ReactNode } from "react";
@@ -7,11 +7,8 @@ import { Badge, type BadgeVariant } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { useIssueDetail } from "../../hooks/useIssueDetail";
 import { useRefresh } from "../../hooks/useRefresh";
-import { Route as RootRoute } from "../__root";
 
-export const Route = createRoute("/issues/$identifier")({
-  getParentRoute: () => RootRoute,
-  path: "/issues/$identifier",
+export const Route = createFileRoute("/issues/$identifier")({
   component: IssueDetailRoute,
 });
 
