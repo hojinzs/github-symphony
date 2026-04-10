@@ -1,10 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
+    "baseUrl": ".",
     "outDir": "dist",
     "noEmit": false,
-    "declaration": true
+    "declaration": true,
+    "paths": {
+      "@gh-symphony/core": ["../core/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]

@@ -3,6 +3,7 @@
 
 @theme {
   --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
 
   --color-bg-default: #09090b;
   --color-bg-surface: #18181a;
@@ -65,5 +66,9 @@
 
   #root {
     min-height: 100vh;
+  }
+
+  a {
+    color: inherit;
   }
 }

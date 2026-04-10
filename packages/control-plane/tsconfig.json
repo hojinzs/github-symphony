@@ -1,14 +1,18 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
     "outDir": "dist",
     "noEmit": false,
     "declaration": true,
+    "baseUrl": ".",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "target": "ES2022",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@gh-symphony/core": ["../core/src/index.ts"],
+      "@gh-symphony/dashboard": ["../dashboard/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]
