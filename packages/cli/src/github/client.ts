@@ -64,6 +64,23 @@ export type ProjectDetail = {
   linkedRepositories: LinkedRepository[];
 };
 
+export function findLinkedRepository(
+  project: ProjectDetail,
+  owner: string,
+  name: string
+): LinkedRepository | null {
+  const normalizedOwner = owner.trim().toLowerCase();
+  const normalizedName = name.trim().toLowerCase();
+
+  return (
+    project.linkedRepositories.find(
+      (repository) =>
+        repository.owner.trim().toLowerCase() === normalizedOwner &&
+        repository.name.trim().toLowerCase() === normalizedName
+    ) ?? null
+  );
+}
+
 export class GitHubApiError extends Error {
   constructor(
     message: string,
@@ -144,9 +161,9 @@ export async function getRepositoryMetadata(
   }
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { message?: string }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      message?: string;
+    } | null;
     const message = payload?.message?.trim() || response.statusText;
 
     if (

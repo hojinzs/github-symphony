@@ -267,8 +267,11 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   addGlobalOptions(
     workflow
       .command("preview")
-      .description("Render the final worker prompt from a sample issue")
+      .description("Render the final worker prompt from a sample or live issue")
       .option("--file <path>", "Read a custom WORKFLOW.md path")
+      .option("--issue <owner/repo#number>", "Load a live GitHub Project issue")
+      .option("--project-id <projectId>", "Managed project identifier")
+      .addOption(new Option("--project <projectId>").hideHelp())
       .option("--sample <json>", "Read sample issue JSON from a file")
       .option("--attempt <n>", "Render as retry attempt n")
       .allowExcessArguments(false)
@@ -277,6 +280,8 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = ["preview"];
     pushOption(args, "--file", values.file);
+    pushOption(args, "--issue", values.issue);
+    pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--sample", values.sample);
     pushOption(args, "--attempt", values.attempt);
     await invokeHandler("workflow", args, values);
@@ -313,7 +318,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("doctor")
       .description("Run diagnostics and optional first-run remediation")
       .option("--project-id <projectId>", "Project identifier")
-      .option("--fix", "Apply safe remediation steps and print manual follow-ups")
+      .option(
+        "--fix",
+        "Apply safe remediation steps and print manual follow-ups"
+      )
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -341,7 +349,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Start the orchestrator")
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
-      .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
+      .option(
+        "--http [port]",
+        "Expose dashboard and refresh endpoints over HTTP"
+      )
       .option(
         "--web [port]",
         "Expose the control plane web dashboard and API over HTTP"
@@ -515,7 +526,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Start a specific project")
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
-      .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
+      .option(
+        "--http [port]",
+        "Expose dashboard and refresh endpoints over HTTP"
+      )
       .option(
         "--web [port]",
         "Expose the control plane web dashboard and API over HTTP"

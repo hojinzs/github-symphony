@@ -56,12 +56,10 @@ type GraphQLProjectFieldConfiguration =
   | {
       __typename: "ProjectV2SingleSelectField";
       name: string | null;
-      options:
-        | Array<{
-            id: string;
-            name: string;
-          } | null>
-        | null;
+      options: Array<{
+        id: string;
+        name: string;
+      } | null> | null;
     }
   | {
       __typename: string;
@@ -164,6 +162,16 @@ type GraphQLIssueProjectItemsByIdResponse = {
   node?: GraphQLIssueStateLookupNode | null;
 };
 
+type GraphQLRepositoryIssueLookupNode = GraphQLIssueNode & {
+  projectItems: GraphQLIssueProjectItemsConnection | null;
+};
+
+type GraphQLRepositoryIssueLookupResponse = {
+  repository?: {
+    issue?: GraphQLRepositoryIssueLookupNode | null;
+  } | null;
+};
+
 type GraphQLResponse<TData> = {
   data?: TData;
   errors?: Array<{ message: string }>;
@@ -214,22 +222,19 @@ export function normalizeProjectItem(
     return null;
   }
 
-  const fieldValues = extractFieldValues(
-    item.fieldValues?.nodes ?? []
-  );
+  const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
   const repository = item.content.repository;
-  const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap(
-    (node) =>
-      node
-        ? [
-            {
-              id: node.id,
-              identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
-              state: normalizeBlockerState(node.state, lifecycle),
-            },
-          ]
-        : []
+  const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap((node) =>
+    node
+      ? [
+          {
+            id: node.id,
+            identifier: `${node.repository.owner.login}/${node.repository.name}#${node.number}`,
+            state: normalizeBlockerState(node.state, lifecycle),
+          },
+        ]
+      : []
   );
   const issueUpdatedAtMs = parseTimestampMs(item.content.updatedAt);
   const itemUpdatedAtMs = parseTimestampMs(item.updatedAt);
@@ -237,7 +242,7 @@ export function normalizeProjectItem(
     itemUpdatedAtMs !== null &&
     (issueUpdatedAtMs === null || itemUpdatedAtMs > issueUpdatedAtMs)
       ? item.updatedAt
-      : item.content.updatedAt ?? item.updatedAt;
+      : (item.content.updatedAt ?? item.updatedAt);
 
   return {
     id: item.content.id,
@@ -296,36 +301,32 @@ export async function fetchProjectIssues(
     const pageResult = await fetchProjectItemsPage(config, cursor, fetchImpl);
     const page = pageResult.page;
     latestRateLimits = pageResult.rateLimits ?? latestRateLimits;
-    const pageIssues = (page.nodes ?? [])
-      .flatMap((item) => {
-        if (!item) {
-          return [];
-        }
+    const pageIssues = (page.nodes ?? []).flatMap((item) => {
+      if (!item) {
+        return [];
+      }
 
-        const normalized = normalizeProjectItem(
-          config.projectId,
-          item,
-          config.lifecycle,
-          {
-            fieldName: config.priorityFieldName,
-            optionIds: priorityOptionIds,
-          },
-          latestRateLimits
-        );
-        if (!normalized) {
-          return [];
-        }
+      const normalized = normalizeProjectItem(
+        config.projectId,
+        item,
+        config.lifecycle,
+        {
+          fieldName: config.priorityFieldName,
+          optionIds: priorityOptionIds,
+        },
+        latestRateLimits
+      );
+      if (!normalized) {
+        return [];
+      }
 
-        if (
-          currentUserLogin &&
-          !isIssueAssignedToLogin(item, currentUserLogin)
-        ) {
-          excludedCount += 1;
-          return [];
-        }
+      if (currentUserLogin && !isIssueAssignedToLogin(item, currentUserLogin)) {
+        excludedCount += 1;
+        return [];
+      }
 
-        return [normalized];
-      });
+      return [normalized];
+    });
 
     issues.push(...pageIssues);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
@@ -377,13 +378,13 @@ export async function fetchIssueStatesByIds(
   for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
     const result =
       await executeGraphQLQueryWithMetadata<GraphQLIssueStatesByIdsResponse>(
-      config,
-      ISSUE_STATES_BY_IDS_QUERY,
-      {
-        issueIds: issueIdBatch,
-      },
-      fetchImpl
-    );
+        config,
+        ISSUE_STATES_BY_IDS_QUERY,
+        {
+          issueIds: issueIdBatch,
+        },
+        fetchImpl
+      );
     const data = result.data;
     const rateLimits = result.rateLimits;
 
@@ -409,6 +410,62 @@ export async function fetchIssueStatesByIds(
   return issues;
 }
 
+export async function fetchProjectIssueByRepositoryAndNumber(
+  config: GitHubTrackerConfig,
+  repository: {
+    owner: string;
+    name: string;
+  },
+  issueNumber: number,
+  fetchImpl: FetchLike = fetch
+): Promise<GitHubTrackedIssue | null> {
+  const priorityOptionIds = config.priorityFieldName
+    ? await fetchPriorityOptionOrder(
+        config,
+        config.priorityFieldName,
+        fetchImpl
+      )
+    : undefined;
+  const result =
+    await executeGraphQLQueryWithMetadata<GraphQLRepositoryIssueLookupResponse>(
+      config,
+      REPOSITORY_ISSUE_QUERY,
+      {
+        owner: repository.owner,
+        name: repository.name,
+        issueNumber,
+      },
+      fetchImpl
+    );
+  const issue = result.data.repository?.issue ?? null;
+
+  if (!issue) {
+    return null;
+  }
+
+  const projectItem = await resolveIssueProjectItemForStateLookup(
+    config,
+    issue,
+    fetchImpl
+  );
+
+  if (!projectItem) {
+    return null;
+  }
+
+  return normalizeRepositoryIssueLookup(
+    config.projectId,
+    issue,
+    projectItem,
+    config.lifecycle,
+    {
+      fieldName: config.priorityFieldName,
+      optionIds: priorityOptionIds,
+    },
+    result.rateLimits
+  );
+}
+
 async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
@@ -417,16 +474,17 @@ async function fetchProjectItemsPage(
   page: GraphQLProjectItemsPage;
   rateLimits: Record<string, unknown> | null;
 }> {
-  const result = await executeGraphQLQueryWithMetadata<GraphQLProjectItemsResponse>(
-    config,
-    PROJECT_ITEMS_QUERY,
-    {
-      projectId: config.projectId,
-      cursor,
-      pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
-    },
-    fetchImpl
-  );
+  const result =
+    await executeGraphQLQueryWithMetadata<GraphQLProjectItemsResponse>(
+      config,
+      PROJECT_ITEMS_QUERY,
+      {
+        projectId: config.projectId,
+        cursor,
+        pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
+      },
+      fetchImpl
+    );
   const data = result.data;
   const items = data.node?.items;
 
@@ -445,6 +503,8 @@ async function fetchProjectItemsPage(
 export const normalizeGithubProjectItem = normalizeProjectItem;
 export const fetchGithubProjectIssues = fetchProjectIssues;
 export const fetchGithubIssueStatesByIds = fetchIssueStatesByIds;
+export const fetchGithubProjectIssueByRepositoryAndNumber =
+  fetchProjectIssueByRepositoryAndNumber;
 
 async function fetchCurrentUserLogin(
   config: GitHubTrackerConfig,
@@ -583,6 +643,35 @@ function normalizeIssueStateLookupNode(
   };
 }
 
+function normalizeRepositoryIssueLookup(
+  projectId: string,
+  issue: GraphQLRepositoryIssueLookupNode | null,
+  projectItem: GraphQLIssueProjectItemNode | null,
+  lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
+  priority: {
+    fieldName?: string;
+    optionIds?: PriorityMap;
+  } = {},
+  rateLimits: Record<string, unknown> | null = null
+): GitHubTrackedIssue | null {
+  if (!issue || !projectItem) {
+    return null;
+  }
+
+  return normalizeProjectItem(
+    projectId,
+    {
+      id: projectItem.id,
+      updatedAt: projectItem.updatedAt,
+      fieldValues: projectItem.fieldValues,
+      content: issue,
+    },
+    lifecycle,
+    priority,
+    rateLimits
+  );
+}
+
 async function resolveIssueProjectItemForStateLookup(
   config: GitHubTrackerConfig,
   issue: GraphQLIssueStateLookupNode | null,
@@ -625,14 +714,14 @@ async function fetchIssueProjectItemsPage(
 ): Promise<GraphQLIssueProjectItemsConnection> {
   const result =
     await executeGraphQLQueryWithMetadata<GraphQLIssueProjectItemsByIdResponse>(
-    config,
-    ISSUE_PROJECT_ITEMS_PAGE_QUERY,
-    {
-      issueId,
-      cursor,
-    },
-    fetchImpl
-  );
+      config,
+      ISSUE_PROJECT_ITEMS_PAGE_QUERY,
+      {
+        issueId,
+        cursor,
+      },
+      fetchImpl
+    );
   const data = result.data;
   const issue = data.node;
 
@@ -783,11 +872,7 @@ function buildRequestSignal(timeoutMs?: number): AbortSignal {
 }
 
 function resolveNetworkTimeoutMs(timeoutMs?: number): number {
-  if (
-    timeoutMs !== undefined &&
-    Number.isInteger(timeoutMs) &&
-    timeoutMs > 0
-  ) {
+  if (timeoutMs !== undefined && Number.isInteger(timeoutMs) && timeoutMs > 0) {
     return timeoutMs;
   }
 
@@ -1136,6 +1221,92 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
           }
         }
         projectItems(first: 100, after: $cursor, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+    }
+  }
+`;
+
+const REPOSITORY_ISSUE_QUERY = `
+  query RepositoryIssue(
+    $owner: String!
+    $name: String!
+    $issueNumber: Int!
+  ) {
+    repository(owner: $owner, name: $name) {
+      issue(number: $issueNumber) {
+        __typename
+        id
+        number
+        title
+        body
+        url
+        createdAt
+        updatedAt
+        labels(first: 20) {
+          nodes {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+          }
+        }
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        blockedBy(first: 20) {
+          nodes {
+            id
+            number
+            state
+            repository {
+              name
+              owner {
+                login
+              }
+            }
+          }
+        }
+        projectItems(first: 20, includeArchived: false) {
           nodes {
             id
             updatedAt

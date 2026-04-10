@@ -6,7 +6,21 @@ import {
   renderPrompt,
   type TrackedIssue,
 } from "@gh-symphony/core";
+import { fetchGithubProjectIssueByRepositoryAndNumber } from "@gh-symphony/tracker-github";
+import type { CliProjectConfig } from "../config.js";
+import {
+  createClient,
+  findLinkedRepository,
+  getProjectDetail,
+  GitHubApiError,
+} from "../github/client.js";
+import {
+  getGhTokenWithSource,
+  type GhAuthError,
+  validateGitHubToken,
+} from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
+import { inspectManagedProjectSelection } from "../project-selection.js";
 import initCommand from "./init.js";
 
 type WorkflowSubcommand = "init" | "validate" | "preview";
@@ -24,7 +38,25 @@ type ValidateFlags = {
 type PreviewFlags = {
   attempt: number | null;
   file?: string;
+  issue?: string;
+  projectId?: string;
   sample?: string;
+};
+
+type PreviewIssueReference = {
+  owner: string;
+  name: string;
+  number: number;
+  identifier: string;
+};
+
+type WorkflowCommandDependencies = {
+  createGitHubClient: typeof createClient;
+  fetchLiveIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
+  getGitHubProjectDetail: typeof getProjectDetail;
+  getGitHubTokenWithSource: typeof getGhTokenWithSource;
+  resolveManagedProjectSelection: typeof inspectManagedProjectSelection;
+  validateGitHubToken: typeof validateGitHubToken;
 };
 
 type WorkflowValidationReport = {
@@ -109,6 +141,32 @@ const SAMPLE_CONTINUATION_VARIABLES = {
   cumulativeTurnCount: 3,
 };
 
+const workflowCommandDependencies: WorkflowCommandDependencies = {
+  createGitHubClient: createClient,
+  fetchLiveIssue: fetchGithubProjectIssueByRepositoryAndNumber,
+  getGitHubProjectDetail: getProjectDetail,
+  getGitHubTokenWithSource: getGhTokenWithSource,
+  resolveManagedProjectSelection: inspectManagedProjectSelection,
+  validateGitHubToken,
+};
+
+export function setWorkflowCommandDependenciesForTest(
+  overrides: Partial<WorkflowCommandDependencies>
+): void {
+  Object.assign(workflowCommandDependencies, overrides);
+}
+
+export function resetWorkflowCommandDependenciesForTest(): void {
+  workflowCommandDependencies.createGitHubClient = createClient;
+  workflowCommandDependencies.fetchLiveIssue =
+    fetchGithubProjectIssueByRepositoryAndNumber;
+  workflowCommandDependencies.getGitHubProjectDetail = getProjectDetail;
+  workflowCommandDependencies.getGitHubTokenWithSource = getGhTokenWithSource;
+  workflowCommandDependencies.resolveManagedProjectSelection =
+    inspectManagedProjectSelection;
+  workflowCommandDependencies.validateGitHubToken = validateGitHubToken;
+}
+
 function parseWorkflowArgs(args: string[]): ParsedWorkflowArgs {
   const [subcommand, ...rest] = args;
 
@@ -182,6 +240,21 @@ function parsePreviewFlags(args: string[]): PreviewFlags {
         flags.sample = value;
         i += 1;
         break;
+      case "--issue":
+        if (!value || value.startsWith("-")) {
+          throw new Error("Option '--issue' argument missing");
+        }
+        flags.issue = value;
+        i += 1;
+        break;
+      case "--project-id":
+      case "--project":
+        if (!value || value.startsWith("-")) {
+          throw new Error(`Option '${arg}' argument missing`);
+        }
+        flags.projectId = value;
+        i += 1;
+        break;
       case "--attempt":
         if (!value || value.startsWith("-")) {
           throw new Error("Option '--attempt' argument missing");
@@ -216,12 +289,12 @@ function printWorkflowUsage(): void {
 Commands:
   init       Generate WORKFLOW.md and workflow support files
   validate   Parse and strictly validate a WORKFLOW.md file
-  preview    Render the final worker prompt from a sample issue
+  preview    Render the final worker prompt from a sample or live issue
 
 Options:
   workflow init [--non-interactive] [--project <id>] [--output <path>] [--skip-skills] [--skip-context] [--dry-run]
   workflow validate [--file <path>]
-  workflow preview [--file <path>] [--sample <json>] [--attempt <n>]
+  workflow preview [--file <path>] [--issue <owner/repo#number>] [--project-id <projectId>] [--sample <json>] [--attempt <n>]
 `);
 }
 
@@ -252,7 +325,10 @@ function normalizeIssue(value: unknown): TrackedIssue {
     repositoryRecord.name,
     "repository.name"
   );
-  const repositoryUrl = readOptionalString(repositoryRecord.url, "repository.url");
+  const repositoryUrl = readOptionalString(
+    repositoryRecord.url,
+    "repository.url"
+  );
 
   return {
     id: readRequiredString(record.id, "id"),
@@ -342,8 +418,13 @@ function readStringArray(value: unknown, field: string): string[] {
   if (value === undefined) {
     return [];
   }
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new Error(`Sample JSON field '${field}' must be an array of strings.`);
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(
+      `Sample JSON field '${field}' must be an array of strings.`
+    );
   }
 
   return value as string[];
@@ -354,7 +435,9 @@ function readBlockers(value: unknown): TrackedIssue["blockedBy"] {
     return [];
   }
   if (!Array.isArray(value)) {
-    throw new Error("Sample JSON field 'blockedBy/blocked_by' must be an array.");
+    throw new Error(
+      "Sample JSON field 'blockedBy/blocked_by' must be an array."
+    );
   }
 
   return value.map((entry, index) => {
@@ -427,6 +510,149 @@ async function loadSampleIssue(samplePath?: string): Promise<{
   return {
     issue: normalizeIssue(JSON.parse(raw) as unknown),
     sampleSource: resolvedPath,
+  };
+}
+
+function parseIssueReference(value: string): PreviewIssueReference {
+  const match =
+    /^(?<owner>[A-Za-z0-9_.-]+)\/(?<name>[A-Za-z0-9_.-]+)#(?<number>\d+)$/.exec(
+      value.trim()
+    );
+
+  if (!match?.groups) {
+    throw new Error(
+      "Option '--issue' must be in the format 'owner/repo#number'."
+    );
+  }
+
+  return {
+    owner: match.groups.owner,
+    name: match.groups.name,
+    number: Number.parseInt(match.groups.number, 10),
+    identifier: `${match.groups.owner}/${match.groups.name}#${match.groups.number}`,
+  };
+}
+
+function readGitHubProjectBinding(
+  projectConfig: CliProjectConfig
+): string | null {
+  const bindingId = projectConfig.tracker.bindingId?.trim();
+  if (bindingId) {
+    return bindingId;
+  }
+
+  const settingsProjectId = projectConfig.tracker.settings?.projectId;
+  return typeof settingsProjectId === "string" &&
+    settingsProjectId.trim().length > 0
+    ? settingsProjectId.trim()
+    : null;
+}
+
+function formatAuthError(error: GhAuthError | Error): string {
+  return `GitHub authentication is required for live issue preview. ${error.message}`;
+}
+
+async function loadLiveIssue(
+  issueReference: string,
+  projectId: string | undefined,
+  options: GlobalOptions
+): Promise<{
+  issue: TrackedIssue;
+  sampleSource: string;
+}> {
+  const issue = parseIssueReference(issueReference);
+  const selection =
+    await workflowCommandDependencies.resolveManagedProjectSelection({
+      configDir: options.configDir,
+      requestedProjectId: projectId,
+    });
+
+  if (selection.kind !== "resolved") {
+    throw new Error(selection.message);
+  }
+
+  const githubProjectId = readGitHubProjectBinding(selection.projectConfig);
+  if (!githubProjectId) {
+    throw new Error(
+      `Managed project "${selection.projectId}" is not bound to a GitHub Project. Re-run 'gh-symphony project add' and select a valid GitHub Project binding.`
+    );
+  }
+
+  let auth: Awaited<ReturnType<typeof validateGitHubToken>>;
+  try {
+    const tokenResult = workflowCommandDependencies.getGitHubTokenWithSource();
+    auth = await workflowCommandDependencies.validateGitHubToken(
+      tokenResult.token,
+      tokenResult.source
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(formatAuthError(error));
+    }
+    throw error;
+  }
+
+  const client = workflowCommandDependencies.createGitHubClient(auth.token, {
+    apiUrl: selection.projectConfig.tracker.apiUrl,
+  });
+
+  let detail: Awaited<ReturnType<typeof getProjectDetail>>;
+  try {
+    detail = await workflowCommandDependencies.getGitHubProjectDetail(
+      client,
+      githubProjectId
+    );
+  } catch (error) {
+    const message =
+      error instanceof GitHubApiError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "Unknown GitHub API error.";
+    throw new Error(
+      `Failed to resolve the configured GitHub Project binding '${githubProjectId}': ${message}`
+    );
+  }
+
+  if (!findLinkedRepository(detail, issue.owner, issue.name)) {
+    throw new Error(
+      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo add ${issue.owner}/${issue.name}' or re-run 'gh-symphony project add' with the correct project binding.`
+    );
+  }
+
+  const trackedIssue = await workflowCommandDependencies.fetchLiveIssue(
+    {
+      projectId: githubProjectId,
+      token: auth.token,
+      apiUrl: selection.projectConfig.tracker.apiUrl,
+      assignedOnly:
+        selection.projectConfig.tracker.settings?.assignedOnly === true,
+      priorityFieldName:
+        typeof selection.projectConfig.tracker.settings?.priorityFieldName ===
+        "string"
+          ? selection.projectConfig.tracker.settings.priorityFieldName
+          : undefined,
+      timeoutMs:
+        typeof selection.projectConfig.tracker.settings?.timeoutMs === "number"
+          ? selection.projectConfig.tracker.settings.timeoutMs
+          : undefined,
+    },
+    {
+      owner: issue.owner,
+      name: issue.name,
+    },
+    issue.number
+  );
+
+  if (!trackedIssue) {
+    throw new Error(
+      `Issue ${issue.identifier} is not in the configured GitHub Project "${detail.title}". Add the issue to the project and re-run the preview.`
+    );
+  }
+
+  return {
+    issue: trackedIssue,
+    sampleSource: `live:${trackedIssue.identifier}`,
   };
 }
 
@@ -534,7 +760,10 @@ Hooks
 `);
 }
 
-async function runValidate(args: string[], options: GlobalOptions): Promise<void> {
+async function runValidate(
+  args: string[],
+  options: GlobalOptions
+): Promise<void> {
   const flags = parseValidateFlags(args);
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const report = validateWorkflow(workflowPath, markdown);
@@ -547,11 +776,26 @@ async function runValidate(args: string[], options: GlobalOptions): Promise<void
   printValidationReport(report);
 }
 
-async function runPreview(args: string[], options: GlobalOptions): Promise<void> {
+async function runPreview(
+  args: string[],
+  options: GlobalOptions
+): Promise<void> {
   const flags = parsePreviewFlags(args);
+  if (flags.sample && flags.issue) {
+    throw new Error(
+      "Options '--sample' and '--issue' cannot be used together."
+    );
+  }
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const workflow = parseWorkflowMarkdown(markdown);
-  const { issue, sampleSource } = await loadSampleIssue(flags.sample);
+  if (flags.issue && workflow.tracker.kind !== "github-project") {
+    throw new Error(
+      "Live issue preview requires 'tracker.kind: github-project' in WORKFLOW.md."
+    );
+  }
+  const { issue, sampleSource } = flags.issue
+    ? await loadLiveIssue(flags.issue, flags.projectId, options)
+    : await loadSampleIssue(flags.sample);
   const variables = buildPromptVariables(issue, {
     attempt: flags.attempt,
   });
