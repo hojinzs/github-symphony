@@ -1,12 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Theme } from "@radix-ui/themes";
+import { FoundationsPage } from "./pages/FoundationsPage";
+import "./index.css";
 
 function App() {
   return (
-    <main>
-      <h1>GitHub Symphony Control Plane</h1>
-      <p>Control plane client scaffold.</p>
-    </main>
+    <Theme appearance="dark" accentColor="blue" grayColor="gray" radius="medium">
+      <FoundationsPage />
+    </Theme>
   );
 }
 

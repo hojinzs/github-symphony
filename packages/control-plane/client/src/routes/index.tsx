@@ -1,12 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { FoundationsPage } from "../pages/FoundationsPage";
 
 function HomeRoute() {
-  return (
-    <main>
-      <h1>GitHub Symphony Control Plane</h1>
-      <p>Control plane client scaffold.</p>
-    </main>
-  );
+  return <FoundationsPage />;
 }
 
 export const Route = createFileRoute("/")({
