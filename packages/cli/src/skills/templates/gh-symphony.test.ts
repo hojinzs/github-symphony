@@ -15,6 +15,13 @@ const mockCtx: SkillTemplateContext = {
   statusFieldId: "PVTF_field123",
   contextYamlPath: ".gh-symphony/context.yaml",
   referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+  detectedEnvironment: {
+    packageManager: "pnpm",
+    testCommand: "pnpm test",
+    lintCommand: "pnpm lint",
+    buildCommand: "pnpm build",
+    monorepo: false,
+  },
 };
 
 describe("generateGhSymphonySkill", () => {
@@ -53,6 +60,14 @@ describe("generateGhSymphonySkill", () => {
     expect(result).toContain("gh-project");
     expect(result).toContain("commit");
     expect(result).toContain("land");
+  });
+
+  it("includes detected repository validation guidance", () => {
+    const result = generateGhSymphonySkill(mockCtx);
+    expect(result).toContain("Repository Validation Guidance");
+    expect(result).toContain("Detected repository validation commands:");
+    expect(result).toContain("`pnpm test`");
+    expect(result).toContain("Use `pnpm` conventions");
   });
 
   it("does not contain raw double-brace template variables", () => {

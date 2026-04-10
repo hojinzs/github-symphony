@@ -1,3 +1,6 @@
+import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
+
 export type ReferenceWorkflowInput = {
   runtime: "codex" | "claude-code" | string;
   statusColumns: Array<{
@@ -5,6 +8,10 @@ export type ReferenceWorkflowInput = {
     role: "active" | "wait" | "terminal" | null;
   }>;
   projectId: string;
+  detectedEnvironment: Pick<
+    DetectedEnvironment,
+    "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
+  >;
 };
 
 export function generateReferenceWorkflow(
@@ -130,6 +137,14 @@ export function generateReferenceWorkflow(
     }
   }
 
+  lines.push("");
+  lines.push("## Repository Validation Guidance");
+  lines.push("");
+  for (const line of buildRepositoryValidationGuidance(
+    input.detectedEnvironment
+  )) {
+    lines.push(`- ${line}`);
+  }
   lines.push("");
 
   lines.push("## Default Posture");

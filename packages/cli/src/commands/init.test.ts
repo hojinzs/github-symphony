@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,6 +38,7 @@ import initCommand from "./init.js";
 import {
   buildDryRunJsonResult,
   generateProjectId,
+  planWorkflowArtifacts,
   planEcosystem,
   renderDryRunPreview,
   writeConfig,
@@ -342,6 +343,94 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
     expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+  });
+
+  it("reflects detected repository commands across generated artifacts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-guidance-"));
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "fixture",
+          private: true,
+          scripts: {
+            test: "pnpm --filter fixture test",
+            lint: "pnpm --filter fixture lint",
+            build: "pnpm --filter fixture build",
+          },
+        },
+        null,
+        2
+      )
+    );
+    await writeFile(join(cwd, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    await writeFile(join(cwd, "pnpm-workspace.yaml"), "packages:\n  - .\n");
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    const referenceWorkflow = await readFile(
+      join(cwd, ".gh-symphony", "reference-workflow.md"),
+      "utf8"
+    );
+    const skill = await readFile(
+      join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
+      "utf8"
+    );
+
+    expect(referenceWorkflow).toContain("Detected repository validation commands:");
+    expect(referenceWorkflow).toContain("`pnpm --filter fixture test`");
+    expect(referenceWorkflow).toContain("This repository appears to be a monorepo");
+    expect(skill).toContain("Detected repository validation commands:");
+    expect(skill).toContain("`pnpm --filter fixture lint`");
+    expect(skill).toContain("Use `pnpm` conventions");
+  });
+
+  it("threads detected repository commands into generated WORKFLOW.md", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-workflow-guidance-"));
+    await writeFile(
+      join(cwd, "package.json"),
+      JSON.stringify(
+        {
+          name: "fixture",
+          private: true,
+          scripts: {
+            test: "npm test",
+            lint: "npm run lint",
+          },
+        },
+        null,
+        2
+      )
+    );
+    await writeFile(join(cwd, "package-lock.json"), "{}\n");
+
+    const plan = await planWorkflowArtifacts({
+      cwd,
+      outputPath: join(cwd, "WORKFLOW.md"),
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      mappings: {
+        Todo: { role: "active" },
+        "In Progress": { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "codex",
+      skipSkills: true,
+      skipContext: true,
+    });
+
+    expect(plan.workflowMd).toContain("### Repository Validation Guidance");
+    expect(plan.workflowMd).toContain("Detected repository validation commands:");
+    expect(plan.workflowMd).toContain("`npm test`");
+    expect(plan.workflowMd).toContain("`npm run lint`");
+    expect(plan.workflowMd).toContain("Use `npm` conventions");
   });
 
   it("generates codex skills when runtime is the codex agent command", async () => {

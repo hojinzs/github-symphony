@@ -109,6 +109,8 @@ The interactive wizard will:
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
+Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates all include repository-aware validation guidance based on the detected package manager, monorepo shape, and `test` / `lint` / `build` scripts when present.
+
 Token-only interactive setup is supported:
 
 ```bash
@@ -361,6 +363,8 @@ gh-symphony workflow preview
 `--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
 `.gh-symphony/reference-workflow.md`, and runtime skill files, then prints whether
 each path would be created, updated, or left unchanged without writing anything.
+
+When `gh-symphony workflow init` detects repository scripts, it bakes that information back into the generated policy files so the out-of-the-box workflow already tells agents which test/lint/build commands to prefer and whether workspace-aware validation is expected.
 
 Without a project (standalone):
 

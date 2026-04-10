@@ -1,5 +1,7 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { StateMapping } from "../config.js";
+import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 
 export type GenerateWorkflowInput = {
   projectId: string;
@@ -9,11 +11,15 @@ export type GenerateWorkflowInput = {
   runtime: string;
   pollIntervalMs?: number;
   concurrency?: number;
+  detectedEnvironment: Pick<
+    DetectedEnvironment,
+    "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
+  >;
 };
 
 export function generateWorkflowMarkdown(input: GenerateWorkflowInput): string {
   const frontMatter = buildFrontMatter(input);
-  const promptBody = buildPromptBody(input.mappings);
+  const promptBody = buildPromptBody(input);
   return `---\n${frontMatter}---\n${promptBody}\n`;
 }
 
@@ -80,8 +86,11 @@ function resolveAgentCommand(runtime: string): string {
   }
 }
 
-function buildPromptBody(mappings: Record<string, StateMapping>): string {
-  const statusMap = generateStatusMapWithDescriptions(mappings);
+function buildPromptBody(input: GenerateWorkflowInput): string {
+  const statusMap = generateStatusMapWithDescriptions(input.mappings);
+  const validationGuidance = buildRepositoryValidationGuidance(
+    input.detectedEnvironment
+  );
   const template = `${statusMap}
 
 ## Agent Instructions
@@ -100,6 +109,10 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 1. This is an unattended orchestration session. Do not ask humans for follow-up actions.
 2. Only abort early if there is a genuine blocker (missing required credentials or secrets).
 3. In your final message, report only what was completed and any blockers. Do not include "next steps".
+
+### Repository Validation Guidance
+
+${validationGuidance.map((line, index) => `${index + 1}. ${line}`).join("\n")}
 
 ### Workflow
 

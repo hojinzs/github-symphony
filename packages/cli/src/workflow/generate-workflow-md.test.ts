@@ -19,6 +19,13 @@ describe("generateWorkflowMarkdown", () => {
       blockerCheckStates: ["Queued"],
     },
     runtime: "codex",
+    detectedEnvironment: {
+      packageManager: "pnpm" as const,
+      testCommand: "pnpm test",
+      lintCommand: "pnpm lint",
+      buildCommand: "pnpm build",
+      monorepo: true,
+    },
   };
 
   it("generates valid WORKFLOW.md that round-trips through parseWorkflowMarkdown", () => {
@@ -105,6 +112,36 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("### Default Posture");
     expect(markdown).toContain("unattended orchestration session");
     expect(markdown).toContain("genuine blocker");
+  });
+
+  it("includes repository-specific validation guidance when commands are detected", () => {
+    const markdown = generateWorkflowMarkdown(defaultInput);
+
+    expect(markdown).toContain("### Repository Validation Guidance");
+    expect(markdown).toContain("Detected repository validation commands:");
+    expect(markdown).toContain("`pnpm test`");
+    expect(markdown).toContain("`pnpm lint`");
+    expect(markdown).toContain("`pnpm build`");
+    expect(markdown).toContain("Use `pnpm` conventions");
+    expect(markdown).toContain("This repository appears to be a monorepo");
+  });
+
+  it("keeps generic validation fallback when no scripts are detected", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      detectedEnvironment: {
+        packageManager: null,
+        testCommand: null,
+        lintCommand: null,
+        buildCommand: null,
+        monorepo: false,
+      },
+    });
+
+    expect(markdown).toContain(
+      "No repository-specific test/lint/build scripts were detected"
+    );
+    expect(markdown).not.toContain("Detected repository validation commands:");
   });
 
   it("includes Guardrails section", () => {

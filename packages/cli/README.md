@@ -83,6 +83,8 @@ whether `WORKFLOW.md`, `.gh-symphony/context.yaml`,
 `.gh-symphony/reference-workflow.md`, and runtime skill files would be created,
 updated, or left unchanged, and then exits without modifying the repository.
 
+The same detected environment data is applied to the generated artifacts, so `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates already include repository-aware validation guidance for the detected package manager, monorepo layout, and `test` / `lint` / `build` scripts when they exist.
+
 ### Customizing Agent Behavior
 
 `gh-symphony workflow init` generates skill files under `.codex/skills/` (or `.claude/skills/` for Claude Code). These skills define how the AI agent handles commits, pushes, pulls, and project status transitions.

@@ -9,6 +9,14 @@ import {
 } from "./skill-writer.js";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
 
+const detectedEnvironment = {
+  packageManager: "pnpm" as const,
+  testCommand: "pnpm test",
+  lintCommand: "pnpm lint",
+  buildCommand: "pnpm build",
+  monorepo: false,
+};
+
 describe("skill-writer", () => {
   describe("resolveSkillsDir", () => {
     it("resolves claude-code runtime to .claude/skills", () => {
@@ -60,6 +68,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const result = await writeSkillFile(skillsDir, template, context);
@@ -90,6 +99,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const firstResult = await writeSkillFile(skillsDir, template, context);
@@ -124,6 +134,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const firstResult = await writeSkillFile(skillsDir, template, context);
@@ -165,6 +176,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const result = await writeAllSkills(
@@ -200,6 +212,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const result = await writeAllSkills(tempDir, "codex", templates, context);
@@ -228,6 +241,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const result = await writeAllSkills(
@@ -266,6 +280,7 @@ describe("skill-writer", () => {
         statusFieldId: "field-123",
         contextYamlPath: "context.yaml",
         referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
       };
 
       const firstResult = await writeAllSkills(
@@ -312,6 +327,7 @@ describe("skill-writer", () => {
           statusFieldId: "field-123",
           contextYamlPath: "context.yaml",
           referenceWorkflowPath: "WORKFLOW.md",
+          detectedEnvironment,
         }
       );
 
