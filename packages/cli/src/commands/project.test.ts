@@ -395,9 +395,12 @@ describe("project add interactive", () => {
       scopes: ["repo", "read:org", "project"],
     });
     vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
-    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
-      MOCK_PROJECT_SUMMARY,
-    ]);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [MOCK_PROJECT_SUMMARY],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
     vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
       MOCK_PROJECT_DETAIL
     );
@@ -469,6 +472,32 @@ describe("project add interactive", () => {
         "Repos:      acme/repo-a, acme/repo-b, acme/repo-c  (all 3 linked)"
       ),
       "Configuration Summary"
+    );
+  });
+
+  it("warns when project discovery returns partial results", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-add-partial-"));
+    vi.mocked(p.select).mockResolvedValue(MOCK_PROJECT_SUMMARY.id as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [MOCK_PROJECT_SUMMARY],
+      partial: true,
+      reason: "result_limit",
+      requests: 12,
+    });
+
+    await projectCommand(["add"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "Project discovery may be incomplete: the discovered project count reached the safety cap. Showing 1 discovered project after 12 requests."
     );
   });
 
