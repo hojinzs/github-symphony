@@ -1,10 +1,21 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
+    "baseUrl": ".",
     "outDir": "dist",
     "noEmit": false,
-    "declaration": true
+    "declaration": true,
+    "paths": {
+      "@gh-symphony/control-plane": ["../control-plane/src/index.ts"],
+      "@gh-symphony/core": ["../core/src/index.ts"],
+      "@gh-symphony/dashboard": ["../dashboard/src/index.ts"],
+      "@gh-symphony/extension-github-workflow": ["../extension-github-workflow/src/index.ts"],
+      "@gh-symphony/orchestrator": ["../orchestrator/src/index.ts"],
+      "@gh-symphony/runtime-codex": ["../runtime-codex/src/index.ts"],
+      "@gh-symphony/tracker-file": ["../tracker-file/src/index.ts"],
+      "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"],
+      "@gh-symphony/worker": ["../worker/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"]
