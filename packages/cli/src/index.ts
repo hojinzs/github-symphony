@@ -62,6 +62,7 @@ type CliOptionValues = Partial<
     skipContext?: boolean;
     skipSkills?: boolean;
     version?: boolean;
+    web?: string | boolean;
     workspaceDir?: string;
     watch?: boolean;
     sample?: string;
@@ -341,6 +342,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
+      .option(
+        "--web [port]",
+        "Expose the control plane web dashboard and API over HTTP"
+      )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
@@ -353,6 +358,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
+    pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("start", args, values);
   });
@@ -510,6 +516,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
       .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
+      .option(
+        "--web [port]",
+        "Expose the control plane web dashboard and API over HTTP"
+      )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("--project-id <projectId>", "Project identifier")
       .addOption(new Option("--project <projectId>").hideHelp())
@@ -522,6 +532,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
+    pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);
     await invokeHandler("project", args, values);
   });
