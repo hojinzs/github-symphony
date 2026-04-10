@@ -45,6 +45,10 @@ export type LinkedRepository = {
   cloneUrl: string;
 };
 
+export type RepositoryLookupResult = LinkedRepository & {
+  visibility: "public" | "private" | "internal" | null;
+};
+
 export type ProjectTextField = {
   id: string;
   name: string;
@@ -81,6 +85,24 @@ export class GitHubScopeError extends GitHubApiError {
   }
 }
 
+export class GitHubRepositoryLookupError extends GitHubApiError {
+  constructor(
+    readonly reason:
+      | "not_found"
+      | "no_access"
+      | "rate_limited"
+      | "invalid_token"
+      | "offline"
+      | "unknown",
+    message: string,
+    readonly remediation: string,
+    status?: number
+  ) {
+    super(message, status);
+    this.name = "GitHubRepositoryLookupError";
+  }
+}
+
 export function createClient(
   token: string,
   options?: { apiUrl?: string; fetchImpl?: typeof fetch }
@@ -89,6 +111,111 @@ export function createClient(
     token,
     apiUrl: options?.apiUrl ?? DEFAULT_API_URL,
     fetchImpl: options?.fetchImpl ?? fetch,
+  };
+}
+
+export async function getRepositoryMetadata(
+  client: GitHubClient,
+  owner: string,
+  name: string
+): Promise<RepositoryLookupResult> {
+  const restUrl = client.apiUrl.replace("/graphql", "");
+  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+
+  let response: Response;
+  try {
+    response = await client.fetchImpl(`${baseUrl}${repoPath}`, {
+      headers: {
+        authorization: `Bearer ${client.token}`,
+        accept: "application/vnd.github+json",
+      },
+    });
+  } catch (error) {
+    const detail =
+      error instanceof Error && error.message.length > 0
+        ? ` ${error.message}`
+        : "";
+    throw new GitHubRepositoryLookupError(
+      "offline",
+      `GitHub repository validation could not reach the API.${detail}`.trim(),
+      "Check your network connection and re-run the command to validate before saving."
+    );
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | { message?: string }
+      | null;
+    const message = payload?.message?.trim() || response.statusText;
+
+    if (
+      response.status === 403 &&
+      (response.headers.get("x-ratelimit-remaining") === "0" ||
+        /rate limit/i.test(message))
+    ) {
+      throw new GitHubRepositoryLookupError(
+        "rate_limited",
+        "GitHub API rate limit blocked repository validation.",
+        "Wait for the rate limit window to reset, then re-run 'gh-symphony repo add owner/name'.",
+        response.status
+      );
+    }
+
+    if (response.status === 401) {
+      throw new GitHubRepositoryLookupError(
+        "invalid_token",
+        "GitHub token is invalid or expired.",
+        "Run 'gh auth login --scopes repo,read:org,project' or refresh GITHUB_GRAPHQL_TOKEN, then retry.",
+        response.status
+      );
+    }
+
+    if (
+      response.status === 403 ||
+      /resource not accessible|saml|single sign-on|access denied/i.test(message)
+    ) {
+      throw new GitHubRepositoryLookupError(
+        "no_access",
+        `GitHub denied access to ${owner}/${name}.`,
+        "Confirm that the authenticated user can read this repository and that the token has the required access.",
+        response.status
+      );
+    }
+
+    if (response.status === 404) {
+      throw new GitHubRepositoryLookupError(
+        "not_found",
+        `Repository ${owner}/${name} was not found.`,
+        "Check the owner/name spelling. If the repository is private, confirm the current token can access it.",
+        response.status
+      );
+    }
+
+    throw new GitHubRepositoryLookupError(
+      "unknown",
+      `GitHub repository validation failed: ${response.status} ${message}`.trim(),
+      "Retry the command. If the problem continues, verify GitHub API access separately.",
+      response.status
+    );
+  }
+
+  const repo = (await response.json()) as {
+    name: string;
+    clone_url: string;
+    html_url: string;
+    visibility?: "public" | "private" | "internal";
+    private?: boolean;
+    owner: { login: string };
+  };
+
+  return {
+    owner: repo.owner.login,
+    name: repo.name,
+    url: repo.html_url,
+    cloneUrl: repo.clone_url,
+    visibility:
+      repo.visibility ?? (repo.private === true ? "private" : "public"),
   };
 }
 

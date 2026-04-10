@@ -36,7 +36,7 @@ Project / Repo:
   project switch  Switch active project
   project status  Show orchestrator status for a project
   repo list       List configured repositories
-  repo add        Add a repository
+  repo add        Validate and add a repository
   repo remove     Remove a repository
   repo sync       Sync repositories from the linked GitHub Project
 
@@ -59,6 +59,7 @@ Examples:
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project
+  gh-symphony repo add owner/name      # Validate a repo target before saving it
   gh-symphony repo sync --dry-run      # Preview linked repository drift
   gh-symphony start                   # Start orchestrator
   gh-symphony start --daemon          # Start in background

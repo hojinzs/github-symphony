@@ -17,7 +17,3 @@ export async function fetchProjectState(): Promise<ProjectState> {
   const response = await api.get<ProjectState>("/api/v1/state");
   return response.data;
 }
-
-export async function postRefresh(): Promise<void> {
-  await api.post("/api/v1/refresh");
-}

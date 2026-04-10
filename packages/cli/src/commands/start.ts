@@ -23,6 +23,7 @@ import {
   DashboardFsReader,
   resolveDashboardResponse,
 } from "@gh-symphony/dashboard";
+import { startControlPlaneServer } from "@gh-symphony/control-plane";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
@@ -68,6 +69,7 @@ function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
   httpPort?: number;
+  webPort?: number;
   projectId?: string;
   logLevel?: string;
   error?: string;
@@ -76,6 +78,7 @@ function parseStartArgs(args: string[]): {
     daemon: boolean;
     once: boolean;
     httpPort?: number;
+    webPort?: number;
     projectId?: string;
     logLevel?: string;
     error?: string;
@@ -104,6 +107,16 @@ function parseStartArgs(args: string[]): {
       i += 1;
       continue;
     }
+    if (arg === "--web") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.webPort = DEFAULT_HTTP_PORT;
+        continue;
+      }
+      parsed.webPort = parsePort(value, arg);
+      i += 1;
+      continue;
+    }
     if (arg === "--project" || arg === "--project-id") {
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
@@ -128,6 +141,10 @@ function parseStartArgs(args: string[]): {
       parsed.error = `Unknown option '${arg}'`;
       return parsed;
     }
+  }
+
+  if (parsed.httpPort !== undefined && parsed.webPort !== undefined) {
+    parsed.error = "Options '--http' and '--web' cannot be used together";
   }
 
   return parsed;
@@ -426,7 +443,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--once] [--http [port]]\n"
+      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--once] [--http [port]] [--web [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -460,7 +477,13 @@ const handler = async (
     return;
   }
   if (parsed.daemon) {
-    await startDaemon(options, projectId, parsed.logLevel, parsed.httpPort);
+    await startDaemon(
+      options,
+      projectId,
+      parsed.logLevel,
+      parsed.httpPort,
+      parsed.webPort
+    );
     return;
   }
 
@@ -520,7 +543,15 @@ const handler = async (
       },
     });
     const httpServer =
-      parsed.httpPort !== undefined
+      parsed.webPort !== undefined
+        ? await startControlPlaneServer({
+            host: HTTP_HOST,
+            port: parsed.webPort,
+            runtimeRoot,
+            projectId,
+            onRefreshRequest: () => service.requestReconcile(),
+          })
+        : parsed.httpPort !== undefined
         ? await startHttpServer({
             runtimeRoot,
             projectId,
@@ -554,7 +585,9 @@ const handler = async (
     if (httpServer) {
       logLine(
         cyan("\u25A1"),
-        `HTTP dashboard listening on ${httpServer.url}`
+        parsed.webPort !== undefined
+          ? `Web dashboard listening on ${httpServer.url}`
+          : `HTTP dashboard listening on ${httpServer.url}`
       );
     }
     logLine(
@@ -600,7 +633,9 @@ const handler = async (
             if (httpServer) {
               logLine(
                 cyan("\u25A1"),
-                "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
+                parsed.webPort !== undefined
+                  ? "One-shot tick completed; web dashboard remains available until Ctrl+C"
+                  : "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
               );
               await new Promise<void>((resolve) => {
                 keepHttpAliveResolve = resolve;
@@ -742,7 +777,8 @@ async function startDaemon(
   options: GlobalOptions,
   projectId: string,
   logLevel?: string,
-  httpPort?: number
+  httpPort?: number,
+  webPort?: number
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -758,6 +794,7 @@ async function startDaemon(
       "--project",
       projectId,
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
+      ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],
     {
