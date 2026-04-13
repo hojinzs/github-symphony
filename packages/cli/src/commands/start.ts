@@ -542,62 +542,13 @@ const handler = async (
         }
       },
     });
-    const httpServer =
-      parsed.webPort !== undefined
-        ? await startControlPlaneServer({
-            host: HTTP_HOST,
-            port: parsed.webPort,
-            runtimeRoot,
-            projectId,
-            onRefreshRequest: () => service.requestReconcile(),
-          })
-        : parsed.httpPort !== undefined
-        ? await startHttpServer({
-            runtimeRoot,
-            projectId,
-            initialPort: parsed.httpPort,
-            service,
-          })
-        : null;
-    if (httpServer) {
-      try {
-        await writeHttpBindingState(options.configDir, projectId, {
-          host: HTTP_HOST,
-          port: httpServer.port,
-          endpoint: httpServer.url,
-        });
-      } catch (error) {
-        logLine(
-          yellow("\u26A0"),
-          yellow(
-            `Failed to persist HTTP binding state (http.json): ${
-              error instanceof Error ? error.message : "Unknown error"
-            }`
-          )
-        );
-      }
-    }
-
-    logLine(
-      green("\u25B2"),
-      `Starting orchestrator for project: ${bold(projectId)}`
-    );
-    if (httpServer) {
-      logLine(
-        cyan("\u25A1"),
-        parsed.webPort !== undefined
-          ? `Web dashboard listening on ${httpServer.url}`
-          : `HTTP dashboard listening on ${httpServer.url}`
-      );
-    }
-    logLine(
-      dim("\u00B7"),
-      dim(parsed.once ? "Running one orchestration tick" : "Press Ctrl+C to stop")
-    );
-
     let shuttingDown = false;
     let shutdownPromise: Promise<never> | null = null;
     let keepHttpAliveResolve: (() => void) | null = null;
+    let httpServer:
+      | Awaited<ReturnType<typeof startControlPlaneServer>>
+      | Awaited<ReturnType<typeof startHttpServer>>
+      | null = null;
     const shutdown = async () => {
       if (shuttingDown) {
         return shutdownPromise;
@@ -626,9 +577,67 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
+      httpServer =
+        parsed.webPort !== undefined
+          ? await startControlPlaneServer({
+              host: HTTP_HOST,
+              port: parsed.webPort,
+              runtimeRoot,
+              projectId,
+              onRefreshRequest: () => service.requestReconcile(),
+            })
+          : parsed.httpPort !== undefined
+          ? await startHttpServer({
+              runtimeRoot,
+              projectId,
+              initialPort: parsed.httpPort,
+              service,
+            })
+          : null;
+      if (httpServer) {
+        try {
+          await writeHttpBindingState(options.configDir, projectId, {
+            host: HTTP_HOST,
+            port: httpServer.port,
+            endpoint: httpServer.url,
+          });
+        } catch (error) {
+          logLine(
+            yellow("\u26A0"),
+            yellow(
+              `Failed to persist HTTP binding state (http.json): ${
+                error instanceof Error ? error.message : "Unknown error"
+              }`
+            )
+          );
+        }
+      }
+
+      logLine(
+        green("\u25B2"),
+        `Starting orchestrator for project: ${bold(projectId)}`
+      );
+      if (httpServer) {
+        logLine(
+          cyan("\u25A1"),
+          parsed.webPort !== undefined
+            ? `Web dashboard listening on ${httpServer.url}`
+            : `HTTP dashboard listening on ${httpServer.url}`
+        );
+      }
+      logLine(
+        dim("\u00B7"),
+        dim(
+          parsed.once ? "Running one orchestration tick" : "Press Ctrl+C to stop"
+        )
+      );
+
       while (!shuttingDown) {
         try {
           await service.run({ once: parsed.once });
+          if (shuttingDown) {
+            break;
+          }
           if (parsed.once) {
             if (httpServer) {
               logLine(
@@ -637,6 +646,9 @@ const handler = async (
                   ? "One-shot tick completed; web dashboard remains available until Ctrl+C"
                   : "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
               );
+              if (shuttingDown) {
+                break;
+              }
               await new Promise<void>((resolve) => {
                 keepHttpAliveResolve = resolve;
               });
