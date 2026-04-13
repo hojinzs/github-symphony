@@ -196,7 +196,8 @@ describe("generateReferenceWorkflow", () => {
     const output = generateReferenceWorkflow(defaultInput);
 
     expect(output).toContain("Detected repository validation commands:");
-    expect(output).toContain("`pnpm --filter @gh-symphony/cli test`");
+    expect(output).toContain("`pnpm test`");
+    expect(output).toContain("(script: `pnpm --filter @gh-symphony/cli test`)");
     expect(output).toContain("Use `pnpm` conventions");
     expect(output).toContain("This repository appears to be a monorepo");
   });

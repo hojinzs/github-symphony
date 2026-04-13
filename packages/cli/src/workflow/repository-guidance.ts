@@ -5,14 +5,76 @@ export type RepositoryGuidanceInput = Pick<
   "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
 >;
 
+function normalizeCommand(command: string): string {
+  return command.replace(/\s+/g, " ").trim();
+}
+
+function renderInlineCode(command: string): string {
+  const normalized = normalizeCommand(command);
+  const longestBacktickRun = Math.max(
+    0,
+    ...Array.from(normalized.matchAll(/`+/g), (match) => match[0].length)
+  );
+  const fence = "`".repeat(longestBacktickRun + 1);
+  const padded =
+    normalized.startsWith("`") || normalized.endsWith("`")
+      ? ` ${normalized} `
+      : normalized;
+
+  return `${fence}${padded}${fence}`;
+}
+
+function buildRunnableScriptCommand(
+  packageManager: RepositoryGuidanceInput["packageManager"],
+  scriptName: "test" | "lint" | "build"
+): string | null {
+  switch (packageManager) {
+    case "pnpm":
+      return scriptName === "test" ? "pnpm test" : `pnpm ${scriptName}`;
+    case "npm":
+      return scriptName === "test" ? "npm test" : `npm run ${scriptName}`;
+    case "yarn":
+      return `yarn ${scriptName}`;
+    case "bun":
+      return `bun run ${scriptName}`;
+    default:
+      return null;
+  }
+}
+
+function formatDetectedCommand(
+  label: "test" | "lint" | "build",
+  rawCommand: string | null,
+  packageManager: RepositoryGuidanceInput["packageManager"]
+): string | null {
+  if (!rawCommand) {
+    return null;
+  }
+
+  const runnableCommand = buildRunnableScriptCommand(packageManager, label);
+  const normalizedRawCommand = normalizeCommand(rawCommand);
+
+  if (!runnableCommand) {
+    return `${label}: ${renderInlineCode(normalizedRawCommand)}`;
+  }
+
+  if (normalizeCommand(runnableCommand) === normalizedRawCommand) {
+    return `${label}: ${renderInlineCode(runnableCommand)}`;
+  }
+
+  return `${label}: ${renderInlineCode(runnableCommand)} (script: ${renderInlineCode(
+    normalizedRawCommand
+  )})`;
+}
+
 export function buildRepositoryValidationGuidance(
   input: RepositoryGuidanceInput
 ): string[] {
   const lines: string[] = [];
   const commands = [
-    input.testCommand ? `test: \`${input.testCommand}\`` : null,
-    input.lintCommand ? `lint: \`${input.lintCommand}\`` : null,
-    input.buildCommand ? `build: \`${input.buildCommand}\`` : null,
+    formatDetectedCommand("test", input.testCommand, input.packageManager),
+    formatDetectedCommand("lint", input.lintCommand, input.packageManager),
+    formatDetectedCommand("build", input.buildCommand, input.packageManager),
   ].filter((value): value is string => value !== null);
 
   if (commands.length > 0) {

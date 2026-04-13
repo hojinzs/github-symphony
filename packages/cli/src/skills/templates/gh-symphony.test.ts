@@ -67,6 +67,7 @@ describe("generateGhSymphonySkill", () => {
     expect(result).toContain("Repository Validation Guidance");
     expect(result).toContain("Detected repository validation commands:");
     expect(result).toContain("`pnpm test`");
+    expect(result).not.toContain("(script:");
     expect(result).toContain("Use `pnpm` conventions");
   });
 

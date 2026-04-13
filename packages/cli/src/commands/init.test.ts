@@ -385,10 +385,14 @@ describe("init ecosystem generation", () => {
     );
 
     expect(referenceWorkflow).toContain("Detected repository validation commands:");
-    expect(referenceWorkflow).toContain("`pnpm --filter fixture test`");
+    expect(referenceWorkflow).toContain("`pnpm test`");
+    expect(referenceWorkflow).toContain(
+      "(script: `pnpm --filter fixture test`)"
+    );
     expect(referenceWorkflow).toContain("This repository appears to be a monorepo");
     expect(skill).toContain("Detected repository validation commands:");
-    expect(skill).toContain("`pnpm --filter fixture lint`");
+    expect(skill).toContain("`pnpm lint`");
+    expect(skill).toContain("(script: `pnpm --filter fixture lint`)");
     expect(skill).toContain("Use `pnpm` conventions");
   });
 
