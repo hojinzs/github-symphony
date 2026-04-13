@@ -1,5 +1,6 @@
 import type { SkillTemplateContext } from "../types.js";
 import { renderSkillDocument } from "./document.js";
+import { buildRepositoryValidationGuidance } from "../../workflow/repository-guidance.js";
 
 export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   const lines: string[] = [];
@@ -22,6 +23,17 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
     `- \`${ctx.referenceWorkflowPath}\` must exist (annotated reference template)`
   );
   lines.push("- `gh` CLI must be authenticated");
+  lines.push("");
+  lines.push("## Repository Validation Guidance");
+  lines.push("");
+  lines.push(
+    "Carry the detected repository validation posture into any new or refined `WORKFLOW.md` instead of falling back to generic instructions."
+  );
+  for (const line of buildRepositoryValidationGuidance(
+    ctx.detectedEnvironment
+  )) {
+    lines.push(`- ${line}`);
+  }
   lines.push("");
   lines.push("## Mode Detection");
   lines.push("");

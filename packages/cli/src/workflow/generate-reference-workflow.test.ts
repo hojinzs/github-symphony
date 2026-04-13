@@ -13,6 +13,13 @@ const defaultInput: ReferenceWorkflowInput = {
     { name: "Done", role: "terminal" },
   ],
   projectId: "PVT_abc123",
+  detectedEnvironment: {
+    packageManager: "pnpm",
+    testCommand: "pnpm --filter @gh-symphony/cli test",
+    lintCommand: "pnpm lint",
+    buildCommand: "pnpm build",
+    monorepo: true,
+  },
 };
 
 describe("generateReferenceWorkflow", () => {
@@ -47,6 +54,7 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("# ═══ FRONT MATTER FIELD REFERENCE ═══");
     expect(output).toContain("# ═══ PROMPT BODY REFERENCE ═══");
     expect(output).toContain("## Status Map");
+    expect(output).toContain("## Repository Validation Guidance");
     expect(output).toContain("## Default Posture");
     expect(output).toContain("## Related Skills");
     expect(output).toContain("## Step 0: Determine current state and route");
@@ -182,5 +190,15 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("after_run: null");
     expect(output).toContain("before_remove: null");
     expect(output).toContain("timeout_ms: 60000");
+  });
+
+  it("includes detected repository guidance", () => {
+    const output = generateReferenceWorkflow(defaultInput);
+
+    expect(output).toContain("Detected repository validation commands:");
+    expect(output).toContain("`pnpm test`");
+    expect(output).toContain("(script: `pnpm --filter @gh-symphony/cli test`)");
+    expect(output).toContain("Use `pnpm` conventions");
+    expect(output).toContain("This repository appears to be a monorepo");
   });
 });

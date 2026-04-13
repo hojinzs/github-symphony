@@ -36,6 +36,7 @@ import {
 } from "../github/gh-auth.js";
 import { resolveGitHubAuth } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
+import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import {
   buildContextYaml,
   generateContextYamlString,
@@ -157,6 +158,7 @@ type EcosystemOptions = {
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
+  environment?: DetectedEnvironment;
 };
 
 export type EcosystemResult = {
@@ -214,6 +216,7 @@ export type WorkflowArtifactsOptions = {
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
+  environment?: DetectedEnvironment;
 };
 
 export type WorkflowArtifactsPlan = {
@@ -331,12 +334,14 @@ export async function promptStateMappings(
 export async function planWorkflowArtifacts(
   opts: WorkflowArtifactsOptions
 ): Promise<WorkflowArtifactsPlan> {
+  const environment = opts.environment ?? (await detectEnvironment(opts.cwd));
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
     stateFieldName: opts.statusField.name,
     mappings: opts.mappings,
     lifecycle: toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings),
     runtime: opts.runtime,
+    detectedEnvironment: environment,
   });
 
   const workflowPlan = await planFileChange({
@@ -352,6 +357,7 @@ export async function planWorkflowArtifacts(
     runtime: opts.runtime,
     skipSkills: opts.skipSkills,
     skipContext: opts.skipContext,
+    environment,
   });
 
   return {
@@ -386,7 +392,7 @@ export async function planEcosystem(
   const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
     opts;
   const ghSymphonyDir = join(cwd, ".gh-symphony");
-  const environment = await detectEnvironment(cwd);
+  const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
 
   if (!skipContext) {
@@ -421,6 +427,7 @@ export async function planEcosystem(
       role: null as "active" | "wait" | "terminal" | null,
     })),
     projectId: projectDetail.id,
+    detectedEnvironment: environment,
   });
   files.push(
     await planFileChange({
@@ -453,6 +460,7 @@ export async function planEcosystem(
         statusFieldId: statusField.id,
         contextYamlPath: ".gh-symphony/context.yaml",
         referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+        detectedEnvironment: environment,
       }
     );
 

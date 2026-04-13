@@ -15,6 +15,13 @@ const mockCtx: SkillTemplateContext = {
   statusFieldId: "PVTF_field123",
   contextYamlPath: ".gh-symphony/context.yaml",
   referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
+  detectedEnvironment: {
+    packageManager: "pnpm",
+    testCommand: "pnpm test",
+    lintCommand: "pnpm lint",
+    buildCommand: "pnpm build",
+    monorepo: false,
+  },
 };
 
 describe("generateGhProjectSkill", () => {
