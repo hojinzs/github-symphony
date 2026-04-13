@@ -1293,7 +1293,7 @@ const REPOSITORY_ISSUE_QUERY = `
             login
           }
         }
-        blockedBy(first: 20) {
+        blockedBy(first: 100) {
           nodes {
             id
             number
