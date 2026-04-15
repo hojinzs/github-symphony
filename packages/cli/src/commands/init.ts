@@ -7,10 +7,12 @@ import {
   createClient,
   validateToken,
   checkRequiredScopes,
+  discoverUserProjects,
   listUserProjects,
   getProjectDetail,
   GitHubScopeError,
   type GitHubClient,
+  type ProjectDiscoveryResult,
   type ProjectSummary,
   type ProjectDetail,
   type ProjectStatusField,
@@ -66,6 +68,23 @@ function displayScopeError(
   p.note(
     `gh auth refresh --scopes ${scopeArg}\n\nThen re-run: ${retryCommand}`,
     "Fix missing scope"
+  );
+}
+
+export function warnIfProjectDiscoveryPartial(
+  result: Pick<ProjectDiscoveryResult, "partial" | "reason" | "projects" | "requests">
+): void {
+  if (!result.partial) {
+    return;
+  }
+
+  const limitDetail =
+    result.reason === "result_limit"
+      ? "the discovered project count reached the safety cap"
+      : "the GitHub API request budget reached the safety cap";
+
+  p.log.warn(
+    `Project discovery may be incomplete: ${limitDetail}. Showing ${result.projects.length} discovered project${result.projects.length === 1 ? "" : "s"} after ${result.requests} request${result.requests === 1 ? "" : "s"}.`
   );
 }
 
@@ -829,10 +848,12 @@ async function runInteractiveStandalone(
   s2.start("Loading projects...");
   let projects: ProjectSummary[];
   try {
-    projects = await listUserProjects(client);
+    const discovery = await discoverUserProjects(client);
+    projects = discovery.projects;
     s2.stop(
       `Found ${projects.length} project${projects.length === 1 ? "" : "s"}`
     );
+    warnIfProjectDiscoveryPartial(discovery);
   } catch (error) {
     s2.stop("Failed to load projects.");
     if (error instanceof GitHubScopeError) {

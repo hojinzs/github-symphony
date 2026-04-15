@@ -25,6 +25,13 @@ export type ProjectSummary = {
   };
 };
 
+export type ProjectDiscoveryResult = {
+  projects: ProjectSummary[];
+  partial: boolean;
+  reason: "request_limit" | "result_limit" | null;
+  requests: number;
+};
+
 export type StatusFieldOption = {
   id: string;
   name: string;
@@ -290,39 +297,162 @@ export function checkRequiredScopes(scopes: string[]): {
 
 // ── 2.2: Projects v2 list ────────────────────────────────────────────────────
 
-export async function listUserProjects(
-  client: GitHubClient
-): Promise<ProjectSummary[]> {
-  const data = await graphql<ViewerProjectsResponse>(
-    client,
-    VIEWER_PROJECTS_QUERY
-  );
-  const projects: ProjectSummary[] = [];
+const PROJECT_PAGE_SIZE = 50;
+const ORGANIZATION_PAGE_SIZE = 20;
+const MAX_PROJECT_DISCOVERY_REQUESTS = 40;
+const MAX_DISCOVERED_PROJECTS = 1000;
 
-  for (const node of data.viewer.projectsV2?.nodes ?? []) {
-    if (!node) continue;
-    projects.push(
-      normalizeProjectSummary(node, {
-        login: data.viewer.login,
-        type: "User",
-      })
+export async function discoverUserProjects(
+  client: GitHubClient
+): Promise<ProjectDiscoveryResult> {
+  const projects: ProjectSummary[] = [];
+  const seenProjectIds = new Set<string>();
+  const orgLogins: string[] = [];
+  let requestCount = 0;
+  let partial = false;
+  let reason: ProjectDiscoveryResult["reason"] = null;
+
+  const tryStartRequest = (): boolean => {
+    if (requestCount >= MAX_PROJECT_DISCOVERY_REQUESTS) {
+      partial = true;
+      reason ??= "request_limit";
+      return false;
+    }
+    requestCount += 1;
+    return true;
+  };
+
+  const collectProject = (
+    node: GraphQLProjectNode,
+    owner: { login: string; type: "User" | "Organization" }
+  ): boolean => {
+    if (seenProjectIds.has(node.id)) {
+      return true;
+    }
+    if (projects.length >= MAX_DISCOVERED_PROJECTS) {
+      partial = true;
+      reason ??= "result_limit";
+      return false;
+    }
+
+    seenProjectIds.add(node.id);
+    projects.push(normalizeProjectSummary(node, owner));
+    return true;
+  };
+
+  let viewerProjectsCursor: string | null = null;
+  let hasMoreViewerProjects = true;
+  let viewerLogin = "";
+
+  while (hasMoreViewerProjects) {
+    if (!tryStartRequest()) {
+      break;
+    }
+
+    const data: ViewerProjectsPageResponse = await graphql<ViewerProjectsPageResponse>(
+      client,
+      VIEWER_PROJECTS_PAGE_QUERY,
+      { cursor: viewerProjectsCursor }
     );
+
+    viewerLogin = data.viewer.login;
+    const projectPage: ViewerProjectsPageResponse["viewer"]["projectsV2"] =
+      data.viewer.projectsV2;
+    for (const node of projectPage?.nodes ?? []) {
+      if (!node) continue;
+      if (!collectProject(node, { login: viewerLogin, type: "User" })) {
+        hasMoreViewerProjects = false;
+        break;
+      }
+    }
+
+    if (partial) {
+      break;
+    }
+
+    hasMoreViewerProjects = projectPage?.pageInfo?.hasNextPage ?? false;
+    viewerProjectsCursor = projectPage?.pageInfo?.endCursor ?? null;
   }
 
-  for (const orgNode of data.viewer.organizations?.nodes ?? []) {
-    if (!orgNode) continue;
-    for (const projNode of orgNode.projectsV2?.nodes ?? []) {
-      if (!projNode) continue;
-      projects.push(
-        normalizeProjectSummary(projNode, {
-          login: orgNode.login,
-          type: "Organization",
-        })
+  let organizationsCursor: string | null = null;
+  let hasMoreOrganizations = true;
+
+  while (!partial && hasMoreOrganizations) {
+    if (!tryStartRequest()) {
+      break;
+    }
+
+    const data: ViewerOrganizationsPageResponse =
+      await graphql<ViewerOrganizationsPageResponse>(
+      client,
+      VIEWER_ORGANIZATIONS_PAGE_QUERY,
+      { cursor: organizationsCursor }
+    );
+
+    for (const orgNode of data.viewer.organizations?.nodes ?? []) {
+      if (!orgNode) continue;
+      orgLogins.push(orgNode.login);
+    }
+
+    hasMoreOrganizations =
+      data.viewer.organizations?.pageInfo?.hasNextPage ?? false;
+    organizationsCursor = data.viewer.organizations?.pageInfo?.endCursor ?? null;
+  }
+
+  for (const orgLogin of orgLogins) {
+    let orgProjectsCursor: string | null = null;
+    let hasMoreOrgProjects = true;
+
+    while (!partial && hasMoreOrgProjects) {
+      if (!tryStartRequest()) {
+        break;
+      }
+
+      const data: OrganizationProjectsPageResponse =
+        await graphql<OrganizationProjectsPageResponse>(
+        client,
+        ORGANIZATION_PROJECTS_PAGE_QUERY,
+        { login: orgLogin, cursor: orgProjectsCursor }
       );
+
+      const projectPage: NonNullable<
+        OrganizationProjectsPageResponse["organization"]
+      >["projectsV2"] =
+        data.organization?.projectsV2 ?? null;
+      for (const node of projectPage?.nodes ?? []) {
+        if (!node) continue;
+        if (
+          !collectProject(node, {
+            login: orgLogin,
+            type: "Organization",
+          })
+        ) {
+          hasMoreOrgProjects = false;
+          break;
+        }
+      }
+
+      if (partial) {
+        break;
+      }
+
+      hasMoreOrgProjects = projectPage?.pageInfo?.hasNextPage ?? false;
+      orgProjectsCursor = projectPage?.pageInfo?.endCursor ?? null;
     }
   }
 
-  return projects;
+  return {
+    projects,
+    partial,
+    reason,
+    requests: requestCount,
+  };
+}
+
+export async function listUserProjects(
+  client: GitHubClient
+): Promise<ProjectSummary[]> {
+  return (await discoverUserProjects(client)).projects;
 }
 
 function normalizeProjectSummary(
@@ -525,17 +655,41 @@ type GraphQLProjectNode = {
   items: { totalCount: number } | null;
 };
 
-type ViewerProjectsResponse = {
+type ProjectPageInfo = {
+  endCursor: string | null;
+  hasNextPage: boolean;
+};
+
+type ViewerProjectsPageResponse = {
   viewer: {
     login: string;
-    projectsV2: { nodes: Array<GraphQLProjectNode | null> | null } | null;
+    projectsV2: {
+      nodes: Array<GraphQLProjectNode | null> | null;
+      pageInfo: ProjectPageInfo | null;
+    } | null;
     organizations: {
-      nodes: Array<{
-        login: string;
-        projectsV2: { nodes: Array<GraphQLProjectNode | null> | null } | null;
-      } | null> | null;
+      nodes: Array<{ login: string } | null> | null;
+      pageInfo: ProjectPageInfo | null;
     } | null;
   };
+};
+
+type ViewerOrganizationsPageResponse = {
+  viewer: {
+    organizations: {
+      nodes: Array<{ login: string } | null> | null;
+      pageInfo: ProjectPageInfo | null;
+    } | null;
+  };
+};
+
+type OrganizationProjectsPageResponse = {
+  organization: {
+    projectsV2: {
+      nodes: Array<GraphQLProjectNode | null> | null;
+      pageInfo: ProjectPageInfo | null;
+    } | null;
+  } | null;
 };
 
 type ProjectDetailResponse = {
@@ -600,11 +754,11 @@ type ProjectItemsPageResponse = {
 
 // ── GraphQL queries ──────────────────────────────────────────────────────────
 
-const VIEWER_PROJECTS_QUERY = `
-  query ViewerProjects {
+const VIEWER_PROJECTS_PAGE_QUERY = `
+  query ViewerProjectsPage($cursor: String) {
     viewer {
       login
-      projectsV2(first: 50) {
+      projectsV2(first: ${PROJECT_PAGE_SIZE}, after: $cursor) {
         nodes {
           id
           title
@@ -612,19 +766,45 @@ const VIEWER_PROJECTS_QUERY = `
           url
           items { totalCount }
         }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
       }
-      organizations(first: 20) {
+    }
+  }
+`;
+
+const VIEWER_ORGANIZATIONS_PAGE_QUERY = `
+  query ViewerOrganizationsPage($cursor: String) {
+    viewer {
+      organizations(first: ${ORGANIZATION_PAGE_SIZE}, after: $cursor) {
         nodes {
           login
-          projectsV2(first: 50) {
-            nodes {
-              id
-              title
-              shortDescription
-              url
-              items { totalCount }
-            }
-          }
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+      }
+    }
+  }
+`;
+
+const ORGANIZATION_PROJECTS_PAGE_QUERY = `
+  query OrganizationProjectsPage($login: String!, $cursor: String) {
+    organization(login: $login) {
+      projectsV2(first: ${PROJECT_PAGE_SIZE}, after: $cursor) {
+        nodes {
+          id
+          title
+          shortDescription
+          url
+          items { totalCount }
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
         }
       }
     }

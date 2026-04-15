@@ -83,7 +83,12 @@ describe("init interactive auth", () => {
     });
     const ensureSpy = vi.spyOn(ghAuth, "ensureGhAuth");
     vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
-    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([]);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
 
     await initCommand([], {
       configDir,
@@ -101,6 +106,34 @@ describe("init interactive auth", () => {
     );
     expect(p.log.error).toHaveBeenCalledWith(
       "No GitHub Projects found. Create a project at https://github.com/orgs/YOUR_ORG/projects and re-run."
+    );
+  });
+
+  it("warns when project discovery hits a safety limit", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-partial-projects-"));
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [],
+      partial: true,
+      reason: "request_limit",
+      requests: 40,
+    });
+
+    await initCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "Project discovery may be incomplete: the GitHub API request budget reached the safety cap. Showing 0 discovered projects after 40 requests."
     );
   });
 });

@@ -71,6 +71,8 @@ The interactive wizard will:
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate `WORKFLOW.md` and supporting files in the repository
 
+Project discovery is pagination-aware for larger GitHub accounts, so viewer projects plus organization-owned projects are collected across multiple API pages before the selection prompt. If a discovery safety cap is hit, the wizard keeps the partial list and prints a warning.
+
 Token-only interactive setup is supported:
 
 ```bash
@@ -140,6 +142,8 @@ The interactive wizard will:
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
+
+This wizard uses the same pagination-aware discovery path as `workflow init`, so it can enumerate large personal and organization-backed GitHub accounts more reliably. If the CLI stops at a safety limit, it warns that the visible project list may be incomplete.
 
 Token-only non-interactive setup:
 

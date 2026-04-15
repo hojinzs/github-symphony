@@ -107,6 +107,8 @@ The interactive wizard will:
 | `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions                                           |
 
+Project discovery is pagination-aware for larger GitHub accounts, so personal projects, organization pages, and organization-owned projects are fetched across multiple API pages before selection. If the CLI hits a discovery safety cap, it keeps the partial list and prints a warning before you choose a board.
+
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
 Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates all include repository-aware validation guidance based on the detected package manager, monorepo shape, and `test` / `lint` / `build` scripts when present.
@@ -139,6 +141,8 @@ The interactive wizard will:
 3. Optionally limit processing to issues assigned to the authenticated user
 4. Optionally customize advanced settings for repository filtering and workspace root directory
 5. Write project configuration to `~/.gh-symphony/`
+
+Project discovery is pagination-aware here as well, so large personal and organization-backed GitHub accounts can browse across multiple project pages. If discovery stops at a safety limit, the wizard warns that the visible list may be incomplete.
 
 Token-only project registration is supported too:
 

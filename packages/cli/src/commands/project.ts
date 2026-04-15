@@ -10,6 +10,7 @@ import {
   createClient,
   validateToken,
   checkRequiredScopes,
+  discoverUserProjects,
   listUserProjects,
   getProjectDetail,
   GitHubScopeError,
@@ -30,7 +31,12 @@ import {
   type CliGlobalConfig,
   type CliProjectConfig,
 } from "../config.js";
-import { writeConfig, generateProjectId, abortIfCancelled } from "./init.js";
+import {
+  writeConfig,
+  generateProjectId,
+  abortIfCancelled,
+  warnIfProjectDiscoveryPartial,
+} from "./init.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
@@ -611,10 +617,12 @@ async function projectAddInteractive(
   s2.start("Loading GitHub Project boards...");
   let projects: ProjectSummary[];
   try {
-    projects = await listUserProjects(client);
+    const discovery = await discoverUserProjects(client);
+    projects = discovery.projects;
     s2.stop(
       `Found ${projects.length} project${projects.length === 1 ? "" : "s"}`
     );
+    warnIfProjectDiscoveryPartial(discovery);
   } catch (error) {
     s2.stop("Failed to load projects.");
     if (error instanceof GitHubScopeError) {
