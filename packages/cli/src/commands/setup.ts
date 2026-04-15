@@ -259,7 +259,13 @@ async function runNonInteractive(
   }
 
   const mappings = buildAutomaticStateMappings(statusField);
-  const { field: priorityField } = resolvePriorityField(projectDetail, statusField);
+  const { field: priorityField, ambiguous: ambiguousPriorityFields } =
+    resolvePriorityField(projectDetail, statusField);
+  if (ambiguousPriorityFields.length > 0) {
+    process.stderr.write(
+      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Skipping tracker.priority_field in non-interactive mode.\n`
+    );
+  }
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
     process.stderr.write(
