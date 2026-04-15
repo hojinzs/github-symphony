@@ -1,4 +1,8 @@
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import {
+  DEFAULT_AFTER_CREATE_HOOK_COMMENT,
+  DEFAULT_AFTER_CREATE_HOOK_PATH,
+} from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 
 export type ReferenceWorkflowInput = {
@@ -76,7 +80,6 @@ export function generateReferenceWorkflow(
   lines.push("");
 
   const agentCommand = resolveAgentCommand(input.runtime);
-  const hookComment = resolveHookComment(input.runtime);
   lines.push("polling:");
   lines.push("  interval_ms: 30000");
   lines.push("");
@@ -86,7 +89,9 @@ export function generateReferenceWorkflow(
   lines.push("");
 
   lines.push("hooks:");
-  lines.push(`  after_create: hooks/after_create.sh  # ${hookComment}`);
+  lines.push(
+    `  after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}  # ${DEFAULT_AFTER_CREATE_HOOK_COMMENT}`
+  );
   lines.push("  before_run: null");
   lines.push("  after_run: null");
   lines.push("  before_remove: null");
@@ -372,17 +377,6 @@ function resolveAgentCommand(runtime: string): string {
       return "claude-code";
     default:
       return runtime;
-  }
-}
-
-function resolveHookComment(runtime: string): string {
-  switch (runtime) {
-    case "codex":
-      return "npm/yarn/pnpm install script";
-    case "claude-code":
-      return "npm/yarn/pnpm install script";
-    default:
-      return "package-manager-specific script";
   }
 }
 

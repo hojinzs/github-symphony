@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown, renderPrompt } from "@gh-symphony/core";
+import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { generateWorkflowMarkdown } from "./generate-workflow-md.js";
 
 describe("generateWorkflowMarkdown", () => {
@@ -92,6 +93,12 @@ describe("generateWorkflowMarkdown", () => {
     });
 
     expect(markdown).toContain("command: node worker.js");
+  });
+
+  it("points after_create at the scaffolded default hook path", () => {
+    const markdown = generateWorkflowMarkdown(defaultInput);
+
+    expect(markdown).toContain(`after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`);
   });
 
   it("includes template variables that resolve without errors", () => {
