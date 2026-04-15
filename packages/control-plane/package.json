@@ -42,7 +42,7 @@
     "dev:server": "tsup src/index.ts --watch --format esm",
     "lint": "eslint src client/src client/.storybook client/vite.config.ts client/tailwind.config.ts --ext .ts,.tsx",
     "storybook": "storybook dev -p 6006 -c client/.storybook",
-    "typecheck": "tsc -p tsconfig.typecheck.json && tsc -p client/tsconfig.json --noEmit",
+    "typecheck": "pnpm build:client >/dev/null && tsc -p tsconfig.typecheck.json && tsc -p client/tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

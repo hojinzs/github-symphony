@@ -49,3 +49,54 @@ jobs:
         if: always()
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  container-smoke:
+    name: Container Smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build container image from local package bundle
+        run: |
+          docker build \
+            --build-arg GH_SYMPHONY_INSTALL_SOURCE=local \
+            --tag gh-symphony:test .
+
+      - name: Smoke test container image
+        run: |
+          TMPDIR="$(mktemp -d)"
+          mkdir -p "${TMPDIR}/config/projects/smoke"
+
+          cat > "${TMPDIR}/config/config.json" <<'EOF'
+          {
+            "activeProject": "smoke",
+            "projects": ["smoke"]
+          }
+          EOF
+
+          cat > "${TMPDIR}/config/projects/smoke/project.json" <<'EOF'
+          {
+            "projectId": "smoke",
+            "slug": "smoke",
+            "workspaceDir": "/var/lib/gh-symphony/workspaces/smoke",
+            "repositories": [],
+            "tracker": {
+              "adapter": "file",
+              "bindingId": "smoke-file",
+              "settings": {
+                "issuesPath": "/var/lib/gh-symphony/issues.json"
+              }
+            }
+          }
+          EOF
+
+          echo "[]" > "${TMPDIR}/config/issues.json"
+
+          docker run --rm gh-symphony:test gh-symphony --version
+          docker run --rm \
+            -v "${TMPDIR}/config:/var/lib/gh-symphony" \
+            gh-symphony:test \
+            gh-symphony start --once --project-id smoke
