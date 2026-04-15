@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -43,6 +43,11 @@ import {
   buildContextYaml,
   generateContextYamlString,
 } from "../context/generate-context-yaml.js";
+import {
+  DEFAULT_AFTER_CREATE_HOOK_CONTENT,
+  DEFAULT_AFTER_CREATE_HOOK_LABEL,
+  DEFAULT_AFTER_CREATE_HOOK_PATH,
+} from "../workflow/default-hooks.js";
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
 import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
@@ -185,6 +190,7 @@ export type EcosystemResult = {
   githubProjectTitle: string;
   runtime: string;
   skillsDir: string | null;
+  afterCreateHookWritten: boolean;
   contextYamlWritten: boolean;
   referenceWorkflowWritten: boolean;
   skillsWritten: string[];
@@ -200,6 +206,7 @@ export type PlannedFileChange = {
   content: string;
   mode: PlannedWriteMode;
   status: PlannedChangeStatus;
+  executable?: boolean;
 };
 
 export type EcosystemPlan = {
@@ -270,6 +277,7 @@ async function planFileChange(input: {
   label: string;
   content: string;
   mode: PlannedWriteMode;
+  executable?: boolean;
 }): Promise<PlannedFileChange> {
   return {
     ...input,
@@ -286,6 +294,9 @@ async function writePlannedFile(file: PlannedFileChange): Promise<boolean> {
   const temporaryPath = `${file.path}.tmp`;
   await writeFile(temporaryPath, file.content, "utf8");
   await rename(temporaryPath, file.path);
+  if (file.executable) {
+    await chmod(file.path, 0o755);
+  }
   return true;
 }
 
@@ -414,6 +425,16 @@ export async function planEcosystem(
   const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
 
+  files.push(
+    await planFileChange({
+      path: join(cwd, DEFAULT_AFTER_CREATE_HOOK_PATH),
+      label: DEFAULT_AFTER_CREATE_HOOK_LABEL,
+      content: DEFAULT_AFTER_CREATE_HOOK_CONTENT,
+      mode: "create-only",
+      executable: true,
+    })
+  );
+
   if (!skipContext) {
     const contextYaml = buildContextYaml({
       projectDetail,
@@ -510,6 +531,7 @@ export async function writeEcosystem(
 ): Promise<EcosystemResult> {
   const plan = await planEcosystem(opts);
   await mkdir(join(opts.cwd, ".gh-symphony"), { recursive: true });
+  const afterCreateHookPath = join(opts.cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
   const contextYamlPath = join(opts.cwd, ".gh-symphony", "context.yaml");
   const referenceWorkflowPath = join(
     opts.cwd,
@@ -517,6 +539,7 @@ export async function writeEcosystem(
     "reference-workflow.md"
   );
 
+  let afterCreateHookWritten = false;
   let contextYamlWritten = false;
   let referenceWorkflowWritten = false;
   const skillsWritten: string[] = [];
@@ -524,6 +547,10 @@ export async function writeEcosystem(
 
   for (const file of plan.files) {
     const written = await writePlannedFile(file);
+    if (file.path === afterCreateHookPath) {
+      afterCreateHookWritten = written;
+      continue;
+    }
     if (file.path === contextYamlPath) {
       contextYamlWritten = written;
       continue;
@@ -547,6 +574,7 @@ export async function writeEcosystem(
     githubProjectTitle: plan.githubProjectTitle,
     runtime: plan.runtime,
     skillsDir: plan.skillsDir,
+    afterCreateHookWritten,
     contextYamlWritten,
     referenceWorkflowWritten,
     skillsWritten: skillsWritten.sort(),
@@ -570,6 +598,11 @@ function printEcosystemSummary(
   lines.push("");
   lines.push("Generated files");
   lines.push(`  ✓ WORKFLOW.md                          ${relWorkflow}`);
+  if (result.afterCreateHookWritten) {
+    lines.push(
+      `  ✓ ${DEFAULT_AFTER_CREATE_HOOK_LABEL.padEnd(36)} ${DEFAULT_AFTER_CREATE_HOOK_PATH}`
+    );
+  }
   if (result.contextYamlWritten) {
     lines.push(
       "  ✓ Context metadata                     .gh-symphony/context.yaml"

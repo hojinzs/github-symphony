@@ -1,6 +1,7 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { StateMapping } from "../config.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 
 export type GenerateWorkflowInput = {
@@ -60,7 +61,7 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push("  root: .runtime/symphony-workspaces");
 
   lines.push("hooks:");
-  lines.push("  after_create: hooks/after_create.sh");
+  lines.push(`  after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`);
 
   lines.push("agent:");
   lines.push("  max_concurrent_agents: 10");

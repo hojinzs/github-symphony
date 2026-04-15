@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_AFTER_CREATE_HOOK_COMMENT,
+  DEFAULT_AFTER_CREATE_HOOK_PATH,
+} from "./default-hooks.js";
+import {
   generateReferenceWorkflow,
   type ReferenceWorkflowInput,
 } from "./generate-reference-workflow.js";
@@ -185,7 +189,8 @@ describe("generateReferenceWorkflow", () => {
 
   it("includes hooks section with after_create", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("after_create: hooks/after_create.sh");
+    expect(output).toContain(`after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`);
+    expect(output).toContain(DEFAULT_AFTER_CREATE_HOOK_COMMENT);
     expect(output).toContain("before_run: null");
     expect(output).toContain("after_run: null");
     expect(output).toContain("before_remove: null");

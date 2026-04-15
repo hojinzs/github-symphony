@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,11 @@ import * as p from "@clack/prompts";
 import type { CliProjectConfig } from "../config.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
+import {
+  DEFAULT_AFTER_CREATE_HOOK_CONTENT,
+  DEFAULT_AFTER_CREATE_HOOK_LABEL,
+  DEFAULT_AFTER_CREATE_HOOK_PATH,
+} from "../workflow/default-hooks.js";
 import initCommand from "./init.js";
 import {
   buildDryRunJsonResult,
@@ -310,6 +315,7 @@ describe("init ecosystem generation", () => {
     );
     expect(preview).toContain("Init dry-run preview");
     expect(preview).toContain("create");
+    expect(preview).toContain(DEFAULT_AFTER_CREATE_HOOK_PATH);
     expect(preview).toContain(".gh-symphony/context.yaml");
     expect(preview).toContain("Detected environment inputs");
     expect(preview).toContain("Dry run only. No files were written.");
@@ -347,6 +353,9 @@ describe("init ecosystem generation", () => {
       mode: "overwrite",
     });
     expect(
+      result.files.some((file) => file.path.endsWith(DEFAULT_AFTER_CREATE_HOOK_PATH))
+    ).toBe(true);
+    expect(
       result.files.some((file) => file.path.endsWith(".gh-symphony/context.yaml"))
     ).toBe(true);
     expect(result.environment.packageManager).toBeDefined();
@@ -355,7 +364,7 @@ describe("init ecosystem generation", () => {
   it("generates context.yaml and reference-workflow.md", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-"));
 
-    await writeEcosystem({
+    const result = await writeEcosystem({
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
@@ -363,6 +372,8 @@ describe("init ecosystem generation", () => {
       skipSkills: false,
       skipContext: false,
     });
+
+    expect(result.afterCreateHookWritten).toBe(true);
 
     const contextYaml = await readFile(
       join(cwd, ".gh-symphony", "context.yaml"),
@@ -376,6 +387,12 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
     expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+
+    const hookPath = join(cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
+    const hook = await readFile(hookPath, "utf8");
+    const hookStats = await stat(hookPath);
+    expect(hook).toBe(DEFAULT_AFTER_CREATE_HOOK_CONTENT);
+    expect(hookStats.mode & 0o111).not.toBe(0);
   });
 
   it("reflects detected repository commands across generated artifacts", async () => {
@@ -625,6 +642,11 @@ describe("init ecosystem generation", () => {
       file.path.endsWith(".gh-symphony/reference-workflow.md")
     );
     expect(referenceWorkflow?.status).toBe("unchanged");
+
+    const hookScaffold = plan.files.find(
+      (file) => file.label === DEFAULT_AFTER_CREATE_HOOK_LABEL
+    );
+    expect(hookScaffold?.status).toBe("unchanged");
 
     const contextYaml = plan.files.find((file) =>
       file.path.endsWith(".gh-symphony/context.yaml")
