@@ -42,11 +42,13 @@ Read `PROJECT_MANAGE.md` and extract:
 
 ### Step 2: Fetch Backlog Items
 
-Run `gh project item-list <project_number> --owner <owner> --format json --limit 100`.
+Run `gh issue list --state open --limit 200 --json number,title,body,labels,assignees,createdAt,updatedAt,projectItems`.
 
 Filter to only items where:
-- Status matches `backlog_status` (use the name from frontmatter)
-- Item type is "Issue" (skip draft items)
+- `projectItems[].status.name` matches `backlog_status` (use the name from frontmatter)
+- GitHub issue `state` is `OPEN`
+
+Do **not** use `gh project item-list` — project item counts can exceed the limit, causing items to be silently truncated regardless of the `--limit` value passed.
 
 ### Step 3: Identify Untriaged Items
 
