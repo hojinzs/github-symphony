@@ -234,6 +234,143 @@ describe("init command config output", () => {
   });
 });
 
+describe("init priority field detection", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(p.intro).mockImplementation(() => undefined);
+    vi.mocked(p.outro).mockImplementation(() => undefined);
+    vi.mocked(p.cancel).mockImplementation(() => undefined);
+    vi.mocked(p.note).mockImplementation(() => undefined);
+    vi.mocked(p.spinner).mockImplementation(mockSpinner);
+    vi.mocked(p.log.error).mockImplementation(() => undefined);
+    vi.mocked(p.log.warn).mockImplementation(() => undefined);
+    vi.mocked(p.log.info).mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it("adds tracker.priority_field during non-interactive dry-run when Priority exists", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-priority-nonint-"));
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true as never);
+    vi.spyOn(ghAuth, "getGhTokenWithSource").mockReturnValue({
+      token: "test-token",
+      source: "gh",
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "validateToken").mockResolvedValue({
+      login: "tester",
+      name: "Tester",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
+      {
+        id: "project-1",
+        title: "Roadmap",
+        shortDescription: "",
+        url: "https://github.com/users/tester/projects/1",
+        openItemCount: 3,
+        owner: { login: "tester", type: "User" },
+      },
+    ]);
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [MOCK_STATUS_FIELD, MOCK_PRIORITY_FIELD],
+    });
+
+    await initCommand(
+      ["--non-interactive", "--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      }
+    );
+
+    const payload = JSON.parse(
+      stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
+    ) as { priorityFieldName: string | null };
+    expect(payload.priorityFieldName).toBe("Priority");
+  });
+
+  it("prompts for a priority field when multiple priority-like fields are present", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-priority-int-"));
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true as never);
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "project-1",
+          title: "Roadmap",
+          shortDescription: "",
+          url: "https://github.com/users/tester/projects/1",
+          openItemCount: 3,
+          owner: { login: "tester", type: "User" },
+        },
+      ],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [
+        MOCK_STATUS_FIELD,
+        {
+          ...MOCK_PRIORITY_FIELD,
+          id: "priority-team",
+          name: "Priority (Team)",
+        },
+        {
+          ...MOCK_PRIORITY_FIELD,
+          id: "priority-severity",
+          name: "Priority (Severity)",
+        },
+      ],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("project-1" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("priority-severity" as never);
+
+    await initCommand(["--dry-run", "--output", join(configDir, "WORKFLOW.md")], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const rendered = stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(rendered).toContain("Priority field   Priority (Severity)");
+    expect(vi.mocked(p.select).mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            message:
+              "Step 3/3 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
+          }),
+        ],
+      ])
+    );
+  });
+});
+
 const MOCK_PROJECT_DETAIL = {
   id: "PVT_eco1",
   title: "Ecosystem Test",
@@ -284,6 +421,25 @@ const MOCK_STATUS_FIELD = {
   ],
 };
 
+const MOCK_PRIORITY_FIELD = {
+  id: "PVTSSF_priority",
+  name: "Priority",
+  options: [
+    {
+      id: "opt_p0",
+      name: "P0",
+      description: null,
+      color: "RED" as string | null,
+    },
+    {
+      id: "opt_p1",
+      name: "P1",
+      description: null,
+      color: "ORANGE" as string | null,
+    },
+  ],
+};
+
 describe("init ecosystem generation", () => {
   it("plans dry-run output without writing files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-plan-"));
@@ -292,6 +448,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -317,6 +474,7 @@ describe("init ecosystem generation", () => {
     expect(preview).toContain("create");
     expect(preview).toContain(DEFAULT_AFTER_CREATE_HOOK_PATH);
     expect(preview).toContain(".gh-symphony/context.yaml");
+    expect(preview).toContain("Priority field   Priority");
     expect(preview).toContain("Detected environment inputs");
     expect(preview).toContain("Dry run only. No files were written.");
   });
@@ -328,6 +486,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -347,6 +506,7 @@ describe("init ecosystem generation", () => {
 
     expect(result.dryRun).toBe(true);
     expect(result.output).toBe(join(cwd, "WORKFLOW.md"));
+    expect(result.priorityFieldName).toBe("Priority");
     expect(result.files[0]).toMatchObject({
       label: "WORKFLOW.md",
       status: "create",
@@ -368,6 +528,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -420,6 +581,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -470,6 +632,7 @@ describe("init ecosystem generation", () => {
       outputPath: join(cwd, "WORKFLOW.md"),
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
       mappings: {
         Todo: { role: "active" },
         "In Progress": { role: "active" },
@@ -481,6 +644,7 @@ describe("init ecosystem generation", () => {
     });
 
     expect(plan.workflowMd).toContain("### Repository Validation Guidance");
+    expect(plan.workflowMd).toContain("priority_field: Priority");
     expect(plan.workflowMd).toContain("Detected repository validation commands:");
     expect(plan.workflowMd).toContain("`npm test`");
     expect(plan.workflowMd).toContain("`npm run lint`");
@@ -494,6 +658,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "bash -lc codex app-server",
       skipSkills: false,
       skipContext: false,
@@ -516,6 +681,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -549,6 +715,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: true,
       skipContext: false,
@@ -573,6 +740,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: true,
       skipContext: true,
@@ -603,6 +771,7 @@ describe("init ecosystem generation", () => {
           { id: "opt_def", name: "Done", description: null, color: null },
         ],
       },
+      priorityField: null,
       runtime: "codex",
       skipSkills: true,
       skipContext: false,
@@ -624,6 +793,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -633,6 +803,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: false,
       skipContext: false,
@@ -667,6 +838,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: true,
       skipContext: true,
@@ -676,6 +848,7 @@ describe("init ecosystem generation", () => {
       cwd,
       projectDetail: MOCK_PROJECT_DETAIL,
       statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
       runtime: "codex",
       skipSkills: true,
       skipContext: true,

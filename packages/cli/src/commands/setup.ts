@@ -18,6 +18,7 @@ import {
   buildAutomaticStateMappings,
   generateProjectId,
   planWorkflowArtifacts,
+  resolvePriorityField,
   renderDryRunPreview,
   resolveStatusField,
   writeConfig,
@@ -258,6 +259,7 @@ async function runNonInteractive(
   }
 
   const mappings = buildAutomaticStateMappings(statusField);
+  const { field: priorityField } = resolvePriorityField(projectDetail, statusField);
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
     process.stderr.write(
@@ -273,6 +275,7 @@ async function runNonInteractive(
     outputPath: workflowPath,
     projectDetail,
     statusField,
+    priorityField,
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -284,6 +287,7 @@ async function runNonInteractive(
     cwd: process.cwd(),
     projectDetail,
     statusField,
+    priorityField,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -406,8 +410,9 @@ async function runInteractive(
     return;
   }
 
+  const priorityResolution = resolvePriorityField(projectDetail, statusField);
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/3",
+    stepLabel: priorityResolution.ambiguous.length > 0 ? "Step 2/4" : "Step 2/3",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -422,6 +427,37 @@ async function runInteractive(
     p.log.warn(`  ⚠ ${warning}`);
   }
 
+  const priorityField =
+    priorityResolution.ambiguous.length > 0
+      ? await (async () => {
+          const selectedId = await abortIfCancelled(
+            p.select({
+              message:
+                "Step 3/4 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
+              options: [
+                ...priorityResolution.ambiguous.map((field) => ({
+                  value: field.id,
+                  label: field.name,
+                  hint: `${field.options.length} option${field.options.length === 1 ? "" : "s"}`,
+                })),
+                {
+                  value: "__skip_priority_field__",
+                  label: "Skip priority-aware dispatch",
+                  hint: "Leave tracker.priority_field unset",
+                },
+              ],
+            })
+          );
+          if (selectedId === "__skip_priority_field__") {
+            return null;
+          }
+          return (
+            priorityResolution.ambiguous.find((field) => field.id === selectedId) ??
+            null
+          );
+        })()
+      : priorityResolution.field;
+
   const {
     assignedOnly: promptAssignedOnly,
     selectedRepos,
@@ -431,7 +467,9 @@ async function runInteractive(
       projectDetail,
       defaultWorkspaceDir: flags.workspaceDir ?? join(options.configDir, "workspaces"),
       assignedOnlyMessage:
-        "Step 3/3 — Only process issues assigned to the authenticated GitHub user?",
+        `${
+          priorityResolution.ambiguous.length > 0 ? "Step 4/4" : "Step 3/3"
+        } — Only process issues assigned to the authenticated GitHub user?`,
       assignedOnlyInitialValue: flags.assignedOnly,
     });
   const assignedOnly = flags.assignedOnly || promptAssignedOnly;
@@ -442,6 +480,7 @@ async function runInteractive(
     outputPath: workflowPath,
     projectDetail,
     statusField,
+    priorityField,
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -483,6 +522,7 @@ async function runInteractive(
       cwd: process.cwd(),
       projectDetail,
       statusField,
+      priorityField,
       runtime: "codex",
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,

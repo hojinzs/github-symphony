@@ -12,6 +12,7 @@ export type ReferenceWorkflowInput = {
     role: "active" | "wait" | "terminal" | null;
   }>;
   projectId: string;
+  priorityFieldName: string | null;
   detectedEnvironment: Pick<
     DetectedEnvironment,
     "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
@@ -43,6 +44,11 @@ export function generateReferenceWorkflow(
   lines.push("  kind: github-project");
   lines.push(`  project_id: ${input.projectId}`);
   lines.push("  state_field: Status");
+  if (input.priorityFieldName) {
+    lines.push(`  priority_field: ${input.priorityFieldName}`);
+  } else {
+    lines.push("  # priority_field: Priority");
+  }
   lines.push("");
 
   const activeColumns = input.statusColumns.filter((c) => c.role === "active");

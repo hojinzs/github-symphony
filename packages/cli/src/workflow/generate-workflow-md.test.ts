@@ -7,6 +7,7 @@ describe("generateWorkflowMarkdown", () => {
   const defaultInput = {
     projectId: "PVT_abc123",
     stateFieldName: "Stage",
+    priorityFieldName: "Priority",
     mappings: {
       Queued: { role: "active" as const, goal: "Triage and plan the issue" },
       Doing: { role: "active" as const, goal: "Implement the solution" },
@@ -45,6 +46,25 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.lifecycle.activeStates).toEqual(["Queued", "Doing"]);
     expect(parsed.lifecycle.terminalStates).toEqual(["Done"]);
     expect(parsed.lifecycle.blockerCheckStates).toEqual(["Queued"]);
+  });
+
+  it("emits tracker.priority_field when configured", () => {
+    const markdown = generateWorkflowMarkdown(defaultInput);
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("priority_field: Priority");
+    expect(parsed.tracker.priorityFieldName).toBe("Priority");
+  });
+
+  it("omits tracker.priority_field when not configured", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priorityFieldName: null,
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).not.toContain("priority_field:");
+    expect(parsed.tracker.priorityFieldName).toBeNull();
   });
 
   it("includes a Status Map section in the prompt body", () => {

@@ -179,6 +179,7 @@ type EcosystemOptions = {
   cwd: string;
   projectDetail: ProjectDetail;
   statusField: ProjectStatusField;
+  priorityField: ProjectStatusField | null;
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -189,6 +190,7 @@ export type EcosystemResult = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
+  priorityFieldName: string | null;
   skillsDir: string | null;
   afterCreateHookWritten: boolean;
   contextYamlWritten: boolean;
@@ -213,6 +215,7 @@ export type EcosystemPlan = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
+  priorityFieldName: string | null;
   skillsDir: string | null;
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
   files: PlannedFileChange[];
@@ -224,6 +227,7 @@ export type DryRunJsonResult = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
+  priorityFieldName: string | null;
   files: Array<{
     path: string;
     label: string;
@@ -238,6 +242,7 @@ export type WorkflowArtifactsOptions = {
   outputPath: string;
   projectDetail: ProjectDetail;
   statusField: ProjectStatusField;
+  priorityField: ProjectStatusField | null;
   mappings: Record<string, StateMapping>;
   runtime: string;
   skipSkills: boolean;
@@ -322,6 +327,81 @@ export function buildAutomaticStateMappings(
   return mappings;
 }
 
+function isPriorityFieldCandidateName(fieldName: string): boolean {
+  return /\bpriority\b/i.test(fieldName.trim());
+}
+
+export function resolvePriorityField(
+  projectDetail: ProjectDetail,
+  statusField: ProjectStatusField
+): {
+  field: ProjectStatusField | null;
+  ambiguous: ProjectStatusField[];
+} {
+  const singleSelectFields = projectDetail.statusFields.filter(
+    (field) => field.id !== statusField.id
+  );
+
+  const exactMatches = singleSelectFields.filter(
+    (field) => field.name.trim().toLowerCase() === "priority"
+  );
+  if (exactMatches.length === 1) {
+    return { field: exactMatches[0]!, ambiguous: [] };
+  }
+  if (exactMatches.length > 1) {
+    return { field: null, ambiguous: exactMatches };
+  }
+
+  const likelyMatches = singleSelectFields.filter((field) =>
+    isPriorityFieldCandidateName(field.name)
+  );
+  if (likelyMatches.length === 1) {
+    return { field: likelyMatches[0]!, ambiguous: [] };
+  }
+  if (likelyMatches.length > 1) {
+    return { field: null, ambiguous: likelyMatches };
+  }
+
+  return { field: null, ambiguous: [] };
+}
+
+async function promptPriorityField(
+  priorityCandidates: ProjectStatusField[],
+  options?: {
+    stepLabel?: string;
+  }
+): Promise<ProjectStatusField | null> {
+  if (priorityCandidates.length === 0) {
+    return null;
+  }
+
+  const selectedFieldId = await abortIfCancelled(
+    p.select({
+      message: `${options?.stepLabel ?? "Priority field"} — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:`,
+      options: [
+        ...priorityCandidates.map((field) => ({
+          value: field.id,
+          label: field.name,
+          hint: `${field.options.length} option${field.options.length === 1 ? "" : "s"}`,
+        })),
+        {
+          value: "__skip_priority_field__",
+          label: "Skip priority-aware dispatch",
+          hint: "Leave tracker.priority_field unset",
+        },
+      ],
+    })
+  );
+
+  if (selectedFieldId === "__skip_priority_field__") {
+    return null;
+  }
+
+  return (
+    priorityCandidates.find((field) => field.id === selectedFieldId) ?? null
+  );
+}
+
 export async function promptStateMappings(
   statusField: ProjectStatusField,
   options?: {
@@ -368,6 +448,7 @@ export async function planWorkflowArtifacts(
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
     stateFieldName: opts.statusField.name,
+    priorityFieldName: opts.priorityField?.name ?? null,
     mappings: opts.mappings,
     lifecycle: toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings),
     runtime: opts.runtime,
@@ -384,6 +465,7 @@ export async function planWorkflowArtifacts(
     cwd: opts.cwd,
     projectDetail: opts.projectDetail,
     statusField: opts.statusField,
+    priorityField: opts.priorityField,
     runtime: opts.runtime,
     skipSkills: opts.skipSkills,
     skipContext: opts.skipContext,
@@ -419,8 +501,15 @@ function summarizeEnvironment(
 export async function planEcosystem(
   opts: EcosystemOptions
 ): Promise<EcosystemPlan> {
-  const { cwd, projectDetail, statusField, runtime, skipSkills, skipContext } =
-    opts;
+  const {
+    cwd,
+    projectDetail,
+    statusField,
+    priorityField,
+    runtime,
+    skipSkills,
+    skipContext,
+  } = opts;
   const ghSymphonyDir = join(cwd, ".gh-symphony");
   const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
@@ -467,6 +556,7 @@ export async function planEcosystem(
       role: null as "active" | "wait" | "terminal" | null,
     })),
     projectId: projectDetail.id,
+    priorityFieldName: priorityField?.name ?? null,
     detectedEnvironment: environment,
   });
   files.push(
@@ -520,6 +610,7 @@ export async function planEcosystem(
     projectId: projectDetail.id,
     githubProjectTitle: projectDetail.title,
     runtime,
+    priorityFieldName: priorityField?.name ?? null,
     skillsDir,
     environment,
     files,
@@ -573,6 +664,7 @@ export async function writeEcosystem(
     projectId: plan.projectId,
     githubProjectTitle: plan.githubProjectTitle,
     runtime: plan.runtime,
+    priorityFieldName: plan.priorityFieldName,
     skillsDir: plan.skillsDir,
     afterCreateHookWritten,
     contextYamlWritten,
@@ -595,6 +687,9 @@ function printEcosystemSummary(
   const lines: string[] = [];
   lines.push(`GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`);
   lines.push(`Runtime   ${result.runtime}`);
+  if (result.priorityFieldName) {
+    lines.push(`Priority field   ${result.priorityFieldName}`);
+  }
   lines.push("");
   lines.push("Generated files");
   lines.push(`  ✓ WORKFLOW.md                          ${relWorkflow}`);
@@ -656,6 +751,9 @@ export function renderDryRunPreview(
     `GitHub Project   ${ecosystemPlan.githubProjectTitle}  (${ecosystemPlan.projectId})`
   );
   lines.push(`Runtime   ${ecosystemPlan.runtime}`);
+  if (ecosystemPlan.priorityFieldName) {
+    lines.push(`Priority field   ${ecosystemPlan.priorityFieldName}`);
+  }
   lines.push("");
   lines.push("Planned file changes");
   lines.push(
@@ -689,6 +787,7 @@ export function buildDryRunJsonResult(
     projectId: ecosystemPlan.projectId,
     githubProjectTitle: ecosystemPlan.githubProjectTitle,
     runtime: ecosystemPlan.runtime,
+    priorityFieldName: ecosystemPlan.priorityFieldName,
     files: [workflowPlan, ...ecosystemPlan.files].map((file) => ({
       path: file.path,
       label: file.label,
@@ -780,6 +879,13 @@ async function runNonInteractive(
   }
 
   const mappings = buildAutomaticStateMappings(statusField);
+  const { field: autoPriorityField, ambiguous: ambiguousPriorityFields } =
+    resolvePriorityField(githubProject, statusField);
+  if (ambiguousPriorityFields.length > 0) {
+    process.stderr.write(
+      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Skipping tracker.priority_field in non-interactive mode.\n`
+    );
+  }
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -796,6 +902,7 @@ async function runNonInteractive(
     outputPath,
     projectDetail: githubProject,
     statusField,
+    priorityField: autoPriorityField,
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -821,6 +928,7 @@ async function runNonInteractive(
     cwd: process.cwd(),
     projectDetail: githubProject,
     statusField,
+    priorityField: autoPriorityField,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -942,7 +1050,17 @@ async function runInteractiveStandalone(
     return;
   }
 
-  const mappings = await promptStateMappings(statusField);
+  const priorityResolution = resolvePriorityField(projectDetail, statusField);
+  const mappings = await promptStateMappings(statusField, {
+    stepLabel:
+      priorityResolution.ambiguous.length > 0 ? "Step 2/3" : "Step 2/2",
+  });
+  let priorityField = priorityResolution.field;
+  if (priorityResolution.ambiguous.length > 0) {
+    priorityField = await promptPriorityField(priorityResolution.ambiguous, {
+      stepLabel: "Step 3/3",
+    });
+  }
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -963,6 +1081,7 @@ async function runInteractiveStandalone(
     outputPath,
     projectDetail,
     statusField,
+    priorityField,
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -980,6 +1099,7 @@ async function runInteractiveStandalone(
     cwd: process.cwd(),
     projectDetail,
     statusField,
+    priorityField,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
