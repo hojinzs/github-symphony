@@ -7,6 +7,7 @@
   - 2026-04-15 r2 — permission preset 3종 + legacy 역매핑 추가
   - 2026-04-15 r3 — Codex 리뷰 반영, v1 범위로 슬림 재작성 (범위 축소 내역은 §11 참조)
   - 2026-04-15 r4 — 선(先)결정 5건 반영: `tool-github-graphql` 중립 패키지 분리(P1 선행), MCP 합성 hybrid, session 계층별 처리(intra-run resume / inter-run fork), broker contract에 `expires_at?` 추가, isolation knob(`--bare`/`--strict-mcp-config`) opt-in화. 자세한 변경 포인트는 §11 의 "r4 신규 결정" 참조.
+  - 2026-04-15 r5 — ACP 지원 ADR 을 별도 분리하되 schema break 최소화를 위한 선행 훅 3건 반영: P1 event naming freeze 명시(§4.2.3), session file schema 에 `protocol` 필드 additive 추가(§4.2.1), naming debt 3건 추가(§9). 근거: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md`. 자세한 변경 포인트는 §11 의 "r5 신규 결정" 참조.
 - **Related Spec**: `docs/symphony-spec.md` §5 (Workflow), §10 (Runtime Events), §13 (Runtime Snapshot)
 - **References**:
   - Anthropic Claude Code CLI reference: https://code.claude.com/docs/en/cli-reference
@@ -63,7 +64,7 @@ spec / contract에 이미 박혀 있는 codex 심볼(`OrchestratorChannelCodexUp
 | Phase | 범위 | 완료 조건 |
 |---|---|---|
 | **P1.0 — 선행 분리** | `packages/tool-github-graphql/` 신설. 현 `packages/runtime-codex/src/github-graphql-tool.ts` / `github-graphql-mcp-server.ts` 및 테스트 이동. `runtime-codex` 가 새 패키지를 dependency 로 참조. | import path 외 기능 변경 없음. Codex regression 없음. |
-| **P1 — Adapter 추상화** | `packages/core`에 `AgentRuntimeAdapter` 인터페이스 도입(spawn-loop 계약 포함), 기존 `runtime-codex`를 해당 인터페이스 뒤로 이식. worker는 어댑터만 의존. | 기능 변경 없음. Codex regression 없음. |
+| **P1 — Adapter 추상화** | `packages/core`에 `AgentRuntimeAdapter` 인터페이스 도입(spawn-loop 계약 포함), 기존 `runtime-codex`를 해당 인터페이스 뒤로 이식. worker는 어댑터만 의존. worker 가 보는 agent event 이름을 런타임 중립 집합으로 정규화 (§4.2.3). | 기능 변경 없음. Codex regression 없음. worker 소스에 Codex wire name (`turn/completed`, `dynamic_tool_call_request`, `item/tool/requestUserInput`) 잔존 0건. |
 | **P2 — `runtime-claude` 신설** | `packages/runtime-claude` 추가. `claude -p` one-shot invocation 루프로 `AgentRuntimeAdapter` 구현. credential 소비 분기(§4.3), MCP 합성(§4.6.2), session 관리(§4.2), `doctor` / `init` preflight 확장(§4.5). | stub `claude` 바이너리로 Docker E2E 1개 이슈 처리 완료. |
 | **P3 — `runtime.kind` front-matter** | WORKFLOW.md에 `runtime:` 블록 도입 (§5.2). 기존 `codex:` 블록은 하위호환 유지. | runtime 선택이 1급 설정으로 승격. |
 
@@ -82,7 +83,10 @@ spec / contract에 이미 박혀 있는 codex 심볼(`OrchestratorChannelCodexUp
 #### 4.2.1 Session id 저장
 
 - 경로: `.runtime/orchestrator/runs/<run-id>/claude-session.json`
-- 내용: `{ sessionId: string, createdAt: ISO8601, parentRunId?: string }` — `parentRunId` 는 inter-run recover 시 이전 run 링크용.
+- 내용: `{ protocol: "claude-print", sessionId: string, createdAt: ISO8601, parentRunId?: string, protocolState?: Record<string, unknown> }`.
+  - `protocol` 필드를 명시해 두면 향후 ACP 등 추가 프로토콜 지원 시 공용 session schema (파일 통합은 §9 naming debt 참조) 로 additive 전환 가능.
+  - `parentRunId` 는 inter-run recover 시 이전 run 링크용.
+  - `protocolState` 는 런타임별 opaque metadata 슬롯 (resume token, capability negotiation 결과 등).
 - 읽기 실패 / 세션 만료(`--resume` 4xx) 시 fallback: 새 `--session-id` 발급(fork 없이), `parentRunId` 로 링크 유지. run event 에 `session_invalidated` 를 로깅.
 
 #### 4.2.2 Exit code 규칙
@@ -94,6 +98,24 @@ spec / contract에 이미 박혀 있는 codex 심볼(`OrchestratorChannelCodexUp
 | non-0 | (없음 / SIGTERM) | process-level 실패 (API error, rate limit, misconfig) | transient 여부 판별 후 retry 또는 run 실패 |
 
 구체 이벤트 이름별 매핑 테이블은 구현 이슈(#6)에서 확정.
+
+#### 4.2.3 Event naming freeze (P1 merge gate)
+
+worker 가 의존하는 agent event 이름을 런타임 중립 집합으로 고정한다. 각 어댑터 (`runtime-codex`, 후속 `runtime-claude`) 가 자기 wire protocol 이벤트를 이 이름으로 매핑한다. worker 는 이 집합 외 이름을 알지 못한다.
+
+| Neutral event | Codex 원본 | claude-print 원본 (P2) | 비고 |
+|---|---|---|---|
+| `agent.turnStarted` | `turn/started` | `message_start` / first `content_block_delta` | turn 경계 시작 |
+| `agent.turnCompleted` | `turn/completed` | `result` (stop_reason != error) | usage payload 동반 |
+| `agent.toolCallRequested` | `dynamic_tool_call_request` | `tool_use` content block | tool bridge 진입점 |
+| `agent.inputRequired` | `item/tool/requestUserInput` | (N/A — Anthropic `-p` 는 미발생) | Symphony 정책상 즉시 실패 처리 |
+| `agent.rateLimit` | `turn/rate_limit` | `result.usage.rate_limit` | backoff 판단용 |
+| `agent.messageDelta` | `item/message/delta` | `content_block_delta` | 토큰 스트림 (로그/옵저버빌리티) |
+| `agent.error` | `error` / non-0 exit | `error` / non-0 exit | §4.2.2 분류 규칙 적용 |
+
+구체 payload schema 는 구현 이슈에서 확정. **이 표의 이름 집합은 P1 merge gate** — worker 소스 grep 에 Codex wire name 이 남아 있으면 P1 미완 상태로 간주.
+
+근거: 본 집합은 `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` §3 의 `AgentEvent` 제안과 정합. ACP 지원 ADR 진입 시 동일 이름으로 mapping 한 줄 추가만 하면 되도록 의도된 shape.
 
 ### 4.3 Credential 모델
 
@@ -284,6 +306,9 @@ r4 에서 해소된 항목:
 - `codexTotals` / `codex_session_logs` status surface 필드
 - `WorkflowCodexConfig` / `DEFAULT_CODEX_COMMAND`
 - `symphony-spec.md §4.1.8 codex_totals` — upstream spec 문서이므로 수정 금지. 해석상 "active runtime의 aggregate"로 본다.
+- `AgentRuntimeAdapter` → `AgentProtocolClient` 리네이밍. ACP 지원 ADR 진입 시점에 재검토. claude-print 단독 지원 상황에선 "runtime" 네이밍이 여전히 자연스럽다.
+- `packages/runtime-codex`, `packages/runtime-claude` → `packages/protocol-*` 재배치. ACP 가 "runtime" 이 아닌 표준 프로토콜이라는 맥락이 생기면 의미가 생긴다. 그 전에는 작업 비용 대비 효용 낮음.
+- `.runtime/orchestrator/runs/<run-id>/claude-session.json` → 런타임 중립 `agent-session.json` 파일명 통합. §4.2.1 의 `protocol` 필드가 discriminator 가 되도록 설계되어 있어 additive 통합 가능.
 
 ## 10. Consequences
 
@@ -307,7 +332,23 @@ r4 에서 해소된 항목:
 
 ## 11. 이전 revision 에서 제외 / 유지 / 추가한 항목
 
-### 11.0 r4 신규 결정
+### 11.0 r5 신규 결정
+
+ACP 지원은 별도 ADR 로 분리 결정. 본 ADR 범위는 claude-print 유지하되 **ACP 도입 시 schema break 가 최소가 되도록** 다음을 선행 반영.
+
+근거 문서: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` (ChatGPT 설계 협의, 2026-04-15 아카이브).
+
+- **P1 event naming freeze 명시** (§4.1 P1 완료 조건, §4.2.3) — worker 가 보는 agent event 이름을 런타임 중립 집합 (`agent.turnStarted` / `agent.turnCompleted` / `agent.toolCallRequested` / `agent.inputRequired` / `agent.rateLimit` / `agent.messageDelta` / `agent.error`) 으로 고정. Research §3 의 `AgentEvent` 제안과 정합. P1 merge gate.
+- **Session file schema 에 `protocol` + `protocolState?` additive 추가** (§4.2.1) — 향후 ACP 세션 통합 시 discriminator + opaque slot 으로 활용. 기능 변경 없음.
+- **Naming debt 3건 추가** (§9) — adapter 리네이밍 (`AgentRuntimeAdapter` → `AgentProtocolClient`), 패키지 재배치 (`runtime-*` → `protocol-*`), session file 파일명 통합. 모두 ACP 지원 ADR 에서 재검토.
+
+명시적으로 **수용하지 않은** Research 제안:
+
+- `AgentCapability` union (`tool` / `fs` / `terminal` / `approval`) 전면 도입 — claude-print 는 MCP + `bypassPermissions` 로 동등 기능을 확보하므로 v1 에선 과한 추상화. ACP 지원 ADR 에서 필요성 재검토.
+- WORKFLOW.md 의 `capabilities:` 블록 — 같은 이유로 v1 불필요. 실 knob 수요가 생길 때 추가.
+- `protocol-*` 패키지 리네이밍 — 네이밍 debt 로만 기록, 실제 코드는 유지 (§9).
+
+### 11.1 r4 신규 결정
 
 - **`tool-github-graphql` 중립 패키지 분리** (§4.1 P1.0, §4.6.1) — runtime-claude 가 runtime-codex 에 import 의존하는 그래프 회피.
 - **MCP 합성 hybrid** (§4.6.2) — 사용자 `.mcp.json` 을 base 로, `strict_mcp_config` 값에 따라 워크스페이스 mutation 또는 ephemeral 로 분기. `.gh-symphony/claude-mcp.json` 같은 Symphony 전용 파일은 만들지 않음.
@@ -315,9 +356,9 @@ r4 에서 해소된 항목:
 - **Broker response `expires_at?` 추가** (§4.3) — additive. legacy broker 폴백 보장.
 - **Isolation knobs `runtime.isolation.bare` / `strict_mcp_config`** (§3.2, §4.8, §5.2) — 둘 다 default off. 팀이 opt-in.
 
-### 11.1 r3 에서 제외한 항목 (r4 유지)
+### 11.2 r3 에서 제외한 항목 (r4/r5 유지)
 
-r3 재작성 시점에 Codex 리뷰 및 사용자 원칙("심플해야 한다") 을 반영해 다음을 **v1 범위 밖**으로 이동했다. r4 에서도 그대로 유효.
+r3 재작성 시점에 Codex 리뷰 및 사용자 원칙("심플해야 한다") 을 반영해 다음을 **v1 범위 밖**으로 이동했다. r4 / r5 에서도 그대로 유효.
 
 #### 제외 1: Permission preset 추상화 (`permissive` / `safe-edits` / `strict-ci` / `custom`)
 
@@ -363,7 +404,7 @@ r3 재작성 시점에 Codex 리뷰 및 사용자 원칙("심플해야 한다") 
 - **v1 처리**: Claude argv 에 `--max-turns` 포함하지 않음.
 - **후속**: 실제 runaway 사례가 나오면 그때 정의.
 
-### 11.2 유지된 핵심 항목 (r3 → r4)
+### 11.3 유지된 핵심 항목 (r3 → r5)
 
 - runtime adapter 추상화 (§4.1 P1) — 핵심.
 - `runtime-claude` 패키지 (§4.1 P2) — 핵심.
