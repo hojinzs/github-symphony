@@ -61,12 +61,12 @@ The one-command setup flow will:
 4. Configure managed-project settings for the orchestrator
 5. Generate the following files:
 
-| File | Description |
-| --- | --- |
-| `WORKFLOW.md` | Workflow policy — the agent prompt template with lifecycle config |
-| `.gh-symphony/context.yaml` | Project metadata and environment context |
-| `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+| File                                    | Description                                                       |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
+| `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
+| `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions                                           |
 
 Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the managed-project configuration that will be saved under `~/.gh-symphony/`.
 
@@ -90,7 +90,7 @@ Preview the generated files without writing anything:
 ```bash
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview
+gh-symphony workflow preview --issue owner/repo#123
 ```
 
 The interactive wizard will:
@@ -100,12 +100,12 @@ The interactive wizard will:
 3. Map project status columns to workflow phases (active / wait / terminal)
 4. Generate the following files:
 
-| File | Description |
-| --- | --- |
-| `WORKFLOW.md` | Workflow policy — the agent prompt template with lifecycle config |
-| `.gh-symphony/context.yaml` | Project metadata and environment context |
-| `.gh-symphony/reference-workflow.md` | Reference workflow documentation |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions |
+| File                                    | Description                                                       |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
+| `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
+| `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions                                           |
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
@@ -357,7 +357,7 @@ cd my-repo
 gh-symphony workflow init        # generates ./WORKFLOW.md from active project config
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview
+gh-symphony workflow preview --issue owner/repo#123
 ```
 
 `--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
@@ -375,7 +375,7 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 
 `gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary.
 
-`gh-symphony workflow preview` renders the exact worker prompt that will be sent for either the built-in sample issue or a custom `--sample <path-to-json>` payload. Use `--attempt <n>` to inspect retry prompts before changing policy files.
+`gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
 
 ### Resolution order
 
@@ -412,11 +412,11 @@ API_SECRET_KEY=sk-secret-xxx
 
 Environment variables are merged from three sources (later overrides earlier):
 
-| Priority | Source | Description |
-| --- | --- | --- |
-| 1 (lowest) | Project `.env` | `~/.gh-symphony/projects/<project-id>/.env` |
-| 2 | System environment | Orchestrator process's `process.env` |
-| 3 (highest) | Symphony context | Auto-injected `SYMPHONY_*` variables |
+| Priority    | Source             | Description                                 |
+| ----------- | ------------------ | ------------------------------------------- |
+| 1 (lowest)  | Project `.env`     | `~/.gh-symphony/projects/<project-id>/.env` |
+| 2           | System environment | Orchestrator process's `process.env`        |
+| 3 (highest) | Symphony context   | Auto-injected `SYMPHONY_*` variables        |
 
 In CI, regular process env can override the project `.env` without changing `WORKFLOW.md`.
 
@@ -424,16 +424,16 @@ In CI, regular process env can override the project `.env` without changing `WOR
 
 All hooks (`after_create`, `before_run`, `after_run`, `before_remove`) automatically receive the following variables in addition to the merged environment above:
 
-| Variable | Description |
-| --- | --- |
-| `SYMPHONY_PROJECT_ID` | Orchestrator project ID |
-| `SYMPHONY_ISSUE_WORKSPACE_KEY` | Workspace key for the issue |
-| `SYMPHONY_ISSUE_SUBJECT_ID` | Issue subject ID (tracker-specific) |
-| `SYMPHONY_ISSUE_IDENTIFIER` | e.g. `acme/platform#42` |
-| `SYMPHONY_WORKSPACE_PATH` | Absolute path to the issue workspace |
-| `SYMPHONY_REPOSITORY_PATH` | Absolute path to the cloned repository |
-| `SYMPHONY_RUN_ID` | Current run ID (absent in `after_create`) |
-| `SYMPHONY_ISSUE_STATE` | Current tracker state (absent in `after_create`) |
+| Variable                       | Description                                      |
+| ------------------------------ | ------------------------------------------------ |
+| `SYMPHONY_PROJECT_ID`          | Orchestrator project ID                          |
+| `SYMPHONY_ISSUE_WORKSPACE_KEY` | Workspace key for the issue                      |
+| `SYMPHONY_ISSUE_SUBJECT_ID`    | Issue subject ID (tracker-specific)              |
+| `SYMPHONY_ISSUE_IDENTIFIER`    | e.g. `acme/platform#42`                          |
+| `SYMPHONY_WORKSPACE_PATH`      | Absolute path to the issue workspace             |
+| `SYMPHONY_REPOSITORY_PATH`     | Absolute path to the cloned repository           |
+| `SYMPHONY_RUN_ID`              | Current run ID (absent in `after_create`)        |
+| `SYMPHONY_ISSUE_STATE`         | Current tracker state (absent in `after_create`) |
 
 #### Example: Inline Hook
 
@@ -501,14 +501,14 @@ pnpm --filter @gh-symphony/orchestrator start -- status
 
 Runtime state lives under `.runtime/orchestrator/`:
 
-| Path                           | Contents                                       |
-| ------------------------------ | ---------------------------------------------- |
-| `projects/<id>/config.json`    | Project metadata                               |
-| `projects/<id>/WORKFLOW.md`    | Project-level workflow policy (repo fallback)  |
-| `projects/<id>/leases.json`    | Active or released issue-phase leases          |
-| `projects/<id>/status.json`    | Latest project status snapshot                 |
-| `runs/<run-id>/run.json`       | Run snapshot, retry state, worker assignment   |
-| `runs/<run-id>/events.ndjson`  | Structured orchestration events                |
+| Path                          | Contents                                      |
+| ----------------------------- | --------------------------------------------- |
+| `projects/<id>/config.json`   | Project metadata                              |
+| `projects/<id>/WORKFLOW.md`   | Project-level workflow policy (repo fallback) |
+| `projects/<id>/leases.json`   | Active or released issue-phase leases         |
+| `projects/<id>/status.json`   | Latest project status snapshot                |
+| `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment  |
+| `runs/<run-id>/events.ndjson` | Structured orchestration events               |
 
 Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
 

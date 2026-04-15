@@ -2,7 +2,10 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import workflowCommand from "./workflow.js";
+import workflowCommand, {
+  resetWorkflowCommandDependenciesForTest,
+  setWorkflowCommandDependenciesForTest,
+} from "./workflow.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -46,6 +49,7 @@ Labels={% for label in issue.labels %}{{ label }} {% endfor %}
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetWorkflowCommandDependenciesForTest();
   process.exitCode = undefined;
 });
 
@@ -154,6 +158,319 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain(`Sample: ${samplePath}`);
     expect(stdout.output()).toContain("acme/api#9: Fix preview rendering");
     expect(stdout.output()).toContain("Attempt=3");
+  });
+
+  it("loads a live GitHub Project issue for preview rendering", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-live-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      getGitHubTokenWithSource: () => ({
+        token: "token-123",
+        source: "gh",
+      }),
+      validateGitHubToken: vi.fn().mockResolvedValue({
+        token: "token-123",
+        source: "gh",
+        login: "octocat",
+        scopes: ["repo", "read:org", "project"],
+      }),
+      createGitHubClient: vi.fn().mockReturnValue({
+        token: "token-123",
+        apiUrl: "https://api.github.com/graphql",
+        fetchImpl: fetch,
+      }),
+      resolveManagedProjectSelection: vi.fn().mockResolvedValue({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          workspaceDir: "/tmp/tenant-a",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "PVT_project_123",
+            settings: {
+              projectId: "PVT_project_123",
+            },
+          },
+        },
+      }),
+      getGitHubProjectDetail: vi.fn().mockResolvedValue({
+        id: "PVT_project_123",
+        title: "Acme Roadmap",
+        url: "https://github.com/users/acme/projects/1",
+        statusFields: [],
+        textFields: [],
+        linkedRepositories: [
+          {
+            owner: "acme",
+            name: "api",
+            url: "https://github.com/acme/api",
+            cloneUrl: "https://github.com/acme/api.git",
+          },
+        ],
+      }),
+      fetchLiveIssue: vi.fn().mockResolvedValue({
+        id: "issue-9",
+        identifier: "acme/api#9",
+        number: 9,
+        title: "Fix preview rendering",
+        description: "Preview should use live issue payloads.",
+        priority: 1,
+        state: "Ready",
+        branchName: null,
+        url: "https://github.com/acme/api/issues/9",
+        labels: ["bug"],
+        blockedBy: [],
+        createdAt: "2026-04-01T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+        repository: {
+          owner: "acme",
+          name: "api",
+          url: "https://github.com/acme/api",
+          cloneUrl: "https://github.com/acme/api.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "PVT_project_123",
+          itemId: "PVTI_issue_9",
+        },
+        metadata: {},
+      }),
+    });
+
+    try {
+      await workflowCommand(
+        [
+          "preview",
+          "--file",
+          workflowPath,
+          "--issue",
+          "acme/api#9",
+          "--attempt",
+          "2",
+        ],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Sample: live:acme/api#9");
+    expect(stdout.output()).toContain("acme/api#9: Fix preview rendering");
+    expect(stdout.output()).toContain("Attempt=2");
+  });
+
+  it("fails live preview when the repository is not linked to the bound GitHub Project", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-preview-live-missing-repo-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      getGitHubTokenWithSource: () => ({
+        token: "token-123",
+        source: "gh",
+      }),
+      validateGitHubToken: vi.fn().mockResolvedValue({
+        token: "token-123",
+        source: "gh",
+        login: "octocat",
+        scopes: ["repo", "read:org", "project"],
+      }),
+      createGitHubClient: vi.fn().mockReturnValue({
+        token: "token-123",
+        apiUrl: "https://api.github.com/graphql",
+        fetchImpl: fetch,
+      }),
+      resolveManagedProjectSelection: vi.fn().mockResolvedValue({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          workspaceDir: "/tmp/tenant-a",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "PVT_project_123",
+          },
+        },
+      }),
+      getGitHubProjectDetail: vi.fn().mockResolvedValue({
+        id: "PVT_project_123",
+        title: "Acme Roadmap",
+        url: "https://github.com/users/acme/projects/1",
+        statusFields: [],
+        textFields: [],
+        linkedRepositories: [],
+      }),
+    });
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "--issue", "acme/api#9"],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      'Repository acme/api is not linked to the configured GitHub Project "Acme Roadmap".'
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("fails live preview when the issue is not in the configured GitHub Project", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-preview-live-missing-issue-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      getGitHubTokenWithSource: () => ({
+        token: "token-123",
+        source: "gh",
+      }),
+      validateGitHubToken: vi.fn().mockResolvedValue({
+        token: "token-123",
+        source: "gh",
+        login: "octocat",
+        scopes: ["repo", "read:org", "project"],
+      }),
+      createGitHubClient: vi.fn().mockReturnValue({
+        token: "token-123",
+        apiUrl: "https://api.github.com/graphql",
+        fetchImpl: fetch,
+      }),
+      resolveManagedProjectSelection: vi.fn().mockResolvedValue({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          workspaceDir: "/tmp/tenant-a",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "PVT_project_123",
+          },
+        },
+      }),
+      getGitHubProjectDetail: vi.fn().mockResolvedValue({
+        id: "PVT_project_123",
+        title: "Acme Roadmap",
+        url: "https://github.com/users/acme/projects/1",
+        statusFields: [],
+        textFields: [],
+        linkedRepositories: [
+          {
+            owner: "acme",
+            name: "api",
+            url: "https://github.com/acme/api",
+            cloneUrl: "https://github.com/acme/api.git",
+          },
+        ],
+      }),
+      fetchLiveIssue: vi.fn().mockResolvedValue(null),
+    });
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "--issue", "acme/api#9"],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      'Issue acme/api#9 is not in the configured GitHub Project "Acme Roadmap".'
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("fails live preview with actionable auth guidance when scopes are missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-live-auth-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      getGitHubTokenWithSource: () => ({
+        token: "token-123",
+        source: "gh",
+      }),
+      resolveManagedProjectSelection: vi.fn().mockResolvedValue({
+        kind: "resolved",
+        projectId: "tenant-a",
+        projectConfig: {
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          workspaceDir: "/tmp/tenant-a",
+          repositories: [],
+          tracker: {
+            adapter: "github-project",
+            bindingId: "PVT_project_123",
+          },
+        },
+      }),
+      validateGitHubToken: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: project"
+          )
+        ),
+    });
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "--issue", "acme/api#9"],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "GitHub authentication is required for live issue preview."
+    );
+    expect(stderr.output()).toContain("Missing scopes: project");
+    expect(process.exitCode).toBe(1);
   });
 
   it("rejects unsupported continuation guidance Liquid syntax during validation", async () => {

@@ -61,7 +61,7 @@ Navigate to the repository you want to orchestrate, then run:
 gh-symphony workflow init
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
-gh-symphony workflow preview
+gh-symphony workflow preview --issue owner/repo#123
 ```
 
 The interactive wizard will:
@@ -265,7 +265,7 @@ JSON output includes the resolved auth source as `env` or `gh`.
 Setup:
   workflow init       Interactive repository setup wizard
   workflow validate   Parse and strictly validate WORKFLOW.md
-  workflow preview    Render the final worker prompt from a sample issue
+  workflow preview    Render the final worker prompt from a sample or live issue
   doctor              Run diagnostics and optional first-run remediation
   config show         Show current configuration
   config set          Set a configuration value
