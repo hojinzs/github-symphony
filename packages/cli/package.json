@@ -41,13 +41,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@gh-symphony/control-plane": "workspace:*",
     "@clack/prompts": "^0.9.1",
     "commander": "^14.0.1",
     "liquidjs": "^10.25.0"
   },
   "devDependencies": {
     "@gh-symphony/core": "workspace:*",
+    "@gh-symphony/control-plane": "workspace:*",
     "@gh-symphony/dashboard": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",

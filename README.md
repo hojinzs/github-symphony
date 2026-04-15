@@ -24,6 +24,13 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 npm install -g @gh-symphony/cli
 ```
 
+Or use the official container image:
+
+```bash
+docker pull ghcr.io/hojinzs/github-symphony:latest
+docker run --rm ghcr.io/hojinzs/github-symphony:latest gh-symphony --version
+```
+
 Verify the installation:
 
 ```bash
@@ -42,6 +49,70 @@ Token-only validation works without `gh`:
 
 ```bash
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
+```
+
+### Official Container Deployment
+
+The official image is designed for headless orchestration and defaults to:
+
+- image: `ghcr.io/hojinzs/github-symphony:<tag>`
+- config/state volume: `/var/lib/gh-symphony`
+- default command: `gh-symphony start`
+
+Supported container environment variables:
+
+- `GITHUB_GRAPHQL_TOKEN`: recommended auth source inside containers; requires `repo`, `read:org`, `project`
+- `GH_SYMPHONY_CONFIG_DIR`: optional override for the runtime config directory; defaults to `/var/lib/gh-symphony`
+
+Supported volume mounts:
+
+- `/var/lib/gh-symphony`: persists `config.json`, `projects/<project-id>/project.json`, project `.env`, logs, and orchestrator workspaces across restarts
+
+Seed the managed-project config into the mounted volume once:
+
+```bash
+docker run --rm -it \
+  -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  -v gh-symphony-data:/var/lib/gh-symphony \
+  ghcr.io/hojinzs/github-symphony:latest \
+  gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir /var/lib/gh-symphony/workspaces
+```
+
+Then start the long-running orchestrator:
+
+```bash
+docker run -d \
+  --name gh-symphony \
+  --restart unless-stopped \
+  -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  -v gh-symphony-data:/var/lib/gh-symphony \
+  ghcr.io/hojinzs/github-symphony:latest
+```
+
+Example `docker compose` deployment:
+
+```yaml
+services:
+  gh-symphony:
+    image: ghcr.io/hojinzs/github-symphony:latest
+    restart: unless-stopped
+    environment:
+      GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
+    volumes:
+      - gh-symphony-data:/var/lib/gh-symphony
+
+volumes:
+  gh-symphony-data:
+```
+
+For a first-run smoke check against an existing mounted config directory:
+
+```bash
+docker run --rm \
+  -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  -v gh-symphony-data:/var/lib/gh-symphony \
+  ghcr.io/hojinzs/github-symphony:latest \
+  gh-symphony start --once --project-id your-project-id
 ```
 
 ### 2. Run Setup
