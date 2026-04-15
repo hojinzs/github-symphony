@@ -93,6 +93,27 @@ const MOCK_PROJECT_DETAIL = {
   ],
 };
 
+const MOCK_PROJECT_DETAIL_WITH_AMBIGUOUS_PRIORITY = {
+  ...MOCK_PROJECT_DETAIL,
+  statusFields: [
+    ...MOCK_PROJECT_DETAIL.statusFields,
+    {
+      id: "priority-team",
+      name: "Priority (Team)",
+      options: [
+        { id: "p1", name: "P1", description: null, color: "RED" as string | null },
+      ],
+    },
+    {
+      id: "priority-severity",
+      name: "Priority (Severity)",
+      options: [
+        { id: "high", name: "High", description: null, color: "ORANGE" as string | null },
+      ],
+    },
+  ],
+};
+
 describe("setup command", () => {
   const originalCwd = process.cwd();
 
@@ -217,6 +238,38 @@ describe("setup command", () => {
       expect.stringContaining("Repos:      acme/repo-b  (1 of 2 linked)"),
       "Final summary"
     );
+  });
+
+  it("warns and skips tracker.priority_field in non-interactive mode when priority fields are ambiguous", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-priority-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-priority-config-")
+    );
+    process.chdir(cwd);
+
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
+      MOCK_PROJECT_DETAIL_WITH_AMBIGUOUS_PRIORITY
+    );
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(
+      ["--non-interactive", "--project", MOCK_PROJECT_SUMMARY.id],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+
+    expect(stderrWrite).toHaveBeenCalledWith(
+      'Warning: Multiple priority-like single-select fields found ("Priority (Team)", "Priority (Severity)"). Skipping tracker.priority_field in non-interactive mode.\n'
+    );
+    expect(workflow).not.toContain("priority_field:");
   });
 
   it("uses --assigned-only as the interactive prompt default and preserves the setting", async () => {

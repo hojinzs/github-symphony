@@ -7,6 +7,7 @@ import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 export type GenerateWorkflowInput = {
   projectId: string;
   stateFieldName: string;
+  priorityFieldName: string | null;
   mappings: Record<string, StateMapping>;
   lifecycle: WorkflowLifecycleConfig;
   runtime: string;
@@ -31,6 +32,9 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push("  kind: github-project");
   lines.push(`  project_id: ${input.projectId}`);
   lines.push(`  state_field: ${input.stateFieldName}`);
+  if (input.priorityFieldName) {
+    lines.push(`  priority_field: ${input.priorityFieldName}`);
+  }
 
   if (input.lifecycle.activeStates.length > 0) {
     lines.push("  active_states:");

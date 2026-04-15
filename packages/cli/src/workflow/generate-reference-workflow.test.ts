@@ -17,6 +17,7 @@ const defaultInput: ReferenceWorkflowInput = {
     { name: "Done", role: "terminal" },
   ],
   projectId: "PVT_abc123",
+  priorityFieldName: "Priority",
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm --filter @gh-symphony/cli test",
@@ -137,6 +138,19 @@ describe("generateReferenceWorkflow", () => {
   it("includes projectId in front matter", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("project_id: PVT_abc123");
+  });
+
+  it("includes priority_field in front matter when configured", () => {
+    const output = generateReferenceWorkflow(defaultInput);
+    expect(output).toContain("priority_field: Priority");
+  });
+
+  it("shows priority_field as an optional reference when not configured", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      priorityFieldName: null,
+    });
+    expect(output).toContain("# priority_field: Priority");
   });
 
   it("does not include allowed_repositories in front matter", () => {
