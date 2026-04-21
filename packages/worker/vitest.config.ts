@@ -16,6 +16,10 @@ export default defineConfig({
         packageRoot,
         "../runtime-codex/src/index.ts"
       ),
+      "@gh-symphony/tool-github-graphql": resolve(
+        packageRoot,
+        "../tool-github-graphql/src/index.ts"
+      ),
       "@gh-symphony/tracker-github": resolve(
         packageRoot,
         "../tracker-github/src/index.ts"

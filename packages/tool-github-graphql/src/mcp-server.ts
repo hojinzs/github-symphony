@@ -1,9 +1,11 @@
+import { fileURLToPath } from "node:url";
+
 /**
  * MCP server wrapper for the github_graphql tool.
  *
  * Implements the Model Context Protocol (JSON-RPC 2.0 over stdio) so that
- * codex app-server can register this as an mcp_server and call the
- * github_graphql tool natively.
+ * runtimes can register this as an mcp_server and call the github_graphql tool
+ * natively.
  *
  * MCP protocol flow:
  *   client → initialize → server responds with {protocolVersion, capabilities, serverInfo}
@@ -14,7 +16,7 @@
 import {
   executeGitHubGraphQL,
   type GitHubGraphQLInvocation,
-} from "./github-graphql-tool.js";
+} from "./tool.js";
 
 const TOOL_SCHEMA = {
   name: "github_graphql",
@@ -42,6 +44,10 @@ const TOOL_SCHEMA = {
 };
 
 let lineBuffer = "";
+
+export function resolveGitHubGraphQLMcpServerEntryPoint(): string {
+  return fileURLToPath(new URL("./mcp-server.js", import.meta.url));
+}
 
 function sendResponse(id: string | number | null, result: unknown): void {
   const msg = JSON.stringify({ jsonrpc: "2.0", id, result });
@@ -79,7 +85,6 @@ async function handleRequest(msg: {
           version: "0.1.0",
         },
       });
-      // Send initialized notification
       process.stdout.write(
         JSON.stringify({
           jsonrpc: "2.0",

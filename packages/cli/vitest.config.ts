@@ -28,6 +28,10 @@ export default defineConfig({
         packageRoot,
         "../runtime-codex/src/index.ts"
       ),
+      "@gh-symphony/tool-github-graphql": resolve(
+        packageRoot,
+        "../tool-github-graphql/src/index.ts"
+      ),
       "@gh-symphony/tracker-file": resolve(
         packageRoot,
         "../tracker-file/src/index.ts"

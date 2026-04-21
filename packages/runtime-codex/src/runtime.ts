@@ -4,6 +4,7 @@ import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
@@ -73,7 +74,7 @@ export function createGitHubGraphQLToolDefinition(
     description:
       "Execute GitHub GraphQL queries for the active workspace so the agent can mutate project and issue state directly.",
     command: "node",
-    args: [fileURLToPath(new URL("./github-graphql-mcp-server.js", import.meta.url))],
+    args: [resolveGitHubGraphQLMcpServerEntryPoint()],
     env: {
       GITHUB_GRAPHQL_API_URL:
         config.githubGraphqlApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,

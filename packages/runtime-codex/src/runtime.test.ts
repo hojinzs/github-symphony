@@ -21,7 +21,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
 
     expect(tool.name).toBe("github_graphql");
     expect(tool.command).toBe("node");
-    expect(tool.args[0]).toContain("github-graphql-mcp-server.js");
+    expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
       GITHUB_TOKEN_BROKER_URL:
@@ -58,7 +58,7 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.CODEX_PROJECT_ID).toBe("workspace-123");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_NAME).toBe("github_graphql");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_COMMAND).toContain(
-      "github-graphql-mcp-server.js"
+      "mcp-server.js"
     );
     expect(plan.env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
