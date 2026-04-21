@@ -1,10 +1,10 @@
 {
-  "name": "@gh-symphony/runtime-codex",
+  "name": "@gh-symphony/tool-github-graphql",
   "version": "0.0.14",
   "private": true,
   "license": "MIT",
   "author": "hojinzs",
-  "description": "Codex AI runtime integration for Symphony workers",
+  "description": "Runtime-neutral GitHub GraphQL tool and MCP server for Symphony",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./mcp-server": {
+      "types": "./dist/mcp-server.d.ts",
+      "import": "./dist/mcp-server.js",
+      "default": "./dist/mcp-server.js"
     }
   },
   "files": [
@@ -26,7 +31,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/hojinzs/github-symphony.git",
-    "directory": "packages/runtime-codex"
+    "directory": "packages/tool-github-graphql"
   },
   "homepage": "https://github.com/hojinzs/github-symphony#readme",
   "bugs": {
@@ -36,10 +41,6 @@
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --ext .ts",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc -p tsconfig.typecheck.json"
-  },
-  "dependencies": {
-    "@gh-symphony/core": "workspace:*",
-    "@gh-symphony/tool-github-graphql": "workspace:*"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

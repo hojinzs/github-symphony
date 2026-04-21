@@ -1,7 +1,7 @@
 import {
   resolveGitHubGraphQLToken,
   type GitHubGraphQLToolConfig,
-} from "./github-graphql-tool.js";
+} from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveGitHubGraphQLToken } from "./github-graphql-tool.js";
+import { resolveGitHubGraphQLToken } from "./tool.js";
 
 describe("resolveGitHubGraphQLToken", () => {
   it("returns a static token when provided", async () => {

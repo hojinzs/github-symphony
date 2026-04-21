@@ -9,6 +9,5 @@ export const RUNTIME_CODEX_BOUNDARY = {
 
 export * from "./runtime.js";
 export * from "./launcher.js";
-export * from "./github-graphql-tool.js";
 export * from "./git-credential-helper.js";
 export * from "./session.js";
