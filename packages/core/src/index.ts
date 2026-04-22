@@ -13,5 +13,6 @@ export * from "./workflow/loader.js";
 export * from "./workflow/render.js";
 export * from "./workflow/exit-classification.js";
 export * from "./orchestration/index.js";
+export * from "./runtime/index.js";
 export * from "./workspace/index.js";
 export * from "./observability/index.js";
