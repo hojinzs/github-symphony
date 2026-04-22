@@ -4,11 +4,23 @@ import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import type {
+  AgentRuntimeAdapter,
+  AgentRuntimeCredentialBrokerResponse,
+  AgentRuntimeEvent,
+} from "@gh-symphony/core";
 import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
+const STAGED_CODEX_HOME_DIRNAME = ".codex-agent";
+const DIRECT_AGENT_ENV_KEYS = [
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENAI_ORG_ID",
+  "OPENAI_PROJECT",
+] as const;
 
 export type RuntimeToolDefinition = {
   name: "github_graphql";
@@ -51,6 +63,28 @@ export type CodexRuntimePlan = {
 };
 
 export class AgentRuntimeResolutionError extends Error {}
+
+export type CodexRuntimePrepareContext = void;
+
+export type CodexRuntimeTurnInput = void;
+
+export type CodexRuntimeTurnResult = {
+  plan: CodexRuntimePlan;
+  child: ChildProcess;
+};
+
+export type CodexRuntimeCredentialBrokerResponse =
+  AgentRuntimeCredentialBrokerResponse;
+
+export type CodexRuntimeEvent = AgentRuntimeEvent;
+
+export type CodexRuntimeDependencies = {
+  fetchImpl?: typeof fetch;
+  writeFileImpl?: typeof writeFile;
+  mkdirImpl?: typeof mkdir;
+  copyFileImpl?: typeof copyFile;
+  spawnImpl?: SpawnLike;
+};
 
 type SpawnLike = (
   command: string,
@@ -126,6 +160,27 @@ export function createGitHubGraphQLToolDefinition(
   };
 }
 
+export function resolveStagedCodexHome(workingDirectory: string): string {
+  return join(workingDirectory, STAGED_CODEX_HOME_DIRNAME);
+}
+
+export function resolvePreparedAgentEnvironment(
+  workingDirectory: string,
+  env?: Record<string, string | undefined>
+): Record<string, string> {
+  const preparedEnv = Object.fromEntries(
+    DIRECT_AGENT_ENV_KEYS.flatMap((key) => {
+      const value = env?.[key];
+      return typeof value === "string" && value.length > 0 ? [[key, value]] : [];
+    })
+  );
+
+  return {
+    ...preparedEnv,
+    CODEX_HOME: resolveStagedCodexHome(workingDirectory),
+  };
+}
+
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
@@ -136,6 +191,10 @@ export function buildCodexRuntimePlan(
     const cmd = config.agentCommand ?? "codex app-server";
     return cmd.startsWith("bash -lc ") ? cmd.slice("bash -lc ".length) : cmd;
   })();
+  const agentEnv = resolvePreparedAgentEnvironment(
+    config.workingDirectory,
+    config.agentEnv
+  );
 
   return {
     cwd: config.workingDirectory,
@@ -152,7 +211,7 @@ export function buildCodexRuntimePlan(
       // Point codex to an isolated config dir so personal MCPs (playwright,
       // chrome-devtools, context7, etc.) from the operator's ~/.codex/config.toml
       // are not loaded and do not confuse the implementation agent.
-      CODEX_HOME: join(config.workingDirectory, ".codex-agent"),
+      ...agentEnv,
       ...gitCredentialHelper,
       ...tool.env,
     },
@@ -171,48 +230,121 @@ export function launchCodexAppServer(
   });
 }
 
-export async function prepareCodexRuntimePlan(
-  config: CodexRuntimeConfig,
-  dependencies: {
-    fetchImpl?: typeof fetch;
-    writeFileImpl?: typeof writeFile;
-    mkdirImpl?: typeof mkdir;
-    copyFileImpl?: typeof copyFile;
-  } = {}
-): Promise<CodexRuntimePlan> {
-  const agentEnv = await resolveAgentRuntimeEnvironment(config, dependencies);
+export class CodexRuntimeAdapter
+  implements
+    AgentRuntimeAdapter<
+      CodexRuntimePrepareContext,
+      CodexRuntimeTurnInput,
+      CodexRuntimeTurnResult,
+      CodexRuntimeEvent,
+      CodexRuntimeCredentialBrokerResponse
+    >
+{
+  private readonly handlers = new Set<(event: CodexRuntimeEvent) => void>();
 
-  // Create an isolated CODEX_HOME directory with a minimal config.toml so the agent
-  // does not inherit personal MCP servers from the operator's ~/.codex/config.toml.
-  // We still copy auth.json so codex can authenticate without requiring OPENAI_API_KEY.
-  const codexHomeDir = join(config.workingDirectory, ".codex-agent");
-  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
-  await mkdirImpl(codexHomeDir, { recursive: true });
-  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-  // Write a minimal config.toml with no mcp_servers block so codex only uses
-  // the dynamic tool definitions passed via thread/start config.
-  await writeFileImpl(
-    join(codexHomeDir, "config.toml"),
-    "# Isolated agent config \u2014 no personal MCP servers\n",
-    "utf8"
-  );
-  // Copy auth.json from the real CODEX_HOME so codex can use ChatGPT OAuth tokens.
-  // This is safe: auth is per-user and needed for the agent to call OpenAI APIs.
-  const realCodexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
-  const copyFileImpl = dependencies.copyFileImpl ?? copyFile;
-  try {
-    await copyFileImpl(
-      join(realCodexHome, "auth.json"),
-      join(codexHomeDir, "auth.json")
+  private plan: CodexRuntimePlan | null = null;
+
+  private child: ChildProcess | null = null;
+
+  constructor(
+    private readonly config: CodexRuntimeConfig,
+    private readonly dependencies: CodexRuntimeDependencies = {}
+  ) {}
+
+  async prepare(_context?: CodexRuntimePrepareContext): Promise<void> {
+    if (this.plan) {
+      return;
+    }
+
+    const agentEnv = await resolveAgentRuntimeEnvironment(
+      this.config,
+      this.dependencies,
+      this
     );
-  } catch {
-    // auth.json may not exist (e.g. when OPENAI_API_KEY is used instead)
+    await stageCodexHome(this.config, this.dependencies);
+    this.plan = buildCodexRuntimePlan({
+      ...this.config,
+      agentEnv,
+    });
   }
 
-  return buildCodexRuntimePlan({
-    ...config,
-    agentEnv,
-  });
+  async spawnTurn(_input?: CodexRuntimeTurnInput): Promise<CodexRuntimeTurnResult> {
+    if (!this.plan) {
+      await this.prepare();
+    }
+
+    if (!this.plan) {
+      throw new AgentRuntimeResolutionError(
+        "Codex runtime plan was not prepared before spawnTurn."
+      );
+    }
+
+    if (!hasRunningChild(this.child)) {
+      this.child = launchCodexAppServer(
+        this.plan,
+        this.dependencies.spawnImpl ?? spawn
+      );
+    }
+
+    return {
+      plan: this.plan,
+      child: this.child,
+    };
+  }
+
+  onEvent(handler: (event: CodexRuntimeEvent) => void): () => void {
+    this.handlers.add(handler);
+    return () => {
+      this.handlers.delete(handler);
+    };
+  }
+
+  resolveCredentials(
+    brokerResponse: CodexRuntimeCredentialBrokerResponse
+  ): Record<string, string> {
+    return resolvePreparedAgentEnvironment(
+      this.config.workingDirectory,
+      brokerResponse.env
+    );
+  }
+
+  async shutdown(): Promise<void> {
+    terminateChildProcess(this.child);
+    this.child = null;
+  }
+
+  async cancel(_reason?: string): Promise<void> {
+    terminateChildProcess(this.child);
+    this.child = null;
+  }
+
+  getPreparedPlan(): CodexRuntimePlan | null {
+    return this.plan;
+  }
+}
+
+export function createCodexRuntimeAdapter(
+  config: CodexRuntimeConfig,
+  dependencies: CodexRuntimeDependencies = {}
+): CodexRuntimeAdapter {
+  return new CodexRuntimeAdapter(config, dependencies);
+}
+
+export async function prepareCodexRuntimePlan(
+  config: CodexRuntimeConfig,
+  dependencies: CodexRuntimeDependencies = {}
+): Promise<CodexRuntimePlan> {
+  const adapter = createCodexRuntimeAdapter(config, dependencies);
+  await adapter.prepare();
+  const plan = adapter.getPreparedPlan();
+
+  if (!plan) {
+    throw new AgentRuntimeResolutionError(
+      "Codex runtime plan was not prepared."
+    );
+  }
+
+  return plan;
 }
 
 export function createGitCredentialHelperEnvironment(
@@ -259,22 +391,27 @@ export function createGitCredentialHelperEnvironment(
 export async function resolveAgentRuntimeEnvironment(
   config: Pick<
     CodexRuntimeConfig,
+    | "workingDirectory"
     | "agentEnv"
     | "agentCredentialBrokerUrl"
     | "agentCredentialBrokerSecret"
     | "agentCredentialCachePath"
   >,
-  dependencies: {
-    fetchImpl?: typeof fetch;
-    writeFileImpl?: typeof writeFile;
-  } = {}
+  dependencies: Pick<
+    CodexRuntimeDependencies,
+    "fetchImpl" | "writeFileImpl"
+  > = {},
+  adapter?: Pick<CodexRuntimeAdapter, "resolveCredentials">
 ): Promise<Record<string, string>> {
   if (config.agentEnv) {
-    return config.agentEnv;
+    return resolvePreparedAgentEnvironment(
+      config.workingDirectory,
+      config.agentEnv
+    );
   }
 
   if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
-    return {};
+    return resolvePreparedAgentEnvironment(config.workingDirectory);
   }
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
@@ -288,9 +425,23 @@ export async function resolveAgentRuntimeEnvironment(
   const payload = (await response.json()) as {
     env?: Record<string, string>;
     error?: string;
+    expires_at?: string;
   };
+  const resolvedEnv =
+    payload.env && response.ok
+      ? (
+          adapter ??
+          createCodexRuntimeAdapter({
+            projectId: "runtime-codex",
+            workingDirectory: config.workingDirectory,
+          })
+        ).resolveCredentials({
+          env: payload.env,
+          expires_at: payload.expires_at,
+        })
+      : null;
 
-  if (!response.ok || !payload.env || Object.keys(payload.env).length === 0) {
+  if (!response.ok || !resolvedEnv || Object.keys(resolvedEnv).length === 0) {
     throw new AgentRuntimeResolutionError(
       payload.error ??
         `Agent credential broker request failed with status ${response.status}.`
@@ -306,5 +457,50 @@ export async function resolveAgentRuntimeEnvironment(
     );
   }
 
-  return payload.env;
+  return resolvedEnv;
+}
+
+async function stageCodexHome(
+  config: Pick<CodexRuntimeConfig, "workingDirectory">,
+  dependencies: Pick<
+    CodexRuntimeDependencies,
+    "mkdirImpl" | "writeFileImpl" | "copyFileImpl"
+  > = {}
+): Promise<void> {
+  const codexHomeDir = resolveStagedCodexHome(config.workingDirectory);
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
+  await mkdirImpl(codexHomeDir, { recursive: true });
+  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
+  await writeFileImpl(
+    join(codexHomeDir, "config.toml"),
+    "# Isolated agent config \u2014 no personal MCP servers\n",
+    "utf8"
+  );
+
+  const realCodexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  const copyFileImpl = dependencies.copyFileImpl ?? copyFile;
+  try {
+    await copyFileImpl(
+      join(realCodexHome, "auth.json"),
+      join(codexHomeDir, "auth.json")
+    );
+  } catch {
+    // auth.json may not exist (e.g. when OPENAI_API_KEY is used instead)
+  }
+}
+
+function hasRunningChild(child: ChildProcess | null): child is ChildProcess {
+  return child !== null && child.exitCode === null && child.signalCode === null;
+}
+
+function terminateChildProcess(child: ChildProcess | null): void {
+  if (!hasRunningChild(child) || !child.pid) {
+    return;
+  }
+
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    // Ignore shutdown races.
+  }
 }
