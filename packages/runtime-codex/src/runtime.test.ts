@@ -122,7 +122,9 @@ describe("resolveAgentRuntimeEnvironment", () => {
         JSON.stringify({
           env: {
             OPENAI_API_KEY: "sk-brokered-agent",
+            ANTHROPIC_API_KEY: "sk-anthropic",
           },
+          expires_at: "2026-04-22T10:10:00.000Z",
         }),
         { status: 200 }
       )
@@ -139,13 +141,135 @@ describe("resolveAgentRuntimeEnvironment", () => {
       {
         fetchImpl: fetchImpl as typeof fetch,
         writeFileImpl,
+        now: new Date("2026-04-22T10:00:00.000Z"),
       }
     );
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-brokered-agent",
     });
-    expect(writeFileImpl).toHaveBeenCalledTimes(1);
+    expect(writeFileImpl).toHaveBeenCalledWith(
+      "/workspace-runtime/.agent-runtime-auth.json",
+      JSON.stringify({
+        env: {
+          OPENAI_API_KEY: "sk-brokered-agent",
+          ANTHROPIC_API_KEY: "sk-anthropic",
+        },
+        expires_at: "2026-04-22T10:10:00.000Z",
+        cachedAt: "2026-04-22T10:00:00.000Z",
+      }),
+      "utf8"
+    );
+  });
+
+  it("reuses a cached broker response when expires_at is still fresh", async () => {
+    const fetchImpl = vi.fn();
+
+    const env = await resolveAgentRuntimeEnvironment(
+      {
+        agentCredentialBrokerUrl:
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
+        agentCredentialBrokerSecret: "runtime-secret",
+        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
+      },
+      {
+        fetchImpl: fetchImpl as typeof fetch,
+        readFileImpl: vi
+          .fn()
+          .mockResolvedValue(
+            JSON.stringify({
+              env: {
+                OPENAI_API_KEY: "sk-cached-agent",
+                OPENAI_BASE_URL: "https://openai.example.test/v1",
+              },
+              expires_at: "2026-04-22T10:10:00.000Z",
+              cachedAt: "2026-04-22T10:00:00.000Z",
+            })
+          ) as never,
+        now: new Date("2026-04-22T10:00:00.000Z"),
+      }
+    );
+
+    expect(env).toEqual({
+      OPENAI_API_KEY: "sk-cached-agent",
+      OPENAI_BASE_URL: "https://openai.example.test/v1",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refreshes when the cached broker response is inside the reuse window", async () => {
+    const writeFileImpl = vi.fn().mockResolvedValue(undefined);
+
+    const env = await resolveAgentRuntimeEnvironment(
+      {
+        agentCredentialBrokerUrl:
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
+        agentCredentialBrokerSecret: "runtime-secret",
+        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
+      },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              env: {
+                OPENAI_API_KEY: "sk-refreshed-agent",
+              },
+              expires_at: "2026-04-22T10:15:00.000Z",
+            }),
+            { status: 200 }
+          )
+        ) as never,
+        readFileImpl: vi
+          .fn()
+          .mockResolvedValue(
+            JSON.stringify({
+              env: {
+                OPENAI_API_KEY: "sk-stale-agent",
+              },
+              expires_at: "2026-04-22T10:00:30.000Z",
+              cachedAt: "2026-04-22T09:50:00.000Z",
+            })
+          ) as never,
+        writeFileImpl,
+        now: new Date("2026-04-22T10:00:00.000Z"),
+      }
+    );
+
+    expect(env).toEqual({
+      OPENAI_API_KEY: "sk-refreshed-agent",
+    });
+    expect(writeFileImpl).toHaveBeenCalledOnce();
+  });
+
+  it("reuses a legacy cache entry without expires_at", async () => {
+    const fetchImpl = vi.fn();
+
+    const env = await resolveAgentRuntimeEnvironment(
+      {
+        agentCredentialBrokerUrl:
+          "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
+        agentCredentialBrokerSecret: "runtime-secret",
+        agentCredentialCachePath: "/workspace-runtime/.agent-runtime-auth.json",
+      },
+      {
+        fetchImpl: fetchImpl as typeof fetch,
+        readFileImpl: vi
+          .fn()
+          .mockResolvedValue(
+            JSON.stringify({
+              env: {
+                OPENAI_API_KEY: "sk-legacy-agent",
+              },
+            })
+          ) as never,
+        now: new Date("2026-04-22T11:00:00.000Z"),
+      }
+    );
+
+    expect(env).toEqual({
+      OPENAI_API_KEY: "sk-legacy-agent",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("fails cleanly when the broker cannot resolve the credential", async () => {
@@ -194,6 +318,7 @@ describe("prepareCodexRuntimePlan", () => {
               env: {
                 OPENAI_API_KEY: "sk-plan-agent",
               },
+              expires_at: "2026-04-22T10:10:00.000Z",
             }),
             { status: 200 }
           )

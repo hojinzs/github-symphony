@@ -1,9 +1,16 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  extractEnvForCodex,
+  readAgentCredentialCache,
+  shouldReuseAgentCredentialCache,
+  writeAgentCredentialCache,
+  type AgentRuntimeCredentialBrokerResponse,
+} from "@gh-symphony/core";
 import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
@@ -266,15 +273,27 @@ export async function resolveAgentRuntimeEnvironment(
   >,
   dependencies: {
     fetchImpl?: typeof fetch;
+    readFileImpl?: typeof readFile;
     writeFileImpl?: typeof writeFile;
+    now?: Date;
   } = {}
 ): Promise<Record<string, string>> {
   if (config.agentEnv) {
-    return config.agentEnv;
+    return extractEnvForCodex(config.agentEnv);
   }
 
   if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
     return {};
+  }
+
+  const now = dependencies.now ?? new Date();
+  const readFileImpl = dependencies.readFileImpl ?? readFile;
+  const cachedCredentials = config.agentCredentialCachePath
+    ? await readAgentCredentialCache(config.agentCredentialCachePath, readFileImpl)
+    : null;
+
+  if (cachedCredentials && shouldReuseAgentCredentialCache(cachedCredentials, now)) {
+    return extractEnvForCodex(cachedCredentials.env);
   }
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
@@ -285,8 +304,7 @@ export async function resolveAgentRuntimeEnvironment(
       authorization: `Bearer ${config.agentCredentialBrokerSecret}`,
     },
   });
-  const payload = (await response.json()) as {
-    env?: Record<string, string>;
+  const payload = (await response.json()) as AgentRuntimeCredentialBrokerResponse & {
     error?: string;
   };
 
@@ -299,12 +317,13 @@ export async function resolveAgentRuntimeEnvironment(
 
   if (config.agentCredentialCachePath) {
     const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-    await writeFileImpl(
+    await writeAgentCredentialCache(
       config.agentCredentialCachePath,
-      JSON.stringify(payload),
-      "utf8"
+      payload,
+      writeFileImpl,
+      now
     );
   }
 
-  return payload.env;
+  return extractEnvForCodex(payload.env);
 }
