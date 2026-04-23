@@ -54,7 +54,6 @@ RUN set -eux; \
     npm cache clean --force; \
     rm -rf /tmp/gh-symphony-dist
 
-ARG INSTALLER_STAGE
 FROM ${INSTALLER_STAGE} AS final
 
 WORKDIR /workspace
