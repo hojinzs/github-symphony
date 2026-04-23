@@ -133,10 +133,72 @@ describe("spawnClaudeTurn", () => {
     expect(result.records[0]?.stream).toBe("stderr");
     expect(result.records[0]?.parseError).toBeTypeOf("string");
   });
+
+  it("returns a structured process error when spawn emits error", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("error", new Error("ENOENT"));
+      });
+
+      return child;
+    };
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      { spawnImpl }
+    );
+
+    expect(result.result).toBe("process-error");
+    expect(result.errorMessage).toBe("ENOENT");
+    expect(result.records).toContainEqual({
+      stream: "stderr",
+      line: "",
+      parseError: "ENOENT",
+    });
+  });
 });
 
 describe("classifyClaudeTurnResult", () => {
   it("classifies SIGTERM as cancelled", () => {
     expect(classifyClaudeTurnResult(null, "SIGTERM")).toBe("cancelled");
+  });
+
+  it("classifies SIGINT and SIGKILL as cancelled", () => {
+    expect(classifyClaudeTurnResult(null, "SIGINT")).toBe("cancelled");
+    expect(classifyClaudeTurnResult(null, "SIGKILL")).toBe("cancelled");
   });
 });

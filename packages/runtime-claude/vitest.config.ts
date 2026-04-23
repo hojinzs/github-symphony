@@ -8,10 +8,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@gh-symphony/core": resolve(packageRoot, "../core/src/index.ts"),
-      "@gh-symphony/tool-github-graphql": resolve(
-        packageRoot,
-        "../tool-github-graphql/src/index.ts"
-      ),
     },
   },
   test: {

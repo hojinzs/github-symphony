@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
@@ -26,6 +27,7 @@ export type ClaudeRuntimeConfig = {
   env?: NodeJS.ProcessEnv;
   extraArgs?: readonly string[];
   isolation?: ClaudeRuntimeIsolationOptions;
+  inheritProcessEnv?: boolean;
 };
 
 export type ClaudeRuntimePrepareContext = {
@@ -65,6 +67,7 @@ export class ClaudePrintRuntimeAdapter
   private readonly handlers = new Set<
     AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   >();
+  private activeChild: ChildProcess | null = null;
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
@@ -81,30 +84,38 @@ export class ClaudePrintRuntimeAdapter
       this.buildArgvOptions(input)
     );
 
-    return spawnClaudeTurn(
-      {
-        command: input.command ?? this.config.command,
-        args: argv,
-        cwd: input.cwd ?? this.config.workingDirectory,
-        env: {
-          ...process.env,
-          ...this.config.env,
-          ...input.env,
+    try {
+      return await spawnClaudeTurn(
+        {
+          command: input.command ?? this.config.command,
+          args: argv,
+          cwd: input.cwd ?? this.config.workingDirectory,
+          env: buildClaudeSpawnEnv({
+            inheritProcessEnv: this.config.inheritProcessEnv === true,
+            configEnv: this.config.env,
+            inputEnv: input.env,
+          }),
+          stdinMessages: input.messages,
         },
-        stdinMessages: input.messages,
-      },
-      this.dependencies
-    );
+        {
+          ...this.dependencies,
+          onSpawned: (child) => {
+            this.activeChild = child;
+            this.dependencies.onSpawned?.(child);
+          },
+        }
+      );
+    } finally {
+      this.activeChild = null;
+    }
   }
 
   onEvent(
-    handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+    _handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
-    // TODO(#9): map Claude stream-json NDJSON to neutral AgentEvent payloads.
-    this.handlers.add(handler);
-    return () => {
-      this.handlers.delete(handler);
-    };
+    throw new ClaudeRuntimeNotImplementedError(
+      "TODO(#9): Claude stream-json event mapping is not implemented yet."
+    );
   }
 
   resolveCredentials(
@@ -114,10 +125,14 @@ export class ClaudePrintRuntimeAdapter
   }
 
   shutdown(): void {
+    this.stopActiveChild();
     this.handlers.clear();
   }
 
   cancel(_reason?: string): void {
+    // TODO(#8,#9): replace direct process termination with session-aware
+    // cancellation once Claude runtime turn orchestration is wired end-to-end.
+    this.stopActiveChild();
     this.handlers.clear();
   }
 
@@ -130,6 +145,16 @@ export class ClaudePrintRuntimeAdapter
       },
       extraArgs: input.extraArgs ?? this.config.extraArgs,
     };
+  }
+
+  private stopActiveChild(): void {
+    if (!this.activeChild || this.activeChild.killed) {
+      this.activeChild = null;
+      return;
+    }
+
+    this.activeChild.kill("SIGTERM");
+    this.activeChild = null;
   }
 }
 
@@ -144,4 +169,45 @@ export function resolveClaudeCredentials(
   brokerResponse: AgentRuntimeCredentialBrokerResponse
 ): AgentRuntimeEnv {
   return extractEnvForClaude(brokerResponse.env);
+}
+
+const DEFAULT_INHERITED_ENV_KEYS = [
+  "HOME",
+  "LANG",
+  "PATH",
+  "SHELL",
+  "SYSTEMROOT",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+  "USER",
+  "USERPROFILE",
+] as const;
+
+function buildClaudeSpawnEnv(options: {
+  inheritProcessEnv: boolean;
+  configEnv?: NodeJS.ProcessEnv;
+  inputEnv?: NodeJS.ProcessEnv;
+}): NodeJS.ProcessEnv | undefined {
+  if (options.inheritProcessEnv) {
+    return {
+      ...process.env,
+      ...options.configEnv,
+      ...options.inputEnv,
+    };
+  }
+
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const key of DEFAULT_INHERITED_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  Object.assign(env, options.configEnv, options.inputEnv);
+
+  return Object.keys(env).length > 0 ? env : undefined;
 }
