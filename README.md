@@ -218,7 +218,17 @@ Project discovery is pagination-aware for larger GitHub accounts, so personal pr
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
-Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates all include repository-aware validation guidance based on the detected package manager, monorepo shape, and `test` / `lint` / `build` scripts when present.
+Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates all include repository-aware validation guidance based on the detected package manager, monorepo shape, and explicit validation entry points when present.
+
+`workflow init` is not limited to Node repositories. The detector now recognizes conservative validation signals for:
+
+- JavaScript / TypeScript lockfiles and `package.json` scripts
+- Python repositories with `uv.lock`, `poetry.lock`, `pyproject.toml`, `pytest.ini`, and `requirements*.txt`
+- Go repositories with `go.mod`
+- Rust repositories with `Cargo.toml`
+- Top-level command runners such as `Makefile` and `justfile`
+
+When the repository exposes an unambiguous entry point, the generated guidance will prefer commands such as `make test`, `just lint`, `uv run pytest`, `go test ./...`, or `cargo test`. When signals conflict at the same confidence level, the generator intentionally falls back to generic validation guidance instead of guessing.
 
 Token-only interactive setup is supported:
 
@@ -475,7 +485,7 @@ gh-symphony workflow preview --issue owner/repo#123
 `.gh-symphony/reference-workflow.md`, and runtime skill files, then prints whether
 each path would be created, updated, or left unchanged without writing anything.
 
-When `gh-symphony workflow init` detects repository scripts, it bakes that information back into the generated policy files so the out-of-the-box workflow already tells agents which test/lint/build commands to prefer and whether workspace-aware validation is expected.
+When `gh-symphony workflow init` detects repository validation entry points, it bakes that information back into the generated policy files so the out-of-the-box workflow already tells agents which test/lint/build commands to prefer and whether workspace-aware validation is expected. That includes non-Node repositories when the detector can prove a conservative command from `Makefile`, `justfile`, Python tooling, `go.mod`, or `Cargo.toml`.
 
 Without a project (standalone):
 
