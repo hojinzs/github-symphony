@@ -85,7 +85,17 @@ whether `WORKFLOW.md`, `.gh-symphony/context.yaml`,
 `.gh-symphony/reference-workflow.md`, and runtime skill files would be created,
 updated, or left unchanged, and then exits without modifying the repository.
 
-The same detected environment data is applied to the generated artifacts, so `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates already include repository-aware validation guidance for the detected package manager, monorepo layout, and `test` / `lint` / `build` scripts when they exist.
+The same detected environment data is applied to the generated artifacts, so `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates already include repository-aware validation guidance for the detected package manager, monorepo layout, and explicit validation commands when they exist.
+
+The detector is language-agnostic by default:
+
+- Node repositories: JS lockfiles plus `package.json` `test` / `lint` / `build` scripts
+- Python repositories: `uv.lock`, `poetry.lock`, `pyproject.toml`, `pytest.ini`, `requirements*.txt`
+- Go repositories: `go.mod`
+- Rust repositories: `Cargo.toml`
+- Generic runners: `Makefile`, `justfile`
+
+Examples of generated validation guidance include `make test`, `just build`, `uv run pytest`, `poetry run pytest`, `go test ./...`, and `cargo test` when those commands are the clearest repository entry points. If the repository exposes conflicting signals, the CLI keeps the generic fallback instead of guessing.
 
 ### Customizing Agent Behavior
 
