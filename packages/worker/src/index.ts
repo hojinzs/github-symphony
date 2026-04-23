@@ -4,13 +4,16 @@ import { join } from "node:path";
 import {
   classifySessionExit,
   parseWorkflowMarkdown,
+  type AgentEvent,
   type OrchestratorChannelEvent,
   type RunAttemptPhase,
   type SessionExitClassification,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
 import {
+  getCodexObservabilityEventName,
   launchCodexAppServer,
+  normalizeCodexRuntimeEvents,
   prepareCodexRuntimePlan,
   type CodexRuntimePlan,
   type RuntimeToolDefinition,
@@ -548,7 +551,7 @@ async function startAssignedRun() {
  * 1. Initialize codex
  * 2. Start thread with prompt + tool definitions
  * 3. Start first turn with rendered prompt
- * 4. Multi-turn loop: on turn/completed, refresh tracker state,
+ * 4. Multi-turn loop: on agent turn completion, refresh tracker state,
  *    send continuation turn if issue is still active
  * 5. Exit when max_turns reached, issue non-actionable, or error
  */
@@ -630,11 +633,11 @@ async function runCodexClientProtocol(
   }
 
   function describeTurnTerminalEvent(
-    event: "turn/failed" | "turn/cancelled",
+    event: "agent.turnFailed" | "agent.turnCancelled",
     params: unknown
   ): string | null {
     const fallback =
-      event === "turn/failed"
+      event === "agent.turnFailed"
         ? "turn_failed: codex reported turn failure"
         : "turn_cancelled: codex reported turn cancellation";
 
@@ -648,7 +651,7 @@ async function runCodexClientProtocol(
     for (const key of directReasonKeys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
-        return `${event.replace("/", "_")}: ${value.trim()}`;
+        return `${event.replace(".", "_")}: ${value.trim()}`;
       }
       if (
         value &&
@@ -658,14 +661,14 @@ async function runCodexClientProtocol(
         const nested = value as Record<string, unknown>;
         const nestedMessage = String(nested.message).trim();
         if (nestedMessage) {
-          return `${event.replace("/", "_")}: ${nestedMessage}`;
+          return `${event.replace(".", "_")}: ${nestedMessage}`;
         }
       }
     }
 
     const serialized = JSON.stringify(params).slice(0, 300);
     return serialized && serialized !== "{}"
-      ? `${event.replace("/", "_")}: ${serialized}`
+      ? `${event.replace(".", "_")}: ${serialized}`
       : fallback;
   }
 
@@ -736,7 +739,7 @@ async function runCodexClientProtocol(
 
   /**
    * Wait for the current turn to complete. Returns a promise that resolves
-   * when `turn/completed` is received from the codex server.
+   * when the runtime reports that the active turn completed.
    */
   function waitForTurnCompletion(): Promise<void> {
     return new Promise((resolve) => {
@@ -846,6 +849,156 @@ async function runCodexClientProtocol(
     }
   }
 
+  function resolveAgentEventObservabilityName(
+    event: AgentEvent
+  ): string | undefined {
+    return getCodexObservabilityEventName(event);
+  }
+
+  function emitObservedAgentEvent(event: AgentEvent): void {
+    if (event.payload.shouldEmitUpdate === false) {
+      return;
+    }
+    emitOrchestratorChannelEvent(resolveAgentEventObservabilityName(event));
+  }
+
+  function handleInputRequired(reason: string, event: AgentEvent): void {
+    process.stderr.write(
+      "[worker] user_input_required detected — terminating agent process\n"
+    );
+    userInputRequired = true;
+    runtimeState.status = "failed";
+    if (runtimeState.run) {
+      runtimeState.run.lastError = reason;
+    }
+    if (child.pid) {
+      try {
+        process.kill(child.pid, "SIGTERM");
+      } catch {
+        // Already gone.
+      }
+    }
+    if (activeTurnTelemetry) {
+      emitTurnFailedEvent(
+        activeTurnTelemetry,
+        runtimeState.run?.lastError ?? null
+      );
+      activeTurnTelemetry = null;
+    }
+    resolvePendingTurnCompletion();
+    emitObservedAgentEvent(event);
+  }
+
+  function handleAgentEvent(event: AgentEvent): boolean {
+    switch (event.name) {
+      case "agent.turnStarted":
+        emitObservedAgentEvent(event);
+        return true;
+      case "agent.toolCallRequested":
+        void dispatchDynamicToolCall(
+          event.payload.callId,
+          event.payload.toolName,
+          event.payload.threadId,
+          event.payload.turnId,
+          event.payload.arguments
+        );
+        emitObservedAgentEvent(event);
+        return true;
+      case "agent.inputRequired":
+        handleInputRequired(event.payload.reason, event);
+        return true;
+      case "agent.tokenUsageUpdated": {
+        const tokenUsage = extractAbsoluteTokenUsage(event.payload.params);
+        if (tokenUsage) {
+          applyTokenUsageUpdate(
+            resolveAgentEventObservabilityName(event) ?? event.name,
+            tokenUsage
+          );
+        }
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.rateLimit": {
+        const rateLimits = extractRateLimitPayload(event.payload.params);
+        if (rateLimits) {
+          applyRateLimitUpdate(
+            resolveAgentEventObservabilityName(event) ?? event.name,
+            rateLimits
+          );
+        }
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.messageDelta": {
+        const { delta, itemId } = event.payload;
+        if (deltaBuffer?.itemId !== itemId) {
+          flushDeltaBuffer();
+          deltaBuffer = { itemId, text: delta };
+        } else {
+          deltaBuffer.text += delta;
+        }
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.turnCompleted":
+        flushDeltaBuffer();
+        if (event.payload.inputRequired) {
+          handleInputRequired(
+            "turn_input_required: agent requires user input",
+            event
+          );
+          return true;
+        }
+        emitObservedAgentEvent(event);
+        if (activeTurnTelemetry) {
+          emitTurnCompletedEvent(activeTurnTelemetry);
+          activeTurnTelemetry = null;
+        }
+        process.stderr.write("[worker] agent turn completed\n");
+        resolvePendingTurnCompletion();
+        return true;
+      case "agent.turnFailed": {
+        flushDeltaBuffer();
+        const lastError = describeTurnTerminalEvent(
+          "agent.turnFailed",
+          event.payload.params
+        );
+        process.stderr.write(
+          `[worker] agent turn failed ${JSON.stringify(event.payload.params).slice(0, 300)}\n`
+        );
+        markTurnTerminalFailure("failed", lastError);
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.turnCancelled": {
+        flushDeltaBuffer();
+        const lastError = describeTurnTerminalEvent(
+          "agent.turnCancelled",
+          event.payload.params
+        );
+        process.stderr.write(
+          `[worker] agent turn cancelled ${JSON.stringify(event.payload.params).slice(0, 300)}\n`
+        );
+        markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.error":
+        process.stderr.write(
+          `[worker] runtime error ${JSON.stringify(event.payload.params).slice(0, 300)}\n`
+        );
+        if (runtimeState.run) {
+          runtimeState.run.lastError = event.payload.error;
+        }
+        runtimeState.status = "failed";
+        runtimeState.runPhase = "failed";
+        emitObservedAgentEvent(event);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function handleServerMessage(msg: Record<string, unknown>): void {
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
@@ -865,149 +1018,12 @@ async function runCodexClientProtocol(
     // Track the timestamp of every server-initiated notification/event.
     // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
     runtimeState.lastEventAt = new Date().toISOString();
-    const orchestratorEventName =
-      typeof msg.method === "string" ? msg.method : undefined;
-
-    // Server-initiated request (dynamic tool call)
-    if (msg.method === "dynamic_tool_call_request" && msg.params != null) {
-      const params = msg.params as {
-        callId: string;
-        tool: string;
-        threadId: string;
-        turnId: string;
-        arguments: unknown;
-      };
-      void dispatchDynamicToolCall(
-        params.callId,
-        params.tool,
-        params.threadId,
-        params.turnId,
-        params.arguments
-      );
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
+    const agentEvents = normalizeCodexRuntimeEvents(msg);
+    let handledAgentEvent = false;
+    for (const event of agentEvents) {
+      handledAgentEvent = handleAgentEvent(event) || handledAgentEvent;
     }
-
-    // User input required — hard failure (agent cannot proceed autonomously)
-    if (msg.method === "item/tool/requestUserInput") {
-      process.stderr.write(
-        "[worker] user_input_required detected — terminating codex process\n"
-      );
-      userInputRequired = true;
-      runtimeState.status = "failed";
-      if (runtimeState.run) {
-        runtimeState.run.lastError =
-          "turn_input_required: agent requires user input";
-      }
-      if (child.pid) {
-        try {
-          process.kill(child.pid, "SIGTERM");
-        } catch {
-          // Already gone.
-        }
-      }
-      // Resolve any pending turn completion
-      if (activeTurnTelemetry) {
-        emitTurnFailedEvent(
-          activeTurnTelemetry,
-          runtimeState.run?.lastError ?? null
-        );
-        activeTurnTelemetry = null;
-      }
-      resolvePendingTurnCompletion();
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
-    // Turn completed — signal the multi-turn loop
-    if (msg.method === "turn/completed") {
-      flushDeltaBuffer();
-      const turnParams = (msg.params ?? {}) as Record<string, unknown>;
-      const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
-      if (turnUsage) {
-        applyTokenUsageUpdate("turn/completed", turnUsage);
-      }
-      const rateLimits = extractRateLimitPayload(turnParams);
-      if (rateLimits) {
-        applyRateLimitUpdate("turn/completed", rateLimits);
-      }
-      if (turnParams.inputRequired === true) {
-        process.stderr.write(
-          "[worker] user_input_required detected — terminating codex process\n"
-        );
-        userInputRequired = true;
-        runtimeState.status = "failed";
-        if (runtimeState.run) {
-          runtimeState.run.lastError =
-            "turn_input_required: agent requires user input";
-        }
-        if (child.pid) {
-          try {
-            process.kill(child.pid, "SIGTERM");
-          } catch {
-            // Already gone.
-          }
-        }
-        if (activeTurnTelemetry) {
-          emitTurnFailedEvent(
-            activeTurnTelemetry,
-            runtimeState.run?.lastError ?? null
-          );
-          activeTurnTelemetry = null;
-        }
-        resolvePendingTurnCompletion();
-        emitOrchestratorChannelEvent(orchestratorEventName);
-        return;
-      }
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      if (activeTurnTelemetry) {
-        emitTurnCompletedEvent(activeTurnTelemetry);
-        activeTurnTelemetry = null;
-      }
-      process.stderr.write("[worker] codex turn/completed\n");
-      resolvePendingTurnCompletion();
-      return;
-    }
-
-    if (msg.method === "turn/failed") {
-      flushDeltaBuffer();
-      const lastError = describeTurnTerminalEvent(
-        "turn/failed",
-        msg.params ?? null
-      );
-      process.stderr.write(
-        `[worker] codex turn/failed ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
-      );
-      markTurnTerminalFailure("failed", lastError);
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
-    if (msg.method === "turn/cancelled") {
-      flushDeltaBuffer();
-      const lastError = describeTurnTerminalEvent(
-        "turn/cancelled",
-        msg.params ?? null
-      );
-      process.stderr.write(
-        `[worker] codex turn/cancelled ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
-      );
-      markTurnTerminalFailure("canceled_by_reconciliation", lastError);
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
-    // Token usage events — track cumulative totals
-    if (
-      msg.method === "thread/tokenUsage/updated" ||
-      msg.method === "total_token_usage" ||
-      msg.method === "codex/event/token_count"
-    ) {
-      const tokenUsage = extractAbsoluteTokenUsage(msg.params);
-      if (tokenUsage) {
-        applyTokenUsageUpdate(msg.method, tokenUsage);
-      }
-      emitOrchestratorChannelEvent(orchestratorEventName);
+    if (handledAgentEvent) {
       return;
     }
 
@@ -1016,30 +1032,10 @@ async function runCodexClientProtocol(
       applyRateLimitUpdate(msg.method, rateLimits);
     }
 
-    // Accumulate streaming delta events into a single log line per message
-    if (
-      typeof msg.method === "string" &&
-      (msg.method === "codex/event/agent_message_content_delta" ||
-        msg.method === "codex/event/agent_message_delta" ||
-        msg.method === "item/agentMessage/delta")
-    ) {
-      const params = (msg.params ?? {}) as Record<string, unknown>;
-      const delta = typeof params.delta === "string" ? params.delta : "";
-      const itemId = typeof params.item_id === "string" ? params.item_id : "";
-      if (deltaBuffer?.itemId !== itemId) {
-        flushDeltaBuffer();
-        deltaBuffer = { itemId, text: delta };
-      } else {
-        deltaBuffer.text += delta;
-      }
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
     // Log all other server notifications for observability
     if (typeof msg.method === "string") {
       flushDeltaBuffer();
-      emitOrchestratorChannelEvent(orchestratorEventName);
+      emitOrchestratorChannelEvent(msg.method);
       process.stderr.write(
         `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
       );

@@ -1,3 +1,5 @@
+import type { AgentEventName } from "./events.js";
+
 export type AgentRuntimeEnv = Record<string, string>;
 
 export type AgentRuntimeCredentialBrokerResponse = {
@@ -6,7 +8,7 @@ export type AgentRuntimeCredentialBrokerResponse = {
 };
 
 export type AgentRuntimeEvent = {
-  name: string;
+  name: AgentEventName;
   payload?: unknown;
 };
 

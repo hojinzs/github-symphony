@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   AgentRuntimeResolutionError,
+  CODEX_PROTOCOL_EVENT_NAMES,
   buildCodexRuntimePlan,
   createCodexRuntimeAdapter,
   createGitCredentialHelperEnvironment,
   createGitHubGraphQLToolDefinition,
+  getCodexObservabilityEventName,
+  normalizeCodexRuntimeEvents,
   prepareCodexRuntimePlan,
   resolvePreparedAgentEnvironment,
   resolveAgentRuntimeEnvironment,
@@ -349,6 +352,90 @@ describe("resolveAgentRuntimeEnvironment", () => {
         }
       )
     ).rejects.toThrow(AgentRuntimeResolutionError);
+  });
+});
+
+describe("normalizeCodexRuntimeEvents", () => {
+  it("maps a completion payload to neutral events", () => {
+    const events = normalizeCodexRuntimeEvents({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {
+        inputRequired: false,
+        usage: {
+          input_tokens: 12,
+          output_tokens: 8,
+          total_tokens: 20,
+        },
+        rate_limits: {
+          remaining: 10,
+        },
+      },
+    });
+
+    expect(events.map((event) => event.name)).toEqual([
+      "agent.tokenUsageUpdated",
+      "agent.rateLimit",
+      "agent.turnCompleted",
+    ]);
+    expect(getCodexObservabilityEventName(events[2]!)).toBe(
+      CODEX_PROTOCOL_EVENT_NAMES.turnCompleted
+    );
+    expect(events[2]).toMatchObject({
+      name: "agent.turnCompleted",
+      payload: {
+        inputRequired: false,
+      },
+    });
+  });
+
+  it("maps tool calls and input-required events to neutral names", () => {
+    expect(
+      normalizeCodexRuntimeEvents({
+        method: CODEX_PROTOCOL_EVENT_NAMES.toolCallRequested,
+        params: {
+          callId: "call-1",
+          tool: "github_graphql",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: { query: "{ viewer { login } }" },
+        },
+      })
+    ).toEqual([
+      {
+        name: "agent.toolCallRequested",
+        payload: {
+          observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.toolCallRequested,
+          params: {
+            callId: "call-1",
+            tool: "github_graphql",
+            threadId: "thread-1",
+            turnId: "turn-1",
+            arguments: { query: "{ viewer { login } }" },
+          },
+          callId: "call-1",
+          toolName: "github_graphql",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          arguments: { query: "{ viewer { login } }" },
+        },
+      },
+    ]);
+
+    expect(
+      normalizeCodexRuntimeEvents({
+        method: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
+        params: { prompt: "Need approval" },
+      })
+    ).toEqual([
+      {
+        name: "agent.inputRequired",
+        payload: {
+          observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
+          params: { prompt: "Need approval" },
+          reason: "turn_input_required: agent requires user input",
+        },
+      },
+    ]);
   });
 });
 
