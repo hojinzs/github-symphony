@@ -1,5 +1,6 @@
 ARG NODE_IMAGE=node:24-bookworm-slim
 ARG PNPM_VERSION=9.15.9
+ARG INSTALLER_STAGE=installer-registry
 
 FROM ${NODE_IMAGE} AS pack
 
@@ -15,10 +16,8 @@ RUN pnpm build
 RUN mkdir -p /tmp/gh-symphony-dist
 RUN cd packages/cli && npm pack --pack-destination /tmp/gh-symphony-dist
 
-FROM ${NODE_IMAGE}
+FROM ${NODE_IMAGE} AS runtime-base
 
-ARG GH_SYMPHONY_INSTALL_SOURCE=registry
-ARG GH_SYMPHONY_VERSION=latest
 ARG GH_SYMPHONY_UID=1000
 ARG GH_SYMPHONY_GID=1000
 
@@ -37,18 +36,25 @@ RUN apt-get update && \
     chown -R symphony:symphony /var/lib/gh-symphony /workspace && \
     rm -rf /var/lib/apt/lists/*
 
+FROM runtime-base AS installer-registry
+
+ARG GH_SYMPHONY_VERSION=latest
+
+RUN npm install -g "@gh-symphony/cli@${GH_SYMPHONY_VERSION}" && \
+    npm cache clean --force
+
+FROM runtime-base AS installer-local
+
 COPY --from=pack /tmp/gh-symphony-dist /tmp/gh-symphony-dist
 
 RUN set -eux; \
-    if [ "${GH_SYMPHONY_INSTALL_SOURCE}" = "local" ]; then \
-      pkg="$(find /tmp/gh-symphony-dist -maxdepth 1 -name '*.tgz' -print -quit)"; \
-      test -n "${pkg}"; \
-      npm install -g "${pkg}"; \
-    else \
-      npm install -g "@gh-symphony/cli@${GH_SYMPHONY_VERSION}"; \
-    fi; \
+    pkg="$(find /tmp/gh-symphony-dist -maxdepth 1 -name '*.tgz' -print -quit)"; \
+    test -n "${pkg}"; \
+    npm install -g "${pkg}"; \
     npm cache clean --force; \
     rm -rf /tmp/gh-symphony-dist
+
+FROM ${INSTALLER_STAGE} AS final
 
 WORKDIR /workspace
 VOLUME ["/var/lib/gh-symphony"]

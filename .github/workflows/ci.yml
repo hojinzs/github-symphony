@@ -62,7 +62,7 @@ jobs:
       - name: Build container image from local package bundle
         run: |
           docker build \
-            --build-arg GH_SYMPHONY_INSTALL_SOURCE=local \
+            --build-arg INSTALLER_STAGE=installer-local \
             --tag gh-symphony:test .
 
       - name: Smoke test container image
