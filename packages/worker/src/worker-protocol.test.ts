@@ -696,10 +696,12 @@ function createProtocolContext(options: {
     event: "agent.turnFailed" | "agent.turnCancelled",
     params: unknown
   ): string | null {
+    const errorPrefix =
+      event === "agent.turnFailed" ? "turn_failed" : "turn_cancelled";
     const fallback =
       event === "agent.turnFailed"
-        ? "agent_turnFailed: codex reported turn failure"
-        : "agent_turnCancelled: codex reported turn cancellation";
+        ? "turn_failed: codex reported turn failure"
+        : "turn_cancelled: codex reported turn cancellation";
 
     if (!params || typeof params !== "object") {
       return fallback;
@@ -711,7 +713,7 @@ function createProtocolContext(options: {
     for (const key of directReasonKeys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
-        return `${event.replace(".", "_")}: ${value.trim()}`;
+        return `${errorPrefix}: ${value.trim()}`;
       }
       if (
         value &&
@@ -721,14 +723,14 @@ function createProtocolContext(options: {
         const nested = value as Record<string, unknown>;
         const nestedMessage = String(nested.message).trim();
         if (nestedMessage) {
-          return `${event.replace(".", "_")}: ${nestedMessage}`;
+          return `${errorPrefix}: ${nestedMessage}`;
         }
       }
     }
 
     const serialized = JSON.stringify(params).slice(0, 300);
     return serialized && serialized !== "{}"
-      ? `${event.replace(".", "_")}: ${serialized}`
+      ? `${errorPrefix}: ${serialized}`
       : fallback;
   }
 
@@ -818,6 +820,9 @@ function createProtocolContext(options: {
 
   function handleAgentEvent(event: AgentEvent): boolean {
     switch (event.name) {
+      case "agent.turnStarted":
+        emitObservedAgentEvent(event);
+        return true;
       case "agent.inputRequired":
         handleInputRequired(event.payload.reason, event);
         return true;
@@ -843,6 +848,9 @@ function createProtocolContext(options: {
         emitObservedAgentEvent(event);
         return true;
       }
+      case "agent.messageDelta":
+        emitObservedAgentEvent(event);
+        return true;
       case "agent.turnCompleted":
         if (event.payload.inputRequired) {
           handleInputRequired(
@@ -876,6 +884,10 @@ function createProtocolContext(options: {
         emitObservedAgentEvent(event);
         return true;
       }
+      case "agent.error":
+        markTurnTerminalFailure("failed", event.payload.error);
+        emitObservedAgentEvent(event);
+        return true;
       default:
         return false;
     }
@@ -1230,9 +1242,7 @@ describe("multi-turn loop (2.7)", () => {
     expect(turnResults).toEqual(["turn-1"]);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "agent_turnFailed: tool execution failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
   });
 
   it("stops immediately when turn/cancelled is received", async () => {
@@ -1269,7 +1279,7 @@ describe("multi-turn loop (2.7)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "agent_turnCancelled: reconciled against tracker state"
+      "turn_cancelled: reconciled against tracker state"
     );
   });
 
@@ -1732,9 +1742,7 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "agent_turnFailed: model backend failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: model backend failed");
   });
 
   it("resolves pending turn wait when turn/cancelled is received", async () => {
@@ -1754,8 +1762,28 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
+    expect(ctx.runtimeState.run.lastError).toBe("turn_cancelled: superseded");
+  });
+
+  it("resolves pending turn wait when error is received", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "error",
+        params: { message: "runtime crashed", code: "E_RUNTIME" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "agent_turnCancelled: superseded"
+      JSON.stringify({ message: "runtime crashed", code: "E_RUNTIME" })
     );
   });
 
@@ -1777,7 +1805,7 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      'agent_turnFailed: {"error":{"message":"   "},"code":"E_BACKEND"}'
+      'turn_failed: {"error":{"message":"   "},"code":"E_BACKEND"}'
     );
   });
 
@@ -1800,9 +1828,7 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "agent_turnFailed: tool execution failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
   });
 });
 
@@ -2155,7 +2181,7 @@ describe("orchestrator channel telemetry", () => {
         outputTokens: 0,
         totalTokens: 0,
       },
-      error: "agent_turnFailed: tool execution failed",
+      error: "turn_failed: tool execution failed",
     });
   });
 

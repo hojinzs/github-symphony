@@ -636,6 +636,8 @@ async function runCodexClientProtocol(
     event: "agent.turnFailed" | "agent.turnCancelled",
     params: unknown
   ): string | null {
+    const errorPrefix =
+      event === "agent.turnFailed" ? "turn_failed" : "turn_cancelled";
     const fallback =
       event === "agent.turnFailed"
         ? "turn_failed: codex reported turn failure"
@@ -651,7 +653,7 @@ async function runCodexClientProtocol(
     for (const key of directReasonKeys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
-        return `${event.replace(".", "_")}: ${value.trim()}`;
+        return `${errorPrefix}: ${value.trim()}`;
       }
       if (
         value &&
@@ -661,14 +663,14 @@ async function runCodexClientProtocol(
         const nested = value as Record<string, unknown>;
         const nestedMessage = String(nested.message).trim();
         if (nestedMessage) {
-          return `${event.replace(".", "_")}: ${nestedMessage}`;
+          return `${errorPrefix}: ${nestedMessage}`;
         }
       }
     }
 
     const serialized = JSON.stringify(params).slice(0, 300);
     return serialized && serialized !== "{}"
-      ? `${event.replace(".", "_")}: ${serialized}`
+      ? `${errorPrefix}: ${serialized}`
       : fallback;
   }
 
@@ -984,14 +986,11 @@ async function runCodexClientProtocol(
         return true;
       }
       case "agent.error":
+        flushDeltaBuffer();
         process.stderr.write(
           `[worker] runtime error ${JSON.stringify(event.payload.params).slice(0, 300)}\n`
         );
-        if (runtimeState.run) {
-          runtimeState.run.lastError = event.payload.error;
-        }
-        runtimeState.status = "failed";
-        runtimeState.runPhase = "failed";
+        markTurnTerminalFailure("failed", event.payload.error);
         emitObservedAgentEvent(event);
         return true;
       default:

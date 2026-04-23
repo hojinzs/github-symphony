@@ -442,6 +442,36 @@ describe("normalizeCodexRuntimeEvents", () => {
     });
   });
 
+  it("does not treat unrelated nested quota payloads as rate-limit events", () => {
+    const events = normalizeCodexRuntimeEvents({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {
+        result: {
+          quota: {
+            remaining: 3,
+          },
+        },
+      },
+    });
+
+    expect(events).toEqual([
+      {
+        name: "agent.turnCompleted",
+        payload: {
+          observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+          params: {
+            result: {
+              quota: {
+                remaining: 3,
+              },
+            },
+          },
+          inputRequired: false,
+        },
+      },
+    ]);
+  });
+
   it("maps tool calls and input-required events to neutral names", () => {
     expect(
       normalizeCodexRuntimeEvents({

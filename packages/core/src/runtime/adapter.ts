@@ -7,6 +7,7 @@ export type AgentRuntimeCredentialBrokerResponse = {
   expires_at?: string;
 };
 
+// Loose runtime event shape used by adapters before narrowing to AgentEvent.
 export type AgentRuntimeEvent = {
   name: AgentEventName;
   payload?: unknown;

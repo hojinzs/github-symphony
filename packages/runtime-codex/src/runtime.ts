@@ -242,25 +242,13 @@ function hasNestedRateLimitPayload(value: unknown): boolean {
     }
   }
 
-  for (const nestedValue of Object.values(record)) {
-    if (hasNestedRateLimitPayload(nestedValue)) {
-      return true;
-    }
-  }
-
   return false;
-}
-
-function createObservabilityEvent(
-  event: AgentEvent
-): string | undefined {
-  return event.payload.observabilityEvent;
 }
 
 export function getCodexObservabilityEventName(
   event: AgentEvent
 ): string | undefined {
-  return createObservabilityEvent(event);
+  return event.payload.observabilityEvent;
 }
 
 export function normalizeCodexRuntimeEvents(
