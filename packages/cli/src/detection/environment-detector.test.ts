@@ -221,6 +221,23 @@ describe("detectEnvironment", () => {
     expect(result.testCommand).toBeNull();
   });
 
+  it("ignores justfile variable assignments that are not recipes", async () => {
+    await writeFile(
+      join(tempDir, "justfile"),
+      [
+        'test := "cargo test"',
+        'lint := "cargo clippy"',
+        'build := "cargo build"',
+      ].join("\n")
+    );
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.testCommand).toBeNull();
+    expect(result.lintCommand).toBeNull();
+    expect(result.buildCommand).toBeNull();
+  });
+
   it("detects monorepo with lerna.json", async () => {
     await writeFile(
       join(tempDir, "package-lock.json"),

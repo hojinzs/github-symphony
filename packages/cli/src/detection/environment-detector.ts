@@ -189,7 +189,7 @@ async function detectJustCommands(cwd: string): Promise<DetectedCommands> {
   }
 
   const hasRecipe = (name: string): boolean =>
-    new RegExp(`^${name}\\s*:`, "m").test(justfile);
+    new RegExp(`^${name}\\s*:(?!=)`, "m").test(justfile);
 
   return {
     testCommand: hasRecipe("test") ? "just test" : null,
