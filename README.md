@@ -58,6 +58,7 @@ The official image is designed for headless orchestration and defaults to:
 - image: `ghcr.io/hojinzs/github-symphony:<tag>`
 - config/state volume: `/var/lib/gh-symphony`
 - default command: `gh-symphony start`
+- runtime user: `symphony` (`UID:GID 1000:1000`)
 
 Supported container environment variables:
 
@@ -67,6 +68,26 @@ Supported container environment variables:
 Supported volume mounts:
 
 - `/var/lib/gh-symphony`: persists `config.json`, `projects/<project-id>/project.json`, project `.env`, logs, and orchestrator workspaces across restarts
+
+Named Docker volumes work as-is. If you use a host bind mount such as `-v ./data:/var/lib/gh-symphony`, the host directory must be writable by `UID:GID 1000:1000` or the container will fail to persist state.
+
+Prepare a bind-mounted host directory:
+
+```bash
+mkdir -p ./data
+sudo chown -R 1000:1000 ./data
+```
+
+If you need to run the container with your host user instead, pass `--user "$(id -u):$(id -g)"` and make sure the mounted directory is writable by that same UID/GID:
+
+```bash
+docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
+  -v "$(pwd)/data:/var/lib/gh-symphony" \
+  ghcr.io/hojinzs/github-symphony:latest \
+  gh-symphony start --once
+```
 
 Seed the managed-project config into the mounted volume once:
 
@@ -104,6 +125,21 @@ services:
 volumes:
   gh-symphony-data:
 ```
+
+If you prefer a host bind mount in `docker compose`, align the container user with the host directory owner:
+
+```yaml
+services:
+  gh-symphony:
+    image: ghcr.io/hojinzs/github-symphony:latest
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
+    volumes:
+      - ./data:/var/lib/gh-symphony
+```
+
+Create `./data` ahead of time and ensure it is writable by the UID/GID that you pass through `user`.
 
 For a first-run smoke check against an existing mounted config directory:
 
