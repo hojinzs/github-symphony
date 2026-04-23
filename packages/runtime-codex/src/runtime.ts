@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
+  buildAgentInputRequiredReason,
   readAgentCredentialCache,
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
@@ -228,12 +229,7 @@ function hasNestedRateLimitPayload(value: unknown): boolean {
     "rateLimits",
     "rate_limit",
     "rateLimit",
-    "info",
-    "msg",
-    "event",
-    "data",
     "result",
-    "payload",
   ];
 
   for (const key of preferredKeys) {
@@ -296,7 +292,7 @@ export function normalizeCodexRuntimeEvents(
       payload: {
         observabilityEvent: method,
         params,
-        reason: "turn_input_required: agent requires user input",
+        reason: buildAgentInputRequiredReason(params.prompt),
       },
     });
     return events;
@@ -344,7 +340,7 @@ export function normalizeCodexRuntimeEvents(
         payload: {
           observabilityEvent: method,
           params: asRecord(params.usage),
-          shouldEmitUpdate: false,
+          suppressUpdate: true,
         },
       });
     }
@@ -355,7 +351,7 @@ export function normalizeCodexRuntimeEvents(
         payload: {
           observabilityEvent: method,
           params,
-          shouldEmitUpdate: false,
+          suppressUpdate: true,
         },
       });
     }

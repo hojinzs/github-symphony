@@ -15,7 +15,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
-import type { AgentEvent } from "@gh-symphony/core";
+import {
+  DEFAULT_AGENT_INPUT_REQUIRED_REASON,
+  type AgentEvent,
+} from "@gh-symphony/core";
 import {
   CODEX_PROTOCOL_EVENT_NAMES,
   getCodexObservabilityEventName,
@@ -792,17 +795,11 @@ function createProtocolContext(options: {
     }
   }
 
-  function resolveAgentEventObservabilityName(
-    event: AgentEvent
-  ): string | undefined {
-    return getCodexObservabilityEventName(event);
-  }
-
   function emitObservedAgentEvent(event: AgentEvent): void {
-    if (event.payload.shouldEmitUpdate === false) {
+    if (event.payload.suppressUpdate) {
       return;
     }
-    emitOrchestratorChannelEvent(resolveAgentEventObservabilityName(event));
+    emitOrchestratorChannelEvent(getCodexObservabilityEventName(event));
   }
 
   function handleInputRequired(reason: string, event: AgentEvent): void {
@@ -830,7 +827,7 @@ function createProtocolContext(options: {
         const tokenUsage = extractAbsoluteTokenUsage(event.payload.params);
         if (tokenUsage) {
           applyTokenUsageUpdate(
-            resolveAgentEventObservabilityName(event) ?? event.name,
+            getCodexObservabilityEventName(event) ?? event.name,
             tokenUsage
           );
         }
@@ -841,7 +838,7 @@ function createProtocolContext(options: {
         const rateLimits = extractRateLimitPayload(event.payload.params);
         if (rateLimits) {
           applyRateLimitUpdate(
-            resolveAgentEventObservabilityName(event) ?? event.name,
+            getCodexObservabilityEventName(event) ?? event.name,
             rateLimits
           );
         }
@@ -853,10 +850,7 @@ function createProtocolContext(options: {
         return true;
       case "agent.turnCompleted":
         if (event.payload.inputRequired) {
-          handleInputRequired(
-            "turn_input_required: agent requires user input",
-            event
-          );
+          handleInputRequired(DEFAULT_AGENT_INPUT_REQUIRED_REASON, event);
           return true;
         }
         emitObservedAgentEvent(event);
@@ -1844,7 +1838,7 @@ describe("user input required hard failure (4.3)", () => {
     expect(ctx.userInputRequired).toBe(true);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_input_required: agent requires user input"
+      "turn_input_required: Enter API key"
     );
     expect(ctx.killCalled).toBe(true);
   });
@@ -1860,7 +1854,7 @@ describe("user input required hard failure (4.3)", () => {
     expect(ctx.userInputRequired).toBe(true);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_input_required: agent requires user input"
+      DEFAULT_AGENT_INPUT_REQUIRED_REASON
     );
     expect(ctx.killCalled).toBe(true);
   });
@@ -1903,7 +1897,7 @@ describe("user input required hard failure (4.3)", () => {
         outputTokens: 6,
         totalTokens: 21,
       },
-      error: "turn_input_required: agent requires user input",
+      error: DEFAULT_AGENT_INPUT_REQUIRED_REASON,
     });
     expect(ctx.runtimeState.tokenUsage).toEqual({
       inputTokens: 25,

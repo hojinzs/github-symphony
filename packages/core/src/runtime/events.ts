@@ -12,8 +12,22 @@ export type AgentEventName =
 
 type AgentEventPayloadBase = {
   observabilityEvent?: string;
-  shouldEmitUpdate?: boolean;
+  suppressUpdate?: true;
 };
+
+export const DEFAULT_AGENT_INPUT_REQUIRED_REASON =
+  "turn_input_required: agent requires user input";
+
+export function buildAgentInputRequiredReason(prompt: unknown): string {
+  if (typeof prompt === "string") {
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt) {
+      return `turn_input_required: ${trimmedPrompt}`;
+    }
+  }
+
+  return DEFAULT_AGENT_INPUT_REQUIRED_REASON;
+}
 
 export type AgentTurnStartedEvent = {
   name: "agent.turnStarted";
@@ -67,6 +81,8 @@ export type AgentInputRequiredEvent = {
 export type AgentRateLimitEvent = {
   name: "agent.rateLimit";
   payload: AgentEventPayloadBase & {
+    // Rate-limit data stays in params so runtimes can preserve provider-specific
+    // shapes while worker-side extraction remains centralized.
     params: Record<string, unknown>;
   };
 };

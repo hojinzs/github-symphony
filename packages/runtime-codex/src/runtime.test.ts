@@ -472,6 +472,32 @@ describe("normalizeCodexRuntimeEvents", () => {
     ]);
   });
 
+  it("does not treat generic data wrappers as rate-limit events", () => {
+    const events = normalizeCodexRuntimeEvents({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {
+        data: {
+          remaining: 3,
+        },
+      },
+    });
+
+    expect(events).toEqual([
+      {
+        name: "agent.turnCompleted",
+        payload: {
+          observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+          params: {
+            data: {
+              remaining: 3,
+            },
+          },
+          inputRequired: false,
+        },
+      },
+    ]);
+  });
+
   it("maps tool calls and input-required events to neutral names", () => {
     expect(
       normalizeCodexRuntimeEvents({
@@ -508,15 +534,15 @@ describe("normalizeCodexRuntimeEvents", () => {
     expect(
       normalizeCodexRuntimeEvents({
         method: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
-        params: { prompt: "Need approval" },
+        params: { prompt: "  Need approval  " },
       })
     ).toEqual([
       {
         name: "agent.inputRequired",
         payload: {
           observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
-          params: { prompt: "Need approval" },
-          reason: "turn_input_required: agent requires user input",
+          params: { prompt: "  Need approval  " },
+          reason: "turn_input_required: Need approval",
         },
       },
     ]);

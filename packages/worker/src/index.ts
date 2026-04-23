@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   classifySessionExit,
+  DEFAULT_AGENT_INPUT_REQUIRED_REASON,
   parseWorkflowMarkdown,
   type AgentEvent,
   type OrchestratorChannelEvent,
@@ -851,17 +852,11 @@ async function runCodexClientProtocol(
     }
   }
 
-  function resolveAgentEventObservabilityName(
-    event: AgentEvent
-  ): string | undefined {
-    return getCodexObservabilityEventName(event);
-  }
-
   function emitObservedAgentEvent(event: AgentEvent): void {
-    if (event.payload.shouldEmitUpdate === false) {
+    if (event.payload.suppressUpdate) {
       return;
     }
-    emitOrchestratorChannelEvent(resolveAgentEventObservabilityName(event));
+    emitOrchestratorChannelEvent(getCodexObservabilityEventName(event));
   }
 
   function handleInputRequired(reason: string, event: AgentEvent): void {
@@ -913,7 +908,7 @@ async function runCodexClientProtocol(
         const tokenUsage = extractAbsoluteTokenUsage(event.payload.params);
         if (tokenUsage) {
           applyTokenUsageUpdate(
-            resolveAgentEventObservabilityName(event) ?? event.name,
+            getCodexObservabilityEventName(event) ?? event.name,
             tokenUsage
           );
         }
@@ -924,7 +919,7 @@ async function runCodexClientProtocol(
         const rateLimits = extractRateLimitPayload(event.payload.params);
         if (rateLimits) {
           applyRateLimitUpdate(
-            resolveAgentEventObservabilityName(event) ?? event.name,
+            getCodexObservabilityEventName(event) ?? event.name,
             rateLimits
           );
         }
@@ -945,10 +940,7 @@ async function runCodexClientProtocol(
       case "agent.turnCompleted":
         flushDeltaBuffer();
         if (event.payload.inputRequired) {
-          handleInputRequired(
-            "turn_input_required: agent requires user input",
-            event
-          );
+          handleInputRequired(DEFAULT_AGENT_INPUT_REQUIRED_REASON, event);
           return true;
         }
         emitObservedAgentEvent(event);
