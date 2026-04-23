@@ -388,6 +388,60 @@ describe("normalizeCodexRuntimeEvents", () => {
     });
   });
 
+  it("recognizes canonical message delta and wrapped rate-limit payloads", () => {
+    const messageDeltaEvents = normalizeCodexRuntimeEvents({
+      method: CODEX_PROTOCOL_EVENT_NAMES.messageDelta,
+      params: {
+        item_id: "item-1",
+        delta: "hello",
+      },
+    });
+    const completionEvents = normalizeCodexRuntimeEvents({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {
+        result: {
+          rate_limits: {
+            remaining: 3,
+            reset_at: "2026-04-23T15:00:00Z",
+          },
+        },
+      },
+    });
+
+    expect(messageDeltaEvents).toEqual([
+      {
+        name: "agent.messageDelta",
+        payload: {
+          observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.messageDelta,
+          params: {
+            item_id: "item-1",
+            delta: "hello",
+          },
+          delta: "hello",
+          itemId: "item-1",
+        },
+      },
+    ]);
+    expect(completionEvents.map((event) => event.name)).toEqual([
+      "agent.rateLimit",
+      "agent.turnCompleted",
+    ]);
+    expect(completionEvents[0]).toMatchObject({
+      name: "agent.rateLimit",
+      payload: {
+        observabilityEvent: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+        params: {
+          result: {
+            rate_limits: {
+              remaining: 3,
+              reset_at: "2026-04-23T15:00:00Z",
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("maps tool calls and input-required events to neutral names", () => {
     expect(
       normalizeCodexRuntimeEvents({

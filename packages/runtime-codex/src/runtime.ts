@@ -108,6 +108,7 @@ export const CODEX_PROTOCOL_EVENT_NAMES = {
 } as const;
 
 const CODEX_MESSAGE_DELTA_METHODS = new Set([
+  CODEX_PROTOCOL_EVENT_NAMES.messageDelta,
   "codex/event/agent_message_content_delta",
   "codex/event/agent_message_delta",
   "item/agentMessage/delta",
@@ -202,6 +203,54 @@ function hasOwn(
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+function hasNestedRateLimitPayload(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const directKeys = [
+    "limit",
+    "remaining",
+    "used",
+    "reset",
+    "resetAt",
+    "resets_at",
+    "reset_at",
+  ];
+
+  if (directKeys.some((key) => hasOwn(record, key))) {
+    return true;
+  }
+
+  const preferredKeys = [
+    "rate_limits",
+    "rateLimits",
+    "rate_limit",
+    "rateLimit",
+    "info",
+    "msg",
+    "event",
+    "data",
+    "result",
+    "payload",
+  ];
+
+  for (const key of preferredKeys) {
+    if (hasOwn(record, key) && hasNestedRateLimitPayload(record[key])) {
+      return true;
+    }
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    if (hasNestedRateLimitPayload(nestedValue)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function createObservabilityEvent(
   event: AgentEvent
 ): string | undefined {
@@ -234,6 +283,7 @@ export function normalizeCodexRuntimeEvents(
         params,
       },
     });
+    return events;
   }
 
   if (method === CODEX_PROTOCOL_EVENT_NAMES.toolCallRequested) {
@@ -311,11 +361,7 @@ export function normalizeCodexRuntimeEvents(
       });
     }
 
-    if (
-      hasOwn(params, "rate_limits") ||
-      hasOwn(params, "rateLimits") ||
-      hasOwn(params, "rate_limit")
-    ) {
+    if (hasNestedRateLimitPayload(params)) {
       events.push({
         name: "agent.rateLimit",
         payload: {
@@ -368,6 +414,7 @@ export function normalizeCodexRuntimeEvents(
         error: JSON.stringify(params),
       },
     });
+    return events;
   }
 
   return events;

@@ -693,13 +693,13 @@ function createProtocolContext(options: {
   }
 
   function describeTurnTerminalEvent(
-    event: "turn/failed" | "turn/cancelled",
+    event: "agent.turnFailed" | "agent.turnCancelled",
     params: unknown
   ): string | null {
     const fallback =
-      event === "turn/failed"
-        ? "turn_failed: codex reported turn failure"
-        : "turn_cancelled: codex reported turn cancellation";
+      event === "agent.turnFailed"
+        ? "agent_turnFailed: codex reported turn failure"
+        : "agent_turnCancelled: codex reported turn cancellation";
 
     if (!params || typeof params !== "object") {
       return fallback;
@@ -711,7 +711,7 @@ function createProtocolContext(options: {
     for (const key of directReasonKeys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
-        return `${event.replace("/", "_")}: ${value.trim()}`;
+        return `${event.replace(".", "_")}: ${value.trim()}`;
       }
       if (
         value &&
@@ -721,14 +721,14 @@ function createProtocolContext(options: {
         const nested = value as Record<string, unknown>;
         const nestedMessage = String(nested.message).trim();
         if (nestedMessage) {
-          return `${event.replace("/", "_")}: ${nestedMessage}`;
+          return `${event.replace(".", "_")}: ${nestedMessage}`;
         }
       }
     }
 
     const serialized = JSON.stringify(params).slice(0, 300);
     return serialized && serialized !== "{}"
-      ? `${event.replace("/", "_")}: ${serialized}`
+      ? `${event.replace(".", "_")}: ${serialized}`
       : fallback;
   }
 
@@ -860,7 +860,7 @@ function createProtocolContext(options: {
         return true;
       case "agent.turnFailed": {
         const lastError = describeTurnTerminalEvent(
-          "turn/failed",
+          "agent.turnFailed",
           event.payload.params
         );
         markTurnTerminalFailure("failed", lastError);
@@ -869,7 +869,7 @@ function createProtocolContext(options: {
       }
       case "agent.turnCancelled": {
         const lastError = describeTurnTerminalEvent(
-          "turn/cancelled",
+          "agent.turnCancelled",
           event.payload.params
         );
         markTurnTerminalFailure("canceled_by_reconciliation", lastError);
@@ -1211,7 +1211,7 @@ describe("multi-turn loop (2.7)", () => {
         const turnPromise = ctx.waitForTurnWithTimeout();
         setTimeout(() => {
           ctx.handleServerMessage({
-            method: "turn/failed",
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
             params: { message: "tool execution failed" },
           });
         }, 25);
@@ -1231,7 +1231,7 @@ describe("multi-turn loop (2.7)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: tool execution failed"
+      "agent_turnFailed: tool execution failed"
     );
   });
 
@@ -1250,7 +1250,7 @@ describe("multi-turn loop (2.7)", () => {
         const turnPromise = ctx.waitForTurnWithTimeout();
         setTimeout(() => {
           ctx.handleServerMessage({
-            method: "turn/cancelled",
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
             params: { reason: "reconciled against tracker state" },
           });
         }, 25);
@@ -1269,7 +1269,7 @@ describe("multi-turn loop (2.7)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_cancelled: reconciled against tracker state"
+      "agent_turnCancelled: reconciled against tracker state"
     );
   });
 
@@ -1722,7 +1722,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { error: { message: "model backend failed" } },
       });
     }, 100);
@@ -1733,7 +1733,7 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: model backend failed"
+      "agent_turnFailed: model backend failed"
     );
   });
 
@@ -1744,7 +1744,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/cancelled",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
         params: { reason: "superseded" },
       });
     }, 100);
@@ -1754,7 +1754,9 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("canceled_by_reconciliation");
-    expect(ctx.runtimeState.run.lastError).toBe("turn_cancelled: superseded");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "agent_turnCancelled: superseded"
+    );
   });
 
   it("falls back when nested turn failure message is whitespace only", async () => {
@@ -1764,7 +1766,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { error: { message: "   " }, code: "E_BACKEND" },
       });
     }, 100);
@@ -1775,7 +1777,7 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      'turn_failed: {"error":{"message":"   "},"code":"E_BACKEND"}'
+      'agent_turnFailed: {"error":{"message":"   "},"code":"E_BACKEND"}'
     );
   });
 
@@ -1786,7 +1788,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { message: "tool execution failed" },
       });
     }, 100);
@@ -1799,7 +1801,7 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: tool execution failed"
+      "agent_turnFailed: tool execution failed"
     );
   });
 });
@@ -2129,7 +2131,7 @@ describe("orchestrator channel telemetry", () => {
     };
     ctx.startTurnTelemetry("2026-03-08T00:01:00.000Z");
     ctx.handleServerMessage({
-      method: "turn/failed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
       params: {
         error: {
           message: "tool execution failed",
@@ -2153,7 +2155,7 @@ describe("orchestrator channel telemetry", () => {
         outputTokens: 0,
         totalTokens: 0,
       },
-      error: "turn_failed: tool execution failed",
+      error: "agent_turnFailed: tool execution failed",
     });
   });
 
@@ -2656,7 +2658,7 @@ describe("lastEventAt timestamp tracking", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/failed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
       params: { message: "some failure" },
     });
 
@@ -2667,7 +2669,7 @@ describe("lastEventAt timestamp tracking", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/cancelled",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
       params: { reason: "reconciliation" },
     });
 
