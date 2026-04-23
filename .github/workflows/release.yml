@@ -107,6 +107,7 @@ jobs:
           file: ./Dockerfile
           push: true
           build-args: |
+            INSTALLER_STAGE=installer-registry
             GH_SYMPHONY_VERSION=${{ steps.version.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
