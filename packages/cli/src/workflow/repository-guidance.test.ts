@@ -30,4 +30,19 @@ describe("buildRepositoryValidationGuidance", () => {
     );
     expect(guidance[0]).not.toContain("\nconsole.log");
   });
+
+  it("renders explicit non-Node commands without inventing package-script wrappers", () => {
+    const guidance = buildRepositoryValidationGuidance({
+      packageManager: "uv",
+      testCommand: "uv run pytest",
+      lintCommand: "make lint",
+      buildCommand: null,
+      monorepo: false,
+    });
+
+    expect(guidance[0]).toContain("test: `uv run pytest`");
+    expect(guidance[0]).toContain("lint: `make lint`");
+    expect(guidance[0]).not.toContain("(script:");
+    expect(guidance[3]).toContain("Use `uv` conventions");
+  });
 });

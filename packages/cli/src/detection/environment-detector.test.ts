@@ -122,6 +122,41 @@ describe("detectEnvironment", () => {
     expect(result.lockfile).toBe("bun.lockb");
   });
 
+  it("detects uv-managed python repositories with pytest guidance", async () => {
+    await writeFile(
+      join(tempDir, "pyproject.toml"),
+      [
+        "[project]",
+        'name = "python-fixture"',
+        "",
+        "[tool.pytest.ini_options]",
+        'addopts = "-q"',
+        "",
+      ].join("\n")
+    );
+    await writeFile(join(tempDir, "uv.lock"), "version = 1\n");
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.packageManager).toBe("uv");
+    expect(result.lockfile).toBe("uv.lock");
+    expect(result.testCommand).toBe("uv run pytest");
+    expect(result.lintCommand).toBeNull();
+    expect(result.buildCommand).toBeNull();
+  });
+
+  it("detects poetry-managed python repositories with pytest guidance", async () => {
+    await writeFile(join(tempDir, "pyproject.toml"), "[project]\nname = 'poetry-fixture'\n");
+    await writeFile(join(tempDir, "poetry.lock"), "package = []\n");
+    await writeFile(join(tempDir, "pytest.ini"), "[pytest]\n");
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.packageManager).toBe("poetry");
+    expect(result.lockfile).toBe("poetry.lock");
+    expect(result.testCommand).toBe("poetry run pytest");
+  });
+
   it("returns null for package manager when no lockfile exists", async () => {
     await writeFile(
       join(tempDir, "package.json"),
@@ -134,6 +169,73 @@ describe("detectEnvironment", () => {
 
     expect(result.packageManager).toBeNull();
     expect(result.lockfile).toBeNull();
+  });
+
+  it("detects go repositories conservatively", async () => {
+    await writeFile(join(tempDir, "go.mod"), "module example.com/fixture\n");
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.packageManager).toBeNull();
+    expect(result.testCommand).toBe("go test ./...");
+    expect(result.lintCommand).toBeNull();
+    expect(result.buildCommand).toBeNull();
+  });
+
+  it("detects rust repositories conservatively", async () => {
+    await writeFile(
+      join(tempDir, "Cargo.toml"),
+      '[package]\nname = "fixture"\nversion = "0.1.0"\n'
+    );
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.packageManager).toBeNull();
+    expect(result.testCommand).toBe("cargo test");
+    expect(result.lintCommand).toBeNull();
+    expect(result.buildCommand).toBeNull();
+  });
+
+  it("prefers explicit make targets over inferred language commands", async () => {
+    await writeFile(join(tempDir, "go.mod"), "module example.com/fixture\n");
+    await writeFile(
+      join(tempDir, "Makefile"),
+      ["test:", "\tgo test ./pkg/...", "lint:", "\tgolangci-lint run"].join(
+        "\n"
+      )
+    );
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.testCommand).toBe("make test");
+    expect(result.lintCommand).toBe("make lint");
+    expect(result.buildCommand).toBeNull();
+  });
+
+  it("falls back when equally explicit command runners conflict", async () => {
+    await writeFile(join(tempDir, "Makefile"), "test:\n\tnpm test\n");
+    await writeFile(join(tempDir, "justfile"), "test:\n    cargo test\n");
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.testCommand).toBeNull();
+  });
+
+  it("ignores justfile variable assignments that are not recipes", async () => {
+    await writeFile(
+      join(tempDir, "justfile"),
+      [
+        'test := "cargo test"',
+        'lint := "cargo clippy"',
+        'build := "cargo build"',
+      ].join("\n")
+    );
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.testCommand).toBeNull();
+    expect(result.lintCommand).toBeNull();
+    expect(result.buildCommand).toBeNull();
   });
 
   it("detects monorepo with lerna.json", async () => {
@@ -192,6 +294,22 @@ describe("detectEnvironment", () => {
         },
       })
     );
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.monorepo).toBe(true);
+  });
+
+  it("detects Cargo workspace monorepos", async () => {
+    await writeFile(join(tempDir, "Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n");
+
+    const result = await detectEnvironment(tempDir);
+
+    expect(result.monorepo).toBe(true);
+  });
+
+  it("detects Go workspace monorepos", async () => {
+    await writeFile(join(tempDir, "go.work"), "go 1.22\nuse ./services/api\n");
 
     const result = await detectEnvironment(tempDir);
 

@@ -651,6 +651,41 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("Use `npm` conventions");
   });
 
+  it("threads non-Node repository commands into generated workflow artifacts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-non-node-guidance-"));
+    await writeFile(join(cwd, "pyproject.toml"), "[project]\nname = 'fixture'\n");
+    await writeFile(join(cwd, "uv.lock"), "version = 1\n");
+    await writeFile(join(cwd, "pytest.ini"), "[pytest]\n");
+    await writeFile(
+      join(cwd, "Makefile"),
+      ["test:", "\tuv run pytest", "lint:", "\truff check ."].join("\n")
+    );
+
+    const plan = await planWorkflowArtifacts({
+      cwd,
+      outputPath: join(cwd, "WORKFLOW.md"),
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: MOCK_PRIORITY_FIELD,
+      mappings: {
+        Todo: { role: "active" },
+        "In Progress": { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "codex",
+      skipSkills: false,
+      skipContext: false,
+    });
+
+    expect(plan.workflowMd).toContain("Detected repository validation commands:");
+    expect(plan.workflowMd).toContain("`make test`");
+    expect(plan.workflowMd).toContain("`make lint`");
+    expect(plan.workflowMd).toContain("Use `uv` conventions");
+    expect(plan.ecosystemPlan.files.some((file) => file.path.endsWith("reference-workflow.md"))).toBe(
+      true
+    );
+  });
+
   it("generates codex skills when runtime is the codex agent command", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-codex-cmd-"));
 
