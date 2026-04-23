@@ -168,6 +168,9 @@ export function resolvePreparedAgentEnvironment(
   workingDirectory: string,
   env?: Record<string, string | undefined>
 ): Record<string, string> {
+  // Point codex to an isolated config dir so personal MCPs (playwright,
+  // chrome-devtools, context7, etc.) from the operator's ~/.codex/config.toml
+  // are not loaded and do not confuse the implementation agent.
   const preparedEnv = Object.fromEntries(
     DIRECT_AGENT_ENV_KEYS.flatMap((key) => {
       const value = env?.[key];
@@ -181,6 +184,10 @@ export function resolvePreparedAgentEnvironment(
   };
 }
 
+/**
+ * Build the `codex app-server` launch plan after `stageCodexHome()` has prepared
+ * the staged `CODEX_HOME` directory for the target working directory.
+ */
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
@@ -208,9 +215,6 @@ export function buildCodexRuntimePlan(
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
       GITHUB_GRAPHQL_TOOL_NAME: tool.name,
       GITHUB_GRAPHQL_TOOL_COMMAND: [tool.command, ...tool.args].join(" "),
-      // Point codex to an isolated config dir so personal MCPs (playwright,
-      // chrome-devtools, context7, etc.) from the operator's ~/.codex/config.toml
-      // are not loaded and do not confuse the implementation agent.
       ...agentEnv,
       ...gitCredentialHelper,
       ...tool.env,
@@ -240,6 +244,8 @@ export class CodexRuntimeAdapter
       CodexRuntimeCredentialBrokerResponse
     >
 {
+  // Event emission is intentionally deferred until the worker-owned loop is
+  // neutralized in #4. Until then, keep handler registration compatible.
   private readonly handlers = new Set<(event: CodexRuntimeEvent) => void>();
 
   private plan: CodexRuntimePlan | null = null;
@@ -311,11 +317,13 @@ export class CodexRuntimeAdapter
   async shutdown(): Promise<void> {
     terminateChildProcess(this.child);
     this.child = null;
+    this.handlers.clear();
   }
 
   async cancel(_reason?: string): Promise<void> {
     terminateChildProcess(this.child);
     this.child = null;
+    this.handlers.clear();
   }
 
   getPreparedPlan(): CodexRuntimePlan | null {
@@ -429,19 +437,20 @@ export async function resolveAgentRuntimeEnvironment(
   };
   const resolvedEnv =
     payload.env && response.ok
-      ? (
-          adapter ??
-          createCodexRuntimeAdapter({
-            projectId: "runtime-codex",
-            workingDirectory: config.workingDirectory,
+      ? adapter
+        ? adapter.resolveCredentials({
+            env: payload.env,
+            expires_at: payload.expires_at,
           })
-        ).resolveCredentials({
-          env: payload.env,
-          expires_at: payload.expires_at,
-        })
+        : resolvePreparedAgentEnvironment(config.workingDirectory, payload.env)
       : null;
 
-  if (!response.ok || !resolvedEnv || Object.keys(resolvedEnv).length === 0) {
+  if (
+    !response.ok ||
+    !payload.env ||
+    Object.keys(payload.env).length === 0 ||
+    !resolvedEnv
+  ) {
     throw new AgentRuntimeResolutionError(
       payload.error ??
         `Agent credential broker request failed with status ${response.status}.`

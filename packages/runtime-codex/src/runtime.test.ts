@@ -170,6 +170,31 @@ describe("resolveAgentRuntimeEnvironment", () => {
     expect(writeFileImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("fails when the broker returns an empty credential env", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          env: {},
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      resolveAgentRuntimeEnvironment(
+        {
+          workingDirectory: "/tmp/workspace-123",
+          agentCredentialBrokerUrl:
+            "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
+          agentCredentialBrokerSecret: "runtime-secret",
+        },
+        {
+          fetchImpl: fetchImpl as typeof fetch,
+        }
+      )
+    ).rejects.toThrow(AgentRuntimeResolutionError);
+  });
+
   it("fails cleanly when the broker cannot resolve the credential", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
@@ -262,5 +287,38 @@ describe("createCodexRuntimeAdapter", () => {
 
     await adapter.shutdown();
     expect(result.child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("terminates the running child when cancel() is invoked", async () => {
+    const kill = vi.fn();
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 99,
+      exitCode: null,
+      signalCode: null,
+      kill,
+    });
+    const adapter = createCodexRuntimeAdapter(
+      {
+        projectId: "workspace-cancel",
+        workingDirectory: "/tmp/workspace-cancel",
+        agentEnv: {
+          OPENAI_API_KEY: "sk-cancel",
+        },
+      },
+      {
+        mkdirImpl: vi.fn().mockResolvedValue(undefined),
+        writeFileImpl: vi.fn().mockResolvedValue(undefined),
+        copyFileImpl: vi.fn().mockResolvedValue(undefined),
+        spawnImpl,
+      }
+    );
+
+    await adapter.prepare();
+    await adapter.spawnTurn();
+    await adapter.cancel("operator-requested");
+    await adapter.cancel("already-stopped");
+
+    expect(kill).toHaveBeenCalledOnce();
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
