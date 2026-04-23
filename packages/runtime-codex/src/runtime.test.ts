@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentRuntimeResolutionError,
   buildCodexRuntimePlan,
+  createCodexRuntimeAdapter,
   createGitCredentialHelperEnvironment,
   createGitHubGraphQLToolDefinition,
   prepareCodexRuntimePlan,
+  resolvePreparedAgentEnvironment,
   resolveAgentRuntimeEnvironment,
   launchCodexAppServer,
+  resolveStagedCodexHome,
 } from "./runtime.js";
 
 describe("createGitHubGraphQLToolDefinition", () => {
@@ -64,6 +67,23 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
+    expect(plan.env.CODEX_HOME).toBe("/tmp/workspace-123/.codex-agent");
+  });
+});
+
+describe("resolvePreparedAgentEnvironment", () => {
+  it("filters direct agent env keys and stages CODEX_HOME", () => {
+    expect(
+      resolvePreparedAgentEnvironment("/tmp/workspace-123", {
+        OPENAI_API_KEY: "sk-openai",
+        OPENAI_BASE_URL: "https://example.test/v1",
+        UNRELATED: "ignored",
+      })
+    ).toEqual({
+      OPENAI_API_KEY: "sk-openai",
+      OPENAI_BASE_URL: "https://example.test/v1",
+      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
+    });
   });
 });
 
@@ -133,6 +153,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     const env = await resolveAgentRuntimeEnvironment(
       {
+        workingDirectory: "/tmp/workspace-123",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
@@ -147,6 +168,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-brokered-agent",
+      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(writeFileImpl).toHaveBeenCalledWith(
       "/workspace-runtime/.agent-runtime-auth.json",
@@ -167,6 +189,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     const env = await resolveAgentRuntimeEnvironment(
       {
+        workingDirectory: "/tmp/workspace-123",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
@@ -193,6 +216,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-cached-agent",
       OPENAI_BASE_URL: "https://openai.example.test/v1",
+      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -202,6 +226,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     const env = await resolveAgentRuntimeEnvironment(
       {
+        workingDirectory: "/tmp/workspace-123",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
@@ -237,6 +262,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-refreshed-agent",
+      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(writeFileImpl).toHaveBeenCalledOnce();
   });
@@ -246,6 +272,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     const env = await resolveAgentRuntimeEnvironment(
       {
+        workingDirectory: "/tmp/workspace-123",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
         agentCredentialBrokerSecret: "runtime-secret",
@@ -268,8 +295,34 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-legacy-agent",
+      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fails when the broker returns an empty credential env", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          env: {},
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      resolveAgentRuntimeEnvironment(
+        {
+          workingDirectory: "/tmp/workspace-123",
+          agentCredentialBrokerUrl:
+            "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
+          agentCredentialBrokerSecret: "runtime-secret",
+        },
+        {
+          fetchImpl: fetchImpl as typeof fetch,
+        }
+      )
+    ).rejects.toThrow(AgentRuntimeResolutionError);
   });
 
   it("fails cleanly when the broker cannot resolve the credential", async () => {
@@ -286,6 +339,7 @@ describe("resolveAgentRuntimeEnvironment", () => {
     await expect(
       resolveAgentRuntimeEnvironment(
         {
+          workingDirectory: "/tmp/workspace-123",
           agentCredentialBrokerUrl:
             "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",
           agentCredentialBrokerSecret: "runtime-secret",
@@ -327,5 +381,75 @@ describe("prepareCodexRuntimePlan", () => {
     );
 
     expect(plan.env.OPENAI_API_KEY).toBe("sk-plan-agent");
+    expect(plan.env.CODEX_HOME).toBe("/tmp/workspace-123/.codex-agent");
+  });
+});
+
+describe("createCodexRuntimeAdapter", () => {
+  it("implements the adapter prepare -> spawnTurn -> shutdown flow", async () => {
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 42,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(),
+    });
+    const adapter = createCodexRuntimeAdapter(
+      {
+        projectId: "workspace-123",
+        workingDirectory: "/tmp/workspace-123",
+        agentEnv: {
+          OPENAI_API_KEY: "sk-direct-runtime",
+        },
+      },
+      {
+        mkdirImpl: vi.fn().mockResolvedValue(undefined),
+        writeFileImpl: vi.fn().mockResolvedValue(undefined),
+        copyFileImpl: vi.fn().mockResolvedValue(undefined),
+        spawnImpl,
+      }
+    );
+
+    await adapter.prepare();
+    const result = await adapter.spawnTurn();
+
+    expect(result.plan.env.OPENAI_API_KEY).toBe("sk-direct-runtime");
+    expect(result.plan.env.CODEX_HOME).toBe(resolveStagedCodexHome("/tmp/workspace-123"));
+    expect(spawnImpl).toHaveBeenCalledOnce();
+
+    await adapter.shutdown();
+    expect(result.child.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("terminates the running child when cancel() is invoked", async () => {
+    const kill = vi.fn();
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 99,
+      exitCode: null,
+      signalCode: null,
+      kill,
+    });
+    const adapter = createCodexRuntimeAdapter(
+      {
+        projectId: "workspace-cancel",
+        workingDirectory: "/tmp/workspace-cancel",
+        agentEnv: {
+          OPENAI_API_KEY: "sk-cancel",
+        },
+      },
+      {
+        mkdirImpl: vi.fn().mockResolvedValue(undefined),
+        writeFileImpl: vi.fn().mockResolvedValue(undefined),
+        copyFileImpl: vi.fn().mockResolvedValue(undefined),
+        spawnImpl,
+      }
+    );
+
+    await adapter.prepare();
+    await adapter.spawnTurn();
+    await adapter.cancel("operator-requested");
+    await adapter.cancel("already-stopped");
+
+    expect(kill).toHaveBeenCalledOnce();
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
