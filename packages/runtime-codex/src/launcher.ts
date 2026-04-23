@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readEnvFile } from "@gh-symphony/core";
+import { extractEnvForCodex, readEnvFile } from "@gh-symphony/core";
 import {
   launchCodexAppServer,
   prepareCodexRuntimePlan,
@@ -78,21 +78,7 @@ export function loadLauncherEnvironment(
 function readDirectAgentEnvironment(
   env: NodeJS.ProcessEnv
 ): Record<string, string> | undefined {
-  const agentEnv: Record<string, string> = {};
-
-  for (const key of [
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "OPENAI_ORG_ID",
-    "OPENAI_PROJECT",
-  ]) {
-    const value = env[key];
-
-    if (value) {
-      agentEnv[key] = value;
-    }
-  }
-
+  const agentEnv = extractEnvForCodex(env);
   return Object.keys(agentEnv).length ? agentEnv : undefined;
 }
 

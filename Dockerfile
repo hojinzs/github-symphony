@@ -19,12 +19,22 @@ FROM ${NODE_IMAGE}
 
 ARG GH_SYMPHONY_INSTALL_SOURCE=registry
 ARG GH_SYMPHONY_VERSION=latest
+ARG GH_SYMPHONY_UID=1000
+ARG GH_SYMPHONY_GID=1000
 
 ENV NODE_ENV=production
 ENV GH_SYMPHONY_CONFIG_DIR=/var/lib/gh-symphony
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates git openssh-client tini && \
+    existing_group="$(getent group "${GH_SYMPHONY_GID}" | cut -d: -f1 || true)" && \
+    if [ -n "${existing_group}" ] && [ "${existing_group}" != "symphony" ]; then groupmod --new-name symphony "${existing_group}"; \
+    elif [ -z "${existing_group}" ]; then groupadd --gid "${GH_SYMPHONY_GID}" symphony; fi && \
+    existing_user="$(getent passwd "${GH_SYMPHONY_UID}" | cut -d: -f1 || true)" && \
+    if [ -n "${existing_user}" ] && [ "${existing_user}" != "symphony" ]; then usermod --login symphony --home /home/symphony --move-home --gid "${GH_SYMPHONY_GID}" --shell /bin/bash "${existing_user}"; \
+    elif [ -z "${existing_user}" ]; then useradd --uid "${GH_SYMPHONY_UID}" --gid "${GH_SYMPHONY_GID}" --create-home --shell /bin/bash symphony; fi && \
+    mkdir -p /var/lib/gh-symphony /workspace && \
+    chown -R symphony:symphony /var/lib/gh-symphony /workspace && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=pack /tmp/gh-symphony-dist /tmp/gh-symphony-dist
@@ -42,6 +52,7 @@ RUN set -eux; \
 
 WORKDIR /workspace
 VOLUME ["/var/lib/gh-symphony"]
+USER symphony
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["gh-symphony", "start"]

@@ -94,6 +94,7 @@ jobs:
           EOF
 
           echo "[]" > "${TMPDIR}/config/issues.json"
+          sudo chown -R 1000:1000 "${TMPDIR}/config"
 
           docker run --rm gh-symphony:test gh-symphony --version
           docker run --rm \

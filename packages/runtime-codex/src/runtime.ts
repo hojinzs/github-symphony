@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import type {
-  AgentRuntimeAdapter,
-  AgentRuntimeCredentialBrokerResponse,
-  AgentRuntimeEvent,
+import {
+  readAgentCredentialCache,
+  shouldReuseAgentCredentialCache,
+  writeAgentCredentialCache,
+  type AgentRuntimeAdapter,
+  type AgentRuntimeCredentialBrokerResponse,
+  type AgentRuntimeEvent,
 } from "@gh-symphony/core";
 import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
 
@@ -405,21 +408,39 @@ export async function resolveAgentRuntimeEnvironment(
     | "agentCredentialBrokerSecret"
     | "agentCredentialCachePath"
   >,
-  dependencies: Pick<
-    CodexRuntimeDependencies,
-    "fetchImpl" | "writeFileImpl"
-  > = {},
-  adapter?: Pick<CodexRuntimeAdapter, "resolveCredentials">
+  dependencies: {
+    fetchImpl?: typeof fetch;
+    readFileImpl?: typeof readFile;
+    writeFileImpl?: typeof writeFile;
+    now?: Date;
+  } = {},
+  adapter?: Pick<
+    AgentRuntimeAdapter<
+      CodexRuntimePrepareContext,
+      CodexRuntimeTurnInput,
+      CodexRuntimeTurnResult,
+      CodexRuntimeEvent,
+      CodexRuntimeCredentialBrokerResponse
+    >,
+    "resolveCredentials"
+  >
 ): Promise<Record<string, string>> {
   if (config.agentEnv) {
-    return resolvePreparedAgentEnvironment(
-      config.workingDirectory,
-      config.agentEnv
-    );
+    return resolveRuntimeCredentials(config, { env: config.agentEnv }, adapter);
   }
 
   if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
     return resolvePreparedAgentEnvironment(config.workingDirectory);
+  }
+
+  const now = dependencies.now ?? new Date();
+  const readFileImpl = dependencies.readFileImpl ?? readFile;
+  const cachedCredentials = config.agentCredentialCachePath
+    ? await readAgentCredentialCache(config.agentCredentialCachePath, readFileImpl)
+    : null;
+
+  if (cachedCredentials && shouldReuseAgentCredentialCache(cachedCredentials, now)) {
+    return resolveRuntimeCredentials(config, cachedCredentials, adapter);
   }
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
@@ -430,8 +451,7 @@ export async function resolveAgentRuntimeEnvironment(
       authorization: `Bearer ${config.agentCredentialBrokerSecret}`,
     },
   });
-  const payload = (await response.json()) as {
-    env?: Record<string, string>;
+  const payload = (await response.json()) as AgentRuntimeCredentialBrokerResponse & {
     error?: string;
     expires_at?: string;
   };
@@ -459,14 +479,34 @@ export async function resolveAgentRuntimeEnvironment(
 
   if (config.agentCredentialCachePath) {
     const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-    await writeFileImpl(
+    await writeAgentCredentialCache(
       config.agentCredentialCachePath,
-      JSON.stringify(payload),
-      "utf8"
+      payload,
+      writeFileImpl,
+      now
     );
   }
 
   return resolvedEnv;
+}
+
+function resolveRuntimeCredentials(
+  config: Pick<CodexRuntimeConfig, "workingDirectory">,
+  brokerResponse: CodexRuntimeCredentialBrokerResponse,
+  adapter?: Pick<
+    AgentRuntimeAdapter<
+      CodexRuntimePrepareContext,
+      CodexRuntimeTurnInput,
+      CodexRuntimeTurnResult,
+      CodexRuntimeEvent,
+      CodexRuntimeCredentialBrokerResponse
+    >,
+    "resolveCredentials"
+  >
+): Record<string, string> {
+  return adapter
+    ? adapter.resolveCredentials(brokerResponse)
+    : resolvePreparedAgentEnvironment(config.workingDirectory, brokerResponse.env);
 }
 
 async function stageCodexHome(
