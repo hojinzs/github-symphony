@@ -15,6 +15,15 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import {
+  DEFAULT_AGENT_INPUT_REQUIRED_REASON,
+  type AgentEvent,
+} from "@gh-symphony/core";
+import {
+  CODEX_PROTOCOL_EVENT_NAMES,
+  getCodexObservabilityEventName,
+  normalizeCodexRuntimeEvents,
+} from "@gh-symphony/runtime-codex";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 
 // ---------------------------------------------------------------------------
@@ -687,11 +696,13 @@ function createProtocolContext(options: {
   }
 
   function describeTurnTerminalEvent(
-    event: "turn/failed" | "turn/cancelled",
+    event: "agent.turnFailed" | "agent.turnCancelled",
     params: unknown
   ): string | null {
+    const errorPrefix =
+      event === "agent.turnFailed" ? "turn_failed" : "turn_cancelled";
     const fallback =
-      event === "turn/failed"
+      event === "agent.turnFailed"
         ? "turn_failed: codex reported turn failure"
         : "turn_cancelled: codex reported turn cancellation";
 
@@ -705,7 +716,7 @@ function createProtocolContext(options: {
     for (const key of directReasonKeys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) {
-        return `${event.replace("/", "_")}: ${value.trim()}`;
+        return `${errorPrefix}: ${value.trim()}`;
       }
       if (
         value &&
@@ -715,14 +726,14 @@ function createProtocolContext(options: {
         const nested = value as Record<string, unknown>;
         const nestedMessage = String(nested.message).trim();
         if (nestedMessage) {
-          return `${event.replace("/", "_")}: ${nestedMessage}`;
+          return `${errorPrefix}: ${nestedMessage}`;
         }
       }
     }
 
     const serialized = JSON.stringify(params).slice(0, 300);
     return serialized && serialized !== "{}"
-      ? `${event.replace("/", "_")}: ${serialized}`
+      ? `${errorPrefix}: ${serialized}`
       : fallback;
   }
 
@@ -784,6 +795,98 @@ function createProtocolContext(options: {
     }
   }
 
+  function emitObservedAgentEvent(event: AgentEvent): void {
+    if (event.payload.suppressUpdate) {
+      return;
+    }
+    emitOrchestratorChannelEvent(getCodexObservabilityEventName(event));
+  }
+
+  function handleInputRequired(reason: string, event: AgentEvent): void {
+    userInputRequired = true;
+    runtimeState.status = "failed";
+    runtimeState.run.lastError = reason;
+    killCalled = true;
+    if (activeTurnTelemetry) {
+      emitTurnFailedEvent(activeTurnTelemetry, runtimeState.run.lastError);
+      activeTurnTelemetry = null;
+    }
+    resolvePendingTurnCompletion();
+    emitObservedAgentEvent(event);
+  }
+
+  function handleAgentEvent(event: AgentEvent): boolean {
+    switch (event.name) {
+      case "agent.turnStarted":
+        emitObservedAgentEvent(event);
+        return true;
+      case "agent.inputRequired":
+        handleInputRequired(event.payload.reason, event);
+        return true;
+      case "agent.tokenUsageUpdated": {
+        const tokenUsage = extractAbsoluteTokenUsage(event.payload.params);
+        if (tokenUsage) {
+          applyTokenUsageUpdate(
+            getCodexObservabilityEventName(event) ?? event.name,
+            tokenUsage
+          );
+        }
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.rateLimit": {
+        const rateLimits = extractRateLimitPayload(event.payload.params);
+        if (rateLimits) {
+          applyRateLimitUpdate(
+            getCodexObservabilityEventName(event) ?? event.name,
+            rateLimits
+          );
+        }
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.messageDelta":
+        emitObservedAgentEvent(event);
+        return true;
+      case "agent.turnCompleted":
+        if (event.payload.inputRequired) {
+          handleInputRequired(DEFAULT_AGENT_INPUT_REQUIRED_REASON, event);
+          return true;
+        }
+        emitObservedAgentEvent(event);
+        if (activeTurnTelemetry) {
+          emitTurnCompletedEvent(activeTurnTelemetry);
+          activeTurnTelemetry = null;
+        }
+        resolvePendingTurnCompletion();
+        return true;
+      case "agent.turnFailed": {
+        const lastError = describeTurnTerminalEvent(
+          "agent.turnFailed",
+          event.payload.params
+        );
+        markTurnTerminalFailure("failed", lastError);
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.turnCancelled": {
+        const lastError = describeTurnTerminalEvent(
+          "agent.turnCancelled",
+          event.payload.params
+        );
+        markTurnTerminalFailure("canceled_by_reconciliation", lastError);
+        emitObservedAgentEvent(event);
+        return true;
+      }
+      case "agent.error":
+        markTurnTerminalFailure("failed", event.payload.error);
+        emitObservedAgentEvent(event);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function handleServerMessage(msg: Record<string, unknown>): void {
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
@@ -802,91 +905,12 @@ function createProtocolContext(options: {
 
     // Track the timestamp of every server-initiated notification/event.
     runtimeState.lastEventAt = new Date().toISOString();
-    const orchestratorEventName =
-      typeof msg.method === "string" ? msg.method : undefined;
-
-    // User input required — hard failure
-    if (msg.method === "item/tool/requestUserInput") {
-      userInputRequired = true;
-      runtimeState.status = "failed";
-      runtimeState.run.lastError =
-        "turn_input_required: agent requires user input";
-      killCalled = true;
-      // Resolve any pending turn completion
-      if (activeTurnTelemetry) {
-        emitTurnFailedEvent(activeTurnTelemetry, runtimeState.run.lastError);
-        activeTurnTelemetry = null;
-      }
-      resolvePendingTurnCompletion();
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
+    const agentEvents = normalizeCodexRuntimeEvents(msg);
+    let handledAgentEvent = false;
+    for (const event of agentEvents) {
+      handledAgentEvent = handleAgentEvent(event) || handledAgentEvent;
     }
-
-    // Turn completed — signal the multi-turn loop
-    if (msg.method === "turn/completed") {
-      const turnParams = (msg.params ?? {}) as Record<string, unknown>;
-      const turnUsage = extractAbsoluteTokenUsage(turnParams.usage);
-      if (turnUsage) {
-        applyTokenUsageUpdate("turn/completed", turnUsage);
-      }
-      const rateLimits = extractRateLimitPayload(turnParams);
-      if (rateLimits) {
-        applyRateLimitUpdate("turn/completed", rateLimits);
-      }
-      if (turnParams.inputRequired === true) {
-        userInputRequired = true;
-        runtimeState.status = "failed";
-        runtimeState.run.lastError =
-          "turn_input_required: agent requires user input";
-        killCalled = true;
-        if (activeTurnTelemetry) {
-          emitTurnFailedEvent(activeTurnTelemetry, runtimeState.run.lastError);
-          activeTurnTelemetry = null;
-        }
-        resolvePendingTurnCompletion();
-        emitOrchestratorChannelEvent(orchestratorEventName);
-        return;
-      }
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      if (activeTurnTelemetry) {
-        emitTurnCompletedEvent(activeTurnTelemetry);
-        activeTurnTelemetry = null;
-      }
-      resolvePendingTurnCompletion();
-      return;
-    }
-
-    if (msg.method === "turn/failed") {
-      const lastError = describeTurnTerminalEvent(
-        "turn/failed",
-        msg.params ?? null
-      );
-      markTurnTerminalFailure("failed", lastError);
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
-    if (msg.method === "turn/cancelled") {
-      const lastError = describeTurnTerminalEvent(
-        "turn/cancelled",
-        msg.params ?? null
-      );
-      markTurnTerminalFailure("canceled_by_reconciliation", lastError);
-      emitOrchestratorChannelEvent(orchestratorEventName);
-      return;
-    }
-
-    // Token usage events — track cumulative totals
-    if (
-      msg.method === "thread/tokenUsage/updated" ||
-      msg.method === "total_token_usage" ||
-      msg.method === "codex/event/token_count"
-    ) {
-      const tokenUsage = extractAbsoluteTokenUsage(msg.params);
-      if (tokenUsage) {
-        applyTokenUsageUpdate(msg.method, tokenUsage);
-      }
-      emitOrchestratorChannelEvent(orchestratorEventName);
+    if (handledAgentEvent) {
       return;
     }
 
@@ -894,7 +918,10 @@ function createProtocolContext(options: {
     if (rateLimits && typeof msg.method === "string") {
       applyRateLimitUpdate(msg.method, rateLimits);
     }
-    emitOrchestratorChannelEvent(orchestratorEventName);
+
+    emitOrchestratorChannelEvent(
+      typeof msg.method === "string" ? msg.method : undefined
+    );
   }
 
   return {
@@ -1122,7 +1149,10 @@ describe("multi-turn loop (2.7)", () => {
 
         // Simulate codex completing the turn after a small delay
         setTimeout(() => {
-          ctx.handleServerMessage({ method: "turn/completed", params: {} });
+          ctx.handleServerMessage({
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+            params: {},
+          });
         }, 100);
 
         await vi.advanceTimersByTimeAsync(100);
@@ -1155,7 +1185,10 @@ describe("multi-turn loop (2.7)", () => {
 
         const turnPromise = ctx.waitForTurnWithTimeout();
         setTimeout(() => {
-          ctx.handleServerMessage({ method: "turn/completed", params: {} });
+          ctx.handleServerMessage({
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+            params: {},
+          });
         }, 50);
         await vi.advanceTimersByTimeAsync(50);
         await turnPromise;
@@ -1184,7 +1217,7 @@ describe("multi-turn loop (2.7)", () => {
         const turnPromise = ctx.waitForTurnWithTimeout();
         setTimeout(() => {
           ctx.handleServerMessage({
-            method: "turn/failed",
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
             params: { message: "tool execution failed" },
           });
         }, 25);
@@ -1203,9 +1236,7 @@ describe("multi-turn loop (2.7)", () => {
     expect(turnResults).toEqual(["turn-1"]);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: tool execution failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
   });
 
   it("stops immediately when turn/cancelled is received", async () => {
@@ -1223,7 +1254,7 @@ describe("multi-turn loop (2.7)", () => {
         const turnPromise = ctx.waitForTurnWithTimeout();
         setTimeout(() => {
           ctx.handleServerMessage({
-            method: "turn/cancelled",
+            method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
             params: { reason: "reconciled against tracker state" },
           });
         }, 25);
@@ -1586,14 +1617,14 @@ describe("read timeout (3.5)", () => {
 });
 
 describe("rate-limit telemetry", () => {
-  it("captures rate limits from turn/completed payloads", () => {
+  it("captures rate limits from completion payloads", () => {
     const ctx = createProtocolContext({
       readTimeoutMs: 1000,
       turnTimeoutMs: 60000,
     });
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {
         usage: {
           input_tokens: 10,
@@ -1676,7 +1707,10 @@ describe("turn timeout (3.6)", () => {
 
     // Signal turn completion before timeout
     setTimeout(() => {
-      ctx.handleServerMessage({ method: "turn/completed", params: {} });
+      ctx.handleServerMessage({
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+        params: {},
+      });
     }, 500);
 
     await vi.advanceTimersByTimeAsync(500);
@@ -1692,7 +1726,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { error: { message: "model backend failed" } },
       });
     }, 100);
@@ -1702,9 +1736,7 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: model backend failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: model backend failed");
   });
 
   it("resolves pending turn wait when turn/cancelled is received", async () => {
@@ -1714,7 +1746,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/cancelled",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
         params: { reason: "superseded" },
       });
     }, 100);
@@ -1727,6 +1759,28 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.run.lastError).toBe("turn_cancelled: superseded");
   });
 
+  it("resolves pending turn wait when error is received", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
+
+    const promise = ctx.waitForTurnWithTimeout();
+
+    setTimeout(() => {
+      ctx.handleServerMessage({
+        method: "error",
+        params: { message: "runtime crashed", code: "E_RUNTIME" },
+      });
+    }, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+    await promise;
+
+    expect(ctx.runtimeState.status).toBe("failed");
+    expect(ctx.runtimeState.runPhase).toBe("failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      JSON.stringify({ message: "runtime crashed", code: "E_RUNTIME" })
+    );
+  });
+
   it("falls back when nested turn failure message is whitespace only", async () => {
     const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
 
@@ -1734,7 +1788,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { error: { message: "   " }, code: "E_BACKEND" },
       });
     }, 100);
@@ -1756,7 +1810,7 @@ describe("turn timeout (3.6)", () => {
 
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "turn/failed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
         params: { message: "tool execution failed" },
       });
     }, 100);
@@ -1768,41 +1822,39 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_failed: tool execution failed"
-    );
+    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
   });
 });
 
 describe("user input required hard failure (4.3)", () => {
-  it("detects item/tool/requestUserInput and marks failure", () => {
+  it("detects runtime input-required events and marks failure", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "item/tool/requestUserInput",
+      method: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
       params: { prompt: "Enter API key" },
     });
 
     expect(ctx.userInputRequired).toBe(true);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_input_required: agent requires user input"
+      "turn_input_required: Enter API key"
     );
     expect(ctx.killCalled).toBe(true);
   });
 
-  it("detects turn/completed with inputRequired=true and marks failure", () => {
+  it("detects completion payloads with inputRequired=true and marks failure", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: { inputRequired: true },
     });
 
     expect(ctx.userInputRequired).toBe(true);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
-      "turn_input_required: agent requires user input"
+      DEFAULT_AGENT_INPUT_REQUIRED_REASON
     );
     expect(ctx.killCalled).toBe(true);
   });
@@ -1818,7 +1870,7 @@ describe("user input required hard failure (4.3)", () => {
     ctx.startTurnTelemetry("2026-03-08T00:01:00.000Z");
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {
         inputRequired: true,
         usage: {
@@ -1845,7 +1897,7 @@ describe("user input required hard failure (4.3)", () => {
         outputTokens: 6,
         totalTokens: 21,
       },
-      error: "turn_input_required: agent requires user input",
+      error: DEFAULT_AGENT_INPUT_REQUIRED_REASON,
     });
     expect(ctx.runtimeState.tokenUsage).toEqual({
       inputTokens: 25,
@@ -1854,11 +1906,11 @@ describe("user input required hard failure (4.3)", () => {
     });
   });
 
-  it("does NOT trigger on normal turn/completed (inputRequired absent)", () => {
+  it("does not trigger on normal completion events when inputRequired is absent", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {},
     });
 
@@ -1878,7 +1930,7 @@ describe("user input required hard failure (4.3)", () => {
     // Simulate user input required detection
     setTimeout(() => {
       ctx.handleServerMessage({
-        method: "item/tool/requestUserInput",
+        method: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
         params: {},
       });
     }, 100);
@@ -2011,7 +2063,7 @@ describe("orchestrator channel telemetry", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {
         usage: { input_tokens: 90, output_tokens: 30, total_tokens: 120 },
         rate_limits: {
@@ -2046,7 +2098,7 @@ describe("orchestrator channel telemetry", () => {
       executionPhase: "implementation",
       runPhase: "streaming_turn",
       lastError: null,
-      event: "turn/completed",
+      event: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
     });
   });
 
@@ -2060,7 +2112,7 @@ describe("orchestrator channel telemetry", () => {
     };
     ctx.startTurnTelemetry("2026-03-08T00:00:00.000Z");
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {
         usage: {
           input_tokens: 25,
@@ -2099,7 +2151,7 @@ describe("orchestrator channel telemetry", () => {
     };
     ctx.startTurnTelemetry("2026-03-08T00:01:00.000Z");
     ctx.handleServerMessage({
-      method: "turn/failed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
       params: {
         error: {
           message: "tool execution failed",
@@ -2377,11 +2429,11 @@ describe("orchestrator channel telemetry", () => {
 });
 
 describe("token usage tracking", () => {
-  it("updates and logs token counts from turn/completed usage payloads", () => {
+  it("updates and logs token counts from completion usage payloads", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {
         usage: { input_tokens: 90, output_tokens: 30, total_tokens: 120 },
       },
@@ -2393,7 +2445,7 @@ describe("token usage tracking", () => {
       totalTokens: 120,
     });
     expect(ctx.logs).toContain(
-      "[worker] token_usage source=turn/completed input=90 output=30 total=120"
+      `[worker] token_usage source=${CODEX_PROTOCOL_EVENT_NAMES.turnCompleted} input=90 output=30 total=120`
     );
   });
 
@@ -2606,12 +2658,12 @@ describe("token usage tracking", () => {
 });
 
 describe("lastEventAt timestamp tracking", () => {
-  it("updates lastEventAt on turn/completed", () => {
+  it("updates lastEventAt on completion events", () => {
     const ctx = createProtocolContext({});
     expect(ctx.runtimeState.lastEventAt).toBeNull();
 
     ctx.handleServerMessage({
-      method: "turn/completed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
       params: {},
     });
 
@@ -2626,7 +2678,7 @@ describe("lastEventAt timestamp tracking", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/failed",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnFailed,
       params: { message: "some failure" },
     });
 
@@ -2637,7 +2689,7 @@ describe("lastEventAt timestamp tracking", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "turn/cancelled",
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCancelled,
       params: { reason: "reconciliation" },
     });
 
@@ -2659,7 +2711,7 @@ describe("lastEventAt timestamp tracking", () => {
     const ctx = createProtocolContext({});
 
     ctx.handleServerMessage({
-      method: "item/tool/requestUserInput",
+      method: CODEX_PROTOCOL_EVENT_NAMES.inputRequired,
       params: {},
     });
 
@@ -2699,7 +2751,7 @@ describe("lastEventAt timestamp tracking", () => {
       vi.setSystemTime(laterTime);
 
       ctx.handleServerMessage({
-        method: "turn/completed",
+        method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
         params: {},
       });
       const second = ctx.runtimeState.lastEventAt;

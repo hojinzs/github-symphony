@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
+  buildAgentInputRequiredReason,
   readAgentCredentialCache,
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
+  type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
 import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
@@ -95,6 +97,32 @@ type SpawnLike = (
   options: SpawnOptions
 ) => ChildProcess;
 
+export const CODEX_PROTOCOL_EVENT_NAMES = {
+  turnStarted: "turn/started",
+  turnCompleted: "turn/completed",
+  turnFailed: "turn/failed",
+  turnCancelled: "turn/cancelled",
+  toolCallRequested: "dynamic_tool_call_request",
+  inputRequired: "item/tool/requestUserInput",
+  rateLimit: "turn/rate_limit",
+  messageDelta: "item/message/delta",
+} as const;
+
+const CODEX_MESSAGE_DELTA_METHODS = new Set([
+  CODEX_PROTOCOL_EVENT_NAMES.messageDelta,
+  "codex/event/agent_message_content_delta",
+  "codex/event/agent_message_delta",
+  "item/agentMessage/delta",
+]);
+
+const CODEX_TOKEN_USAGE_METHODS = new Set([
+  "thread/tokenUsage/updated",
+  "total_token_usage",
+  "codex/event/token_count",
+]);
+
+type CodexProtocolMessage = Record<string, unknown>;
+
 export function createGitHubGraphQLToolDefinition(
   config: Pick<
     CodexRuntimeConfig,
@@ -161,6 +189,219 @@ export function createGitHubGraphQLToolDefinition(
       additionalProperties: false,
     },
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function hasOwn(
+  record: Record<string, unknown>,
+  key: string
+): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function hasNestedRateLimitPayload(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const directKeys = [
+    "limit",
+    "remaining",
+    "used",
+    "reset",
+    "resetAt",
+    "resets_at",
+    "reset_at",
+  ];
+
+  if (directKeys.some((key) => hasOwn(record, key))) {
+    return true;
+  }
+
+  const preferredKeys = [
+    "rate_limits",
+    "rateLimits",
+    "rate_limit",
+    "rateLimit",
+    "result",
+  ];
+
+  for (const key of preferredKeys) {
+    if (hasOwn(record, key) && hasNestedRateLimitPayload(record[key])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function getCodexObservabilityEventName(
+  event: AgentEvent
+): string | undefined {
+  return event.payload.observabilityEvent;
+}
+
+export function normalizeCodexRuntimeEvents(
+  message: CodexProtocolMessage
+): AgentEvent[] {
+  const method =
+    typeof message.method === "string" ? message.method : undefined;
+  if (!method) {
+    return [];
+  }
+
+  const params = asRecord(message.params);
+  const events: AgentEvent[] = [];
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.turnStarted) {
+    events.push({
+      name: "agent.turnStarted",
+      payload: {
+        observabilityEvent: method,
+        params,
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.toolCallRequested) {
+    events.push({
+      name: "agent.toolCallRequested",
+      payload: {
+        observabilityEvent: method,
+        params,
+        callId: typeof params.callId === "string" ? params.callId : "",
+        toolName: typeof params.tool === "string" ? params.tool : "",
+        threadId: typeof params.threadId === "string" ? params.threadId : "",
+        turnId: typeof params.turnId === "string" ? params.turnId : "",
+        arguments: params.arguments,
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.inputRequired) {
+    events.push({
+      name: "agent.inputRequired",
+      payload: {
+        observabilityEvent: method,
+        params,
+        reason: buildAgentInputRequiredReason(params.prompt),
+      },
+    });
+    return events;
+  }
+
+  if (CODEX_TOKEN_USAGE_METHODS.has(method)) {
+    events.push({
+      name: "agent.tokenUsageUpdated",
+      payload: {
+        observabilityEvent: method,
+        params,
+      },
+    });
+    return events;
+  }
+
+  if (CODEX_MESSAGE_DELTA_METHODS.has(method)) {
+    events.push({
+      name: "agent.messageDelta",
+      payload: {
+        observabilityEvent: method,
+        params,
+        delta: typeof params.delta === "string" ? params.delta : "",
+        itemId: typeof params.item_id === "string" ? params.item_id : "",
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.rateLimit) {
+    events.push({
+      name: "agent.rateLimit",
+      payload: {
+        observabilityEvent: method,
+        params,
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.turnCompleted) {
+    if (hasOwn(params, "usage")) {
+      events.push({
+        name: "agent.tokenUsageUpdated",
+        payload: {
+          observabilityEvent: method,
+          params: asRecord(params.usage),
+          suppressUpdate: true,
+        },
+      });
+    }
+
+    if (hasNestedRateLimitPayload(params)) {
+      events.push({
+        name: "agent.rateLimit",
+        payload: {
+          observabilityEvent: method,
+          params,
+          suppressUpdate: true,
+        },
+      });
+    }
+
+    events.push({
+      name: "agent.turnCompleted",
+      payload: {
+        observabilityEvent: method,
+        params,
+        inputRequired: params.inputRequired === true,
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.turnFailed) {
+    events.push({
+      name: "agent.turnFailed",
+      payload: {
+        observabilityEvent: method,
+        params,
+      },
+    });
+    return events;
+  }
+
+  if (method === CODEX_PROTOCOL_EVENT_NAMES.turnCancelled) {
+    events.push({
+      name: "agent.turnCancelled",
+      payload: {
+        observabilityEvent: method,
+        params,
+      },
+    });
+    return events;
+  }
+
+  if (method === "error") {
+    events.push({
+      name: "agent.error",
+      payload: {
+        observabilityEvent: method,
+        params,
+        error: JSON.stringify(params),
+      },
+    });
+    return events;
+  }
+
+  return events;
 }
 
 export function resolveStagedCodexHome(workingDirectory: string): string {
