@@ -64,9 +64,6 @@ export class ClaudePrintRuntimeAdapter
       ClaudeRuntimeEvent
     >
 {
-  private readonly handlers = new Set<
-    AgentRuntimeEventHandler<ClaudeRuntimeEvent>
-  >();
   private activeChild: ChildProcess | null = null;
 
   constructor(
@@ -80,6 +77,12 @@ export class ClaudePrintRuntimeAdapter
   }
 
   async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
+    if (this.activeChild) {
+      throw new Error(
+        "TODO(#8): Claude print runtime adapter supports only one in-flight turn."
+      );
+    }
+
     const argv = buildClaudePrintArgv(
       this.buildArgvOptions(input)
     );
@@ -126,14 +129,12 @@ export class ClaudePrintRuntimeAdapter
 
   shutdown(): void {
     this.stopActiveChild();
-    this.handlers.clear();
   }
 
   cancel(_reason?: string): void {
     // TODO(#8,#9): replace direct process termination with session-aware
     // cancellation once Claude runtime turn orchestration is wired end-to-end.
     this.stopActiveChild();
-    this.handlers.clear();
   }
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
@@ -189,7 +190,7 @@ function buildClaudeSpawnEnv(options: {
   inheritProcessEnv: boolean;
   configEnv?: NodeJS.ProcessEnv;
   inputEnv?: NodeJS.ProcessEnv;
-}): NodeJS.ProcessEnv | undefined {
+}): NodeJS.ProcessEnv {
   if (options.inheritProcessEnv) {
     return {
       ...process.env,
@@ -209,5 +210,5 @@ function buildClaudeSpawnEnv(options: {
 
   Object.assign(env, options.configEnv, options.inputEnv);
 
-  return Object.keys(env).length > 0 ? env : undefined;
+  return env;
 }

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { once } from "node:events";
 import type { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 
 export type ClaudeWireMessage = Record<string, unknown>;
 
@@ -140,7 +141,16 @@ async function collectNdjsonStream(
     });
   });
 
-  await Promise.race([once(stream, "end"), once(stream, "close")]);
+  try {
+    await finished(stream);
+  } catch (error) {
+    records.push({
+      stream: channel,
+      line: "",
+      parseError:
+        error instanceof Error ? error.message : "Unknown stream error.",
+    });
+  }
 
   const trailingLine = buffer.trim();
   if (trailingLine.length > 0) {

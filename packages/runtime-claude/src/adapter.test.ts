@@ -121,7 +121,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.env?.GITHUB_TOKEN).toBeUndefined();
   });
 
-  it("does not subscribe to events before #9 lands", () => {
+  it("throws NotImplementedError on onEvent() until #9 lands", () => {
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: "/workspace",
     });
@@ -201,6 +201,72 @@ describe("ClaudePrintRuntimeAdapter", () => {
     await pending;
 
     expect(kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("rejects concurrent in-flight turns until scheduler semantics land", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => child;
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
+
+    const pending = adapter.spawnTurn({
+      messages: [],
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).rejects.toThrowError("TODO(#8)");
+
+    stdout.end();
+    stderr.end();
+    child.emit("close", null, "SIGTERM");
+    await pending;
+  });
+
+  it("returns an empty env object instead of inheriting process env by accident", async () => {
+    const originalEnv = process.env;
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, _args, options) => {
+      calls.push(options.env as NodeJS.ProcessEnv | undefined);
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    process.env = {};
+
+    try {
+      const adapter = new ClaudePrintRuntimeAdapter(
+        {
+          workingDirectory: "/workspace",
+        },
+        { spawnImpl }
+      );
+
+      await adapter.spawnTurn({
+        messages: [],
+      });
+    } finally {
+      process.env = originalEnv;
+    }
+
+    expect(calls[0]).toEqual({});
   });
 });
 

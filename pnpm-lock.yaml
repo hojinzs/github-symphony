@@ -175,9 +175,6 @@ importers:
       '@gh-symphony/core':
         specifier: workspace:*
         version: link:../core
-      '@gh-symphony/tool-github-graphql':
-        specifier: workspace:*
-        version: link:../tool-github-graphql
 
   packages/runtime-codex:
     dependencies:

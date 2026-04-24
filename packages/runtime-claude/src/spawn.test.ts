@@ -190,6 +190,63 @@ describe("spawnClaudeTurn", () => {
       parseError: "ENOENT",
     });
   });
+
+  it("absorbs stdout stream errors into structured records instead of throwing", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.emit("error", new Error("stdout boom"));
+        stdout.end();
+        stderr.end();
+        child.emit("close", 1, null);
+      });
+
+      return child;
+    };
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      { spawnImpl }
+    );
+
+    expect(result.result).toBe("process-error");
+    expect(result.records).toContainEqual({
+      stream: "stdout",
+      line: "",
+      parseError: "stdout boom",
+    });
+  });
 });
 
 describe("classifyClaudeTurnResult", () => {
