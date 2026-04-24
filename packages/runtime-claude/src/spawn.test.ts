@@ -247,6 +247,73 @@ describe("spawnClaudeTurn", () => {
       parseError: "stdout boom",
     });
   });
+
+  it("does not hang when stdin closes before drain after backpressure", async () => {
+    const stdin = new PassThrough();
+    const originalWrite = stdin.write.bind(stdin);
+    stdin.write = ((chunk: string | Uint8Array, encoding?: BufferEncoding) => {
+      originalWrite(
+        chunk as never,
+        typeof encoding === "string" ? encoding : undefined
+      );
+      return false;
+    }) as typeof stdin.write;
+
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdin.destroy(new Error("stdin closed"));
+        stdout.end();
+        stderr.end();
+        child.emit("error", new Error("ENOENT"));
+      });
+
+      return child;
+    };
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [{ type: "user", text: "hello" }],
+      },
+      { spawnImpl }
+    );
+
+    expect(result.result).toBe("process-error");
+    expect(result.errorMessage).toBe("ENOENT");
+    expect(result.records).toContainEqual({
+      stream: "stderr",
+      line: "",
+      parseError: "ENOENT",
+    });
+  });
 });
 
 describe("classifyClaudeTurnResult", () => {

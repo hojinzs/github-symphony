@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { once } from "node:events";
 import type { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
 
@@ -65,9 +64,23 @@ export async function spawnClaudeTurn(
     : [input.stdinMessages];
 
   for (const message of stdinMessages) {
-    await writeToStdin(child.stdin, `${JSON.stringify(message)}\n`);
+    const didWrite = await writeToStdin(
+      child.stdin,
+      `${JSON.stringify(message)}\n`
+    );
+
+    if (!didWrite) {
+      break;
+    }
   }
-  child.stdin?.end();
+  if (
+    child.stdin &&
+    !child.stdin.destroyed &&
+    !child.stdin.writableEnded &&
+    !child.stdin.writableFinished
+  ) {
+    child.stdin.end();
+  }
 
   const outcome = await exitDone;
 
@@ -181,16 +194,48 @@ function parseClaudeRecord(
 async function writeToStdin(
   stream: Writable | null | undefined,
   line: string
-): Promise<void> {
-  if (!stream) {
-    return;
+): Promise<boolean> {
+  if (!stream || stream.destroyed || stream.writableEnded) {
+    return false;
   }
 
   if (stream.write(line)) {
-    return;
+    return true;
   }
 
-  await once(stream, "drain");
+  return waitForDrainOrClosure(stream);
+}
+
+function waitForDrainOrClosure(stream: Writable): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      stream.removeListener("drain", handleDrain);
+      stream.removeListener("close", handleClose);
+      stream.removeListener("finish", handleFinish);
+      stream.removeListener("error", handleError);
+    };
+    const handleDrain = () => {
+      cleanup();
+      resolve(true);
+    };
+    const handleClose = () => {
+      cleanup();
+      resolve(false);
+    };
+    const handleFinish = () => {
+      cleanup();
+      resolve(false);
+    };
+    const handleError = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    stream.once("drain", handleDrain);
+    stream.once("close", handleClose);
+    stream.once("finish", handleFinish);
+    stream.once("error", handleError);
+  });
 }
 
 function waitForChildExit(
