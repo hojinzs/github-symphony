@@ -5,10 +5,7 @@
     "rootDir": "..",
     "baseUrl": ".",
     "paths": {
-      "@gh-symphony/core": ["../core/src/index.ts"],
-      "@gh-symphony/tool-github-graphql": [
-        "../tool-github-graphql/src/index.ts"
-      ]
+      "@gh-symphony/core": ["../core/src/index.ts"]
     }
   }
 }

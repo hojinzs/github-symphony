@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { once } from "node:events";
+import type { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 
 export type ClaudeWireMessage = Record<string, unknown>;
 
@@ -27,6 +28,7 @@ export type ClaudeSpawnTurnResult = {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   result: "success" | "process-error" | "cancelled";
+  errorMessage?: string;
 };
 
 export type SpawnLike = (
@@ -37,6 +39,7 @@ export type SpawnLike = (
 
 export type ClaudeSpawnDependencies = {
   spawnImpl?: SpawnLike;
+  onSpawned?: (child: ChildProcess) => void;
 };
 
 export async function spawnClaudeTurn(
@@ -49,24 +52,37 @@ export async function spawnClaudeTurn(
     env: input.env,
     stdio: "pipe",
   });
+  dependencies.onSpawned?.(child);
 
   const records: ClaudeSpawnRecord[] = [];
   const stdoutDone = collectNdjsonStream(child.stdout, "stdout", records);
   const stderrDone = collectNdjsonStream(child.stderr, "stderr", records);
+  const exitDone = waitForChildExit(child, records);
 
   const stdinMessages = Array.isArray(input.stdinMessages)
     ? input.stdinMessages
     : [input.stdinMessages];
 
   for (const message of stdinMessages) {
-    child.stdin?.write(`${JSON.stringify(message)}\n`);
-  }
-  child.stdin?.end();
+    const didWrite = await writeToStdin(
+      child.stdin,
+      `${JSON.stringify(message)}\n`
+    );
 
-  const [exitCode, signal] = (await once(child, "close")) as [
-    number | null,
-    NodeJS.Signals | null,
-  ];
+    if (!didWrite) {
+      break;
+    }
+  }
+  if (
+    child.stdin &&
+    !child.stdin.destroyed &&
+    !child.stdin.writableEnded &&
+    !child.stdin.writableFinished
+  ) {
+    child.stdin.end();
+  }
+
+  const outcome = await exitDone;
 
   await Promise.all([stdoutDone, stderrDone]);
 
@@ -75,9 +91,10 @@ export async function spawnClaudeTurn(
     args: [...input.args],
     cwd: input.cwd,
     records,
-    exitCode,
-    signal,
-    result: classifyClaudeTurnResult(exitCode, signal),
+    exitCode: outcome.exitCode,
+    signal: outcome.signal,
+    result: classifyClaudeTurnResult(outcome.exitCode, outcome.signal),
+    errorMessage: "errorMessage" in outcome ? outcome.errorMessage : undefined,
   };
 }
 
@@ -85,7 +102,7 @@ export function classifyClaudeTurnResult(
   exitCode: number | null,
   signal: NodeJS.Signals | null
 ): ClaudeSpawnTurnResult["result"] {
-  if (signal === "SIGTERM") {
+  if (signal !== null) {
     return "cancelled";
   }
 
@@ -128,7 +145,25 @@ async function collectNdjsonStream(
     }
   });
 
-  await once(stream, "end");
+  stream.on("error", (error) => {
+    records.push({
+      stream: channel,
+      line: "",
+      parseError:
+        error instanceof Error ? error.message : "Unknown stream error.",
+    });
+  });
+
+  try {
+    await finished(stream);
+  } catch (error) {
+    records.push({
+      stream: channel,
+      line: "",
+      parseError:
+        error instanceof Error ? error.message : "Unknown stream error.",
+    });
+  }
 
   const trailingLine = buffer.trim();
   if (trailingLine.length > 0) {
@@ -154,4 +189,94 @@ function parseClaudeRecord(
         error instanceof Error ? error.message : "Unknown JSON parse error.",
     };
   }
+}
+
+async function writeToStdin(
+  stream: Writable | null | undefined,
+  line: string
+): Promise<boolean> {
+  if (!stream || stream.destroyed || stream.writableEnded) {
+    return false;
+  }
+
+  if (stream.write(line)) {
+    return true;
+  }
+
+  return waitForDrainOrClosure(stream);
+}
+
+function waitForDrainOrClosure(stream: Writable): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      stream.removeListener("drain", handleDrain);
+      stream.removeListener("close", handleClose);
+      stream.removeListener("finish", handleFinish);
+      stream.removeListener("error", handleError);
+    };
+    const handleDrain = () => {
+      cleanup();
+      resolve(true);
+    };
+    const handleClose = () => {
+      cleanup();
+      resolve(false);
+    };
+    const handleFinish = () => {
+      cleanup();
+      resolve(false);
+    };
+    const handleError = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    stream.once("drain", handleDrain);
+    stream.once("close", handleClose);
+    stream.once("finish", handleFinish);
+    stream.once("error", handleError);
+  });
+}
+
+function waitForChildExit(
+  child: ChildProcess,
+  records: ClaudeSpawnRecord[]
+): Promise<
+  | {
+      exitCode: number | null;
+      signal: NodeJS.Signals | null;
+      errorMessage?: undefined;
+    }
+  | {
+      exitCode: null;
+      signal: null;
+      errorMessage: string;
+    }
+> {
+  return new Promise((resolve) => {
+    const handleClose = (exitCode: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      resolve({ exitCode, signal });
+    };
+    const handleError = (error: Error) => {
+      cleanup();
+      records.push({
+        stream: "stderr",
+        line: "",
+        parseError: error.message,
+      });
+      resolve({
+        exitCode: null,
+        signal: null,
+        errorMessage: error.message,
+      });
+    };
+    const cleanup = () => {
+      child.removeListener("close", handleClose);
+      child.removeListener("error", handleError);
+    };
+
+    child.on("close", handleClose);
+    child.on("error", handleError);
+  });
 }

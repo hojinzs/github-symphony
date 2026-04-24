@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ClaudeRuntimeNotImplementedError,
   ClaudePrintRuntimeAdapter,
   createClaudePrintRuntimeAdapter,
   resolveClaudeCredentials,
@@ -41,6 +42,10 @@ function createStubChild() {
 }
 
 describe("ClaudePrintRuntimeAdapter", () => {
+  afterEach(() => {
+    delete process.env.GITHUB_TOKEN;
+  });
+
   it("spawns claude with default argv and merged env", async () => {
     const calls: Array<{
       command: string;
@@ -112,16 +117,18 @@ describe("ClaudePrintRuntimeAdapter", () => {
     ]);
     expect(calls[0]?.env?.ANTHROPIC_API_KEY).toBe("base-key");
     expect(calls[0]?.env?.CLAUDE_CODE_ENTRYPOINT).toBe("test");
+    expect(calls[0]?.env?.PATH).toBe(process.env.PATH);
+    expect(calls[0]?.env?.GITHUB_TOKEN).toBeUndefined();
   });
 
-  it("returns an event subscription cleanup function", () => {
+  it("throws NotImplementedError on onEvent() until #9 lands", () => {
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: "/workspace",
     });
 
-    const unsubscribe = adapter.onEvent(() => {});
-
-    expect(unsubscribe).toBeTypeOf("function");
+    expect(() => adapter.onEvent(() => {})).toThrowError(
+      ClaudeRuntimeNotImplementedError
+    );
   });
 
   it("exposes a factory helper", () => {
@@ -130,6 +137,136 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
 
     expect(adapter).toBeInstanceOf(ClaudePrintRuntimeAdapter);
+  });
+
+  it("can opt in to inheriting the full process environment", async () => {
+    process.env.GITHUB_TOKEN = "from-process-env";
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, _args, options) => {
+      calls.push(options.env as NodeJS.ProcessEnv | undefined);
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        inheritProcessEnv: true,
+      },
+      { spawnImpl }
+    );
+
+    await adapter.spawnTurn({
+      messages: [],
+    });
+
+    expect(calls[0]?.GITHUB_TOKEN).toBe("from-process-env");
+  });
+
+  it("terminates the in-flight child on cancel", async () => {
+    const kill = vi.fn(() => true);
+    const { child, stdout, stderr } = createStubChild();
+    const childWithKill = child as ReturnType<SpawnLike> & {
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    childWithKill.kill = kill;
+
+    const spawnImpl: SpawnLike = () => childWithKill;
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
+
+    const pending = adapter.spawnTurn({
+      messages: [],
+    });
+
+    adapter.cancel("test");
+    stdout.end();
+    stderr.end();
+    child.emit("close", null, "SIGTERM");
+    await pending;
+
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("rejects concurrent in-flight turns until scheduler semantics land", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => child;
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
+
+    const pending = adapter.spawnTurn({
+      messages: [],
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).rejects.toThrowError("TODO(#8)");
+
+    stdout.end();
+    stderr.end();
+    child.emit("close", null, "SIGTERM");
+    await pending;
+  });
+
+  it("returns an empty env object instead of inheriting process env by accident", async () => {
+    const originalEnv = process.env;
+    const calls: Array<NodeJS.ProcessEnv | undefined> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, _args, options) => {
+      calls.push(options.env as NodeJS.ProcessEnv | undefined);
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    process.env = {};
+
+    try {
+      const adapter = new ClaudePrintRuntimeAdapter(
+        {
+          workingDirectory: "/workspace",
+        },
+        { spawnImpl }
+      );
+
+      await adapter.spawnTurn({
+        messages: [],
+      });
+    } finally {
+      process.env = originalEnv;
+    }
+
+    expect(calls[0]).toEqual({});
   });
 });
 
