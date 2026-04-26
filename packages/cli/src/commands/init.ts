@@ -1,4 +1,8 @@
 import * as p from "@clack/prompts";
+import {
+  formatClaudePreflightText,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -131,6 +135,7 @@ function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
     dryRun: false,
     nonInteractive: false,
+    runtime: "codex",
     skipSkills: false,
     skipContext: false,
   };
@@ -154,7 +159,7 @@ function parseInitFlags(args: string[]): InitFlags {
         i += 1;
         break;
       case "--runtime":
-        flags.runtime = next;
+        flags.runtime = next ?? "";
         i += 1;
         break;
       case "--skip-skills":
@@ -167,6 +172,28 @@ function parseInitFlags(args: string[]): InitFlags {
   }
 
   return flags;
+}
+
+async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+  if (!isClaudeRuntime(runtime)) {
+    runRuntimePreflight(runtime);
+    return true;
+  }
+
+  const report = await runClaudePreflight({
+    cwd: process.cwd(),
+    env: process.env,
+    command: resolveRuntimeCommand(runtime),
+    includeGhAuth: true,
+  });
+  const message = formatClaudePreflightText(report);
+  if (report.ok) {
+    p.log.info(message);
+    return true;
+  }
+
+  p.log.error(message);
+  return false;
 }
 
 // ── Init command handler ─────────────────────────────────────────────────────
@@ -914,6 +941,10 @@ async function runNonInteractive(
     process.exitCode = 1;
     return;
   }
+  if (!(await runInitRuntimePreflight(runtime))) {
+    process.exitCode = 1;
+    return;
+  }
 
   let token: string;
   try {
@@ -1063,6 +1094,12 @@ async function runInteractiveStandalone(
   flags: InitFlags,
   _options: GlobalOptions
 ): Promise<void> {
+  const runtime = await promptRuntimeSelection();
+  if (!(await runInitRuntimePreflight(runtime))) {
+    process.exitCode = 1;
+    return;
+  }
+
   const s1 = p.spinner();
   s1.start("Checking GitHub authentication...");
 
@@ -1114,9 +1151,6 @@ async function runInteractiveStandalone(
     process.exitCode = 1;
     return;
   }
-
-  const runtime = await promptRuntimeSelection();
-  runRuntimePreflight(runtime);
 
   const selectedGithubProjectId = await abortIfCancelled(
     p.select({

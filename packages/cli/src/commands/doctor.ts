@@ -4,6 +4,11 @@ import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
+  runClaudePreflight,
+  isClaudeRuntimeCommand,
+  type ClaudePreflightCheck,
+} from "@gh-symphony/runtime-claude";
+import {
   createClient,
   getProjectDetail,
   GitHubApiError,
@@ -25,7 +30,7 @@ import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 
-type DoctorStatus = "pass" | "fail";
+type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
 
 type DoctorCheckId =
@@ -40,7 +45,10 @@ type DoctorCheckId =
   | "runtime_root"
   | "workspace_root"
   | "workflow_file"
-  | "runtime_command";
+  | "runtime_command"
+  | "claude_binary"
+  | "anthropic_api_key"
+  | "claude_mcp_config";
 
 type PathCheckReason = "missing" | "not_directory" | "not_writable";
 type WorkflowCheckReason = "missing" | "invalid";
@@ -234,6 +242,24 @@ function failCheck(
     id,
     title,
     status: "fail",
+    required: true,
+    summary,
+    remediation,
+    details,
+  };
+}
+
+function warnCheck(
+  id: DoctorCheckId,
+  title: string,
+  summary: string,
+  remediation?: string,
+  details?: Record<string, unknown>
+): DoctorCheckResult {
+  return {
+    id,
+    title,
+    status: "warn",
     required: true,
     summary,
     remediation,
@@ -470,6 +496,32 @@ function extractCommandBinary(command: string): string | null {
 
 function stripQuotes(value: string): string {
   return value.replace(/^['"]|['"]$/g, "");
+}
+
+function toDoctorClaudeCheck(check: ClaudePreflightCheck): DoctorCheckResult {
+  const id = check.id as Extract<
+    DoctorCheckId,
+    "claude_binary" | "anthropic_api_key" | "claude_mcp_config"
+  >;
+  if (check.status === "pass") {
+    return passCheck(id, check.title, check.summary, check.details);
+  }
+  if (check.status === "warn") {
+    return warnCheck(
+      id,
+      check.title,
+      check.summary,
+      check.remediation,
+      check.details
+    );
+  }
+  return failCheck(
+    id,
+    check.title,
+    check.summary,
+    check.remediation ?? "Fix the Claude runtime readiness check.",
+    check.details
+  );
 }
 
 function parseMajorNodeVersion(version: string): number | null {
@@ -977,6 +1029,24 @@ export async function runDoctorDiagnostics(
         )
       );
     }
+
+    if (isClaudeRuntimeCommand(workflow.command)) {
+      const claudePreflight = await runClaudePreflight(
+        {
+          cwd: process.cwd(),
+          env: process.env,
+          command: binary ?? undefined,
+          includeGhAuth: false,
+        },
+        {
+          execFileSync: deps.execFileSync,
+          readFile: deps.readFile,
+          access: deps.access,
+          platform: deps.platform,
+        }
+      );
+      checks.push(...claudePreflight.checks.map(toDoctorClaudeCheck));
+    }
   } else {
     checks.push(
       failCheck(
@@ -990,7 +1060,7 @@ export async function runDoctorDiagnostics(
   }
 
   return {
-    ok: checks.every((check) => check.status === "pass"),
+    ok: checks.every((check) => check.status !== "fail"),
     checkedAt: new Date().toISOString(),
     configDir: options.configDir,
     projectId: resolvedProjectId,
@@ -1392,6 +1462,21 @@ async function runDoctorFixes(
         );
         break;
       }
+      case "claude_binary":
+      case "anthropic_api_key":
+      case "claude_mcp_config":
+        steps.push(
+          remediationStep(
+            `remediate_${check.id}`,
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ?? "Fix the Claude runtime readiness check.",
+            undefined,
+            check.details
+          )
+        );
+        break;
     }
   }
 
@@ -1417,7 +1502,9 @@ function renderTextReport(report: DoctorReport): string {
     lines.push("");
   }
   for (const check of report.checks) {
-    lines.push(`${check.status === "pass" ? "PASS" : "FAIL"} ${check.title}`);
+    const statusLabel =
+      check.status === "pass" ? "PASS" : check.status === "warn" ? "WARN" : "FAIL";
+    lines.push(`${statusLabel} ${check.title}`);
     lines.push(`  ${check.summary}`);
     if (check.remediation) {
       lines.push(`  Fix: ${check.remediation}`);

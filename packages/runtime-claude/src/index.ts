@@ -13,4 +13,5 @@ export * from "./session-store.js";
 export * from "./mcp-compose.js";
 export * from "./events.js";
 export * from "./exit-classifier.js";
+export * from "./preflight.js";
 export * from "./spawn.js";
