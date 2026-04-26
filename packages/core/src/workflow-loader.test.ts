@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkflowConfigStore } from "./workflow/loader.js";
 import { parseWorkflowMarkdown } from "./workflow/parser.js";
+import {
+  resolveWorkflowRuntimeCommand,
+  resolveWorkflowRuntimeTimeouts,
+} from "./workflow/config.js";
 
 const tempDirs: string[] = [];
 
@@ -98,6 +102,150 @@ Render with env indirection.
     );
 
     expect(workflow.agentCommand).toBe("custom-app-server");
+  });
+
+  it("parses runtime-only claude-print front matter", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  command: claude
+  args:
+    - -p
+    - --verbose
+  isolation:
+    bare: true
+    strict_mcp_config: true
+  auth:
+    env: ANTHROPIC_API_KEY
+  timeouts:
+    read_timeout_ms: 7000
+    turn_timeout_ms: 120000
+    stall_timeout_ms: 60000
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime).toEqual({
+      kind: "claude-print",
+      command: "claude",
+      args: ["-p", "--verbose"],
+      isolation: {
+        bare: true,
+        strictMcpConfig: true,
+      },
+      auth: {
+        env: "ANTHROPIC_API_KEY",
+      },
+      timeouts: {
+        readTimeoutMs: 7000,
+        turnTimeoutMs: 120000,
+        stallTimeoutMs: 60000,
+      },
+    });
+    expect(workflow.agentCommand).toBe("claude -p --verbose");
+    expect(workflow.codex.command).toBe("codex app-server");
+    expect(resolveWorkflowRuntimeCommand(workflow)).toBe("claude -p --verbose");
+    expect(resolveWorkflowRuntimeTimeouts(workflow).stallTimeoutMs).toBe(60000);
+  });
+
+  it("keeps legacy codex fallback without reverse-mapping a runtime", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  command: claude -p --output-format stream-json
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime).toBeNull();
+    expect(workflow.codex.command).toBe("claude -p --output-format stream-json");
+    expect(workflow.agentCommand).toBe("claude -p --output-format stream-json");
+  });
+
+  it("prefers runtime when runtime and legacy codex coexist", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: [worker.js, --flag]
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime).toMatchObject({
+      kind: "custom",
+      command: "node",
+      args: ["worker.js", "--flag"],
+    });
+    expect(workflow.codex.command).toBe("codex app-server");
+    expect(workflow.agentCommand).toBe("node worker.js --flag");
+  });
+
+  it("parses quoted inline array entries containing commas", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: ["worker, one.js", "--flag"]
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime?.args).toEqual(["worker, one.js", "--flag"]);
+    expect(workflow.agentCommand).toBe("node worker, one.js --flag");
+  });
+
+  it("rejects malformed inline arrays instead of silently accepting them", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: ["unterminated, --flag]
+---
+Prompt body.
+`)
+    ).toThrow(/inline array has an unterminated string/);
+  });
+
+  it("rejects unsupported runtime kind values", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: unsupported-runtime
+---
+Prompt body.
+`)
+    ).toThrow(/Unsupported workflow runtime kind/);
+  });
+
+  it("does not expose session resume fields in runtime schema", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  command: claude
+  session:
+    resume: true
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime).not.toHaveProperty("session");
   });
 
   it("rejects old schema in strict mode", () => {

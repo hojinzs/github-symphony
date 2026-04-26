@@ -52,6 +52,35 @@ export type WorkflowCodexConfig = {
   stallTimeoutMs: number;
 };
 
+export type WorkflowRuntimeKind =
+  | "codex-app-server"
+  | "claude-print"
+  | "custom";
+
+export type WorkflowRuntimeIsolationConfig = {
+  bare: boolean;
+  strictMcpConfig: boolean;
+};
+
+export type WorkflowRuntimeAuthConfig = {
+  env: string | null;
+};
+
+export type WorkflowRuntimeTimeoutsConfig = {
+  turnTimeoutMs: number;
+  readTimeoutMs: number;
+  stallTimeoutMs: number;
+};
+
+export type WorkflowRuntimeConfig = {
+  kind: WorkflowRuntimeKind;
+  command: string;
+  args: string[];
+  isolation: WorkflowRuntimeIsolationConfig;
+  auth: WorkflowRuntimeAuthConfig;
+  timeouts: WorkflowRuntimeTimeoutsConfig;
+};
+
 export type WorkflowSourceFormat =
   | "front-matter"
   | "legacy-sectioned"
@@ -67,6 +96,7 @@ export type WorkflowDefinition = {
   workspace: WorkflowWorkspaceConfig;
   hooks: WorkflowHooksConfig;
   agent: WorkflowAgentConfig;
+  runtime: WorkflowRuntimeConfig | null;
   codex: WorkflowCodexConfig;
   lifecycle: WorkflowLifecycleConfig;
   format: WorkflowSourceFormat;
@@ -80,6 +110,7 @@ export type ParsedWorkflow = WorkflowDefinition & {
 };
 
 export const DEFAULT_CODEX_COMMAND = "codex app-server";
+export const DEFAULT_CLAUDE_COMMAND = "claude";
 export const DEFAULT_AGENT_COMMAND = DEFAULT_CODEX_COMMAND;
 export const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -147,6 +178,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   workspace: DEFAULT_WORKFLOW_WORKSPACE,
   hooks: DEFAULT_WORKFLOW_HOOKS,
   agent: DEFAULT_WORKFLOW_AGENT,
+  runtime: null,
   codex: DEFAULT_WORKFLOW_CODEX,
   lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
   format: "default",
@@ -155,3 +187,23 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   hookPath: null,
   maxConcurrentByState: {},
 };
+
+export function resolveWorkflowRuntimeCommand(
+  workflow: Pick<WorkflowDefinition, "runtime" | "codex">
+): string {
+  if (!workflow.runtime) {
+    return workflow.codex.command;
+  }
+
+  if (workflow.runtime.args.length === 0) {
+    return workflow.runtime.command;
+  }
+
+  return [workflow.runtime.command, ...workflow.runtime.args].join(" ");
+}
+
+export function resolveWorkflowRuntimeTimeouts(
+  workflow: Pick<WorkflowDefinition, "runtime" | "codex">
+): WorkflowRuntimeTimeoutsConfig {
+  return workflow.runtime?.timeouts ?? workflow.codex;
+}

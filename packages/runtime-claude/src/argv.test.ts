@@ -76,4 +76,24 @@ describe("buildClaudePrintArgv", () => {
       "/tmp/claude-mcp.json",
     ]);
   });
+
+  it("uses configured base args before isolation flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["-p", "--verbose"],
+        isolation: {
+          bare: true,
+          strictMcpConfig: true,
+          mcpConfigPath: "/tmp/runtime-mcp.json",
+        },
+      })
+    ).toEqual([
+      "-p",
+      "--verbose",
+      "--bare",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "/tmp/runtime-mcp.json",
+    ]);
+  });
 });

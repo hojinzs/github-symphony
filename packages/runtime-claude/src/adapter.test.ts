@@ -171,6 +171,47 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.GITHUB_TOKEN).toBe("from-process-env");
   });
 
+  it("uses configured args and strict mcp isolation for spawned argv", async () => {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push(args);
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        args: ["-p", "--verbose"],
+        isolation: {
+          strictMcpConfig: true,
+          mcpConfigPath: "/workspace/.runtime/mcp.json",
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.spawnTurn({
+      messages: [],
+    });
+
+    expect(calls[0]).toEqual([
+      "-p",
+      "--verbose",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "/workspace/.runtime/mcp.json",
+    ]);
+  });
+
   it("terminates the in-flight child on cancel", async () => {
     const kill = vi.fn(() => true);
     const { child, stdout, stderr } = createStubChild();
@@ -291,5 +332,21 @@ describe("resolveClaudeCredentials", () => {
         env: {},
       })
     ).toThrowError("ANTHROPIC_API_KEY");
+  });
+
+  it("can extract a runtime-configured auth env key", () => {
+    expect(
+      resolveClaudeCredentials(
+        {
+          env: {
+            CUSTOM_ANTHROPIC_KEY: "custom-key",
+            ANTHROPIC_API_KEY: "default-key",
+          },
+        },
+        "CUSTOM_ANTHROPIC_KEY"
+      )
+    ).toEqual({
+      CUSTOM_ANTHROPIC_KEY: "custom-key",
+    });
   });
 });

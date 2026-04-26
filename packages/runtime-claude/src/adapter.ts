@@ -24,9 +24,11 @@ import {
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
   command?: string;
+  args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   extraArgs?: readonly string[];
   isolation?: ClaudeRuntimeIsolationOptions;
+  authEnvKey?: string;
   inheritProcessEnv?: boolean;
 };
 
@@ -124,7 +126,7 @@ export class ClaudePrintRuntimeAdapter
   resolveCredentials(
     brokerResponse: AgentRuntimeCredentialBrokerResponse
   ): AgentRuntimeEnv {
-    return extractEnvForClaude(brokerResponse.env);
+    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   shutdown(): void {
@@ -139,6 +141,7 @@ export class ClaudePrintRuntimeAdapter
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
     return {
+      baseArgs: this.config.args,
       session: input.session,
       isolation: {
         ...this.config.isolation,
@@ -167,9 +170,10 @@ export function createClaudePrintRuntimeAdapter(
 }
 
 export function resolveClaudeCredentials(
-  brokerResponse: AgentRuntimeCredentialBrokerResponse
+  brokerResponse: AgentRuntimeCredentialBrokerResponse,
+  envKey?: string
 ): AgentRuntimeEnv {
-  return extractEnvForClaude(brokerResponse.env);
+  return extractEnvForClaude(brokerResponse.env, envKey);
 }
 
 const DEFAULT_INHERITED_ENV_KEYS = [
