@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   formatClaudePreflightText,
   isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "./preflight.js";
 
@@ -59,18 +60,22 @@ describe("Claude runtime preflight", () => {
     expect(apiKey).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("Neither ANTHROPIC_API_KEY"),
-      remediation: expect.stringContaining("Set ANTHROPIC_API_KEY or configure"),
+      remediation: expect.stringContaining(
+        "Set ANTHROPIC_API_KEY or configure"
+      ),
     });
   });
 
   it("reports gh authentication failure when requested", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-gh-"));
-    const execFileSync = vi.fn((command: string, args: readonly string[] = []) => {
-      if (command === "gh" && args[0] === "auth") {
-        throw new Error("not logged in");
+    const execFileSync = vi.fn(
+      (command: string, args: readonly string[] = []) => {
+        if (command === "gh" && args[0] === "auth") {
+          throw new Error("not logged in");
+        }
+        return execSuccess(command, args);
       }
-      return execSuccess(command, args);
-    });
+    );
 
     const report = await runClaudePreflight(
       {
@@ -91,7 +96,9 @@ describe("Claude runtime preflight", () => {
   });
 
   it("warns when .mcp.json is missing and fails when it is invalid JSON", async () => {
-    const missingCwd = await mkdtemp(join(tmpdir(), "claude-preflight-mcp-missing-"));
+    const missingCwd = await mkdtemp(
+      join(tmpdir(), "claude-preflight-mcp-missing-")
+    );
     const missing = await runClaudePreflight(
       {
         cwd: missingCwd,
@@ -100,10 +107,13 @@ describe("Claude runtime preflight", () => {
       },
       { execFileSync: vi.fn(execSuccess) as never }
     );
-    expect(missing.checks.find((check) => check.id === "claude_mcp_config"))
-      .toMatchObject({ status: "warn" });
+    expect(
+      missing.checks.find((check) => check.id === "claude_mcp_config")
+    ).toMatchObject({ status: "warn" });
 
-    const invalidCwd = await mkdtemp(join(tmpdir(), "claude-preflight-mcp-invalid-"));
+    const invalidCwd = await mkdtemp(
+      join(tmpdir(), "claude-preflight-mcp-invalid-")
+    );
     await writeFile(join(invalidCwd, ".mcp.json"), "{", "utf8");
     const invalid = await runClaudePreflight(
       {
@@ -113,8 +123,9 @@ describe("Claude runtime preflight", () => {
       },
       { execFileSync: vi.fn(execSuccess) as never }
     );
-    expect(invalid.checks.find((check) => check.id === "claude_mcp_config"))
-      .toMatchObject({ status: "fail" });
+    expect(
+      invalid.checks.find((check) => check.id === "claude_mcp_config")
+    ).toMatchObject({ status: "fail" });
   });
 
   it("accepts brokered Anthropic credentials", async () => {
@@ -138,13 +149,20 @@ describe("Claude runtime preflight", () => {
       }
     );
 
-    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
-      .toMatchObject({ status: "pass", details: { source: "broker" } });
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({ status: "pass", details: { source: "broker" } });
   });
 
   it("formats readable output and detects shell-wrapped Claude commands", () => {
     expect(isClaudeRuntimeCommand("bash -lc 'claude -p'")).toBe(true);
+    expect(isClaudeRuntimeCommand("/usr/local/bin/claude --print")).toBe(true);
+    expect(isClaudeRuntimeCommand("./bin/claude-code --print")).toBe(true);
     expect(isClaudeRuntimeCommand("codex app-server")).toBe(false);
+    expect(resolveClaudeCommandBinary("bash -lc 'claude -p'")).toBe("claude");
+    expect(resolveClaudeCommandBinary("/usr/local/bin/claude --print")).toBe(
+      "/usr/local/bin/claude"
+    );
     expect(
       formatClaudePreflightText({
         ok: false,

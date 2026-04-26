@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import {
   formatClaudePreflightText,
   isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
 import { createHash } from "node:crypto";
@@ -37,10 +38,7 @@ import {
   type StateRole,
   type StateMapping,
 } from "../config.js";
-import {
-  getGhTokenWithSource,
-  GhAuthError,
-} from "../github/gh-auth.js";
+import { getGhTokenWithSource, GhAuthError } from "../github/gh-auth.js";
 import { resolveGitHubAuth } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
@@ -54,7 +52,10 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "../workflow/default-hooks.js";
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
-import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
+import {
+  buildSkillFilePlans,
+  resolveSkillsDir,
+} from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 
 // ── Scope error display ───────────────────────────────────────────────────────
@@ -82,7 +83,10 @@ function displayScopeError(
 }
 
 export function warnIfProjectDiscoveryPartial(
-  result: Pick<ProjectDiscoveryResult, "partial" | "reason" | "projects" | "requests">
+  result: Pick<
+    ProjectDiscoveryResult,
+    "partial" | "reason" | "projects" | "requests"
+  >
 ): void {
   if (!result.partial) {
     return;
@@ -174,7 +178,7 @@ async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
   const report = await runClaudePreflight({
     cwd: process.cwd(),
     env: process.env,
-    command: runtime,
+    command: resolveClaudeCommandBinary(runtime) ?? undefined,
     includeGhAuth: true,
   });
   const message = formatClaudePreflightText(report);
@@ -351,7 +355,9 @@ export function buildAutomaticStateMappings(
   statusField: ProjectStatusField
 ): Record<string, StateMapping> {
   const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferAllStateRoles(statusField.options.map((o) => o.name))) {
+  for (const mapping of inferAllStateRoles(
+    statusField.options.map((o) => o.name)
+  )) {
     if (mapping.role) {
       mappings[mapping.columnName] = { role: mapping.role };
     }
@@ -717,7 +723,9 @@ function printEcosystemSummary(
   const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
 
   const lines: string[] = [];
-  lines.push(`GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`);
+  lines.push(
+    `GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`
+  );
   lines.push(`Runtime   ${result.runtime}`);
   if (result.priorityFieldName) {
     lines.push(`Priority field   ${result.priorityFieldName}`);

@@ -22,6 +22,7 @@ import {
 import {
   formatClaudePreflightText,
   isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
 import {
@@ -39,9 +40,7 @@ import {
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import {
-  buildContinuationTurnInput,
-} from "./thread-resume.js";
+import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
@@ -485,14 +484,16 @@ async function startAssignedRun() {
       activeStates: workflow.lifecycle.activeStates,
     });
     if (isClaudeRuntimeCommand(workflow.codex.command)) {
-      runtimeState.runPhase = "launching_agent";
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
-        command: resolveRuntimeCommandBinary(workflow.codex.command) ?? undefined,
+        command:
+          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
         includeGhAuth: true,
       });
-      process.stderr.write(`[worker] ${formatClaudePreflightText(preflight)}\n`);
+      process.stderr.write(
+        `[worker] ${formatClaudePreflightText(preflight)}\n`
+      );
       if (!preflight.ok) {
         await exitWorkerStartupFailure(
           "Claude runtime preflight failed before agent launch."
@@ -563,33 +564,6 @@ async function startAssignedRun() {
     }
     await persistSessionTokenUsageArtifact(launcherEnv);
   }
-}
-
-function resolveRuntimeCommandBinary(command: string): string | null {
-  const tokens = command.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-  if (tokens.length === 0) {
-    return null;
-  }
-  const first = stripRuntimeCommandQuotes(tokens[0]!);
-  if (
-    (first === "bash" || first === "sh" || first === "zsh" || first === "fish") &&
-    tokens.length >= 3
-  ) {
-    const flagIndex = tokens.findIndex((token) => {
-      const value = stripRuntimeCommandQuotes(token);
-      return value === "-c" || value === "-lc";
-    });
-    if (flagIndex >= 0 && flagIndex + 1 < tokens.length) {
-      return resolveRuntimeCommandBinary(
-        stripRuntimeCommandQuotes(tokens[flagIndex + 1]!)
-      );
-    }
-  }
-  return first;
-}
-
-function stripRuntimeCommandQuotes(value: string): string {
-  return value.replace(/^['"]|['"]$/g, "");
 }
 
 async function exitWorkerStartupFailure(message: string): Promise<void> {
@@ -1152,10 +1126,14 @@ async function runCodexClientProtocol(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
     );
 
-    const threadResult = (await sendRequestWithTimeout("thread-1", "thread/start", {
-      ...baseThreadParams,
-      ephemeral: false,
-    })) as Record<string, unknown>;
+    const threadResult = (await sendRequestWithTimeout(
+      "thread-1",
+      "thread/start",
+      {
+        ...baseThreadParams,
+        ephemeral: false,
+      }
+    )) as Record<string, unknown>;
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??
