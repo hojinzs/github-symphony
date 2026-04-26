@@ -164,13 +164,13 @@ Create a workpad comment on the issue with the following structure to track prog
 - Progress notes
 \`\`\``;
 
-  return runtimePreamble
-    ? `${runtimePreamble}\n\n${templateBody}`
-    : templateBody;
+  return [runtimePreamble, templateBody].filter(Boolean).join("\n\n");
 }
 
-function buildRuntimePromptPreamble(runtime: string): string | null {
-  return runtime === "claude-code" ? CLAUDE_RUNTIME_PROMPT_PREAMBLE : null;
+function buildRuntimePromptPreamble(runtime: string): string {
+  return runtime === "claude-code" || runtime.includes("claude-code")
+    ? CLAUDE_RUNTIME_PROMPT_PREAMBLE
+    : "";
 }
 
 function generateStatusMapWithDescriptions(
