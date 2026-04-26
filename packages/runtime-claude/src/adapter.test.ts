@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ClaudeRuntimeNotImplementedError,
   ClaudePrintRuntimeAdapter,
   createClaudePrintRuntimeAdapter,
   resolveClaudeCredentials,
@@ -121,14 +120,40 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.env?.GITHUB_TOKEN).toBeUndefined();
   });
 
-  it("throws NotImplementedError on onEvent() until #9 lands", () => {
+  it("emits neutral events from Claude stream-json output", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"content_block_delta","index":0,"delta":{"text":"hi"}}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: "/workspace",
+    }, {
+      spawnImpl,
+    });
+    const events: string[] = [];
+    const unsubscribe = adapter.onEvent((event) => {
+      events.push(event.name);
     });
 
-    expect(() => adapter.onEvent(() => {})).toThrowError(
-      ClaudeRuntimeNotImplementedError
-    );
+    await adapter.spawnTurn({
+      messages: [],
+    });
+    unsubscribe();
+
+    expect(events).toEqual([
+      "agent.turnStarted",
+      "agent.messageDelta",
+      "agent.turnCompleted",
+    ]);
   });
 
   it("exposes a factory helper", () => {

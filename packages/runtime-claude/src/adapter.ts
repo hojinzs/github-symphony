@@ -3,9 +3,9 @@ import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
   AgentRuntimeEnv,
-  AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
+  AgentEvent,
 } from "@gh-symphony/core";
 import { extractEnvForClaude } from "@gh-symphony/core";
 import {
@@ -46,14 +46,7 @@ export type ClaudeRuntimeTurnInput = {
 
 export type ClaudeRuntimeTurnResult = ClaudeSpawnTurnResult;
 
-export type ClaudeRuntimeEvent = AgentRuntimeEvent;
-
-export class ClaudeRuntimeNotImplementedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeRuntimeNotImplementedError";
-  }
-}
+export type ClaudeRuntimeEvent = AgentEvent;
 
 export class ClaudePrintRuntimeAdapter
   implements
@@ -65,6 +58,9 @@ export class ClaudePrintRuntimeAdapter
     >
 {
   private activeChild: ChildProcess | null = null;
+  private readonly eventHandlers = new Set<
+    AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+  >();
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
@@ -106,6 +102,10 @@ export class ClaudePrintRuntimeAdapter
             this.activeChild = child;
             this.dependencies.onSpawned?.(child);
           },
+          onEvent: (event) => {
+            this.emitEvent(event);
+            this.dependencies.onEvent?.(event);
+          },
         }
       );
     } finally {
@@ -114,11 +114,12 @@ export class ClaudePrintRuntimeAdapter
   }
 
   onEvent(
-    _handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+    handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
-    throw new ClaudeRuntimeNotImplementedError(
-      "TODO(#9): Claude stream-json event mapping is not implemented yet."
-    );
+    this.eventHandlers.add(handler);
+    return () => {
+      this.eventHandlers.delete(handler);
+    };
   }
 
   resolveCredentials(
@@ -156,6 +157,12 @@ export class ClaudePrintRuntimeAdapter
 
     this.activeChild.kill("SIGTERM");
     this.activeChild = null;
+  }
+
+  private emitEvent(event: ClaudeRuntimeEvent): void {
+    for (const handler of this.eventHandlers) {
+      handler(event);
+    }
   }
 }
 
