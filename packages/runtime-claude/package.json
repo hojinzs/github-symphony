@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "author": "hojinzs",
-  "description": "Claude runtime credential adapter helpers for Symphony workers",
+  "description": "Claude print runtime adapter scaffold for Symphony workers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
