@@ -28,6 +28,7 @@ export type ClaudeRuntimeIsolationOptions = {
 };
 
 export type ClaudePrintArgvOptions = {
+  baseArgs?: readonly string[];
   session?: ClaudeRuntimeSessionOptions;
   isolation?: ClaudeRuntimeIsolationOptions;
   extraArgs?: readonly string[];
@@ -36,7 +37,7 @@ export type ClaudePrintArgvOptions = {
 export function buildClaudePrintArgv(
   options: ClaudePrintArgvOptions = {}
 ): string[] {
-  const args = [...DEFAULT_CLAUDE_PRINT_ARGS] as string[];
+  const args = [...(options.baseArgs ?? DEFAULT_CLAUDE_PRINT_ARGS)] as string[];
   const { session, isolation, extraArgs } = options;
 
   if (session?.mode === "start") {

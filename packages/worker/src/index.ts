@@ -5,6 +5,7 @@ import {
   classifySessionExit,
   DEFAULT_AGENT_INPUT_REQUIRED_REASON,
   parseWorkflowMarkdown,
+  resolveWorkflowRuntimeCommand,
   type AgentEvent,
   type OrchestratorChannelEvent,
   type RunAttemptPhase,
@@ -480,7 +481,7 @@ async function startAssignedRun() {
       activeStates: workflow.lifecycle.activeStates,
     });
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
-    config.agentCommand = workflow.codex.command;
+    config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
     runtimeState.runPhase = "launching_agent";
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
