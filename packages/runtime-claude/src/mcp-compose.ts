@@ -88,6 +88,8 @@ function resolveStrictMcpConfigPath(
   workspaceRoot: string,
   env: ClaudeMcpTokenEnvironment
 ): string {
+  // Direct package tests and ad-hoc callers may not have the worker runtime
+  // directory yet; keep their strict config inside the throwaway workspace.
   const runtimeDir =
     env.WORKSPACE_RUNTIME_DIR ?? join(workspaceRoot, ".runtime", basename(workspaceRoot));
 

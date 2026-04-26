@@ -18,6 +18,7 @@ import {
 import {
   composeClaudeMcpConfig,
   type ClaudeMcpCompositionResult,
+  type ClaudeMcpTokenEnvironment,
 } from "./mcp-compose.js";
 import {
   spawnClaudeTurn,
@@ -83,15 +84,11 @@ export class ClaudePrintRuntimeAdapter
     this.preparedMcpConfig = await composeClaudeMcpConfig(
       this.config.workingDirectory,
       this.config.isolation?.strictMcpConfig === true,
-      {
-        ...process.env,
-        ...this.config.env,
-        ...(this.config.runtimeDirectory
-          ? {
-              WORKSPACE_RUNTIME_DIR: this.config.runtimeDirectory,
-            }
-          : {}),
-      }
+      buildClaudeMcpTokenEnvironment({
+        inheritProcessEnv: this.config.inheritProcessEnv === true,
+        configEnv: this.config.env,
+        runtimeDirectory: this.config.runtimeDirectory,
+      })
     );
   }
 
@@ -159,19 +156,37 @@ export class ClaudePrintRuntimeAdapter
   }
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
+    const isolation = {
+      ...this.config.isolation,
+      ...input.isolation,
+    };
+    const configuredExtraArgs = input.extraArgs ?? this.config.extraArgs ?? [];
+
+    if (this.preparedMcpConfig) {
+      return {
+        session: input.session,
+        isolation: {
+          ...isolation,
+          strictMcpConfig: false,
+          mcpConfigPath: undefined,
+        },
+        extraArgs: [
+          ...this.preparedMcpConfig.extraArgv,
+          ...configuredExtraArgs,
+        ],
+      };
+    }
+
+    if (isolation.strictMcpConfig && !isolation.mcpConfigPath) {
+      throw new Error(
+        "Claude strict MCP config requires prepare() or an explicit mcpConfigPath."
+      );
+    }
+
     return {
       session: input.session,
-      isolation: {
-        ...this.config.isolation,
-        ...(this.preparedMcpConfig?.cleanupPath
-          ? {
-              strictMcpConfig: true,
-              mcpConfigPath: this.preparedMcpConfig.finalPath,
-            }
-          : {}),
-        ...input.isolation,
-      },
-      extraArgs: input.extraArgs ?? this.config.extraArgs,
+      isolation,
+      extraArgs: configuredExtraArgs,
     };
   }
 
@@ -249,4 +264,30 @@ function buildClaudeSpawnEnv(options: {
   Object.assign(env, options.configEnv, options.inputEnv);
 
   return env;
+}
+
+function buildClaudeMcpTokenEnvironment(options: {
+  inheritProcessEnv: boolean;
+  configEnv?: NodeJS.ProcessEnv;
+  runtimeDirectory?: string;
+}): ClaudeMcpTokenEnvironment {
+  const source = options.inheritProcessEnv
+    ? {
+        ...process.env,
+        ...options.configEnv,
+      }
+    : {
+        ...options.configEnv,
+      };
+
+  return {
+    GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN,
+    GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
+    GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
+    GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
+    GITHUB_TOKEN_CACHE_PATH: source.GITHUB_TOKEN_CACHE_PATH,
+    GITHUB_PROJECT_ID: source.GITHUB_PROJECT_ID,
+    WORKSPACE_RUNTIME_DIR:
+      options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
+  };
 }

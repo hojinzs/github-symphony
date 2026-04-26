@@ -48,6 +48,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
   const tempRoots: string[] = [];
 
   afterEach(() => {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
     delete process.env.GITHUB_TOKEN;
   });
 
@@ -240,6 +241,94 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
   });
 
+  it("does not inherit host MCP credentials during prepare unless enabled", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      env: {
+        GITHUB_PROJECT_ID: "project-from-config",
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+
+    const config = JSON.parse(
+      await readFile(join(workspaceRoot, ".mcp.json"), "utf8")
+    ) as {
+      mcpServers?: {
+        github_graphql?: {
+          env?: Record<string, string>;
+        };
+      };
+    };
+
+    expect(config.mcpServers?.github_graphql?.env).toMatchObject({
+      GITHUB_PROJECT_ID: "project-from-config",
+    });
+    expect(
+      config.mcpServers?.github_graphql?.env?.GITHUB_GRAPHQL_TOKEN
+    ).toBeUndefined();
+  });
+
+  it("can opt in to inheriting host MCP credentials during prepare", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      inheritProcessEnv: true,
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+
+    expect(await readFile(join(workspaceRoot, ".mcp.json"), "utf8")).toContain(
+      "host-token"
+    );
+  });
+
+  it("rejects strict MCP config spawns without prepare or explicit config path", async () => {
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: "/workspace",
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).rejects.toThrowError("requires prepare()");
+  });
+
+  it("removes strict MCP ephemeral config on cancel", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+
+    await adapter.cancel("test");
+
+    await expect(readFile(mcpConfigPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("terminates the in-flight child on cancel", async () => {
     const kill = vi.fn(() => true);
     const { child, stdout, stderr } = createStubChild();
@@ -263,7 +352,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
       messages: [],
     });
 
-    adapter.cancel("test");
+    await adapter.cancel("test");
     stdout.end();
     stderr.end();
     child.emit("close", null, "SIGTERM");
