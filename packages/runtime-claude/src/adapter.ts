@@ -1,5 +1,8 @@
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type {
+  AgentSessionInvalidatedEvent,
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
   AgentRuntimeEnv,
@@ -20,6 +23,10 @@ import {
   type ClaudeSpawnTurnResult,
   type ClaudeWireMessage,
 } from "./spawn.js";
+import {
+  ClaudeSessionStore,
+  type ClaudeSessionFile,
+} from "./session-store.js";
 
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
@@ -28,10 +35,14 @@ export type ClaudeRuntimeConfig = {
   extraArgs?: readonly string[];
   isolation?: ClaudeRuntimeIsolationOptions;
   inheritProcessEnv?: boolean;
+  runtimeRoot?: string;
 };
 
 export type ClaudeRuntimePrepareContext = {
-  runId?: string;
+  runId: string;
+  runDirectory?: string;
+  previousRunId?: string;
+  previousRunDirectory?: string;
 };
 
 export type ClaudeRuntimeTurnInput = {
@@ -46,7 +57,12 @@ export type ClaudeRuntimeTurnInput = {
 
 export type ClaudeRuntimeTurnResult = ClaudeSpawnTurnResult;
 
-export type ClaudeRuntimeEvent = AgentRuntimeEvent;
+export type ClaudeRuntimeEvent = AgentRuntimeEvent | AgentSessionInvalidatedEvent;
+
+export type ClaudeRuntimeDependencies = ClaudeSpawnDependencies & {
+  createSessionId?: () => string;
+  now?: () => Date;
+};
 
 export class ClaudeRuntimeNotImplementedError extends Error {
   constructor(message: string) {
@@ -65,15 +81,27 @@ export class ClaudePrintRuntimeAdapter
     >
 {
   private activeChild: ChildProcess | null = null;
+  private preparedSession: PreparedClaudeSession | null = null;
+  private readonly eventHandlers = new Set<
+    AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+  >();
+  private readonly pendingEvents: ClaudeRuntimeEvent[] = [];
+  private readonly sessionStore: ClaudeSessionStore;
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
-    private readonly dependencies: ClaudeSpawnDependencies = {}
-  ) {}
+    private readonly dependencies: ClaudeRuntimeDependencies = {}
+  ) {
+    this.sessionStore = new ClaudeSessionStore({
+      runtimeRoot:
+        config.runtimeRoot ??
+        join(config.workingDirectory, ".runtime", "orchestrator"),
+    });
+  }
 
-  prepare(_context: ClaudeRuntimePrepareContext): void {
-    // TODO(#7,#8,#10): MCP composition, session persistence, and preflight
-    // checks will populate this hook once the worker-side runtime wiring lands.
+  async prepare(context: ClaudeRuntimePrepareContext): Promise<void> {
+    this.pendingEvents.length = 0;
+    this.preparedSession = await this.prepareSession(context);
   }
 
   async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
@@ -83,42 +111,34 @@ export class ClaudePrintRuntimeAdapter
       );
     }
 
-    const argv = buildClaudePrintArgv(
-      this.buildArgvOptions(input)
-    );
+    const session = input.session ?? this.preparedSession?.session;
+    const argv = buildClaudePrintArgv(this.buildArgvOptions(input, session));
 
     try {
-      return await spawnClaudeTurn(
-        {
-          command: input.command ?? this.config.command,
-          args: argv,
-          cwd: input.cwd ?? this.config.workingDirectory,
-          env: buildClaudeSpawnEnv({
-            inheritProcessEnv: this.config.inheritProcessEnv === true,
-            configEnv: this.config.env,
-            inputEnv: input.env,
-          }),
-          stdinMessages: input.messages,
-        },
-        {
-          ...this.dependencies,
-          onSpawned: (child) => {
-            this.activeChild = child;
-            this.dependencies.onSpawned?.(child);
-          },
-        }
-      );
+      const result = await this.spawnWithArgv(input, argv);
+      await this.persistStartedSessionId(result);
+      await this.persistForkedSessionId(result);
+
+      if (this.shouldInvalidatePreparedResume(session, result)) {
+        return await this.retryWithFreshSession(input, result);
+      }
+
+      return result;
     } finally {
       this.activeChild = null;
     }
   }
 
   onEvent(
-    _handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+    handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
-    throw new ClaudeRuntimeNotImplementedError(
-      "TODO(#9): Claude stream-json event mapping is not implemented yet."
-    );
+    this.eventHandlers.add(handler);
+    for (const event of this.pendingEvents.splice(0)) {
+      handler(event);
+    }
+    return () => {
+      this.eventHandlers.delete(handler);
+    };
   }
 
   resolveCredentials(
@@ -137,15 +157,289 @@ export class ClaudePrintRuntimeAdapter
     this.stopActiveChild();
   }
 
-  private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
+  private buildArgvOptions(
+    input: ClaudeRuntimeTurnInput,
+    session: ClaudeRuntimeSessionOptions | undefined
+  ): ClaudePrintArgvOptions {
     return {
-      session: input.session,
+      session,
       isolation: {
         ...this.config.isolation,
         ...input.isolation,
       },
       extraArgs: input.extraArgs ?? this.config.extraArgs,
     };
+  }
+
+  private async prepareSession(
+    context: ClaudeRuntimePrepareContext
+  ): Promise<PreparedClaudeSession> {
+    const currentOptions = {
+      runId: context.runId,
+      runDirectory: context.runDirectory,
+    };
+    const parentRunId = context.previousRunId;
+
+    try {
+      const current = await this.sessionStore.load(currentOptions);
+      if (current) {
+        return {
+          runId: context.runId,
+          runDirectory: context.runDirectory,
+          sessionFile: current,
+          session: {
+            mode: "resume",
+            sessionId: current.sessionId,
+          },
+        };
+      }
+    } catch (error) {
+      return await this.createFreshSession(context, {
+        reason: `session file could not be read: ${formatErrorMessage(error)}`,
+        invalidatedSessionId: "unknown",
+        parentRunId,
+      });
+    }
+
+    if (context.previousRunId) {
+      try {
+        const previous = await this.sessionStore.load({
+          runId: context.previousRunId,
+          runDirectory: context.previousRunDirectory,
+        });
+        if (previous) {
+          const sessionFile = await this.sessionStore.save({
+            ...currentOptions,
+            sessionId: previous.sessionId,
+            createdAt: this.nowIso(),
+            parentRunId: context.previousRunId,
+          });
+          return {
+            runId: context.runId,
+            runDirectory: context.runDirectory,
+            sessionFile,
+            session: {
+              mode: "resume",
+              sessionId: previous.sessionId,
+              forkSession: true,
+            },
+          };
+        }
+      } catch (error) {
+        return await this.createFreshSession(context, {
+          reason: `parent session file could not be read: ${formatErrorMessage(error)}`,
+          invalidatedSessionId: "unknown",
+          parentRunId,
+        });
+      }
+    }
+
+    return await this.createFreshSession(context, { parentRunId });
+  }
+
+  private async createFreshSession(
+    context: ClaudeRuntimePrepareContext,
+    options: {
+      reason?: string;
+      invalidatedSessionId?: string;
+      parentRunId?: string;
+    } = {}
+  ): Promise<PreparedClaudeSession> {
+    const replacementSessionId = this.createSessionId();
+    const sessionFile = await this.sessionStore.save({
+      runId: context.runId,
+      runDirectory: context.runDirectory,
+      sessionId: replacementSessionId,
+      createdAt: this.nowIso(),
+      parentRunId: options.parentRunId,
+    });
+
+    if (options.reason) {
+      this.emitSessionInvalidated({
+        runId: context.runId,
+        sessionId: options.invalidatedSessionId ?? "unknown",
+        replacementSessionId,
+        reason: options.reason,
+      });
+    }
+
+    return {
+      runId: context.runId,
+      runDirectory: context.runDirectory,
+      sessionFile,
+      session: {
+        mode: "start",
+        sessionId: replacementSessionId,
+      },
+    };
+  }
+
+  private async retryWithFreshSession(
+    input: ClaudeRuntimeTurnInput,
+    failedResult: ClaudeSpawnTurnResult
+  ): Promise<ClaudeSpawnTurnResult> {
+    if (!this.preparedSession) {
+      return failedResult;
+    }
+
+    const invalidatedSessionId = this.preparedSession.session.sessionId;
+    const replacementSessionId = this.createSessionId();
+    const parentRunId = this.preparedSession.sessionFile.parentRunId;
+    const sessionFile = await this.sessionStore.save({
+      runId: this.preparedSession.runId,
+      runDirectory: this.preparedSession.runDirectory,
+      sessionId: replacementSessionId,
+      createdAt: this.nowIso(),
+      parentRunId,
+    });
+    this.preparedSession = {
+      ...this.preparedSession,
+      sessionFile,
+      session: {
+        mode: "start",
+        sessionId: replacementSessionId,
+      },
+    };
+    this.emitSessionInvalidated({
+      runId: this.preparedSession.runId,
+      sessionId: invalidatedSessionId,
+      replacementSessionId,
+      reason: "claude resume session was rejected with a 4xx response",
+    });
+
+    const retryArgv = buildClaudePrintArgv(
+      this.buildArgvOptions(input, this.preparedSession.session)
+    );
+    const retryResult = await this.spawnWithArgv(input, retryArgv);
+    await this.persistStartedSessionId(retryResult);
+    return retryResult;
+  }
+
+  private async spawnWithArgv(
+    input: ClaudeRuntimeTurnInput,
+    argv: string[]
+  ): Promise<ClaudeSpawnTurnResult> {
+    return await spawnClaudeTurn(
+      {
+        command: input.command ?? this.config.command,
+        args: argv,
+        cwd: input.cwd ?? this.config.workingDirectory,
+        env: buildClaudeSpawnEnv({
+          inheritProcessEnv: this.config.inheritProcessEnv === true,
+          configEnv: this.config.env,
+          inputEnv: input.env,
+        }),
+        stdinMessages: input.messages,
+      },
+      {
+        ...this.dependencies,
+        onSpawned: (child) => {
+          this.activeChild = child;
+          this.dependencies.onSpawned?.(child);
+        },
+      }
+    );
+  }
+
+  private async persistForkedSessionId(
+    result: ClaudeSpawnTurnResult
+  ): Promise<void> {
+    if (
+      this.preparedSession?.session.mode !== "resume" ||
+      !this.preparedSession.session.forkSession
+    ) {
+      return;
+    }
+
+    const forkedSessionId = findSessionIdInResult(result);
+    const sessionId = forkedSessionId ?? this.preparedSession.session.sessionId;
+
+    this.preparedSession = {
+      ...this.preparedSession,
+      sessionFile: await this.sessionStore.save({
+        runId: this.preparedSession.runId,
+        runDirectory: this.preparedSession.runDirectory,
+        sessionId,
+        createdAt: this.preparedSession.sessionFile.createdAt,
+        parentRunId: this.preparedSession.sessionFile.parentRunId,
+        protocolState: this.preparedSession.sessionFile.protocolState,
+      }),
+      session: {
+        mode: "resume",
+        sessionId,
+      },
+    };
+  }
+
+  private async persistStartedSessionId(
+    result: ClaudeSpawnTurnResult
+  ): Promise<void> {
+    if (this.preparedSession?.session.mode !== "start") {
+      return;
+    }
+    if (result.result !== "success") {
+      return;
+    }
+
+    const sessionId =
+      findSessionIdInResult(result) ?? this.preparedSession.session.sessionId;
+    this.preparedSession = {
+      ...this.preparedSession,
+      sessionFile: await this.sessionStore.save({
+        runId: this.preparedSession.runId,
+        runDirectory: this.preparedSession.runDirectory,
+        sessionId,
+        createdAt: this.preparedSession.sessionFile.createdAt,
+        parentRunId: this.preparedSession.sessionFile.parentRunId,
+        protocolState: this.preparedSession.sessionFile.protocolState,
+      }),
+      session: {
+        mode: "resume",
+        sessionId,
+      },
+    };
+  }
+
+  private shouldInvalidatePreparedResume(
+    session: ClaudeRuntimeSessionOptions | undefined,
+    result: ClaudeSpawnTurnResult
+  ): boolean {
+    return (
+      session === this.preparedSession?.session &&
+      session?.mode === "resume" &&
+      isResumeRejectedWith4xx(result)
+    );
+  }
+
+  private emitSessionInvalidated(payload: {
+    runId: string;
+    sessionId: string;
+    replacementSessionId: string;
+    reason: string;
+  }): void {
+    const event: AgentSessionInvalidatedEvent = {
+      name: "agent.sessionInvalidated",
+      payload: {
+        params: {},
+        ...payload,
+        observabilityEvent: "session_invalidated",
+      },
+    };
+    if (this.eventHandlers.size === 0) {
+      this.pendingEvents.push(event);
+      return;
+    }
+    for (const handler of this.eventHandlers) {
+      handler(event);
+    }
+  }
+
+  private createSessionId(): string {
+    return this.dependencies.createSessionId?.() ?? randomUUID();
+  }
+
+  private nowIso(): string {
+    return (this.dependencies.now?.() ?? new Date()).toISOString();
   }
 
   private stopActiveChild(): void {
@@ -161,7 +455,7 @@ export class ClaudePrintRuntimeAdapter
 
 export function createClaudePrintRuntimeAdapter(
   config: ClaudeRuntimeConfig,
-  dependencies: ClaudeSpawnDependencies = {}
+  dependencies: ClaudeRuntimeDependencies = {}
 ): ClaudePrintRuntimeAdapter {
   return new ClaudePrintRuntimeAdapter(config, dependencies);
 }
@@ -211,4 +505,65 @@ function buildClaudeSpawnEnv(options: {
   Object.assign(env, options.configEnv, options.inputEnv);
 
   return env;
+}
+
+type PreparedClaudeSession = {
+  runId: string;
+  runDirectory?: string;
+  sessionFile: ClaudeSessionFile;
+  session: ClaudeRuntimeSessionOptions;
+};
+
+function findSessionIdInResult(result: ClaudeSpawnTurnResult): string | null {
+  for (const record of result.records) {
+    const sessionId = findSessionId(record.message);
+    if (sessionId) {
+      return sessionId;
+    }
+  }
+  return null;
+}
+
+function findSessionId(value: unknown, depth = 0): string | null {
+  if (depth > 5) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.sessionId === "string") {
+    return record.sessionId;
+  }
+  if (typeof record.session_id === "string") {
+    return record.session_id;
+  }
+  for (const nested of Object.values(record)) {
+    const sessionId = findSessionId(nested, depth + 1);
+    if (sessionId) {
+      return sessionId;
+    }
+  }
+  return null;
+}
+
+function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
+  if (result.result !== "process-error") {
+    return false;
+  }
+
+  return result.records.some((record) => {
+    const text = record.line.toLowerCase();
+    return (
+      text.includes("resume") &&
+      /\b4\d\d\b/.test(text)
+    );
+  });
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

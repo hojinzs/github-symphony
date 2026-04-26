@@ -79,6 +79,17 @@ describe("event-formatter", () => {
         error: "tool execution failed",
       })
     ).toBe("tool execution failed");
+
+    expect(
+      formatEventMessage({
+        at: "2026-04-26T00:00:00.000Z",
+        event: "session_invalidated",
+        runId: "run-1",
+        sessionId: "session-old",
+        replacementSessionId: "session-new",
+        reason: "claude resume session was rejected with a 4xx response",
+      })
+    ).toBe("claude resume session was rejected with a 4xx response");
   });
 
   it("formats run-recovered events", () => {

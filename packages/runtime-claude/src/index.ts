@@ -9,4 +9,5 @@ export const RUNTIME_CLAUDE_BOUNDARY = {
 
 export * from "./adapter.js";
 export * from "./argv.js";
+export * from "./session-store.js";
 export * from "./spawn.js";
