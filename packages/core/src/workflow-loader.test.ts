@@ -163,6 +163,24 @@ Prompt body.
       "Continue from turn {{cumulativeTurnCount}}."
     );
   });
+
+  it("does not expose runtime session controls from WORKFLOW.md", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  session:
+    resume: true
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect("runtime" in workflow).toBe(false);
+    expect("session" in workflow).toBe(false);
+  });
 });
 
 describe("WorkflowConfigStore", () => {
