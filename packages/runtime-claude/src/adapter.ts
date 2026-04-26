@@ -100,6 +100,7 @@ export class ClaudePrintRuntimeAdapter
   }
 
   async prepare(context: ClaudeRuntimePrepareContext): Promise<void> {
+    this.pendingEvents.length = 0;
     this.preparedSession = await this.prepareSession(context);
   }
 
@@ -192,9 +193,9 @@ export class ClaudePrintRuntimeAdapter
           },
         };
       }
-    } catch {
+    } catch (error) {
       return await this.createFreshSession(context, {
-        reason: "session file could not be read",
+        reason: `session file could not be read: ${formatErrorMessage(error)}`,
         invalidatedSessionId: "unknown",
         parentRunId,
       });
@@ -224,9 +225,9 @@ export class ClaudePrintRuntimeAdapter
             },
           };
         }
-      } catch {
+      } catch (error) {
         return await this.createFreshSession(context, {
-          reason: "parent session file could not be read",
+          reason: `parent session file could not be read: ${formatErrorMessage(error)}`,
           invalidatedSessionId: "unknown",
           parentRunId,
         });
@@ -284,7 +285,7 @@ export class ClaudePrintRuntimeAdapter
     const invalidatedSessionId = this.preparedSession.session.sessionId;
     const replacementSessionId = this.createSessionId();
     const parentRunId = this.preparedSession.sessionFile.parentRunId;
-    const sessionFile = await this.sessionStore.invalidate({
+    const sessionFile = await this.sessionStore.save({
       runId: this.preparedSession.runId,
       runDirectory: this.preparedSession.runDirectory,
       sessionId: replacementSessionId,
@@ -351,23 +352,21 @@ export class ClaudePrintRuntimeAdapter
     }
 
     const forkedSessionId = findSessionIdInResult(result);
-    if (!forkedSessionId) {
-      return;
-    }
+    const sessionId = forkedSessionId ?? this.preparedSession.session.sessionId;
 
     this.preparedSession = {
       ...this.preparedSession,
       sessionFile: await this.sessionStore.save({
         runId: this.preparedSession.runId,
         runDirectory: this.preparedSession.runDirectory,
-        sessionId: forkedSessionId,
+        sessionId,
         createdAt: this.preparedSession.sessionFile.createdAt,
         parentRunId: this.preparedSession.sessionFile.parentRunId,
         protocolState: this.preparedSession.sessionFile.protocolState,
       }),
       session: {
         mode: "resume",
-        sessionId: forkedSessionId,
+        sessionId,
       },
     };
   }
@@ -525,7 +524,10 @@ function findSessionIdInResult(result: ClaudeSpawnTurnResult): string | null {
   return null;
 }
 
-function findSessionId(value: unknown): string | null {
+function findSessionId(value: unknown, depth = 0): string | null {
+  if (depth > 5) {
+    return null;
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -537,7 +539,7 @@ function findSessionId(value: unknown): string | null {
     return record.session_id;
   }
   for (const nested of Object.values(record)) {
-    const sessionId = findSessionId(nested);
+    const sessionId = findSessionId(nested, depth + 1);
     if (sessionId) {
       return sessionId;
     }
@@ -549,13 +551,6 @@ function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
   if (result.result !== "process-error") {
     return false;
   }
-  if (
-    typeof result.exitCode === "number" &&
-    result.exitCode >= 400 &&
-    result.exitCode < 500
-  ) {
-    return true;
-  }
 
   return result.records.some((record) => {
     const text = record.line.toLowerCase();
@@ -564,4 +559,11 @@ function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
       /\b4\d\d\b/.test(text)
     );
   });
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

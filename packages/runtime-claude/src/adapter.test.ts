@@ -410,6 +410,100 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(session.protocol).toBe("claude-print");
   });
 
+  it("clears fork mode after the first inter-run resume even when no new session id is emitted", async () => {
+    const runtimeRoot = await createTempDir();
+    const calls: Array<ReadonlyArray<string>> = [];
+    const children = [createStubChild(), createStubChild(), createStubChild()];
+    const spawnImpl: SpawnLike = (_command, args) => {
+      const stub = children[calls.length]!;
+      calls.push(args);
+      queueMicrotask(() => {
+        stub.stdout.end();
+        stub.stderr.end();
+        stub.child.emit("close", 0, null);
+      });
+      return stub.child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        runtimeRoot,
+      },
+      {
+        spawnImpl,
+        createSessionId: () => "session-prev",
+        now: () => new Date("2026-04-26T00:00:00.000Z"),
+      }
+    );
+    await adapter.prepare({ runId: "run-prev" });
+    await adapter.spawnTurn({ messages: [] });
+
+    await adapter.prepare({
+      runId: "run-next",
+      previousRunId: "run-prev",
+    });
+    await adapter.spawnTurn({ messages: [] });
+    await adapter.spawnTurn({ messages: [] });
+
+    expect(calls[1]).toEqual(
+      expect.arrayContaining(["--resume", "session-prev", "--fork-session"])
+    );
+    expect(calls[2]).toEqual(
+      expect.arrayContaining(["--resume", "session-prev"])
+    );
+    expect(calls[2]).not.toContain("--fork-session");
+  });
+
+  it("starts a fresh linked session when previousRunId has no session file", async () => {
+    const runtimeRoot = await createTempDir();
+    const calls: Array<ReadonlyArray<string>> = [];
+    const emitted: string[] = [];
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push(args);
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        runtimeRoot,
+      },
+      {
+        spawnImpl,
+        createSessionId: () => "session-fresh",
+        now: () => new Date("2026-04-26T00:00:00.000Z"),
+      }
+    );
+    adapter.onEvent((event) => {
+      emitted.push(event.name);
+    });
+
+    await adapter.prepare({
+      runId: "run-next",
+      previousRunId: "run-missing",
+    });
+    await adapter.spawnTurn({ messages: [] });
+
+    expect(calls[0]).toEqual(
+      expect.arrayContaining(["--session-id", "session-fresh"])
+    );
+    expect(calls[0]).not.toContain("--resume");
+    expect(calls[0]).not.toContain("--fork-session");
+    expect(emitted).toEqual([]);
+    const session = JSON.parse(
+      await readFile(
+        join(runtimeRoot, "runs", "run-next", "claude-session.json"),
+        "utf8"
+      )
+    ) as Record<string, unknown>;
+    expect(session.parentRunId).toBe("run-missing");
+  });
+
   it("falls back to a new session id and emits sessionInvalidated when resume returns 4xx", async () => {
     const runtimeRoot = await createTempDir();
     const calls: Array<ReadonlyArray<string>> = [];
@@ -469,12 +563,12 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(session.protocol).toBe("claude-print");
   });
 
-  it("replays a prepare-time sessionInvalidated event to later subscribers", async () => {
+  it("replays a prepare-time sessionInvalidated event to later subscribers with the read error", async () => {
     const runtimeRoot = await createTempDir();
     const runDir = join(runtimeRoot, "runs", "run-1");
     await mkdir(runDir, { recursive: true });
     await writeFile(join(runDir, "claude-session.json"), "{bad json", "utf8");
-    const emitted: string[] = [];
+    const emitted: Array<{ name: string; reason?: string }> = [];
     const adapter = new ClaudePrintRuntimeAdapter(
       {
         workingDirectory: "/workspace",
@@ -488,15 +582,53 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.prepare({ runId: "run-1" });
     adapter.onEvent((event) => {
-      emitted.push(event.name);
+      emitted.push({
+        name: event.name,
+        reason:
+          event.name === "agent.sessionInvalidated"
+            ? event.payload.reason
+            : undefined,
+      });
     });
 
-    expect(emitted).toEqual(["agent.sessionInvalidated"]);
+    expect(emitted).toEqual([
+      {
+        name: "agent.sessionInvalidated",
+        reason: expect.stringContaining("session file could not be read:"),
+      },
+    ]);
     const session = JSON.parse(
       await readFile(join(runDir, "claude-session.json"), "utf8")
     ) as Record<string, unknown>;
     expect(session.sessionId).toBe("session-recovered");
     expect(session.protocol).toBe("claude-print");
+  });
+
+  it("does not replay prepare-time sessionInvalidated events across later prepare calls", async () => {
+    const runtimeRoot = await createTempDir();
+    const runDir = join(runtimeRoot, "runs", "run-1");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "claude-session.json"), "{bad json", "utf8");
+    const emitted: string[] = [];
+    const sessionIds = ["session-recovered", "session-next"];
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+        runtimeRoot,
+      },
+      {
+        createSessionId: () => sessionIds.shift() ?? "session-extra",
+        now: () => new Date("2026-04-26T00:00:00.000Z"),
+      }
+    );
+
+    await adapter.prepare({ runId: "run-1" });
+    await adapter.prepare({ runId: "run-2" });
+    adapter.onEvent((event) => {
+      emitted.push(event.name);
+    });
+
+    expect(emitted).toEqual([]);
   });
 });
 

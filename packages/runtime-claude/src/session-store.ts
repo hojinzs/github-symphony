@@ -77,10 +77,6 @@ export class ClaudeSessionStore {
     return session;
   }
 
-  async invalidate(options: SaveClaudeSessionOptions): Promise<ClaudeSessionFile> {
-    return this.save(options);
-  }
-
   runDirectory(runId: string): string {
     return join(this.options.runtimeRoot, "runs", runId);
   }
