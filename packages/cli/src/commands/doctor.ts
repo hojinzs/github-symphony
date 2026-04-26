@@ -4,6 +4,13 @@ import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
+  runClaudePreflight,
+  isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
+  resolveRuntimeCommandBinary,
+  type ClaudePreflightCheck,
+} from "@gh-symphony/runtime-claude";
+import {
   createClient,
   getProjectDetail,
   GitHubApiError,
@@ -25,7 +32,7 @@ import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 
-type DoctorStatus = "pass" | "fail";
+type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
 
 type DoctorCheckId =
@@ -40,7 +47,10 @@ type DoctorCheckId =
   | "runtime_root"
   | "workspace_root"
   | "workflow_file"
-  | "runtime_command";
+  | "runtime_command"
+  | "claude_binary"
+  | "anthropic_api_key"
+  | "claude_mcp_config";
 
 type PathCheckReason = "missing" | "not_directory" | "not_writable";
 type WorkflowCheckReason = "missing" | "invalid";
@@ -241,6 +251,24 @@ function failCheck(
   };
 }
 
+function warnCheck(
+  id: DoctorCheckId,
+  title: string,
+  summary: string,
+  remediation?: string,
+  details?: Record<string, unknown>
+): DoctorCheckResult {
+  return {
+    id,
+    title,
+    status: "warn",
+    required: true,
+    summary,
+    remediation,
+    details,
+  };
+}
+
 function formatAuthSource(source: GitHubAuthSource): string {
   return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
 }
@@ -326,8 +354,7 @@ function buildPathCheck(
   } else if (!state.isDirectory) {
     summary = `${title} is not a directory: ${targetPath}.`;
     reason = "not_directory";
-    remediation =
-      `Move or remove the conflicting file at '${targetPath}', then create the directory with: ${createCommand}.`;
+    remediation = `Move or remove the conflicting file at '${targetPath}', then create the directory with: ${createCommand}.`;
   }
 
   return failCheck(id, title, summary, remediation, {
@@ -438,38 +465,27 @@ async function commandExistsOnPath(
   return false;
 }
 
-function extractCommandBinary(command: string): string | null {
-  const trimmed = command.trim();
-  if (!trimmed) {
-    return null;
+function toDoctorClaudeCheck(check: ClaudePreflightCheck): DoctorCheckResult {
+  const id: DoctorCheckId = check.id;
+  if (check.status === "pass") {
+    return passCheck(id, check.title, check.summary, check.details);
   }
-
-  const tokens = trimmed.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-  if (tokens.length === 0) {
-    return null;
+  if (check.status === "warn") {
+    return warnCheck(
+      id,
+      check.title,
+      check.summary,
+      check.remediation,
+      check.details
+    );
   }
-
-  const shell = stripQuotes(tokens[0]!);
-  if (
-    (shell === "bash" || shell === "sh" || shell === "zsh" || shell === "fish") &&
-    tokens.length >= 3
-  ) {
-    const flagIndex = tokens.findIndex((token) => {
-      const value = stripQuotes(token);
-      return value === "-c" || value === "-lc";
-    });
-    if (flagIndex >= 0 && flagIndex + 1 < tokens.length) {
-      const nested = stripQuotes(tokens[flagIndex + 1]!);
-      const nestedTokens = nested.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-      return nestedTokens.length > 0 ? stripQuotes(nestedTokens[0]!) : shell;
-    }
-  }
-
-  return shell;
-}
-
-function stripQuotes(value: string): string {
-  return value.replace(/^['"]|['"]$/g, "");
+  return failCheck(
+    id,
+    check.title,
+    check.summary,
+    check.remediation ?? "Fix the Claude runtime readiness check.",
+    check.details
+  );
 }
 
 function parseMajorNodeVersion(version: string): number | null {
@@ -503,11 +519,15 @@ async function checkGitInstallation(
 
     return version
       ? { installed: true, version }
-      : { installed: false, error: "git --version returned an empty response." };
+      : {
+          installed: false,
+          error: "git --version returned an empty response.",
+        };
   } catch (error) {
     return {
       installed: false,
-      error: error instanceof Error ? error.message : "Unknown Git execution error.",
+      error:
+        error instanceof Error ? error.message : "Unknown Git execution error.",
     };
   }
 }
@@ -548,7 +568,10 @@ async function checkWorkflow(
       summary: "WORKFLOW.md could not be parsed.",
       remediation:
         "Fix the WORKFLOW.md front matter or re-run 'gh-symphony init' to regenerate it.",
-      error: error instanceof Error ? error.message : "Unknown workflow parse error.",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown workflow parse error.",
     };
   }
 }
@@ -573,17 +596,14 @@ export async function runDoctorDiagnostics(
   let authLogin: string | null = null;
   let envTokenError: string | null = null;
   let resolvedProjectId: string | null = null;
-  let resolvedProjectConfig:
-    | Awaited<ReturnType<typeof inspectManagedProjectSelection>>
-    | null = null;
+  let resolvedProjectConfig: Awaited<
+    ReturnType<typeof inspectManagedProjectSelection>
+  > | null = null;
   const envToken = deps.getEnvGitHubToken();
 
   const currentNodeVersion = deps.processVersion;
   const currentNodeMajor = parseMajorNodeVersion(currentNodeVersion);
-  if (
-    currentNodeMajor !== null &&
-    currentNodeMajor >= MINIMUM_NODE_MAJOR
-  ) {
+  if (currentNodeMajor !== null && currentNodeMajor >= MINIMUM_NODE_MAJOR) {
     checks.push(
       passCheck(
         "node_runtime",
@@ -637,7 +657,11 @@ export async function runDoctorDiagnostics(
   const ghInstalled = deps.checkGhInstalled();
   if (ghInstalled) {
     checks.push(
-      passCheck("gh_installation", "gh CLI installation", "gh CLI is installed.")
+      passCheck(
+        "gh_installation",
+        "gh CLI installation",
+        "gh CLI is installed."
+      )
     );
   } else if (envToken) {
     checks.push(
@@ -659,7 +683,9 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  const ghAuth = ghInstalled ? deps.checkGhAuthenticated() : { authenticated: false };
+  const ghAuth = ghInstalled
+    ? deps.checkGhAuthenticated()
+    : { authenticated: false };
   const ghScopes =
     ghInstalled && ghAuth.authenticated
       ? deps.checkGhScopes()
@@ -670,7 +696,9 @@ export async function runDoctorDiagnostics(
       auth = await deps.validateGitHubToken(envToken, "env");
     } catch (error) {
       envTokenError =
-        error instanceof Error ? error.message : "Unknown token validation error.";
+        error instanceof Error
+          ? error.message
+          : "Unknown token validation error.";
     }
   }
 
@@ -680,7 +708,9 @@ export async function runDoctorDiagnostics(
       auth = await deps.validateGitHubToken(ghToken, "gh");
     } catch (error) {
       tokenError =
-        error instanceof Error ? error.message : "Unknown token retrieval error.";
+        error instanceof Error
+          ? error.message
+          : "Unknown token retrieval error.";
     }
   }
 
@@ -737,7 +767,9 @@ export async function runDoctorDiagnostics(
     );
   } else {
     const missingScopes =
-      ghInstalled && ghAuth.authenticated ? ghScopes.missing : [...REQUIRED_GH_SCOPES];
+      ghInstalled && ghAuth.authenticated
+        ? ghScopes.missing
+        : [...REQUIRED_GH_SCOPES];
     checks.push(
       failCheck(
         "gh_scopes",
@@ -956,7 +988,7 @@ export async function runDoctorDiagnostics(
   }
 
   if (workflow.status === "pass") {
-    const binary = extractCommandBinary(workflow.command);
+    const binary = resolveRuntimeCommandBinary(workflow.command);
     if (binary && (await commandExistsOnPath(binary, deps))) {
       checks.push(
         passCheck(
@@ -977,6 +1009,24 @@ export async function runDoctorDiagnostics(
         )
       );
     }
+
+    if (isClaudeRuntimeCommand(workflow.command)) {
+      const claudePreflight = await runClaudePreflight(
+        {
+          cwd: process.cwd(),
+          env: process.env,
+          command: resolveClaudeCommandBinary(workflow.command) ?? undefined,
+          includeGhAuth: false,
+        },
+        {
+          execFileSync: deps.execFileSync,
+          readFile: deps.readFile,
+          access: deps.access,
+          platform: deps.platform,
+        }
+      );
+      checks.push(...claudePreflight.checks.map(toDoctorClaudeCheck));
+    }
   } else {
     checks.push(
       failCheck(
@@ -990,7 +1040,7 @@ export async function runDoctorDiagnostics(
   }
 
   return {
-    ok: checks.every((check) => check.status === "pass"),
+    ok: checks.every((check) => check.status !== "fail"),
     checkedAt: new Date().toISOString(),
     configDir: options.configDir,
     projectId: resolvedProjectId,
@@ -1073,9 +1123,13 @@ function runCliRemediation(
     );
   }
 
-  const result = deps.spawnSync(deps.execPath, [cliEntry, "--config", options.configDir, ...args], {
-    stdio: "inherit",
-  });
+  const result = deps.spawnSync(
+    deps.execPath,
+    [cliEntry, "--config", options.configDir, ...args],
+    {
+      stdio: "inherit",
+    }
+  );
   if ((result.status ?? 1) === 0) {
     return remediationStep(
       `remediate_${checkId}`,
@@ -1103,8 +1157,10 @@ async function ensureDirectoryRemediation(
   check: DoctorCheckResult,
   deps: Pick<DoctorDependencies, "mkdir" | "access" | "stat" | "platform">
 ): Promise<DoctorRemediationStep> {
-  const pathValue = typeof check.details?.path === "string" ? check.details.path : null;
-  const reason = typeof check.details?.reason === "string" ? check.details.reason : null;
+  const pathValue =
+    typeof check.details?.path === "string" ? check.details.path : null;
+  const reason =
+    typeof check.details?.reason === "string" ? check.details.reason : null;
   const command =
     pathValue === null
       ? undefined
@@ -1159,7 +1215,8 @@ async function ensureDirectoryRemediation(
       { path: pathValue }
     );
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "unknown error";
     const summary =
       reason === "not_writable"
         ? `Directory '${pathValue}' exists but is not writable. Update its permissions or choose a writable location: ${errorMessage}.`
@@ -1307,7 +1364,9 @@ async function runDoctorFixes(
           break;
         }
         const reason =
-          typeof check.details?.reason === "string" ? check.details.reason : null;
+          typeof check.details?.reason === "string"
+            ? check.details.reason
+            : null;
         if (reason === "missing_binding" || reason === "api_error") {
           steps.push(
             runCliRemediation(
@@ -1354,13 +1413,23 @@ async function runDoctorFixes(
         break;
       case "workflow_file": {
         const reason =
-          typeof check.details?.reason === "string" ? check.details.reason : null;
+          typeof check.details?.reason === "string"
+            ? check.details.reason
+            : null;
         const title =
           reason === "missing"
             ? "Repository workflow initialization"
             : "Repository workflow regeneration";
         steps.push(
-          runCliRemediation(title, check.id, ["init"], deps, options, interactive, check.details)
+          runCliRemediation(
+            title,
+            check.id,
+            ["init"],
+            deps,
+            options,
+            interactive,
+            check.details
+          )
         );
         break;
       }
@@ -1383,7 +1452,8 @@ async function runDoctorFixes(
             check.id,
             check.title,
             "manual",
-            check.remediation ?? "Install the configured runtime command manually.",
+            check.remediation ??
+              "Install the configured runtime command manually.",
             typeof check.details?.binary === "string"
               ? String(check.details.binary)
               : undefined,
@@ -1392,6 +1462,21 @@ async function runDoctorFixes(
         );
         break;
       }
+      case "claude_binary":
+      case "anthropic_api_key":
+      case "claude_mcp_config":
+        steps.push(
+          remediationStep(
+            `remediate_${check.id}`,
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ?? "Fix the Claude runtime readiness check.",
+            undefined,
+            check.details
+          )
+        );
+        break;
     }
   }
 
@@ -1402,7 +1487,9 @@ function renderTextReport(report: DoctorReport): string {
   const lines = [
     `gh-symphony doctor`,
     `Auth source: ${report.authSource ?? "unavailable"}`,
-    ...(report.authLogin ? [`Authenticated GitHub user: ${report.authLogin}`] : []),
+    ...(report.authLogin
+      ? [`Authenticated GitHub user: ${report.authLogin}`]
+      : []),
     "",
   ];
   if (report.remediation) {
@@ -1417,7 +1504,13 @@ function renderTextReport(report: DoctorReport): string {
     lines.push("");
   }
   for (const check of report.checks) {
-    lines.push(`${check.status === "pass" ? "PASS" : "FAIL"} ${check.title}`);
+    const statusLabel =
+      check.status === "pass"
+        ? "PASS"
+        : check.status === "warn"
+          ? "WARN"
+          : "FAIL";
+    lines.push(`${statusLabel} ${check.title}`);
     lines.push(`  ${check.summary}`);
     if (check.remediation) {
       lines.push(`  Fix: ${check.remediation}`);
@@ -1482,9 +1575,7 @@ export async function runDoctorCommand(
   }
 }
 
-const handler = async (
-  args: string[],
-  options: GlobalOptions
-): Promise<void> => runDoctorCommand(args, options);
+const handler = async (args: string[], options: GlobalOptions): Promise<void> =>
+  runDoctorCommand(args, options);
 
 export default handler;

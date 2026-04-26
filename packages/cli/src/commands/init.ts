@@ -1,4 +1,10 @@
 import * as p from "@clack/prompts";
+import {
+  formatClaudePreflightText,
+  isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -32,10 +38,7 @@ import {
   type StateRole,
   type StateMapping,
 } from "../config.js";
-import {
-  getGhTokenWithSource,
-  GhAuthError,
-} from "../github/gh-auth.js";
+import { getGhTokenWithSource, GhAuthError } from "../github/gh-auth.js";
 import { resolveGitHubAuth } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
@@ -49,7 +52,10 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "../workflow/default-hooks.js";
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
-import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
+import {
+  buildSkillFilePlans,
+  resolveSkillsDir,
+} from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 
 // ── Scope error display ───────────────────────────────────────────────────────
@@ -77,7 +83,10 @@ function displayScopeError(
 }
 
 export function warnIfProjectDiscoveryPartial(
-  result: Pick<ProjectDiscoveryResult, "partial" | "reason" | "projects" | "requests">
+  result: Pick<
+    ProjectDiscoveryResult,
+    "partial" | "reason" | "projects" | "requests"
+  >
 ): void {
   if (!result.partial) {
     return;
@@ -113,6 +122,7 @@ type InitFlags = {
   nonInteractive: boolean;
   project?: string;
   output?: string;
+  runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
 };
@@ -121,6 +131,7 @@ function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
     dryRun: false,
     nonInteractive: false,
+    runtime: "codex",
     skipSkills: false,
     skipContext: false,
   };
@@ -143,6 +154,10 @@ function parseInitFlags(args: string[]): InitFlags {
         flags.output = next;
         i += 1;
         break;
+      case "--runtime":
+        flags.runtime = next ?? "";
+        i += 1;
+        break;
       case "--skip-skills":
         flags.skipSkills = true;
         break;
@@ -153,6 +168,27 @@ function parseInitFlags(args: string[]): InitFlags {
   }
 
   return flags;
+}
+
+async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+  if (!isClaudeRuntimeCommand(runtime)) {
+    return true;
+  }
+
+  const report = await runClaudePreflight({
+    cwd: process.cwd(),
+    env: process.env,
+    command: resolveClaudeCommandBinary(runtime) ?? undefined,
+    includeGhAuth: true,
+  });
+  const message = formatClaudePreflightText(report);
+  if (report.ok) {
+    p.log.info(message);
+    return true;
+  }
+
+  p.log.error(message);
+  return false;
 }
 
 // ── Init command handler ─────────────────────────────────────────────────────
@@ -319,7 +355,9 @@ export function buildAutomaticStateMappings(
   statusField: ProjectStatusField
 ): Record<string, StateMapping> {
   const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferAllStateRoles(statusField.options.map((o) => o.name))) {
+  for (const mapping of inferAllStateRoles(
+    statusField.options.map((o) => o.name)
+  )) {
     if (mapping.role) {
       mappings[mapping.columnName] = { role: mapping.role };
     }
@@ -685,7 +723,9 @@ function printEcosystemSummary(
   const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
 
   const lines: string[] = [];
-  lines.push(`GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`);
+  lines.push(
+    `GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`
+  );
   lines.push(`Runtime   ${result.runtime}`);
   if (result.priorityFieldName) {
     lines.push(`Priority field   ${result.priorityFieldName}`);
@@ -896,6 +936,11 @@ async function runNonInteractive(
     return;
   }
 
+  if (!(await runInitRuntimePreflight(flags.runtime))) {
+    process.exitCode = 1;
+    return;
+  }
+
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
@@ -904,7 +949,7 @@ async function runNonInteractive(
     statusField,
     priorityField: autoPriorityField,
     mappings,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -929,7 +974,7 @@ async function runNonInteractive(
     projectDetail: githubProject,
     statusField,
     priorityField: autoPriorityField,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -1075,6 +1120,11 @@ async function runInteractiveStandalone(
     p.log.warn(`  ⚠ ${warn}`);
   }
 
+  if (!(await runInitRuntimePreflight(flags.runtime))) {
+    process.exitCode = 1;
+    return;
+  }
+
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
@@ -1083,7 +1133,7 @@ async function runInteractiveStandalone(
     statusField,
     priorityField,
     mappings,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -1100,7 +1150,7 @@ async function runInteractiveStandalone(
     projectDetail,
     statusField,
     priorityField,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });

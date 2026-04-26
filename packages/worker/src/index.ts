@@ -20,6 +20,12 @@ import {
   type RuntimeToolDefinition,
 } from "@gh-symphony/runtime-codex";
 import {
+  formatClaudePreflightText,
+  isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
+import {
   loadLauncherEnvironment,
   resolveLocalRuntimeLaunchConfig,
 } from "@gh-symphony/runtime-codex";
@@ -34,9 +40,7 @@ import {
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import {
-  buildContinuationTurnInput,
-} from "./thread-resume.js";
+import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
@@ -479,6 +483,24 @@ async function startAssignedRun() {
       blockerCheckStates: workflow.lifecycle.blockerCheckStates,
       activeStates: workflow.lifecycle.activeStates,
     });
+    if (isClaudeRuntimeCommand(workflow.codex.command)) {
+      const preflight = await runClaudePreflight({
+        cwd: launcherEnv.WORKING_DIRECTORY!,
+        env: launcherEnv,
+        command:
+          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
+        includeGhAuth: true,
+      });
+      process.stderr.write(
+        `[worker] ${formatClaudePreflightText(preflight)}\n`
+      );
+      if (!preflight.ok) {
+        await exitWorkerStartupFailure(
+          "Claude runtime preflight failed before agent launch."
+        );
+        return;
+      }
+    }
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = workflow.codex.command;
     runtimeState.runPhase = "launching_agent";
@@ -542,6 +564,22 @@ async function startAssignedRun() {
     }
     await persistSessionTokenUsageArtifact(launcherEnv);
   }
+}
+
+async function exitWorkerStartupFailure(message: string): Promise<void> {
+  runtimeState.status = "failed";
+  runtimeState.runPhase = "failed";
+  if (runtimeState.run) {
+    runtimeState.run.lastError = message;
+  }
+  process.stderr.write(`[worker] ${message}\n`);
+  stopOrchestratorHeartbeatTimer();
+  emitOrchestratorHeartbeat();
+  await persistSessionTokenUsageArtifact(launcherEnv);
+  await waitForPendingOrchestratorChannelFlush(
+    resolveTerminalOrchestratorChannelFlushTimeoutMs()
+  );
+  process.exit(1);
 }
 
 /**
@@ -1088,10 +1126,14 @@ async function runCodexClientProtocol(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
     );
 
-    const threadResult = (await sendRequestWithTimeout("thread-1", "thread/start", {
-      ...baseThreadParams,
-      ephemeral: false,
-    })) as Record<string, unknown>;
+    const threadResult = (await sendRequestWithTimeout(
+      "thread-1",
+      "thread/start",
+      {
+        ...baseThreadParams,
+        ephemeral: false,
+      }
+    )) as Record<string, unknown>;
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??

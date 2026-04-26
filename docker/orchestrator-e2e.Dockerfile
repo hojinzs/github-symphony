@@ -26,26 +26,26 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy built monorepo (packages + node_modules)
-COPY --from=build /app/packages /app/packages
-COPY --from=build /app/node_modules /app/node_modules
-COPY --from=build /app/package.json /app/package.json
+COPY --from=build --chown=node:node /app/packages /app/packages
+COPY --from=build --chown=node:node /app/node_modules /app/node_modules
+COPY --from=build --chown=node:node /app/package.json /app/package.json
 
 # Copy compiled stub worker
-COPY --from=build /app/e2e-compiled/stub-worker.js /app/e2e/stub-worker.js
+COPY --from=build --chown=node:node /app/e2e-compiled/stub-worker.js /app/e2e/stub-worker.js
 
 # Copy seed data
-COPY e2e/seed /e2e/seed
+COPY --chown=node:node e2e/seed /e2e/seed
 
 # Initialize bare git repo for E2E
 RUN bash /e2e/seed/init-repo.sh
 
 # Prepare entrypoint
-COPY e2e/seed/entrypoint.sh /e2e/entrypoint.sh
+COPY --chown=node:node e2e/seed/entrypoint.sh /e2e/entrypoint.sh
 RUN chmod +x /e2e/entrypoint.sh
 
 # Ensure fixtures directory exists
-RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence && \
-    chown -R node:node /app /e2e
+RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos && \
+    chown -R node:node /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos
 
 USER node
 

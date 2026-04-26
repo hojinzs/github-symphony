@@ -59,6 +59,7 @@ type CliOptionValues = Partial<
     projectId?: string;
     prune?: boolean;
     run?: string;
+    runtime?: string;
     skipContext?: boolean;
     skipSkills?: boolean;
     version?: boolean;
@@ -196,6 +197,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option("--runtime <runtime>", "Runtime preset or command")
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -207,6 +209,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--non-interactive", values.nonInteractive);
     pushOption(args, "--project", values.project);
     pushOption(args, "--output", values.output);
+    pushOption(args, "--runtime", values.runtime);
     pushOption(args, "--skip-skills", values.skipSkills);
     pushOption(args, "--skip-context", values.skipContext);
     pushOption(args, "--dry-run", values.dryRun);
@@ -233,6 +236,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option("--runtime <runtime>", "Runtime preset or command")
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -244,6 +248,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--non-interactive", values.nonInteractive);
     pushOption(args, "--project", values.project);
     pushOption(args, "--output", values.output);
+    pushOption(args, "--runtime", values.runtime);
     pushOption(args, "--skip-skills", values.skipSkills);
     pushOption(args, "--skip-context", values.skipContext);
     pushOption(args, "--dry-run", values.dryRun);
