@@ -123,8 +123,12 @@ describe("generateWorkflowMarkdown", () => {
       parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
     ).toBe(true);
     expect(parsed.promptTemplate).toContain(CLAUDE_RUNTIME_CONSTRAINTS_SECTION);
+    expect(parsed.promptTemplate).toContain(
+      "This run uses `claude-code` (Claude Code CLI) in non-interactive mode via `claude -p`."
+    );
     expect(parsed.promptTemplate).toContain(CLAUDE_PERMISSIVE_ISOLATION_NOTE);
     expect(parsed.promptTemplate).toContain(CLAUDE_ISOLATION_OFF_NOTE);
+    expect(parsed.promptTemplate).toContain("Runtime trade-off note:");
     expect(
       parsed.promptTemplate.indexOf("## Runtime Constraints")
     ).toBeLessThan(parsed.promptTemplate.indexOf("## Status Map"));

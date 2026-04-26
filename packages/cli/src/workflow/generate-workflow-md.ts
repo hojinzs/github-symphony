@@ -168,7 +168,7 @@ Create a workpad comment on the issue with the following structure to track prog
 }
 
 function buildRuntimePromptPreamble(runtime: string): string {
-  return runtime === "claude-code" || runtime.includes("claude-code")
+  return runtime.includes("claude-code")
     ? CLAUDE_RUNTIME_PROMPT_PREAMBLE
     : "";
 }
