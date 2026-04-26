@@ -96,4 +96,18 @@ describe("classifyClaudeTurnExit", () => {
       resultStatus: undefined,
     });
   });
+
+  it("classifies SIGINT as a non-transient process error", () => {
+    expect(
+      classifyClaudeTurnExit({
+        exitCode: null,
+        signal: "SIGINT",
+      })
+    ).toEqual({
+      kind: "process-error",
+      transient: false,
+      reason: "signal_SIGINT",
+      resultStatus: undefined,
+    });
+  });
 });

@@ -208,6 +208,80 @@ describe("spawnClaudeTurn", () => {
     expect(eventNames).toEqual(["agent.error"]);
   });
 
+  it("records stderr JSON without emitting neutral events or mutating stdout state", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stderr.write(
+          '{"type":"error","error":{"type":"api_error","message":"stderr debug"}}\n'
+        );
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const eventNames: string[] = [];
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          eventNames.push(event.name);
+        },
+      }
+    );
+
+    expect(result.result).toBe("success");
+    expect(eventNames).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
+    expect(result.records).toContainEqual({
+      stream: "stderr",
+      line: '{"type":"error","error":{"type":"api_error","message":"stderr debug"}}',
+      message: {
+        type: "error",
+        error: {
+          type: "api_error",
+          message: "stderr debug",
+        },
+      },
+    });
+  });
+
   it("returns a structured process error when spawn emits error", async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();

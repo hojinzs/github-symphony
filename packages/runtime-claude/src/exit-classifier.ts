@@ -73,11 +73,14 @@ export function classifyClaudeTurnExit(
 export function isTransientClaudeFailure(
   input: ClaudeTurnExitClassificationInput
 ): boolean {
-  if (input.sawRateLimit || extractRateLimit(input.resultEvent ?? {}) !== null) {
+  if (
+    input.sawRateLimit ||
+    (input.resultEvent && extractRateLimit(input.resultEvent) !== null)
+  ) {
     return true;
   }
 
-  if (input.signal === "SIGTERM" || input.signal === "SIGINT") {
+  if (input.signal === "SIGTERM") {
     return true;
   }
 

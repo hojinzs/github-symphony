@@ -79,9 +79,11 @@ export class ClaudePrintEventMapper {
       return events;
     }
 
-    const toolUseEvent = mapToolUseEvent(message, this.options);
-    if (toolUseEvent) {
-      events.push(toolUseEvent);
+    if (type === "content_block_start" || type === "tool_use") {
+      const toolUseEvent = mapToolUseEvent(message, this.options);
+      if (toolUseEvent) {
+        events.push(toolUseEvent);
+      }
     }
 
     if (type === "content_block_delta") {
@@ -170,6 +172,8 @@ export function mapClaudePrintEvent(
   message: ClaudePrintWireEvent,
   options: ClaudePrintEventMapperOptions = {}
 ): AgentEvent[] {
+  // Single-message helper. Use ClaudePrintEventMapper directly for streams so
+  // turn-start inference and latest result/error state are preserved.
   return new ClaudePrintEventMapper(options).mapMessage(message);
 }
 

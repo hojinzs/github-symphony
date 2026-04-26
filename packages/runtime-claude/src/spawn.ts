@@ -87,8 +87,8 @@ export async function spawnClaudeTurn(
     child.stderr,
     "stderr",
     records,
-    eventMapper,
-    emitEvent
+    new ClaudePrintEventMapper(),
+    () => {}
   );
   const exitDone = waitForChildExit(child, records);
 
