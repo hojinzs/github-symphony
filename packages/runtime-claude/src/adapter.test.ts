@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -42,8 +45,21 @@ function createStubChild() {
 }
 
 describe("ClaudePrintRuntimeAdapter", () => {
+  const tempRoots: string[] = [];
+
   afterEach(() => {
     delete process.env.GITHUB_TOKEN;
+  });
+
+  afterEach(async () => {
+    await Promise.all(
+      tempRoots.splice(0).map((root) =>
+        rm(root, {
+          force: true,
+          recursive: true,
+        })
+      )
+    );
   });
 
   it("spawns claude with default argv and merged env", async () => {
@@ -169,6 +185,59 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
 
     expect(calls[0]?.GITHUB_TOKEN).toBe("from-process-env");
+  });
+
+  it("prepares strict MCP config argv and removes the ephemeral file on shutdown", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+    const calls: Array<{
+      args: ReadonlyArray<string>;
+    }> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push({ args });
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: workspaceRoot,
+        runtimeDirectory: runtimeRoot,
+        env: {
+          GITHUB_GRAPHQL_TOKEN: "runtime-token",
+        },
+        isolation: {
+          strictMcpConfig: true,
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.prepare({ runId: "run-1" });
+    await adapter.spawnTurn({
+      messages: [],
+    });
+
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(calls[0]?.args).toContain("--strict-mcp-config");
+    expect(calls[0]?.args).toContain("--mcp-config");
+    expect(calls[0]?.args).toContain(mcpConfigPath);
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+
+    await adapter.shutdown();
+
+    await expect(readFile(mcpConfigPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("terminates the in-flight child on cancel", async () => {

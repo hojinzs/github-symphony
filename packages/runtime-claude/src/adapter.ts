@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { rm } from "node:fs/promises";
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
@@ -15,6 +16,10 @@ import {
   type ClaudeRuntimeSessionOptions,
 } from "./argv.js";
 import {
+  composeClaudeMcpConfig,
+  type ClaudeMcpCompositionResult,
+} from "./mcp-compose.js";
+import {
   spawnClaudeTurn,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -23,6 +28,7 @@ import {
 
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
+  runtimeDirectory?: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
   extraArgs?: readonly string[];
@@ -65,15 +71,28 @@ export class ClaudePrintRuntimeAdapter
     >
 {
   private activeChild: ChildProcess | null = null;
+  private preparedMcpConfig: ClaudeMcpCompositionResult | null = null;
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
     private readonly dependencies: ClaudeSpawnDependencies = {}
   ) {}
 
-  prepare(_context: ClaudeRuntimePrepareContext): void {
-    // TODO(#7,#8,#10): MCP composition, session persistence, and preflight
-    // checks will populate this hook once the worker-side runtime wiring lands.
+  async prepare(_context: ClaudeRuntimePrepareContext): Promise<void> {
+    await this.cleanupPreparedMcpConfig();
+    this.preparedMcpConfig = await composeClaudeMcpConfig(
+      this.config.workingDirectory,
+      this.config.isolation?.strictMcpConfig === true,
+      {
+        ...process.env,
+        ...this.config.env,
+        ...(this.config.runtimeDirectory
+          ? {
+              WORKSPACE_RUNTIME_DIR: this.config.runtimeDirectory,
+            }
+          : {}),
+      }
+    );
   }
 
   async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
@@ -127,14 +146,16 @@ export class ClaudePrintRuntimeAdapter
     return extractEnvForClaude(brokerResponse.env);
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
-  cancel(_reason?: string): void {
+  async cancel(_reason?: string): Promise<void> {
     // TODO(#8,#9): replace direct process termination with session-aware
     // cancellation once Claude runtime turn orchestration is wired end-to-end.
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
@@ -142,6 +163,12 @@ export class ClaudePrintRuntimeAdapter
       session: input.session,
       isolation: {
         ...this.config.isolation,
+        ...(this.preparedMcpConfig?.cleanupPath
+          ? {
+              strictMcpConfig: true,
+              mcpConfigPath: this.preparedMcpConfig.finalPath,
+            }
+          : {}),
         ...input.isolation,
       },
       extraArgs: input.extraArgs ?? this.config.extraArgs,
@@ -156,6 +183,17 @@ export class ClaudePrintRuntimeAdapter
 
     this.activeChild.kill("SIGTERM");
     this.activeChild = null;
+  }
+
+  private async cleanupPreparedMcpConfig(): Promise<void> {
+    const cleanupPath = this.preparedMcpConfig?.cleanupPath;
+    this.preparedMcpConfig = null;
+
+    if (!cleanupPath) {
+      return;
+    }
+
+    await rm(cleanupPath, { force: true });
   }
 }
 
