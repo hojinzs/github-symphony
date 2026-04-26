@@ -1,4 +1,9 @@
 import * as p from "@clack/prompts";
+import {
+  formatClaudePreflightText,
+  isClaudeRuntimeCommand,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -113,6 +118,7 @@ type InitFlags = {
   nonInteractive: boolean;
   project?: string;
   output?: string;
+  runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
 };
@@ -121,6 +127,7 @@ function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
     dryRun: false,
     nonInteractive: false,
+    runtime: "codex",
     skipSkills: false,
     skipContext: false,
   };
@@ -143,6 +150,10 @@ function parseInitFlags(args: string[]): InitFlags {
         flags.output = next;
         i += 1;
         break;
+      case "--runtime":
+        flags.runtime = next ?? "";
+        i += 1;
+        break;
       case "--skip-skills":
         flags.skipSkills = true;
         break;
@@ -153,6 +164,27 @@ function parseInitFlags(args: string[]): InitFlags {
   }
 
   return flags;
+}
+
+async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+  if (!isClaudeRuntimeCommand(runtime)) {
+    return true;
+  }
+
+  const report = await runClaudePreflight({
+    cwd: process.cwd(),
+    env: process.env,
+    command: runtime,
+    includeGhAuth: true,
+  });
+  const message = formatClaudePreflightText(report);
+  if (report.ok) {
+    p.log.info(message);
+    return true;
+  }
+
+  p.log.error(message);
+  return false;
 }
 
 // ── Init command handler ─────────────────────────────────────────────────────
@@ -896,6 +928,11 @@ async function runNonInteractive(
     return;
   }
 
+  if (!(await runInitRuntimePreflight(flags.runtime))) {
+    process.exitCode = 1;
+    return;
+  }
+
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
@@ -904,7 +941,7 @@ async function runNonInteractive(
     statusField,
     priorityField: autoPriorityField,
     mappings,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -929,7 +966,7 @@ async function runNonInteractive(
     projectDetail: githubProject,
     statusField,
     priorityField: autoPriorityField,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -1075,6 +1112,11 @@ async function runInteractiveStandalone(
     p.log.warn(`  ⚠ ${warn}`);
   }
 
+  if (!(await runInitRuntimePreflight(flags.runtime))) {
+    process.exitCode = 1;
+    return;
+  }
+
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
@@ -1083,7 +1125,7 @@ async function runInteractiveStandalone(
     statusField,
     priorityField,
     mappings,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -1100,7 +1142,7 @@ async function runInteractiveStandalone(
     projectDetail,
     statusField,
     priorityField,
-    runtime: "codex",
+    runtime: flags.runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });

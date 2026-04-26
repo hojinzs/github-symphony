@@ -66,6 +66,9 @@ importers:
       '@gh-symphony/orchestrator':
         specifier: workspace:*
         version: link:../orchestrator
+      '@gh-symphony/runtime-claude':
+        specifier: workspace:*
+        version: link:../runtime-claude
       '@gh-symphony/tracker-github':
         specifier: workspace:*
         version: link:../tracker-github
@@ -207,6 +210,9 @@ importers:
       '@gh-symphony/extension-github-workflow':
         specifier: workspace:*
         version: link:../extension-github-workflow
+      '@gh-symphony/runtime-claude':
+        specifier: workspace:*
+        version: link:../runtime-claude
       '@gh-symphony/runtime-codex':
         specifier: workspace:*
         version: link:../runtime-codex

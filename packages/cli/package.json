@@ -50,6 +50,7 @@
     "@gh-symphony/control-plane": "workspace:*",
     "@gh-symphony/dashboard": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
+    "@gh-symphony/runtime-claude": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
     "@gh-symphony/worker": "workspace:*",
     "tsup": "^8.5.1"

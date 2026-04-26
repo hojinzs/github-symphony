@@ -20,6 +20,11 @@ import {
   type RuntimeToolDefinition,
 } from "@gh-symphony/runtime-codex";
 import {
+  formatClaudePreflightText,
+  isClaudeRuntimeCommand,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
+import {
   loadLauncherEnvironment,
   resolveLocalRuntimeLaunchConfig,
 } from "@gh-symphony/runtime-codex";
@@ -479,6 +484,22 @@ async function startAssignedRun() {
       blockerCheckStates: workflow.lifecycle.blockerCheckStates,
       activeStates: workflow.lifecycle.activeStates,
     });
+    if (isClaudeRuntimeCommand(workflow.codex.command)) {
+      runtimeState.runPhase = "launching_agent";
+      const preflight = await runClaudePreflight({
+        cwd: launcherEnv.WORKING_DIRECTORY!,
+        env: launcherEnv,
+        command: resolveRuntimeCommandBinary(workflow.codex.command) ?? undefined,
+        includeGhAuth: true,
+      });
+      process.stderr.write(`[worker] ${formatClaudePreflightText(preflight)}\n`);
+      if (!preflight.ok) {
+        await exitWorkerStartupFailure(
+          "Claude runtime preflight failed before agent launch."
+        );
+        return;
+      }
+    }
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = workflow.codex.command;
     runtimeState.runPhase = "launching_agent";
@@ -542,6 +563,49 @@ async function startAssignedRun() {
     }
     await persistSessionTokenUsageArtifact(launcherEnv);
   }
+}
+
+function resolveRuntimeCommandBinary(command: string): string | null {
+  const tokens = command.trim().match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  if (tokens.length === 0) {
+    return null;
+  }
+  const first = stripRuntimeCommandQuotes(tokens[0]!);
+  if (
+    (first === "bash" || first === "sh" || first === "zsh" || first === "fish") &&
+    tokens.length >= 3
+  ) {
+    const flagIndex = tokens.findIndex((token) => {
+      const value = stripRuntimeCommandQuotes(token);
+      return value === "-c" || value === "-lc";
+    });
+    if (flagIndex >= 0 && flagIndex + 1 < tokens.length) {
+      return resolveRuntimeCommandBinary(
+        stripRuntimeCommandQuotes(tokens[flagIndex + 1]!)
+      );
+    }
+  }
+  return first;
+}
+
+function stripRuntimeCommandQuotes(value: string): string {
+  return value.replace(/^['"]|['"]$/g, "");
+}
+
+async function exitWorkerStartupFailure(message: string): Promise<void> {
+  runtimeState.status = "failed";
+  runtimeState.runPhase = "failed";
+  if (runtimeState.run) {
+    runtimeState.run.lastError = message;
+  }
+  process.stderr.write(`[worker] ${message}\n`);
+  stopOrchestratorHeartbeatTimer();
+  emitOrchestratorHeartbeat();
+  await persistSessionTokenUsageArtifact(launcherEnv);
+  await waitForPendingOrchestratorChannelFlush(
+    resolveTerminalOrchestratorChannelFlushTimeoutMs()
+  );
+  process.exit(1);
 }
 
 /**
