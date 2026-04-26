@@ -44,7 +44,7 @@ COPY --chown=node:node e2e/seed/entrypoint.sh /e2e/entrypoint.sh
 RUN chmod +x /e2e/entrypoint.sh
 
 # Ensure fixtures directory exists
-RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence && \
+RUN mkdir -p /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos && \
     chown -R node:node /e2e/fixtures /e2e/workspaces /e2e/evidence /e2e/repos
 
 USER node

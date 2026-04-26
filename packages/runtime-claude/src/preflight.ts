@@ -36,6 +36,10 @@ export type ClaudePreflightDependencies = {
 export type ClaudePreflightOptions = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Claude CLI binary name or path, for example "claude" or "/usr/local/bin/claude".
+   * Full shell command strings are accepted for compatibility and resolved to the binary.
+   */
   command?: string;
   includeGhAuth?: boolean;
   probeCredentialBroker?: boolean;
@@ -55,7 +59,7 @@ export async function runClaudePreflight(
 ): Promise<ClaudePreflightReport> {
   const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
   const env = options.env ?? process.env;
-  const command = options.command?.trim() || "claude";
+  const command = resolveRuntimeCommandBinary(options.command) ?? "claude";
   const checks: ClaudePreflightCheck[] = [];
 
   checks.push(checkClaudeBinary(command, deps));
@@ -71,11 +75,17 @@ export async function runClaudePreflight(
   };
 }
 
-export function formatClaudePreflightText(report: ClaudePreflightReport): string {
+export function formatClaudePreflightText(
+  report: ClaudePreflightReport
+): string {
   const lines = ["Claude runtime preflight"];
   for (const check of report.checks) {
     const label =
-      check.status === "pass" ? "PASS" : check.status === "warn" ? "WARN" : "FAIL";
+      check.status === "pass"
+        ? "PASS"
+        : check.status === "warn"
+          ? "WARN"
+          : "FAIL";
     lines.push(`${label} ${check.title}`);
     lines.push(`  ${check.summary}`);
     if (check.remediation) {
@@ -127,7 +137,8 @@ function checkClaudeBinary(
       })
       .toString()
       .split(/\r?\n/)
-      .find((line) => line.trim())?.trim();
+      .find((line) => line.trim())
+      ?.trim();
     const version = deps
       .execFileSync(command, ["--version"], {
         encoding: "utf8",
@@ -309,31 +320,61 @@ function checkGhAuthentication(
   }
 }
 
-export function isClaudeRuntimeCommand(command: string | null | undefined): boolean {
+export function isClaudeRuntimeCommand(
+  command: string | null | undefined
+): boolean {
+  return resolveClaudeCommandBinary(command) != null;
+}
+
+export function resolveClaudeCommandBinary(
+  command: string | null | undefined
+): string | null {
+  const binary = resolveRuntimeCommandBinary(command);
+  return binary != null && isClaudeBinaryName(binary) ? binary : null;
+}
+
+export function resolveRuntimeCommandBinary(
+  command: string | null | undefined
+): string | null {
   const normalized = (command ?? "").trim();
   if (!normalized) {
-    return false;
+    return null;
   }
-  const tokens = normalized.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const tokens = tokenizeRuntimeCommand(normalized);
   if (tokens.length === 0) {
-    return false;
+    return null;
   }
-  const first = stripQuotes(tokens[0]!);
+  const first = stripClaudeCommandQuotes(tokens[0]!);
   if (
-    (first === "bash" || first === "sh" || first === "zsh" || first === "fish") &&
+    (first === "bash" ||
+      first === "sh" ||
+      first === "zsh" ||
+      first === "fish") &&
     tokens.length >= 3
   ) {
     const flagIndex = tokens.findIndex((token) => {
-      const value = stripQuotes(token);
+      const value = stripClaudeCommandQuotes(token);
       return value === "-c" || value === "-lc";
     });
     if (flagIndex >= 0 && flagIndex + 1 < tokens.length) {
-      return isClaudeRuntimeCommand(stripQuotes(tokens[flagIndex + 1]!));
+      return resolveRuntimeCommandBinary(
+        stripClaudeCommandQuotes(tokens[flagIndex + 1]!)
+      );
     }
   }
-  return first === "claude" || first === "claude-code";
+
+  return first;
 }
 
-function stripQuotes(value: string): string {
+export function stripClaudeCommandQuotes(value: string): string {
   return value.replace(/^['"]|['"]$/g, "");
+}
+
+function tokenizeRuntimeCommand(command: string): string[] {
+  return command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+}
+
+function isClaudeBinaryName(command: string): boolean {
+  const normalized = command.split(/[\\/]/).pop() ?? command;
+  return normalized === "claude" || normalized === "claude-code";
 }
