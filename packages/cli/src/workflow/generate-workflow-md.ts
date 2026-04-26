@@ -1,6 +1,7 @@
 import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
 import type { StateMapping } from "../config.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import { CLAUDE_RUNTIME_PROMPT_PREAMBLE } from "../prompts/runtime-claude-constraints.js";
 import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 
@@ -15,7 +16,11 @@ export type GenerateWorkflowInput = {
   concurrency?: number;
   detectedEnvironment: Pick<
     DetectedEnvironment,
-    "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
+    | "packageManager"
+    | "testCommand"
+    | "lintCommand"
+    | "buildCommand"
+    | "monorepo"
   >;
 };
 
@@ -96,7 +101,8 @@ function buildPromptBody(input: GenerateWorkflowInput): string {
   const validationGuidance = buildRepositoryValidationGuidance(
     input.detectedEnvironment
   );
-  const template = `${statusMap}
+  const runtimePreamble = buildRuntimePromptPreamble(input.runtime);
+  const templateBody = `${statusMap}
 
 ## Agent Instructions
 
@@ -158,7 +164,13 @@ Create a workpad comment on the issue with the following structure to track prog
 - Progress notes
 \`\`\``;
 
-  return template;
+  return [runtimePreamble, templateBody].filter(Boolean).join("\n\n");
+}
+
+function buildRuntimePromptPreamble(runtime: string): string {
+  return runtime.includes("claude-code")
+    ? CLAUDE_RUNTIME_PROMPT_PREAMBLE
+    : "";
 }
 
 function generateStatusMapWithDescriptions(

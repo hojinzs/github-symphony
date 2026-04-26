@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseWorkflowMarkdown, renderPrompt } from "@gh-symphony/core";
+import {
+  CLAUDE_ISOLATION_OFF_NOTE,
+  CLAUDE_PERMISSIVE_ISOLATION_NOTE,
+  CLAUDE_RUNTIME_CONSTRAINTS_SECTION,
+  CLAUDE_RUNTIME_PROMPT_PREAMBLE,
+} from "../prompts/runtime-claude-constraints.js";
 import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { generateWorkflowMarkdown } from "./generate-workflow-md.js";
 
@@ -106,19 +112,82 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("command: claude-code");
   });
 
+  it("prepends Claude runtime constraints and trade-off comments to the prompt body", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      runtime: "claude-code",
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(
+      parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
+    ).toBe(true);
+    expect(parsed.promptTemplate).toContain(CLAUDE_RUNTIME_CONSTRAINTS_SECTION);
+    expect(parsed.promptTemplate).toContain(
+      "This run uses `claude-code` (Claude Code CLI) in non-interactive mode via `claude -p`."
+    );
+    expect(parsed.promptTemplate).toContain(CLAUDE_PERMISSIVE_ISOLATION_NOTE);
+    expect(parsed.promptTemplate).toContain(CLAUDE_ISOLATION_OFF_NOTE);
+    expect(parsed.promptTemplate).toContain("Runtime trade-off note:");
+    expect(
+      parsed.promptTemplate.indexOf("## Runtime Constraints")
+    ).toBeLessThan(parsed.promptTemplate.indexOf("## Status Map"));
+  });
+
+  it("prepends Claude runtime constraints for wrapped Claude command strings", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      runtime: "bash -lc claude-code",
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("command: bash -lc claude-code");
+    expect(
+      parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
+    ).toBe(true);
+  });
+
+  it("keeps the Codex prompt body unchanged while Claude only adds the runtime preamble", () => {
+    const codexMarkdown = generateWorkflowMarkdown(defaultInput);
+    const claudeMarkdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      runtime: "claude-code",
+    });
+    const codexPrompt = parseWorkflowMarkdown(codexMarkdown, {}).promptTemplate;
+    const claudePrompt = parseWorkflowMarkdown(
+      claudeMarkdown,
+      {}
+    ).promptTemplate;
+
+    expect(codexPrompt.startsWith("## Status Map")).toBe(true);
+    expect(codexPrompt).not.toContain("## Runtime Constraints");
+    expect(codexPrompt).not.toContain("Permissive preset requires");
+    expect(codexPrompt).not.toContain("Isolation is off by default");
+    expect(claudePrompt).toBe(
+      `${CLAUDE_RUNTIME_PROMPT_PREAMBLE}\n\n${codexPrompt}`
+    );
+  });
+
   it("uses custom runtime string as agent command", () => {
     const markdown = generateWorkflowMarkdown({
       ...defaultInput,
       runtime: "node worker.js",
     });
+    const parsed = parseWorkflowMarkdown(markdown, {});
 
     expect(markdown).toContain("command: node worker.js");
+    expect(parsed.promptTemplate.startsWith("## Status Map")).toBe(true);
+    expect(parsed.promptTemplate).not.toContain("## Runtime Constraints");
+    expect(parsed.promptTemplate).not.toContain("Permissive preset requires");
+    expect(parsed.promptTemplate).not.toContain("Isolation is off by default");
   });
 
   it("points after_create at the scaffolded default hook path", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
-    expect(markdown).toContain(`after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`);
+    expect(markdown).toContain(
+      `after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`
+    );
   });
 
   it("includes template variables that resolve without errors", () => {
