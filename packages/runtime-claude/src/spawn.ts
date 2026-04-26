@@ -145,15 +145,6 @@ async function collectNdjsonStream(
     }
   });
 
-  stream.on("error", (error) => {
-    records.push({
-      stream: channel,
-      line: "",
-      parseError:
-        error instanceof Error ? error.message : "Unknown stream error.",
-    });
-  });
-
   try {
     await finished(stream);
   } catch (error) {

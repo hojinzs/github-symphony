@@ -241,11 +241,18 @@ describe("spawnClaudeTurn", () => {
     );
 
     expect(result.result).toBe("process-error");
-    expect(result.records).toContainEqual({
-      stream: "stdout",
-      line: "",
-      parseError: "stdout boom",
-    });
+    expect(
+      result.records.filter(
+        (record) =>
+          record.stream === "stdout" && record.parseError === "stdout boom"
+      )
+    ).toEqual([
+      {
+        stream: "stdout",
+        line: "",
+        parseError: "stdout boom",
+      },
+    ]);
   });
 
   it("does not hang when stdin closes before drain after backpressure", async () => {
