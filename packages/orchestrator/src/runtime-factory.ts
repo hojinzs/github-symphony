@@ -21,7 +21,6 @@ import {
   type ClaudePrintRuntimeAdapter,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
-  type ClaudeWireMessage,
 } from "@gh-symphony/runtime-claude";
 
 export type WorkflowRuntimeFactoryContext = {
@@ -46,8 +45,10 @@ export type CustomCommandRuntimeConfig = {
   env?: NodeJS.ProcessEnv;
 };
 
+export type CustomRuntimeMessage = Record<string, unknown>;
+
 export type CustomRuntimeTurnInput = {
-  messages: ClaudeWireMessage | readonly ClaudeWireMessage[];
+  messages?: CustomRuntimeMessage | readonly CustomRuntimeMessage[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   command?: string;
@@ -80,7 +81,7 @@ export class CustomCommandRuntimeAdapter
           ...this.config.env,
           ...input.env,
         },
-        stdinMessages: input.messages,
+        stdinMessages: input.messages ?? [],
       },
       this.dependencies
     );

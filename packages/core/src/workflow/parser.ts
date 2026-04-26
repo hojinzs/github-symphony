@@ -16,6 +16,7 @@ import {
   type ParsedWorkflow,
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
+  resolveWorkflowRuntimeCommand,
 } from "./config.js";
 
 type WorkflowFrontMatterNode =
@@ -77,11 +78,25 @@ export function parseWorkflowMarkdown(
   );
 
   const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
-  const command =
-    readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND;
-  const agentCommand = runtime
-    ? [runtime.command, ...runtime.args].join(" ")
-    : command;
+  const codexConfig = {
+    command: readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND,
+    approvalPolicy: readOptionalString(codex, "approval_policy", env),
+    threadSandbox: readOptionalString(codex, "thread_sandbox", env),
+    turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
+    turnTimeoutMs:
+      readOptionalIntegerLike(codex, "turn_timeout_ms") ??
+      DEFAULT_TURN_TIMEOUT_MS,
+    readTimeoutMs:
+      readOptionalIntegerLike(codex, "read_timeout_ms") ??
+      DEFAULT_READ_TIMEOUT_MS,
+    stallTimeoutMs:
+      readOptionalIntegerLike(codex, "stall_timeout_ms") ??
+      DEFAULT_STALL_TIMEOUT_MS,
+  };
+  const agentCommand = resolveWorkflowRuntimeCommand({
+    runtime,
+    codex: codexConfig,
+  });
 
   const parsed: ParsedWorkflow = {
     promptTemplate,
@@ -139,21 +154,7 @@ export function parseWorkflowMarkdown(
         DEFAULT_BASE_DELAY_MS,
     },
     runtime,
-    codex: {
-      command,
-      approvalPolicy: readOptionalString(codex, "approval_policy", env),
-      threadSandbox: readOptionalString(codex, "thread_sandbox", env),
-      turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
-      turnTimeoutMs:
-        readOptionalIntegerLike(codex, "turn_timeout_ms") ??
-        DEFAULT_TURN_TIMEOUT_MS,
-      readTimeoutMs:
-        readOptionalIntegerLike(codex, "read_timeout_ms") ??
-        DEFAULT_READ_TIMEOUT_MS,
-      stallTimeoutMs:
-        readOptionalIntegerLike(codex, "stall_timeout_ms") ??
-        DEFAULT_STALL_TIMEOUT_MS,
-    },
+    codex: codexConfig,
     lifecycle: {
       stateFieldName:
         readOptionalString(tracker, "state_field", env) ??
@@ -348,7 +349,54 @@ function parseInlineArray(value: string): WorkflowFrontMatterNode[] {
     return [];
   }
 
-  return inner.split(",").map((entry) => parseScalar(entry.trim()));
+  return splitInlineArrayEntries(inner).map((entry) =>
+    parseScalar(entry.trim())
+  );
+}
+
+function splitInlineArrayEntries(inner: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (const char of inner) {
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    if (char === ",") {
+      pushInlineArrayEntry(entries, current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    throw new Error("Workflow front matter inline array has an unterminated string.");
+  }
+
+  pushInlineArrayEntry(entries, current);
+  return entries;
+}
+
+function pushInlineArrayEntry(entries: string[], entry: string): void {
+  const trimmed = entry.trim();
+  if (!trimmed) {
+    throw new Error("Workflow front matter inline array contains an empty item.");
+  }
+  entries.push(trimmed);
 }
 
 function parseRuntimeConfig(
@@ -359,10 +407,10 @@ function parseRuntimeConfig(
   const isolation = readObject(runtime, "isolation");
   const auth = readObject(runtime, "auth");
   const timeouts = readObject(runtime, "timeouts");
-  const command =
-    readOptionalString(runtime, "command", env) ?? defaultRuntimeCommand(kind);
+  const configuredCommand = readOptionalString(runtime, "command", env);
+  const command = configuredCommand ?? defaultRuntimeCommand(kind);
 
-  if (kind === "custom" && !readOptionalString(runtime, "command", env)) {
+  if (!command) {
     throw new Error(
       'Workflow front matter field "runtime.command" is required for runtime.kind "custom".'
     );
@@ -412,14 +460,14 @@ function readRuntimeKind(
   );
 }
 
-function defaultRuntimeCommand(kind: WorkflowRuntimeKind): string {
+function defaultRuntimeCommand(kind: WorkflowRuntimeKind): string | null {
   if (kind === "claude-print") {
     return DEFAULT_CLAUDE_COMMAND;
   }
   if (kind === "codex-app-server") {
     return DEFAULT_AGENT_COMMAND;
   }
-  return "";
+  return null;
 }
 
 function readObject(

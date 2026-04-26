@@ -188,6 +188,37 @@ Prompt body.
     expect(workflow.agentCommand).toBe("node worker.js --flag");
   });
 
+  it("parses quoted inline array entries containing commas", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: ["worker, one.js", "--flag"]
+---
+Prompt body.
+`);
+
+    expect(workflow.runtime?.args).toEqual(["worker, one.js", "--flag"]);
+    expect(workflow.agentCommand).toBe("node worker, one.js --flag");
+  });
+
+  it("rejects malformed inline arrays instead of silently accepting them", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: ["unterminated, --flag]
+---
+Prompt body.
+`)
+    ).toThrow(/inline array has an unterminated string/);
+  });
+
   it("rejects unsupported runtime kind values", () => {
     expect(() =>
       parseWorkflowMarkdown(`---

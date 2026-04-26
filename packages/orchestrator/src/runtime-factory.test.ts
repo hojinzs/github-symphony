@@ -66,6 +66,34 @@ describe("createWorkflowRuntimeAdapter", () => {
     expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
   });
 
+  it("creates a codex-app-server adapter with runtime command args", async () => {
+    const workflow = parseWorkflow(`runtime:
+  kind: codex-app-server
+  command: codex
+  args:
+    - app-server
+    - --model
+    - gpt-5
+`);
+
+    const adapter = createWorkflowRuntimeAdapter(workflow, {
+      projectId: "project-1",
+      workingDirectory: "/workspace",
+      codexDependencies: {
+        mkdirImpl: async () => undefined,
+        writeFileImpl: async () => undefined,
+        copyFileImpl: async () => undefined,
+      },
+    });
+
+    expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
+    const codexAdapter = adapter as CodexRuntimeAdapter;
+    await codexAdapter.prepare();
+
+    const plan = codexAdapter.getPreparedPlan();
+    expect(plan?.args).toEqual(["-lc", "codex app-server --model gpt-5"]);
+  });
+
   it("creates a claude-print adapter with isolation argv context", async () => {
     const calls: Array<ReadonlyArray<string>> = [];
     const { child, stdout, stderr } = createStubChild();

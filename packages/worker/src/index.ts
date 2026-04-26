@@ -483,6 +483,8 @@ async function startAssignedRun() {
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
     runtimeState.runPhase = "launching_agent";
+    // TODO(#254): route claude-print/custom runtime kinds through runtime
+    // adapters instead of the Codex app-server client protocol.
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";
