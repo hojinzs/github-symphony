@@ -54,17 +54,25 @@ describe("spawnClaudeTurn", () => {
     const { EventEmitter } = await import("node:events");
     const emitter = new EventEmitter();
 
+    const events: string[] = [];
     const result = await spawnClaudeTurn(
       {
         cwd: "/workspace",
         args: ["-p"],
         stdinMessages: [{ type: "user", text: "hello" }],
       },
-      { spawnImpl }
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          events.push(event.name);
+        },
+      }
     );
 
     expect(writtenStdin).toBe('{"type":"user","text":"hello"}\n');
     expect(result.result).toBe("success");
+    expect(result.classification.kind).toBe("success");
+    expect(events).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
     expect(result.records).toEqual([
       {
         stream: "stdout",
@@ -132,6 +140,146 @@ describe("spawnClaudeTurn", () => {
     expect(result.records).toHaveLength(1);
     expect(result.records[0]?.stream).toBe("stderr");
     expect(result.records[0]?.parseError).toBeTypeOf("string");
+  });
+
+  it("classifies non-zero exits with error wire events and emits agent.error", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write(
+          '{"type":"error","error":{"type":"api_error","message":"temporarily unavailable"}}\n'
+        );
+        stdout.end();
+        stderr.end();
+        child.emit("close", 1, null);
+      });
+
+      return child;
+    };
+    const eventNames: string[] = [];
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          eventNames.push(event.name);
+        },
+      }
+    );
+
+    expect(result.result).toBe("process-error");
+    expect(result.classification).toMatchObject({
+      kind: "process-error",
+      transient: true,
+      reason: "exit_1",
+    });
+    expect(eventNames).toEqual(["agent.error"]);
+  });
+
+  it("records stderr JSON without emitting neutral events or mutating stdout state", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stderr.write(
+          '{"type":"error","error":{"type":"api_error","message":"stderr debug"}}\n'
+        );
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const eventNames: string[] = [];
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          eventNames.push(event.name);
+        },
+      }
+    );
+
+    expect(result.result).toBe("success");
+    expect(eventNames).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
+    expect(result.records).toContainEqual({
+      stream: "stderr",
+      line: '{"type":"error","error":{"type":"api_error","message":"stderr debug"}}',
+      message: {
+        type: "error",
+        error: {
+          type: "api_error",
+          message: "stderr debug",
+        },
+      },
+    });
   });
 
   it("returns a structured process error when spawn emits error", async () => {
@@ -324,12 +472,12 @@ describe("spawnClaudeTurn", () => {
 });
 
 describe("classifyClaudeTurnResult", () => {
-  it("classifies SIGTERM as cancelled", () => {
-    expect(classifyClaudeTurnResult(null, "SIGTERM")).toBe("cancelled");
+  it("classifies SIGTERM as a process error", () => {
+    expect(classifyClaudeTurnResult(null, "SIGTERM")).toBe("process-error");
   });
 
-  it("classifies SIGINT and SIGKILL as cancelled", () => {
-    expect(classifyClaudeTurnResult(null, "SIGINT")).toBe("cancelled");
-    expect(classifyClaudeTurnResult(null, "SIGKILL")).toBe("cancelled");
+  it("classifies SIGINT and SIGKILL as process errors", () => {
+    expect(classifyClaudeTurnResult(null, "SIGINT")).toBe("process-error");
+    expect(classifyClaudeTurnResult(null, "SIGKILL")).toBe("process-error");
   });
 });
