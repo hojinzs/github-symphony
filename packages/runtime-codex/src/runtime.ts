@@ -14,9 +14,8 @@ import {
   type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
-import { resolveGitHubGraphQLMcpServerEntryPoint } from "@gh-symphony/tool-github-graphql";
+import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 
-const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
 const STAGED_CODEX_HOME_DIRNAME = ".codex-agent";
@@ -134,41 +133,15 @@ export function createGitHubGraphQLToolDefinition(
     | "githubGraphqlApiUrl"
   >
 ): RuntimeToolDefinition {
+  const entry = createGitHubGraphQLMcpServerEntry(config);
+
   return {
     name: "github_graphql",
     description:
       "Execute GitHub GraphQL queries for the active workspace so the agent can mutate project and issue state directly.",
-    command: "node",
-    args: [resolveGitHubGraphQLMcpServerEntryPoint()],
-    env: {
-      GITHUB_GRAPHQL_API_URL:
-        config.githubGraphqlApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
-      ...(config.githubToken
-        ? {
-            GITHUB_GRAPHQL_TOKEN: config.githubToken,
-          }
-        : {}),
-      ...(config.githubTokenBrokerUrl
-        ? {
-            GITHUB_TOKEN_BROKER_URL: config.githubTokenBrokerUrl,
-          }
-        : {}),
-      ...(config.githubTokenBrokerSecret
-        ? {
-            GITHUB_TOKEN_BROKER_SECRET: config.githubTokenBrokerSecret,
-          }
-        : {}),
-      ...(config.githubTokenCachePath
-        ? {
-            GITHUB_TOKEN_CACHE_PATH: config.githubTokenCachePath,
-          }
-        : {}),
-      ...(config.githubProjectId
-        ? {
-            GITHUB_PROJECT_ID: config.githubProjectId,
-          }
-        : {}),
-    },
+    command: entry.command,
+    args: entry.args,
+    env: entry.env,
     inputSchema: {
       type: "object",
       properties: {

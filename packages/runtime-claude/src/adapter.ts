@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { rm } from "node:fs/promises";
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
@@ -15,6 +16,11 @@ import {
   type ClaudeRuntimeSessionOptions,
 } from "./argv.js";
 import {
+  composeClaudeMcpConfig,
+  type ClaudeMcpCompositionResult,
+  type ClaudeMcpTokenEnvironment,
+} from "./mcp-compose.js";
+import {
   spawnClaudeTurn,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -23,6 +29,7 @@ import {
 
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
+  runtimeDirectory?: string;
   command?: string;
   env?: NodeJS.ProcessEnv;
   extraArgs?: readonly string[];
@@ -65,15 +72,24 @@ export class ClaudePrintRuntimeAdapter
     >
 {
   private activeChild: ChildProcess | null = null;
+  private preparedMcpConfig: ClaudeMcpCompositionResult | null = null;
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
     private readonly dependencies: ClaudeSpawnDependencies = {}
   ) {}
 
-  prepare(_context: ClaudeRuntimePrepareContext): void {
-    // TODO(#7,#8,#10): MCP composition, session persistence, and preflight
-    // checks will populate this hook once the worker-side runtime wiring lands.
+  async prepare(_context: ClaudeRuntimePrepareContext): Promise<void> {
+    await this.cleanupPreparedMcpConfig();
+    this.preparedMcpConfig = await composeClaudeMcpConfig(
+      this.config.workingDirectory,
+      this.config.isolation?.strictMcpConfig === true,
+      buildClaudeMcpTokenEnvironment({
+        inheritProcessEnv: this.config.inheritProcessEnv === true,
+        configEnv: this.config.env,
+        runtimeDirectory: this.config.runtimeDirectory,
+      })
+    );
   }
 
   async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
@@ -127,24 +143,52 @@ export class ClaudePrintRuntimeAdapter
     return extractEnvForClaude(brokerResponse.env);
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
-  cancel(_reason?: string): void {
+  async cancel(_reason?: string): Promise<void> {
     // TODO(#8,#9): replace direct process termination with session-aware
     // cancellation once Claude runtime turn orchestration is wired end-to-end.
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
+    const isolation = {
+      ...this.config.isolation,
+      ...input.isolation,
+    };
+    const configuredExtraArgs = input.extraArgs ?? this.config.extraArgs ?? [];
+
+    if (this.preparedMcpConfig) {
+      return {
+        session: input.session,
+        // prepare() owns MCP argv injection through extraArgv; suppress the
+        // isolation flag here so buildClaudePrintArgv does not add it twice.
+        isolation: {
+          ...isolation,
+          strictMcpConfig: false,
+          mcpConfigPath: undefined,
+        },
+        extraArgs: [
+          ...this.preparedMcpConfig.extraArgv,
+          ...configuredExtraArgs,
+        ],
+      };
+    }
+
+    if (isolation.strictMcpConfig && !isolation.mcpConfigPath) {
+      throw new Error(
+        "Claude strict MCP config requires prepare() or an explicit mcpConfigPath."
+      );
+    }
+
     return {
       session: input.session,
-      isolation: {
-        ...this.config.isolation,
-        ...input.isolation,
-      },
-      extraArgs: input.extraArgs ?? this.config.extraArgs,
+      isolation,
+      extraArgs: configuredExtraArgs,
     };
   }
 
@@ -156,6 +200,17 @@ export class ClaudePrintRuntimeAdapter
 
     this.activeChild.kill("SIGTERM");
     this.activeChild = null;
+  }
+
+  private async cleanupPreparedMcpConfig(): Promise<void> {
+    const cleanupPath = this.preparedMcpConfig?.cleanupPath;
+    this.preparedMcpConfig = null;
+
+    if (!cleanupPath) {
+      return;
+    }
+
+    await rm(cleanupPath, { force: true });
   }
 }
 
@@ -211,4 +266,30 @@ function buildClaudeSpawnEnv(options: {
   Object.assign(env, options.configEnv, options.inputEnv);
 
   return env;
+}
+
+function buildClaudeMcpTokenEnvironment(options: {
+  inheritProcessEnv: boolean;
+  configEnv?: NodeJS.ProcessEnv;
+  runtimeDirectory?: string;
+}): ClaudeMcpTokenEnvironment {
+  const source = options.inheritProcessEnv
+    ? {
+        ...process.env,
+        ...options.configEnv,
+      }
+    : {
+        ...options.configEnv,
+      };
+
+  return {
+    GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN,
+    GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
+    GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
+    GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
+    GITHUB_TOKEN_CACHE_PATH: source.GITHUB_TOKEN_CACHE_PATH,
+    GITHUB_PROJECT_ID: source.GITHUB_PROJECT_ID,
+    WORKSPACE_RUNTIME_DIR:
+      options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
+  };
 }
