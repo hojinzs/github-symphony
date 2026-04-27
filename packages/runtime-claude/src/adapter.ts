@@ -165,6 +165,8 @@ export class ClaudePrintRuntimeAdapter
     if (this.preparedMcpConfig) {
       return {
         session: input.session,
+        // prepare() owns MCP argv injection through extraArgv; suppress the
+        // isolation flag here so buildClaudePrintArgv does not add it twice.
         isolation: {
           ...isolation,
           strictMcpConfig: false,

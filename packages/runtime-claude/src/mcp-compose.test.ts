@@ -144,4 +144,13 @@ describe("composeClaudeMcpConfig", () => {
       },
     });
   });
+
+  it("throws when the workspace .mcp.json contains invalid JSON", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    await writeFile(join(workspaceRoot, ".mcp.json"), "{ invalid", "utf8");
+
+    await expect(
+      composeClaudeMcpConfig(workspaceRoot, false, {})
+    ).rejects.toThrow(SyntaxError);
+  });
 });

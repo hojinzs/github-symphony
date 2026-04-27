@@ -329,6 +329,36 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
   });
 
+  it("replaces strict MCP ephemeral config when prepare is called again", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+    const env = {
+      GITHUB_GRAPHQL_TOKEN: "first-token",
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
+      env,
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("first-token");
+
+    env.GITHUB_GRAPHQL_TOKEN = "second-token";
+    await adapter.prepare({ runId: "run-2" });
+    const replacedConfig = await readFile(mcpConfigPath, "utf8");
+    expect(replacedConfig).toContain("second-token");
+    expect(replacedConfig).not.toContain("first-token");
+
+    await adapter.shutdown();
+  });
+
   it("terminates the in-flight child on cancel", async () => {
     const kill = vi.fn(() => true);
     const { child, stdout, stderr } = createStubChild();

@@ -34,6 +34,8 @@ export async function composeClaudeMcpConfig(
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
   const mergedConfig = mergeGitHubGraphQLMcpServer(baseConfig, symphonyTokenEnv);
 
+  // Non-strict mode intentionally mutates the throwaway workspace .mcp.json so
+  // Claude's auto-discovery can pick up both user-authored and Symphony entries.
   await mkdir(dirname(finalPath), { recursive: true });
   await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", "utf8");
 
