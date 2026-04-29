@@ -121,4 +121,37 @@ describe("buildClaudePrintArgv", () => {
       "bypassPermissions",
     ]);
   });
+
+  it("deduplicates configured isolation flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: [
+          "-p",
+          "--bare",
+          "--strict-mcp-config",
+          "--mcp-config",
+          "/tmp/old-mcp.json",
+        ],
+        isolation: {
+          bare: true,
+          strictMcpConfig: true,
+          mcpConfigPath: "/tmp/runtime-mcp.json",
+        },
+      })
+    ).toEqual([
+      "-p",
+      "--bare",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "/tmp/runtime-mcp.json",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
 });

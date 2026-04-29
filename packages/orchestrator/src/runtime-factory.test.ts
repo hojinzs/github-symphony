@@ -129,9 +129,7 @@ describe("createWorkflowRuntimeAdapter", () => {
     });
 
     expect(adapter).toBeInstanceOf(ClaudePrintRuntimeAdapter);
-    await adapter.spawnTurn({
-      messages: [],
-    });
+    await adapter.spawnTurn({});
 
     expect(calls[0]).toEqual([
       "-p",

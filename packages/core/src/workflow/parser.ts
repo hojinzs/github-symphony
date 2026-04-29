@@ -55,8 +55,8 @@ export function parseWorkflowMarkdown(
   const workspace = readObject(frontMatter, "workspace");
   const hooks = readObject(frontMatter, "hooks");
   const agent = readObject(frontMatter, "agent");
-  const hasRuntime = frontMatter.runtime !== undefined && frontMatter.runtime !== null;
-  const runtimeNode = readObject(frontMatter, "runtime");
+  const runtimeNode = readOptionalRuntimeObject(frontMatter);
+  const hasRuntime = runtimeNode !== null;
   const codex = hasRuntime
     ? readObject(frontMatter, "codex")
     : readRequiredObject(frontMatter, "codex");
@@ -488,6 +488,15 @@ function readObject(
     throw new Error(`Workflow front matter field "${key}" must be an object.`);
   }
   return value as Record<string, WorkflowFrontMatterNode>;
+}
+
+function readOptionalRuntimeObject(
+  input: Record<string, WorkflowFrontMatterNode>
+): Record<string, WorkflowFrontMatterNode> | null {
+  if (input.runtime === undefined || input.runtime === null) {
+    return null;
+  }
+  return readObject(input, "runtime");
 }
 
 function readRequiredObject(

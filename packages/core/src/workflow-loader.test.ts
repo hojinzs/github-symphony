@@ -247,6 +247,20 @@ Prompt body.
     ).toThrow(/Unsupported workflow runtime kind/);
   });
 
+  it("rejects non-object runtime blocks clearly", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime: false
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(/Workflow front matter field "runtime" must be an object/);
+  });
+
   it("does not expose session resume fields in runtime schema", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:

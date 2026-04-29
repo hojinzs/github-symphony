@@ -54,13 +54,13 @@ export function buildClaudePrintArgv(
   }
 
   if (isolation?.bare) {
-    args.push("--bare");
+    ensureFlag(args, "--bare");
   }
 
   if (isolation?.strictMcpConfig) {
-    args.push("--strict-mcp-config");
+    ensureFlag(args, "--strict-mcp-config");
     if (isolation.mcpConfigPath) {
-      args.push("--mcp-config", isolation.mcpConfigPath);
+      ensureFlagValue(args, "--mcp-config", isolation.mcpConfigPath);
     }
   }
 

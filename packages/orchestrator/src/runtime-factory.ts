@@ -20,7 +20,6 @@ import {
 import {
   createClaudePrintRuntimeAdapter,
   spawnClaudeTurn,
-  type ClaudeWireMessage,
   type ClaudePrintRuntimeAdapter,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -31,6 +30,10 @@ export type WorkflowRuntimeFactoryContext = {
   workingDirectory: string;
   mcpConfigPath?: string;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Optional dependencies for codex-app-server. When omitted, the codex
+   * adapter uses its production filesystem/process defaults.
+   */
   codexDependencies?: CodexRuntimeDependencies;
   claudeDependencies?: ClaudeSpawnDependencies;
 };
@@ -49,7 +52,6 @@ export type CustomCommandRuntimeConfig = {
 };
 
 export type CustomRuntimeTurnInput = {
-  messages?: ClaudeWireMessage | readonly ClaudeWireMessage[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   command?: string;
@@ -82,7 +84,7 @@ export class CustomCommandRuntimeAdapter
           ...this.config.env,
           ...input.env,
         },
-        stdinMessages: input.messages ?? [],
+        stdinMessages: [],
       },
       this.dependencies
     );
@@ -150,9 +152,7 @@ export function createWorkflowRuntimeAdapter(
           isolation: {
             bare: runtime.isolation.bare,
             strictMcpConfig: runtime.isolation.strictMcpConfig,
-            mcpConfigPath: runtime.isolation.strictMcpConfig
-              ? (context.mcpConfigPath ?? defaultEphemeralMcpConfigPath(context))
-              : undefined,
+            mcpConfigPath: resolveMcpConfigPath(runtime, context),
           },
         },
         context.claudeDependencies
@@ -169,6 +169,17 @@ export function createWorkflowRuntimeAdapter(
         context.claudeDependencies
       );
   }
+}
+
+function resolveMcpConfigPath(
+  runtime: NonNullable<WorkflowDefinition["runtime"]>,
+  context: WorkflowRuntimeFactoryContext
+): string | undefined {
+  if (!runtime.isolation.strictMcpConfig) {
+    return undefined;
+  }
+
+  return context.mcpConfigPath ?? defaultEphemeralMcpConfigPath(context);
 }
 
 function defaultEphemeralMcpConfigPath(
