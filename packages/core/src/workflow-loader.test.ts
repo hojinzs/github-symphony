@@ -234,6 +234,23 @@ Prompt body.
     ).toThrow(/inline array has a trailing comma/);
   });
 
+  it("requires runtime args to be an array of strings", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: node,worker.js
+---
+Prompt body.
+`)
+    ).toThrow(
+      /Workflow front matter field "runtime\.args" must be an array of strings/
+    );
+  });
+
   it("rejects unsupported runtime kind values", () => {
     expect(() =>
       parseWorkflowMarkdown(`---

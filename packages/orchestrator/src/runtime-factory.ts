@@ -35,6 +35,11 @@ export type WorkflowRuntimeFactoryContext = {
    * adapter uses its production filesystem/process defaults.
    */
   codexDependencies?: CodexRuntimeDependencies;
+  /**
+   * Temporary shared process-spawn dependencies for claude-print and custom.
+   * TODO(#254): rename/split once custom process spawning leaves the Claude
+   * adapter layer.
+   */
   claudeDependencies?: ClaudeSpawnDependencies;
 };
 
@@ -86,6 +91,7 @@ export class CustomCommandRuntimeAdapter
           ...this.config.env,
           ...input.env,
         },
+        // Custom runtimes do not expose Claude wire-protocol stdin.
         stdinMessages: [],
       },
       this.dependencies

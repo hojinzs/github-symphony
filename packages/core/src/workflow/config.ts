@@ -199,8 +199,10 @@ export function resolveWorkflowRuntimeCommand(
     return workflow.runtime.command;
   }
 
-  // This value is a display/logging command string. Do not parse it back into
-  // argv; args containing whitespace cannot be represented losslessly here.
+  // This value is also exported as SYMPHONY_AGENT_COMMAND for the current Codex
+  // fallback path. Do not parse it back into argv; args containing whitespace
+  // cannot be represented losslessly here. Full non-Codex routing is tracked in
+  // #254.
   return [workflow.runtime.command, ...workflow.runtime.args].join(" ");
 }
 

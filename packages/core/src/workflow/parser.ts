@@ -425,7 +425,7 @@ function parseRuntimeConfig(
   return {
     kind,
     command,
-    args: readStringList(runtime, "args") ?? [],
+    args: readRuntimeArgs(runtime),
     isolation: {
       bare:
         readOptionalBoolean(isolation, "bare", "runtime.isolation.bare") ??
@@ -575,6 +575,24 @@ function readStringList(
   ) {
     throw new Error(
       `Workflow front matter field "${key}" must be an array of strings or comma-separated string.`
+    );
+  }
+  return value as string[];
+}
+
+function readRuntimeArgs(
+  input: Record<string, WorkflowFrontMatterNode>
+): string[] {
+  const value = input.args;
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(
+      'Workflow front matter field "runtime.args" must be an array of strings.'
     );
   }
   return value as string[];

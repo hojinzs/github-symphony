@@ -45,13 +45,13 @@ export function buildClaudePrintArgv(
   const { session, isolation, extraArgs } = options;
 
   if (session?.mode === "start") {
-    args.push("--session-id", session.sessionId);
+    ensureFlagValue(args, "--session-id", session.sessionId);
   }
 
   if (session?.mode === "resume") {
-    args.push("--resume", session.sessionId);
+    ensureFlagValue(args, "--resume", session.sessionId);
     if (session.forkSession) {
-      args.push("--fork-session");
+      ensureFlag(args, "--fork-session");
     }
   }
 

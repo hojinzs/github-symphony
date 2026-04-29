@@ -48,6 +48,32 @@ describe("buildClaudePrintArgv", () => {
     ]);
   });
 
+  it("deduplicates configured session flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["--resume", "old-session", "--fork-session"],
+        session: {
+          mode: "resume",
+          sessionId: "new-session",
+          forkSession: true,
+        },
+      })
+    ).toEqual([
+      "--resume",
+      "new-session",
+      "--fork-session",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
+
   it("skips isolation flags when isolation is off", () => {
     expect(
       buildClaudePrintArgv({
