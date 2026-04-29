@@ -24,8 +24,18 @@ describe("skill-writer", () => {
       expect(result).toBe(join("/repo", ".claude", "skills"));
     });
 
+    it("resolves claude-print runtime to .claude/skills", () => {
+      const result = resolveSkillsDir("/repo", "claude-print");
+      expect(result).toBe(join("/repo", ".claude", "skills"));
+    });
+
     it("resolves codex runtime to .codex/skills", () => {
       const result = resolveSkillsDir("/repo", "codex");
+      expect(result).toBe(join("/repo", ".codex", "skills"));
+    });
+
+    it("resolves codex-app-server runtime to .codex/skills", () => {
+      const result = resolveSkillsDir("/repo", "codex-app-server");
       expect(result).toBe(join("/repo", ".codex", "skills"));
     });
 

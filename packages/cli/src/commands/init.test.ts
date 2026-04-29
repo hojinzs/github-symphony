@@ -343,6 +343,7 @@ describe("init priority field detection", () => {
       ],
     });
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce("project-1" as never)
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("active" as never)
@@ -363,7 +364,7 @@ describe("init priority field detection", () => {
         [
           expect.objectContaining({
             message:
-              "Step 3/3 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
+              "Step 4/4 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
           }),
         ],
       ])
@@ -683,6 +684,126 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("Use `uv` conventions");
     expect(plan.ecosystemPlan.files.some((file) => file.path.endsWith("reference-workflow.md"))).toBe(
       true
+    );
+  });
+
+  it("scaffolds codex-app-server runtime defaults into WORKFLOW.md", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-workflow-codex-runtime-"));
+
+    const plan = await planWorkflowArtifacts({
+      cwd,
+      outputPath: join(cwd, "WORKFLOW.md"),
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
+      mappings: {
+        Todo: { role: "active" },
+        "In Progress": { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "codex-app-server",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    expect(plan.workflowMd).toContain("runtime:");
+    expect(plan.workflowMd).toContain("  kind: codex-app-server");
+    expect(plan.workflowMd).toContain("  command: codex");
+    expect(plan.workflowMd).toContain("    - app-server");
+    expect(plan.workflowMd).toContain("    bare: false");
+    expect(plan.workflowMd).toContain("    strict_mcp_config: false");
+    expect(plan.workflowMd).not.toContain("## Runtime Constraints");
+  });
+
+  it("scaffolds claude-print runtime defaults and constraints into WORKFLOW.md", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-workflow-claude-runtime-"));
+
+    const plan = await planWorkflowArtifacts({
+      cwd,
+      outputPath: join(cwd, "WORKFLOW.md"),
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
+      mappings: {
+        Todo: { role: "active" },
+        "In Progress": { role: "active" },
+        Done: { role: "terminal" },
+      },
+      runtime: "claude-print",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    expect(plan.workflowMd).toContain("  kind: claude-print");
+    expect(plan.workflowMd).toContain("  command: claude");
+    expect(plan.workflowMd).toContain("    - -p");
+    expect(plan.workflowMd).toContain("    - --output-format");
+    expect(plan.workflowMd).toContain("    - stream-json");
+    expect(plan.workflowMd).toContain("    - --permission-mode");
+    expect(plan.workflowMd).toContain("    - bypassPermissions");
+    expect(plan.workflowMd).toContain("    bare: false");
+    expect(plan.workflowMd).toContain("    strict_mcp_config: false");
+    expect(plan.workflowMd).toContain("    env: ANTHROPIC_API_KEY");
+    expect(plan.workflowMd).toContain("## Runtime Constraints");
+    expect(plan.workflowMd).toContain("Runtime trade-off note:");
+  });
+
+  it("prompts for runtime selection and reports preflight during interactive init", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-runtime-int-"));
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true as never);
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "project-1",
+          title: "Roadmap",
+          shortDescription: "",
+          url: "https://github.com/users/tester/projects/1",
+          openItemCount: 3,
+          owner: { login: "tester", type: "User" },
+        },
+      ],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [MOCK_STATUS_FIELD],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("claude-print" as never)
+      .mockResolvedValueOnce("project-1" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never);
+
+    await initCommand(["--dry-run", "--output", join(configDir, "WORKFLOW.md")], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const rendered = stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(rendered).toContain("Runtime   claude-print");
+    expect(p.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Step 1/3 — Select the agent runtime:",
+      })
+    );
+    expect(p.note).toHaveBeenCalledWith(
+      expect.stringContaining("Claude auth"),
+      "Runtime preflight — claude-print"
     );
   });
 

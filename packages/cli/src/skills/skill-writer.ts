@@ -10,10 +10,19 @@ export type SkillFilePlan = {
 function normalizeRuntimeForSkills(
   runtime: string
 ): "claude-code" | "codex" | null {
-  if (runtime === "claude-code" || runtime.includes("claude-code")) {
+  if (
+    runtime === "claude-print" ||
+    runtime === "claude-code" ||
+    runtime.includes("claude-code") ||
+    runtime.includes("claude")
+  ) {
     return "claude-code";
   }
-  if (runtime === "codex" || runtime.includes("codex")) {
+  if (
+    runtime === "codex-app-server" ||
+    runtime === "codex" ||
+    runtime.includes("codex")
+  ) {
     return "codex";
   }
   return null;

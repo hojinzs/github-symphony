@@ -9,7 +9,7 @@ import {
 } from "./generate-reference-workflow.js";
 
 const defaultInput: ReferenceWorkflowInput = {
-  runtime: "codex",
+  runtime: "codex-app-server",
   statusColumns: [
     { name: "Todo", role: "active" },
     { name: "In Progress", role: "active" },
@@ -28,20 +28,24 @@ const defaultInput: ReferenceWorkflowInput = {
 };
 
 describe("generateReferenceWorkflow", () => {
-  it("codex runtime produces codex.command containing codex", () => {
+  it("codex runtime produces a codex-app-server runtime block", () => {
     const output = generateReferenceWorkflow({
       ...defaultInput,
-      runtime: "codex",
+      runtime: "codex-app-server",
     });
-    expect(output).toContain("command: codex app-server");
+    expect(output).toContain("kind: codex-app-server");
+    expect(output).toContain("command: codex");
+    expect(output).toContain("    - app-server");
   });
 
-  it("claude-code runtime produces codex.command containing claude-code", () => {
+  it("claude-print runtime produces a claude-print runtime block", () => {
     const output = generateReferenceWorkflow({
       ...defaultInput,
-      runtime: "claude-code",
+      runtime: "claude-print",
     });
-    expect(output).toContain("command: claude-code");
+    expect(output).toContain("kind: claude-print");
+    expect(output).toContain("command: claude");
+    expect(output).toContain("    env: ANTHROPIC_API_KEY");
   });
 
   it("custom runtime string is used as codex.command verbatim", () => {

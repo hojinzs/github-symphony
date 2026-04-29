@@ -1,6 +1,6 @@
 export const CLAUDE_RUNTIME_CONSTRAINTS_SECTION = `## Runtime Constraints
 
-1. This run uses \`claude-code\` (Claude Code CLI) in non-interactive mode via \`claude -p\`.
+1. This run uses \`claude-print\` (Claude Code CLI) in non-interactive mode via \`claude -p\`.
 2. Slash commands such as \`/commit\`, \`/push\`, \`/gh-project\`, \`/gh-pr-writeup\` are NOT available (CLI limitation, independent of isolation settings).
 3. Use \`gh\`, \`git\`, repository scripts, and configured MCP tools directly instead.
 4. If a required permission or tool is unavailable, post a blocker comment on the issue and exit. Do not wait for human input.`;

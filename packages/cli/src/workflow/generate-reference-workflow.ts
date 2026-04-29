@@ -4,6 +4,7 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
+import { buildRuntimeFrontMatter } from "./workflow-runtime.js";
 
 export type ReferenceWorkflowInput = {
   runtime: "codex" | "claude-code" | string;
@@ -85,7 +86,6 @@ export function generateReferenceWorkflow(
 
   lines.push("");
 
-  const agentCommand = resolveAgentCommand(input.runtime);
   lines.push("polling:");
   lines.push("  interval_ms: 30000");
   lines.push("");
@@ -111,11 +111,7 @@ export function generateReferenceWorkflow(
   lines.push("  max_turns: 20");
   lines.push("");
 
-  lines.push("codex:");
-  lines.push(`  command: ${agentCommand}`);
-  lines.push("  read_timeout_ms: 5000");
-  lines.push("  turn_timeout_ms: 3600000");
-  lines.push("  stall_timeout_ms: 300000");
+  lines.push(...buildRuntimeFrontMatter(input.runtime));
   lines.push("");
 
   lines.push("---");
@@ -375,16 +371,6 @@ export function generateReferenceWorkflow(
   return lines.join("\n");
 }
 
-function resolveAgentCommand(runtime: string): string {
-  switch (runtime) {
-    case "codex":
-      return "codex app-server";
-    case "claude-code":
-      return "claude-code";
-    default:
-      return runtime;
-  }
-}
 
 function resolveRoleAction(
   role: "active" | "wait" | "terminal" | null

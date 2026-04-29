@@ -26,7 +26,7 @@ describe("generateWorkflowMarkdown", () => {
       terminalStates: ["Done"],
       blockerCheckStates: ["Queued"],
     },
-    runtime: "codex",
+    runtime: "codex-app-server",
     detectedEnvironment: {
       packageManager: "pnpm" as const,
       testCommand: "pnpm test",
@@ -100,22 +100,27 @@ describe("generateWorkflowMarkdown", () => {
   it("resolves runtime agent command for codex", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
-    expect(markdown).toContain("command: codex app-server");
+    expect(markdown).toContain("kind: codex-app-server");
+    expect(markdown).toContain("command: codex");
+    expect(markdown).toContain("    - app-server");
   });
 
-  it("resolves runtime agent command for claude-code", () => {
+  it("resolves runtime config for claude-print", () => {
     const markdown = generateWorkflowMarkdown({
       ...defaultInput,
-      runtime: "claude-code",
+      runtime: "claude-print",
     });
 
-    expect(markdown).toContain("command: claude-code");
+    expect(markdown).toContain("kind: claude-print");
+    expect(markdown).toContain("command: claude");
+    expect(markdown).toContain("    - -p");
+    expect(markdown).toContain("    env: ANTHROPIC_API_KEY");
   });
 
   it("prepends Claude runtime constraints and trade-off comments to the prompt body", () => {
     const markdown = generateWorkflowMarkdown({
       ...defaultInput,
-      runtime: "claude-code",
+      runtime: "claude-print",
     });
     const parsed = parseWorkflowMarkdown(markdown, {});
 
@@ -124,7 +129,7 @@ describe("generateWorkflowMarkdown", () => {
     ).toBe(true);
     expect(parsed.promptTemplate).toContain(CLAUDE_RUNTIME_CONSTRAINTS_SECTION);
     expect(parsed.promptTemplate).toContain(
-      "This run uses `claude-code` (Claude Code CLI) in non-interactive mode via `claude -p`."
+      "This run uses `claude-print` (Claude Code CLI) in non-interactive mode via `claude -p`."
     );
     expect(parsed.promptTemplate).toContain(CLAUDE_PERMISSIVE_ISOLATION_NOTE);
     expect(parsed.promptTemplate).toContain(CLAUDE_ISOLATION_OFF_NOTE);
@@ -134,14 +139,14 @@ describe("generateWorkflowMarkdown", () => {
     ).toBeLessThan(parsed.promptTemplate.indexOf("## Status Map"));
   });
 
-  it("prepends Claude runtime constraints for wrapped Claude command strings", () => {
+  it("prepends Claude runtime constraints for legacy claude-code runtime aliases", () => {
     const markdown = generateWorkflowMarkdown({
       ...defaultInput,
-      runtime: "bash -lc claude-code",
+      runtime: "claude-code",
     });
     const parsed = parseWorkflowMarkdown(markdown, {});
 
-    expect(markdown).toContain("command: bash -lc claude-code");
+    expect(markdown).toContain("kind: claude-print");
     expect(
       parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
     ).toBe(true);
@@ -151,7 +156,7 @@ describe("generateWorkflowMarkdown", () => {
     const codexMarkdown = generateWorkflowMarkdown(defaultInput);
     const claudeMarkdown = generateWorkflowMarkdown({
       ...defaultInput,
-      runtime: "claude-code",
+      runtime: "claude-print",
     });
     const codexPrompt = parseWorkflowMarkdown(codexMarkdown, {}).promptTemplate;
     const claudePrompt = parseWorkflowMarkdown(
@@ -175,6 +180,7 @@ describe("generateWorkflowMarkdown", () => {
     });
     const parsed = parseWorkflowMarkdown(markdown, {});
 
+    expect(markdown).toContain("kind: custom");
     expect(markdown).toContain("command: node worker.js");
     expect(parsed.promptTemplate.startsWith("## Status Map")).toBe(true);
     expect(parsed.promptTemplate).not.toContain("## Runtime Constraints");
@@ -190,6 +196,7 @@ describe("generateWorkflowMarkdown", () => {
       });
       const parsed = parseWorkflowMarkdown(markdown, {});
 
+      expect(markdown).toContain("kind: custom");
       expect(markdown).toContain(`command: ${runtime}`);
       expect(parsed.promptTemplate.startsWith("## Status Map")).toBe(true);
       expect(parsed.promptTemplate).not.toContain("## Runtime Constraints");

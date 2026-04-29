@@ -4,6 +4,10 @@ import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import { CLAUDE_RUNTIME_PROMPT_PREAMBLE } from "../prompts/runtime-claude-constraints.js";
 import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
+import {
+  buildRuntimeFrontMatter,
+  isClaudeRuntime,
+} from "./workflow-runtime.js";
 
 export type GenerateWorkflowInput = {
   projectId: string;
@@ -62,7 +66,6 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     }
   }
 
-  const agentCommand = resolveAgentCommand(input.runtime);
   lines.push("polling:");
   lines.push(`  interval_ms: ${input.pollIntervalMs ?? 30000}`);
 
@@ -77,23 +80,9 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push("  max_retry_backoff_ms: 30000");
   lines.push("  retry_base_delay_ms: 10000");
 
-  lines.push("codex:");
-  lines.push(`  command: ${agentCommand}`);
-  lines.push("  read_timeout_ms: 5000");
-  lines.push("  turn_timeout_ms: 3600000");
+  lines.push(...buildRuntimeFrontMatter(input.runtime));
 
   return lines.join("\n") + "\n";
-}
-
-function resolveAgentCommand(runtime: string): string {
-  switch (runtime) {
-    case "codex":
-      return "codex app-server";
-    case "claude-code":
-      return "claude-code";
-    default:
-      return runtime;
-  }
 }
 
 function buildPromptBody(input: GenerateWorkflowInput): string {
@@ -168,9 +157,7 @@ Create a workpad comment on the issue with the following structure to track prog
 }
 
 function buildRuntimePromptPreamble(runtime: string): string {
-  return runtime.split(/\s+/).includes("claude-code")
-    ? CLAUDE_RUNTIME_PROMPT_PREAMBLE
-    : "";
+  return isClaudeRuntime(runtime) ? CLAUDE_RUNTIME_PROMPT_PREAMBLE : "";
 }
 
 function generateStatusMapWithDescriptions(
