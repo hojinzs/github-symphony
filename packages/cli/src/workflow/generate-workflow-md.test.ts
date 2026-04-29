@@ -182,6 +182,23 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.promptTemplate).not.toContain("Isolation is off by default");
   });
 
+  it("does not prepend Claude runtime constraints for substring-only custom runtime strings", () => {
+    for (const runtime of ["my-claude-code-wrapper", "not-claude-code"]) {
+      const markdown = generateWorkflowMarkdown({
+        ...defaultInput,
+        runtime,
+      });
+      const parsed = parseWorkflowMarkdown(markdown, {});
+
+      expect(markdown).toContain(`command: ${runtime}`);
+      expect(parsed.promptTemplate.startsWith("## Status Map")).toBe(true);
+      expect(parsed.promptTemplate).not.toContain("## Runtime Constraints");
+      expect(parsed.promptTemplate).not.toContain(
+        "Runtime trade-off note:"
+      );
+    }
+  });
+
   it("points after_create at the scaffolded default hook path", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
