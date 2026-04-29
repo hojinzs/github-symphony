@@ -56,6 +56,8 @@ export function buildClaudePrintArgv(
   }
 
   if (isolation?.bare) {
+    // `--verbose` is still required for stream-json partial-message output;
+    // `--bare` only suppresses Claude's interactive UI.
     ensureFlag(args, "--bare");
   }
 
@@ -101,6 +103,8 @@ function ensureFlagValue(args: string[], flag: string, value: string): void {
   }
 
   const existingValue = args[index + 1];
+  // Flag values used here must not start with "-"; negative-number values are
+  // treated as adjacent flags rather than supported option values.
   if (existingValue?.startsWith("-")) {
     args.splice(index + 1, 0, value);
     return;

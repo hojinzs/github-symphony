@@ -74,6 +74,8 @@ export class CustomCommandRuntimeAdapter
 
   prepare(): void {}
 
+  // TODO(#254): replace ClaudeSpawnTurnResult with a generic turn result once
+  // custom process spawning is separated from the Claude adapter layer.
   spawnTurn(input: CustomRuntimeTurnInput): Promise<ClaudeSpawnTurnResult> {
     return spawnClaudeTurn(
       {

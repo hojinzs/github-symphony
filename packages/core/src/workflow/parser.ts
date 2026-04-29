@@ -427,9 +427,15 @@ function parseRuntimeConfig(
     command,
     args: readStringList(runtime, "args") ?? [],
     isolation: {
-      bare: readOptionalBoolean(isolation, "bare") ?? false,
+      bare:
+        readOptionalBoolean(isolation, "bare", "runtime.isolation.bare") ??
+        false,
       strictMcpConfig:
-        readOptionalBoolean(isolation, "strict_mcp_config") ?? false,
+        readOptionalBoolean(
+          isolation,
+          "strict_mcp_config",
+          "runtime.isolation.strict_mcp_config"
+        ) ?? false,
     },
     auth: {
       env: readOptionalString(auth, "env", env),
@@ -576,14 +582,15 @@ function readStringList(
 
 function readOptionalBoolean(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): boolean | null {
   const value = input[key];
   if (value === undefined || value === null) {
     return null;
   }
   if (typeof value !== "boolean") {
-    throw new Error(`Workflow front matter field "${key}" must be a boolean.`);
+    throw new Error(`Workflow front matter field "${path}" must be a boolean.`);
   }
   return value;
 }

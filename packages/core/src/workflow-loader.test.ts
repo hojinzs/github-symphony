@@ -275,6 +275,23 @@ Prompt body.
     ).toThrow(/Workflow front matter field "runtime\.isolation" must be an object/);
   });
 
+  it("reports nested runtime boolean paths clearly", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  isolation:
+    bare: "yes"
+---
+Prompt body.
+`)
+    ).toThrow(
+      /Workflow front matter field "runtime\.isolation\.bare" must be a boolean/
+    );
+  });
+
   it("does not expose session resume fields in runtime schema", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
