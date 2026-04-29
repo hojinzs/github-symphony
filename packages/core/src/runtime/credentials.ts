@@ -29,18 +29,19 @@ export function extractEnvForCodex(
 }
 
 export function extractEnvForClaude(
-  env: AgentRuntimeEnvSource
+  env: AgentRuntimeEnvSource,
+  envKey = "ANTHROPIC_API_KEY"
 ): AgentRuntimeEnv {
-  const apiKey = env.ANTHROPIC_API_KEY;
+  const apiKey = env[envKey];
 
   if (!apiKey) {
     throw new AgentRuntimeCredentialError(
-      "ANTHROPIC_API_KEY is required in the credential broker response."
+      `${envKey} is required in the credential broker response.`
     );
   }
 
   return {
-    ANTHROPIC_API_KEY: apiKey,
+    [envKey]: apiKey,
   };
 }
 

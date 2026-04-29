@@ -14,6 +14,7 @@ import {
 
 export { OrchestratorService, createStore };
 export type { OrchestratorLogLevel };
+export * from "./runtime-factory.js";
 export {
   acquireProjectLock,
   assertValidProjectId,
