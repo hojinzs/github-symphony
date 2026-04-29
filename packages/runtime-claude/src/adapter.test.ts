@@ -662,7 +662,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(emitted).toEqual([
       {
         name: "agent.sessionInvalidated",
-        reason: expect.stringContaining("session file could not be read:"),
+        reason: expect.stringContaining(
+          "session file could not be read or parsed:"
+        ),
       },
     ]);
     const session = JSON.parse(

@@ -35,7 +35,7 @@ export type LoadClaudeSessionOptions = {
 export class ClaudeSessionStore {
   constructor(private readonly options: ClaudeSessionStoreOptions) {}
 
-  sessionFilePath(options: LoadClaudeSessionOptions): string {
+  private sessionFilePath(options: LoadClaudeSessionOptions): string {
     return join(
       options.runDirectory ?? this.runDirectory(options.runId),
       CLAUDE_SESSION_FILENAME
@@ -77,7 +77,7 @@ export class ClaudeSessionStore {
     return session;
   }
 
-  runDirectory(runId: string): string {
+  private runDirectory(runId: string): string {
     return join(this.options.runtimeRoot, "runs", runId);
   }
 }

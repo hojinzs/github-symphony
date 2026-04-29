@@ -64,13 +64,6 @@ export type ClaudeRuntimeDependencies = ClaudeSpawnDependencies & {
   now?: () => Date;
 };
 
-export class ClaudeRuntimeNotImplementedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeRuntimeNotImplementedError";
-  }
-}
-
 export class ClaudePrintRuntimeAdapter
   implements
     AgentRuntimeAdapter<
@@ -134,6 +127,9 @@ export class ClaudePrintRuntimeAdapter
     handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
     this.eventHandlers.add(handler);
+    // Pending events are scoped to the current prepare cycle and intentionally
+    // replayed to each later subscriber. Live events after subscription are not
+    // replayed to handlers registered later.
     for (const event of this.pendingEvents) {
       handler(event);
     }
@@ -196,7 +192,7 @@ export class ClaudePrintRuntimeAdapter
       }
     } catch (error) {
       return await this.createFreshSession(context, {
-        reason: `session file could not be read: ${formatErrorMessage(error)}`,
+        reason: `session file could not be read or parsed: ${formatErrorMessage(error)}`,
         invalidatedSessionId: "unknown",
         parentRunId,
       });
@@ -228,7 +224,7 @@ export class ClaudePrintRuntimeAdapter
         }
       } catch (error) {
         return await this.createFreshSession(context, {
-          reason: `parent session file could not be read: ${formatErrorMessage(error)}`,
+          reason: `parent session file could not be read or parsed: ${formatErrorMessage(error)}`,
           invalidatedSessionId: "unknown",
           parentRunId,
         });
@@ -280,6 +276,8 @@ export class ClaudePrintRuntimeAdapter
     failedResult: ClaudeSpawnTurnResult
   ): Promise<ClaudeSpawnTurnResult> {
     if (!this.preparedSession) {
+      // Unreachable from shouldInvalidatePreparedResume(); keep the original
+      // failed result if this method is called defensively in the future.
       return failedResult;
     }
 
@@ -405,6 +403,9 @@ export class ClaudePrintRuntimeAdapter
     session: ClaudeRuntimeSessionOptions | undefined,
     result: ClaudeSpawnTurnResult
   ): boolean {
+    // Only sessions selected by prepare() are persisted and eligible for
+    // automatic invalidation. Explicit input.session callers own their retry
+    // policy, so reference equality is the boundary between the two paths.
     return (
       session === this.preparedSession?.session &&
       session?.mode === "resume" &&
@@ -525,6 +526,9 @@ function findSessionIdInResult(result: ClaudeSpawnTurnResult): string | null {
   return null;
 }
 
+// Claude print result records are expected to carry sessionId/session_id near
+// the top-level result object. The depth guard keeps malformed records bounded
+// without treating arbitrary nested metadata as authoritative session state.
 function findSessionId(value: unknown, depth = 0): string | null {
   if (depth > 5) {
     return null;
