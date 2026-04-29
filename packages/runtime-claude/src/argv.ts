@@ -5,6 +5,8 @@ export const DEFAULT_CLAUDE_PRINT_ARGS = [
   "--input-format",
   "stream-json",
   "--include-partial-messages",
+  // Claude stream-json output requires verbose mode when partial message
+  // events are included; keep this even when callers provide custom args.
   "--verbose",
   "--permission-mode",
   "bypassPermissions",
@@ -99,6 +101,11 @@ function ensureFlagValue(args: string[], flag: string, value: string): void {
   }
 
   const existingValue = args[index + 1];
+  if (existingValue?.startsWith("-")) {
+    args.splice(index + 1, 0, value);
+    return;
+  }
+
   if (existingValue !== value) {
     args.splice(index + 1, existingValue === undefined ? 0 : 1, value);
   }

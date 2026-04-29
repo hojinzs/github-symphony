@@ -410,9 +410,9 @@ function parseRuntimeConfig(
   env: NodeJS.ProcessEnv
 ): WorkflowRuntimeConfig {
   const kind = readRuntimeKind(runtime, env);
-  const isolation = readObject(runtime, "isolation");
-  const auth = readObject(runtime, "auth");
-  const timeouts = readObject(runtime, "timeouts");
+  const isolation = readObject(runtime, "isolation", "runtime.isolation");
+  const auth = readObject(runtime, "auth", "runtime.auth");
+  const timeouts = readObject(runtime, "timeouts", "runtime.timeouts");
   const configuredCommand = readOptionalString(runtime, "command", env);
   const command = configuredCommand ?? defaultRuntimeCommand(kind);
 
@@ -478,14 +478,15 @@ function defaultRuntimeCommand(kind: WorkflowRuntimeKind): string | null {
 
 function readObject(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): Record<string, WorkflowFrontMatterNode> {
   const value = input[key];
   if (value === undefined || value === null) {
     return {};
   }
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Workflow front matter field "${key}" must be an object.`);
+    throw new Error(`Workflow front matter field "${path}" must be an object.`);
   }
   return value as Record<string, WorkflowFrontMatterNode>;
 }

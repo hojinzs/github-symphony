@@ -75,7 +75,7 @@ export type WorkflowRuntimeTimeoutsConfig = {
 export type WorkflowRuntimeConfig = {
   kind: WorkflowRuntimeKind;
   command: string;
-  args: string[];
+  args: readonly string[];
   isolation: WorkflowRuntimeIsolationConfig;
   auth: WorkflowRuntimeAuthConfig;
   timeouts: WorkflowRuntimeTimeoutsConfig;
@@ -199,6 +199,8 @@ export function resolveWorkflowRuntimeCommand(
     return workflow.runtime.command;
   }
 
+  // This value is a display/logging command string. Do not parse it back into
+  // argv; args containing whitespace cannot be represented losslessly here.
   return [workflow.runtime.command, ...workflow.runtime.args].join(" ");
 }
 

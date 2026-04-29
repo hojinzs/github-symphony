@@ -146,7 +146,7 @@ export function createWorkflowRuntimeAdapter(
         {
           workingDirectory: context.workingDirectory,
           command: runtime.command,
-          args: runtime.args.length > 0 ? runtime.args : undefined,
+          args: runtime.args,
           env: context.env,
           authEnvKey: runtime.auth.env ?? undefined,
           isolation: {

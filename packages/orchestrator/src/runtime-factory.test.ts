@@ -94,6 +94,29 @@ describe("createWorkflowRuntimeAdapter", () => {
     expect(plan?.args).toEqual(["-lc", "codex app-server --model gpt-5"]);
   });
 
+  it("uses the default codex-app-server command when runtime command is absent", async () => {
+    const workflow = parseWorkflow(`runtime:
+  kind: codex-app-server
+`);
+
+    const adapter = createWorkflowRuntimeAdapter(workflow, {
+      projectId: "project-1",
+      workingDirectory: "/workspace",
+      codexDependencies: {
+        mkdirImpl: async () => undefined,
+        writeFileImpl: async () => undefined,
+        copyFileImpl: async () => undefined,
+      },
+    });
+
+    expect(adapter).toBeInstanceOf(CodexRuntimeAdapter);
+    const codexAdapter = adapter as CodexRuntimeAdapter;
+    await codexAdapter.prepare();
+
+    const plan = codexAdapter.getPreparedPlan();
+    expect(plan?.args).toEqual(["-lc", "codex app-server"]);
+  });
+
   it("creates a claude-print adapter with isolation argv context", async () => {
     const calls: Array<ReadonlyArray<string>> = [];
     const { child, stdout, stderr } = createStubChild();
@@ -145,6 +168,48 @@ describe("createWorkflowRuntimeAdapter", () => {
       "--strict-mcp-config",
       "--mcp-config",
       "/tmp/ephemeral-mcp.json",
+    ]);
+  });
+
+  it("passes explicit empty claude-print args through to argv construction", async () => {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push(args);
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+      return child;
+    };
+    const workflow = parseWorkflow(`runtime:
+  kind: claude-print
+  command: claude
+  args: []
+`);
+
+    const adapter = createWorkflowRuntimeAdapter(workflow, {
+      projectId: "project-1",
+      workingDirectory: "/workspace",
+      claudeDependencies: {
+        spawnImpl,
+      },
+    });
+
+    expect(adapter).toBeInstanceOf(ClaudePrintRuntimeAdapter);
+    await adapter.spawnTurn({});
+
+    expect(calls[0]).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
     ]);
   });
 

@@ -261,6 +261,20 @@ Prompt body.
     ).toThrow(/Workflow front matter field "runtime" must be an object/);
   });
 
+  it("reports nested runtime object paths clearly", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  isolation: false
+---
+Prompt body.
+`)
+    ).toThrow(/Workflow front matter field "runtime\.isolation" must be an object/);
+  });
+
   it("does not expose session resume fields in runtime schema", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
