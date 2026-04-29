@@ -48,6 +48,32 @@ describe("buildClaudePrintArgv", () => {
     ]);
   });
 
+  it("deduplicates configured session flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["--resume", "old-session", "--fork-session"],
+        session: {
+          mode: "resume",
+          sessionId: "new-session",
+          forkSession: true,
+        },
+      })
+    ).toEqual([
+      "--resume",
+      "new-session",
+      "--fork-session",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
+
   it("skips isolation flags when isolation is off", () => {
     expect(
       buildClaudePrintArgv({
@@ -74,6 +100,111 @@ describe("buildClaudePrintArgv", () => {
       "--strict-mcp-config",
       "--mcp-config",
       "/tmp/claude-mcp.json",
+    ]);
+  });
+
+  it("uses configured base args while preserving required stream-json flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["-p", "--verbose"],
+        isolation: {
+          bare: true,
+          strictMcpConfig: true,
+          mcpConfigPath: "/tmp/runtime-mcp.json",
+        },
+      })
+    ).toEqual([
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--permission-mode",
+      "bypassPermissions",
+      "--bare",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "/tmp/runtime-mcp.json",
+    ]);
+  });
+
+  it("forces the required claude print protocol when base args override it", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["-p", "--output-format", "text", "--input-format", "text"],
+      })
+    ).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
+
+  it("deduplicates configured isolation flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: [
+          "-p",
+          "--bare",
+          "--strict-mcp-config",
+          "--mcp-config",
+          "/tmp/old-mcp.json",
+        ],
+        isolation: {
+          bare: true,
+          strictMcpConfig: true,
+          mcpConfigPath: "/tmp/runtime-mcp.json",
+        },
+      })
+    ).toEqual([
+      "-p",
+      "--bare",
+      "--strict-mcp-config",
+      "--mcp-config",
+      "/tmp/runtime-mcp.json",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
+
+  it("inserts required flag values without removing following flags", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["--mcp-config", "--bare"],
+        isolation: {
+          bare: true,
+          strictMcpConfig: true,
+          mcpConfigPath: "/tmp/runtime-mcp.json",
+        },
+      })
+    ).toEqual([
+      "--mcp-config",
+      "/tmp/runtime-mcp.json",
+      "--bare",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
+      "--strict-mcp-config",
     ]);
   });
 });

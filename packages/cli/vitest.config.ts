@@ -24,6 +24,10 @@ export default defineConfig({
         packageRoot,
         "../orchestrator/src/index.ts"
       ),
+      "@gh-symphony/runtime-claude": resolve(
+        packageRoot,
+        "../runtime-claude/src/index.ts"
+      ),
       "@gh-symphony/runtime-codex": resolve(
         packageRoot,
         "../runtime-codex/src/index.ts"

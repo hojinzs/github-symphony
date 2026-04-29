@@ -31,9 +31,11 @@ export type ClaudeRuntimeConfig = {
   workingDirectory: string;
   runtimeDirectory?: string;
   command?: string;
+  args?: readonly string[];
   env?: NodeJS.ProcessEnv;
   extraArgs?: readonly string[];
   isolation?: ClaudeRuntimeIsolationOptions;
+  authEnvKey?: string;
   inheritProcessEnv?: boolean;
 };
 
@@ -140,7 +142,7 @@ export class ClaudePrintRuntimeAdapter
   resolveCredentials(
     brokerResponse: AgentRuntimeCredentialBrokerResponse
   ): AgentRuntimeEnv {
-    return extractEnvForClaude(brokerResponse.env);
+    return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
   async shutdown(): Promise<void> {
@@ -164,6 +166,7 @@ export class ClaudePrintRuntimeAdapter
 
     if (this.preparedMcpConfig) {
       return {
+        baseArgs: this.config.args,
         session: input.session,
         // prepare() owns MCP argv injection through extraArgv; suppress the
         // isolation flag here so buildClaudePrintArgv does not add it twice.
@@ -188,6 +191,7 @@ export class ClaudePrintRuntimeAdapter
     }
 
     return {
+      baseArgs: this.config.args,
       session: input.session,
       isolation,
       extraArgs: configuredExtraArgs,
@@ -224,9 +228,10 @@ export function createClaudePrintRuntimeAdapter(
 }
 
 export function resolveClaudeCredentials(
-  brokerResponse: AgentRuntimeCredentialBrokerResponse
+  brokerResponse: AgentRuntimeCredentialBrokerResponse,
+  envKey?: string
 ): AgentRuntimeEnv {
-  return extractEnvForClaude(brokerResponse.env);
+  return extractEnvForClaude(brokerResponse.env, envKey);
 }
 
 const DEFAULT_INHERITED_ENV_KEYS = [
