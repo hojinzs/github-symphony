@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 
 export type ClaudeMcpTokenEnvironment = {
@@ -34,8 +34,8 @@ export async function composeClaudeMcpConfig(
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
   const mergedConfig = mergeGitHubGraphQLMcpServer(baseConfig, symphonyTokenEnv);
 
-  // Non-strict mode intentionally mutates the throwaway workspace .mcp.json so
-  // Claude's auto-discovery can pick up both user-authored and Symphony entries.
+  // Non-strict mode mutates the workspace .mcp.json in-place so Claude's
+  // auto-discovery can pick up both user-authored and Symphony-managed entries.
   await mkdir(dirname(finalPath), { recursive: true });
   await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", "utf8");
 
@@ -91,9 +91,11 @@ function resolveStrictMcpConfigPath(
   env: ClaudeMcpTokenEnvironment
 ): string {
   // Direct package tests and ad-hoc callers may not have the worker runtime
-  // directory yet; keep their strict config inside the throwaway workspace.
+  // directory yet; keep their strict config inside the workspace fallback path.
+  const normalizedWorkspaceRoot = resolve(workspaceRoot);
   const runtimeDir =
-    env.WORKSPACE_RUNTIME_DIR ?? join(workspaceRoot, ".runtime", basename(workspaceRoot));
+    env.WORKSPACE_RUNTIME_DIR ??
+    join(normalizedWorkspaceRoot, ".runtime", basename(normalizedWorkspaceRoot));
 
   return join(runtimeDir, "mcp.json");
 }

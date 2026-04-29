@@ -153,4 +153,31 @@ describe("composeClaudeMcpConfig", () => {
       composeClaudeMcpConfig(workspaceRoot, false, {})
     ).rejects.toThrow(SyntaxError);
   });
+
+  it("treats a non-object mcpServers value as empty", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
+    await writeFile(
+      workspaceMcpPath,
+      JSON.stringify({
+        mcpServers: null,
+      }),
+      "utf8"
+    );
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {});
+
+    expect(result.finalPath).toBe(workspaceMcpPath);
+    expect(await readJson(workspaceMcpPath)).toEqual({
+      mcpServers: {
+        github_graphql: {
+          command: "node",
+          args: [expect.stringContaining("mcp-server.js")],
+          env: {
+            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+          },
+        },
+      },
+    });
+  });
 });

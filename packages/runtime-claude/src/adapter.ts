@@ -167,6 +167,8 @@ export class ClaudePrintRuntimeAdapter
         session: input.session,
         // prepare() owns MCP argv injection through extraArgv; suppress the
         // isolation flag here so buildClaudePrintArgv does not add it twice.
+        // Any input mcpConfigPath is intentionally ignored while a prepared
+        // composition result is active.
         isolation: {
           ...isolation,
           strictMcpConfig: false,
