@@ -77,7 +77,7 @@ describe("buildClaudePrintArgv", () => {
     ]);
   });
 
-  it("uses configured base args before isolation flags", () => {
+  it("uses configured base args while preserving required stream-json flags", () => {
     expect(
       buildClaudePrintArgv({
         baseArgs: ["-p", "--verbose"],
@@ -90,10 +90,35 @@ describe("buildClaudePrintArgv", () => {
     ).toEqual([
       "-p",
       "--verbose",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--permission-mode",
+      "bypassPermissions",
       "--bare",
       "--strict-mcp-config",
       "--mcp-config",
       "/tmp/runtime-mcp.json",
+    ]);
+  });
+
+  it("forces the required claude print protocol when base args override it", () => {
+    expect(
+      buildClaudePrintArgv({
+        baseArgs: ["-p", "--output-format", "text", "--input-format", "text"],
+      })
+    ).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
     ]);
   });
 });

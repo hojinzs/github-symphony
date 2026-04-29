@@ -206,6 +206,13 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]).toEqual([
       "-p",
       "--verbose",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--permission-mode",
+      "bypassPermissions",
       "--strict-mcp-config",
       "--mcp-config",
       "/workspace/.runtime/mcp.json",

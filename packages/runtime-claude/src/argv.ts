@@ -37,7 +37,9 @@ export type ClaudePrintArgvOptions = {
 export function buildClaudePrintArgv(
   options: ClaudePrintArgvOptions = {}
 ): string[] {
-  const args = [...(options.baseArgs ?? DEFAULT_CLAUDE_PRINT_ARGS)] as string[];
+  const args = options.baseArgs
+    ? withRequiredClaudePrintArgs(options.baseArgs)
+    : ([...DEFAULT_CLAUDE_PRINT_ARGS] as string[]);
   const { session, isolation, extraArgs } = options;
 
   if (session?.mode === "start") {
@@ -67,4 +69,37 @@ export function buildClaudePrintArgv(
   }
 
   return args;
+}
+
+function withRequiredClaudePrintArgs(baseArgs: readonly string[]): string[] {
+  const args = [...baseArgs];
+
+  ensureFlag(args, "-p");
+  ensureFlagValue(args, "--output-format", "stream-json");
+  ensureFlagValue(args, "--input-format", "stream-json");
+  ensureFlag(args, "--include-partial-messages");
+  ensureFlag(args, "--verbose");
+  ensureFlagValue(args, "--permission-mode", "bypassPermissions");
+
+  return args;
+}
+
+function ensureFlag(args: string[], flag: string): void {
+  if (!args.includes(flag)) {
+    args.push(flag);
+  }
+}
+
+function ensureFlagValue(args: string[], flag: string, value: string): void {
+  const index = args.indexOf(flag);
+
+  if (index === -1) {
+    args.push(flag, value);
+    return;
+  }
+
+  const existingValue = args[index + 1];
+  if (existingValue !== value) {
+    args.splice(index + 1, existingValue === undefined ? 0 : 1, value);
+  }
 }

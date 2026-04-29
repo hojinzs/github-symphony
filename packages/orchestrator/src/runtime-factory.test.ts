@@ -136,6 +136,13 @@ describe("createWorkflowRuntimeAdapter", () => {
     expect(calls[0]).toEqual([
       "-p",
       "--verbose",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--permission-mode",
+      "bypassPermissions",
       "--bare",
       "--strict-mcp-config",
       "--mcp-config",
@@ -172,6 +179,9 @@ describe("createWorkflowRuntimeAdapter", () => {
     });
 
     expect(adapter).toBeInstanceOf(CustomCommandRuntimeAdapter);
+    const unsubscribe = adapter.onEvent(() => undefined);
+    expect(unsubscribe()).toBeUndefined();
+
     await adapter.spawnTurn({
       messages: [],
     });

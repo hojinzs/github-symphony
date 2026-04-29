@@ -7,9 +7,11 @@ import type {
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
   WorkflowDefinition,
-  WorkflowRuntimeConfig,
 } from "@gh-symphony/core";
-import { extractEnvForClaude } from "@gh-symphony/core";
+import {
+  extractEnvForClaude,
+  resolveWorkflowRuntimeCommand,
+} from "@gh-symphony/core";
 import {
   createCodexRuntimeAdapter,
   type CodexRuntimeAdapter,
@@ -18,6 +20,7 @@ import {
 import {
   createClaudePrintRuntimeAdapter,
   spawnClaudeTurn,
+  type ClaudeWireMessage,
   type ClaudePrintRuntimeAdapter,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -45,10 +48,8 @@ export type CustomCommandRuntimeConfig = {
   env?: NodeJS.ProcessEnv;
 };
 
-export type CustomRuntimeMessage = Record<string, unknown>;
-
 export type CustomRuntimeTurnInput = {
-  messages?: CustomRuntimeMessage | readonly CustomRuntimeMessage[];
+  messages?: ClaudeWireMessage | readonly ClaudeWireMessage[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   command?: string;
@@ -90,6 +91,8 @@ export class CustomCommandRuntimeAdapter
   onEvent(
     _handler: AgentRuntimeEventHandler<AgentRuntimeEvent>
   ): AgentRuntimeEventSubscription {
+    // Custom runtimes currently expose only process-level turn results; they do
+    // not emit structured runtime events.
     return () => {};
   }
 
@@ -131,7 +134,7 @@ export function createWorkflowRuntimeAdapter(
         {
           projectId: context.projectId,
           workingDirectory: context.workingDirectory,
-          agentCommand: buildCommand(runtime),
+          agentCommand: resolveWorkflowRuntimeCommand(workflow),
           extraEnv: context.env,
         },
         context.codexDependencies
@@ -166,13 +169,6 @@ export function createWorkflowRuntimeAdapter(
         context.claudeDependencies
       );
   }
-}
-
-function buildCommand(runtime: WorkflowRuntimeConfig): string {
-  if (runtime.args.length === 0) {
-    return runtime.command;
-  }
-  return [runtime.command, ...runtime.args].join(" ");
 }
 
 function defaultEphemeralMcpConfigPath(

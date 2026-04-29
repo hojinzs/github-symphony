@@ -219,6 +219,21 @@ Prompt body.
     ).toThrow(/inline array has an unterminated string/);
   });
 
+  it("reports trailing commas in inline arrays clearly", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+runtime:
+  kind: custom
+  command: node
+  args: [worker.js, --flag,]
+---
+Prompt body.
+`)
+    ).toThrow(/inline array has a trailing comma/);
+  });
+
   it("rejects unsupported runtime kind values", () => {
     expect(() =>
       parseWorkflowMarkdown(`---

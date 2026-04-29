@@ -349,9 +349,7 @@ function parseInlineArray(value: string): WorkflowFrontMatterNode[] {
     return [];
   }
 
-  return splitInlineArrayEntries(inner).map((entry) =>
-    parseScalar(entry.trim())
-  );
+  return splitInlineArrayEntries(inner).map((entry) => parseScalar(entry));
 }
 
 function splitInlineArrayEntries(inner: string): string[] {
@@ -375,7 +373,7 @@ function splitInlineArrayEntries(inner: string): string[] {
     }
 
     if (char === ",") {
-      pushInlineArrayEntry(entries, current);
+      pushInlineArrayEntry(entries, current, "middle");
       current = "";
       continue;
     }
@@ -387,14 +385,22 @@ function splitInlineArrayEntries(inner: string): string[] {
     throw new Error("Workflow front matter inline array has an unterminated string.");
   }
 
-  pushInlineArrayEntry(entries, current);
+  pushInlineArrayEntry(entries, current, "end");
   return entries;
 }
 
-function pushInlineArrayEntry(entries: string[], entry: string): void {
+function pushInlineArrayEntry(
+  entries: string[],
+  entry: string,
+  position: "middle" | "end"
+): void {
   const trimmed = entry.trim();
   if (!trimmed) {
-    throw new Error("Workflow front matter inline array contains an empty item.");
+    const reason =
+      position === "end"
+        ? "has a trailing comma"
+        : "contains an empty item";
+    throw new Error(`Workflow front matter inline array ${reason}.`);
   }
   entries.push(trimmed);
 }
