@@ -53,6 +53,8 @@ const DEFAULT_DEPENDENCIES: ClaudePreflightDependencies = {
   platform: process.platform,
 };
 
+const CREDENTIAL_BROKER_TIMEOUT_MS = 5_000;
+
 export async function runClaudePreflight(
   options: ClaudePreflightOptions,
   dependencies: Partial<ClaudePreflightDependencies> = {}
@@ -211,6 +213,7 @@ async function checkAnthropicApiKey(
         accept: "application/json",
         authorization: `Bearer ${brokerSecret}`,
       },
+      signal: AbortSignal.timeout(CREDENTIAL_BROKER_TIMEOUT_MS),
     });
     const payload = (await response.json()) as {
       env?: Record<string, string | undefined>;
@@ -357,8 +360,10 @@ export function resolveRuntimeCommandBinary(
       return value === "-c" || value === "-lc";
     });
     if (flagIndex >= 0 && flagIndex + 1 < tokens.length) {
-      return resolveRuntimeCommandBinary(
-        stripClaudeCommandQuotes(tokens[flagIndex + 1]!)
+      const shellCommand = stripClaudeCommandQuotes(tokens[flagIndex + 1]!);
+      return (
+        resolveShellCommandClaudeBinary(shellCommand) ??
+        resolveRuntimeCommandBinary(shellCommand)
       );
     }
   }
@@ -372,6 +377,26 @@ export function stripClaudeCommandQuotes(value: string): string {
 
 function tokenizeRuntimeCommand(command: string): string[] {
   return command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+}
+
+function resolveShellCommandClaudeBinary(command: string): string | null {
+  for (const segment of command.split(/&&|\|\||[;\n]/g)) {
+    const tokens = tokenizeRuntimeCommand(segment);
+    for (const token of tokens) {
+      const value = stripClaudeCommandQuotes(token);
+      if (
+        value.includes("=") &&
+        !value.startsWith("/") &&
+        !value.startsWith("./")
+      ) {
+        continue;
+      }
+      if (isClaudeBinaryName(value)) {
+        return value;
+      }
+    }
+  }
+  return null;
 }
 
 function isClaudeBinaryName(command: string): boolean {

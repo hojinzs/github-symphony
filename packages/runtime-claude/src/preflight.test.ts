@@ -130,6 +130,11 @@ describe("Claude runtime preflight", () => {
 
   it("accepts brokered Anthropic credentials", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-broker-"));
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ env: { ANTHROPIC_API_KEY: "sk-brokered" } }),
+    }));
     const report = await runClaudePreflight(
       {
         cwd,
@@ -141,25 +146,39 @@ describe("Claude runtime preflight", () => {
       },
       {
         execFileSync: vi.fn(execSuccess) as never,
-        fetchImpl: vi.fn(async () => ({
-          ok: true,
-          status: 200,
-          json: async () => ({ env: { ANTHROPIC_API_KEY: "sk-brokered" } }),
-        })) as never,
+        fetchImpl: fetchImpl as never,
       }
     );
 
     expect(
       report.checks.find((check) => check.id === "anthropic_api_key")
     ).toMatchObject({ status: "pass", details: { source: "broker" } });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://broker.test/agent",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      })
+    );
   });
 
   it("formats readable output and detects shell-wrapped Claude commands", () => {
     expect(isClaudeRuntimeCommand("bash -lc 'claude -p'")).toBe(true);
+    expect(isClaudeRuntimeCommand("bash -c 'setup_env; claude -p'")).toBe(
+      true
+    );
     expect(isClaudeRuntimeCommand("/usr/local/bin/claude --print")).toBe(true);
     expect(isClaudeRuntimeCommand("./bin/claude-code --print")).toBe(true);
     expect(isClaudeRuntimeCommand("codex app-server")).toBe(false);
     expect(resolveClaudeCommandBinary("bash -lc 'claude -p'")).toBe("claude");
+    expect(resolveClaudeCommandBinary("bash -c 'setup_env; claude -p'")).toBe(
+      "claude"
+    );
+    expect(
+      resolveClaudeCommandBinary("bash -lc 'setup_env && ./bin/claude-code -p'")
+    ).toBe("./bin/claude-code");
+    expect(resolveClaudeCommandBinary("bash -lc 'ANTHROPIC=1 claude -p'")).toBe(
+      "claude"
+    );
     expect(resolveClaudeCommandBinary("/usr/local/bin/claude --print")).toBe(
       "/usr/local/bin/claude"
     );
