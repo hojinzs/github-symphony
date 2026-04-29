@@ -87,7 +87,9 @@ export function parseClaudeSessionFile(value: unknown): ClaudeSessionFile {
     throw new Error("Claude session file must be a JSON object.");
   }
   if (value.protocol !== CLAUDE_SESSION_PROTOCOL) {
-    throw new Error("Claude session file protocol must be claude-print.");
+    throw new Error(
+      `Claude session file protocol must be ${CLAUDE_SESSION_PROTOCOL}.`
+    );
   }
   if (typeof value.sessionId !== "string" || value.sessionId.length === 0) {
     throw new Error("Claude session file sessionId must be a non-empty string.");

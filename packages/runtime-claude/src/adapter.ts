@@ -116,12 +116,13 @@ export class ClaudePrintRuntimeAdapter
 
     try {
       const result = await this.spawnWithArgv(input, argv);
-      await this.persistStartedSessionId(result);
-      await this.persistForkedSessionId(result);
 
       if (this.shouldInvalidatePreparedResume(session, result)) {
         return await this.retryWithFreshSession(input, result);
       }
+
+      await this.persistStartedSessionId(result);
+      await this.persistForkedSessionId(result);
 
       return result;
     } finally {
@@ -133,7 +134,7 @@ export class ClaudePrintRuntimeAdapter
     handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
     this.eventHandlers.add(handler);
-    for (const event of this.pendingEvents.splice(0)) {
+    for (const event of this.pendingEvents) {
       handler(event);
     }
     return () => {
@@ -427,10 +428,10 @@ export class ClaudePrintRuntimeAdapter
     };
     if (this.eventHandlers.size === 0) {
       this.pendingEvents.push(event);
-      return;
-    }
-    for (const handler of this.eventHandlers) {
-      handler(event);
+    } else {
+      for (const handler of this.eventHandlers) {
+        handler(event);
+      }
     }
   }
 
@@ -552,6 +553,9 @@ function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
     return false;
   }
 
+  // Claude print currently surfaces rejected resume sessions through stderr text
+  // rather than a structured error field, so fallback detection is intentionally
+  // constrained to resume-related lines that include an HTTP 4xx code.
   return result.records.some((record) => {
     const text = record.line.toLowerCase();
     return (
