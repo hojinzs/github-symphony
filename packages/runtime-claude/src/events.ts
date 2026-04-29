@@ -79,6 +79,8 @@ export class ClaudePrintEventMapper {
       return events;
     }
 
+    // Claude stream-json uses content_block_start; top-level tool_use keeps
+    // compatibility with older/internal fixtures that already model the block.
     if (type === "content_block_start" || type === "tool_use") {
       const toolUseEvent = mapToolUseEvent(message, this.options);
       if (toolUseEvent) {
@@ -227,7 +229,7 @@ function mapToolUseEvent(
     return null;
   }
 
-  const input = "input" in toolUse ? toolUse.input : toolUse.arguments;
+  const input = toolUse.input !== undefined ? toolUse.input : toolUse.arguments;
 
   return {
     name: "agent.toolCallRequested",

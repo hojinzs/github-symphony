@@ -125,7 +125,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
     const spawnImpl: SpawnLike = () => {
       queueMicrotask(() => {
         stdout.write('{"type":"message_start"}\n');
-        stdout.write('{"type":"content_block_delta","index":0,"delta":{"text":"hi"}}\n');
+        stdout.write(
+          '{"type":"content_block_delta","index":0,"delta":{"text":"hi"}}\n'
+        );
         stdout.write('{"type":"result","subtype":"success"}\n');
         stdout.end();
         stderr.end();
@@ -134,11 +136,14 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
       return child;
     };
-    const adapter = new ClaudePrintRuntimeAdapter({
-      workingDirectory: "/workspace",
-    }, {
-      spawnImpl,
-    });
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
     const events: string[] = [];
     const unsubscribe = adapter.onEvent((event) => {
       events.push(event.name);

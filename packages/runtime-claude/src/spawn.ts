@@ -87,8 +87,8 @@ export async function spawnClaudeTurn(
     child.stderr,
     "stderr",
     records,
-    new ClaudePrintEventMapper(),
-    () => {}
+    null,
+    null
   );
   const exitDone = waitForChildExit(child, records);
 
@@ -170,8 +170,8 @@ async function collectNdjsonStream(
   stream: NodeJS.ReadableStream | null | undefined,
   channel: ClaudeSpawnRecord["stream"],
   records: ClaudeSpawnRecord[],
-  eventMapper: ClaudePrintEventMapper,
-  onEvent: (event: AgentEvent) => void
+  eventMapper: ClaudePrintEventMapper | null,
+  onEvent: ((event: AgentEvent) => void) | null
 ): Promise<void> {
   if (!stream) {
     return;
@@ -213,15 +213,17 @@ async function collectNdjsonStream(
 
   const trailingLine = buffer.trim();
   if (trailingLine.length > 0) {
-    records.push(parseClaudeRecord(channel, trailingLine, eventMapper, onEvent));
+    records.push(
+      parseClaudeRecord(channel, trailingLine, eventMapper, onEvent)
+    );
   }
 }
 
 function parseClaudeRecord(
   stream: ClaudeSpawnRecord["stream"],
   line: string,
-  eventMapper: ClaudePrintEventMapper,
-  onEvent: (event: AgentEvent) => void
+  eventMapper: ClaudePrintEventMapper | null,
+  onEvent: ((event: AgentEvent) => void) | null
 ): ClaudeSpawnRecord {
   const record = parseClaudePrintNdjsonLine(line);
   if (!record) {
@@ -232,8 +234,16 @@ function parseClaudeRecord(
   }
 
   if (record.message) {
+    if (!eventMapper) {
+      return {
+        stream,
+        line: record.line,
+        message: record.message,
+      };
+    }
+
     for (const event of eventMapper.mapMessage(record.message)) {
-      onEvent(event);
+      onEvent?.(event);
     }
 
     return {
@@ -320,7 +330,10 @@ function waitForChildExit(
     }
 > {
   return new Promise((resolve) => {
-    const handleClose = (exitCode: number | null, signal: NodeJS.Signals | null) => {
+    const handleClose = (
+      exitCode: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
       cleanup();
       resolve({ exitCode, signal });
     };

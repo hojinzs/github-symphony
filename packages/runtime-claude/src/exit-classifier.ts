@@ -5,10 +5,7 @@ import {
   type ClaudePrintWireEvent,
 } from "./events.js";
 
-export type ClaudeTurnExitKind =
-  | "success"
-  | "app-error"
-  | "process-error";
+export type ClaudeTurnExitKind = "success" | "app-error" | "process-error";
 
 export type ClaudeTurnExitClassification = {
   kind: ClaudeTurnExitKind;
@@ -44,7 +41,11 @@ export function classifyClaudeTurnExit(
 ): ClaudeTurnExitClassification {
   const resultStatus = getClaudeResultStatus(input.resultEvent);
 
-  if (input.exitCode === 0 && input.resultEvent && !isClaudeResultError(input.resultEvent)) {
+  if (
+    input.exitCode === 0 &&
+    input.resultEvent &&
+    !isClaudeResultError(input.resultEvent)
+  ) {
     return {
       kind: "success",
       transient: false,
@@ -53,7 +54,20 @@ export function classifyClaudeTurnExit(
     };
   }
 
-  if (input.exitCode === 0 && input.resultEvent && isClaudeResultError(input.resultEvent)) {
+  if (input.exitCode === 0 && !input.resultEvent) {
+    return {
+      kind: "app-error",
+      transient: false,
+      reason: "missing_result",
+      resultStatus,
+    };
+  }
+
+  if (
+    input.exitCode === 0 &&
+    input.resultEvent &&
+    isClaudeResultError(input.resultEvent)
+  ) {
     return {
       kind: "app-error",
       transient: isTransientClaudeFailure(input),
@@ -86,11 +100,9 @@ export function isTransientClaudeFailure(
 
   const text = [
     input.spawnErrorMessage,
-    input.errorEvent ? JSON.stringify(input.errorEvent) : undefined,
-    input.resultEvent ? JSON.stringify(input.resultEvent) : undefined,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join("\n");
+    extractFailureMessage(input.errorEvent),
+    extractFailureMessage(input.resultEvent),
+  ].join("\n");
 
   return TRANSIENT_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }
@@ -111,4 +123,39 @@ function describeProcessFailure(
   }
 
   return "process_error";
+}
+
+function extractFailureMessage(
+  event: ClaudePrintWireEvent | null | undefined
+): string {
+  if (!event) {
+    return "";
+  }
+
+  const error = asRecord(event.error);
+  return [
+    getString(error?.message),
+    getString(error?.type),
+    getString(event.message),
+  ]
+    .filter((value): value is string => value !== undefined)
+    .join("\n");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  return undefined;
 }

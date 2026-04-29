@@ -132,6 +132,28 @@ describe("ClaudePrintEventMapper", () => {
     expect(isClaudeResultError(events[0]?.payload.params as never)).toBe(true);
   });
 
+  it("falls back to tool arguments when input is undefined", () => {
+    const mapper = new ClaudePrintEventMapper();
+
+    const events = mapper.mapMessage({
+      type: "tool_use",
+      id: "toolu-args",
+      name: "shell",
+      input: undefined,
+      arguments: { command: "pwd" },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      name: "agent.toolCallRequested",
+      payload: {
+        callId: "toolu-args",
+        toolName: "shell",
+        arguments: { command: "pwd" },
+      },
+    });
+  });
+
   it("parses NDJSON lines without throwing on invalid JSON", () => {
     expect(parseClaudePrintNdjsonLine('{"type":"message_start"}')).toEqual({
       line: '{"type":"message_start"}',

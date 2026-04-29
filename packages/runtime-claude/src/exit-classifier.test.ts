@@ -40,6 +40,20 @@ describe("classifyClaudeTurnExit", () => {
     });
   });
 
+  it("classifies exit 0 without a result event as an application error", () => {
+    expect(
+      classifyClaudeTurnExit({
+        exitCode: 0,
+        signal: null,
+      })
+    ).toEqual({
+      kind: "app-error",
+      transient: false,
+      reason: "missing_result",
+      resultStatus: undefined,
+    });
+  });
+
   it("marks rate-limit failures transient", () => {
     expect(
       classifyClaudeTurnExit({
@@ -79,6 +93,29 @@ describe("classifyClaudeTurnExit", () => {
     ).toMatchObject({
       kind: "process-error",
       transient: true,
+      reason: "exit_1",
+    });
+  });
+
+  it("does not classify unrelated JSON fields as transient", () => {
+    expect(
+      classifyClaudeTurnExit({
+        exitCode: 1,
+        signal: null,
+        errorEvent: {
+          type: "error",
+          error: {
+            type: "api_error",
+            message: "validation failed",
+          },
+          retry_config: {
+            timeout: 0,
+          },
+        },
+      })
+    ).toMatchObject({
+      kind: "process-error",
+      transient: false,
       reason: "exit_1",
     });
   });

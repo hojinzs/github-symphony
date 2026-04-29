@@ -48,15 +48,12 @@ export type ClaudeRuntimeTurnResult = ClaudeSpawnTurnResult;
 
 export type ClaudeRuntimeEvent = AgentEvent;
 
-export class ClaudePrintRuntimeAdapter
-  implements
-    AgentRuntimeAdapter<
-      ClaudeRuntimePrepareContext,
-      ClaudeRuntimeTurnInput,
-      ClaudeRuntimeTurnResult,
-      ClaudeRuntimeEvent
-    >
-{
+export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
+  ClaudeRuntimePrepareContext,
+  ClaudeRuntimeTurnInput,
+  ClaudeRuntimeTurnResult,
+  ClaudeRuntimeEvent
+> {
   private activeChild: ChildProcess | null = null;
   private readonly eventHandlers = new Set<
     AgentRuntimeEventHandler<ClaudeRuntimeEvent>
@@ -72,16 +69,16 @@ export class ClaudePrintRuntimeAdapter
     // checks will populate this hook once the worker-side runtime wiring lands.
   }
 
-  async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
+  async spawnTurn(
+    input: ClaudeRuntimeTurnInput
+  ): Promise<ClaudeRuntimeTurnResult> {
     if (this.activeChild) {
       throw new Error(
         "TODO(#8): Claude print runtime adapter supports only one in-flight turn."
       );
     }
 
-    const argv = buildClaudePrintArgv(
-      this.buildArgvOptions(input)
-    );
+    const argv = buildClaudePrintArgv(this.buildArgvOptions(input));
 
     try {
       return await spawnClaudeTurn(
@@ -138,7 +135,9 @@ export class ClaudePrintRuntimeAdapter
     this.stopActiveChild();
   }
 
-  private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
+  private buildArgvOptions(
+    input: ClaudeRuntimeTurnInput
+  ): ClaudePrintArgvOptions {
     return {
       session: input.session,
       isolation: {
