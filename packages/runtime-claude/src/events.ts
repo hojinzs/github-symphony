@@ -82,6 +82,11 @@ export class ClaudePrintEventMapper {
     // Claude stream-json uses content_block_start; top-level tool_use keeps
     // compatibility with older/internal fixtures that already model the block.
     if (type === "content_block_start" || type === "tool_use") {
+      if (!this.hasStartedTurn) {
+        events.push(this.buildTurnStartedEvent(message, type));
+        this.hasStartedTurn = true;
+      }
+
       const toolUseEvent = mapToolUseEvent(message, this.options);
       if (toolUseEvent) {
         events.push(toolUseEvent);
@@ -168,15 +173,6 @@ export class ClaudePrintEventMapper {
       },
     };
   }
-}
-
-export function mapClaudePrintEvent(
-  message: ClaudePrintWireEvent,
-  options: ClaudePrintEventMapperOptions = {}
-): AgentEvent[] {
-  // Single-message helper. Use ClaudePrintEventMapper directly for streams so
-  // turn-start inference and latest result/error state are preserved.
-  return new ClaudePrintEventMapper(options).mapMessage(message);
 }
 
 export function isClaudeResultError(message: ClaudePrintWireEvent): boolean {
@@ -298,13 +294,13 @@ function observabilityEventName(type: string): string {
   return `${CLAUDE_OBSERVABILITY_PREFIX}${type || "unknown"}`;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function getString(value: unknown): string | undefined {
+export function getString(value: unknown): string | undefined {
   if (typeof value === "string") {
     return value;
   }

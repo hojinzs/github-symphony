@@ -118,6 +118,33 @@ describe("ClaudePrintEventMapper", () => {
     ]);
   });
 
+  it("starts a turn before a tool call when message_start is absent", () => {
+    const mapper = new ClaudePrintEventMapper();
+
+    const events = mapper.mapMessage({
+      type: "content_block_start",
+      index: 0,
+      content_block: {
+        type: "tool_use",
+        id: "toolu-first",
+        name: "github_graphql",
+        input: { query: "{ viewer { login } }" },
+      },
+    });
+
+    expect(events.map((event) => event.name)).toEqual([
+      "agent.turnStarted",
+      "agent.toolCallRequested",
+    ]);
+    expect(events[1]).toMatchObject({
+      name: "agent.toolCallRequested",
+      payload: {
+        callId: "toolu-first",
+        toolName: "github_graphql",
+      },
+    });
+  });
+
   it("maps result error subtypes to agent.error instead of turnCompleted", () => {
     const mapper = new ClaudePrintEventMapper();
 
@@ -143,8 +170,11 @@ describe("ClaudePrintEventMapper", () => {
       arguments: { command: "pwd" },
     });
 
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
+    expect(events.map((event) => event.name)).toEqual([
+      "agent.turnStarted",
+      "agent.toolCallRequested",
+    ]);
+    expect(events[1]).toMatchObject({
       name: "agent.toolCallRequested",
       payload: {
         callId: "toolu-args",

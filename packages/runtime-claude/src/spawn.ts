@@ -225,13 +225,7 @@ function parseClaudeRecord(
   eventMapper: ClaudePrintEventMapper | null,
   onEvent: ((event: AgentEvent) => void) | null
 ): ClaudeSpawnRecord {
-  const record = parseClaudePrintNdjsonLine(line);
-  if (!record) {
-    return {
-      stream,
-      line,
-    };
-  }
+  const record = parseClaudePrintNdjsonLine(line)!;
 
   if (record.message) {
     if (!eventMapper) {

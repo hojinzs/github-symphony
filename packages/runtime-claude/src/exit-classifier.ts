@@ -1,7 +1,9 @@
 import {
   extractRateLimit,
   getClaudeResultStatus,
+  getString,
   isClaudeResultError,
+  asRecord,
   type ClaudePrintWireEvent,
 } from "./events.js";
 
@@ -25,7 +27,7 @@ export type ClaudeTurnExitClassificationInput = {
 
 const TRANSIENT_ERROR_PATTERNS = [
   /rate.?limit/i,
-  /429/,
+  /\b429\b/,
   /timeout/i,
   /timed?.?out/i,
   /temporar/i,
@@ -140,22 +142,4 @@ function extractFailureMessage(
   ]
     .filter((value): value is string => value !== undefined)
     .join("\n");
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function getString(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  return undefined;
 }
