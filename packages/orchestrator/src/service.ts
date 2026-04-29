@@ -22,6 +22,8 @@ import {
   mapIssueOrchestrationStateToStatus,
   readEnvFile,
   renderPrompt,
+  resolveWorkflowRuntimeCommand,
+  resolveWorkflowRuntimeTimeouts,
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
   type HookResult,
@@ -1274,6 +1276,7 @@ export class OrchestratorService {
       }
     );
 
+    const runtimeTimeouts = resolveWorkflowRuntimeTimeouts(workflow.workflow);
     mkdirSync(runDir, { recursive: true });
     const workerLogStream = (
       this.dependencies.createWriteStreamImpl ?? createWriteStream
@@ -1331,7 +1334,9 @@ export class OrchestratorService {
           ...trackerAdapter.buildWorkerEnvironment(tenant, issue),
           SYMPHONY_RENDERED_PROMPT: renderedPrompt,
           SYMPHONY_WORKFLOW_PATH: workflow.workflowPath ?? "",
-          SYMPHONY_AGENT_COMMAND: workflow.workflow.codex.command,
+          SYMPHONY_AGENT_COMMAND: resolveWorkflowRuntimeCommand(
+            workflow.workflow
+          ),
           SYMPHONY_APPROVAL_POLICY:
             workflow.workflow.codex.approvalPolicy ?? "",
           SYMPHONY_THREAD_SANDBOX: workflow.workflow.codex.threadSandbox ?? "",
@@ -1354,10 +1359,10 @@ export class OrchestratorService {
           SYMPHONY_LAST_TURN_SUMMARY: "",
           SYMPHONY_SESSION_STARTED_AT: "",
           SYMPHONY_READ_TIMEOUT_MS: String(
-            workflow.workflow.codex.readTimeoutMs
+            runtimeTimeouts.readTimeoutMs
           ),
           SYMPHONY_TURN_TIMEOUT_MS: String(
-            workflow.workflow.codex.turnTimeoutMs
+            runtimeTimeouts.turnTimeoutMs
           ),
         }),
         detached: true,
@@ -2588,7 +2593,8 @@ export class OrchestratorService {
         maxDelayMs:
           this.dependencies.retryBackoffMs ??
           resolution.workflow.agent.maxRetryBackoffMs,
-        stallTimeoutMs: resolution.workflow.codex.stallTimeoutMs,
+        stallTimeoutMs:
+          resolveWorkflowRuntimeTimeouts(resolution.workflow).stallTimeoutMs,
       };
     } catch {
       if (!this.dependencies.retryBackoffMs) {

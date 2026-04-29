@@ -1,6 +1,7 @@
 import {
   DEFAULT_AGENT_COMMAND,
   DEFAULT_BASE_DELAY_MS,
+  DEFAULT_CLAUDE_COMMAND,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_MAX_CONCURRENT_AGENTS,
   DEFAULT_MAX_FAILURE_RETRIES,
@@ -13,6 +14,9 @@ import {
   DEFAULT_WORKFLOW_DEFINITION,
   DEFAULT_WORKFLOW_TRACKER,
   type ParsedWorkflow,
+  type WorkflowRuntimeConfig,
+  type WorkflowRuntimeKind,
+  resolveWorkflowRuntimeCommand,
 } from "./config.js";
 
 type WorkflowFrontMatterNode =
@@ -51,7 +55,11 @@ export function parseWorkflowMarkdown(
   const workspace = readObject(frontMatter, "workspace");
   const hooks = readObject(frontMatter, "hooks");
   const agent = readObject(frontMatter, "agent");
-  const codex = readRequiredObject(frontMatter, "codex");
+  const runtimeNode = readOptionalRuntimeObject(frontMatter);
+  const hasRuntime = runtimeNode !== null;
+  const codex = hasRuntime
+    ? readObject(frontMatter, "codex")
+    : readRequiredObject(frontMatter, "codex");
 
   const trackerKind = readRequiredString(tracker, "kind", env);
   const activeStates =
@@ -69,8 +77,26 @@ export function parseWorkflowMarkdown(
     "max_concurrent_agents_by_state"
   );
 
-  const command =
-    readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND;
+  const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
+  const codexConfig = {
+    command: readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND,
+    approvalPolicy: readOptionalString(codex, "approval_policy", env),
+    threadSandbox: readOptionalString(codex, "thread_sandbox", env),
+    turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
+    turnTimeoutMs:
+      readOptionalIntegerLike(codex, "turn_timeout_ms") ??
+      DEFAULT_TURN_TIMEOUT_MS,
+    readTimeoutMs:
+      readOptionalIntegerLike(codex, "read_timeout_ms") ??
+      DEFAULT_READ_TIMEOUT_MS,
+    stallTimeoutMs:
+      readOptionalIntegerLike(codex, "stall_timeout_ms") ??
+      DEFAULT_STALL_TIMEOUT_MS,
+  };
+  const agentCommand = resolveWorkflowRuntimeCommand({
+    runtime,
+    codex: codexConfig,
+  });
 
   const parsed: ParsedWorkflow = {
     promptTemplate,
@@ -127,21 +153,8 @@ export function parseWorkflowMarkdown(
         readOptionalIntegerLike(agent, "retry_base_delay_ms") ??
         DEFAULT_BASE_DELAY_MS,
     },
-    codex: {
-      command,
-      approvalPolicy: readOptionalString(codex, "approval_policy", env),
-      threadSandbox: readOptionalString(codex, "thread_sandbox", env),
-      turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
-      turnTimeoutMs:
-        readOptionalIntegerLike(codex, "turn_timeout_ms") ??
-        DEFAULT_TURN_TIMEOUT_MS,
-      readTimeoutMs:
-        readOptionalIntegerLike(codex, "read_timeout_ms") ??
-        DEFAULT_READ_TIMEOUT_MS,
-      stallTimeoutMs:
-        readOptionalIntegerLike(codex, "stall_timeout_ms") ??
-        DEFAULT_STALL_TIMEOUT_MS,
-    },
+    runtime,
+    codex: codexConfig,
     lifecycle: {
       stateFieldName:
         readOptionalString(tracker, "state_field", env) ??
@@ -152,7 +165,7 @@ export function parseWorkflowMarkdown(
     },
     format: "front-matter",
     githubProjectId: readOptionalString(tracker, "project_id", env),
-    agentCommand: command,
+    agentCommand,
     hookPath: readOptionalString(hooks, "after_create", env),
     maxConcurrentByState: maxConcurrentAgentsByState,
   };
@@ -317,6 +330,9 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
   if (value === "null") return null;
   if (value === "true") return true;
   if (value === "false") return false;
+  if (value.startsWith("[") && value.endsWith("]")) {
+    return parseInlineArray(value);
+  }
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
   if (
     (value.startsWith('"') && value.endsWith('"')) ||
@@ -327,18 +343,167 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
   return value;
 }
 
+function parseInlineArray(value: string): WorkflowFrontMatterNode[] {
+  const inner = value.slice(1, -1).trim();
+  if (!inner) {
+    return [];
+  }
+
+  return splitInlineArrayEntries(inner).map((entry) => parseScalar(entry));
+}
+
+function splitInlineArrayEntries(inner: string): string[] {
+  const entries: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (const char of inner) {
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    if (char === ",") {
+      pushInlineArrayEntry(entries, current, "middle");
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    throw new Error("Workflow front matter inline array has an unterminated string.");
+  }
+
+  pushInlineArrayEntry(entries, current, "end");
+  return entries;
+}
+
+function pushInlineArrayEntry(
+  entries: string[],
+  entry: string,
+  position: "middle" | "end"
+): void {
+  const trimmed = entry.trim();
+  if (!trimmed) {
+    const reason =
+      position === "end"
+        ? "has a trailing comma"
+        : "contains an empty item";
+    throw new Error(`Workflow front matter inline array ${reason}.`);
+  }
+  entries.push(trimmed);
+}
+
+function parseRuntimeConfig(
+  runtime: Record<string, WorkflowFrontMatterNode>,
+  env: NodeJS.ProcessEnv
+): WorkflowRuntimeConfig {
+  const kind = readRuntimeKind(runtime, env);
+  const isolation = readObject(runtime, "isolation", "runtime.isolation");
+  const auth = readObject(runtime, "auth", "runtime.auth");
+  const timeouts = readObject(runtime, "timeouts", "runtime.timeouts");
+  const configuredCommand = readOptionalString(runtime, "command", env);
+  const command = configuredCommand ?? defaultRuntimeCommand(kind);
+
+  if (!command) {
+    throw new Error(
+      'Workflow front matter field "runtime.command" is required for runtime.kind "custom".'
+    );
+  }
+
+  return {
+    kind,
+    command,
+    args: readRuntimeArgs(runtime),
+    isolation: {
+      bare:
+        readOptionalBoolean(isolation, "bare", "runtime.isolation.bare") ??
+        false,
+      strictMcpConfig:
+        readOptionalBoolean(
+          isolation,
+          "strict_mcp_config",
+          "runtime.isolation.strict_mcp_config"
+        ) ?? false,
+    },
+    auth: {
+      env: readOptionalString(auth, "env", env),
+    },
+    timeouts: {
+      turnTimeoutMs:
+        readOptionalIntegerLike(timeouts, "turn_timeout_ms") ??
+        DEFAULT_TURN_TIMEOUT_MS,
+      readTimeoutMs:
+        readOptionalIntegerLike(timeouts, "read_timeout_ms") ??
+        DEFAULT_READ_TIMEOUT_MS,
+      stallTimeoutMs:
+        readOptionalIntegerLike(timeouts, "stall_timeout_ms") ??
+        DEFAULT_STALL_TIMEOUT_MS,
+    },
+  };
+}
+
+function readRuntimeKind(
+  runtime: Record<string, WorkflowFrontMatterNode>,
+  env: NodeJS.ProcessEnv
+): WorkflowRuntimeKind {
+  const kind = readRequiredString(runtime, "kind", env);
+  if (
+    kind === "codex-app-server" ||
+    kind === "claude-print" ||
+    kind === "custom"
+  ) {
+    return kind;
+  }
+
+  throw new Error(
+    `Unsupported workflow runtime kind "${kind}". Supported values: codex-app-server, claude-print, custom.`
+  );
+}
+
+function defaultRuntimeCommand(kind: WorkflowRuntimeKind): string | null {
+  if (kind === "claude-print") {
+    return DEFAULT_CLAUDE_COMMAND;
+  }
+  if (kind === "codex-app-server") {
+    return DEFAULT_AGENT_COMMAND;
+  }
+  return null;
+}
+
 function readObject(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): Record<string, WorkflowFrontMatterNode> {
   const value = input[key];
   if (value === undefined || value === null) {
     return {};
   }
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Workflow front matter field "${key}" must be an object.`);
+    throw new Error(`Workflow front matter field "${path}" must be an object.`);
   }
   return value as Record<string, WorkflowFrontMatterNode>;
+}
+
+function readOptionalRuntimeObject(
+  input: Record<string, WorkflowFrontMatterNode>
+): Record<string, WorkflowFrontMatterNode> | null {
+  if (input.runtime === undefined || input.runtime === null) {
+    return null;
+  }
+  return readObject(input, "runtime");
 }
 
 function readRequiredObject(
@@ -413,6 +578,39 @@ function readStringList(
     );
   }
   return value as string[];
+}
+
+function readRuntimeArgs(
+  input: Record<string, WorkflowFrontMatterNode>
+): string[] {
+  const value = input.args;
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(
+      'Workflow front matter field "runtime.args" must be an array of strings.'
+    );
+  }
+  return value as string[];
+}
+
+function readOptionalBoolean(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  path = key
+): boolean | null {
+  const value = input[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`Workflow front matter field "${path}" must be a boolean.`);
+  }
+  return value;
 }
 
 function readOptionalIntegerLike(

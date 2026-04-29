@@ -11,6 +11,7 @@
       "@gh-symphony/dashboard": ["../dashboard/src/index.ts"],
       "@gh-symphony/extension-github-workflow": ["../extension-github-workflow/src/index.ts"],
       "@gh-symphony/orchestrator": ["../orchestrator/src/index.ts"],
+      "@gh-symphony/runtime-claude": ["../runtime-claude/src/index.ts"],
       "@gh-symphony/runtime-codex": ["../runtime-codex/src/index.ts"],
       "@gh-symphony/tool-github-graphql": ["../tool-github-graphql/src/index.ts"],
       "@gh-symphony/tracker-file": ["../tracker-file/src/index.ts"],

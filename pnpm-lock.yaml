@@ -163,6 +163,12 @@ importers:
       '@gh-symphony/core':
         specifier: workspace:*
         version: link:../core
+      '@gh-symphony/runtime-claude':
+        specifier: workspace:*
+        version: link:../runtime-claude
+      '@gh-symphony/runtime-codex':
+        specifier: workspace:*
+        version: link:../runtime-codex
       '@gh-symphony/tracker-file':
         specifier: workspace:*
         version: link:../tracker-file
