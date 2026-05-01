@@ -129,11 +129,18 @@ export async function spawnClaudeTurn(
       "errorMessage" in outcome ? outcome.errorMessage : undefined,
   });
 
-  if (classification.kind === "process-error" && !emittedErrorEvent) {
+  if (
+    (classification.kind === "app-error" ||
+      classification.kind === "process-error") &&
+    !emittedErrorEvent
+  ) {
     emitEvent({
       name: "agent.error",
       payload: {
-        observabilityEvent: "claude-print/process-exit",
+        observabilityEvent:
+          classification.kind === "app-error"
+            ? "claude-print/app-error"
+            : "claude-print/process-exit",
         params: {
           exitCode: outcome.exitCode,
           signal: outcome.signal,
@@ -225,6 +232,7 @@ function parseClaudeRecord(
   eventMapper: ClaudePrintEventMapper | null,
   onEvent: ((event: AgentEvent) => void) | null
 ): ClaudeSpawnRecord {
+  // collectNdjsonStream filters empty lines before parsing, so this is non-null.
   const record = parseClaudePrintNdjsonLine(line)!;
 
   if (record.message) {

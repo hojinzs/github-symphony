@@ -1,11 +1,10 @@
 import {
   extractRateLimit,
   getClaudeResultStatus,
-  getString,
   isClaudeResultError,
-  asRecord,
   type ClaudePrintWireEvent,
 } from "./events.js";
+import { asRecord, getString } from "./internal.js";
 
 export type ClaudeTurnExitKind = "success" | "app-error" | "process-error";
 
@@ -91,7 +90,9 @@ export function isTransientClaudeFailure(
 ): boolean {
   if (
     input.sawRateLimit ||
-    (input.resultEvent && extractRateLimit(input.resultEvent) !== null)
+    (input.resultEvent &&
+      (extractRateLimit(input.resultEvent) !== null ||
+        getClaudeResultStatus(input.resultEvent) === "error_rate_limit"))
   ) {
     return true;
   }

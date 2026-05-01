@@ -161,6 +161,45 @@ describe("ClaudePrintRuntimeAdapter", () => {
     ]);
   });
 
+  it("continues notifying event handlers when one handler throws", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
+    const laterEvents: string[] = [];
+
+    adapter.onEvent(() => {
+      throw new Error("handler failed");
+    });
+    adapter.onEvent((event) => {
+      laterEvents.push(event.name);
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).resolves.toMatchObject({ result: "success" });
+
+    expect(laterEvents).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
+  });
+
   it("exposes a factory helper", () => {
     const adapter = createClaudePrintRuntimeAdapter({
       workingDirectory: "/workspace",

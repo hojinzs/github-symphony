@@ -282,6 +282,83 @@ describe("spawnClaudeTurn", () => {
     });
   });
 
+  it("emits agent.error when exit 0 has no final result event", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const events: Array<{ name: string; reason?: unknown }> = [];
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          events.push({
+            name: event.name,
+            reason:
+              typeof event.payload.params === "object" &&
+              event.payload.params !== null &&
+              "classification" in event.payload.params
+                ? event.payload.params.classification
+                : undefined,
+          });
+        },
+      }
+    );
+
+    expect(result.classification).toMatchObject({
+      kind: "app-error",
+      reason: "missing_result",
+    });
+    expect(events.map((event) => event.name)).toEqual([
+      "agent.turnStarted",
+      "agent.error",
+    ]);
+    expect(events[1]?.reason).toMatchObject({
+      kind: "app-error",
+      reason: "missing_result",
+    });
+  });
+
   it("returns a structured process error when spawn emits error", async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();

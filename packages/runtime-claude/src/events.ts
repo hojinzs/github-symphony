@@ -1,4 +1,5 @@
 import type { AgentEvent } from "@gh-symphony/core";
+import { asRecord, getString } from "./internal.js";
 
 export type ClaudePrintWireEvent = Record<string, unknown>;
 
@@ -87,6 +88,8 @@ export class ClaudePrintEventMapper {
         this.hasStartedTurn = true;
       }
 
+      // Non-tool content_block_start records are intentionally not forwarded;
+      // text streaming is represented by content_block_delta events.
       const toolUseEvent = mapToolUseEvent(message, this.options);
       if (toolUseEvent) {
         events.push(toolUseEvent);
@@ -292,22 +295,4 @@ function getEventType(message: ClaudePrintWireEvent): string {
 
 function observabilityEventName(type: string): string {
   return `${CLAUDE_OBSERVABILITY_PREFIX}${type || "unknown"}`;
-}
-
-export function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-export function getString(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  return undefined;
 }

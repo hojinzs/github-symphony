@@ -160,7 +160,11 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
 
   private emitEvent(event: ClaudeRuntimeEvent): void {
     for (const handler of this.eventHandlers) {
-      handler(event);
+      try {
+        handler(event);
+      } catch {
+        // Event subscriber failures must not block later subscribers or turns.
+      }
     }
   }
 }

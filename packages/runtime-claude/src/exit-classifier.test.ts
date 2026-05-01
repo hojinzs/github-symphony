@@ -77,6 +77,22 @@ describe("classifyClaudeTurnExit", () => {
     });
   });
 
+  it("marks error_rate_limit without usage details as transient", () => {
+    expect(
+      classifyClaudeTurnExit({
+        exitCode: 1,
+        signal: null,
+        resultEvent: {
+          type: "result",
+          subtype: "error_rate_limit",
+        },
+      })
+    ).toMatchObject({
+      kind: "process-error",
+      transient: true,
+    });
+  });
+
   it("classifies non-zero exit with error wire event as transient when retryable", () => {
     expect(
       classifyClaudeTurnExit({
