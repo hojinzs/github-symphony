@@ -485,12 +485,15 @@ async function startAssignedRun() {
       activeStates: workflow.lifecycle.activeStates,
     });
     if (isClaudeRuntimeCommand(workflow.codex.command)) {
+      const hasGitHubGraphqlToken =
+        typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
+        launcherEnv.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
         command:
           resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
-        includeGhAuth: true,
+        includeGhAuth: !hasGitHubGraphqlToken,
       });
       process.stderr.write(
         `[worker] ${formatClaudePreflightText(preflight)}\n`

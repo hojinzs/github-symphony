@@ -184,13 +184,16 @@ async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
     return true;
   }
 
+  const hasGitHubGraphqlToken =
+    typeof process.env.GITHUB_GRAPHQL_TOKEN === "string" &&
+    process.env.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
   const report = await runClaudePreflight({
     cwd: process.cwd(),
     env: process.env,
     command:
       resolveClaudeCommandBinary(resolveRuntimeCommand(runtime)) ??
       resolveRuntimeCommand(runtime),
-    includeGhAuth: true,
+    includeGhAuth: !hasGitHubGraphqlToken,
   });
   const message = formatClaudePreflightText(report);
   if (report.ok) {

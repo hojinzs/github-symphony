@@ -150,6 +150,7 @@ export type DoctorDependencies = {
   stdoutIsTTY: boolean;
   execPath: string;
   cliArgv: string[];
+  fetchImpl: typeof fetch;
 };
 
 const DEFAULT_DEPENDENCIES: DoctorDependencies = {
@@ -179,6 +180,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   stdoutIsTTY: process.stdout.isTTY === true,
   execPath: process.execPath,
   cliArgv: [...process.argv],
+  fetchImpl: fetch,
 };
 
 const MINIMUM_NODE_MAJOR = 24;
@@ -1022,6 +1024,7 @@ export async function runDoctorDiagnostics(
           execFileSync: deps.execFileSync,
           readFile: deps.readFile,
           access: deps.access,
+          fetchImpl: deps.fetchImpl,
           platform: deps.platform,
         }
       );

@@ -161,13 +161,51 @@ describe("Claude runtime preflight", () => {
     );
   });
 
+  it("executes relative Claude binary commands from the workspace cwd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-relative-"));
+    const execFileSync = vi.fn(
+      (
+        command: string,
+        args: readonly string[] = [],
+        options?: { cwd?: string }
+      ) => {
+        if (command === "./bin/claude" && args[0] === "--version") {
+          expect(options?.cwd).toBe(cwd);
+          return Buffer.from("claude 1.2.3\n");
+        }
+        throw new Error("locator unavailable");
+      }
+    );
+
+    const report = await runClaudePreflight(
+      {
+        cwd,
+        env: { ANTHROPIC_API_KEY: "sk-test" },
+        command: "./bin/claude --print",
+      },
+      { execFileSync: execFileSync as never }
+    );
+
+    expect(report.checks.find((check) => check.id === "claude_binary"))
+      .toMatchObject({
+        status: "pass",
+        details: { command: "./bin/claude", path: "./bin/claude" },
+      });
+  });
+
   it("formats readable output and detects shell-wrapped Claude commands", () => {
     expect(isClaudeRuntimeCommand("bash -lc 'claude -p'")).toBe(true);
     expect(isClaudeRuntimeCommand("bash -c 'setup_env; claude -p'")).toBe(
       true
     );
+    expect(
+      isClaudeRuntimeCommand(
+        "bash -c 'export ANTHROPIC_API_KEY=sk-xxx; claude -p'"
+      )
+    ).toBe(true);
     expect(isClaudeRuntimeCommand("/usr/local/bin/claude --print")).toBe(true);
     expect(isClaudeRuntimeCommand("./bin/claude-code --print")).toBe(true);
+    expect(isClaudeRuntimeCommand("claude-code.exe --print")).toBe(true);
     expect(isClaudeRuntimeCommand("codex app-server")).toBe(false);
     expect(resolveClaudeCommandBinary("bash -lc 'claude -p'")).toBe("claude");
     expect(resolveClaudeCommandBinary("bash -c 'setup_env; claude -p'")).toBe(

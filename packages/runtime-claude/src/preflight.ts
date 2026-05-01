@@ -42,6 +42,11 @@ export type ClaudePreflightOptions = {
    */
   command?: string;
   includeGhAuth?: boolean;
+  /**
+   * When true (default), actively probes AGENT_CREDENTIAL_BROKER_URL.
+   * Set to false to skip the network probe and treat configured broker
+   * credentials as sufficient.
+   */
   probeCredentialBroker?: boolean;
 };
 
@@ -64,11 +69,11 @@ export async function runClaudePreflight(
   const command = resolveRuntimeCommandBinary(options.command) ?? "claude";
   const checks: ClaudePreflightCheck[] = [];
 
-  checks.push(checkClaudeBinary(command, deps));
+  checks.push(checkClaudeBinary(command, options.cwd, deps));
   checks.push(await checkAnthropicApiKey(env, options, deps));
   checks.push(await checkWorkspaceMcpConfig(options.cwd, deps));
   if (options.includeGhAuth) {
-    checks.push(checkGhAuthentication(deps));
+    checks.push(checkGhAuthentication(options.cwd, deps));
   }
 
   return {
@@ -128,22 +133,15 @@ function fail(
 
 function checkClaudeBinary(
   command: string,
+  cwd: string,
   deps: Pick<ClaudePreflightDependencies, "execFileSync" | "platform">
 ): ClaudePreflightCheck {
   try {
-    const locator = deps.platform === "win32" ? "where" : "which";
-    const locatedPath = deps
-      .execFileSync(locator, [command], {
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      })
-      .toString()
-      .split(/\r?\n/)
-      .find((line) => line.trim())
-      ?.trim();
+    const locatedPath = locateClaudeBinary(command, cwd, deps);
     const version = deps
       .execFileSync(command, ["--version"], {
         encoding: "utf8",
+        cwd,
         stdio: ["pipe", "pipe", "pipe"],
       })
       .toString()
@@ -155,7 +153,7 @@ function checkClaudeBinary(
       version
         ? `${command} is available: ${version}.`
         : `${command} is available, but --version returned an empty response.`,
-      { command, path: locatedPath ?? null, version }
+      { command, path: locatedPath, version }
     );
   } catch (error) {
     return fail(
@@ -167,6 +165,59 @@ function checkClaudeBinary(
         command,
         error: error instanceof Error ? error.message : String(error),
       }
+    );
+  }
+}
+
+function locateClaudeBinary(
+  command: string,
+  cwd: string,
+  deps: Pick<ClaudePreflightDependencies, "execFileSync" | "platform">
+): string | null {
+  if (command.includes("/") || command.includes("\\")) {
+    return command;
+  }
+  try {
+    const locator = deps.platform === "win32" ? "where" : "which";
+    return (
+      deps
+        .execFileSync(locator, [command], {
+          encoding: "utf8",
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+        })
+        .toString()
+        .split(/\r?\n/)
+        .find((line) => line.trim())
+        ?.trim() ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function checkGhAuthentication(
+  cwd: string,
+  deps: Pick<ClaudePreflightDependencies, "execFileSync">
+): ClaudePreflightCheck {
+  try {
+    deps.execFileSync("gh", ["auth", "status"], {
+      encoding: "utf8",
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return pass(
+      "gh_authentication",
+      "GitHub CLI authentication",
+      "gh auth status succeeded."
+    );
+  } catch (error) {
+    return fail(
+      "gh_authentication",
+      "GitHub CLI authentication",
+      "gh auth status failed or no GitHub login is configured.",
+      "Run 'gh auth login --scopes repo,read:org,project' and re-run the command.",
+      { error: error instanceof Error ? error.message : String(error) }
     );
   }
 }
@@ -299,30 +350,6 @@ async function checkWorkspaceMcpConfig(
   }
 }
 
-function checkGhAuthentication(
-  deps: Pick<ClaudePreflightDependencies, "execFileSync">
-): ClaudePreflightCheck {
-  try {
-    deps.execFileSync("gh", ["auth", "status"], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return pass(
-      "gh_authentication",
-      "GitHub CLI authentication",
-      "gh auth status succeeded."
-    );
-  } catch (error) {
-    return fail(
-      "gh_authentication",
-      "GitHub CLI authentication",
-      "gh auth status failed or no GitHub login is configured.",
-      "Run 'gh auth login --scopes repo,read:org,project' and re-run the command.",
-      { error: error instanceof Error ? error.message : String(error) }
-    );
-  }
-}
-
 export function isClaudeRuntimeCommand(
   command: string | null | undefined
 ): boolean {
@@ -400,6 +427,8 @@ function resolveShellCommandClaudeBinary(command: string): string | null {
 }
 
 function isClaudeBinaryName(command: string): boolean {
-  const normalized = command.split(/[\\/]/).pop() ?? command;
+  const normalized = (command.split(/[\\/]/).pop() ?? command)
+    .toLowerCase()
+    .replace(/\.(exe|cmd|bat)$/i, "");
   return normalized === "claude" || normalized === "claude-code";
 }
