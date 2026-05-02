@@ -101,7 +101,11 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
           },
           onEvent: (event) => {
             this.emitEvent(event);
-            this.dependencies.onEvent?.(event);
+            try {
+              this.dependencies.onEvent?.(event);
+            } catch {
+              // Dependency hook failures must not block stream processing.
+            }
           },
         }
       );

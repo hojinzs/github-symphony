@@ -184,6 +184,27 @@ describe("ClaudePrintEventMapper", () => {
     });
   });
 
+  it("does not invent blank thread or turn ids for tool calls", () => {
+    const mapper = new ClaudePrintEventMapper();
+
+    const events = mapper.mapMessage({
+      type: "tool_use",
+      id: "toolu-no-context",
+      name: "shell",
+      input: { command: "pwd" },
+    });
+
+    expect(events[1]).toMatchObject({
+      name: "agent.toolCallRequested",
+      payload: {
+        callId: "toolu-no-context",
+        toolName: "shell",
+      },
+    });
+    expect(events[1]?.payload.threadId).toBeUndefined();
+    expect(events[1]?.payload.turnId).toBeUndefined();
+  });
+
   it("parses NDJSON lines without throwing on invalid JSON", () => {
     expect(parseClaudePrintNdjsonLine('{"type":"message_start"}')).toEqual({
       line: '{"type":"message_start"}',

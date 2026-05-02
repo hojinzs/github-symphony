@@ -56,6 +56,8 @@ export function parseClaudePrintNdjsonLine(
 export class ClaudePrintEventMapper {
   private hasStartedTurn = false;
   private latestResultEvent: ClaudePrintWireEvent | null = null;
+  // Claude -p stream-json does not define an ordered collection of error
+  // records for one turn; keep the terminal/latest error for exit classification.
   private latestErrorEvent: ClaudePrintWireEvent | null = null;
   private sawRateLimit = false;
 
@@ -237,8 +239,8 @@ function mapToolUseEvent(
       params: message,
       callId: getString(toolUse.id) ?? "",
       toolName: getString(toolUse.name) ?? "",
-      threadId: options.threadId ?? getString(message.thread_id) ?? "",
-      turnId: options.turnId ?? getString(message.turn_id) ?? "",
+      threadId: options.threadId ?? getString(message.thread_id),
+      turnId: options.turnId ?? getString(message.turn_id),
       arguments: input,
     },
   };

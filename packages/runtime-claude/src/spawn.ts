@@ -255,17 +255,10 @@ function parseClaudeRecord(
     };
   }
 
-  if (record.parseError) {
-    return {
-      stream,
-      line: record.line,
-      parseError: record.parseError,
-    };
-  }
-
   return {
     stream,
-    line,
+    line: record.line,
+    parseError: record.parseError!,
   };
 }
 

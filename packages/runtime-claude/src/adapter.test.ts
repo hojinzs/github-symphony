@@ -200,6 +200,44 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(laterEvents).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
   });
 
+  it("continues stream processing when dependency onEvent throws", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+        onEvent: () => {
+          throw new Error("dependency hook failed");
+        },
+      }
+    );
+    const events: string[] = [];
+    adapter.onEvent((event) => {
+      events.push(event.name);
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).resolves.toMatchObject({ result: "success" });
+
+    expect(events).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
+  });
+
   it("exposes a factory helper", () => {
     const adapter = createClaudePrintRuntimeAdapter({
       workingDirectory: "/workspace",

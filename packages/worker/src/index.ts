@@ -34,9 +34,7 @@ import {
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import {
-  buildContinuationTurnInput,
-} from "./thread-resume.js";
+import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
@@ -892,6 +890,13 @@ async function runCodexClientProtocol(
         emitObservedAgentEvent(event);
         return true;
       case "agent.toolCallRequested":
+        if (!event.payload.threadId || !event.payload.turnId) {
+          process.stderr.write(
+            `[worker] dynamic tool call ${event.payload.callId} is missing threadId/turnId; cannot send response\n`
+          );
+          emitObservedAgentEvent(event);
+          return true;
+        }
         void dispatchDynamicToolCall(
           event.payload.callId,
           event.payload.toolName,
@@ -1088,10 +1093,14 @@ async function runCodexClientProtocol(
       `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
     );
 
-    const threadResult = (await sendRequestWithTimeout("thread-1", "thread/start", {
-      ...baseThreadParams,
-      ephemeral: false,
-    })) as Record<string, unknown>;
+    const threadResult = (await sendRequestWithTimeout(
+      "thread-1",
+      "thread/start",
+      {
+        ...baseThreadParams,
+        ephemeral: false,
+      }
+    )) as Record<string, unknown>;
 
     const threadId =
       (threadResult.thread_id as string | undefined) ??

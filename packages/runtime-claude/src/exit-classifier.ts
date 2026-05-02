@@ -85,7 +85,7 @@ export function classifyClaudeTurnExit(
   };
 }
 
-export function isTransientClaudeFailure(
+function isTransientClaudeFailure(
   input: ClaudeTurnExitClassificationInput
 ): boolean {
   if (
