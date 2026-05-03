@@ -4,9 +4,9 @@ import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
   AgentRuntimeEnv,
-  AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
+  AgentEvent,
 } from "@gh-symphony/core";
 import { extractEnvForClaude } from "@gh-symphony/core";
 import {
@@ -55,26 +55,19 @@ export type ClaudeRuntimeTurnInput = {
 
 export type ClaudeRuntimeTurnResult = ClaudeSpawnTurnResult;
 
-export type ClaudeRuntimeEvent = AgentRuntimeEvent;
+export type ClaudeRuntimeEvent = AgentEvent;
 
-export class ClaudeRuntimeNotImplementedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeRuntimeNotImplementedError";
-  }
-}
-
-export class ClaudePrintRuntimeAdapter
-  implements
-    AgentRuntimeAdapter<
-      ClaudeRuntimePrepareContext,
-      ClaudeRuntimeTurnInput,
-      ClaudeRuntimeTurnResult,
-      ClaudeRuntimeEvent
-    >
-{
+export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
+  ClaudeRuntimePrepareContext,
+  ClaudeRuntimeTurnInput,
+  ClaudeRuntimeTurnResult,
+  ClaudeRuntimeEvent
+> {
   private activeChild: ChildProcess | null = null;
   private preparedMcpConfig: ClaudeMcpCompositionResult | null = null;
+  private readonly eventHandlers = new Set<
+    AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+  >();
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
@@ -94,16 +87,16 @@ export class ClaudePrintRuntimeAdapter
     );
   }
 
-  async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
+  async spawnTurn(
+    input: ClaudeRuntimeTurnInput
+  ): Promise<ClaudeRuntimeTurnResult> {
     if (this.activeChild) {
       throw new Error(
         "TODO(#8): Claude print runtime adapter supports only one in-flight turn."
       );
     }
 
-    const argv = buildClaudePrintArgv(
-      this.buildArgvOptions(input)
-    );
+    const argv = buildClaudePrintArgv(this.buildArgvOptions(input));
 
     try {
       return await spawnClaudeTurn(
@@ -124,6 +117,14 @@ export class ClaudePrintRuntimeAdapter
             this.activeChild = child;
             this.dependencies.onSpawned?.(child);
           },
+          onEvent: (event) => {
+            this.emitEvent(event);
+            try {
+              this.dependencies.onEvent?.(event);
+            } catch {
+              // Dependency hook failures must not block stream processing.
+            }
+          },
         }
       );
     } finally {
@@ -132,11 +133,12 @@ export class ClaudePrintRuntimeAdapter
   }
 
   onEvent(
-    _handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+    handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
-    throw new ClaudeRuntimeNotImplementedError(
-      "TODO(#9): Claude stream-json event mapping is not implemented yet."
-    );
+    this.eventHandlers.add(handler);
+    return () => {
+      this.eventHandlers.delete(handler);
+    };
   }
 
   resolveCredentials(
@@ -217,6 +219,16 @@ export class ClaudePrintRuntimeAdapter
     }
 
     await rm(cleanupPath, { force: true });
+  }
+
+  private emitEvent(event: ClaudeRuntimeEvent): void {
+    for (const handler of this.eventHandlers) {
+      try {
+        handler(event);
+      } catch {
+        // Event subscriber failures must not block later subscribers or turns.
+      }
+    }
   }
 }
 

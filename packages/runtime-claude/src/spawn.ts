@@ -2,8 +2,19 @@ import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import type { Writable } from "node:stream";
 import { finished } from "node:stream/promises";
+import type { AgentEvent } from "@gh-symphony/core";
+import {
+  classifyClaudeTurnExit,
+  type ClaudeTurnExitKind,
+  type ClaudeTurnExitClassification,
+} from "./exit-classifier.js";
+import {
+  ClaudePrintEventMapper,
+  parseClaudePrintNdjsonLine,
+  type ClaudePrintWireEvent,
+} from "./events.js";
 
-export type ClaudeWireMessage = Record<string, unknown>;
+export type ClaudeWireMessage = ClaudePrintWireEvent;
 
 export type ClaudeSpawnRecord = {
   stream: "stdout" | "stderr";
@@ -27,7 +38,8 @@ export type ClaudeSpawnTurnResult = {
   records: ClaudeSpawnRecord[];
   exitCode: number | null;
   signal: NodeJS.Signals | null;
-  result: "success" | "process-error" | "cancelled";
+  result: ClaudeTurnExitKind;
+  classification: ClaudeTurnExitClassification;
   errorMessage?: string;
 };
 
@@ -40,6 +52,7 @@ export type SpawnLike = (
 export type ClaudeSpawnDependencies = {
   spawnImpl?: SpawnLike;
   onSpawned?: (child: ChildProcess) => void;
+  onEvent?: (event: AgentEvent) => void;
 };
 
 export async function spawnClaudeTurn(
@@ -55,8 +68,28 @@ export async function spawnClaudeTurn(
   dependencies.onSpawned?.(child);
 
   const records: ClaudeSpawnRecord[] = [];
-  const stdoutDone = collectNdjsonStream(child.stdout, "stdout", records);
-  const stderrDone = collectNdjsonStream(child.stderr, "stderr", records);
+  const eventMapper = new ClaudePrintEventMapper();
+  let emittedErrorEvent = false;
+  const emitEvent = (event: AgentEvent) => {
+    if (event.name === "agent.error") {
+      emittedErrorEvent = true;
+    }
+    dependencies.onEvent?.(event);
+  };
+  const stdoutDone = collectNdjsonStream(
+    child.stdout,
+    "stdout",
+    records,
+    eventMapper,
+    emitEvent
+  );
+  const stderrDone = collectNdjsonStream(
+    child.stderr,
+    "stderr",
+    records,
+    null,
+    null
+  );
   const exitDone = waitForChildExit(child, records);
 
   const stdinMessages = Array.isArray(input.stdinMessages)
@@ -85,6 +118,40 @@ export async function spawnClaudeTurn(
   const outcome = await exitDone;
 
   await Promise.all([stdoutDone, stderrDone]);
+  const mapperState = eventMapper.snapshot();
+  const classification = classifyClaudeTurnExit({
+    exitCode: outcome.exitCode,
+    signal: outcome.signal,
+    resultEvent: mapperState.latestResultEvent,
+    errorEvent: mapperState.latestErrorEvent,
+    sawRateLimit: mapperState.sawRateLimit,
+    spawnErrorMessage:
+      "errorMessage" in outcome ? outcome.errorMessage : undefined,
+  });
+
+  if (
+    (classification.kind === "app-error" ||
+      classification.kind === "process-error") &&
+    !emittedErrorEvent
+  ) {
+    emitEvent({
+      name: "agent.error",
+      payload: {
+        observabilityEvent:
+          classification.kind === "app-error"
+            ? "claude-print/app-error"
+            : "claude-print/process-exit",
+        params: {
+          exitCode: outcome.exitCode,
+          signal: outcome.signal,
+          classification,
+          errorMessage:
+            "errorMessage" in outcome ? outcome.errorMessage : undefined,
+        },
+        error: classification.reason,
+      },
+    });
+  }
 
   return {
     command,
@@ -93,7 +160,8 @@ export async function spawnClaudeTurn(
     records,
     exitCode: outcome.exitCode,
     signal: outcome.signal,
-    result: classifyClaudeTurnResult(outcome.exitCode, outcome.signal),
+    result: classification.kind,
+    classification,
     errorMessage: "errorMessage" in outcome ? outcome.errorMessage : undefined,
   };
 }
@@ -102,21 +170,15 @@ export function classifyClaudeTurnResult(
   exitCode: number | null,
   signal: NodeJS.Signals | null
 ): ClaudeSpawnTurnResult["result"] {
-  if (signal !== null) {
-    return "cancelled";
-  }
-
-  if (exitCode === 0) {
-    return "success";
-  }
-
-  return "process-error";
+  return classifyClaudeTurnExit({ exitCode, signal }).kind;
 }
 
 async function collectNdjsonStream(
   stream: NodeJS.ReadableStream | null | undefined,
   channel: ClaudeSpawnRecord["stream"],
-  records: ClaudeSpawnRecord[]
+  records: ClaudeSpawnRecord[],
+  eventMapper: ClaudePrintEventMapper | null,
+  onEvent: ((event: AgentEvent) => void) | null
 ): Promise<void> {
   if (!stream) {
     return;
@@ -141,7 +203,7 @@ async function collectNdjsonStream(
         continue;
       }
 
-      records.push(parseClaudeRecord(channel, line));
+      records.push(parseClaudeRecord(channel, line, eventMapper, onEvent));
     }
   });
 
@@ -158,28 +220,46 @@ async function collectNdjsonStream(
 
   const trailingLine = buffer.trim();
   if (trailingLine.length > 0) {
-    records.push(parseClaudeRecord(channel, trailingLine));
+    records.push(
+      parseClaudeRecord(channel, trailingLine, eventMapper, onEvent)
+    );
   }
 }
 
 function parseClaudeRecord(
   stream: ClaudeSpawnRecord["stream"],
-  line: string
+  line: string,
+  eventMapper: ClaudePrintEventMapper | null,
+  onEvent: ((event: AgentEvent) => void) | null
 ): ClaudeSpawnRecord {
-  try {
+  // collectNdjsonStream filters empty lines before parsing, so this is non-null.
+  const record = parseClaudePrintNdjsonLine(line)!;
+
+  if (record.message) {
+    if (!eventMapper) {
+      return {
+        stream,
+        line: record.line,
+        message: record.message,
+      };
+    }
+
+    for (const event of eventMapper.mapMessage(record.message)) {
+      onEvent?.(event);
+    }
+
     return {
       stream,
-      line,
-      message: JSON.parse(line) as ClaudeWireMessage,
-    };
-  } catch (error) {
-    return {
-      stream,
-      line,
-      parseError:
-        error instanceof Error ? error.message : "Unknown JSON parse error.",
+      line: record.line,
+      message: record.message,
     };
   }
+
+  return {
+    stream,
+    line: record.line,
+    parseError: record.parseError!,
+  };
 }
 
 async function writeToStdin(
@@ -245,7 +325,10 @@ function waitForChildExit(
     }
 > {
   return new Promise((resolve) => {
-    const handleClose = (exitCode: number | null, signal: NodeJS.Signals | null) => {
+    const handleClose = (
+      exitCode: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
       cleanup();
       resolve({ exitCode, signal });
     };
