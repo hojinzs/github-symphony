@@ -148,6 +148,18 @@ export type TurnFailedEvent = {
   error: string | null;
 };
 
+export type SessionInvalidatedEvent = {
+  at: string;
+  event: "session_invalidated";
+  projectId?: string;
+  runId: string;
+  issueIdentifier?: string;
+  issueId?: string;
+  sessionId: string;
+  replacementSessionId: string;
+  reason: string;
+};
+
 /**
  * Union of all structured orchestration events. Discriminated on `event`.
  */
@@ -163,4 +175,5 @@ export type OrchestratorEvent =
   | WorkerErrorEvent
   | TurnStartedEvent
   | TurnCompletedEvent
-  | TurnFailedEvent;
+  | TurnFailedEvent
+  | SessionInvalidatedEvent;

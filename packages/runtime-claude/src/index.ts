@@ -9,6 +9,7 @@ export const RUNTIME_CLAUDE_BOUNDARY = {
 
 export * from "./adapter.js";
 export * from "./argv.js";
+export * from "./session-store.js";
 export * from "./mcp-compose.js";
 export * from "./events.js";
 export * from "./exit-classifier.js";

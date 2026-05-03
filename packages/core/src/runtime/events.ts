@@ -8,6 +8,7 @@ export type AgentEventName =
   | "agent.rateLimit"
   | "agent.messageDelta"
   | "agent.tokenUsageUpdated"
+  | "agent.sessionInvalidated"
   | "agent.error";
 
 type AgentEventPayloadBase = {
@@ -103,6 +104,17 @@ export type AgentTokenUsageUpdatedEvent = {
   };
 };
 
+export type AgentSessionInvalidatedEvent = {
+  name: "agent.sessionInvalidated";
+  payload: AgentEventPayloadBase & {
+    params: Record<string, unknown>;
+    runId: string;
+    sessionId: string;
+    replacementSessionId: string;
+    reason: string;
+  };
+};
+
 export type AgentErrorEvent = {
   name: "agent.error";
   payload: AgentEventPayloadBase & {
@@ -121,4 +133,5 @@ export type AgentEvent =
   | AgentRateLimitEvent
   | AgentMessageDeltaEvent
   | AgentTokenUsageUpdatedEvent
+  | AgentSessionInvalidatedEvent
   | AgentErrorEvent;

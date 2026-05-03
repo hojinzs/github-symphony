@@ -29,6 +29,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return `Turn ${event.turnCount} completed in ${event.durationMs}ms`;
     case "turn_failed":
       return event.error ?? `Turn ${event.turnCount} failed`;
+    case "session_invalidated":
+      return event.reason;
     default:
       return null;
   }
