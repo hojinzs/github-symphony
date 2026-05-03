@@ -71,6 +71,7 @@ describe("init interactive auth", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     process.exitCode = undefined;
   });
 
@@ -144,6 +145,28 @@ describe("init interactive auth", () => {
 });
 
 describe("init command config output", () => {
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it("rejects unsupported runtime presets in non-interactive mode", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true as never);
+
+    await initCommand(["--non-interactive", "--runtime", "claud-print"], {
+      configDir: await mkdtemp(join(tmpdir(), "cli-init-runtime-invalid-")),
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toHaveBeenCalledWith(
+      "Error: Unsupported runtime 'claud-print'. Choose one of: codex-app-server, claude-print.\n"
+    );
+  });
+
   it("writes the simplified project config", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-"));
 
@@ -744,6 +767,7 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("    bare: false");
     expect(plan.workflowMd).toContain("    strict_mcp_config: false");
     expect(plan.workflowMd).toContain("    env: ANTHROPIC_API_KEY");
+    expect(plan.workflowMd).toContain("    stall_timeout_ms: 900000");
     expect(plan.workflowMd).toContain("## Runtime Constraints");
     expect(plan.workflowMd).toContain("Runtime trade-off note:");
   });
@@ -780,6 +804,7 @@ describe("init ecosystem generation", () => {
       id: "project-1",
       statusFields: [MOCK_STATUS_FIELD],
     });
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
     vi.mocked(p.select)
       .mockResolvedValueOnce("claude-print" as never)
       .mockResolvedValueOnce("project-1" as never)
@@ -805,6 +830,11 @@ describe("init ecosystem generation", () => {
       expect.stringContaining("Claude auth"),
       "Runtime preflight — claude-print"
     );
+    expect(p.note).toHaveBeenCalledWith(
+      expect.stringContaining("FAIL Claude auth"),
+      "Runtime preflight — claude-print"
+    );
+    vi.unstubAllEnvs();
   });
 
   it("generates codex skills when runtime is the codex agent command", async () => {
@@ -828,6 +858,27 @@ describe("init ecosystem generation", () => {
     expect(skill).toContain("name: gh-symphony");
     expect(skill).toContain("description: Design, refine, and validate");
     expect(skill).toContain("gh-symphony");
+  });
+
+  it("does not double-wrap shell commands in context.yaml", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-eco-shell-command-"));
+
+    await writeEcosystem({
+      cwd,
+      projectDetail: MOCK_PROJECT_DETAIL,
+      statusField: MOCK_STATUS_FIELD,
+      priorityField: null,
+      runtime: "bash -lc codex app-server",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    const contextYaml = await readFile(
+      join(cwd, ".gh-symphony", "context.yaml"),
+      "utf8"
+    );
+    expect(contextYaml).toContain("agent_command: bash -lc codex app-server");
+    expect(contextYaml).not.toContain("agent_command: bash -lc bash -lc");
   });
 
   it("generates frontmatter for all scaffolded codex skills", async () => {

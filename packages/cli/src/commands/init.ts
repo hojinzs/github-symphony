@@ -55,8 +55,9 @@ import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 import {
   isClaudeRuntime,
   normalizeInitRuntime,
-  resolveRuntimeAgentCommand,
   resolveRuntimeCommand,
+  resolveShellAgentCommand,
+  isSupportedInitRuntime,
   type InitRuntimeKind,
 } from "../workflow/workflow-runtime.js";
 
@@ -192,6 +193,13 @@ function resolveInitRuntime(runtime: string | undefined): string {
   return normalizeInitRuntime(runtime ?? "codex-app-server");
 }
 
+function validateInitRuntime(runtime: string): string | null {
+  if (isSupportedInitRuntime(runtime)) {
+    return null;
+  }
+  return `Unsupported runtime '${runtime}'. Choose one of: codex-app-server, claude-print.`;
+}
+
 async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
   return abortIfCancelled(
     p.select({
@@ -216,6 +224,7 @@ function commandRuns(binary: string, args: string[]): boolean {
   const result = spawnSync(binary, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: 3000,
   });
   return result.error === undefined && result.status === 0;
 }
@@ -244,7 +253,7 @@ function runRuntimePreflight(runtime: string): void {
   }
 
   const okIcon = "OK";
-  const failIcon = "CHECK";
+  const failIcon = "FAIL";
   const lines = checks.map(
     (check) =>
       `${check.ok ? okIcon : failIcon} ${check.label.padEnd(16)} ${check.detail}`
@@ -277,6 +286,7 @@ export type EcosystemResult = {
   runtime: string;
   priorityFieldName: string | null;
   skillsDir: string | null;
+  skipSkills: boolean;
   afterCreateHookWritten: boolean;
   contextYamlWritten: boolean;
   referenceWorkflowWritten: boolean;
@@ -302,6 +312,7 @@ export type EcosystemPlan = {
   runtime: string;
   priorityFieldName: string | null;
   skillsDir: string | null;
+  skipSkills: boolean;
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
   files: PlannedFileChange[];
 };
@@ -616,7 +627,7 @@ export async function planEcosystem(
       detectedEnvironment: environment,
       runtime: {
         agent: runtime,
-        agent_command: `bash -lc ${resolveRuntimeAgentCommand(runtime)}`,
+        agent_command: resolveShellAgentCommand(runtime),
       },
     });
     files.push(
@@ -692,6 +703,7 @@ export async function planEcosystem(
     runtime,
     priorityFieldName: priorityField?.name ?? null,
     skillsDir,
+    skipSkills,
     environment,
     files,
   };
@@ -746,6 +758,7 @@ export async function writeEcosystem(
     runtime: plan.runtime,
     priorityFieldName: plan.priorityFieldName,
     skillsDir: plan.skillsDir,
+    skipSkills: plan.skipSkills,
     afterCreateHookWritten,
     contextYamlWritten,
     referenceWorkflowWritten,
@@ -799,12 +812,7 @@ function printEcosystemSummary(
     for (const name of result.skillsSkipped) {
       lines.push(`  – ${name}  (already exists, skipped)`);
     }
-  } else if (
-    result.runtime !== "codex-app-server" &&
-    result.runtime !== "codex" &&
-    result.runtime !== "claude-print" &&
-    result.runtime !== "claude-code"
-  ) {
+  } else if (!result.skipSkills) {
     lines.push("");
     lines.push("Skills  →  (skipped — custom runtime)");
   }
@@ -899,6 +907,14 @@ async function runNonInteractive(
   flags: InitFlags,
   options: GlobalOptions
 ): Promise<void> {
+  const runtime = resolveInitRuntime(flags.runtime);
+  const runtimeError = validateInitRuntime(runtime);
+  if (runtimeError) {
+    process.stderr.write(`Error: ${runtimeError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   let token: string;
   try {
     token = getGhTokenWithSource().token;
@@ -982,7 +998,6 @@ async function runNonInteractive(
   }
 
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
-  const runtime = resolveInitRuntime(flags.runtime);
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
     cwd: process.cwd(),
     outputPath,

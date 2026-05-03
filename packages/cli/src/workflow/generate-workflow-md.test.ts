@@ -115,6 +115,7 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("command: claude");
     expect(markdown).toContain("    - -p");
     expect(markdown).toContain("    env: ANTHROPIC_API_KEY");
+    expect(markdown).toContain("    stall_timeout_ms: 900000");
   });
 
   it("prepends Claude runtime constraints and trade-off comments to the prompt body", () => {
@@ -147,6 +148,20 @@ describe("generateWorkflowMarkdown", () => {
     const parsed = parseWorkflowMarkdown(markdown, {});
 
     expect(markdown).toContain("kind: claude-print");
+    expect(
+      parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
+    ).toBe(true);
+  });
+
+  it("prepends Claude runtime constraints for wrapped claude-code commands", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      runtime: "bash -lc claude-code",
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("kind: custom");
+    expect(markdown).toContain("command: bash -lc claude-code");
     expect(
       parsed.promptTemplate.startsWith(CLAUDE_RUNTIME_PROMPT_PREAMBLE)
     ).toBe(true);

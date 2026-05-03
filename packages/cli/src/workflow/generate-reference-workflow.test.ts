@@ -46,6 +46,7 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("kind: claude-print");
     expect(output).toContain("command: claude");
     expect(output).toContain("    env: ANTHROPIC_API_KEY");
+    expect(output).toContain("    stall_timeout_ms: 900000");
   });
 
   it("custom runtime string is used as codex.command verbatim", () => {

@@ -49,6 +49,12 @@ describe("skill-writer", () => {
       expect(result).toBe(join("/repo", ".claude", "skills"));
     });
 
+    it("does not resolve substring-only runtime names to skill dirs", () => {
+      expect(resolveSkillsDir("/repo", "my-claude-fork")).toBeNull();
+      expect(resolveSkillsDir("/repo", "claudette-runner")).toBeNull();
+      expect(resolveSkillsDir("/repo", "my-codex-fork")).toBeNull();
+    });
+
     it("returns null for unknown runtime", () => {
       const result = resolveSkillsDir("/repo", "unknown");
       expect(result).toBeNull();
