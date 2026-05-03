@@ -1,11 +1,12 @@
 import type { ChildProcess } from "node:child_process";
+import { rm } from "node:fs/promises";
 import type {
   AgentRuntimeAdapter,
   AgentRuntimeCredentialBrokerResponse,
   AgentRuntimeEnv,
-  AgentRuntimeEvent,
   AgentRuntimeEventHandler,
   AgentRuntimeEventSubscription,
+  AgentEvent,
 } from "@gh-symphony/core";
 import { extractEnvForClaude } from "@gh-symphony/core";
 import {
@@ -15,6 +16,11 @@ import {
   type ClaudeRuntimeSessionOptions,
 } from "./argv.js";
 import {
+  composeClaudeMcpConfig,
+  type ClaudeMcpCompositionResult,
+  type ClaudeMcpTokenEnvironment,
+} from "./mcp-compose.js";
+import {
   spawnClaudeTurn,
   type ClaudeSpawnDependencies,
   type ClaudeSpawnTurnResult,
@@ -23,6 +29,7 @@ import {
 
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
+  runtimeDirectory?: string;
   command?: string;
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
@@ -48,46 +55,48 @@ export type ClaudeRuntimeTurnInput = {
 
 export type ClaudeRuntimeTurnResult = ClaudeSpawnTurnResult;
 
-export type ClaudeRuntimeEvent = AgentRuntimeEvent;
+export type ClaudeRuntimeEvent = AgentEvent;
 
-export class ClaudeRuntimeNotImplementedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ClaudeRuntimeNotImplementedError";
-  }
-}
-
-export class ClaudePrintRuntimeAdapter
-  implements
-    AgentRuntimeAdapter<
-      ClaudeRuntimePrepareContext,
-      ClaudeRuntimeTurnInput,
-      ClaudeRuntimeTurnResult,
-      ClaudeRuntimeEvent
-    >
-{
+export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
+  ClaudeRuntimePrepareContext,
+  ClaudeRuntimeTurnInput,
+  ClaudeRuntimeTurnResult,
+  ClaudeRuntimeEvent
+> {
   private activeChild: ChildProcess | null = null;
+  private preparedMcpConfig: ClaudeMcpCompositionResult | null = null;
+  private readonly eventHandlers = new Set<
+    AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+  >();
 
   constructor(
     private readonly config: ClaudeRuntimeConfig,
     private readonly dependencies: ClaudeSpawnDependencies = {}
   ) {}
 
-  prepare(_context: ClaudeRuntimePrepareContext): void {
-    // TODO(#7,#8,#10): MCP composition, session persistence, and preflight
-    // checks will populate this hook once the worker-side runtime wiring lands.
+  async prepare(_context: ClaudeRuntimePrepareContext): Promise<void> {
+    await this.cleanupPreparedMcpConfig();
+    this.preparedMcpConfig = await composeClaudeMcpConfig(
+      this.config.workingDirectory,
+      this.config.isolation?.strictMcpConfig === true,
+      buildClaudeMcpTokenEnvironment({
+        inheritProcessEnv: this.config.inheritProcessEnv === true,
+        configEnv: this.config.env,
+        runtimeDirectory: this.config.runtimeDirectory,
+      })
+    );
   }
 
-  async spawnTurn(input: ClaudeRuntimeTurnInput): Promise<ClaudeRuntimeTurnResult> {
+  async spawnTurn(
+    input: ClaudeRuntimeTurnInput
+  ): Promise<ClaudeRuntimeTurnResult> {
     if (this.activeChild) {
       throw new Error(
         "TODO(#8): Claude print runtime adapter supports only one in-flight turn."
       );
     }
 
-    const argv = buildClaudePrintArgv(
-      this.buildArgvOptions(input)
-    );
+    const argv = buildClaudePrintArgv(this.buildArgvOptions(input));
 
     try {
       return await spawnClaudeTurn(
@@ -108,6 +117,14 @@ export class ClaudePrintRuntimeAdapter
             this.activeChild = child;
             this.dependencies.onSpawned?.(child);
           },
+          onEvent: (event) => {
+            this.emitEvent(event);
+            try {
+              this.dependencies.onEvent?.(event);
+            } catch {
+              // Dependency hook failures must not block stream processing.
+            }
+          },
         }
       );
     } finally {
@@ -116,11 +133,12 @@ export class ClaudePrintRuntimeAdapter
   }
 
   onEvent(
-    _handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
+    handler: AgentRuntimeEventHandler<ClaudeRuntimeEvent>
   ): AgentRuntimeEventSubscription {
-    throw new ClaudeRuntimeNotImplementedError(
-      "TODO(#9): Claude stream-json event mapping is not implemented yet."
-    );
+    this.eventHandlers.add(handler);
+    return () => {
+      this.eventHandlers.delete(handler);
+    };
   }
 
   resolveCredentials(
@@ -129,25 +147,56 @@ export class ClaudePrintRuntimeAdapter
     return extractEnvForClaude(brokerResponse.env, this.config.authEnvKey);
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
-  cancel(_reason?: string): void {
+  async cancel(_reason?: string): Promise<void> {
     // TODO(#8,#9): replace direct process termination with session-aware
     // cancellation once Claude runtime turn orchestration is wired end-to-end.
     this.stopActiveChild();
+    await this.cleanupPreparedMcpConfig();
   }
 
   private buildArgvOptions(input: ClaudeRuntimeTurnInput): ClaudePrintArgvOptions {
+    const isolation = {
+      ...this.config.isolation,
+      ...input.isolation,
+    };
+    const configuredExtraArgs = input.extraArgs ?? this.config.extraArgs ?? [];
+
+    if (this.preparedMcpConfig) {
+      return {
+        baseArgs: this.config.args,
+        session: input.session,
+        // prepare() owns MCP argv injection through extraArgv; suppress the
+        // isolation flag here so buildClaudePrintArgv does not add it twice.
+        // Any input mcpConfigPath is intentionally ignored while a prepared
+        // composition result is active.
+        isolation: {
+          ...isolation,
+          strictMcpConfig: false,
+          mcpConfigPath: undefined,
+        },
+        extraArgs: [
+          ...this.preparedMcpConfig.extraArgv,
+          ...configuredExtraArgs,
+        ],
+      };
+    }
+
+    if (isolation.strictMcpConfig && !isolation.mcpConfigPath) {
+      throw new Error(
+        "Claude strict MCP config requires prepare() or an explicit mcpConfigPath."
+      );
+    }
+
     return {
       baseArgs: this.config.args,
       session: input.session,
-      isolation: {
-        ...this.config.isolation,
-        ...input.isolation,
-      },
-      extraArgs: input.extraArgs ?? this.config.extraArgs,
+      isolation,
+      extraArgs: configuredExtraArgs,
     };
   }
 
@@ -159,6 +208,27 @@ export class ClaudePrintRuntimeAdapter
 
     this.activeChild.kill("SIGTERM");
     this.activeChild = null;
+  }
+
+  private async cleanupPreparedMcpConfig(): Promise<void> {
+    const cleanupPath = this.preparedMcpConfig?.cleanupPath;
+    this.preparedMcpConfig = null;
+
+    if (!cleanupPath) {
+      return;
+    }
+
+    await rm(cleanupPath, { force: true });
+  }
+
+  private emitEvent(event: ClaudeRuntimeEvent): void {
+    for (const handler of this.eventHandlers) {
+      try {
+        handler(event);
+      } catch {
+        // Event subscriber failures must not block later subscribers or turns.
+      }
+    }
   }
 }
 
@@ -215,4 +285,30 @@ function buildClaudeSpawnEnv(options: {
   Object.assign(env, options.configEnv, options.inputEnv);
 
   return env;
+}
+
+function buildClaudeMcpTokenEnvironment(options: {
+  inheritProcessEnv: boolean;
+  configEnv?: NodeJS.ProcessEnv;
+  runtimeDirectory?: string;
+}): ClaudeMcpTokenEnvironment {
+  const source = options.inheritProcessEnv
+    ? {
+        ...process.env,
+        ...options.configEnv,
+      }
+    : {
+        ...options.configEnv,
+      };
+
+  return {
+    GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN,
+    GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
+    GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
+    GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
+    GITHUB_TOKEN_CACHE_PATH: source.GITHUB_TOKEN_CACHE_PATH,
+    GITHUB_PROJECT_ID: source.GITHUB_PROJECT_ID,
+    WORKSPACE_RUNTIME_DIR:
+      options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
+  };
 }

@@ -24,11 +24,7 @@ describe("buildClaudePrintArgv", () => {
           sessionId: "session-1",
         },
       })
-    ).toEqual([
-      ...DEFAULT_CLAUDE_PRINT_ARGS,
-      "--session-id",
-      "session-1",
-    ]);
+    ).toEqual([...DEFAULT_CLAUDE_PRINT_ARGS, "--session-id", "session-1"]);
   });
 
   it("appends resume and fork-session flags for resumed turns", () => {

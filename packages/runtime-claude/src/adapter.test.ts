@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ClaudeRuntimeNotImplementedError,
   ClaudePrintRuntimeAdapter,
   createClaudePrintRuntimeAdapter,
   resolveClaudeCredentials,
@@ -42,8 +44,22 @@ function createStubChild() {
 }
 
 describe("ClaudePrintRuntimeAdapter", () => {
+  const tempRoots: string[] = [];
+
   afterEach(() => {
+    delete process.env.GITHUB_GRAPHQL_TOKEN;
     delete process.env.GITHUB_TOKEN;
+  });
+
+  afterEach(async () => {
+    await Promise.all(
+      tempRoots.splice(0).map((root) =>
+        rm(root, {
+          force: true,
+          recursive: true,
+        })
+      )
+    );
   });
 
   it("spawns claude with default argv and merged env", async () => {
@@ -121,14 +137,122 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]?.env?.GITHUB_TOKEN).toBeUndefined();
   });
 
-  it("throws NotImplementedError on onEvent() until #9 lands", () => {
-    const adapter = new ClaudePrintRuntimeAdapter({
-      workingDirectory: "/workspace",
+  it("emits neutral events from Claude stream-json output", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write(
+          '{"type":"content_block_delta","index":0,"delta":{"text":"hi"}}\n'
+        );
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
+    );
+    const events: string[] = [];
+    const unsubscribe = adapter.onEvent((event) => {
+      events.push(event.name);
     });
 
-    expect(() => adapter.onEvent(() => {})).toThrowError(
-      ClaudeRuntimeNotImplementedError
+    await adapter.spawnTurn({
+      messages: [],
+    });
+    unsubscribe();
+
+    expect(events).toEqual([
+      "agent.turnStarted",
+      "agent.messageDelta",
+      "agent.turnCompleted",
+    ]);
+  });
+
+  it("continues notifying event handlers when one handler throws", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+      }
     );
+    const laterEvents: string[] = [];
+
+    adapter.onEvent(() => {
+      throw new Error("handler failed");
+    });
+    adapter.onEvent((event) => {
+      laterEvents.push(event.name);
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).resolves.toMatchObject({ result: "success" });
+
+    expect(laterEvents).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
+  });
+
+  it("continues stream processing when dependency onEvent throws", async () => {
+    const { child, stdout, stderr } = createStubChild();
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stdout.write('{"type":"message_start"}\n');
+        stdout.write('{"type":"result","subtype":"success"}\n');
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: "/workspace",
+      },
+      {
+        spawnImpl,
+        onEvent: () => {
+          throw new Error("dependency hook failed");
+        },
+      }
+    );
+    const events: string[] = [];
+    adapter.onEvent((event) => {
+      events.push(event.name);
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).resolves.toMatchObject({ result: "success" });
+
+    expect(events).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
   });
 
   it("exposes a factory helper", () => {
@@ -219,6 +343,177 @@ describe("ClaudePrintRuntimeAdapter", () => {
     ]);
   });
 
+  it("prepares strict MCP config argv and removes the ephemeral file on shutdown", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+    const calls: Array<{
+      args: ReadonlyArray<string>;
+    }> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push({ args });
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: workspaceRoot,
+        runtimeDirectory: runtimeRoot,
+        env: {
+          GITHUB_GRAPHQL_TOKEN: "runtime-token",
+        },
+        isolation: {
+          strictMcpConfig: true,
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.prepare({ runId: "run-1" });
+    await adapter.spawnTurn({
+      messages: [],
+    });
+
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(calls[0]?.args).toContain("--strict-mcp-config");
+    expect(calls[0]?.args).toContain("--mcp-config");
+    expect(calls[0]?.args).toContain(mcpConfigPath);
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+
+    await adapter.shutdown();
+
+    await expect(readFile(mcpConfigPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("does not inherit host MCP credentials during prepare unless enabled", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      env: {
+        GITHUB_PROJECT_ID: "project-from-config",
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+
+    const config = JSON.parse(
+      await readFile(join(workspaceRoot, ".mcp.json"), "utf8")
+    ) as {
+      mcpServers?: {
+        github_graphql?: {
+          env?: Record<string, string>;
+        };
+      };
+    };
+
+    expect(config.mcpServers?.github_graphql?.env).toMatchObject({
+      GITHUB_PROJECT_ID: "project-from-config",
+    });
+    expect(
+      config.mcpServers?.github_graphql?.env?.GITHUB_GRAPHQL_TOKEN
+    ).toBeUndefined();
+  });
+
+  it("can opt in to inheriting host MCP credentials during prepare", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      inheritProcessEnv: true,
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+
+    expect(await readFile(join(workspaceRoot, ".mcp.json"), "utf8")).toContain(
+      "host-token"
+    );
+  });
+
+  it("rejects strict MCP config spawns without prepare or explicit config path", async () => {
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: "/workspace",
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await expect(
+      adapter.spawnTurn({
+        messages: [],
+      })
+    ).rejects.toThrowError("requires prepare()");
+  });
+
+  it("removes strict MCP ephemeral config on cancel", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+
+    await adapter.cancel("test");
+
+    await expect(readFile(mcpConfigPath, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("replaces strict MCP ephemeral config when prepare is called again", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+    const env = {
+      GITHUB_GRAPHQL_TOKEN: "first-token",
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter({
+      workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
+      env,
+      isolation: {
+        strictMcpConfig: true,
+      },
+    });
+
+    await adapter.prepare({ runId: "run-1" });
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("first-token");
+
+    env.GITHUB_GRAPHQL_TOKEN = "second-token";
+    await adapter.prepare({ runId: "run-2" });
+    const replacedConfig = await readFile(mcpConfigPath, "utf8");
+    expect(replacedConfig).toContain("second-token");
+    expect(replacedConfig).not.toContain("first-token");
+
+    await adapter.shutdown();
+  });
+
   it("terminates the in-flight child on cancel", async () => {
     const kill = vi.fn(() => true);
     const { child, stdout, stderr } = createStubChild();
@@ -242,7 +537,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
       messages: [],
     });
 
-    adapter.cancel("test");
+    await adapter.cancel("test");
     stdout.end();
     stderr.end();
     child.emit("close", null, "SIGTERM");
