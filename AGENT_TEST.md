@@ -254,6 +254,32 @@ echo "[]" > e2e/fixtures/issues.json
 
 Stub worker는 이슈 상태를 변경하지 않으므로, 완료 후 이슈를 제거해야 retry 루프가 멈춘다.
 
+## Claude Stub Docker E2E
+
+Claude print runtime의 process spawn, stream-json NDJSON parsing, MCP 합성,
+`claude-session.json` persistence, `--resume` / `--fork-session` argv 주입은
+stub `claude` 바이너리로 Docker 안에서 검증한다.
+
+```bash
+pnpm e2e:claude
+```
+
+이 명령은 두 Docker 경로를 병행 실행한다.
+
+| 경로 | 검증 |
+|---|---|
+| `docker-compose.e2e.yml` | 기존 Codex stub worker regression |
+| `test/e2e/claude/docker-compose.yml` | Claude stub binary blackbox spec |
+
+Claude stub 계약은 `test/e2e/stubs/claude.sh` 파일 상단 주석에 고정되어
+있다. spec는 stub의 `invocations.ndjson`, `claude-session.json`, 그리고
+run `events.ndjson`를 직접 읽어 다음을 검증한다.
+
+- 단일 이슈 `Ready → In progress → In review` 전이
+- intra-run continuation에서 `--resume <sessionId>` 포함 및 `--fork-session` 미포함
+- inter-run recover에서 `--resume <prevId> --fork-session` 포함, 새 session id 저장, `parentRunId` 링크 보존
+- resume session rejection에서 `session_invalidated` event 기록
+
 ### 6. 로그 확인
 
 ```bash
