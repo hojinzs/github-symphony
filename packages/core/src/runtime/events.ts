@@ -64,8 +64,8 @@ export type AgentToolCallRequestedEvent = {
     params: Record<string, unknown>;
     callId: string;
     toolName: string;
-    threadId: string;
-    turnId: string;
+    threadId?: string;
+    turnId?: string;
     arguments: unknown;
   };
 };
