@@ -24,8 +24,18 @@ describe("skill-writer", () => {
       expect(result).toBe(join("/repo", ".claude", "skills"));
     });
 
+    it("resolves claude-print runtime to .claude/skills", () => {
+      const result = resolveSkillsDir("/repo", "claude-print");
+      expect(result).toBe(join("/repo", ".claude", "skills"));
+    });
+
     it("resolves codex runtime to .codex/skills", () => {
       const result = resolveSkillsDir("/repo", "codex");
+      expect(result).toBe(join("/repo", ".codex", "skills"));
+    });
+
+    it("resolves codex-app-server runtime to .codex/skills", () => {
+      const result = resolveSkillsDir("/repo", "codex-app-server");
       expect(result).toBe(join("/repo", ".codex", "skills"));
     });
 
@@ -37,6 +47,12 @@ describe("skill-writer", () => {
     it("resolves claude-code agent command to .claude/skills", () => {
       const result = resolveSkillsDir("/repo", "bash -lc claude-code");
       expect(result).toBe(join("/repo", ".claude", "skills"));
+    });
+
+    it("does not resolve substring-only runtime names to skill dirs", () => {
+      expect(resolveSkillsDir("/repo", "my-claude-fork")).toBeNull();
+      expect(resolveSkillsDir("/repo", "claudette-runner")).toBeNull();
+      expect(resolveSkillsDir("/repo", "my-codex-fork")).toBeNull();
     });
 
     it("returns null for unknown runtime", () => {

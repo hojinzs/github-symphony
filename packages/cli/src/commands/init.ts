@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -51,6 +52,14 @@ import {
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
 import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
+import {
+  isClaudeRuntime,
+  normalizeInitRuntime,
+  resolveRuntimeCommand,
+  resolveShellAgentCommand,
+  isSupportedInitRuntime,
+  type InitRuntimeKind,
+} from "../workflow/workflow-runtime.js";
 
 // ── Scope error display ───────────────────────────────────────────────────────
 
@@ -113,6 +122,7 @@ type InitFlags = {
   nonInteractive: boolean;
   project?: string;
   output?: string;
+  runtime?: string;
   skipSkills: boolean;
   skipContext: boolean;
 };
@@ -141,6 +151,10 @@ function parseInitFlags(args: string[]): InitFlags {
         break;
       case "--output":
         flags.output = next;
+        i += 1;
+        break;
+      case "--runtime":
+        flags.runtime = next;
         i += 1;
         break;
       case "--skip-skills":
@@ -173,6 +187,86 @@ const handler = async (
 
 export default handler;
 
+// ── Runtime selection and preflight ─────────────────────────────────────────
+
+function resolveInitRuntime(runtime: string | undefined): string {
+  return normalizeInitRuntime(runtime ?? "codex-app-server");
+}
+
+function validateInitRuntime(runtime: string): string | null {
+  if (isSupportedInitRuntime(runtime)) {
+    return null;
+  }
+  return `Unsupported runtime '${runtime}'. Choose one of: codex-app-server, claude-print.`;
+}
+
+async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
+  return abortIfCancelled(
+    p.select({
+      message: "Step 1/3 — Select the agent runtime:",
+      options: [
+        {
+          value: "codex-app-server",
+          label: "codex-app-server",
+          hint: "Codex app-server JSON-RPC runtime",
+        },
+        {
+          value: "claude-print",
+          label: "claude-print",
+          hint: "Claude Code non-interactive stream-json runtime",
+        },
+      ],
+    })
+  );
+}
+
+function commandRuns(binary: string, args: string[]): boolean {
+  const result = spawnSync(binary, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 3000,
+  });
+  return result.error === undefined && result.status === 0;
+}
+
+function runRuntimePreflight(runtime: string): void {
+  const command = resolveRuntimeCommand(runtime);
+  const checks: Array<{ label: string; ok: boolean; detail: string }> = [];
+  const versionOk = commandRuns(command, ["--version"]);
+  checks.push({
+    label: "Runtime binary",
+    ok: versionOk,
+    detail: versionOk
+      ? `${command} is available on PATH.`
+      : `${command} was not found or did not run with --version.`,
+  });
+
+  if (isClaudeRuntime(runtime)) {
+    const hasAnthropicKey = Boolean(process.env.ANTHROPIC_API_KEY);
+    checks.push({
+      label: "Claude auth",
+      ok: hasAnthropicKey,
+      detail: hasAnthropicKey
+        ? "ANTHROPIC_API_KEY is set."
+        : "ANTHROPIC_API_KEY is not set. Set it before running Claude workers.",
+    });
+  }
+
+  const okIcon = "OK";
+  const failIcon = "FAIL";
+  const lines = checks.map(
+    (check) =>
+      `${check.ok ? okIcon : failIcon} ${check.label.padEnd(16)} ${check.detail}`
+  );
+  p.note(lines.join("\n"), `Runtime preflight — ${runtime}`);
+
+  if (checks.some((check) => !check.ok)) {
+    p.log.warn(
+      "Runtime preflight found missing local prerequisites. Generated files still include the selected runtime defaults."
+    );
+  }
+}
+
 // ── Ecosystem file generation ────────────────────────────────────────────────
 
 type EcosystemOptions = {
@@ -192,6 +286,7 @@ export type EcosystemResult = {
   runtime: string;
   priorityFieldName: string | null;
   skillsDir: string | null;
+  skipSkills: boolean;
   afterCreateHookWritten: boolean;
   contextYamlWritten: boolean;
   referenceWorkflowWritten: boolean;
@@ -217,6 +312,7 @@ export type EcosystemPlan = {
   runtime: string;
   priorityFieldName: string | null;
   skillsDir: string | null;
+  skipSkills: boolean;
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
   files: PlannedFileChange[];
 };
@@ -531,12 +627,7 @@ export async function planEcosystem(
       detectedEnvironment: environment,
       runtime: {
         agent: runtime,
-        agent_command:
-          runtime === "codex"
-            ? "bash -lc codex app-server"
-            : runtime === "claude-code"
-              ? "bash -lc claude-code"
-              : runtime,
+        agent_command: resolveShellAgentCommand(runtime),
       },
     });
     files.push(
@@ -612,6 +703,7 @@ export async function planEcosystem(
     runtime,
     priorityFieldName: priorityField?.name ?? null,
     skillsDir,
+    skipSkills,
     environment,
     files,
   };
@@ -666,6 +758,7 @@ export async function writeEcosystem(
     runtime: plan.runtime,
     priorityFieldName: plan.priorityFieldName,
     skillsDir: plan.skillsDir,
+    skipSkills: plan.skipSkills,
     afterCreateHookWritten,
     contextYamlWritten,
     referenceWorkflowWritten,
@@ -719,7 +812,7 @@ function printEcosystemSummary(
     for (const name of result.skillsSkipped) {
       lines.push(`  – ${name}  (already exists, skipped)`);
     }
-  } else if (result.runtime !== "codex" && result.runtime !== "claude-code") {
+  } else if (!result.skipSkills) {
     lines.push("");
     lines.push("Skills  →  (skipped — custom runtime)");
   }
@@ -814,6 +907,14 @@ async function runNonInteractive(
   flags: InitFlags,
   options: GlobalOptions
 ): Promise<void> {
+  const runtime = resolveInitRuntime(flags.runtime);
+  const runtimeError = validateInitRuntime(runtime);
+  if (runtimeError) {
+    process.stderr.write(`Error: ${runtimeError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   let token: string;
   try {
     token = getGhTokenWithSource().token;
@@ -904,7 +1005,7 @@ async function runNonInteractive(
     statusField,
     priorityField: autoPriorityField,
     mappings,
-    runtime: "codex",
+    runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -929,7 +1030,7 @@ async function runNonInteractive(
     projectDetail: githubProject,
     statusField,
     priorityField: autoPriorityField,
-    runtime: "codex",
+    runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -984,7 +1085,7 @@ async function runInteractiveStandalone(
     return;
   }
 
-  // Step 1/2: Project selection
+  // Project selection
   const s2 = p.spinner();
   s2.start("Loading projects...");
   let projects: ProjectSummary[];
@@ -1014,9 +1115,12 @@ async function runInteractiveStandalone(
     return;
   }
 
+  const runtime = await promptRuntimeSelection();
+  runRuntimePreflight(runtime);
+
   const selectedGithubProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/2 — Select a GitHub Project board:",
+      message: "Step 2/3 — Select a GitHub Project board:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -1053,12 +1157,12 @@ async function runInteractiveStandalone(
   const priorityResolution = resolvePriorityField(projectDetail, statusField);
   const mappings = await promptStateMappings(statusField, {
     stepLabel:
-      priorityResolution.ambiguous.length > 0 ? "Step 2/3" : "Step 2/2",
+      priorityResolution.ambiguous.length > 0 ? "Step 3/4" : "Step 3/3",
   });
   let priorityField = priorityResolution.field;
   if (priorityResolution.ambiguous.length > 0) {
     priorityField = await promptPriorityField(priorityResolution.ambiguous, {
-      stepLabel: "Step 3/3",
+      stepLabel: "Step 4/4",
     });
   }
 
@@ -1083,7 +1187,7 @@ async function runInteractiveStandalone(
     statusField,
     priorityField,
     mappings,
-    runtime: "codex",
+    runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -1100,7 +1204,7 @@ async function runInteractiveStandalone(
     projectDetail,
     statusField,
     priorityField,
-    runtime: "codex",
+    runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });

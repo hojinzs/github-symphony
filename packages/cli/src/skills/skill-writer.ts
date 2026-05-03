@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isClaudeRuntime, isCodexRuntime } from "../workflow/workflow-runtime.js";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
 
 export type SkillFilePlan = {
@@ -10,10 +11,10 @@ export type SkillFilePlan = {
 function normalizeRuntimeForSkills(
   runtime: string
 ): "claude-code" | "codex" | null {
-  if (runtime === "claude-code" || runtime.includes("claude-code")) {
+  if (isClaudeRuntime(runtime)) {
     return "claude-code";
   }
-  if (runtime === "codex" || runtime.includes("codex")) {
+  if (isCodexRuntime(runtime)) {
     return "codex";
   }
   return null;
