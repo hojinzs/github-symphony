@@ -1,4 +1,9 @@
 import * as p from "@clack/prompts";
+import {
+  formatClaudePreflightText,
+  resolveClaudeCommandBinary,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -33,10 +38,7 @@ import {
   type StateRole,
   type StateMapping,
 } from "../config.js";
-import {
-  getGhTokenWithSource,
-  GhAuthError,
-} from "../github/gh-auth.js";
+import { getGhTokenWithSource, GhAuthError } from "../github/gh-auth.js";
 import { resolveGitHubAuth } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
@@ -50,7 +52,10 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "../workflow/default-hooks.js";
 import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
-import { buildSkillFilePlans, resolveSkillsDir } from "../skills/skill-writer.js";
+import {
+  buildSkillFilePlans,
+  resolveSkillsDir,
+} from "../skills/skill-writer.js";
 import { ALL_SKILL_TEMPLATES } from "../skills/templates/index.js";
 import {
   isClaudeRuntime,
@@ -86,7 +91,10 @@ function displayScopeError(
 }
 
 export function warnIfProjectDiscoveryPartial(
-  result: Pick<ProjectDiscoveryResult, "partial" | "reason" | "projects" | "requests">
+  result: Pick<
+    ProjectDiscoveryResult,
+    "partial" | "reason" | "projects" | "requests"
+  >
 ): void {
   if (!result.partial) {
     return;
@@ -131,6 +139,7 @@ function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
     dryRun: false,
     nonInteractive: false,
+    runtime: "codex",
     skipSkills: false,
     skipContext: false,
   };
@@ -154,7 +163,7 @@ function parseInitFlags(args: string[]): InitFlags {
         i += 1;
         break;
       case "--runtime":
-        flags.runtime = next;
+        flags.runtime = next ?? "";
         i += 1;
         break;
       case "--skip-skills":
@@ -167,6 +176,32 @@ function parseInitFlags(args: string[]): InitFlags {
   }
 
   return flags;
+}
+
+async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+  if (!isClaudeRuntime(runtime)) {
+    return true;
+  }
+
+  const hasGitHubGraphqlToken =
+    typeof process.env.GITHUB_GRAPHQL_TOKEN === "string" &&
+    process.env.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
+  const report = await runClaudePreflight({
+    cwd: process.cwd(),
+    env: process.env,
+    command:
+      resolveClaudeCommandBinary(resolveRuntimeCommand(runtime)) ??
+      resolveRuntimeCommand(runtime),
+    includeGhAuth: !hasGitHubGraphqlToken,
+  });
+  const message = formatClaudePreflightText(report);
+  if (report.ok) {
+    p.log.info(message);
+    return true;
+  }
+
+  p.log.error(message);
+  return false;
 }
 
 // ── Init command handler ─────────────────────────────────────────────────────
@@ -415,7 +450,9 @@ export function buildAutomaticStateMappings(
   statusField: ProjectStatusField
 ): Record<string, StateMapping> {
   const mappings: Record<string, StateMapping> = {};
-  for (const mapping of inferAllStateRoles(statusField.options.map((o) => o.name))) {
+  for (const mapping of inferAllStateRoles(
+    statusField.options.map((o) => o.name)
+  )) {
     if (mapping.role) {
       mappings[mapping.columnName] = { role: mapping.role };
     }
@@ -778,7 +815,9 @@ function printEcosystemSummary(
   const relWorkflow = relative(cwd, workflowPath) || "WORKFLOW.md";
 
   const lines: string[] = [];
-  lines.push(`GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`);
+  lines.push(
+    `GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`
+  );
   lines.push(`Runtime   ${result.runtime}`);
   if (result.priorityFieldName) {
     lines.push(`Priority field   ${result.priorityFieldName}`);
@@ -911,6 +950,10 @@ async function runNonInteractive(
   const runtimeError = validateInitRuntime(runtime);
   if (runtimeError) {
     process.stderr.write(`Error: ${runtimeError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!(await runInitRuntimePreflight(runtime))) {
     process.exitCode = 1;
     return;
   }
@@ -1063,6 +1106,16 @@ async function runInteractiveStandalone(
   flags: InitFlags,
   _options: GlobalOptions
 ): Promise<void> {
+  const runtime = await promptRuntimeSelection();
+  if (isClaudeRuntime(runtime)) {
+    if (!(await runInitRuntimePreflight(runtime))) {
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    runRuntimePreflight(runtime);
+  }
+
   const s1 = p.spinner();
   s1.start("Checking GitHub authentication...");
 
@@ -1114,9 +1167,6 @@ async function runInteractiveStandalone(
     process.exitCode = 1;
     return;
   }
-
-  const runtime = await promptRuntimeSelection();
-  runRuntimePreflight(runtime);
 
   const selectedGithubProjectId = await abortIfCancelled(
     p.select({

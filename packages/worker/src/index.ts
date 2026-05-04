@@ -21,6 +21,12 @@ import {
   type RuntimeToolDefinition,
 } from "@gh-symphony/runtime-codex";
 import {
+  formatClaudePreflightText,
+  isClaudeRuntimeCommand,
+  resolveClaudeCommandBinary,
+  runClaudePreflight,
+} from "@gh-symphony/runtime-claude";
+import {
   loadLauncherEnvironment,
   resolveLocalRuntimeLaunchConfig,
 } from "@gh-symphony/runtime-codex";
@@ -473,6 +479,31 @@ async function startAssignedRun() {
       await readFile(workflowPath, "utf8"),
       launcherEnv
     );
+    if (isClaudeRuntimeCommand(workflow.codex.command)) {
+      const hasGitHubGraphqlToken =
+        typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
+        launcherEnv.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
+      const preflight = await runClaudePreflight({
+        cwd: launcherEnv.WORKING_DIRECTORY!,
+        env: launcherEnv,
+        command:
+          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
+        includeGhAuth: !hasGitHubGraphqlToken,
+      });
+      process.stderr.write(
+        `[worker] ${formatClaudePreflightText(preflight)}\n`
+      );
+      if (!preflight.ok) {
+        await exitWorkerStartupFailure(
+          "Claude runtime preflight failed before agent launch."
+        );
+        return;
+      }
+      await exitWorkerStartupFailure(
+        "Claude runtime worker launch is not yet implemented in this branch."
+      );
+      return;
+    }
     runtimeState.executionPhase = resolveInitialExecutionPhase({
       issueState: runtimeState.run?.state,
       blockerCheckStates: workflow.lifecycle.blockerCheckStates,
@@ -543,6 +574,22 @@ async function startAssignedRun() {
     }
     await persistSessionTokenUsageArtifact(launcherEnv);
   }
+}
+
+async function exitWorkerStartupFailure(message: string): Promise<void> {
+  runtimeState.status = "failed";
+  runtimeState.runPhase = "failed";
+  if (runtimeState.run) {
+    runtimeState.run.lastError = message;
+  }
+  process.stderr.write(`[worker] ${message}\n`);
+  stopOrchestratorHeartbeatTimer();
+  emitOrchestratorHeartbeat();
+  await persistSessionTokenUsageArtifact(launcherEnv);
+  await waitForPendingOrchestratorChannelFlush(
+    resolveTerminalOrchestratorChannelFlushTimeoutMs()
+  );
+  process.exit(1);
 }
 
 /**

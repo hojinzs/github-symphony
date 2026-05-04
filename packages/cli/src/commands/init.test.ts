@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +57,8 @@ function mockSpinner() {
   };
 }
 
+const originalPath = process.env.PATH;
+
 describe("init interactive auth", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -64,6 +66,7 @@ describe("init interactive auth", () => {
     vi.mocked(p.outro).mockImplementation(() => undefined);
     vi.mocked(p.cancel).mockImplementation(() => undefined);
     vi.mocked(p.note).mockImplementation(() => undefined);
+    vi.mocked(p.select).mockResolvedValue("codex-app-server" as never);
     vi.mocked(p.spinner).mockImplementation(mockSpinner);
     vi.mocked(p.log.error).mockImplementation(() => undefined);
     vi.mocked(p.log.warn).mockImplementation(() => undefined);
@@ -72,6 +75,7 @@ describe("init interactive auth", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    process.env.PATH = originalPath;
     process.exitCode = undefined;
   });
 
@@ -271,6 +275,7 @@ describe("init priority field detection", () => {
   });
 
   afterEach(() => {
+    process.env.PATH = originalPath;
     process.exitCode = undefined;
   });
 
@@ -319,6 +324,71 @@ describe("init priority field detection", () => {
       stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
     ) as { priorityFieldName: string | null };
     expect(payload.priorityFieldName).toBe("Priority");
+  });
+
+  it("runs Claude preflight for init --runtime claude-code", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-claude-preflight-"));
+    const binDir = join(configDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    const claude = join(binDir, "claude-code");
+    await writeFile(
+      claude,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-code 1.0.0'; fi\n",
+      "utf8"
+    );
+    await chmod(claude, 0o755);
+    const gh = join(binDir, "gh");
+    await writeFile(gh, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(gh, 0o755);
+    process.env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`;
+
+    vi.spyOn(ghAuth, "getGhTokenWithSource").mockReturnValue({
+      token: "test-token",
+      source: "gh",
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "validateToken").mockResolvedValue({
+      login: "tester",
+      name: "Tester",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "listUserProjects").mockResolvedValue([
+      {
+        id: "project-1",
+        title: "Roadmap",
+        shortDescription: "",
+        url: "https://github.com/users/tester/projects/1",
+        openItemCount: 3,
+        owner: { login: "tester", type: "User" },
+      },
+    ]);
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [MOCK_STATUS_FIELD],
+    });
+
+    await initCommand(
+      [
+        "--non-interactive",
+        "--dry-run",
+        "--runtime",
+        "claude-code",
+        "--output",
+        join(configDir, "WORKFLOW.md"),
+      ],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.error).toHaveBeenCalledWith(
+      expect.stringContaining("Neither ANTHROPIC_API_KEY")
+    );
   });
 
   it("prompts for a priority field when multiple priority-like fields are present", async () => {
@@ -774,6 +844,15 @@ describe("init ecosystem generation", () => {
 
   it("prompts for runtime selection and reports preflight during interactive init", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-runtime-int-"));
+    const binDir = join(configDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    const claude = join(binDir, "claude");
+    await writeFile(
+      claude,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 1.0.0'; fi\n",
+      "utf8"
+    );
+    await chmod(claude, 0o755);
     const stdout = vi
       .spyOn(process.stdout, "write")
       .mockReturnValue(true as never);
@@ -804,7 +883,12 @@ describe("init ecosystem generation", () => {
       id: "project-1",
       statusFields: [MOCK_STATUS_FIELD],
     });
-    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv(
+      "PATH",
+      `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`
+    );
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "github-token");
     vi.mocked(p.select)
       .mockResolvedValueOnce("claude-print" as never)
       .mockResolvedValueOnce("project-1" as never)
@@ -826,13 +910,8 @@ describe("init ecosystem generation", () => {
         message: "Step 1/3 — Select the agent runtime:",
       })
     );
-    expect(p.note).toHaveBeenCalledWith(
-      expect.stringContaining("Claude auth"),
-      "Runtime preflight — claude-print"
-    );
-    expect(p.note).toHaveBeenCalledWith(
-      expect.stringContaining("FAIL Claude auth"),
-      "Runtime preflight — claude-print"
+    expect(p.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("Claude runtime preflight")
     );
     vi.unstubAllEnvs();
   });

@@ -12,6 +12,8 @@ import doctorCommand, {
   runDoctorDiagnostics,
 } from "./doctor.js";
 
+const DOCTOR_TEST_NODE_VERSION = "v24.0.0";
+
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
   restore: () => void;
@@ -69,6 +71,7 @@ function authDependencies(
     }),
     getEnvGitHubToken: () => null,
     getGhToken: () => "ghp_test",
+    processVersion: DOCTOR_TEST_NODE_VERSION,
     validateGitHubToken: (async (token: string, source) =>
       ({
         source,
@@ -82,6 +85,10 @@ function authDependencies(
 }
 
 const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
+const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
+const originalCredentialBrokerUrl = process.env.AGENT_CREDENTIAL_BROKER_URL;
+const originalCredentialBrokerSecret =
+  process.env.AGENT_CREDENTIAL_BROKER_SECRET;
 
 async function createWorkflowFixture(
   command = "fake-agent",
@@ -158,11 +165,28 @@ afterEach(() => {
   } else {
     process.env.GITHUB_GRAPHQL_TOKEN = originalGraphQlToken;
   }
+  if (originalAnthropicApiKey === undefined) {
+    delete process.env.ANTHROPIC_API_KEY;
+  } else {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
+  }
+  if (originalCredentialBrokerUrl === undefined) {
+    delete process.env.AGENT_CREDENTIAL_BROKER_URL;
+  } else {
+    process.env.AGENT_CREDENTIAL_BROKER_URL = originalCredentialBrokerUrl;
+  }
+  if (originalCredentialBrokerSecret === undefined) {
+    delete process.env.AGENT_CREDENTIAL_BROKER_SECRET;
+  } else {
+    process.env.AGENT_CREDENTIAL_BROKER_SECRET =
+      originalCredentialBrokerSecret;
+  }
   process.exitCode = undefined;
 });
 
 beforeEach(() => {
   delete process.env.GITHUB_GRAPHQL_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY;
 });
 
 describe("runDoctorDiagnostics", () => {
@@ -202,7 +226,7 @@ describe("runDoctorDiagnostics", () => {
     expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
       status: "pass",
       details: {
-        currentVersion: process.version,
+        currentVersion: DOCTOR_TEST_NODE_VERSION,
         minimumVersion: "v24.0.0",
       },
     });
@@ -214,6 +238,172 @@ describe("runDoctorDiagnostics", () => {
         version: expect.stringContaining("git version"),
       }),
     });
+  });
+
+  it("adds Claude readiness checks for Claude runtime commands", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture("claude");
+    const claudeExecutable = join(pathEnv, "claude");
+    await writeFile(claudeExecutable, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(claudeExecutable, 0o755);
+    await writeFile(join(repoDir, ".mcp.json"), "{\"mcpServers\":{}}\n", "utf8");
+    process.env.ANTHROPIC_API_KEY = "sk-test";
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        execFileSync: ((command: string, args: readonly string[] = []) => {
+          if (command === "git") {
+            return "git version 2.43.0";
+          }
+          if (command === "which") {
+            return join(pathEnv, String(args[0]));
+          }
+          if (command === "claude" && args[0] === "--version") {
+            return "claude 1.2.3";
+          }
+          return "";
+        }) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.find((check) => check.id === "claude_binary"))
+      .toMatchObject({ status: "pass", summary: expect.stringContaining("1.2.3") });
+    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
+      .toMatchObject({ status: "pass" });
+    expect(report.checks.find((check) => check.id === "claude_mcp_config"))
+      .toMatchObject({ status: "pass" });
+  });
+
+  it("reports Claude missing API key with a concrete fix", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture("claude");
+    const claudeExecutable = join(pathEnv, "claude");
+    await writeFile(claudeExecutable, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(claudeExecutable, 0o755);
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        execFileSync: ((command: string, args: readonly string[] = []) => {
+          if (command === "git") {
+            return "git version 2.43.0";
+          }
+          if (command === "which") {
+            return join(pathEnv, String(args[0]));
+          }
+          if (command === "claude" && args[0] === "--version") {
+            return "claude 1.2.3";
+          }
+          return "";
+        }) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
+      .toMatchObject({
+        status: "fail",
+        remediation: expect.stringContaining("Set ANTHROPIC_API_KEY"),
+      });
+    expect(report.checks.find((check) => check.id === "claude_mcp_config"))
+      .toMatchObject({ status: "warn" });
+  });
+
+  it("uses injected fetch when checking brokered Claude credentials", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture("claude");
+    const claudeExecutable = join(pathEnv, "claude");
+    await writeFile(claudeExecutable, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(claudeExecutable, 0o755);
+    process.env.AGENT_CREDENTIAL_BROKER_URL = "https://broker.test/agent";
+    process.env.AGENT_CREDENTIAL_BROKER_SECRET = "secret";
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ env: { ANTHROPIC_API_KEY: "sk-brokered" } }),
+    }));
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        execFileSync: ((command: string, args: readonly string[] = []) => {
+          if (command === "git") {
+            return "git version 2.43.0";
+          }
+          if (command === "which") {
+            return join(pathEnv, String(args[0]));
+          }
+          if (command === "claude" && args[0] === "--version") {
+            return "claude 1.2.3";
+          }
+          return "";
+        }) as never,
+        fetchImpl: fetchImpl as never,
+        pathEnv,
+      })
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://broker.test/agent",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
+      .toMatchObject({
+        status: "pass",
+        details: expect.objectContaining({ source: "broker" }),
+      });
   });
 
   it("reports an actionable failure for unsupported Node.js versions", async () => {
@@ -838,7 +1028,7 @@ describe("doctor command handler", () => {
     );
     expect(report.checks.find((check) => check.id === "node_runtime")?.details)
       .toMatchObject({
-        currentVersion: process.version,
+        currentVersion: DOCTOR_TEST_NODE_VERSION,
         minimumVersion: "v24.0.0",
       });
   });
