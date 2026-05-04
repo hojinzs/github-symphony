@@ -48,7 +48,7 @@ $ gh-symphony repo start    # cwd 의 WORKFLOW.md 정책으로 폴링 시작
 - `OrchestratorProjectConfig.repositories: RepositoryRef[]` → `repository: RepositoryRef` 단일 필드.
 - WORKFLOW.md 1차 출처는 **cwd (또는 명시된 리포 디렉터리)**. `--workflow-file <path>` override 는 spec §5.1 그대로 유지.
 - 디스크 레이아웃 `.runtime/orchestrator/<workspaceKey>/...` — `<projectId>` 단계 제거.
-- CLI 명령 (`init`/`start`/`status`/`stop`) 는 cwd 기반. `--project-id` 는 internal-only 또는 제거.
+- CLI 명령 (`init`/`start`/`status`/`stop`) 는 cwd 기반. `--project-id` 옵션은 **제거** (breaking change — §Resolved Decisions S-Q1).
 - tracker config 는 `tracker.settings.repository = "owner/repo"` 모양으로 GitHub/Linear 공통.
 - 한 머신에서 여러 리포를 운영하려면 **리포당 한 인스턴스** (별도 포트, 별도 `.runtime/`) — unix-style multiplex.
 
@@ -99,8 +99,8 @@ $ cd ~/work/repo-b && gh-symphony repo start --web 4681
 
 기존 사용자의 `.runtime/orchestrator/projects/<projectId>/...` 처리:
 
-1. **단일 `<projectId>` 디렉터리만 발견** — `gh-symphony repo init` 시 자동으로 내용을 `.runtime/orchestrator/` 루트로 promote. run records 의 `projectId` 필드는 호환성 위해 유지하되 dispatch 로직에서 무시.
-2. **다중 `<projectId>` 디렉터리 발견** — 사용자에게 명시적 선택 (어느 리포의 것을 살릴지) 또는 인스턴스 분리 안내.
+1. **단일 `<projectId>` 디렉터리만 발견** — `gh-symphony repo init` 시 자동으로 내용을 `.runtime/orchestrator/` 루트로 promote. run records 의 `projectId` 필드는 마이그레이션 시 제거 (orchestrator-side namespace 자체가 사라지므로).
+2. **다중 `<projectId>` 디렉터리 발견** — `gh-symphony repo init` 이 명시적 에러로 중단하고 사용자에게 manual cleanup 안내를 출력 (§Resolved Decisions S-Q2). 어느 디렉터리를 살리고 어느 것을 archive 할지 사용자가 직접 결정 후 재실행. 자동 분기 logic 도입하지 않음.
 
 ## Alternatives Considered
 
@@ -116,13 +116,15 @@ $ cd ~/work/repo-b && gh-symphony repo start --web 4681
 
 장점: spec 부합 회복, 어댑터 contract 통일, ADR `2026-03-16` 시너지, 부트스트랩 단순화. 단점: 60~80h 비용, 통합 대시보드 자연성 상실. **채택**.
 
-## Open Questions
+## Resolved Decisions (at proposal)
 
-1. `--project-id` 옵션을 완전 제거할지 internal-only (hidden) 로 남길지 — 기존 사용자 스크립트 호환성 차원.
-2. 마이그레이션 스크립트가 다중 `<projectId>` 발견 시 정확한 사용자 흐름 — interactive prompt vs error+manual.
-3. control-plane 의 `/api/v1/state` 응답 스키마에서 `projectId`/`projectSlug` 필드를 제거할지, optional 로 둘지 — dashboard 클라이언트 호환성.
+본 ADR 채택 시 함께 확정한 사항. 셋 다 breaking change 를 감수한다 — 단일-리포 전환 자체가 schema 깨는 변경이므로 이 시점에 함께 정리하는 편이 일관됨.
 
-이 세 가지는 P1 착수 시점에 결정.
+1. **S-Q1 — `--project-id` CLI 옵션 처리** → **완전 제거**. internal-only 유예 없음. 기존 사용자 스크립트는 cwd 기반으로 갱신 필요.
+2. **S-Q2 — 마이그레이션 스크립트의 다중 `<projectId>` 처리** → **에러 + manual cleanup 안내**. `gh-symphony repo init` 이 다중 `<projectId>` 발견 시 명시적 에러로 중단. 자동 분기 logic 도입하지 않음. 사용자가 어느 디렉터리를 살릴지 결정 후 재실행.
+3. **S-Q3 — `/api/v1/state` 응답에서 orchestrator-side `projectId`/`slug` 처리** → **완전 제거 + 대체 식별자 추가**. 응답에 `repository: { owner, name }` 1급 식별자 추가. GitHub Project V2 node ID 등 tracker-side 식별자가 필요하면 `tracker.subjectId` 또는 `tracker.settings.projectId` 형태로 노출 (정확한 필드 모양은 P4 Phase 에서 결정). dashboard/client 는 P4 에서 함께 갱신.
+
+> **명확화**: 본 결정사항의 "projectId" 는 모두 **orchestrator-side namespace** (예: `"team-eng-symphony"`) 만 가리킨다. **tracker-side `projectId`** (GitHub Project V2 node ID — WORKFLOW.md 의 `tracker.settings.projectId` 에 위치) 는 그대로 유지하며, 오히려 응답에 노출되어 운영자가 "이 인스턴스가 어느 GitHub Project 를 watch 하는지" 더 잘 알게 된다.
 
 ## References
 
