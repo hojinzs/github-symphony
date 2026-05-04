@@ -1,0 +1,8 @@
+services:
+  claude-e2e:
+    container_name: symphony-claude-e2e
+    build:
+      context: ../../..
+      dockerfile: test/e2e/claude/Dockerfile
+    environment:
+      CI: "true"
