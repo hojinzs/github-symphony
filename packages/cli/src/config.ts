@@ -27,8 +27,12 @@ export type CliProjectTrackerSettings = Record<
   timeoutMs?: number;
 };
 
-export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {
+export type CliProjectConfig = Omit<
+  OrchestratorProjectConfig,
+  "repository" | "tracker"
+> & {
   displayName?: string;
+  repository?: RepositoryRef;
   repositories?: RepositoryRef[];
   tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
     settings?: CliProjectTrackerSettings;
@@ -125,11 +129,13 @@ export async function loadProjectConfig(
     return null;
   }
 
-  const repository = config.repository ?? config.repositories?.[0];
+  // P1 compat: tolerate legacy `repositories[]` JSON written by older CLI;
+  // the first valid entry becomes the canonical `repository`.
+  const repository = config.repository ?? firstConfiguredRepository(config);
   return {
     ...config,
     ...(repository ? { repository } : {}),
-  } as CliProjectConfig;
+  };
 }
 
 export async function saveProjectConfig(
@@ -179,5 +185,17 @@ function isFileMissing(error: unknown): boolean {
     typeof error === "object" &&
     "code" in error &&
     (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
+}
+
+function firstConfiguredRepository(config: {
+  repositories?: RepositoryRef[];
+}): RepositoryRef | undefined {
+  return config.repositories?.find(
+    (repository) =>
+      typeof repository.owner === "string" &&
+      repository.owner.length > 0 &&
+      typeof repository.name === "string" &&
+      repository.name.length > 0
   );
 }

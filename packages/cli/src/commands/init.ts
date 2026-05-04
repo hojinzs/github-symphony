@@ -1280,22 +1280,22 @@ export async function writeConfig(
   configDir: string,
   input: WriteConfigInput
 ): Promise<void> {
-  const repository = input.repos[0] ?? {
-    owner: "",
-    name: "",
-    cloneUrl: "",
-  };
+  const repository = input.repos[0];
 
   await saveProjectConfig(configDir, input.projectId, {
     projectId: input.projectId,
     slug: input.projectId,
     displayName: input.project.title,
     workspaceDir: input.workspaceDir,
-    repository: {
-      owner: repository.owner,
-      name: repository.name,
-      cloneUrl: repository.cloneUrl,
-    },
+    ...(repository
+      ? {
+          repository: {
+            owner: repository.owner,
+            name: repository.name,
+            cloneUrl: repository.cloneUrl,
+          },
+        }
+      : {}),
     repositories: input.repos.map((r) => ({
       owner: r.owner,
       name: r.name,

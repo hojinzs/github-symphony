@@ -86,9 +86,12 @@ function toRepoConfigEntry(repo: LinkedRepository): RepoConfigEntry {
 function configuredRepositories(
   config: Pick<CliProjectConfig, "repository" | "repositories">
 ): RepoConfigEntry[] {
-  return (
-    config.repositories ?? (config.repository.owner ? [config.repository] : [])
-  );
+  const repos = [
+    ...(config.repository ? [config.repository] : []),
+    ...(config.repositories ?? []),
+  ].filter(isConfiguredRepository);
+
+  return [...new Map(repos.map((repo) => [repoKey(repo), repo])).values()];
 }
 
 function withConfiguredRepository(
@@ -107,6 +110,12 @@ function withConfiguredRepository(
       },
     },
   };
+}
+
+function isConfiguredRepository(
+  repository: Partial<RepoConfigEntry> | undefined
+): repository is RepoConfigEntry {
+  return Boolean(repository?.owner && repository.name);
 }
 
 function parseRepoSyncFlags(args: string[]): RepoSyncFlags {
@@ -385,19 +394,23 @@ async function repoRemove(
   const nextRepositories = currentRepos.filter(
     (repo) => repoKey(repo) !== repoKey(requestedRepo)
   );
+  if (nextRepositories.length === 0) {
+    process.stderr.write(
+      "Repository removal would leave the project without a repository. Remove the project instead or add another repository first.\n"
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   await saveProjectConfig(options.configDir, global.activeProject, {
     ...ws,
-    repository: nextRepositories[0] ?? { owner: "", name: "", cloneUrl: "" },
+    repository: nextRepositories[0],
     repositories: nextRepositories,
     tracker: {
       ...ws.tracker,
       settings: {
         ...ws.tracker.settings,
-        ...(nextRepositories[0]
-          ? {
-              repository: `${nextRepositories[0].owner}/${nextRepositories[0].name}`,
-            }
-          : {}),
+        repository: `${nextRepositories[0].owner}/${nextRepositories[0].name}`,
       },
     },
   });
@@ -518,18 +531,19 @@ async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
   );
 
   if (!flags.dryRun) {
+    const repository = nextRepositories[0];
+    const { repository: _legacyRepository, ...trackerSettings } =
+      ws.tracker.settings ?? {};
     await saveProjectConfig(options.configDir, global.activeProject, {
       ...ws,
-      repository: nextRepositories[0] ?? { owner: "", name: "", cloneUrl: "" },
+      ...(repository ? { repository } : { repository: undefined }),
       repositories: nextRepositories,
       tracker: {
         ...ws.tracker,
         settings: {
-          ...ws.tracker.settings,
-          ...(nextRepositories[0]
-            ? {
-                repository: `${nextRepositories[0].owner}/${nextRepositories[0].name}`,
-              }
+          ...trackerSettings,
+          ...(repository
+            ? { repository: `${repository.owner}/${repository.name}` }
             : {}),
         },
       },

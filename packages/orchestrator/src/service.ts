@@ -2517,16 +2517,11 @@ export class OrchestratorService {
       tenant,
       tenant.repository
     );
-    const intervals = [
-      isUsableWorkflowResolution(resolution)
-        ? resolution.workflow.polling.intervalMs
-        : NaN,
-    ];
-    const validIntervals = intervals.filter(
-      (value) => Number.isFinite(value) && value > 0
-    );
-    return validIntervals.length
-      ? Math.min(...validIntervals)
+    const interval = isUsableWorkflowResolution(resolution)
+      ? resolution.workflow.polling.intervalMs
+      : NaN;
+    return Number.isFinite(interval) && interval > 0
+      ? interval
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
@@ -2534,23 +2529,17 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig
   ): Promise<Record<string, number>> {
     const result: Record<string, number> = {};
-    const resolutions = [
-      await this.loadProjectWorkflow(tenant, tenant.repository).catch(
-        () => null
-      ),
-    ];
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      tenant.repository
+    ).catch(() => null);
+    if (!resolution || !isUsableWorkflowResolution(resolution)) {
+      return result;
+    }
 
-    for (const resolution of resolutions) {
-      if (!resolution) continue;
-      if (!isUsableWorkflowResolution(resolution)) continue;
-      const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
-      for (const [state, limit] of Object.entries(stateLimits)) {
-        const existing = result[state];
-        const numLimit = typeof limit === "number" ? limit : Number(limit);
-        // Use the minimum limit across all repository workflows
-        result[state] =
-          existing === undefined ? numLimit : Math.min(existing, numLimit);
-      }
+    const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
+    for (const [state, limit] of Object.entries(stateLimits)) {
+      result[state] = typeof limit === "number" ? limit : Number(limit);
     }
 
     return result;
@@ -2599,19 +2588,16 @@ export class OrchestratorService {
       return this.dependencies.concurrency;
     }
 
-    const limits = [
-      await this.loadProjectWorkflow(project, project.repository)
-        .then((resolution) =>
-          isUsableWorkflowResolution(resolution)
-            ? resolution.workflow.agent.maxConcurrentAgents
-            : NaN
-        )
-        .catch(() => NaN),
-    ];
-    const validLimits = limits.filter(
-      (value) => Number.isFinite(value) && value >= 0
-    );
-    return validLimits.length ? Math.min(...validLimits) : DEFAULT_CONCURRENCY;
+    const limit = await this.loadProjectWorkflow(project, project.repository)
+      .then((resolution) =>
+        isUsableWorkflowResolution(resolution)
+          ? resolution.workflow.agent.maxConcurrentAgents
+          : NaN
+      )
+      .catch(() => NaN);
+    return Number.isFinite(limit) && limit >= 0
+      ? limit
+      : DEFAULT_CONCURRENCY;
   }
 
   private async resolveWorkflowResolution(

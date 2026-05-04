@@ -563,9 +563,9 @@ describe("repo add", () => {
     );
   });
 
-  it("removes a validated repository regardless of input casing", async () => {
+  it("rejects removing the last repository regardless of input casing", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "repo-remove-casing-"));
-    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
 
     await seedActiveProject(configDir, [
@@ -579,6 +579,47 @@ describe("repo add", () => {
     try {
       await repoCommand(["remove", "acmeorg/platform"], baseOptions(configDir));
     } finally {
+      stderr.restore();
+    }
+
+    const saved = JSON.parse(
+      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
+    ) as CliProjectConfig;
+
+    expect(saved.repositories).toEqual([
+      {
+        owner: "AcmeOrg",
+        name: "Platform",
+        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
+      },
+    ]);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "Repository removal would leave the project without a repository"
+    );
+  });
+
+  it("removes one repository when another repository remains", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-remove-one-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+
+    await seedActiveProject(configDir, [
+      {
+        owner: "AcmeOrg",
+        name: "Platform",
+        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
+      },
+      {
+        owner: "AcmeOrg",
+        name: "Api",
+        cloneUrl: "https://github.com/AcmeOrg/Api.git",
+      },
+    ]);
+
+    try {
+      await repoCommand(["remove", "acmeorg/platform"], baseOptions(configDir));
+    } finally {
       stdout.restore();
     }
 
@@ -586,7 +627,19 @@ describe("repo add", () => {
       await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
     ) as CliProjectConfig;
 
-    expect(saved.repositories).toEqual([]);
+    expect(saved.repository).toEqual({
+      owner: "AcmeOrg",
+      name: "Api",
+      cloneUrl: "https://github.com/AcmeOrg/Api.git",
+    });
+    expect(saved.repositories).toEqual([
+      {
+        owner: "AcmeOrg",
+        name: "Api",
+        cloneUrl: "https://github.com/AcmeOrg/Api.git",
+      },
+    ]);
+    expect(saved.tracker.settings?.repository).toBe("AcmeOrg/Api");
     expect(stdout.output()).toContain("Removed repository: acmeorg/platform");
   });
 

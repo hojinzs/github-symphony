@@ -18,7 +18,10 @@ import {
   type OrchestratorLogLevel,
   type ProjectLockHandle,
 } from "@gh-symphony/orchestrator";
-import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+import type {
+  OrchestratorProjectConfig,
+  ProjectStatusSnapshot,
+} from "@gh-symphony/core";
 import {
   DashboardFsReader,
   resolveDashboardResponse,
@@ -461,6 +464,13 @@ const handler = async (
     handleMissingManagedProjectConfig();
     return;
   }
+  if (!hasConfiguredRepository(projectConfig)) {
+    process.stderr.write(
+      "No repository is configured in this project. Run 'gh-symphony repo add owner/name' first.\n"
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
@@ -758,6 +768,12 @@ export async function shutdownForegroundOrchestrator(
   }
 
   return (input.exit ?? process.exit)(0);
+}
+
+function hasConfiguredRepository(
+  config: { repository?: OrchestratorProjectConfig["repository"] }
+): config is OrchestratorProjectConfig {
+  return Boolean(config.repository?.owner && config.repository.name);
 }
 
 async function tailWorkerLog(

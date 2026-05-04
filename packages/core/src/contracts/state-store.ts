@@ -9,6 +9,9 @@ import type { IssueWorkspaceRecord } from "../domain/issue.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
 export type OrchestratorStateStore = {
+  // P1 single-repo transition: projectId is optional at the contract boundary
+  // so later phases can remove the legacy project namespace incrementally.
+  // Legacy layout implementations may still require it until migration ships.
   loadProjectConfig(
     projectId?: string
   ): Promise<OrchestratorProjectConfig | null>;
