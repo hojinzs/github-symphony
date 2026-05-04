@@ -28,10 +28,12 @@ type IssueFixture = {
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const repoRoot = resolve(__dirname, "../../..");
 const stubPath = resolve(repoRoot, "test/e2e/stubs/claude.sh");
+const stubWrapperPath = resolve(repoRoot, "test/e2e/stubs/claude");
 const createdRoots: string[] = [];
 
 beforeAll(async () => {
   await chmodExecutable(stubPath);
+  await chmodExecutable(stubWrapperPath);
 });
 
 afterEach(async () => {
@@ -160,6 +162,7 @@ async function createHarness(initialScenario: string) {
   const logDir = join(root, "stub-log");
   const issuePath = join(root, "issues.json");
   const eventsByRun = new Map<string, AgentEvent[]>();
+  const flushedEventCountsByRun = new Map<string, number>();
   let scenario = initialScenario;
   let lastAdapter: ReturnType<typeof createClaudePrintRuntimeAdapter> | null =
     null;
@@ -257,11 +260,15 @@ async function createHarness(initialScenario: string) {
       }
 
       const result = await lastAdapter.spawnTurn({ messages: input.messages });
+      const events = eventsByRun.get(runId) ?? [];
+      const flushedEventCount = flushedEventCountsByRun.get(runId) ?? 0;
+      const newEvents = events.slice(flushedEventCount);
       await appendRunEvents(
         runDirectory,
         result.args,
-        eventsByRun.get(runId) ?? []
+        newEvents
       );
+      flushedEventCountsByRun.set(runId, events.length);
       return result;
     },
     async readSessionFile(runId: string) {
@@ -331,7 +338,6 @@ async function appendRunEvents(
       event: event.payload.observabilityEvent ?? event.name,
       name: event.name,
       ...event.payload,
-      params: event.payload.params,
     })),
   ];
   await writeFile(

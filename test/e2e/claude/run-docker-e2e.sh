@@ -15,7 +15,6 @@ cleanup() {
 trap cleanup EXIT
 
 docker compose -f docker-compose.e2e.yml up -d --build
-codex_pid=""
 (
   curl --fail --retry-all-errors --retry 20 --retry-delay 2 http://localhost:4680/healthz
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
@@ -36,5 +35,13 @@ codex_pid="$!"
 docker compose -f test/e2e/claude/docker-compose.yml up --build --abort-on-container-exit --exit-code-from claude-e2e &
 claude_pid="$!"
 
-wait "$codex_pid"
-wait "$claude_pid"
+codex_status=0
+claude_status=0
+
+wait "$codex_pid" || codex_status="$?"
+wait "$claude_pid" || claude_status="$?"
+
+if ((codex_status != 0 || claude_status != 0)); then
+  echo "Docker E2E failed: codex=${codex_status} claude=${claude_status}" >&2
+  exit 1
+fi

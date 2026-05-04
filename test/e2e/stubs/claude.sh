@@ -41,35 +41,37 @@ json_string() {
   node -e 'process.stdout.write(JSON.stringify(process.argv[1] ?? ""))' -- "$1"
 }
 
-while (($# > 0)); do
-  arg="$1"
+append_arg() {
   if [[ "$first_arg" == true ]]; then
     first_arg=false
   else
     args_json+=","
   fi
-  args_json+="$(json_string "$arg")"
+  args_json+="$(json_string "$1")"
+}
+
+while (($# > 0)); do
+  arg="$1"
+  append_arg "$arg"
 
   case "$arg" in
     --session-id)
-      shift
-      session_id="${1:-}"
-      if [[ "$first_arg" == true ]]; then
-        first_arg=false
-      else
-        args_json+=","
+      if (($# < 2)); then
+        printf 'claude stub: --session-id requires a value\n' >&2
+        exit 64
       fi
-      args_json+="$(json_string "$session_id")"
+      shift
+      session_id="$1"
+      append_arg "$session_id"
       ;;
     --resume)
-      shift
-      resume_id="${1:-}"
-      if [[ "$first_arg" == true ]]; then
-        first_arg=false
-      else
-        args_json+=","
+      if (($# < 2)); then
+        printf 'claude stub: --resume requires a value\n' >&2
+        exit 64
       fi
-      args_json+="$(json_string "$resume_id")"
+      shift
+      resume_id="$1"
+      append_arg "$resume_id"
       ;;
     --fork-session)
       fork_session=true
@@ -140,13 +142,19 @@ if [[ "$exit_mode" == "process-error" ]]; then
   exit 2
 fi
 
-if [[ "$scenario" == "rate-limit" ]]; then
-  printf '{"type":"message_start","message":{"id":"msg-%s","role":"assistant"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
-  printf '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"rate limited"},"session_id":"%s"}\n' "$result_session_id"
-  printf '{"type":"result","subtype":"error_rate_limit","is_error":true,"message":"429 rate limit","usage":{"input_tokens":7,"output_tokens":3,"rate_limit":{"reset_at":"2099-01-01T00:00:00.000Z"}},"session_id":"%s"}\n' "$result_session_id"
-  exit 0
-fi
-
-printf '{"type":"message_start","message":{"id":"msg-%s","role":"assistant"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
-printf '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"stub turn %s complete"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
-printf '{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":11,"output_tokens":5},"session_id":"%s"}\n' "$result_session_id"
+case "$scenario" in
+  success | retry-then-success | inter-run-recover | session-invalid-on-resume)
+    printf '{"type":"message_start","message":{"id":"msg-%s","role":"assistant"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
+    printf '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"stub turn %s complete"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
+    printf '{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":11,"output_tokens":5},"session_id":"%s"}\n' "$result_session_id"
+    ;;
+  rate-limit)
+    printf '{"type":"message_start","message":{"id":"msg-%s","role":"assistant"},"session_id":"%s"}\n' "$invocation" "$result_session_id"
+    printf '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"rate limited"},"session_id":"%s"}\n' "$result_session_id"
+    printf '{"type":"result","subtype":"error_rate_limit","is_error":true,"message":"429 rate limit","usage":{"input_tokens":7,"output_tokens":3,"rate_limit":{"reset_at":"2099-01-01T00:00:00.000Z"}},"session_id":"%s"}\n' "$result_session_id"
+    ;;
+  *)
+    printf 'claude stub: unsupported scenario %s\n' "$scenario" >&2
+    exit 64
+    ;;
+esac
