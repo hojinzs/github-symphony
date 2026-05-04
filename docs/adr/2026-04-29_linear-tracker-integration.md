@@ -1,8 +1,9 @@
-# Spec: Linear Tracker Integration
+# ADR: Linear Tracker Integration
 
 - **Date**: 2026-04-29
 - **Status**: Draft
 - **Related Spec**: `docs/symphony-spec.md` (Tracker layer), `CLAUDE.md` (Six Symphony Layers)
+- **Related ADRs**: `docs/adr/2026-05-04_single-repo-orchestrator.md` (단일-리포 전환 — Linear 어댑터의 단일 repo 매핑과 양식 통일)
 - **Layers Affected**: Integration (신규 어댑터), Configuration (스키마 확장), Coordination (와이어링·CLI), Policy (선택)
 
 ## Context
