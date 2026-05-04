@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.0.21
+
+### Patch Changes
+
+- [#259](https://github.com/hojinzs/github-symphony/pull/259) [`9caeded`](https://github.com/hojinzs/github-symphony/commit/9caededa6e979eee71efc64a565f36953c55556b) Thanks [@hojinzs](https://github.com/hojinzs)! - Add Claude as a first-class agent runtime alongside Codex. The CLI now lets you pick a runtime during `init`, runs Claude preflight checks (auth, broker probe), and ships a `claude -p` spawn-loop adapter with session-id persistence, stream-json event mapping, prompt constraints, and a composed GitHub GraphQL MCP config. Worker agent events are normalized to runtime-neutral names and the workflow `runtime` block is parsed in core.
+
 ## 0.0.20
 
 ### Patch Changes
