@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 export type ClaudePreflightStatus = "pass" | "warn" | "fail";
 
@@ -37,8 +37,9 @@ export type ClaudePreflightOptions = {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   /**
-   * Claude CLI binary name or path, for example "claude" or "/usr/local/bin/claude".
-   * Full shell command strings are accepted for compatibility and resolved to the binary.
+   * Either a raw runtime command (for example "bash -lc 'claude -p'")
+   * or a pre-resolved Claude CLI binary name/path (for example "claude",
+   * "./bin/claude", or "/usr/local/bin/claude").
    */
   command?: string;
   includeGhAuth?: boolean;
@@ -136,10 +137,11 @@ function checkClaudeBinary(
   cwd: string,
   deps: Pick<ClaudePreflightDependencies, "execFileSync" | "platform">
 ): ClaudePreflightCheck {
+  const executable = resolveExecutableCommand(command, cwd);
   try {
-    const locatedPath = locateClaudeBinary(command, cwd, deps);
+    const locatedPath = locateClaudeBinary(executable, cwd, deps);
     const version = deps
-      .execFileSync(command, ["--version"], {
+      .execFileSync(executable, ["--version"], {
         encoding: "utf8",
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
@@ -151,22 +153,32 @@ function checkClaudeBinary(
       "claude_binary",
       "Claude CLI binary",
       version
-        ? `${command} is available: ${version}.`
-        : `${command} is available, but --version returned an empty response.`,
-      { command, path: locatedPath, version }
+        ? `${executable} is available: ${version}.`
+        : `${executable} is available, but --version returned an empty response.`,
+      { command: executable, path: locatedPath, version }
     );
   } catch (error) {
     return fail(
       "claude_binary",
       "Claude CLI binary",
-      `${command} could not be found or executed from PATH.`,
-      `Install Claude Code and ensure '${command}' is on PATH, then re-run the command.`,
+      `${executable} could not be found or executed from PATH.`,
+      `Install Claude Code and ensure '${executable}' is on PATH, then re-run the command.`,
       {
-        command,
+        command: executable,
         error: error instanceof Error ? error.message : String(error),
       }
     );
   }
+}
+
+function resolveExecutableCommand(command: string, cwd: string): string {
+  if (
+    (command.includes("/") || command.includes("\\")) &&
+    !isAbsolute(command)
+  ) {
+    return resolve(cwd, command);
+  }
+  return command;
 }
 
 function locateClaudeBinary(

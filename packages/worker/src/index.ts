@@ -479,11 +479,6 @@ async function startAssignedRun() {
       await readFile(workflowPath, "utf8"),
       launcherEnv
     );
-    runtimeState.executionPhase = resolveInitialExecutionPhase({
-      issueState: runtimeState.run?.state,
-      blockerCheckStates: workflow.lifecycle.blockerCheckStates,
-      activeStates: workflow.lifecycle.activeStates,
-    });
     if (isClaudeRuntimeCommand(workflow.codex.command)) {
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
@@ -504,7 +499,16 @@ async function startAssignedRun() {
         );
         return;
       }
+      await exitWorkerStartupFailure(
+        "Claude runtime worker launch is not yet implemented in this branch."
+      );
+      return;
     }
+    runtimeState.executionPhase = resolveInitialExecutionPhase({
+      issueState: runtimeState.run?.state,
+      blockerCheckStates: workflow.lifecycle.blockerCheckStates,
+      activeStates: workflow.lifecycle.activeStates,
+    });
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
     runtimeState.runPhase = "launching_agent";

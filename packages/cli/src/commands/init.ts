@@ -180,7 +180,6 @@ function parseInitFlags(args: string[]): InitFlags {
 
 async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
   if (!isClaudeRuntime(runtime)) {
-    runRuntimePreflight(runtime);
     return true;
   }
 
@@ -1108,9 +1107,13 @@ async function runInteractiveStandalone(
   _options: GlobalOptions
 ): Promise<void> {
   const runtime = await promptRuntimeSelection();
-  if (!(await runInitRuntimePreflight(runtime))) {
-    process.exitCode = 1;
-    return;
+  if (isClaudeRuntime(runtime)) {
+    if (!(await runInitRuntimePreflight(runtime))) {
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    runRuntimePreflight(runtime);
   }
 
   const s1 = p.spinner();

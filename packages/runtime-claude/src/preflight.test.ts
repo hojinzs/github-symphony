@@ -163,13 +163,14 @@ describe("Claude runtime preflight", () => {
 
   it("executes relative Claude binary commands from the workspace cwd", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-relative-"));
+    const expectedCommand = join(cwd, "bin", "claude");
     const execFileSync = vi.fn(
       (
         command: string,
         args: readonly string[] = [],
         options?: { cwd?: string }
       ) => {
-        if (command === "./bin/claude" && args[0] === "--version") {
+        if (command === expectedCommand && args[0] === "--version") {
           expect(options?.cwd).toBe(cwd);
           return Buffer.from("claude 1.2.3\n");
         }
@@ -189,7 +190,7 @@ describe("Claude runtime preflight", () => {
     expect(report.checks.find((check) => check.id === "claude_binary"))
       .toMatchObject({
         status: "pass",
-        details: { command: "./bin/claude", path: "./bin/claude" },
+        details: { command: expectedCommand, path: expectedCommand },
       });
   });
 

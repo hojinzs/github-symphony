@@ -66,6 +66,7 @@ describe("init interactive auth", () => {
     vi.mocked(p.outro).mockImplementation(() => undefined);
     vi.mocked(p.cancel).mockImplementation(() => undefined);
     vi.mocked(p.note).mockImplementation(() => undefined);
+    vi.mocked(p.select).mockResolvedValue("codex-app-server" as never);
     vi.mocked(p.spinner).mockImplementation(mockSpinner);
     vi.mocked(p.log.error).mockImplementation(() => undefined);
     vi.mocked(p.log.warn).mockImplementation(() => undefined);
@@ -843,6 +844,15 @@ describe("init ecosystem generation", () => {
 
   it("prompts for runtime selection and reports preflight during interactive init", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-runtime-int-"));
+    const binDir = join(configDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    const claude = join(binDir, "claude");
+    await writeFile(
+      claude,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 1.0.0'; fi\n",
+      "utf8"
+    );
+    await chmod(claude, 0o755);
     const stdout = vi
       .spyOn(process.stdout, "write")
       .mockReturnValue(true as never);
@@ -873,7 +883,12 @@ describe("init ecosystem generation", () => {
       id: "project-1",
       statusFields: [MOCK_STATUS_FIELD],
     });
-    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv(
+      "PATH",
+      `${binDir}${process.platform === "win32" ? ";" : ":"}${originalPath ?? ""}`
+    );
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "github-token");
     vi.mocked(p.select)
       .mockResolvedValueOnce("claude-print" as never)
       .mockResolvedValueOnce("project-1" as never)
@@ -895,13 +910,8 @@ describe("init ecosystem generation", () => {
         message: "Step 1/3 — Select the agent runtime:",
       })
     );
-    expect(p.note).toHaveBeenCalledWith(
-      expect.stringContaining("Claude auth"),
-      "Runtime preflight — claude-print"
-    );
-    expect(p.note).toHaveBeenCalledWith(
-      expect.stringContaining("FAIL Claude auth"),
-      "Runtime preflight — claude-print"
+    expect(p.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("Claude runtime preflight")
     );
     vi.unstubAllEnvs();
   });
