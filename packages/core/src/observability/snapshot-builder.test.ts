@@ -18,13 +18,11 @@ function mockProject(
     projectId: "tenant-123",
     slug: "test-tenant",
     workspaceDir: "/tmp/runtime",
-    repositories: [
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ],
+    repository: {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
     tracker: {
       adapter: "github",
       bindingId: "binding-456",
@@ -554,7 +552,9 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns[0].tokenUsage?.outputTokens).toBe(1200);
     expect(snapshot.activeRuns[0].tokenUsage?.totalTokens).toBe(3700);
     expect(snapshot.activeRuns[0].tokenUsage?.cumulativeInputTokens).toBe(2500);
-    expect(snapshot.activeRuns[0].tokenUsage?.cumulativeOutputTokens).toBe(1200);
+    expect(snapshot.activeRuns[0].tokenUsage?.cumulativeOutputTokens).toBe(
+      1200
+    );
     expect(snapshot.activeRuns[0].tokenUsage?.cumulativeTotalTokens).toBe(3700);
   });
 

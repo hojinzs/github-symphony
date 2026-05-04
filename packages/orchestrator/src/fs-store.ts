@@ -44,8 +44,8 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     return join(this.runtimeRoot, "projects");
   }
 
-  projectDir(projectId: string): string {
-    return join(this.projectsRoot(), projectId);
+  projectDir(projectId?: string): string {
+    return join(this.projectsRoot(), requireProjectId(projectId));
   }
 
   private projectRunsDir(projectId: string): string {
@@ -61,7 +61,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadProjectConfig(
-    projectId: string
+    projectId?: string
   ): Promise<OrchestratorProjectConfig | null> {
     return readJsonFile<OrchestratorProjectConfig>(
       join(this.projectDir(projectId), "project.json")
@@ -76,7 +76,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadProjectIssueOrchestrations(
-    projectId: string
+    projectId?: string
   ): Promise<IssueOrchestrationRecord[]> {
     const issuesPath = join(this.projectDir(projectId), "issues.json");
     const issues = await readJsonFile<IssueOrchestrationRecord[]>(issuesPath);
@@ -124,7 +124,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async saveProjectIssueOrchestrations(
-    projectId: string,
+    projectId: string | undefined,
     issues: IssueOrchestrationRecord[]
   ): Promise<void> {
     await writeJsonFile(
@@ -141,7 +141,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadProjectStatus(
-    projectId: string
+    projectId?: string
   ): Promise<ProjectStatusSnapshot | null> {
     return (
       (await readJsonFile<ProjectStatusSnapshot>(
@@ -294,12 +294,15 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     }
   }
 
-  issueWorkspaceDir(projectId: string, workspaceKey: string): string {
+  issueWorkspaceDir(
+    projectId: string | undefined,
+    workspaceKey: string
+  ): string {
     return join(this.projectDir(projectId), "issues", workspaceKey);
   }
 
   async loadIssueWorkspace(
-    projectId: string,
+    projectId: string | undefined,
     workspaceKey: string
   ): Promise<IssueWorkspaceRecord | null> {
     return (
@@ -310,7 +313,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadIssueWorkspaces(
-    projectId: string
+    projectId?: string
   ): Promise<IssueWorkspaceRecord[]> {
     const issuesDir = join(this.projectDir(projectId), "issues");
     const entries = await safeReadDir(issuesDir);
@@ -333,7 +336,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async removeIssueWorkspace(
-    projectId: string,
+    projectId: string | undefined,
     workspaceKey: string
   ): Promise<void> {
     const dir = this.issueWorkspaceDir(projectId, workspaceKey);
@@ -388,4 +391,14 @@ async function pathExists(path: string): Promise<boolean> {
 
     throw error;
   }
+}
+
+function requireProjectId(projectId: string | undefined): string {
+  if (!projectId) {
+    throw new Error(
+      "projectId is required for the legacy project directory layout."
+    );
+  }
+
+  return projectId;
 }

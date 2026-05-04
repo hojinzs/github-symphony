@@ -24,12 +24,13 @@ describe("headless orchestration verification", () => {
         projectId: "tenant-1",
         slug: "tenant-1",
         workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-        repositories: [repository],
+        repository,
         tracker: {
           adapter: "github-project" as const,
           bindingId: "project-123",
           settings: {
             projectId: "project-123",
+            repository: `${repository.owner}/${repository.name}`,
           },
         },
       };
@@ -73,7 +74,6 @@ describe("headless orchestration verification", () => {
       }
     }
   });
-
 });
 
 async function createRepositoryFixture(
@@ -138,11 +138,14 @@ Prefer focused changes.
   };
 }
 
-function createTrackerResponse(repository: {
-  owner: string;
-  name: string;
-  cloneUrl: string;
-}, state = "Todo") {
+function createTrackerResponse(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  state = "Todo"
+) {
   return {
     ok: true,
     json: async () => ({

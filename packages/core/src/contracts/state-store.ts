@@ -2,24 +2,26 @@ import type {
   IssueStatusEvent,
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
-  ProjectStatusSnapshot
+  ProjectStatusSnapshot,
 } from "./status-surface.js";
 import type { IssueOrchestrationRecord } from "./issue-orchestration.js";
 import type { IssueWorkspaceRecord } from "../domain/issue.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
 export type OrchestratorStateStore = {
-  loadProjectConfig(projectId: string): Promise<OrchestratorProjectConfig | null>;
+  loadProjectConfig(
+    projectId?: string
+  ): Promise<OrchestratorProjectConfig | null>;
   saveProjectConfig(config: OrchestratorProjectConfig): Promise<void>;
   loadProjectIssueOrchestrations(
-    projectId: string
+    projectId?: string
   ): Promise<IssueOrchestrationRecord[]>;
   saveProjectIssueOrchestrations(
-    projectId: string,
+    projectId: string | undefined,
     issues: IssueOrchestrationRecord[]
   ): Promise<void>;
   saveProjectStatus(status: ProjectStatusSnapshot): Promise<void>;
-  loadProjectStatus(projectId: string): Promise<ProjectStatusSnapshot | null>;
+  loadProjectStatus(projectId?: string): Promise<ProjectStatusSnapshot | null>;
   loadRun(
     runId: string,
     projectId?: string
@@ -33,9 +35,15 @@ export type OrchestratorStateStore = {
     projectId?: string
   ): Promise<IssueStatusEvent[]>;
   runDir(runId: string, projectId?: string): string;
-  projectDir(projectId: string): string;
-  loadIssueWorkspace(projectId: string, workspaceKey: string): Promise<IssueWorkspaceRecord | null>;
-  loadIssueWorkspaces(projectId: string): Promise<IssueWorkspaceRecord[]>;
+  projectDir(projectId?: string): string;
+  loadIssueWorkspace(
+    projectId: string | undefined,
+    workspaceKey: string
+  ): Promise<IssueWorkspaceRecord | null>;
+  loadIssueWorkspaces(projectId?: string): Promise<IssueWorkspaceRecord[]>;
   saveIssueWorkspace(record: IssueWorkspaceRecord): Promise<void>;
-  removeIssueWorkspace(projectId: string, workspaceKey: string): Promise<void>;
+  removeIssueWorkspace(
+    projectId: string | undefined,
+    workspaceKey: string
+  ): Promise<void>;
 };

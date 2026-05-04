@@ -3,6 +3,7 @@ import {
   loadActiveProjectConfig,
   loadGlobalConfig,
   saveProjectConfig,
+  type CliProjectConfig,
 } from "../config.js";
 import {
   checkRequiredScopes,
@@ -82,6 +83,32 @@ function toRepoConfigEntry(repo: LinkedRepository): RepoConfigEntry {
   };
 }
 
+function configuredRepositories(
+  config: Pick<CliProjectConfig, "repository" | "repositories">
+): RepoConfigEntry[] {
+  return (
+    config.repositories ?? (config.repository.owner ? [config.repository] : [])
+  );
+}
+
+function withConfiguredRepository(
+  config: CliProjectConfig,
+  repository: RepoConfigEntry
+): CliProjectConfig {
+  return {
+    ...config,
+    repository,
+    repositories: [repository],
+    tracker: {
+      ...config.tracker,
+      settings: {
+        ...config.tracker.settings,
+        repository: `${repository.owner}/${repository.name}`,
+      },
+    },
+  };
+}
+
 function parseRepoSyncFlags(args: string[]): RepoSyncFlags {
   const flags: RepoSyncFlags = { dryRun: false, prune: false };
 
@@ -102,7 +129,9 @@ function displayScopeError(error: GitHubScopeError): void {
     `Token is missing required scope${plural}: ${error.requiredScopes.join(", ")}\n`
   );
 
-  const currentSet = new Set(error.currentScopes.map((scope) => scope.toLowerCase()));
+  const currentSet = new Set(
+    error.currentScopes.map((scope) => scope.toLowerCase())
+  );
   const scopesToAdd = ["repo", "read:org", "project"].filter(
     (scope) => !currentSet.has(scope)
   );
@@ -134,7 +163,10 @@ function renderRepoGroup(label: string, repos: RepoConfigEntry[]): string[] {
     return [`${label}: none`];
   }
 
-  return [label, ...sortRepos(repos).map((repo) => `  ${formatRepoSpec(repo)}`)];
+  return [
+    label,
+    ...sortRepos(repos).map((repo) => `  ${formatRepoSpec(repo)}`),
+  ];
 }
 
 function buildSyncedRepositories(
@@ -159,7 +191,10 @@ function buildSyncedRepositories(
   return [...retained, ...additions];
 }
 
-function writeRepoSummary(summary: RepoSyncSummary, options: GlobalOptions): void {
+function writeRepoSummary(
+  summary: RepoSyncSummary,
+  options: GlobalOptions
+): void {
   if (options.json) {
     process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
     return;
@@ -186,12 +221,14 @@ async function repoList(options: GlobalOptions): Promise<void> {
   }
 
   if (options.json) {
-    process.stdout.write(JSON.stringify(ws.repositories, null, 2) + "\n");
+    process.stdout.write(
+      JSON.stringify(configuredRepositories(ws), null, 2) + "\n"
+    );
     return;
   }
 
   process.stdout.write("Repositories:\n");
-  for (const repo of ws.repositories) {
+  for (const repo of configuredRepositories(ws)) {
     process.stdout.write(`  ${repo.owner}/${repo.name}\n`);
   }
 }
@@ -232,15 +269,22 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
     message: string,
     warning?: string
   ): Promise<void> => {
-    if (ws.repositories.some((entry: RepoConfigEntry) => repoKey(entry) === repoKey(repo))) {
+    if (
+      configuredRepositories(ws).some(
+        (entry) => repoKey(entry) === repoKey(repo)
+      )
+    ) {
       process.stdout.write(
         `Repository ${formatRepoSpec(repo)} is already configured.\n`
       );
       return;
     }
 
-    ws.repositories.push(repo);
-    await saveProjectConfig(options.configDir, activeProjectId, ws);
+    await saveProjectConfig(
+      options.configDir,
+      activeProjectId,
+      withConfiguredRepository(ws, repo)
+    );
 
     if (warning) {
       process.stderr.write(`${warning}\n`);
@@ -264,7 +308,11 @@ async function repoAdd(args: string[], options: GlobalOptions): Promise<void> {
   }
 
   try {
-    const repository = await getRepositoryMetadata(createClient(token), owner, name);
+    const repository = await getRepositoryMetadata(
+      createClient(token),
+      owner,
+      name
+    );
     await addRepository(
       {
         owner: repository.owner,
@@ -327,19 +375,35 @@ async function repoRemove(
 
   const [owner, name] = repoSpec.split("/");
   const requestedRepo = { owner, name };
-  const idx = ws.repositories.findIndex(
-    (r: RepoConfigEntry) => repoKey(r) === repoKey(requestedRepo)
-  );
-
-  if (idx === -1) {
+  const currentRepos = configuredRepositories(ws);
+  if (!currentRepos.some((repo) => repoKey(repo) === repoKey(requestedRepo))) {
     process.stderr.write(`Repository ${repoSpec} is not configured.\n`);
     process.exitCode = 1;
     return;
   }
 
-  ws.repositories.splice(idx, 1);
-  await saveProjectConfig(options.configDir, global.activeProject, ws);
-  process.stdout.write(`Removed repository: ${formatRepoSpec(requestedRepo)}\n`);
+  const nextRepositories = currentRepos.filter(
+    (repo) => repoKey(repo) !== repoKey(requestedRepo)
+  );
+  await saveProjectConfig(options.configDir, global.activeProject, {
+    ...ws,
+    repository: nextRepositories[0] ?? { owner: "", name: "", cloneUrl: "" },
+    repositories: nextRepositories,
+    tracker: {
+      ...ws.tracker,
+      settings: {
+        ...ws.tracker.settings,
+        ...(nextRepositories[0]
+          ? {
+              repository: `${nextRepositories[0].owner}/${nextRepositories[0].name}`,
+            }
+          : {}),
+      },
+    },
+  });
+  process.stdout.write(
+    `Removed repository: ${formatRepoSpec(requestedRepo)}\n`
+  );
 }
 
 async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
@@ -415,7 +479,7 @@ async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
     return;
   }
 
-  const currentRepos: RepoConfigEntry[] = ws.repositories;
+  const currentRepos: RepoConfigEntry[] = configuredRepositories(ws);
   const currentMap = new Map<string, RepoConfigEntry>(
     currentRepos.map((repo: RepoConfigEntry) => [repoKey(repo), repo])
   );
@@ -456,7 +520,19 @@ async function repoSync(args: string[], options: GlobalOptions): Promise<void> {
   if (!flags.dryRun) {
     await saveProjectConfig(options.configDir, global.activeProject, {
       ...ws,
+      repository: nextRepositories[0] ?? { owner: "", name: "", cloneUrl: "" },
       repositories: nextRepositories,
+      tracker: {
+        ...ws.tracker,
+        settings: {
+          ...ws.tracker.settings,
+          ...(nextRepositories[0]
+            ? {
+                repository: `${nextRepositories[0].owner}/${nextRepositories[0].name}`,
+              }
+            : {}),
+        },
+      },
     });
   }
 

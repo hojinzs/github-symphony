@@ -1,7 +1,10 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type { OrchestratorProjectConfig } from "@gh-symphony/core";
+import type {
+  OrchestratorProjectConfig,
+  RepositoryRef,
+} from "@gh-symphony/core";
 
 export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
@@ -19,12 +22,14 @@ export type CliProjectTrackerSettings = Record<
   string | number | boolean
 > & {
   projectId?: string;
+  repository?: string;
   assignedOnly?: boolean;
   timeoutMs?: number;
 };
 
 export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {
   displayName?: string;
+  repositories?: RepositoryRef[];
   tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
     settings?: CliProjectTrackerSettings;
   };
@@ -53,10 +58,7 @@ export function projectConfigPath(
   return join(projectConfigDir(configDir, projectId), "project.json");
 }
 
-export function daemonPidPath(
-  configDir: string,
-  projectId: string
-): string {
+export function daemonPidPath(configDir: string, projectId: string): string {
   return join(projectConfigDir(configDir, projectId), DAEMON_PID_FILE);
 }
 
@@ -113,9 +115,21 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  return readJsonFile<CliProjectConfig>(
-    projectConfigPath(configDir, projectId)
-  );
+  const config = await readJsonFile<
+    CliProjectConfig & {
+      repository?: RepositoryRef;
+      repositories?: RepositoryRef[];
+    }
+  >(projectConfigPath(configDir, projectId));
+  if (!config) {
+    return null;
+  }
+
+  const repository = config.repository ?? config.repositories?.[0];
+  return {
+    ...config,
+    ...(repository ? { repository } : {}),
+  } as CliProjectConfig;
 }
 
 export async function saveProjectConfig(

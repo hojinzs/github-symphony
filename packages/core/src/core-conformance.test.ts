@@ -7,6 +7,7 @@ import {
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_WORKFLOW_AGENT,
   DEFAULT_WORKFLOW_LIFECYCLE,
+  deriveWorkspaceKey,
   deriveIssueWorkspaceKey,
   isStateActive,
   isStateTerminal,
@@ -17,59 +18,27 @@ import {
 } from "./index.js";
 import type { RunDispatchedEvent } from "./observability/structured-events.js";
 
-describe("deriveIssueWorkspaceKey", () => {
+describe("deriveWorkspaceKey", () => {
   it("produces a stable deterministic key", () => {
-    const identity = {
-      projectId: "ws-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-abc",
-    };
-
-    const key1 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
-    const key2 = deriveIssueWorkspaceKey(identity, "acme/platform#42");
+    const key1 = deriveWorkspaceKey("acme/platform#42");
+    const key2 = deriveWorkspaceKey("acme/platform#42");
 
     expect(key1).toBe(key2);
     expect(key1).toBe("acme_platform_42");
   });
 
   it("produces different keys for different identifiers", () => {
-    const keyA = deriveIssueWorkspaceKey({
-      projectId: "ws-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    }, "acme/platform#1");
-    const keyB = deriveIssueWorkspaceKey({
-      projectId: "ws-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-2",
-    }, "acme/platform#2");
-    const keyC = deriveIssueWorkspaceKey({
-      projectId: "ws-2",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    }, "acme/api#1");
+    const keyA = deriveWorkspaceKey("acme/platform#1");
+    const keyB = deriveWorkspaceKey("acme/platform#2");
+    const keyC = deriveWorkspaceKey("acme/api#1");
 
     expect(keyA).not.toBe(keyB);
     expect(keyA).not.toBe(keyC);
   });
 
   it("distinguishes hyphens from underscores under spec 4.2 substitution", () => {
-    const keyA = deriveIssueWorkspaceKey(
-      {
-        projectId: "ws-1",
-        adapter: "github-project",
-        issueSubjectId: "issue-1",
-      },
-      "acme/foo-bar#1"
-    );
-    const keyB = deriveIssueWorkspaceKey(
-      {
-        projectId: "ws-1",
-        adapter: "github-project",
-        issueSubjectId: "issue-2",
-      },
-      "acme/foo_bar#1"
-    );
+    const keyA = deriveWorkspaceKey("acme/foo-bar#1");
+    const keyB = deriveWorkspaceKey("acme/foo_bar#1");
 
     expect(keyA).toBe("acme_foo-bar_1");
     expect(keyB).toBe("acme_foo_bar_1");
@@ -77,41 +46,27 @@ describe("deriveIssueWorkspaceKey", () => {
   });
 
   it("preserves uppercase letters, dots, and hyphens allowed by spec 4.2", () => {
-    const key = deriveIssueWorkspaceKey(
-      {
-        projectId: "ws-1",
-        adapter: "github-project",
-        issueSubjectId: "issue-1",
-      },
-      "My.Issue-1"
-    );
+    const key = deriveWorkspaceKey("My.Issue-1");
 
     expect(key).toBe("My.Issue-1");
   });
 
   it("falls back to 'issue' when sanitization strips everything", () => {
-    const key = deriveIssueWorkspaceKey(
-      {
-        projectId: "ws-1",
-        adapter: "github-project",
-        issueSubjectId: "issue-1",
-      },
-      "!!!"
-    );
+    const key = deriveWorkspaceKey("!!!");
 
     expect(key).toBe("issue");
   });
 
   it("falls back to 'issue' for dot-only sanitized keys", () => {
-    const identity = {
-      projectId: "ws-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    };
+    expect(deriveWorkspaceKey(".")).toBe("issue");
+    expect(deriveWorkspaceKey("..")).toBe("issue");
+    expect(deriveWorkspaceKey("...")).toBe("issue");
+  });
 
-    expect(deriveIssueWorkspaceKey(identity, ".")).toBe("issue");
-    expect(deriveIssueWorkspaceKey(identity, "..")).toBe("issue");
-    expect(deriveIssueWorkspaceKey(identity, "...")).toBe("issue");
+  it("keeps the legacy deriveIssueWorkspaceKey alias on identifier input", () => {
+    expect(deriveIssueWorkspaceKey("acme/platform#42")).toBe(
+      "acme_platform_42"
+    );
   });
 });
 
@@ -408,7 +363,10 @@ describe("renderPrompt", () => {
       renderPrompt("{% if unknown_var %}x{% endif %}", variables)
     ).toThrow("template_render_error");
     expect(() =>
-      renderPrompt("{% for item in unknown_list %}{{ item }}{% endfor %}", variables)
+      renderPrompt(
+        "{% for item in unknown_list %}{{ item }}{% endfor %}",
+        variables
+      )
     ).toThrow("template_render_error");
   });
 
@@ -526,7 +484,7 @@ describe("renderPrompt", () => {
         number: 76,
         title: "Replace template engine",
         description:
-          '현재 `renderPrompt()`는 `{{variable.path}}` 단순 치환만 지원한다.',
+          "현재 `renderPrompt()`는 `{{variable.path}}` 단순 치환만 지원한다.",
         priority: null,
         state: "Ready",
         branchName: null,
@@ -693,7 +651,7 @@ describe("buildProjectSnapshot", () => {
     slug: "ws-1",
     promptGuidelines: "",
     workspaceDir: "/runtime",
-    repositories: [],
+    repository: { owner: "acme", name: "platform", cloneUrl: "" },
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
@@ -803,7 +761,11 @@ describe("token accounting - buildProjectSnapshot", () => {
         projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "repo",
+          cloneUrl: "https://github.com/acme/repo.git",
+        },
         tracker: { adapter: "github-project", bindingId: "proj-1" },
       },
       activeRuns: [],
@@ -855,7 +817,11 @@ describe("token accounting - buildProjectSnapshot", () => {
         projectId: "ws-1",
         slug: "test",
         workspaceDir: "/tmp",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "repo",
+          cloneUrl: "https://github.com/acme/repo.git",
+        },
         tracker: { adapter: "github-project", bindingId: "proj-1" },
       },
       activeRuns: [],

@@ -1,8 +1,6 @@
 import type { GlobalOptions } from "../index.js";
 import { runCli as orchestratorRunCli } from "@gh-symphony/orchestrator";
-import {
-  resolveRuntimeRoot,
-} from "../orchestrator-runtime.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -86,13 +84,16 @@ const handler = async (
   const projectId = projectConfig.projectId;
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
-  if (
-    repoSpec &&
-    !projectConfig.repositories.some((r) => `${r.owner}/${r.name}` === repoSpec)
-  ) {
+  const repository = projectConfig.repository.owner
+    ? projectConfig.repository
+    : projectConfig.repositories?.[0];
+  const configuredRepo = repository
+    ? `${repository.owner}/${repository.name}`
+    : null;
+  if (repoSpec && configuredRepo !== repoSpec) {
     process.stderr.write(
       `Repository "${repoSpec}" is not configured in this project.\n` +
-        `Configured repos: ${projectConfig.repositories.map((r) => `${r.owner}/${r.name}`).join(", ")}\n`
+        `Configured repo: ${configuredRepo ?? "(none)"}\n`
     );
     process.exitCode = 1;
     return;

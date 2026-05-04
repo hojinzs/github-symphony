@@ -319,7 +319,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "tenant-1",
         slug: "tenant-1",
         workspaceDir: "/tmp/workspaces/tenant-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -412,7 +416,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -459,7 +467,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -549,7 +561,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -678,7 +694,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -698,7 +718,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -733,40 +757,42 @@ describe("resolveTrackerAdapter", () => {
       },
     });
 
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              node: {
-                __typename: "ProjectV2",
-                items: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
               },
             },
-          }),
-          {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "100",
-              "x-ratelimit-reset": "1773892920",
-              "x-ratelimit-resource": "graphql",
-            },
-          }
-        )
-      );
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": "100",
+            "x-ratelimit-reset": "1773892920",
+            "x-ratelimit-resource": "graphql",
+          },
+        }
+      )
+    );
 
     await adapter.listIssues(
       {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -787,7 +813,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -875,7 +905,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -896,7 +930,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -929,7 +967,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -945,47 +987,48 @@ describe("resolveTrackerAdapter", () => {
             variables?: { cursor?: string | null };
           };
           const cursor = body.variables?.cursor ?? null;
-          const page = cursor === null
-            ? {
-                nodes: [
-                  makeProjectItem({
-                    itemId: "item-1",
-                    issueId: "issue-1",
-                    number: 1,
-                    title: "First issue",
-                    assignees: [],
-                  }),
-                ],
-                pageInfo: { endCursor: "cursor-1", hasNextPage: true },
-                headers: {
-                  "content-type": "application/json",
-                  "x-ratelimit-limit": "5000",
-                  "x-ratelimit-remaining": "4999",
-                  "x-ratelimit-used": "1",
-                  "x-ratelimit-reset": "1773892800",
-                  "x-ratelimit-resource": "graphql",
-                },
-              }
-            : {
-                nodes: [
-                  makeProjectItem({
-                    itemId: "item-2",
-                    issueId: "issue-2",
-                    number: 2,
-                    title: "Second issue",
-                    assignees: [],
-                  }),
-                ],
-                pageInfo: { endCursor: null, hasNextPage: false },
-                headers: {
-                  "content-type": "application/json",
-                  "x-ratelimit-limit": "5000",
-                  "x-ratelimit-remaining": "4997",
-                  "x-ratelimit-used": "3",
-                  "x-ratelimit-reset": "1773892860",
-                  "x-ratelimit-resource": "graphql",
-                },
-              };
+          const page =
+            cursor === null
+              ? {
+                  nodes: [
+                    makeProjectItem({
+                      itemId: "item-1",
+                      issueId: "issue-1",
+                      number: 1,
+                      title: "First issue",
+                      assignees: [],
+                    }),
+                  ],
+                  pageInfo: { endCursor: "cursor-1", hasNextPage: true },
+                  headers: {
+                    "content-type": "application/json",
+                    "x-ratelimit-limit": "5000",
+                    "x-ratelimit-remaining": "4999",
+                    "x-ratelimit-used": "1",
+                    "x-ratelimit-reset": "1773892800",
+                    "x-ratelimit-resource": "graphql",
+                  },
+                }
+              : {
+                  nodes: [
+                    makeProjectItem({
+                      itemId: "item-2",
+                      issueId: "issue-2",
+                      number: 2,
+                      title: "Second issue",
+                      assignees: [],
+                    }),
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                  headers: {
+                    "content-type": "application/json",
+                    "x-ratelimit-limit": "5000",
+                    "x-ratelimit-remaining": "4997",
+                    "x-ratelimit-used": "3",
+                    "x-ratelimit-reset": "1773892860",
+                    "x-ratelimit-resource": "graphql",
+                  },
+                };
 
           return new Response(
             JSON.stringify({
@@ -1051,7 +1094,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -1116,7 +1163,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -1189,7 +1240,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -1249,7 +1304,11 @@ describe("resolveTrackerAdapter", () => {
           projectId: "workspace-1",
           slug: "workspace-1",
           workspaceDir: "/tmp/workspace-1",
-          repositories: [],
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
           tracker: {
             adapter: "github-project",
             bindingId: "project-123",
@@ -1283,7 +1342,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -1382,7 +1445,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -1510,7 +1577,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -1571,7 +1642,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -1648,40 +1723,45 @@ describe("resolveTrackerAdapter", () => {
         return pending;
       },
     };
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            node: {
-              __typename: "ProjectV2",
-              items: {
-                nodes: [
-                  makeProjectItem({
-                    itemId: "item-1",
-                    issueId: "issue-1",
-                    number: 1,
-                    title: "Done issue",
-                    assignees: [],
-                    state: "Done",
-                  }),
-                ],
-                pageInfo: { endCursor: null, hasNextPage: false },
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [
+                    makeProjectItem({
+                      itemId: "item-1",
+                      issueId: "issue-1",
+                      number: 1,
+                      title: "Done issue",
+                      assignees: [],
+                      state: "Done",
+                    }),
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
               },
             },
-          },
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }
-      )
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
     );
 
     const project = {
       projectId: "workspace-1",
       slug: "workspace-1",
       workspaceDir: "/tmp/workspace-1",
-      repositories: [],
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
       tracker: {
         adapter: "github-project" as const,
         bindingId: "project-123",
@@ -1723,30 +1803,35 @@ describe("resolveTrackerAdapter", () => {
         return load();
       },
     };
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            node: {
-              __typename: "ProjectV2",
-              items: {
-                nodes: [],
-                pageInfo: { endCursor: null, hasNextPage: false },
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                items: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
               },
             },
-          },
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }
-      )
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
     );
     const project = {
       projectId: "workspace-1",
       slug: "workspace-1",
       workspaceDir: "/tmp/workspace-1",
-      repositories: [],
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
       tracker: {
         adapter: "github-project" as const,
         bindingId: "project-123",
@@ -1828,7 +1913,11 @@ describe("resolveTrackerAdapter", () => {
       projectId: "workspace-1",
       slug: "workspace-1",
       workspaceDir: "/tmp/workspace-1",
-      repositories: [],
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
       tracker: {
         adapter: "github-project" as const,
         bindingId: "project-123",
@@ -1882,7 +1971,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -1900,9 +1993,13 @@ describe("resolveTrackerAdapter", () => {
             variables: { issueIds: string[] };
           };
 
-          expect(body.query).toContain("query IssueStatesByIds($issueIds: [ID!]!)");
+          expect(body.query).toContain(
+            "query IssueStatesByIds($issueIds: [ID!]!)"
+          );
           expect(body.query).toContain("nodes(ids: $issueIds)");
-          expect(body.query).toContain("projectItems(first: 100, includeArchived: false)");
+          expect(body.query).toContain(
+            "projectItems(first: 100, includeArchived: false)"
+          );
           expect(body.query).not.toContain("blockedBy(");
           expect(body.query).not.toContain("labels(");
           expect(body.query).not.toContain("assignees(");
@@ -1945,10 +2042,7 @@ describe("resolveTrackerAdapter", () => {
       "acme/platform#1",
       "acme/platform#2",
     ]);
-    expect(issues.map((issue) => issue.state)).toEqual([
-      "In Progress",
-      "Done",
-    ]);
+    expect(issues.map((issue) => issue.state)).toEqual(["In Progress", "Done"]);
   });
 
   it("attaches GitHub API rate-limit headers to fetched issue state lookups", async () => {
@@ -1965,7 +2059,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
@@ -2032,7 +2130,11 @@ describe("resolveTrackerAdapter", () => {
     const fetchImpl = vi.fn(async (_url, init) => {
       const body = JSON.parse(String(init?.body)) as {
         query: string;
-        variables: { issueIds?: string[]; issueId?: string; cursor?: string | null };
+        variables: {
+          issueIds?: string[];
+          issueId?: string;
+          cursor?: string | null;
+        };
       };
 
       if (body.query.includes("query IssueStatesByIds")) {
@@ -2062,7 +2164,9 @@ describe("resolveTrackerAdapter", () => {
         );
       }
 
-      expect(body.query).toContain("query IssueProjectItemsPage($issueId: ID!, $cursor: String)");
+      expect(body.query).toContain(
+        "query IssueProjectItemsPage($issueId: ID!, $cursor: String)"
+      );
       expect(body.variables.issueId).toBe("issue-1");
       expect(body.variables.cursor).toBe("cursor-1");
 
@@ -2116,7 +2220,11 @@ describe("resolveTrackerAdapter", () => {
         projectId: "workspace-1",
         slug: "workspace-1",
         workspaceDir: "/tmp/workspace-1",
-        repositories: [],
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",

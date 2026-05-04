@@ -89,6 +89,11 @@ cat > "$CONFIG_DIR/project.json" << EOF
   "projectId": "$PROJECT_ID",
   "slug": "$PROJECT_ID",
   "workspaceDir": "$WORKSPACE_DIR",
+  "repository": {
+    "owner": "test-owner",
+    "name": "test-repo",
+    "cloneUrl": "$REPO_DIR"
+  },
   "repositories": [
     {
       "owner": "test-owner",
@@ -100,7 +105,8 @@ cat > "$CONFIG_DIR/project.json" << EOF
     "adapter": "file",
     "bindingId": "e2e-test",
     "settings": {
-      "issuesPath": "$ISSUES_PATH"
+      "issuesPath": "$ISSUES_PATH",
+      "repository": "test-owner/test-repo"
     }
   }
 }

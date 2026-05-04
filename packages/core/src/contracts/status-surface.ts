@@ -16,7 +16,7 @@ export type OrchestratorProjectConfig = {
   projectId: string;
   slug: string;
   workspaceDir: string;
-  repositories: RepositoryRef[];
+  repository: RepositoryRef;
   tracker: OrchestratorTrackerConfig;
 };
 
@@ -30,8 +30,7 @@ export const WORKFLOW_EXECUTION_PHASES = [
   "completed",
 ] as const;
 
-export type WorkflowExecutionPhase =
-  (typeof WORKFLOW_EXECUTION_PHASES)[number];
+export type WorkflowExecutionPhase = (typeof WORKFLOW_EXECUTION_PHASES)[number];
 
 export function isWorkflowExecutionPhase(
   value: unknown
