@@ -39,12 +39,12 @@ export class DashboardFsReader {
   }
 
   projectDir(): string {
-    return join(this.resolvedRuntimeRoot, "projects", this.projectId);
+    return this.resolvedRuntimeRoot;
   }
 
   runDir(runId: string): string {
     assertValidDashboardRunId(runId);
-    return join(this.projectDir(), "runs", runId);
+    return join(this.resolvedRuntimeRoot, "runs", runId);
   }
 
   async loadProjectStatus(): Promise<ProjectStatusSnapshot | null> {

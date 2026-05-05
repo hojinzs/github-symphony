@@ -59,15 +59,8 @@ describe("project lock", () => {
 
   it("takes over a stale lock when the recorded pid is no longer running", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
-    const lockPath = join(
-      runtimeRoot,
-      "projects",
-      "project-1",
-      ".lock"
-    );
-    await mkdir(join(runtimeRoot, "projects", "project-1"), {
-      recursive: true,
-    });
+    const lockPath = join(runtimeRoot, ".lock");
+    await mkdir(runtimeRoot, { recursive: true });
     await writeFile(
       lockPath,
       JSON.stringify({
@@ -97,15 +90,8 @@ describe("project lock", () => {
 
   it("does not delete an unreadable lock file", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
-    const lockPath = join(
-      runtimeRoot,
-      "projects",
-      "project-1",
-      ".lock"
-    );
-    await mkdir(join(runtimeRoot, "projects", "project-1"), {
-      recursive: true,
-    });
+    const lockPath = join(runtimeRoot, ".lock");
+    await mkdir(runtimeRoot, { recursive: true });
     await writeFile(lockPath, "{\"ownerToken\":\"partial\"", "utf8");
 
     await expect(
