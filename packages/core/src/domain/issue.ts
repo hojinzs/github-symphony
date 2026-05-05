@@ -9,7 +9,6 @@ import type { TrackerAdapterKind } from "../contracts/tracker-adapter.js";
  * metadata and do not participate in workspace identity derivation.
  */
 export type IssueSubjectIdentity = {
-  projectId: string;
   adapter: TrackerAdapterKind;
   /**
    * Stable subject identifier within the adapter scope.
@@ -26,10 +25,7 @@ export type IssueSubjectIdentity = {
  * - `cleanup_pending` — terminal state reached, cleanup scheduled
  * - `removed`         — workspace cleaned up
  */
-export type IssueWorkspaceStatus =
-  | "active"
-  | "cleanup_pending"
-  | "removed";
+export type IssueWorkspaceStatus = "active" | "cleanup_pending" | "removed";
 
 export type IssueWorkspaceRecord = {
   workspaceKey: string;

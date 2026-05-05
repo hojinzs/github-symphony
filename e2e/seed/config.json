@@ -2,6 +2,11 @@
   "projectId": "e2e-project",
   "slug": "e2e-project",
   "workspaceDir": "/e2e/workspaces",
+  "repository": {
+    "owner": "test-owner",
+    "name": "test-repo",
+    "cloneUrl": "/e2e/repos/test-owner/test-repo"
+  },
   "repositories": [
     {
       "owner": "test-owner",
@@ -13,7 +18,8 @@
     "adapter": "file",
     "bindingId": "e2e-test",
     "settings": {
-      "issuesPath": "/e2e/fixtures/issues.json"
+      "issuesPath": "/e2e/fixtures/issues.json",
+      "repository": "test-owner/test-repo"
     }
   }
 }

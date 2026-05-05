@@ -545,7 +545,9 @@ describe("codex policy propagation", () => {
 
   it("passes workflow codex policies through worker environment", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-codex-policy-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-codex-policy-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -716,18 +718,17 @@ function createProjectConfig(
     projectId: "tenant-1",
     slug: "tenant-1",
     workspaceDir: join(tempRoot, "workspaces", "tenant-1"),
-    repositories: [
-      {
-        owner,
-        name,
-        cloneUrl,
-      },
-    ],
+    repository: {
+      owner,
+      name,
+      cloneUrl,
+    },
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
       settings: {
         projectId: "project-123",
+        repository: `${owner}/${name}`,
       },
     },
   };

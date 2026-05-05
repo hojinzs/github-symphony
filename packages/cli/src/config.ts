@@ -1,7 +1,10 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type { OrchestratorProjectConfig } from "@gh-symphony/core";
+import type {
+  OrchestratorProjectConfig,
+  RepositoryRef,
+} from "@gh-symphony/core";
 
 export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
@@ -19,12 +22,18 @@ export type CliProjectTrackerSettings = Record<
   string | number | boolean
 > & {
   projectId?: string;
+  repository?: string;
   assignedOnly?: boolean;
   timeoutMs?: number;
 };
 
-export type CliProjectConfig = Omit<OrchestratorProjectConfig, "tracker"> & {
+export type CliProjectConfig = Omit<
+  OrchestratorProjectConfig,
+  "repository" | "tracker"
+> & {
   displayName?: string;
+  repository?: RepositoryRef;
+  repositories?: RepositoryRef[];
   tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
     settings?: CliProjectTrackerSettings;
   };
@@ -53,10 +62,7 @@ export function projectConfigPath(
   return join(projectConfigDir(configDir, projectId), "project.json");
 }
 
-export function daemonPidPath(
-  configDir: string,
-  projectId: string
-): string {
+export function daemonPidPath(configDir: string, projectId: string): string {
   return join(projectConfigDir(configDir, projectId), DAEMON_PID_FILE);
 }
 
@@ -113,9 +119,23 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  return readJsonFile<CliProjectConfig>(
-    projectConfigPath(configDir, projectId)
-  );
+  const config = await readJsonFile<
+    CliProjectConfig & {
+      repository?: RepositoryRef;
+      repositories?: RepositoryRef[];
+    }
+  >(projectConfigPath(configDir, projectId));
+  if (!config) {
+    return null;
+  }
+
+  // P1 compat: tolerate legacy `repositories[]` JSON written by older CLI;
+  // the first valid entry becomes the canonical `repository`.
+  const repository = config.repository ?? firstConfiguredRepository(config);
+  return {
+    ...config,
+    ...(repository ? { repository } : {}),
+  };
 }
 
 export async function saveProjectConfig(
@@ -165,5 +185,17 @@ function isFileMissing(error: unknown): boolean {
     typeof error === "object" &&
     "code" in error &&
     (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
+}
+
+function firstConfiguredRepository(config: {
+  repositories?: RepositoryRef[];
+}): RepositoryRef | undefined {
+  return config.repositories?.find(
+    (repository) =>
+      typeof repository.owner === "string" &&
+      repository.owner.length > 0 &&
+      typeof repository.name === "string" &&
+      repository.name.length > 0
   );
 }

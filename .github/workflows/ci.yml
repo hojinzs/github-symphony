@@ -82,11 +82,17 @@ jobs:
             "projectId": "smoke",
             "slug": "smoke",
             "workspaceDir": "/var/lib/gh-symphony/workspaces/smoke",
+            "repository": {
+              "owner": "smoke-org",
+              "name": "smoke-repo",
+              "cloneUrl": "https://github.com/smoke-org/smoke-repo.git"
+            },
             "repositories": [],
             "tracker": {
               "adapter": "file",
               "bindingId": "smoke-file",
               "settings": {
+                "repository": "smoke-org/smoke-repo",
                 "issuesPath": "/var/lib/gh-symphony/issues.json"
               }
             }

@@ -63,8 +63,7 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
-const MAX_FAILURE_RETRIES_EXCEEDED_REASON =
-  "max_failure_retries_exceeded";
+const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -557,7 +556,6 @@ export class OrchestratorService {
 
         const preferredWorkspaceKey = deriveIssueWorkspaceKey(
           {
-            projectId: tenant.projectId,
             adapter: issue.tracker.adapter,
             issueSubjectId: issue.id,
           },
@@ -871,12 +869,13 @@ export class OrchestratorService {
   ): RepositoryRef[] {
     const repositories = new Map<string, RepositoryRef>();
 
-    for (const repository of tenant.repositories) {
-      repositories.set(
-        this.startupCleanupRepositoryKey(repository.owner, repository.name),
-        repository
-      );
-    }
+    repositories.set(
+      this.startupCleanupRepositoryKey(
+        tenant.repository.owner,
+        tenant.repository.name
+      ),
+      tenant.repository
+    );
 
     for (const workspaceRecord of workspaceRecords) {
       const repository = this.parseWorkspaceRepositoryRef(workspaceRecord);
@@ -934,13 +933,11 @@ export class OrchestratorService {
       return cachedResolution;
     }
 
-    const resolutionPromise = tenant.repositories.some(
-      (candidate) =>
-        candidate.owner === repository.owner &&
-        candidate.name === repository.name
-    )
-      ? this.loadProjectWorkflow(tenant, repository)
-      : loadRepositoryWorkflow(repository.cloneUrl, repository);
+    const resolutionPromise =
+      tenant.repository.owner === repository.owner &&
+      tenant.repository.name === repository.name
+        ? this.loadProjectWorkflow(tenant, repository)
+        : loadRepositoryWorkflow(repository.cloneUrl, repository);
     workflowCache.set(cacheKey, resolutionPromise);
     return resolutionPromise;
   }
@@ -1032,20 +1029,18 @@ export class OrchestratorService {
         lifecycle = resolution.lifecycle;
       }
 
-      if (
-        !this.isIssueCandidateEligible(issue, resolution.lifecycle, issues)
-      ) {
+      if (!this.isIssueCandidateEligible(issue, resolution.lifecycle, issues)) {
         continue;
       }
 
       candidates.push(issue);
     }
 
-    // If no issues were processed, load lifecycle from first repo
-    if (!lifecycle && tenant.repositories.length > 0) {
+    // If no issues were processed, load lifecycle from the configured repo.
+    if (!lifecycle) {
       const resolution = await this.loadProjectWorkflow(
         tenant,
-        tenant.repositories[0]!
+        tenant.repository
       );
       if (isUsableWorkflowResolution(resolution)) {
         lifecycle = resolution.lifecycle;
@@ -1164,7 +1159,6 @@ export class OrchestratorService {
 
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      projectId: tenant.projectId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
@@ -1172,7 +1166,10 @@ export class OrchestratorService {
       identity,
       issue.identifier
     );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(identity);
+    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
+      identity,
+      tenant.projectId
+    );
     const existingWorkspaceRecord =
       (await this.store.loadIssueWorkspace(
         tenant.projectId,
@@ -1358,12 +1355,8 @@ export class OrchestratorService {
           SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
           SYMPHONY_LAST_TURN_SUMMARY: "",
           SYMPHONY_SESSION_STARTED_AT: "",
-          SYMPHONY_READ_TIMEOUT_MS: String(
-            runtimeTimeouts.readTimeoutMs
-          ),
-          SYMPHONY_TURN_TIMEOUT_MS: String(
-            runtimeTimeouts.turnTimeoutMs
-          ),
+          SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
+          SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
         }),
         detached: true,
         stdio: ["ignore", "ignore", "pipe"],
@@ -1628,7 +1621,6 @@ export class OrchestratorService {
             run.issueWorkspaceKey ??
             deriveIssueWorkspaceKey(
               {
-                projectId: tenant.projectId,
                 adapter: tenant.tracker.adapter,
                 issueSubjectId: run.issueSubjectId,
               },
@@ -1780,10 +1772,7 @@ export class OrchestratorService {
       tenant,
       run.repository
     );
-    if (
-      retryKind === "failure" &&
-      failureRetryCount >= maxFailureRetries
-    ) {
+    if (retryKind === "failure" && failureRetryCount >= maxFailureRetries) {
       const lastError = [
         `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
         `failureRetryCount=${failureRetryCount}.`,
@@ -1820,7 +1809,6 @@ export class OrchestratorService {
             run.issueWorkspaceKey ??
             deriveIssueWorkspaceKey(
               {
-                projectId: tenant.projectId,
                 adapter: tenant.tracker.adapter,
                 issueSubjectId: run.issueSubjectId,
               },
@@ -1891,7 +1879,6 @@ export class OrchestratorService {
         run.issueWorkspaceKey ??
         deriveIssueWorkspaceKey(
           {
-            projectId: tenant.projectId,
             adapter: tenant.tracker.adapter,
             issueSubjectId: run.issueSubjectId,
           },
@@ -2479,7 +2466,6 @@ export class OrchestratorService {
           recoveredRecord.issueWorkspaceKey ??
           deriveIssueWorkspaceKey(
             {
-              projectId: tenant.projectId,
               adapter: tenant.tracker.adapter,
               issueSubjectId: recoveredRecord.issueSubjectId,
             },
@@ -2527,19 +2513,15 @@ export class OrchestratorService {
   private async loadProjectPollInterval(
     tenant: OrchestratorProjectConfig
   ): Promise<number> {
-    const intervals = await Promise.all(
-      tenant.repositories.map(async (repository) => {
-        const resolution = await this.loadProjectWorkflow(tenant, repository);
-        return isUsableWorkflowResolution(resolution)
-          ? resolution.workflow.polling.intervalMs
-          : NaN;
-      })
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      tenant.repository
     );
-    const validIntervals = intervals.filter(
-      (value) => Number.isFinite(value) && value > 0
-    );
-    return validIntervals.length
-      ? Math.min(...validIntervals)
+    const interval = isUsableWorkflowResolution(resolution)
+      ? resolution.workflow.polling.intervalMs
+      : NaN;
+    return Number.isFinite(interval) && interval > 0
+      ? interval
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
@@ -2547,27 +2529,17 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig
   ): Promise<Record<string, number>> {
     const result: Record<string, number> = {};
-    const resolutions = await Promise.all(
-      tenant.repositories.map(async (repository) => {
-        try {
-          return await this.loadProjectWorkflow(tenant, repository);
-        } catch {
-          return null;
-        }
-      })
-    );
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      tenant.repository
+    ).catch(() => null);
+    if (!resolution || !isUsableWorkflowResolution(resolution)) {
+      return result;
+    }
 
-    for (const resolution of resolutions) {
-      if (!resolution) continue;
-      if (!isUsableWorkflowResolution(resolution)) continue;
-      const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
-      for (const [state, limit] of Object.entries(stateLimits)) {
-        const existing = result[state];
-        const numLimit = typeof limit === "number" ? limit : Number(limit);
-        // Use the minimum limit across all repository workflows
-        result[state] =
-          existing === undefined ? numLimit : Math.min(existing, numLimit);
-      }
+    const stateLimits = resolution.workflow.agent.maxConcurrentAgentsByState;
+    for (const [state, limit] of Object.entries(stateLimits)) {
+      result[state] = typeof limit === "number" ? limit : Number(limit);
     }
 
     return result;
@@ -2593,8 +2565,8 @@ export class OrchestratorService {
         maxDelayMs:
           this.dependencies.retryBackoffMs ??
           resolution.workflow.agent.maxRetryBackoffMs,
-        stallTimeoutMs:
-          resolveWorkflowRuntimeTimeouts(resolution.workflow).stallTimeoutMs,
+        stallTimeoutMs: resolveWorkflowRuntimeTimeouts(resolution.workflow)
+          .stallTimeoutMs,
       };
     } catch {
       if (!this.dependencies.retryBackoffMs) {
@@ -2616,25 +2588,16 @@ export class OrchestratorService {
       return this.dependencies.concurrency;
     }
 
-    const limits = await Promise.all(
-      project.repositories.map(async (repository) => {
-        try {
-          const resolution = await this.loadProjectWorkflow(
-            project,
-            repository
-          );
-          return isUsableWorkflowResolution(resolution)
-            ? resolution.workflow.agent.maxConcurrentAgents
-            : NaN;
-        } catch {
-          return NaN;
-        }
-      })
-    );
-    const validLimits = limits.filter(
-      (value) => Number.isFinite(value) && value >= 0
-    );
-    return validLimits.length ? Math.min(...validLimits) : DEFAULT_CONCURRENCY;
+    const limit = await this.loadProjectWorkflow(project, project.repository)
+      .then((resolution) =>
+        isUsableWorkflowResolution(resolution)
+          ? resolution.workflow.agent.maxConcurrentAgents
+          : NaN
+      )
+      .catch(() => NaN);
+    return Number.isFinite(limit) && limit >= 0
+      ? limit
+      : DEFAULT_CONCURRENCY;
   }
 
   private async resolveWorkflowResolution(
@@ -2793,7 +2756,6 @@ export class OrchestratorService {
   ): Promise<void> {
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
-      projectId: tenant.projectId,
       adapter: issue.tracker.adapter,
       issueSubjectId,
     };
@@ -2801,7 +2763,10 @@ export class OrchestratorService {
       identity,
       issue.identifier
     );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(identity);
+    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
+      identity,
+      tenant.projectId
+    );
     const orchestrationRecord = (
       await this.store.loadProjectIssueOrchestrations(tenant.projectId)
     ).find((record) => record.issueId === issue.id);

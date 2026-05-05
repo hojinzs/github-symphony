@@ -14,13 +14,15 @@ function makeProject(issuesPath: string): OrchestratorProjectConfig {
     projectId: "test-project",
     slug: "test-project",
     workspaceDir: "/tmp/test",
-    repositories: [
-      { owner: "test-owner", name: "test-repo", cloneUrl: "/tmp/test-repo" },
-    ],
+    repository: {
+      owner: "test-owner",
+      name: "test-repo",
+      cloneUrl: "/tmp/test-repo",
+    },
     tracker: {
       adapter: "file",
       bindingId: "e2e-test",
-      settings: { issuesPath },
+      settings: { issuesPath, repository: "test-owner/test-repo" },
     },
   };
 }
@@ -125,7 +127,7 @@ describe("fileTrackerAdapter", () => {
         projectId: "test",
         slug: "test",
         workspaceDir: "/tmp",
-        repositories: [],
+        repository: { owner: "test-owner", name: "test-repo", cloneUrl: "" },
         tracker: {
           adapter: "file",
           bindingId: "e2e-test",
@@ -157,7 +159,9 @@ describe("fileTrackerAdapter", () => {
       );
 
       const project = makeProject(issuesPath);
-      const issues = await fileTrackerAdapter.listIssuesByStates(project, ["done"]);
+      const issues = await fileTrackerAdapter.listIssuesByStates(project, [
+        "done",
+      ]);
 
       expect(issues).toHaveLength(1);
       expect(issues[0]?.id).toBe("issue-2");

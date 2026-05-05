@@ -930,11 +930,7 @@ describe("OrchestratorService", () => {
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1042,11 +1038,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1133,11 +1125,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1195,11 +1183,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1334,11 +1318,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, configuredRepository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-legacy-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/legacy#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1434,11 +1414,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1522,11 +1498,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -2101,8 +2073,7 @@ Prefer focused changes.
                         fieldValues: {
                           nodes: [
                             {
-                              __typename:
-                                "ProjectV2ItemFieldSingleSelectValue",
+                              __typename: "ProjectV2ItemFieldSingleSelectValue",
                               name: "Todo",
                               field: { name: "Status" },
                             },
@@ -2716,7 +2687,9 @@ Prefer focused changes.
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValue(createTrackerResponseWithRateLimits(repository, 100, 5000)) as typeof fetch,
+        .mockResolvedValue(
+          createTrackerResponseWithRateLimits(repository, 100, 5000)
+        ) as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4307,
         unref: vi.fn(),
@@ -3289,7 +3262,11 @@ Prefer focused changes.
       port: 4601,
       workingDirectory: join(tempRoot, "suppressed-run"),
       issueWorkspaceKey: null,
-      workspaceRuntimeDir: join(tempRoot, "suppressed-run", "workspace-runtime"),
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "suppressed-run",
+        "workspace-runtime"
+      ),
       workflowPath: null,
       retryKind: null,
       createdAt: "2026-03-08T00:00:00.000Z",
@@ -3307,13 +3284,11 @@ Prefer focused changes.
       unref: vi.fn(),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(
-          createTrackerResponseWithState(repository, "Todo", {
-            updatedAt: "2026-03-08T00:04:00.000Z",
-          })
-        ) as never,
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:04:00.000Z",
+        })
+      ) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:06:00.000Z"),
     });
@@ -3374,7 +3349,11 @@ Prefer focused changes.
       port: 4601,
       workingDirectory: join(tempRoot, "suppressed-run"),
       issueWorkspaceKey: null,
-      workspaceRuntimeDir: join(tempRoot, "suppressed-run", "workspace-runtime"),
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "suppressed-run",
+        "workspace-runtime"
+      ),
       workflowPath: null,
       retryKind: null,
       createdAt: "2026-03-08T00:00:00.000Z",
@@ -3392,13 +3371,11 @@ Prefer focused changes.
       unref: vi.fn(),
     });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(
-          createTrackerResponseWithState(repository, "Todo", {
-            updatedAt: "2026-03-08T00:06:00.000Z",
-          })
-        ) as never,
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:06:00.000Z",
+        })
+      ) as never,
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:06:00.000Z"),
     });
@@ -3483,21 +3460,18 @@ Prefer focused changes.
         unref: vi.fn(),
       });
       const service = new OrchestratorService(store, projectConfig, {
-        fetchImpl: vi
-          .fn()
-          .mockResolvedValue(
-            createTrackerResponseWithState(repository, "Todo", {
-              updatedAt: "2026-03-08T00:06:00.000Z",
-            })
-          ) as never,
+        fetchImpl: vi.fn().mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-08T00:06:00.000Z",
+          })
+        ) as never,
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:06:00.000Z"),
       });
 
       const result = await service.runOnce();
-      const issueRecords = await store.loadProjectIssueOrchestrations(
-        "tenant-1"
-      );
+      const issueRecords =
+        await store.loadProjectIssueOrchestrations("tenant-1");
 
       expect(result.summary.dispatched).toBe(1);
       expect(spawnImpl).toHaveBeenCalledTimes(1);
@@ -3579,21 +3553,18 @@ Prefer focused changes.
         unref: vi.fn(),
       });
       const service = new OrchestratorService(store, projectConfig, {
-        fetchImpl: vi
-          .fn()
-          .mockResolvedValue(
-            createTrackerResponseWithState(repository, "Todo", {
-              updatedAt: "2026-03-08T00:05:00.000Z",
-            })
-          ) as never,
+        fetchImpl: vi.fn().mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-08T00:05:00.000Z",
+          })
+        ) as never,
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:06:00.000Z"),
       });
 
       const result = await service.runOnce();
-      const issueRecords = await store.loadProjectIssueOrchestrations(
-        "tenant-1"
-      );
+      const issueRecords =
+        await store.loadProjectIssueOrchestrations("tenant-1");
 
       expect(result.summary.dispatched).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
@@ -3675,21 +3646,18 @@ Prefer focused changes.
         unref: vi.fn(),
       });
       const service = new OrchestratorService(store, projectConfig, {
-        fetchImpl: vi
-          .fn()
-          .mockResolvedValue(
-            createTrackerResponseWithState(repository, "Todo", {
-              updatedAt: "2026-03-08T00:04:00.000Z",
-            })
-          ) as never,
+        fetchImpl: vi.fn().mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-08T00:04:00.000Z",
+          })
+        ) as never,
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:06:00.000Z"),
       });
 
       const result = await service.runOnce();
-      const issueRecords = await store.loadProjectIssueOrchestrations(
-        "tenant-1"
-      );
+      const issueRecords =
+        await store.loadProjectIssueOrchestrations("tenant-1");
 
       expect(result.summary.dispatched).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
@@ -4036,23 +4004,21 @@ Prefer focused changes.
     });
 
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(
-          createTrackerResponseWithState(repository, "Todo", {
-            blockedBy: [
-              {
-                id: "issue-2",
-                number: 2,
-                state: "Todo",
-                repository: {
-                  owner: "acme",
-                  name: "platform",
-                },
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          blockedBy: [
+            {
+              id: "issue-2",
+              number: 2,
+              state: "Todo",
+              repository: {
+                owner: "acme",
+                name: "platform",
               },
-            ],
-          })
-        ) as never,
+            },
+          ],
+        })
+      ) as never,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4105,
         unref: vi.fn(),
@@ -6468,11 +6434,7 @@ Prefer focused changes.
     );
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
 
     await store.saveProjectIssueOrchestrations("tenant-1", [
       {
@@ -8023,11 +7985,7 @@ Prefer focused changes.
     );
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey({
-      projectId: "tenant-1",
-      adapter: "github-project",
-      issueSubjectId: "issue-1",
-    });
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir("tenant-1"),
       workspaceKey
@@ -8154,12 +8112,13 @@ function createProjectConfig(
     projectId: "tenant-1",
     slug: "tenant-1",
     workspaceDir,
-    repositories: [repository],
+    repository,
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
       settings: {
         projectId: "project-123",
+        repository: `${repository.owner}/${repository.name}`,
       },
     },
   };

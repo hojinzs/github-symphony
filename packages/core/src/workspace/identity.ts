@@ -15,21 +15,8 @@ import type { IssueSubjectIdentity } from "../domain/issue.js";
  * `OrchestratorRunRecord.issueWorkspaceKey` is nullable to support older run
  * records created before the transition.
  */
-export function deriveIssueWorkspaceKey(
-  identity: IssueSubjectIdentity,
-  issueIdentifier?: string
-): string {
-  if (issueIdentifier) {
-    return deriveIssueWorkspaceKeyFromIdentifier(issueIdentifier);
-  }
-
-  return deriveLegacyIssueWorkspaceKey(identity);
-}
-
-export function deriveIssueWorkspaceKeyFromIdentifier(
-  issueIdentifier: string
-): string {
-  const sanitized = issueIdentifier
+export function deriveWorkspaceKey(identifier: string): string {
+  const sanitized = identifier
     .replace(/[^A-Za-z0-9._-]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
@@ -40,14 +27,33 @@ export function deriveIssueWorkspaceKeyFromIdentifier(
   return sanitized;
 }
 
-export function deriveLegacyIssueWorkspaceKey(
-  identity: IssueSubjectIdentity
+export const deriveIssueWorkspaceKeyFromIdentifier = deriveWorkspaceKey;
+
+export function deriveIssueWorkspaceKey(identifier: string): string;
+export function deriveIssueWorkspaceKey(
+  identity: IssueSubjectIdentity,
+  issueIdentifier: string
+): string;
+export function deriveIssueWorkspaceKey(
+  identityOrIdentifier: IssueSubjectIdentity | string,
+  issueIdentifier?: string
 ): string {
-  const input = [
-    identity.projectId,
-    identity.adapter,
-    identity.issueSubjectId,
-  ].join(":");
+  if (typeof identityOrIdentifier === "string") {
+    return deriveWorkspaceKey(identityOrIdentifier);
+  }
+
+  return deriveWorkspaceKey(
+    issueIdentifier ?? identityOrIdentifier.issueSubjectId
+  );
+}
+
+export function deriveLegacyIssueWorkspaceKey(
+  identity: IssueSubjectIdentity,
+  projectId?: string
+): string {
+  const input = [projectId, identity.adapter, identity.issueSubjectId]
+    .filter((part): part is string => typeof part === "string")
+    .join(":");
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
 }
 
