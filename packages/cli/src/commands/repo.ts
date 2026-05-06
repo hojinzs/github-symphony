@@ -123,7 +123,7 @@ async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
     process.stderr.write(
       `${error instanceof Error ? error.message : "Repository initialization failed."}\n`
     );
-    process.exitCode = error instanceof RepoRuntimeMigrationError ? 1 : 1;
+    process.exitCode = 1;
   }
 }
 
