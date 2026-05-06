@@ -88,6 +88,79 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("preserves dirty persisted issue workspaces when dispatching a retry", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dirty-workspace-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-07T23:59:00.000Z",
+      updatedAt: "2026-03-07T23:59:00.000Z",
+      lastError: null,
+    });
+    await writeFile(
+      join(repositoryDirectory, "WORKFLOW.md"),
+      "# local dirty retry edit\n",
+      "utf8"
+    );
+    await commitWorkflowFixture(repository.path, {
+      codexCommand: "codex app-server --remote-update",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4102,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(result.lastError).toContain(
+      "was preserved because it has uncommitted changes"
+    );
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toBe("# local dirty retry edit\n");
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toContain("M WORKFLOW.md");
+  });
+
   it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "12";
@@ -931,7 +1004,13 @@ describe("OrchestratorService", () => {
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
@@ -1126,14 +1205,24 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
 
-    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
     const workspacePath = resolveIssueWorkspaceDirectory(
       store.projectDir(projectConfig.projectId),
       workspaceKey
     );
     const repositoryPath = join(workspacePath, "repository");
 
-    await mkdir(repositoryPath, { recursive: true });
+    await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: workspacePath,
+      existingWorkspace: false,
+    });
     await store.saveIssueWorkspace({
       workspaceKey,
       projectId: "tenant-1",

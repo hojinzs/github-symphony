@@ -1117,6 +1117,7 @@ export class OrchestratorService {
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
+      existingWorkspace: Boolean(existingWorkspaceRecord),
     });
 
     if (!existingWorkspaceRecord) {
@@ -2520,9 +2521,7 @@ export class OrchestratorService {
           : NaN
       )
       .catch(() => NaN);
-    return Number.isFinite(limit) && limit >= 0
-      ? limit
-      : DEFAULT_CONCURRENCY;
+    return Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_CONCURRENCY;
   }
 
   private async resolveWorkflowResolution(
@@ -2605,7 +2604,9 @@ export class OrchestratorService {
     return `${repository.owner}/${repository.name}:${this.normalizeRepositoryCloneUrl(repository.cloneUrl)}`;
   }
 
-  private resolveWorkflowRepositoryDirectory(repository: RepositoryRef): string {
+  private resolveWorkflowRepositoryDirectory(
+    repository: RepositoryRef
+  ): string {
     if (repository.path) {
       return repository.path;
     }
@@ -2625,9 +2626,7 @@ export class OrchestratorService {
       const url = new URL(cloneUrl);
       return url.protocol === "file:" ? fileURLToPath(url) : null;
     } catch {
-      return isAbsolute(cloneUrl) || cloneUrl.startsWith(".")
-        ? cloneUrl
-        : null;
+      return isAbsolute(cloneUrl) || cloneUrl.startsWith(".") ? cloneUrl : null;
     }
   }
 

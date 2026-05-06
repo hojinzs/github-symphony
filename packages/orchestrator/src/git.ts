@@ -106,11 +106,16 @@ export async function syncRepositoryForRun(input: {
 export async function ensureIssueWorkspaceRepository(input: {
   repository: RepositoryRef;
   issueWorkspacePath: string;
+  existingWorkspace: boolean;
 }): Promise<string> {
-  return cloneRepositoryForRun({
-    repository: input.repository,
-    targetDirectory: input.issueWorkspacePath,
-  });
+  if (!input.existingWorkspace) {
+    return cloneRepositoryForRun({
+      repository: input.repository,
+      targetDirectory: input.issueWorkspacePath,
+    });
+  }
+
+  return syncExistingIssueWorkspaceRepository(input);
 }
 
 export async function loadRepositoryWorkflow(
@@ -158,7 +163,9 @@ function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-async function readGitHead(repositoryDirectory: string): Promise<string | null> {
+async function readGitHead(
+  repositoryDirectory: string
+): Promise<string | null> {
   try {
     return await runCommandCapture("git", [
       "-C",
@@ -168,6 +175,107 @@ async function readGitHead(repositoryDirectory: string): Promise<string | null> 
     ]);
   } catch {
     return null;
+  }
+}
+
+async function syncExistingIssueWorkspaceRepository(input: {
+  repository: RepositoryRef;
+  issueWorkspacePath: string;
+}): Promise<string> {
+  await mkdir(input.issueWorkspacePath, { recursive: true });
+  const repositoryDirectory = join(input.issueWorkspacePath, "repository");
+  const lockDirectory = join(input.issueWorkspacePath, "repository.lock");
+
+  return withRepositoryLock(lockDirectory, async () => {
+    const repositoryExists = await pathExists(repositoryDirectory);
+    const hasGit = await pathExists(join(repositoryDirectory, ".git"));
+
+    if (hasGit) {
+      const dirtyStatus = await readGitStatusPorcelain(repositoryDirectory);
+      if (dirtyStatus.trim()) {
+        throw createIssueWorkspacePreservedError(
+          repositoryDirectory,
+          "has uncommitted changes"
+        );
+      }
+
+      try {
+        await runCommand("git", [
+          "-C",
+          repositoryDirectory,
+          "pull",
+          "--ff-only",
+        ]);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "git pull --ff-only failed";
+        throw createIssueWorkspacePreservedError(
+          repositoryDirectory,
+          `could not be fast-forwarded: ${message}`
+        );
+      }
+
+      return repositoryDirectory;
+    }
+
+    if (repositoryExists) {
+      throw createIssueWorkspacePreservedError(
+        repositoryDirectory,
+        "exists but is not a git checkout"
+      );
+    }
+
+    const tempRepositoryDirectory = join(
+      input.issueWorkspacePath,
+      `repository.tmp-${process.pid}-${Date.now()}`
+    );
+    await rm(tempRepositoryDirectory, { recursive: true, force: true });
+
+    try {
+      await runCommand("git", [
+        "clone",
+        "--depth",
+        "1",
+        input.repository.cloneUrl,
+        tempRepositoryDirectory,
+      ]);
+      await rename(tempRepositoryDirectory, repositoryDirectory);
+      return repositoryDirectory;
+    } finally {
+      await rm(tempRepositoryDirectory, { recursive: true, force: true });
+    }
+  });
+}
+
+function createIssueWorkspacePreservedError(
+  repositoryDirectory: string,
+  reason: string
+): Error {
+  return new Error(
+    [
+      `Issue workspace repository at ${repositoryDirectory} was preserved because it ${reason}.`,
+      "Resolve or commit the local workspace changes, or run a configured recovery hook, before retrying.",
+    ].join(" ")
+  );
+}
+
+async function readGitStatusPorcelain(
+  repositoryDirectory: string
+): Promise<string> {
+  return runCommandCapture("git", [
+    "-C",
+    repositoryDirectory,
+    "status",
+    "--porcelain",
+  ]);
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -283,9 +391,9 @@ async function isStaleLock(lockDirectory: string): Promise<boolean> {
 function isAlreadyExistsError(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "EEXIST"
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "EEXIST"
   );
 }
 

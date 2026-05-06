@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
+  ensureIssueWorkspaceRepository,
   releaseRepositoryLock,
   syncRepositoryForRun,
 } from "./git.js";
@@ -56,9 +57,9 @@ describe("cloneRepositoryForRun", () => {
     });
 
     expect(clonedDirectory).toBe(repositoryDirectory);
-    expect(await readFile(join(clonedDirectory, "WORKFLOW.md"), "utf8")).toContain(
-      'project_id: "PVT_test"'
-    );
+    expect(
+      await readFile(join(clonedDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain('project_id: "PVT_test"');
   });
 
   it("reports whether a cached repository pull changed HEAD", async () => {
@@ -75,7 +76,11 @@ describe("cloneRepositoryForRun", () => {
       targetDirectory,
     });
 
-    await writeFile(join(repository.path, "WORKFLOW.md"), "# updated\n", "utf8");
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# updated\n",
+      "utf8"
+    );
     execSync(`git -C "${repository.path}" add WORKFLOW.md`);
     execSync(`git -C "${repository.path}" commit -m "Update workflow"`);
     execSync(`git -C "${repository.path}" push origin HEAD`);
@@ -88,6 +93,81 @@ describe("cloneRepositoryForRun", () => {
     expect(first.changed).toBe(true);
     expect(second.changed).toBe(false);
     expect(third.changed).toBe(true);
+  });
+
+  it("preserves dirty existing issue workspaces instead of recloning", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-issue-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_1");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
+
+    await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await writeFile(
+      join(repositoryDirectory, "WORKFLOW.md"),
+      "# local dirty edit\n",
+      "utf8"
+    );
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# remote edit\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(
+      `git -C "${repository.path}" commit -m "Update workflow remotely"`
+    );
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+      })
+    ).rejects.toThrow(/was preserved because it has uncommitted changes/);
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toBe("# local dirty edit\n");
+    expect(
+      execSync(`git -C "${repositoryDirectory}" status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toContain("M WORKFLOW.md");
+  });
+
+  it("pull failures in existing issue workspaces do not delete the checkout", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-issue-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_1");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
+
+    await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    execSync(
+      `git -C "${repositoryDirectory}" remote set-url origin "${join(tempRoot, "missing-origin.git")}"`
+    );
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+      })
+    ).rejects.toThrow(/was preserved because it could not be fast-forwarded/);
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain("# Test workflow");
+    await expect(
+      access(join(repositoryDirectory, ".git"))
+    ).resolves.toBeUndefined();
   });
 
   it("only releases repository locks owned by the current caller", async () => {
@@ -103,7 +183,9 @@ describe("cloneRepositoryForRun", () => {
     await expect(access(join(lockDirectory, "owner"))).resolves.toBeUndefined();
 
     await releaseRepositoryLock(lockDirectory, secondOwner);
-    await expect(access(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(lockDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });
 
@@ -120,8 +202,8 @@ async function createRepositoryFixture(tempRoot: string) {
     join(workingPath, "WORKFLOW.md"),
     [
       "---",
-      'tracker:',
-      '  kind: github-project',
+      "tracker:",
+      "  kind: github-project",
       '  project_id: "PVT_test"',
       '  state_field: "Status"',
       '  active_states: ["Todo"]',
