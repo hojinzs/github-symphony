@@ -303,11 +303,36 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   ): Promise<IssueWorkspaceRecord[]> {
     const entries = await safeReadDir(this.runtimeRoot);
     const records = await Promise.all(
-      entries.map((entry) => this.loadIssueWorkspace(projectId, entry))
+      entries.map(async (entry) => {
+        if (!(await this.isIssueWorkspaceEntry(entry))) {
+          return null;
+        }
+
+        return this.loadIssueWorkspace(projectId, entry);
+      })
     );
     return records.filter((record): record is IssueWorkspaceRecord =>
       Boolean(record)
     );
+  }
+
+  private async isIssueWorkspaceEntry(entry: string): Promise<boolean> {
+    if (
+      entry.startsWith(".") ||
+      entry === "cache" ||
+      entry === "issues.json" ||
+      entry === "project.json" ||
+      entry === "runs" ||
+      entry === "status.json"
+    ) {
+      return false;
+    }
+
+    try {
+      return (await stat(join(this.runtimeRoot, entry))).isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   async saveIssueWorkspace(record: IssueWorkspaceRecord): Promise<void> {

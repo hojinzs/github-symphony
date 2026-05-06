@@ -88,6 +88,15 @@ describe("resolveIssueWorkspaceDirectory", () => {
       )
     ).toThrow("escapes");
   });
+
+  it("rejects reserved flat-layout workspace keys", () => {
+    expect(() =>
+      resolveIssueWorkspaceDirectory("/runtime/orchestrator", "runs")
+    ).toThrow("reserved");
+    expect(() =>
+      resolveIssueWorkspaceDirectory("/runtime/orchestrator", ".lock")
+    ).toThrow("reserved");
+  });
 });
 
 describe("resolveIssueRepositoryPath", () => {

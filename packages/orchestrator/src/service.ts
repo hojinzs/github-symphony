@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
@@ -1052,7 +1052,12 @@ export class OrchestratorService {
       repository.owner,
       repository.name
     );
-    const resolution = await loadRepositoryWorkflow(repository.cloneUrl, repository);
+    const repositoryDirectory =
+      this.resolveWorkflowRepositoryDirectory(repository);
+    const resolution = await loadRepositoryWorkflow(
+      repositoryDirectory,
+      repository
+    );
     return this.resolveWorkflowResolution(
       repository,
       cacheRoot,
@@ -2598,6 +2603,32 @@ export class OrchestratorService {
 
   private workflowCacheKey(repository: RepositoryRef): string {
     return `${repository.owner}/${repository.name}:${this.normalizeRepositoryCloneUrl(repository.cloneUrl)}`;
+  }
+
+  private resolveWorkflowRepositoryDirectory(repository: RepositoryRef): string {
+    if (repository.path) {
+      return repository.path;
+    }
+
+    const localCloneUrlPath = this.resolveLocalCloneUrlPath(
+      repository.cloneUrl
+    );
+    if (localCloneUrlPath) {
+      return localCloneUrlPath;
+    }
+
+    return process.cwd();
+  }
+
+  private resolveLocalCloneUrlPath(cloneUrl: string): string | null {
+    try {
+      const url = new URL(cloneUrl);
+      return url.protocol === "file:" ? fileURLToPath(url) : null;
+    } catch {
+      return isAbsolute(cloneUrl) || cloneUrl.startsWith(".")
+        ? cloneUrl
+        : null;
+    }
   }
 
   private normalizeRepositoryCloneUrl(cloneUrl: string): string {

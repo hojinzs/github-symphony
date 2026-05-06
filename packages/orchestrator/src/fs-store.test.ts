@@ -26,6 +26,42 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     );
   });
 
+  it("loads only issue workspace directories from the flat runtime root", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await mkdir(join(runtimeRoot, "runs"), { recursive: true });
+    await mkdir(join(runtimeRoot, "cache"), { recursive: true });
+    await mkdir(join(runtimeRoot, ".lock"), { recursive: true });
+    await writeFile(join(runtimeRoot, "status.json"), "{}", "utf8");
+    await writeFile(
+      join(runtimeRoot, "runs", "workspace.json"),
+      JSON.stringify({
+        workspaceKey: "runs",
+      }),
+      "utf8"
+    );
+    await store.saveIssueWorkspace({
+      workspaceKey: "acme_repo_1",
+      projectId: "project-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/repo#1",
+      workspacePath: join(runtimeRoot, "acme_repo_1"),
+      repositoryPath: join(runtimeRoot, "acme_repo_1", "repository"),
+      status: "active",
+      createdAt: "2026-03-16T00:00:00.000Z",
+      updatedAt: "2026-03-16T00:00:00.000Z",
+      lastError: null,
+    });
+
+    await expect(store.loadIssueWorkspaces("project-1")).resolves.toEqual([
+      expect.objectContaining({
+        workspaceKey: "acme_repo_1",
+      }),
+    ]);
+  });
+
   it("returns the most recent formatted events in order", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);

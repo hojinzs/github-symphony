@@ -11,6 +11,7 @@ export type RepositoryRef = {
   owner: string;
   name: string;
   cloneUrl: string;
+  path?: string;
 };
 
 export type WorkspaceDraft = {

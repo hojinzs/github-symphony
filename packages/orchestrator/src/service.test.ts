@@ -15,6 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
+  type OrchestratorProjectConfig,
+  type RepositoryRef,
+  type WorkflowResolution,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
@@ -3044,6 +3047,50 @@ Prefer focused changes.
 
     expect(result.summary.dispatched).toBe(1);
     expect(workflowSyncCalls).toHaveLength(0);
+  });
+
+  it("loads workflow policy from explicit local path when cloneUrl is remote", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-local-path-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        codexCommand: "codex --model gpt-5",
+      }
+    );
+    const configuredRepository = {
+      ...repository,
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, configuredRepository);
+    await store.saveProjectConfig(projectConfig);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn(),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4308,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const resolution = await (
+      service as unknown as {
+        loadProjectWorkflow: (
+          tenant: OrchestratorProjectConfig,
+          repository: RepositoryRef
+        ) => Promise<WorkflowResolution>;
+      }
+    ).loadProjectWorkflow(projectConfig, configuredRepository);
+
+    expect(resolution.isValid).toBe(true);
+    expect(resolution.workflowPath).toBe(join(repository.path, "WORKFLOW.md"));
+    expect(resolution.agentCommand).toBe("codex --model gpt-5");
   });
 
   it("uses the latest workflow retry policy for future retries", async () => {
