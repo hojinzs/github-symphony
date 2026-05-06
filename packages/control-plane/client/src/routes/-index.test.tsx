@@ -103,4 +103,38 @@ describe("Project overview helpers", () => {
     expect(markup).toContain("GitHub Project PVT_project_123");
     expect(markup).not.toContain("tenant-");
   });
+
+  it("renders a repository fallback for legacy cached project state", () => {
+    const markup = renderToStaticMarkup(
+      <Theme appearance="dark">
+        <DataStatus
+          projectState={
+            {
+              tracker: {
+                adapter: "github",
+                bindingId: "binding-1",
+              },
+              lastTickAt: "2026-04-10T05:00:00.000Z",
+              health: "idle",
+              summary: {
+                dispatched: 0,
+                suppressed: 0,
+                recovered: 0,
+                activeRuns: 0,
+              },
+              activeRuns: [],
+              retryQueue: [],
+              rateLimits: null,
+              lastError: null,
+              completedCount: 0,
+              issues: [],
+            } as never
+          }
+        />
+      </Theme>
+    );
+
+    expect(markup).toContain("Repository repository unavailable");
+    expect(markup).toContain("Tracker binding-1");
+  });
 });

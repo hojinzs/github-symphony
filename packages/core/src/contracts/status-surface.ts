@@ -161,6 +161,7 @@ export type ProjectStatusSnapshot = {
   tracker: {
     adapter: TrackerAdapterKind;
     bindingId: string;
+    /** Public, non-secret tracker identifiers safe to expose on status APIs. */
     settings?: Record<string, string | number | boolean>;
   };
   lastTickAt: string;

@@ -10,6 +10,7 @@ import {
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
@@ -50,13 +51,6 @@ function resolveProjectTokenDelta(snapshot: ProjectStatusSnapshot): number {
   );
 }
 
-function formatRepository(
-  repository: ProjectStatusSnapshot["repository"] | undefined,
-  fallback: string
-): string {
-  return repository ? `${repository.owner}/${repository.name}` : fallback;
-}
-
 function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean
@@ -66,10 +60,7 @@ function renderLegacyStatus(
   const lines: string[] = [];
 
   // Header
-  const headerTitle = `gh-symphony ∙ ${formatRepository(
-    snapshot.repository,
-    (snapshot as ProjectStatusSnapshot & { slug?: string }).slug ?? "repository"
-  )}`;
+  const headerTitle = `gh-symphony ∙ ${formatRepositoryDisplay(snapshot)}`;
   const headerWidth = 45;
   const headerPadding = Math.max(
     0,
@@ -204,13 +195,18 @@ async function readStatusSnapshot(
   runtimeRoot: string,
   projectId: string
 ): Promise<ProjectStatusSnapshot | null> {
-  try {
-    const statusPath = join(runtimeRoot, "projects", projectId, "status.json");
-    const content = await readFile(statusPath, "utf-8");
-    return JSON.parse(content) as ProjectStatusSnapshot;
-  } catch {
-    return null;
+  for (const statusPath of [
+    join(runtimeRoot, "status.json"),
+    join(runtimeRoot, "projects", projectId, "status.json"),
+  ]) {
+    try {
+      const content = await readFile(statusPath, "utf-8");
+      return JSON.parse(content) as ProjectStatusSnapshot;
+    } catch {
+      // Try the next known runtime layout.
+    }
   }
+  return null;
 }
 
 const handler = async (

@@ -12,6 +12,7 @@ import {
   stripAnsi,
 } from "../ansi.js";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -91,13 +92,6 @@ function compactSessionId(id: string | null | undefined): string {
   if (!id) return "\u2014";
   if (id.length <= 10) return id;
   return `${id.slice(0, 4)}...${id.slice(-6)}`;
-}
-
-function formatRepository(
-  repository: ProjectStatusSnapshot["repository"] | undefined,
-  fallback: string
-): string {
-  return repository ? `${repository.owner}/${repository.name}` : fallback;
 }
 
 function fmtTokens(n: number): string {
@@ -324,15 +318,7 @@ export function renderDashboard(
     if (!hasActiveRuns && !hasRetries) continue;
 
     lines.push(
-      sectionDivider(
-        formatRepository(
-          snap.repository,
-          (snap as ProjectStatusSnapshot & { slug?: string }).slug ??
-            "repository"
-        ),
-        width,
-        c
-      )
+      sectionDivider(formatRepositoryDisplay(snap), width, c)
     );
     if (hasActiveRuns) {
       lines.push(tableHeaderRow(c));

@@ -53,6 +53,30 @@ describe("DashboardFsReader", () => {
     expect(snapshot).not.toHaveProperty("slug");
   });
 
+  it("treats legacy status snapshots without repository identity as unavailable", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    await writeFile(
+      join(runtimeRoot, "status.json"),
+      JSON.stringify({
+        projectId: "tenant-1",
+        slug: "tenant-1",
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        lastTickAt: "2026-03-20T00:00:00.000Z",
+        health: "idle",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      }) + "\n",
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot);
+
+    await expect(reader.loadProjectStatus()).resolves.toBeNull();
+    await expect(reader.loadProjectState()).resolves.toBeNull();
+  });
+
   it("assembles issue status snapshots from persisted runtime files", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
     const projectDir = runtimeRoot;

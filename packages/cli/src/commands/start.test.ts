@@ -128,7 +128,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -223,7 +223,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -268,13 +268,87 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("tails completed worker logs from the flat runtime run path", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    await mkdir(join(configDir, "runs", "run-1"), { recursive: true });
+    await writeFile(
+      join(configDir, "runs", "run-1", "worker.log"),
+      "first line\nlast failure\n",
+      "utf8"
+    );
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    status.mockResolvedValue(null);
+    run.mockImplementation(async () => {
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
+        repository: { owner: "acme", name: "platform" },
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        health: "running",
+        lastTickAt: "2026-03-17T00:00:00.000Z",
+        summary: { dispatched: 1, suppressed: 0, recovered: 0, activeRuns: 1 },
+        activeRuns: [
+          {
+            runId: "run-1",
+            issueIdentifier: "acme/platform#1",
+            issueState: "In Progress",
+            status: "running",
+          },
+        ],
+        retryQueue: [],
+        lastError: null,
+      });
+      await onTick?.({
+        repository: { owner: "acme", name: "platform" },
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        health: "idle",
+        lastTickAt: "2026-03-17T00:01:00.000Z",
+        summary: { dispatched: 1, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      });
+      process.emit("SIGINT");
+    });
+
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await startModule.default(
+        ["--project-id", "tenant-a"],
+        baseOptions(configDir)
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Worker stderr (acme/platform#1):");
+    expect(stdout.output()).toContain("last failure");
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
   it("retries the foreground run loop after a service.run error", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -327,7 +401,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -428,7 +502,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -525,7 +599,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -574,7 +648,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -653,7 +727,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -710,7 +784,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -810,7 +884,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
+      lockPath: join(configDir, ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",

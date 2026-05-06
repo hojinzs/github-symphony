@@ -38,7 +38,9 @@ function createProject(projectId: string): CliProjectConfig {
   };
 }
 
-async function createConfigFixture(): Promise<string> {
+async function createConfigFixture(
+  statusLayout: "flat" | "legacy" = "flat"
+): Promise<string> {
   const configDir = await mkdtemp(join(tmpdir(), "cli-status-"));
   const projectId = "tenant-a";
 
@@ -63,10 +65,11 @@ async function createConfigFixture(): Promise<string> {
     "utf8"
   );
 
-  const runtimeProjectDir = join(configDir, "projects", projectId);
-  await mkdir(runtimeProjectDir, { recursive: true });
+  const statusDir =
+    statusLayout === "flat" ? configDir : join(configDir, "projects", projectId);
+  await mkdir(statusDir, { recursive: true });
   await writeFile(
-    join(runtimeProjectDir, "status.json"),
+    join(statusDir, "status.json"),
     JSON.stringify(
       {
         projectId,
@@ -122,8 +125,26 @@ afterEach(() => {
 });
 
 describe("status command", () => {
-  it("renders project tokens as delta over cumulative total", async () => {
+  it("renders project tokens from the flat runtime status snapshot", async () => {
     const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Tokens: 600 / 1,700 total");
+  });
+
+  it("falls back to the legacy per-project status snapshot path", async () => {
+    const configDir = await createConfigFixture("legacy");
     const stdout = captureWrites(process.stdout);
 
     try {

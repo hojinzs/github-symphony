@@ -1,6 +1,7 @@
 import { open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
+  type RepositoryRef,
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
   isMatchingIssueRun,
@@ -57,6 +58,9 @@ export class DashboardFsReader {
     } = { ...snapshot };
     delete status.projectId;
     delete status.slug;
+    if (!isRepositoryRef(status.repository)) {
+      return null;
+    }
     return status;
   }
 
@@ -386,6 +390,19 @@ export function assertValidDashboardRunId(runId: string): void {
       `Invalid run ID "${runId}". Run IDs must not contain path separators or traversal segments.`
     );
   }
+}
+
+function isRepositoryRef(value: unknown): value is RepositoryRef {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const repository = value as Partial<RepositoryRef>;
+  return (
+    typeof repository.owner === "string" &&
+    repository.owner.length > 0 &&
+    typeof repository.name === "string" &&
+    repository.name.length > 0
+  );
 }
 
 async function mapWithConcurrency<T, R>(

@@ -53,9 +53,7 @@ export function buildProjectSnapshot(
     tracker: {
       adapter: project.tracker.adapter,
       bindingId: project.tracker.bindingId,
-      ...(project.tracker.settings
-        ? { settings: project.tracker.settings }
-        : {}),
+      settings: project.tracker.settings,
     },
     lastTickAt,
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",

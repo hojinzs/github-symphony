@@ -34,6 +34,7 @@ import {
 } from "../project-selection.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -41,13 +42,6 @@ function timestamp(): string {
   const mm = String(now.getMinutes()).padStart(2, "0");
   const ss = String(now.getSeconds()).padStart(2, "0");
   return dim(`${hh}:${mm}:${ss}`);
-}
-
-function formatRepository(
-  repository: ProjectStatusSnapshot["repository"] | undefined,
-  fallback: string
-): string {
-  return repository ? `${repository.owner}/${repository.name}` : fallback;
 }
 
 function logLine(icon: string, msg: string): void {
@@ -176,13 +170,9 @@ function logTickResult(
           : cyan;
     logLine(
       green("\u25CF"),
-      `Repository ${bold(
-        formatRepository(
-          snapshot.repository,
-          (snapshot as ProjectStatusSnapshot & { slug?: string }).slug ??
-            "repository"
-        )
-      )} connected ${dim("(")}${healthColor(snapshot.health)}${dim(")")}`
+      `Repository ${bold(formatRepositoryDisplay(snapshot))} connected ${dim(
+        "("
+      )}${healthColor(snapshot.health)}${dim(")")}`
     );
     if (snapshot.summary.activeRuns > 0) {
       logLine(cyan("\u25B8"), `${snapshot.summary.activeRuns} active run(s)`);
@@ -795,25 +785,23 @@ async function tailWorkerLog(
   runId: string,
   issueIdentifier: string
 ): Promise<void> {
-  try {
-    const logPath = join(
-      runtimeRoot,
-      "projects",
-      projectId,
-      "runs",
-      runId,
-      "worker.log"
-    );
-    const content = await readFile(logPath, "utf8");
-    const lines = content.split("\n").filter((l) => l.trim());
-    if (lines.length === 0) return;
-    const tail = lines.slice(-30);
-    logLine(red("\u2717"), red(`Worker stderr (${issueIdentifier}):`));
-    for (const line of tail) {
-      process.stdout.write(`  ${dim(line)}\n`);
+  for (const logPath of [
+    join(runtimeRoot, "runs", runId, "worker.log"),
+    join(runtimeRoot, "projects", projectId, "runs", runId, "worker.log"),
+  ]) {
+    try {
+      const content = await readFile(logPath, "utf8");
+      const lines = content.split("\n").filter((l) => l.trim());
+      if (lines.length === 0) return;
+      const tail = lines.slice(-30);
+      logLine(red("\u2717"), red(`Worker stderr (${issueIdentifier}):`));
+      for (const line of tail) {
+        process.stdout.write(`  ${dim(line)}\n`);
+      }
+      return;
+    } catch {
+      // Try the next known runtime layout.
     }
-  } catch {
-    // worker.log 없거나 읽기 실패 시 무시
   }
 }
 
