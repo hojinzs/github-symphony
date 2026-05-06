@@ -20,8 +20,11 @@ export class WorkflowConfigStore {
   ): Promise<WorkflowResolution> {
     await access(workflowPath, constants.R_OK);
     const fileStat = await stat(workflowPath);
-    const fingerprint = `${fileStat.mtimeMs}:${fileStat.size}`;
     const cached = this.cache.get(workflowPath);
+    const markdown = await readFile(workflowPath, "utf8");
+    const fingerprint = `${fileStat.mtimeMs}:${fileStat.size}:${createHash("sha256")
+      .update(markdown)
+      .digest("hex")}`;
 
     if (cached && cached.fingerprint === fingerprint) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
@@ -30,8 +33,6 @@ export class WorkflowConfigStore {
         validationError: null,
       });
     }
-
-    const markdown = await readFile(workflowPath, "utf8");
 
     try {
       const workflow = parseWorkflowMarkdown(markdown, env);

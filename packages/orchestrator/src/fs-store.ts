@@ -40,24 +40,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
       : null;
   }
 
-  private projectsRoot(): string {
-    return join(this.runtimeRoot, "projects");
+  projectDir(_projectId?: string): string {
+    return this.runtimeRoot;
   }
 
-  projectDir(projectId?: string): string {
-    return join(this.projectsRoot(), requireProjectId(projectId));
+  private runsDir(): string {
+    return join(this.runtimeRoot, "runs");
   }
 
-  private projectRunsDir(projectId: string): string {
-    return join(this.projectDir(projectId), "runs");
-  }
-
-  runDir(runId: string, projectId?: string): string {
-    if (!projectId) {
-      return join(this.runtimeRoot, "projects", "__unknown__", "runs", runId);
-    }
-
-    return join(this.projectRunsDir(projectId), runId);
+  runDir(runId: string, _projectId?: string): string {
+    return join(this.runsDir(), runId);
   }
 
   async loadProjectConfig(
@@ -170,19 +162,13 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async loadAllRuns(): Promise<OrchestratorRunRecord[]> {
-    const projectIds = await safeReadDir(this.projectsRoot());
-    const runDirectories = await Promise.all(
-      projectIds.map(async (projectId) => {
-        const entries = await safeReadDir(this.projectRunsDir(projectId));
-        return entries.map((entry) => this.runDir(entry, projectId));
-      })
-    );
+    const runIds = await safeReadDir(this.runsDir());
     const runs = await Promise.all(
-      runDirectories
-        .flat()
-        .map((directory) =>
-          readJsonFile<OrchestratorRunRecord>(join(directory, "run.json"))
+      runIds.map((runId) =>
+        readJsonFile<OrchestratorRunRecord>(
+          join(this.runDir(runId), "run.json")
         )
+      )
     );
     return runs.filter((run): run is OrchestratorRunRecord => Boolean(run));
   }
@@ -298,7 +284,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     projectId: string | undefined,
     workspaceKey: string
   ): string {
-    return join(this.projectDir(projectId), "issues", workspaceKey);
+    return join(this.runtimeRoot, workspaceKey);
   }
 
   async loadIssueWorkspace(
@@ -315,14 +301,38 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   async loadIssueWorkspaces(
     projectId?: string
   ): Promise<IssueWorkspaceRecord[]> {
-    const issuesDir = join(this.projectDir(projectId), "issues");
-    const entries = await safeReadDir(issuesDir);
+    const entries = await safeReadDir(this.runtimeRoot);
     const records = await Promise.all(
-      entries.map((entry) => this.loadIssueWorkspace(projectId, entry))
+      entries.map(async (entry) => {
+        if (!(await this.isIssueWorkspaceEntry(entry))) {
+          return null;
+        }
+
+        return this.loadIssueWorkspace(projectId, entry);
+      })
     );
     return records.filter((record): record is IssueWorkspaceRecord =>
       Boolean(record)
     );
+  }
+
+  private async isIssueWorkspaceEntry(entry: string): Promise<boolean> {
+    if (
+      entry.startsWith(".") ||
+      entry === "cache" ||
+      entry === "issues.json" ||
+      entry === "project.json" ||
+      entry === "runs" ||
+      entry === "status.json"
+    ) {
+      return false;
+    }
+
+    try {
+      return (await stat(join(this.runtimeRoot, entry))).isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   async saveIssueWorkspace(record: IssueWorkspaceRecord): Promise<void> {
@@ -344,15 +354,12 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   private async findRunDir(runId: string): Promise<string | null> {
-    const projectIds = await safeReadDir(this.projectsRoot());
-    for (const projectId of projectIds) {
-      const candidate = this.runDir(runId, projectId);
-      const run = await readJsonFile<OrchestratorRunRecord>(
-        join(candidate, "run.json")
-      );
-      if (run || (await pathExists(join(candidate, "events.ndjson")))) {
-        return candidate;
-      }
+    const candidate = this.runDir(runId);
+    const run = await readJsonFile<OrchestratorRunRecord>(
+      join(candidate, "run.json")
+    );
+    if (run || (await pathExists(join(candidate, "events.ndjson")))) {
+      return candidate;
     }
 
     return null;
@@ -391,14 +398,4 @@ async function pathExists(path: string): Promise<boolean> {
 
     throw error;
   }
-}
-
-function requireProjectId(projectId: string | undefined): string {
-  if (!projectId) {
-    throw new Error(
-      "projectId is required for the legacy project directory layout."
-    );
-  }
-
-  return projectId;
 }

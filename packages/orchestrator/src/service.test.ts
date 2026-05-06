@@ -15,6 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
+  type OrchestratorProjectConfig,
+  type RepositoryRef,
+  type WorkflowResolution,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
@@ -79,9 +82,7 @@ describe("OrchestratorService", () => {
           SYMPHONY_TRACKER_ITEM_ID: "item-1",
           SYMPHONY_ISSUE_SUBJECT_ID: "issue-1",
           SYMPHONY_ISSUE_WORKSPACE_KEY: expect.any(String),
-          WORKSPACE_RUNTIME_DIR: expect.stringMatching(
-            /projects\/tenant-1\/runs\/.+/
-          ),
+          WORKSPACE_RUNTIME_DIR: expect.stringMatching(/runs\/.+/),
         }),
       })
     );
@@ -1271,7 +1272,7 @@ Prefer focused changes.
     );
   });
 
-  it("includes persisted workspace repositories when resolving startup cleanup terminal states", async () => {
+  it("uses the configured repository workflow for startup cleanup terminal states", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-startup-workspace-terminal-states-")
     );
@@ -1349,7 +1350,7 @@ Prefer focused changes.
 
     const listIssuesByStates = vi.fn(
       async (_project, states: readonly string[]) => {
-        expect([...states].sort()).toEqual(["Archived", "Done"]);
+        expect([...states].sort()).toEqual(["Done"]);
         return [
           {
             id: "issue-legacy-1",
@@ -1358,7 +1359,7 @@ Prefer focused changes.
             title: "Archived issue",
             description: null,
             priority: null,
-            state: "Archived",
+            state: "Done",
             branchName: null,
             url: "https://github.com/acme/legacy/issues/1",
             labels: [],
@@ -2796,7 +2797,7 @@ Prefer focused changes.
       "acme",
       "platform",
       {
-        maxConcurrentAgents: 1,
+        maxConcurrentAgents: 0,
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -2819,15 +2820,15 @@ Prefer focused changes.
     });
 
     const first = await service.runOnce();
-    expect(first.summary.dispatched).toBe(1);
+    expect(first.summary.dispatched).toBe(0);
 
     await commitWorkflowFixture(repository.path, {
-      maxConcurrentAgents: 2,
+      maxConcurrentAgents: 1,
     });
 
     const second = await service.runOnce();
     expect(second.summary.dispatched).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(2);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
   it("respects an explicit workflow concurrency of zero", async () => {
@@ -3004,7 +3005,7 @@ Prefer focused changes.
     );
   });
 
-  it("reuses a single workflow sync per repository within one tick", async () => {
+  it("loads workflow policy from the configured repository path without a cache clone", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-workflow-cache-")
@@ -3034,7 +3035,7 @@ Prefer focused changes.
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
-    await service.runOnce();
+    const result = await service.runOnce();
 
     const workflowSyncCalls = syncSpy.mock.calls.filter(
       ([input]) =>
@@ -3044,7 +3045,52 @@ Prefer focused changes.
         String(input.targetDirectory).includes("/cache/")
     );
 
-    expect(workflowSyncCalls).toHaveLength(1);
+    expect(result.summary.dispatched).toBe(1);
+    expect(workflowSyncCalls).toHaveLength(0);
+  });
+
+  it("loads workflow policy from explicit local path when cloneUrl is remote", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-local-path-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        codexCommand: "codex --model gpt-5",
+      }
+    );
+    const configuredRepository = {
+      ...repository,
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, configuredRepository);
+    await store.saveProjectConfig(projectConfig);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn(),
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4308,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const resolution = await (
+      service as unknown as {
+        loadProjectWorkflow: (
+          tenant: OrchestratorProjectConfig,
+          repository: RepositoryRef
+        ) => Promise<WorkflowResolution>;
+      }
+    ).loadProjectWorkflow(projectConfig, configuredRepository);
+
+    expect(resolution.isValid).toBe(true);
+    expect(resolution.workflowPath).toBe(join(repository.path, "WORKFLOW.md"));
+    expect(resolution.agentCommand).toBe("codex --model gpt-5");
   });
 
   it("uses the latest workflow retry policy for future retries", async () => {

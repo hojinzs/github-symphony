@@ -281,7 +281,7 @@ describe("orchestrator CLI", () => {
     expect(service.shutdown).toHaveBeenCalledTimes(1);
     expect(exitProcess).toHaveBeenCalledWith(0);
     await expect(
-      access(join(runtimeRoot, "projects", "tenant-1", ".lock"))
+      access(join(runtimeRoot, ".lock"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -297,18 +297,16 @@ describe("orchestrator CLI", () => {
     );
 
     await expect(
-      access(join(runtimeRoot, "projects", "tenant-1", ".lock"))
+      access(join(runtimeRoot, ".lock"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("fails before running the service when the project lock belongs to a live pid", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const service = createMockService();
-    await mkdir(join(runtimeRoot, "projects", "tenant-1"), {
-      recursive: true,
-    });
+    await mkdir(runtimeRoot, { recursive: true });
     await writeFile(
-      join(runtimeRoot, "projects", "tenant-1", ".lock"),
+      join(runtimeRoot, ".lock"),
       JSON.stringify({
         ownerToken: "existing-owner",
         pid: process.pid,

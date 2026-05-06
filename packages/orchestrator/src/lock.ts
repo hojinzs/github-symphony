@@ -147,17 +147,16 @@ export function assertValidProjectId(projectId: string): void {
 
 function resolveProjectLockPath(runtimeRoot: string, projectId: string): string {
   const store = new OrchestratorFsStore(runtimeRoot);
-  const projectsRoot = resolve(runtimeRoot, "projects");
   const projectDir = resolve(store.projectDir(projectId));
-  const relativeProjectDir = relative(projectsRoot, projectDir);
+  const resolvedRuntimeRoot = resolve(runtimeRoot);
+  const relativeProjectDir = relative(resolvedRuntimeRoot, projectDir);
 
   if (
-    relativeProjectDir.length === 0 ||
     relativeProjectDir.startsWith("..") ||
     isAbsolute(relativeProjectDir)
   ) {
     throw new Error(
-      `Invalid project ID "${projectId}". Project lock path must stay within "${projectsRoot}".`
+      `Invalid project ID "${projectId}". Project lock path must stay within "${resolvedRuntimeRoot}".`
     );
   }
 

@@ -24,7 +24,7 @@ describe("DashboardFsReader", () => {
 
   it("reads project status snapshots from the runtime root", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    const projectDir = runtimeRoot;
     await mkdir(projectDir, { recursive: true });
     await writeFile(
       join(projectDir, "status.json"),
@@ -52,7 +52,7 @@ describe("DashboardFsReader", () => {
 
   it("assembles issue status snapshots from persisted runtime files", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    const projectDir = runtimeRoot;
     const runDir = join(projectDir, "runs", "run-1");
     const priorRunDir = join(projectDir, "runs", "run-0");
     await mkdir(runDir, { recursive: true });
@@ -246,8 +246,8 @@ describe("DashboardFsReader", () => {
 
   it("falls back to the latest matching run when currentRunId is stale", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
-    const runsDir = join(projectDir, "runs");
+    const projectDir = runtimeRoot;
+    const runsDir = join(runtimeRoot, "runs");
     await mkdir(runsDir, { recursive: true });
 
     await writeFile(
@@ -317,8 +317,8 @@ describe("DashboardFsReader", () => {
 
   it("ignores malformed unrelated run artifacts when computing cumulative tokens", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
-    const runsDir = join(projectDir, "runs");
+    const projectDir = runtimeRoot;
+    const runsDir = join(runtimeRoot, "runs");
     const runDir = join(runsDir, "run-1");
     const priorRunDir = join(runsDir, "run-0");
     const malformedRunDir = join(runsDir, "run-bad");
@@ -438,7 +438,7 @@ describe("DashboardFsReader", () => {
 
   it("defaults completedOnce to false for legacy persisted issue records", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    const projectDir = runtimeRoot;
     await mkdir(projectDir, { recursive: true });
     await writeFile(
       join(projectDir, "issues.json"),
@@ -475,7 +475,7 @@ describe("DashboardFsReader", () => {
 
   it("builds an aggregated state snapshot with completedCount", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const projectDir = join(runtimeRoot, "projects", "tenant-1");
+    const projectDir = runtimeRoot;
     await mkdir(projectDir, { recursive: true });
     await writeFile(
       join(projectDir, "status.json"),
@@ -535,7 +535,7 @@ describe("DashboardFsReader", () => {
 
   it("reads recent events from large ndjson logs without scanning the entire file", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const runDir = join(runtimeRoot, "projects", "tenant-1", "runs", "run-1");
+    const runDir = join(runtimeRoot, "runs", "run-1");
     await mkdir(runDir, { recursive: true });
 
     const noisyPrefix = `${"x".repeat(70_000)}\n`;
@@ -581,7 +581,7 @@ describe("DashboardFsReader", () => {
 
   it("skips missing run records while loading persisted runs in bounded batches", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
-    const runsDir = join(runtimeRoot, "projects", "tenant-1", "runs");
+    const runsDir = join(runtimeRoot, "runs");
     await mkdir(join(runsDir, "run-1"), { recursive: true });
     await mkdir(join(runsDir, "run-2"), { recursive: true });
     await writeFile(

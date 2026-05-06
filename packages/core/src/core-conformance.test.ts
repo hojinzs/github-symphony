@@ -73,27 +73,36 @@ describe("deriveWorkspaceKey", () => {
 describe("resolveIssueWorkspaceDirectory", () => {
   it("produces the correct issue workspace path", () => {
     const result = resolveIssueWorkspaceDirectory(
-      "/runtime/projects/ws-1",
+      "/runtime/orchestrator",
       "abc123"
     );
 
-    expect(result).toBe("/runtime/projects/ws-1/issues/abc123");
+    expect(result).toBe("/runtime/orchestrator/abc123");
   });
 
   it("rejects path traversal that escapes the root", () => {
     expect(() =>
       resolveIssueWorkspaceDirectory(
-        "/runtime/projects/ws-1",
+        "/runtime/orchestrator",
         "../../../../../../tmp"
       )
     ).toThrow("escapes");
+  });
+
+  it("rejects reserved flat-layout workspace keys", () => {
+    expect(() =>
+      resolveIssueWorkspaceDirectory("/runtime/orchestrator", "runs")
+    ).toThrow("reserved");
+    expect(() =>
+      resolveIssueWorkspaceDirectory("/runtime/orchestrator", ".lock")
+    ).toThrow("reserved");
   });
 });
 
 describe("resolveIssueRepositoryPath", () => {
   it("appends /repository to the workspace directory", () => {
-    expect(resolveIssueRepositoryPath("/projects/ws-1/issues/abc")).toBe(
-      "/projects/ws-1/issues/abc/repository"
+    expect(resolveIssueRepositoryPath("/runtime/orchestrator/abc")).toBe(
+      "/runtime/orchestrator/abc/repository"
     );
   });
 });

@@ -13,6 +13,55 @@ import { describe, expect, it, vi } from "vitest";
 import { OrchestratorFsStore } from "./fs-store.js";
 
 describe("OrchestratorFsStore.loadRecentRunEvents", () => {
+  it("uses the workspaceKey-root runtime layout", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    expect(store.projectDir("project-1")).toBe(runtimeRoot);
+    expect(store.runDir("run-1", "project-1")).toBe(
+      join(runtimeRoot, "runs", "run-1")
+    );
+    expect(store.issueWorkspaceDir("project-1", "acme_repo_1")).toBe(
+      join(runtimeRoot, "acme_repo_1")
+    );
+  });
+
+  it("loads only issue workspace directories from the flat runtime root", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await mkdir(join(runtimeRoot, "runs"), { recursive: true });
+    await mkdir(join(runtimeRoot, "cache"), { recursive: true });
+    await mkdir(join(runtimeRoot, ".lock"), { recursive: true });
+    await writeFile(join(runtimeRoot, "status.json"), "{}", "utf8");
+    await writeFile(
+      join(runtimeRoot, "runs", "workspace.json"),
+      JSON.stringify({
+        workspaceKey: "runs",
+      }),
+      "utf8"
+    );
+    await store.saveIssueWorkspace({
+      workspaceKey: "acme_repo_1",
+      projectId: "project-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/repo#1",
+      workspacePath: join(runtimeRoot, "acme_repo_1"),
+      repositoryPath: join(runtimeRoot, "acme_repo_1", "repository"),
+      status: "active",
+      createdAt: "2026-03-16T00:00:00.000Z",
+      updatedAt: "2026-03-16T00:00:00.000Z",
+      lastError: null,
+    });
+
+    await expect(store.loadIssueWorkspaces("project-1")).resolves.toEqual([
+      expect.objectContaining({
+        workspaceKey: "acme_repo_1",
+      }),
+    ]);
+  });
+
   it("returns the most recent formatted events in order", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
@@ -139,8 +188,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       readFile(
         join(
           eventsMirrorRoot,
-          "projects",
-          "project-1",
           "runs",
           "run-1",
           "events.ndjson"
@@ -173,8 +220,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       const primaryStats = await stat(
         join(
           runtimeRoot,
-          "projects",
-          "project-1",
           "runs",
           "run-1",
           "events.ndjson"
@@ -183,8 +228,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       const mirroredStats = await stat(
         join(
           eventsMirrorRoot,
-          "projects",
-          "project-1",
           "runs",
           "run-1",
           "events.ndjson"
@@ -223,8 +266,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         readFile(
           join(
             eventsMirrorRoot,
-            "projects",
-            "project-1",
             "runs",
             "run-1",
             "events.ndjson"
@@ -262,8 +303,6 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         readFile(
           join(
             runtimeRoot,
-            "projects",
-            "project-1",
             "runs",
             "run-1",
             "events.ndjson"
@@ -282,11 +321,9 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
   it("defaults completedOnce to false for legacy persisted issue records", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
-    await mkdir(join(runtimeRoot, "projects", "project-1"), {
-      recursive: true,
-    });
+    await mkdir(runtimeRoot, { recursive: true });
     await writeFile(
-      join(runtimeRoot, "projects", "project-1", "issues.json"),
+      join(runtimeRoot, "issues.json"),
       JSON.stringify([
         {
           issueId: "issue-1",
