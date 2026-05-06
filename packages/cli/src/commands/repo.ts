@@ -11,7 +11,6 @@ import {
 import {
   initRepoRuntime,
   parseRepoRuntimeFlags,
-  RepoRuntimeMigrationError,
 } from "../repo-runtime.js";
 import { resolveRepoRuntimeRoot } from "../orchestrator-runtime.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
