@@ -601,6 +601,22 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     await invokeHandler("project", args, values);
   });
 
+  addGlobalOptions(
+    project
+      .command("explain")
+      .description("Explain why a project issue is not dispatching")
+      .argument("<issue>", "Issue identifier, for example owner/repo#123")
+      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command, issue: string) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args = ["explain", issue];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    await invokeHandler("project", args, values);
+  });
+
   const repo = addGlobalOptions(
     program
       .command("repo")

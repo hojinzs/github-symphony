@@ -70,6 +70,20 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 };
 
+export async function findGithubProjectIssue(
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
+  identifier: string,
+  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
+) {
+  const normalizedIdentifier = identifier.trim().toLowerCase();
+  const issues = await listProjectIssues(project, dependencies);
+  return (
+    issues.find(
+      (issue) => issue.identifier.trim().toLowerCase() === normalizedIdentifier
+    ) ?? null
+  );
+}
+
 async function listProjectIssues(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
   dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}

@@ -325,6 +325,29 @@ describe("project list", () => {
   });
 });
 
+describe("project explain", () => {
+  it("rejects malformed issue identifiers before loading project state", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-explain-invalid-"));
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await projectCommand(["explain", "not-an-issue"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Issue identifier must use the form <owner>/<repo>#<number>"
+    );
+  });
+});
+
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_project_1",
   title: "My Project",

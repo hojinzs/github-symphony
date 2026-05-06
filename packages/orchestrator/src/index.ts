@@ -15,6 +15,8 @@ import {
 export { OrchestratorService, createStore };
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";
+export * from "./explain.js";
+export { resolveTrackerAdapter } from "./tracker-adapters.js";
 export {
   acquireProjectLock,
   assertValidProjectId,

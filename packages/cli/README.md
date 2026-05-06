@@ -181,6 +181,7 @@ gh-symphony doctor                   # Validate local prerequisites, auth, confi
 gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
+gh-symphony project explain owner/repo#123  # Explain why one issue is not dispatching
 gh-symphony repo add owner/name      # Validate and save a repo target manually
 gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
 gh-symphony repo sync --dry-run      # Preview linked repository drift
@@ -200,6 +201,36 @@ additive; `--prune` switches to strict alignment, and `--json` prints the added,
 removed, unchanged, and final repository sets.
 
 For empty projects, use `gh-symphony repo add owner/name` after setup to seed the local repository list without re-running the whole wizard.
+
+### Why Is My Issue Not Running?
+
+Use `gh-symphony project explain <owner/repo#number>` before digging through
+logs manually:
+
+```bash
+gh-symphony project explain owner/repo#123
+gh-symphony project explain owner/repo#123 --json
+```
+
+The command checks project repository linkage, GitHub Project item presence,
+`WORKFLOW.md` active / wait / terminal state mapping, blocker state, existing
+run / retry / convergence ownership, and project or per-state concurrency
+limits.
+
+```text
+Issue dispatch explanation: owner/repo#123
+Not dispatchable: Issue has 1 unresolved blocker.
+
+Checks:
+  ✓ Repository owner/repo is linked to the active managed project.
+  ✓ Issue is present in the bound GitHub Project item set.
+  ✓ Project state "Todo" maps to an active state in WORKFLOW.md.
+  ✗ Issue has 1 unresolved blocker.
+    Hint: Move blocker issues to a terminal state or update the blocker relationship in GitHub.
+```
+
+The remediation hints point to existing commands such as `workflow preview`,
+`doctor`, `project status`, and `logs --issue`.
 
 ## 4. Run the Orchestrator
 

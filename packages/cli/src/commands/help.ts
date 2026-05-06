@@ -35,6 +35,7 @@ Project / Repo:
   project list    List projects
   project switch  Switch active project
   project status  Show orchestrator status for a project
+  project explain Explain why a project issue is not dispatching
   repo list       List configured repositories
   repo add        Validate and add a repository
   repo remove     Remove a repository
@@ -59,6 +60,7 @@ Examples:
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project
+  gh-symphony project explain owner/repo#123
   gh-symphony repo add owner/name      # Validate a repo target before saving it
   gh-symphony repo sync --dry-run      # Preview linked repository drift
   gh-symphony start                   # Start orchestrator
