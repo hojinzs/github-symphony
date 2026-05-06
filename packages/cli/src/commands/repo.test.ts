@@ -74,7 +74,9 @@ function baseOptions(configDir: string) {
   };
 }
 
-function createProjectConfig(repositories: CliProjectConfig["repositories"]): CliProjectConfig {
+function createProjectConfig(
+  repositories: CliProjectConfig["repositories"]
+): CliProjectConfig {
   return {
     projectId: "managed-project",
     slug: "managed-project",
@@ -216,7 +218,9 @@ describe("repo sync", () => {
         cloneUrl: "https://github.com/acme/api.git",
       },
     ]);
-    expect(stdout.output()).toContain("Repository sync complete for managed-project");
+    expect(stdout.output()).toContain(
+      "Repository sync complete for managed-project"
+    );
     expect(stdout.output()).toContain("Mode: additive");
     expect(stdout.output()).toContain("Added");
     expect(stdout.output()).toContain("acme/api");
@@ -288,7 +292,9 @@ describe("repo sync", () => {
         cloneUrl: "https://github.com/acme/platform.git",
       },
     ]);
-    expect(stdout.output()).toContain("Repository sync preview for managed-project");
+    expect(stdout.output()).toContain(
+      "Repository sync preview for managed-project"
+    );
     expect(stdout.output()).toContain("No config changes written.");
   });
 
@@ -507,7 +513,9 @@ describe("repo sync", () => {
   });
 
   it("fails when the active project has no GitHub Project binding", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-missing-binding-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "repo-sync-missing-binding-")
+    );
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
 
@@ -531,7 +539,9 @@ describe("repo sync", () => {
     }
 
     expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain("Active project is missing its GitHub Project binding");
+    expect(stderr.output()).toContain(
+      "Active project is missing its GitHub Project binding"
+    );
   });
 });
 
@@ -568,12 +578,19 @@ describe("repo init runtime migration", () => {
     await mkdir(runDir, { recursive: true });
     await writeFile(
       join(runDir, "run.json"),
-      JSON.stringify({ runId: "run-1", projectId: "tenant-a", status: "running" }),
+      JSON.stringify({
+        runId: "run-1",
+        projectId: "tenant-a",
+        status: "running",
+      }),
       "utf8"
     );
 
     try {
-      await repoCommand(["init", "--repo-dir", repoDir], baseOptions(join(repoDir, "unused")));
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
     } finally {
       stdout.restore();
     }
@@ -606,6 +623,126 @@ describe("repo init runtime migration", () => {
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
   });
 
+  it("can run repo init again after the repository layout exists", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-idempotent-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+      process.exitCode = undefined;
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.output()).toContain("Repository initialized: acme/platform");
+  });
+
+  it("resolves a relative --workflow-file against --repo-dir", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-workflow-file-"));
+    const elsewhere = await mkdtemp(join(tmpdir(), "repo-init-elsewhere-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    const originalCwd = process.cwd();
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(join(repoDir, "CUSTOM.md"), VALID_WORKFLOW, "utf8");
+
+    try {
+      process.chdir(elsewhere);
+      await repoCommand(
+        ["init", "--repo-dir", repoDir, "--workflow-file", "CUSTOM.md"],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      process.chdir(originalCwd);
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.output()).toContain(
+      `Workflow: ${join(repoDir, "CUSTOM.md")}`
+    );
+  });
+
+  it.each([
+    ["name.with.dots", "name.with.dots"],
+    [".github", ".github"],
+  ])(
+    "infers GitHub repository names containing dots: %s",
+    async (remoteName, expectedName) => {
+      const repoDir = await mkdtemp(join(tmpdir(), "repo-init-dotted-"));
+      const stdout = captureWrites(process.stdout);
+      const repoCommand = await loadRepoCommand();
+      execFileSync("git", ["-C", repoDir, "init"]);
+      execFileSync("git", [
+        "-C",
+        repoDir,
+        "remote",
+        "add",
+        "origin",
+        `https://github.com/acme/${remoteName}.git`,
+      ]);
+      await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+
+      try {
+        await repoCommand(
+          ["init", "--repo-dir", repoDir],
+          baseOptions(join(repoDir, "unused"))
+        );
+      } finally {
+        stdout.restore();
+      }
+
+      const projectConfig = JSON.parse(
+        await readFile(
+          join(
+            repoDir,
+            ".runtime",
+            "orchestrator",
+            "projects",
+            "repository",
+            "project.json"
+          ),
+          "utf8"
+        )
+      ) as CliProjectConfig;
+
+      expect(projectConfig.repository).toMatchObject({
+        owner: "acme",
+        name: expectedName,
+      });
+      expect(stdout.output()).toContain(
+        `Repository initialized: acme/${expectedName}`
+      );
+    }
+  );
+
   it("fails with manual cleanup guidance when multiple legacy project directories exist", async () => {
     const repoDir = await mkdtemp(join(tmpdir(), "repo-init-multi-"));
     const stderr = captureWrites(process.stderr);
@@ -630,13 +767,18 @@ describe("repo init runtime migration", () => {
     );
 
     try {
-      await repoCommand(["init", "--repo-dir", repoDir], baseOptions(join(repoDir, "unused")));
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
     } finally {
       stderr.restore();
     }
 
     expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain("Multiple legacy project runtime directories");
+    expect(stderr.output()).toContain(
+      "Multiple legacy project runtime directories"
+    );
     expect(stderr.output()).toContain("Manually keep the project directory");
   });
 
@@ -645,7 +787,10 @@ describe("repo init runtime migration", () => {
     const repoCommand = await loadRepoCommand();
 
     try {
-      await repoCommand(["init", "--project-id", "tenant-a"], baseOptions(tmpdir()));
+      await repoCommand(
+        ["init", "--project-id", "tenant-a"],
+        baseOptions(tmpdir())
+      );
     } finally {
       stderr.restore();
     }
@@ -935,6 +1080,8 @@ describe("repo add", () => {
     expect(stderr.output()).toContain(
       "GitHub API rate limit blocked repository validation."
     );
-    expect(stderr.output()).toContain("Wait for the rate limit window to reset");
+    expect(stderr.output()).toContain(
+      "Wait for the rate limit window to reset"
+    );
   });
 });

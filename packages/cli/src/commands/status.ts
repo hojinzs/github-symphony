@@ -2,9 +2,7 @@ import type { GlobalOptions } from "../index.js";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  resolveRuntimeRoot,
-} from "../orchestrator-runtime.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -161,10 +159,9 @@ function renderLegacyStatus(
 
 function parseStatusArgs(args: string[]): {
   watch: boolean;
-  projectId?: string;
   error?: string;
 } {
-  const parsed: { watch: boolean; projectId?: string; error?: string } = {
+  const parsed: { watch: boolean; error?: string } = {
     watch: false,
   };
 
@@ -172,16 +169,6 @@ function parseStatusArgs(args: string[]): {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
-      continue;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      const value = args[i + 1];
-      if (!value || value.startsWith("-")) {
-        parsed.error = `Option '${arg}' argument missing`;
-        return parsed;
-      }
-      parsed.projectId = value;
-      i += 1;
       continue;
     }
     if (arg?.startsWith("-")) {
@@ -210,15 +197,13 @@ const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  const parsed = parseStatusArgs(args);
   if (rejectRemovedProjectId(args)) {
     return;
   }
+  const parsed = parseStatusArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write(
-      "Usage: gh-symphony status [--watch]\n"
-    );
+    process.stderr.write("Usage: gh-symphony status [--watch]\n");
     process.exitCode = 2;
     return;
   }

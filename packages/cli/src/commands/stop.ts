@@ -9,10 +9,9 @@ import { rejectRemovedProjectId } from "../removed-project-id.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
-  projectId?: string;
   error?: string;
 } {
-  const parsed: { force: boolean; projectId?: string; error?: string } = {
+  const parsed: { force: boolean; error?: string } = {
     force: false,
   };
 
@@ -20,16 +19,6 @@ function parseStopArgs(args: string[]): {
     const arg = args[i];
     if (arg === "--force") {
       parsed.force = true;
-      continue;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      const value = args[i + 1];
-      if (!value || value.startsWith("-")) {
-        parsed.error = `Option '${arg}' argument missing`;
-        return parsed;
-      }
-      parsed.projectId = value;
-      i += 1;
       continue;
     }
     if (arg?.startsWith("-")) {
@@ -45,15 +34,13 @@ const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  const parsed = parseStopArgs(args);
   if (rejectRemovedProjectId(args)) {
     return;
   }
+  const parsed = parseStopArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write(
-      "Usage: gh-symphony stop [--force]\n"
-    );
+    process.stderr.write("Usage: gh-symphony stop [--force]\n");
     process.exitCode = 2;
     return;
   }

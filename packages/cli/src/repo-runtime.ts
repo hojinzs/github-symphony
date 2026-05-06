@@ -48,7 +48,7 @@ export function parseRepoRuntimeFlags(args: readonly string[]): RepoInitFlags {
       if (!value || value.startsWith("-")) {
         throw new Error("Option '--workflow-file' argument missing");
       }
-      flags.workflowFile = resolve(value);
+      flags.workflowFile = value;
       i += 1;
       continue;
     }
@@ -81,9 +81,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     repository,
     repositories: [repository],
     tracker: {
-      adapter:
-        workflow.tracker.kind === "linear" ? "linear" : "github-project",
-      bindingId: workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "",
+      adapter: workflow.tracker.kind === "linear" ? "linear" : "github-project",
+      bindingId:
+        workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "",
       settings: {
         ...(workflow.tracker.projectId
           ? { projectId: workflow.tracker.projectId }
@@ -121,6 +121,14 @@ export async function migrateLegacyRuntime(runtimeRoot: string): Promise<void> {
   const projectsDir = join(runtimeRoot, "projects");
   const projectIds = await readDirectoryNames(projectsDir);
   if (projectIds.length === 0) {
+    return;
+  }
+
+  if (
+    projectIds.length === 1 &&
+    projectIds[0] === INTERNAL_PROJECT_ID &&
+    (await pathExists(join(runtimeRoot, "project.json")))
+  ) {
     return;
   }
 
@@ -180,9 +188,10 @@ async function readDirectoryNames(path: string): Promise<string[]> {
 
 function resolveRepository(repoDir: string): RepositoryRef {
   const remote = readGitOrigin(repoDir);
+  const cleanedRemote = remote.replace(/\.git$/, "");
   const match =
-    remote.match(/github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/) ??
-    remote.match(/^([^/]+)\/([^/]+)$/);
+    cleanedRemote.match(/github\.com[:/]([^/]+)\/([^/]+)$/) ??
+    cleanedRemote.match(/^([^/]+)\/([^/]+)$/);
   if (!match) {
     throw new Error(
       "Unable to infer GitHub repository from git remote 'origin'. Run from a cloned GitHub repository or set origin to owner/name."
@@ -201,10 +210,14 @@ function resolveRepository(repoDir: string): RepositoryRef {
 
 function readGitOrigin(repoDir: string): string {
   try {
-    return execFileSync("git", ["-C", repoDir, "config", "--get", "remote.origin.url"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    return execFileSync(
+      "git",
+      ["-C", repoDir, "config", "--get", "remote.origin.url"],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }
+    ).trim();
   } catch {
     throw new Error(
       "Unable to read git remote 'origin'. Run 'gh-symphony repo init' inside a cloned repository."
@@ -245,8 +258,8 @@ async function pathExists(path: string): Promise<boolean> {
 function isMissing(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
   );
 }

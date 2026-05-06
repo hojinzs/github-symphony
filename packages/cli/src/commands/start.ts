@@ -74,7 +74,6 @@ function parseStartArgs(args: string[]): {
   once: boolean;
   httpPort?: number;
   webPort?: number;
-  projectId?: string;
   logLevel?: string;
   error?: string;
 } {
@@ -83,7 +82,6 @@ function parseStartArgs(args: string[]): {
     once: boolean;
     httpPort?: number;
     webPort?: number;
-    projectId?: string;
     logLevel?: string;
     error?: string;
   } = {
@@ -118,16 +116,6 @@ function parseStartArgs(args: string[]): {
         continue;
       }
       parsed.webPort = parsePort(value, arg);
-      i += 1;
-      continue;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      const value = args[i + 1];
-      if (!value || value.startsWith("-")) {
-        parsed.error = `Option '${arg}' argument missing`;
-        return parsed;
-      }
-      parsed.projectId = value;
       i += 1;
       continue;
     }
@@ -311,7 +299,7 @@ function formatBoundUrl(server: Server): string {
 
 function logHttpRequestError(error: unknown): void {
   const message =
-    error instanceof Error ? error.stack ?? error.message : String(error);
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`[start] HTTP request failed: ${message}\n`);
 }
 
@@ -359,10 +347,7 @@ async function startHttpServer(input: {
       void (async () => {
         try {
           const url = new URL(request.url ?? "/", `http://${HTTP_HOST}`);
-          if (
-            request.method === "POST" &&
-            url.pathname === "/api/v1/refresh"
-          ) {
+          if (request.method === "POST" && url.pathname === "/api/v1/refresh") {
             request.resume();
             input.service.requestReconcile();
             respondJson(response, 202, { ok: true });
@@ -456,13 +441,15 @@ const handler = async (
     return;
   }
   if (parsed.daemon && parsed.once) {
-    process.stderr.write("Options '--daemon' and '--once' cannot be used together\n");
+    process.stderr.write(
+      "Options '--daemon' and '--once' cannot be used together\n"
+    );
     process.exitCode = 2;
     return;
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-      requestedProjectId: undefined,
+    requestedProjectId: undefined,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -601,13 +588,13 @@ const handler = async (
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined
-          ? await startHttpServer({
-              runtimeRoot,
-              projectId,
-              initialPort: parsed.httpPort,
-              service,
-            })
-          : null;
+            ? await startHttpServer({
+                runtimeRoot,
+                projectId,
+                initialPort: parsed.httpPort,
+                service,
+              })
+            : null;
       if (httpServer) {
         try {
           await writeHttpBindingState(options.configDir, projectId, {
@@ -642,7 +629,9 @@ const handler = async (
       logLine(
         dim("\u00B7"),
         dim(
-          parsed.once ? "Running one orchestration tick" : "Press Ctrl+C to stop"
+          parsed.once
+            ? "Running one orchestration tick"
+            : "Press Ctrl+C to stop"
         )
       );
 
@@ -774,9 +763,9 @@ export async function shutdownForegroundOrchestrator(
   return (input.exit ?? process.exit)(0);
 }
 
-function hasConfiguredRepository(
-  config: { repository?: OrchestratorProjectConfig["repository"] }
-): config is OrchestratorProjectConfig {
+function hasConfiguredRepository(config: {
+  repository?: OrchestratorProjectConfig["repository"];
+}): config is OrchestratorProjectConfig {
   return Boolean(config.repository?.owner && config.repository.name);
 }
 
@@ -818,7 +807,7 @@ async function startDaemon(
   const { openSync } = await import("node:fs");
   const logFd = openSync(logPath, "a");
 
-    const child = spawn(
+  const child = spawn(
     process.execPath,
     [
       process.argv[1]!,
@@ -848,7 +837,7 @@ async function startDaemon(
   closeSync(logFd);
 
   process.stdout.write(
-      `Orchestrator started in background (PID: ${child.pid}).\n` +
+    `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
       "Stop with: gh-symphony repo stop\n"
   );

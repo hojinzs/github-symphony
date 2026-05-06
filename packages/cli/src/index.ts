@@ -199,7 +199,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
-      .option("--runtime <kind>", "Runtime preset: codex-app-server or claude-print")
+      .option(
+        "--runtime <kind>",
+        "Runtime preset: codex-app-server or claude-print"
+      )
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -238,7 +241,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
-      .option("--runtime <kind>", "Runtime preset: codex-app-server or claude-print")
+      .option(
+        "--runtime <kind>",
+        "Runtime preset: codex-app-server or claude-print"
+      )
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -365,7 +371,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Expose the control plane web dashboard and API over HTTP"
       )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -386,7 +392,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("stop")
       .description("Stop the background orchestrator")
       .option("--force", "Force stop with SIGKILL")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -403,7 +409,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("status")
       .description("Show orchestrator status")
       .option("-w, --watch", "Watch status continuously")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -650,8 +656,14 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Start the orchestrator for the current repository")
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
-      .option("--http [port]", "Expose dashboard and refresh endpoints over HTTP")
-      .option("--web [port]", "Expose the control plane web dashboard and API over HTTP")
+      .option(
+        "--http [port]",
+        "Expose dashboard and refresh endpoints over HTTP"
+      )
+      .option(
+        "--web [port]",
+        "Expose the control plane web dashboard and API over HTTP"
+      )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())

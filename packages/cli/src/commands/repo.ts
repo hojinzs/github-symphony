@@ -87,10 +87,7 @@ function repoOptions(options: GlobalOptions): GlobalOptions {
   };
 }
 
-async function repoInit(
-  args: string[],
-  options: GlobalOptions
-): Promise<void> {
+async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
   if (rejectRemovedProjectId(args)) {
     return;
   }
