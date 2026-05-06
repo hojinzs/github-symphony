@@ -63,10 +63,8 @@ async function createConfigFixture(): Promise<string> {
     "utf8"
   );
 
-  const runtimeProjectDir = join(configDir, "projects", projectId);
-  await mkdir(runtimeProjectDir, { recursive: true });
   await writeFile(
-    join(runtimeProjectDir, "status.json"),
+    join(configDir, "status.json"),
     JSON.stringify(
       {
         projectId,

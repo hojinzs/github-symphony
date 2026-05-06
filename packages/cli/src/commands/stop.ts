@@ -5,6 +5,7 @@ import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+import { rejectRemovedProjectId } from "../removed-project-id.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
@@ -45,10 +46,13 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseStopArgs(args);
+  if (rejectRemovedProjectId(args)) {
+    return;
+  }
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony stop --project-id <project-id> [--force]\n"
+      "Usage: gh-symphony stop [--force]\n"
     );
     process.exitCode = 2;
     return;
@@ -56,7 +60,7 @@ const handler = async (
   const resolvedForce = parsed.force;
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: parsed.projectId,
+    requestedProjectId: undefined,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();

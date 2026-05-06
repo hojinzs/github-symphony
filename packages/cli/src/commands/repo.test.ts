@@ -1,4 +1,5 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -89,6 +90,29 @@ function createProjectConfig(repositories: CliProjectConfig["repositories"]): Cl
     },
   };
 }
+
+const VALID_WORKFLOW = `---
+tracker:
+  kind: github-project
+  project_id: PVT_project_123
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+hooks:
+  timeout_ms: 60000
+agent:
+  max_concurrent_agents: 1
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`;
 
 async function seedActiveProject(
   configDir: string,
@@ -508,6 +532,127 @@ describe("repo sync", () => {
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain("Active project is missing its GitHub Project binding");
+  });
+});
+
+describe("repo init runtime migration", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
+  });
+
+  it("promotes a single legacy project directory and strips projectId from run records", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-single-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+
+    const runDir = join(
+      repoDir,
+      ".runtime",
+      "orchestrator",
+      "projects",
+      "tenant-a",
+      "runs",
+      "run-1"
+    );
+    await mkdir(runDir, { recursive: true });
+    await writeFile(
+      join(runDir, "run.json"),
+      JSON.stringify({ runId: "run-1", projectId: "tenant-a", status: "running" }),
+      "utf8"
+    );
+
+    try {
+      await repoCommand(["init", "--repo-dir", repoDir], baseOptions(join(repoDir, "unused")));
+    } finally {
+      stdout.restore();
+    }
+
+    const migratedRun = JSON.parse(
+      await readFile(
+        join(repoDir, ".runtime", "orchestrator", "runs", "run-1", "run.json"),
+        "utf8"
+      )
+    ) as Record<string, unknown>;
+    const projectConfig = JSON.parse(
+      await readFile(
+        join(
+          repoDir,
+          ".runtime",
+          "orchestrator",
+          "projects",
+          "repository",
+          "project.json"
+        ),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(migratedRun).not.toHaveProperty("projectId");
+    expect(projectConfig.repository).toMatchObject({
+      owner: "acme",
+      name: "platform",
+    });
+    expect(stdout.output()).toContain("Repository initialized: acme/platform");
+  });
+
+  it("fails with manual cleanup guidance when multiple legacy project directories exist", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-multi-"));
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+    await mkdir(
+      join(repoDir, ".runtime", "orchestrator", "projects", "tenant-a"),
+      { recursive: true }
+    );
+    await mkdir(
+      join(repoDir, ".runtime", "orchestrator", "projects", "tenant-b"),
+      { recursive: true }
+    );
+
+    try {
+      await repoCommand(["init", "--repo-dir", repoDir], baseOptions(join(repoDir, "unused")));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("Multiple legacy project runtime directories");
+    expect(stderr.output()).toContain("Manually keep the project directory");
+  });
+
+  it("reports a clear error when --project-id is used", async () => {
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    try {
+      await repoCommand(["init", "--project-id", "tenant-a"], baseOptions(tmpdir()));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain("--project-id has been removed");
+    expect(stderr.output()).toContain("current repository directory");
   });
 });
 

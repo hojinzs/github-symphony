@@ -9,6 +9,7 @@ import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
@@ -194,15 +195,10 @@ function parseStatusArgs(args: string[]): {
 
 async function readStatusSnapshot(
   runtimeRoot: string,
-  projectId: string
+  _projectId: string
 ): Promise<ProjectStatusSnapshot | null> {
   try {
-    const statusPath = join(
-      runtimeRoot,
-      "projects",
-      projectId,
-      "status.json"
-    );
+    const statusPath = join(runtimeRoot, "status.json");
     const content = await readFile(statusPath, "utf-8");
     return JSON.parse(content) as ProjectStatusSnapshot;
   } catch {
@@ -215,10 +211,13 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseStatusArgs(args);
+  if (rejectRemovedProjectId(args)) {
+    return;
+  }
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony status [--project-id <project-id>] [--watch]\n"
+      "Usage: gh-symphony status [--watch]\n"
     );
     process.exitCode = 2;
     return;
@@ -226,7 +225,7 @@ const handler = async (
 
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: parsed.projectId,
+    requestedProjectId: undefined,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();

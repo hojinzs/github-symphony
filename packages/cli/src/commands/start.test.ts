@@ -155,7 +155,7 @@ describe("start command foreground locking", () => {
       .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
 
     await startModule.default(
-      ["--project-id", "tenant-a", "--once"],
+      ["--once"],
       baseOptions(configDir)
     );
 
@@ -174,7 +174,7 @@ describe("start command foreground locking", () => {
 
     try {
       await startModule.default(
-        ["--project-id", "tenant-a", "--daemon", "--once"],
+        ["--daemon", "--once"],
         baseOptions(configDir)
       );
     } finally {
@@ -198,7 +198,7 @@ describe("start command foreground locking", () => {
 
     try {
       await startModule.default(
-        ["--project-id", "tenant-a", "--http", "--web"],
+        ["--http", "--web"],
         baseOptions(configDir)
       );
     } finally {
@@ -253,7 +253,7 @@ describe("start command foreground locking", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
 
-    await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+    await startModule.default([], baseOptions(configDir));
 
     expect(acquireProjectLock).toHaveBeenCalledWith({
       runtimeRoot: configDir,
@@ -310,7 +310,7 @@ describe("start command foreground locking", () => {
       .spyOn(process, "exit")
       .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
 
-    await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+    await startModule.default([], baseOptions(configDir));
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
@@ -348,7 +348,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--http"],
+        ["--http"],
         baseOptions(configDir)
       );
 
@@ -447,7 +447,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--web"],
+        ["--web"],
         baseOptions(configDir)
       );
 
@@ -541,7 +541,7 @@ describe("start command foreground locking", () => {
       .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
 
     const startPromise = startModule.default(
-      ["--project-id", "tenant-a", "--web", "4900"],
+      ["--web", "4900"],
       baseOptions(configDir)
     );
 
@@ -604,7 +604,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--once", "--http"],
+        ["--once", "--http"],
         baseOptions(configDir)
       );
 
@@ -672,7 +672,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--http"],
+        ["--http"],
         baseOptions(configDir)
       );
 
@@ -735,7 +735,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--http", String(address.port)],
+        ["--http", String(address.port)],
         baseOptions(configDir)
       );
 
@@ -785,7 +785,7 @@ describe("start command foreground locking", () => {
     acquireProjectLock.mockRejectedValue(new Error("lock busy"));
 
     await expect(
-      startModule.default(["--project-id", "tenant-a"], baseOptions(configDir))
+      startModule.default([], baseOptions(configDir))
     ).rejects.toThrow("lock busy");
 
     await expect(readFile(statePath, "utf8")).resolves.toContain(
@@ -826,7 +826,7 @@ describe("start command foreground locking", () => {
 
     try {
       const startPromise = startModule.default(
-        ["--project-id", "tenant-a", "--http"],
+        ["--http"],
         baseOptions(configDir)
       );
 
