@@ -30,11 +30,7 @@ export type DashboardProjectStateSnapshot = ProjectStatusSnapshot & {
 export class DashboardFsReader {
   private readonly resolvedRuntimeRoot: string;
 
-  constructor(
-    readonly runtimeRoot: string,
-    readonly projectId: string
-  ) {
-    assertValidDashboardProjectId(projectId);
+  constructor(readonly runtimeRoot: string) {
     this.resolvedRuntimeRoot = resolve(runtimeRoot);
   }
 
@@ -48,9 +44,20 @@ export class DashboardFsReader {
   }
 
   async loadProjectStatus(): Promise<ProjectStatusSnapshot | null> {
-    return readJsonFile<ProjectStatusSnapshot>(
-      join(this.projectDir(), "status.json")
-    );
+    const snapshot = await readJsonFile<
+      ProjectStatusSnapshot & { projectId?: string; slug?: string }
+    >(join(this.projectDir(), "status.json"));
+    if (!snapshot) {
+      return null;
+    }
+
+    const status: ProjectStatusSnapshot & {
+      projectId?: string;
+      slug?: string;
+    } = { ...snapshot };
+    delete status.projectId;
+    delete status.slug;
+    return status;
   }
 
   async loadProjectState(): Promise<DashboardProjectStateSnapshot | null> {
@@ -136,7 +143,8 @@ export class DashboardFsReader {
             return null;
           }
 
-          return run.issueId === issueId || run.issueIdentifier === issueIdentifier
+          return run.issueId === issueId ||
+            run.issueIdentifier === issueIdentifier
             ? run
             : null;
         } catch (error) {
@@ -241,7 +249,6 @@ export async function statusForIssue(
     : null;
   const currentRun = isMatchingIssueRun(
     currentRunCandidate,
-    reader.projectId,
     issueRecord.issueId,
     issueIdentifier
   )
@@ -253,8 +260,7 @@ export async function statusForIssue(
       : currentRun.tokenUsage
         ? await reader.loadRunsForIssue(issueRecord.issueId, issueIdentifier)
         : null;
-  const resolvedRun =
-    currentRun ?? findLatestRunForIssue(issueRuns ?? []);
+  const resolvedRun = currentRun ?? findLatestRunForIssue(issueRuns ?? []);
 
   const recentEvents =
     resolvedRun === null
@@ -360,27 +366,12 @@ function findLatestRunForIssue(
 ): OrchestratorRunRecord | null {
   // If the tracked currentRunId is stale, fall back to a bounded-concurrency scan
   // across persisted runs rather than opening every run.json at once.
-  const sortedRuns = [...matchingRuns]
-    .sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-    );
+  const sortedRuns = [...matchingRuns].sort(
+    (left, right) =>
+      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  );
 
   return sortedRuns[0] ?? null;
-}
-
-export function assertValidDashboardProjectId(projectId: string): void {
-  if (
-    projectId.length === 0 ||
-    projectId === "." ||
-    projectId === ".." ||
-    projectId.includes("/") ||
-    projectId.includes("\\")
-  ) {
-    throw new Error(
-      `Invalid project ID "${projectId}". Project IDs must not contain path separators or traversal segments.`
-    );
-  }
 }
 
 export function assertValidDashboardRunId(runId: string): void {

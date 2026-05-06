@@ -66,6 +66,16 @@ describe("OrchestratorService", () => {
     expect(first.tracker).toEqual({
       adapter: "github-project",
       bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        repository: "acme/platform",
+      },
+    });
+    expect(first).not.toHaveProperty("projectId");
+    expect(first).not.toHaveProperty("slug");
+    expect(first.repository).toMatchObject({
+      owner: "acme",
+      name: "platform",
     });
     expect(second.summary.dispatched).toBe(0);
     expect(issueRecords).toHaveLength(1);
@@ -693,8 +703,15 @@ describe("OrchestratorService", () => {
       expect(onTick).toHaveBeenCalledTimes(1);
       expect(onTick).toHaveBeenCalledWith(
         expect.objectContaining({
-          projectId: "tenant-1",
-          slug: "tenant-1",
+          repository: expect.objectContaining({
+            owner: "acme",
+            name: "platform",
+          }),
+          tracker: expect.objectContaining({
+            settings: expect.objectContaining({
+              projectId: "project-123",
+            }),
+          }),
           health: "idle",
           lastTickAt: "2026-03-08T00:00:00.000Z",
           summary: expect.objectContaining({

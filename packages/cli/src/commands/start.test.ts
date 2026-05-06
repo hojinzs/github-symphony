@@ -69,8 +69,9 @@ beforeEach(() => {
       payload: { pathname, method: method ?? "GET" },
     })
   );
-  startControlPlaneServer.mockImplementation(async ({ port }: { port: number }) =>
-    createMockControlPlaneStartResult(port)
+  startControlPlaneServer.mockImplementation(
+    async ({ port }: { port: number }) =>
+      createMockControlPlaneStartResult(port)
   );
   serviceDependencies.length = 0;
 });
@@ -152,7 +153,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
 
     await startModule.default(
       ["--project-id", "tenant-a", "--once"],
@@ -220,12 +223,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(
-        configDir,
-        "projects",
-        "tenant-a",
-        ".lock"
-      ),
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -251,9 +249,14 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
 
-    await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+    await startModule.default(
+      ["--project-id", "tenant-a"],
+      baseOptions(configDir)
+    );
 
     expect(acquireProjectLock).toHaveBeenCalledWith({
       runtimeRoot: configDir,
@@ -271,12 +274,7 @@ describe("start command foreground locking", () => {
       projects: [createProject("tenant-a", "acme", "platform")],
     });
     const lock = {
-      lockPath: join(
-        configDir,
-        "projects",
-        "tenant-a",
-        ".lock"
-      ),
+      lockPath: join(configDir, "projects", "tenant-a", ".lock"),
       ownerToken: "owner",
       pid: 1234,
       startedAt: "2026-03-17T00:00:00.000Z",
@@ -308,9 +306,14 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
 
-    await startModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+    await startModule.default(
+      ["--project-id", "tenant-a"],
+      baseOptions(configDir)
+    );
 
     expect(run).toHaveBeenCalledTimes(2);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
@@ -343,7 +346,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -442,7 +447,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -456,7 +463,6 @@ describe("start command foreground locking", () => {
         host: "0.0.0.0",
         port: 4680,
         runtimeRoot: configDir,
-        projectId: "tenant-a",
         onRefreshRequest: expect.any(Function),
       });
 
@@ -538,7 +544,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
 
     const startPromise = startModule.default(
       ["--project-id", "tenant-a", "--web", "4900"],
@@ -550,7 +558,6 @@ describe("start command foreground locking", () => {
         host: "0.0.0.0",
         port: 4900,
         runtimeRoot: configDir,
-        projectId: "tenant-a",
         onRefreshRequest: expect.any(Function),
       });
     });
@@ -573,33 +580,33 @@ describe("start command foreground locking", () => {
       startedAt: "2026-03-17T00:00:00.000Z",
     };
     acquireProjectLock.mockResolvedValue(lock);
-    run.mockImplementation(
-      async (options?: { once?: boolean }) => {
-        expect(options).toEqual({ once: true });
-        const onTick = serviceDependencies.at(-1)?.onTick as
-          | ((snapshot: Record<string, unknown>) => Promise<void>)
-          | undefined;
-        await onTick?.({
-          projectId: "tenant-a",
-          slug: "tenant-a",
-          health: "idle",
-          lastTickAt: "2026-03-17T00:00:00.000Z",
-          summary: {
-            dispatched: 0,
-            suppressed: 0,
-            recovered: 0,
-            activeRuns: 0,
-          },
-          activeRuns: [],
-          retryQueue: [],
-          lastError: null,
-        });
-      }
-    );
+    run.mockImplementation(async (options?: { once?: boolean }) => {
+      expect(options).toEqual({ once: true });
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
+        projectId: "tenant-a",
+        slug: "tenant-a",
+        health: "idle",
+        lastTickAt: "2026-03-17T00:00:00.000Z",
+        summary: {
+          dispatched: 0,
+          suppressed: 0,
+          recovered: 0,
+          activeRuns: 0,
+        },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      });
+    });
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -666,7 +673,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
 
@@ -730,7 +739,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -789,7 +800,7 @@ describe("start command foreground locking", () => {
     ).rejects.toThrow("lock busy");
 
     await expect(readFile(statePath, "utf8")).resolves.toContain(
-      "\"endpoint\": \"http://localhost:4680\""
+      '"endpoint": "http://localhost:4680"'
     );
   });
 
@@ -821,7 +832,9 @@ describe("start command foreground locking", () => {
 
     const exitSpy = vi
       .spyOn(process, "exit")
-      .mockImplementation(((_code?: number) => undefined) as (code?: number) => never);
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -874,9 +887,7 @@ async function waitForHttpUrl(
   while (Date.now() - startedAt < timeoutMs) {
     const match = output()
       .replace(ansiPattern, "")
-      .match(
-      /(HTTP|Web) dashboard listening on .*?(http:\/\/[^\s]+)/
-    );
+      .match(/(HTTP|Web) dashboard listening on .*?(http:\/\/[^\s]+)/);
     if (match?.[2]) {
       return match[2];
     }

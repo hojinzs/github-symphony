@@ -65,7 +65,6 @@ export interface ControlPlaneServerOptions {
   host: string;
   port: number;
   runtimeRoot: string;
-  projectId: string;
   onRefreshRequest?: () => void;
 }
 
@@ -80,10 +79,9 @@ export interface ControlPlaneServerStartResult {
   port: number;
 }
 
-export function createControlPlaneHandler(options: ControlPlaneHandlerOptions): (
-  req: IncomingMessage,
-  res: ServerResponse
-) => Promise<void> {
+export function createControlPlaneHandler(
+  options: ControlPlaneHandlerOptions
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   return async (request, response) => {
     try {
       const method = request.method ?? "GET";
@@ -135,7 +133,7 @@ export function createControlPlaneHandler(options: ControlPlaneHandlerOptions): 
 export async function startControlPlaneServer(
   options: ControlPlaneServerOptions
 ): Promise<ControlPlaneServerStartResult> {
-  const reader = new DashboardFsReader(options.runtimeRoot, options.projectId);
+  const reader = new DashboardFsReader(options.runtimeRoot);
   const handler = createControlPlaneHandler({
     reader,
     onRefreshRequest: options.onRefreshRequest,

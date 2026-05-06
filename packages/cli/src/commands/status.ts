@@ -2,9 +2,7 @@ import type { GlobalOptions } from "../index.js";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  resolveRuntimeRoot,
-} from "../orchestrator-runtime.js";
+import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -52,6 +50,13 @@ function resolveProjectTokenDelta(snapshot: ProjectStatusSnapshot): number {
   );
 }
 
+function formatRepository(
+  repository: ProjectStatusSnapshot["repository"] | undefined,
+  fallback: string
+): string {
+  return repository ? `${repository.owner}/${repository.name}` : fallback;
+}
+
 function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean
@@ -61,7 +66,10 @@ function renderLegacyStatus(
   const lines: string[] = [];
 
   // Header
-  const headerTitle = `gh-symphony ∙ ${snapshot.slug}`;
+  const headerTitle = `gh-symphony ∙ ${formatRepository(
+    snapshot.repository,
+    (snapshot as ProjectStatusSnapshot & { slug?: string }).slug ?? "repository"
+  )}`;
   const headerWidth = 45;
   const headerPadding = Math.max(
     0,
@@ -197,12 +205,7 @@ async function readStatusSnapshot(
   projectId: string
 ): Promise<ProjectStatusSnapshot | null> {
   try {
-    const statusPath = join(
-      runtimeRoot,
-      "projects",
-      projectId,
-      "status.json"
-    );
+    const statusPath = join(runtimeRoot, "projects", projectId, "status.json");
     const content = await readFile(statusPath, "utf-8");
     return JSON.parse(content) as ProjectStatusSnapshot;
   } catch {

@@ -157,11 +157,11 @@ export type LiveWorkerState = {
 };
 
 export type ProjectStatusSnapshot = {
-  projectId: string;
-  slug: string;
+  repository: RepositoryRef;
   tracker: {
     adapter: TrackerAdapterKind;
     bindingId: string;
+    settings?: Record<string, string | number | boolean>;
   };
   lastTickAt: string;
   health: "idle" | "running" | "degraded";

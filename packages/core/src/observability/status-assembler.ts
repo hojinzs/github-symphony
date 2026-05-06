@@ -3,14 +3,11 @@ import type { OrchestratorRunRecord } from "../contracts/status-surface.js";
 
 export function isMatchingIssueRun(
   run: OrchestratorRunRecord | null,
-  projectId: string,
   issueId: string,
   issueIdentifier: string
 ): run is OrchestratorRunRecord {
   return Boolean(
-    run &&
-      run.projectId === projectId &&
-      (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
+    run && (run.issueId === issueId || run.issueIdentifier === issueIdentifier)
   );
 }
 

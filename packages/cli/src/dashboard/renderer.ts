@@ -93,6 +93,13 @@ function compactSessionId(id: string | null | undefined): string {
   return `${id.slice(0, 4)}...${id.slice(-6)}`;
 }
 
+function formatRepository(
+  repository: ProjectStatusSnapshot["repository"] | undefined,
+  fallback: string
+): string {
+  return repository ? `${repository.owner}/${repository.name}` : fallback;
+}
+
 function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
@@ -316,7 +323,17 @@ export function renderDashboard(
     const hasRetries = snap.retryQueue.length > 0;
     if (!hasActiveRuns && !hasRetries) continue;
 
-    lines.push(sectionDivider(snap.slug, width, c));
+    lines.push(
+      sectionDivider(
+        formatRepository(
+          snap.repository,
+          (snap as ProjectStatusSnapshot & { slug?: string }).slug ??
+            "repository"
+        ),
+        width,
+        c
+      )
+    );
     if (hasActiveRuns) {
       lines.push(tableHeaderRow(c));
       for (const rawRun of snap.activeRuns) {
