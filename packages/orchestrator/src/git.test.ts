@@ -127,7 +127,9 @@ describe("cloneRepositoryForRun", () => {
         issueWorkspacePath,
         existingWorkspace: true,
       })
-    ).rejects.toThrow(/was preserved because it has uncommitted changes/);
+    ).rejects.toThrow(
+      /was preserved because it has uncommitted changes: M WORKFLOW.md/
+    );
 
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
@@ -168,6 +170,35 @@ describe("cloneRepositoryForRun", () => {
     await expect(
       access(join(repositoryDirectory, ".git"))
     ).resolves.toBeUndefined();
+  });
+
+  it("preserves existing issue workspace repository debris without git metadata", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-issue-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_1");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
+
+    await mkdir(repositoryDirectory, { recursive: true });
+    await writeFile(join(repositoryDirectory, "artifact.log"), "keep me");
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+      })
+    ).rejects.toThrow(
+      /was preserved because it exists but is not a git checkout/
+    );
+
+    expect(
+      await readFile(join(repositoryDirectory, "artifact.log"), "utf8")
+    ).toBe("keep me");
+    await expect(
+      access(join(repositoryDirectory, ".git"))
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("only releases repository locks owned by the current caller", async () => {

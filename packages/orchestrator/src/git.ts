@@ -191,11 +191,20 @@ async function syncExistingIssueWorkspaceRepository(input: {
     const hasGit = await pathExists(join(repositoryDirectory, ".git"));
 
     if (hasGit) {
-      const dirtyStatus = await readGitStatusPorcelain(repositoryDirectory);
+      let dirtyStatus: string;
+      try {
+        dirtyStatus = await readGitStatusPorcelain(repositoryDirectory);
+      } catch (error) {
+        throw createIssueWorkspacePreservedError(
+          repositoryDirectory,
+          `could not be inspected: ${formatCommandError(error, "git status --porcelain failed")}`
+        );
+      }
+
       if (dirtyStatus.trim()) {
         throw createIssueWorkspacePreservedError(
           repositoryDirectory,
-          "has uncommitted changes"
+          `has uncommitted changes: ${summarizeGitStatus(dirtyStatus)}`
         );
       }
 
@@ -207,8 +216,7 @@ async function syncExistingIssueWorkspaceRepository(input: {
           "--ff-only",
         ]);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "git pull --ff-only failed";
+        const message = formatCommandError(error, "git pull --ff-only failed");
         throw createIssueWorkspacePreservedError(
           repositoryDirectory,
           `could not be fast-forwarded: ${message}`
@@ -257,6 +265,25 @@ function createIssueWorkspacePreservedError(
       "Resolve or commit the local workspace changes, or run a configured recovery hook, before retrying.",
     ].join(" ")
   );
+}
+
+function formatCommandError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  return normalizeWhitespace(message) || fallback;
+}
+
+function summarizeGitStatus(status: string): string {
+  const lines = status
+    .trim()
+    .split(/\r?\n/)
+    .map(normalizeWhitespace)
+    .filter(Boolean);
+  const summary = lines.slice(0, 5).join("; ");
+  return lines.length > 5 ? `${summary}; ...` : summary;
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 async function readGitStatusPorcelain(

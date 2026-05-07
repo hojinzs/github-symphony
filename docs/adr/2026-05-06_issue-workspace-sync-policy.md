@@ -25,6 +25,12 @@ Repository synchronization uses two policies:
   checkout is dirty, or if a clean checkout cannot be fast-forwarded, the
   workspace is preserved and run preparation fails with an explicit recovery
   error.
+- If a persisted workspace record exists but `repository/` is missing entirely,
+  the orchestrator creates a fresh clone in that path. This is not treated as
+  destructive because there is no checkout state at `repository/` to preserve.
+- If `repository/` exists but is not a git checkout, the directory is preserved
+  and run preparation fails. Operators or hooks must decide whether that debris
+  is recoverable before retrying.
 
 New issue workspaces may still remove partial clone debris during first
 creation, because no prior issue workspace state exists to preserve.
