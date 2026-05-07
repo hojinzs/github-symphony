@@ -42,7 +42,7 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 
 5. **Verify graceful shutdown**
    ```bash
-   docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson' | tail -5
+   docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson' | tail -5
    # Expected: events showing stall detection and worker termination
    ```
 
@@ -55,7 +55,7 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 
 7. **Verify token usage artifact saved**
    ```bash
-   docker exec symphony-e2e sh -c 'find /app/.runtime -name token-usage.json -exec cat {} \;'
+   docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator -name token-usage.json -exec cat {} \;'
    # Expected: { "inputTokens": 150, "outputTokens": 42, "totalTokens": 192 }
    ```
 

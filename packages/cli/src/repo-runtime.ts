@@ -73,23 +73,35 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   const workflowPath = resolve(repoDir, flags.workflowFile ?? "WORKFLOW.md");
   const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
   const repository = resolveRepository(repoDir);
+  const trackerAdapter = workflow.tracker.kind ?? "github-project";
+  const trackerBindingId =
+    workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "";
+  const trackerSettings: Record<string, string> = {
+    ...(workflow.tracker.projectId
+      ? { projectId: workflow.tracker.projectId }
+      : {}),
+    repository: `${repository.owner}/${repository.name}`,
+  };
+  if (trackerAdapter === "file") {
+    if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
+      throw new Error(
+        "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH to point to the issues fixture."
+      );
+    }
+    // E2E-only escape hatch for binding the file tracker to a mounted fixture.
+    trackerSettings.issuesPath =
+      process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+  }
   const projectConfig: CliProjectConfig = {
     projectId: INTERNAL_PROJECT_ID,
     slug: basename(repoDir) || INTERNAL_PROJECT_ID,
     displayName: `${repository.owner}/${repository.name}`,
     workspaceDir: repoDir,
     repository,
-    repositories: [repository],
     tracker: {
-      adapter: workflow.tracker.kind === "linear" ? "linear" : "github-project",
-      bindingId:
-        workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "",
-      settings: {
-        ...(workflow.tracker.projectId
-          ? { projectId: workflow.tracker.projectId }
-          : {}),
-        repository: `${repository.owner}/${repository.name}`,
-      },
+      adapter: trackerAdapter,
+      bindingId: trackerBindingId,
+      settings: trackerSettings,
     },
   };
 

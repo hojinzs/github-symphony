@@ -13,7 +13,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 1. Seed a failing `before_remove` hook into the E2E repository.
    ```bash
    docker exec symphony-e2e sh -lc '
-     cd /e2e/repos/test-owner/test-repo &&
+     cd /e2e/work/test-repo &&
      mkdir -p hooks &&
      cat > hooks/before_remove.sh <<'"'"'EOF'"'"'
 #!/usr/bin/env bash
@@ -46,7 +46,7 @@ EOF
    ```bash
    docker exec symphony-e2e sh -lc '
       for i in $(seq 1 20); do
-        find /app/.runtime/projects -name workspace.json | grep -q . && exit 0
+        find /e2e/work/test-repo/.runtime/orchestrator -name workspace.json | grep -q . && exit 0
        sleep 1
      done
      exit 1
@@ -90,7 +90,7 @@ EOF
    ```bash
    docker exec symphony-e2e sh -lc '
       for i in $(seq 1 20); do
-        record=$(find /app/.runtime/projects -name workspace.json | head -n 1)
+        record=$(find /e2e/work/test-repo/.runtime/orchestrator -name workspace.json | head -n 1)
        [ -n "$record" ] || { sleep 1; continue; }
        python3 - "$record" <<'"'"'PY'"'"'
 import json, sys

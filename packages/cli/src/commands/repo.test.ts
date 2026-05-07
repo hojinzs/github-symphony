@@ -799,6 +799,120 @@ describe("repo init runtime migration", () => {
     expect(stderr.output()).toContain("--project-id has been removed");
     expect(stderr.output()).toContain("current repository directory");
   });
+
+  it("writes a single-repository file-tracker config for repo-local E2E init", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-file-tracker-"));
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      VALID_WORKFLOW.replace("github-project", "file").replace(
+        "PVT_project_123",
+        "e2e-test"
+      ),
+      "utf8"
+    );
+    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
+      "/e2e/fixtures/issues.json";
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      if (originalIssuesPath === undefined) {
+        delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+      } else {
+        process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH = originalIssuesPath;
+      }
+      stdout.restore();
+    }
+
+    const projectConfig = JSON.parse(
+      await readFile(
+        join(
+          repoDir,
+          ".runtime",
+          "orchestrator",
+          "projects",
+          "repository",
+          "project.json"
+        ),
+        "utf8"
+      )
+    ) as CliProjectConfig;
+
+    expect(projectConfig.repository).toMatchObject({
+      owner: "acme",
+      name: "platform",
+    });
+    expect(projectConfig.repositories).toBeUndefined();
+    expect(projectConfig.tracker).toMatchObject({
+      adapter: "file",
+      bindingId: "e2e-test",
+      settings: {
+        projectId: "e2e-test",
+        repository: "acme/platform",
+        issuesPath: "/e2e/fixtures/issues.json",
+      },
+    });
+    expect(stdout.output()).toContain("Repository initialized: acme/platform");
+  });
+
+  it("fails fast when file-tracker repo init has no issues fixture path", async () => {
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-file-missing-"));
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    execFileSync("git", ["-C", repoDir, "init"]);
+    execFileSync("git", [
+      "-C",
+      repoDir,
+      "remote",
+      "add",
+      "origin",
+      "https://github.com/acme/platform.git",
+    ]);
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      VALID_WORKFLOW.replace("github-project", "file").replace(
+        "PVT_project_123",
+        "e2e-test"
+      ),
+      "utf8"
+    );
+    delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      if (originalIssuesPath === undefined) {
+        delete process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+      } else {
+        process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH = originalIssuesPath;
+      }
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH"
+    );
+  });
 });
 
 describe("repo add", () => {

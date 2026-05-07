@@ -17,14 +17,14 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
    curl -s -X POST http://localhost:4680/api/v1/refresh
    ```
 
-2. Wait until `evidence/projects/e2e-project/runs/*/events.ndjson` is created on the host.
+2. Wait until `evidence/runs/*/events.ndjson` is created on the host.
    ```bash
    find evidence -name events.ndjson -print
    ```
 
 3. Verify the mirrored artifact is owned by the host user instead of `root`.
    ```bash
-   stat -c '%U:%G %a %n' evidence/projects/e2e-project/runs/*/events.ndjson
+   stat -c '%U:%G %a %n' evidence/runs/*/events.ndjson
    ```
 
 4. Run the standard E2E cleanup and confirm the evidence directory can be deleted without `Permission denied`.

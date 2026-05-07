@@ -9,6 +9,6 @@ services:
     volumes:
       - ./e2e/fixtures:/e2e/fixtures
     tmpfs:
-      - /app/.runtime:size=100M
+      - /e2e/work:size=100M,uid=1000,gid=1000,mode=1777
     environment:
       STUB_SCENARIO: ${STUB_SCENARIO:-happy}

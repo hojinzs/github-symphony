@@ -34,15 +34,16 @@ pnpm e2e:start
 ┌─────────────────────────────────────────────────┐
 │  Local Process                                   │
 │                                                  │
-│  CLI (start) ──→ Orchestrator ──spawn──→ Stub Worker │
+│  CLI (repo start) ──→ Orchestrator ──spawn──→ Stub Worker │
 │       │                                          │
 │  Dashboard :4680     File Tracker                │
 │  /api/v1/state       (e2e/fixtures/issues.json)  │
 │                                                  │
 │  .runtime/           (프로젝트 루트, gitignored)  │
-│    ├─ e2e/repos/     (seed git repo)             │
-│    ├─ e2e/workspaces/(worker 작업 공간)           │
-│    └─ projects/      (orchestrator 상태)          │
+│    └─ e2e/                                      │
+│       ├─ repos/      (seed git repo)             │
+│       ├─ fixtures/   (로컬 경로 fixture 사본)      │
+│       └─ work/test-repo/.runtime/orchestrator    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -55,8 +56,8 @@ pnpm e2e:init       # .runtime/ 구조 생성, stub worker 컴파일, seed repo 
 
 `e2e:init`이 수행하는 작업:
 1. `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js` 컴파일
-2. `.runtime/e2e/repos/test-owner/test-repo` bare git repo 생성 (WORKFLOW.md 포함)
-3. `.runtime/projects/e2e-project/project.json` 프로젝트 설정
+2. `.runtime/e2e/repos/test-owner/test-repo` seed git repo 생성 (WORKFLOW.md 포함)
+3. `.runtime/e2e/work/test-repo`로 clone 후 `repo init`으로 단일 `repository` 프로젝트 설정
 4. `e2e/fixtures/issues.json` 빈 배열로 초기화
 
 ### 실행
@@ -102,10 +103,10 @@ curl -X POST http://localhost:4680/api/v1/refresh
 
 ```bash
 # 이벤트 로그 (구조화된 NDJSON)
-cat .runtime/projects/e2e-project/runs/*/events.ndjson | jq .
+cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson | jq .
 
 # Worker 로그 (stderr 캡처)
-cat .runtime/projects/e2e-project/runs/*/worker.log
+cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log
 ```
 
 ### 이슈 제거 (retry 중단)
@@ -145,8 +146,9 @@ AI Agent
 │  File Tracker                                     │
 │  (/e2e/fixtures/issues.json)                      │
 │                                                   │
-│  .runtime/ (tmpfs, 컨테이너 종료 시 소멸)         │
 │  /e2e/repos/ (pre-seeded local git repo)          │
+│  /e2e/work (tmpfs, 컨테이너 종료 시 소멸)         │
+│    └─ test-repo/.runtime/orchestrator             │
 │                                                   │
 │  :4680 dashboard API (외부 노출)                  │
 └──────────────────────────────────────────────────┘
@@ -154,8 +156,10 @@ AI Agent
 
 - **File Tracker** (`@gh-symphony/tracker-file`): GitHub API 없이 JSON 파일에서 이슈를 읽음
 - **Stub Worker** (`e2e/stub-worker.ts`): Codex AI 없이 Worker 동작을 시뮬레이션
-- **격리**: 모든 상태는 tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
+- **격리**: clone된 work repo와 repo-local orchestrator 상태는 `/e2e/work` tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
 - **이벤트 미러링(선택)**: `docker-compose.e2e.events.yml` override를 함께 쓰면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
+- **골든 패스**: 컨테이너 entrypoint는 `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680` 순서로 단일-리포 런타임을 기동한다.
+- **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH`는 이 Docker/로컬 E2E의 `kind: file` 워크플로에서만 mounted fixture를 `repo init` 결과에 연결하기 위한 테스트 전용 환경변수다.
 
 ### Stub Worker 시나리오
 
@@ -287,13 +291,13 @@ run `events.ndjson`를 직접 읽어 다음을 검증한다.
 docker logs symphony-e2e
 
 # 이벤트 로그 (구조화된 NDJSON, 기본 tmpfs)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson'
+docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
 
 # 호스트 미러 로그 (events override 활성화 시)
-tail -f evidence/projects/e2e-project/runs/*/events.ndjson
+tail -f evidence/runs/*/events.ndjson
 
 # Worker 로그 (stderr만 캡처됨)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/worker.log'
+docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
 ```
 
 ### 7. 정리
