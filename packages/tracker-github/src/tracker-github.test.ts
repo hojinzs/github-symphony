@@ -9,7 +9,10 @@ import {
   normalizeGithubProjectItem,
   resetGitHubRateLimitCacheForTests,
 } from "./adapter.js";
-import { resolveTrackerAdapter } from "./orchestrator-adapter.js";
+import {
+  findGithubProjectIssue,
+  resolveTrackerAdapter,
+} from "./orchestrator-adapter.js";
 import {
   validateWorkflowFieldMapping,
   detectDuplicatePlacements,
@@ -303,6 +306,93 @@ describe("resolveTrackerAdapter", () => {
     expect(adapter.fetchIssueStatesByIds).toBeTypeOf("function");
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
     expect(adapter.reviveIssue).toBeTypeOf("function");
+  });
+
+  it("finds one GitHub Project issue through the targeted issue lookup", async () => {
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body =
+        typeof init?.body === "string"
+          ? (JSON.parse(init.body) as { query?: string })
+          : {};
+      expect(body.query).toContain("RepositoryIssue");
+      return new Response(
+        JSON.stringify({
+          data: {
+            repository: {
+              issue: {
+                __typename: "Issue",
+                id: "issue-42",
+                number: 42,
+                title: "Target issue",
+                body: null,
+                url: "https://github.com/acme/platform/issues/42",
+                createdAt: "2026-05-01T00:00:00.000Z",
+                updatedAt: "2026-05-02T00:00:00.000Z",
+                labels: { nodes: [] },
+                assignees: { nodes: [] },
+                repository: {
+                  name: "platform",
+                  url: "https://github.com/acme/platform",
+                  owner: { login: "acme" },
+                },
+                blockedBy: { nodes: [] },
+                projectItems: {
+                  nodes: [
+                    {
+                      id: "item-42",
+                      updatedAt: "2026-05-02T00:00:00.000Z",
+                      project: { id: "project-123" },
+                      fieldValues: {
+                        nodes: [
+                          {
+                            __typename: "ProjectV2ItemFieldSingleSelectValue",
+                            name: "Todo",
+                            field: { name: "Status" },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const issue = await findGithubProjectIssue(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      "acme/platform#42",
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    expect(issue?.identifier).toBe("acme/platform#42");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("revives issue title from run records when available", () => {

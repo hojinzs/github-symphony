@@ -496,64 +496,105 @@ async function seedExplainProject(configDir: string): Promise<void> {
   });
 }
 
-async function mockProjectItemsFetch(): Promise<Response> {
-  return new Response(
-    JSON.stringify({
+async function mockProjectItemsFetch(
+  _input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const body =
+    typeof init?.body === "string"
+      ? (JSON.parse(init.body) as { query?: string })
+      : {};
+  const query = body.query ?? "";
+  if (query.includes("RepositoryIssue")) {
+    return jsonResponse({
       data: {
-        node: {
-          __typename: "ProjectV2",
-          items: {
-            nodes: [
-              {
-                id: "PVTI_item_42",
-                updatedAt: "2026-05-07T00:00:00.000Z",
-                fieldValues: {
-                  nodes: [
-                    {
-                      __typename: "ProjectV2ItemFieldSingleSelectValue",
-                      name: "Ready",
-                      optionId: "ready",
-                      field: {
-                        name: "Status",
-                      },
-                    },
-                  ],
-                },
-                content: {
-                  __typename: "Issue",
-                  id: "I_42",
-                  number: 42,
-                  title: "Make widgets responsive",
-                  body: "Issue body",
-                  url: "https://github.com/acme/widgets/issues/42",
-                  createdAt: "2026-05-06T00:00:00.000Z",
-                  updatedAt: "2026-05-07T00:00:00.000Z",
-                  labels: { nodes: [] },
-                  assignees: { nodes: [] },
-                  repository: {
-                    name: "widgets",
-                    url: "https://github.com/acme/widgets",
-                    owner: { login: "acme" },
-                  },
-                  blockedBy: { nodes: [] },
-                },
+        repository: {
+          issue: {
+            ...mockIssueContent(),
+            projectItems: {
+              nodes: [mockIssueProjectItem()],
+              pageInfo: {
+                endCursor: null,
+                hasNextPage: false,
               },
-            ],
-            pageInfo: {
-              endCursor: null,
-              hasNextPage: false,
             },
           },
         },
       },
-    }),
-    {
-      status: 200,
-      headers: {
-        "content-type": "application/json",
+    });
+  }
+
+  return jsonResponse({
+    data: {
+      node: {
+        __typename: "ProjectV2",
+        items: {
+          nodes: [
+            {
+              ...mockIssueProjectItem(),
+              content: mockIssueContent(),
+            },
+          ],
+          pageInfo: {
+            endCursor: null,
+            hasNextPage: false,
+          },
+        },
       },
-    }
-  );
+    },
+  });
+}
+
+function mockIssueProjectItem() {
+  return {
+    id: "PVTI_item_42",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    project: {
+      id: "PVT_test",
+    },
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          name: "Ready",
+          optionId: "ready",
+          field: {
+            name: "Status",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function mockIssueContent() {
+  return {
+    __typename: "Issue",
+    id: "I_42",
+    number: 42,
+    title: "Make widgets responsive",
+    body: "Issue body",
+    url: "https://github.com/acme/widgets/issues/42",
+    createdAt: "2026-05-06T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    labels: { nodes: [] },
+    assignees: { nodes: [] },
+    repository: {
+      name: "widgets",
+      url: "https://github.com/acme/widgets",
+      owner: { login: "acme" },
+    },
+    blockedBy: { nodes: [] },
+  };
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
 }
 
 const MOCK_PROJECT_SUMMARY = {
