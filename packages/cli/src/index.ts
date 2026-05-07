@@ -64,6 +64,8 @@ type CliOptionValues = Partial<
     skipSkills?: boolean;
     version?: boolean;
     web?: string | boolean;
+    repoDir?: string;
+    workflowFile?: string;
     workflow?: string;
     workspaceDir?: string;
     watch?: boolean;
@@ -370,7 +372,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Expose the control plane web dashboard and API over HTTP"
       )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -391,7 +393,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("stop")
       .description("Stop the background orchestrator")
       .option("--force", "Force stop with SIGKILL")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -408,7 +410,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("status")
       .description("Show orchestrator status")
       .option("-w, --watch", "Watch status continuously")
-      .option("--project-id <projectId>", "Project identifier")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -646,6 +648,90 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       ["list"],
       this.optsWithGlobals<CliOptionValues>()
     );
+  });
+
+  addGlobalOptions(
+    repo
+      .command("init")
+      .description("Initialize gh-symphony for the current repository")
+      .option("--repo-dir <path>", "Repository directory")
+      .option("--workflow-file <path>", "Use a custom WORKFLOW.md path")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["init"];
+    pushOption(args, "--repo-dir", values.repoDir);
+    pushOption(args, "--workflow-file", values.workflowFile);
+    pushOption(args, "--project-id", resolveProjectId(values));
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("start")
+      .description("Start the orchestrator for the current repository")
+      .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
+      .option(
+        "--http [port]",
+        "Expose dashboard and refresh endpoints over HTTP"
+      )
+      .option(
+        "--web [port]",
+        "Expose the control plane web dashboard and API over HTTP"
+      )
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["start"];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
+    pushOption(args, "--http", values.http);
+    pushOption(args, "--web", values.web);
+    pushOption(args, "--log-level", values.logLevel);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("status")
+      .description("Show current repository orchestrator status")
+      .option("-w, --watch", "Watch status continuously")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["status"];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--watch", values.watch);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("stop")
+      .description("Stop the current repository background orchestrator")
+      .option("--force", "Force stop with SIGKILL")
+      .addOption(new Option("--project-id <projectId>").hideHelp())
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["stop"];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--force", values.force);
+    await invokeHandler("repo", args, values);
   });
 
   addGlobalOptions(

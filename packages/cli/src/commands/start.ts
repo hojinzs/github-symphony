@@ -32,6 +32,7 @@ import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
@@ -74,7 +75,6 @@ function parseStartArgs(args: string[]): {
   once: boolean;
   httpPort?: number;
   webPort?: number;
-  projectId?: string;
   logLevel?: string;
   error?: string;
 } {
@@ -83,7 +83,6 @@ function parseStartArgs(args: string[]): {
     once: boolean;
     httpPort?: number;
     webPort?: number;
-    projectId?: string;
     logLevel?: string;
     error?: string;
   } = {
@@ -118,16 +117,6 @@ function parseStartArgs(args: string[]): {
         continue;
       }
       parsed.webPort = parsePort(value, arg);
-      i += 1;
-      continue;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      const value = args[i + 1];
-      if (!value || value.startsWith("-")) {
-        parsed.error = `Option '${arg}' argument missing`;
-        return parsed;
-      }
-      parsed.projectId = value;
       i += 1;
       continue;
     }
@@ -435,6 +424,9 @@ const handler = async (
   setNoColor(options.noColor);
   let parsed: ReturnType<typeof parseStartArgs>;
   try {
+    if (rejectRemovedProjectId(args)) {
+      return;
+    }
     parsed = parseStartArgs(args);
   } catch (error) {
     process.stderr.write(
@@ -446,7 +438,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony start --project-id <project-id> [--daemon] [--once] [--http [port]] [--web [port]]\n"
+      "Usage: gh-symphony start [--daemon] [--once] [--http [port]] [--web [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -460,7 +452,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: parsed.projectId,
+    requestedProjectId: undefined,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -827,8 +819,6 @@ async function startDaemon(
     [
       process.argv[1]!,
       "start",
-      "--project",
-      projectId,
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
@@ -856,6 +846,6 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      `Stop with: gh-symphony project stop --project-id ${projectId}\n`
+      "Stop with: gh-symphony repo stop\n"
   );
 }

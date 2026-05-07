@@ -1,10 +1,19 @@
 import type { GlobalOptions } from "../index.js";
+import startCommand from "./start.js";
+import statusCommand from "./status.js";
+import stopCommand from "./stop.js";
 import {
   loadActiveProjectConfig,
   loadGlobalConfig,
   saveProjectConfig,
   type CliProjectConfig,
 } from "../config.js";
+import {
+  initRepoRuntime,
+  parseRepoRuntimeFlags,
+} from "../repo-runtime.js";
+import { resolveRepoRuntimeRoot } from "../orchestrator-runtime.js";
+import { rejectRemovedProjectId } from "../removed-project-id.js";
 import {
   checkRequiredScopes,
   createClient,
@@ -28,6 +37,21 @@ const handler = async (
     case "list":
       await repoList(options);
       break;
+    case "init":
+      await repoInit(rest, options);
+      break;
+    case "start":
+      if (rejectRemovedProjectId(rest)) return;
+      await startCommand(rest, repoOptions(options));
+      break;
+    case "status":
+      if (rejectRemovedProjectId(rest)) return;
+      await statusCommand(rest, repoOptions(options));
+      break;
+    case "stop":
+      if (rejectRemovedProjectId(rest)) return;
+      await stopCommand(rest, repoOptions(options));
+      break;
     case "add":
       await repoAdd(rest, options);
       break;
@@ -39,7 +63,7 @@ const handler = async (
       break;
     default:
       process.stderr.write(
-        "Usage: gh-symphony repo <list|add|remove|sync> [repo]\n"
+        "Usage: gh-symphony repo <init|start|status|stop|list|add|remove|sync> [repo]\n"
       );
       process.exitCode = 2;
   }
@@ -54,6 +78,53 @@ type RepoConfigEntry = {
   name: string;
   cloneUrl: string;
 };
+
+function repoOptions(options: GlobalOptions): GlobalOptions {
+  return {
+    ...options,
+    configDir: resolveRepoRuntimeRoot(),
+  };
+}
+
+async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
+  if (rejectRemovedProjectId(args)) {
+    return;
+  }
+
+  let flags: ReturnType<typeof parseRepoRuntimeFlags>;
+  try {
+    flags = parseRepoRuntimeFlags(args);
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Invalid arguments"}\n`
+    );
+    process.stderr.write(
+      "Usage: gh-symphony repo init [--repo-dir <path>] [--workflow-file <path>]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
+
+  try {
+    const result = await initRepoRuntime(flags);
+    if (options.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      return;
+    }
+    process.stdout.write(
+      [
+        `Repository initialized: ${formatRepoSpec(result.repository)}`,
+        `Runtime: ${result.configDir}`,
+        `Workflow: ${result.workflowPath}`,
+      ].join("\n") + "\n"
+    );
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Repository initialization failed."}\n`
+    );
+    process.exitCode = 1;
+  }
+}
 
 type RepoSyncFlags = {
   dryRun: boolean;

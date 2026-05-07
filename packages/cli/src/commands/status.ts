@@ -7,6 +7,7 @@ import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
@@ -159,10 +160,9 @@ function renderLegacyStatus(
 
 function parseStatusArgs(args: string[]): {
   watch: boolean;
-  projectId?: string;
   error?: string;
 } {
-  const parsed: { watch: boolean; projectId?: string; error?: string } = {
+  const parsed: { watch: boolean; error?: string } = {
     watch: false,
   };
 
@@ -170,16 +170,6 @@ function parseStatusArgs(args: string[]): {
     const arg = args[i];
     if (arg === "--watch" || arg === "-w") {
       parsed.watch = true;
-      continue;
-    }
-    if (arg === "--project" || arg === "--project-id") {
-      const value = args[i + 1];
-      if (!value || value.startsWith("-")) {
-        parsed.error = `Option '${arg}' argument missing`;
-        return parsed;
-      }
-      parsed.projectId = value;
-      i += 1;
       continue;
     }
     if (arg?.startsWith("-")) {
@@ -213,19 +203,20 @@ const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
+  if (rejectRemovedProjectId(args)) {
+    return;
+  }
   const parsed = parseStatusArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write(
-      "Usage: gh-symphony status [--project-id <project-id>] [--watch]\n"
-    );
+    process.stderr.write("Usage: gh-symphony status [--watch]\n");
     process.exitCode = 2;
     return;
   }
 
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: parsed.projectId,
+    requestedProjectId: undefined,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();

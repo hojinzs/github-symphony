@@ -106,4 +106,4 @@ jobs:
           docker run --rm \
             -v "${TMPDIR}/config:/var/lib/gh-symphony" \
             gh-symphony:test \
-            gh-symphony start --once --project-id smoke
+            gh-symphony start --once

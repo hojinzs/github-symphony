@@ -163,7 +163,7 @@ describe("lifecycle command integration", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "start", "--project", "tenant-a"],
+      [process.argv[1], "start"],
       expect.any(Object)
     );
   });
@@ -240,7 +240,7 @@ describe("lifecycle command integration", () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it("starts the requested project in daemon mode", async () => {
+  it("rejects removed project selection flags in daemon mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -249,43 +249,26 @@ describe("lifecycle command integration", () => {
       ],
     });
 
-    spawnMock.mockReturnValue({
-      pid: 4321,
-      stdout: { pipe: vi.fn() },
-      stderr: { pipe: vi.fn() },
-      unref: vi.fn(),
-    });
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     await startModule.default(
       ["--project", "tenant-b", "--daemon"],
       baseOptions(configDir)
     );
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      process.execPath,
-      [process.argv[1], "start", "--project", "tenant-b"],
-      expect.objectContaining({
-        env: expect.objectContaining({
-          GH_SYMPHONY_CONFIG_DIR: configDir,
-        }),
-      })
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
+      "--project-id has been removed"
     );
-
-    expect(
-      await readFile(
-        join(configDir, "projects", "tenant-b", "daemon.pid"),
-        "utf8"
-      )
-    ).toBe("4321");
+    expect(process.exitCode).toBe(2);
   });
 
-  it("supports project start subcommand for explicit project orchestration", async () => {
+  it("supports project start subcommand for the active repository", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
+      projects: [createTenant("tenant-a", "acme", "platform")],
     });
 
     spawnMock.mockReturnValue({
@@ -295,35 +278,22 @@ describe("lifecycle command integration", () => {
       unref: vi.fn(),
     });
 
-    await projectModule.default(
-      ["start", "--project-id", "tenant-b", "--daemon", "--log-level", "verbose"],
-      baseOptions(configDir)
-    );
+    await projectModule.default(["start", "--daemon", "--log-level", "verbose"], baseOptions(configDir));
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [
-        process.argv[1],
-        "start",
-        "--project",
-        "tenant-b",
-        "--log-level",
-        "verbose",
-      ],
+      [process.argv[1], "start", "--log-level", "verbose"],
       expect.any(Object)
     );
   });
 
-  it("routes project status to the requested project's orchestrator snapshot", async () => {
+  it("routes project status to the active repository orchestrator snapshot", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
+      projects: [createTenant("tenant-a", "acme", "platform")],
     });
-    await writeStatusSnapshot(configDir, "tenant-b", {
-      slug: "tenant-b",
+    await writeStatusSnapshot(configDir, "tenant-a", {
+      slug: "tenant-a",
       health: "running",
     });
 
@@ -331,15 +301,12 @@ describe("lifecycle command integration", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
 
-    await projectModule.default(
-      ["status", "--project-id", "tenant-b"],
-      baseOptions(configDir)
-    );
+    await projectModule.default(["status"], baseOptions(configDir));
 
     const output = stdout.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain("gh-symphony");
-    expect(output).toContain("tenant-b");
-    expect(output).not.toContain("tenant-a");
+    expect(output).toContain("tenant-a");
+    expect(output).not.toContain("tenant-b");
   });
 
   it("rejects unknown project status flags instead of falling back to the active project", async () => {
@@ -363,23 +330,18 @@ describe("lifecycle command integration", () => {
     const output = stderr.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain("Unknown option '--proejct-id'");
     expect(output).toContain(
-      "Usage: gh-symphony status [--project-id <project-id>] [--watch]"
+      "Usage: gh-symphony status [--watch]"
     );
     expect(process.exitCode).toBe(2);
   });
 
-  it("stops only the requested project's daemon files", async () => {
+  it("stops the active repository daemon files", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
+      projects: [createTenant("tenant-a", "acme", "platform")],
     });
     await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
     await writeFile(join(configDir, "projects", "tenant-a", "port"), "41001\n");
-    await writeFile(join(configDir, "projects", "tenant-b", "daemon.pid"), "222\n");
-    await writeFile(join(configDir, "projects", "tenant-b", "port"), "41002\n");
 
     const killSpy = vi
       .spyOn(process, "kill")
@@ -393,19 +355,13 @@ describe("lifecycle command integration", () => {
         return true;
       }) as typeof process.kill);
 
-    await stopModule.default(["--project-id", "tenant-a"], baseOptions(configDir));
+    await stopModule.default([], baseOptions(configDir));
 
     expect(killSpy).toHaveBeenCalledWith(111, 0);
     expect(killSpy).toHaveBeenCalledWith(111, "SIGTERM");
     await expect(
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      readFile(join(configDir, "projects", "tenant-b", "daemon.pid"), "utf8")
-    ).resolves.toContain("222");
-    await expect(
-      readFile(join(configDir, "projects", "tenant-b", "port"), "utf8")
-    ).resolves.toContain("41002");
   });
 
   it("rejects unknown project stop flags before touching daemon state", async () => {
@@ -428,7 +384,7 @@ describe("lifecycle command integration", () => {
     const output = stderr.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain("Unknown option '--proejct-id'");
     expect(output).toContain(
-      "Usage: gh-symphony stop --project-id <project-id> [--force]"
+      "Usage: gh-symphony stop [--force]"
     );
     expect(killSpy).not.toHaveBeenCalled();
     await expect(
@@ -547,13 +503,11 @@ async function createConfigFixture(input: {
 
 async function writeStatusSnapshot(
   configDir: string,
-  projectId: string,
+  _projectId: string,
   input: { slug: string; health: "idle" | "running" | "degraded" }
 ): Promise<void> {
-  const statusDir = join(configDir, "projects", projectId);
-  await mkdir(statusDir, { recursive: true });
   await writeFile(
-    join(statusDir, "status.json"),
+    join(configDir, "status.json"),
     JSON.stringify(
       {
         slug: input.slug,

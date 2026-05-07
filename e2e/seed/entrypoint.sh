@@ -28,7 +28,6 @@ fi
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
 GH_SYMPHONY_CONFIG_DIR="$RUNTIME_DIR" \
 node /app/packages/cli/dist/index.js start \
-  --project-id "$PROJECT_ID" \
   --http 4680 &
 CLI_PID=$!
 

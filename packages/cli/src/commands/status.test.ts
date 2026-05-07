@@ -66,7 +66,9 @@ async function createConfigFixture(
   );
 
   const statusDir =
-    statusLayout === "flat" ? configDir : join(configDir, "projects", projectId);
+    statusLayout === "flat"
+      ? configDir
+      : join(configDir, "projects", projectId);
   await mkdir(statusDir, { recursive: true });
   await writeFile(
     join(statusDir, "status.json"),
