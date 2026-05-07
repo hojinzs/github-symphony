@@ -64,6 +64,7 @@ type CliOptionValues = Partial<
     skipSkills?: boolean;
     version?: boolean;
     web?: string | boolean;
+    workflow?: string;
     workspaceDir?: string;
     watch?: boolean;
     sample?: string;
@@ -197,7 +198,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
-      .option("--runtime <kind>", "Runtime preset: codex-app-server or claude-print")
+      .option(
+        "--runtime <kind>",
+        "Runtime preset: codex-app-server or claude-print"
+      )
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -236,7 +240,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--project <id>", "GitHub Project ID or URL")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
-      .option("--runtime <kind>", "Runtime preset: codex-app-server or claude-print")
+      .option(
+        "--runtime <kind>",
+        "Runtime preset: codex-app-server or claude-print"
+      )
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
       .option("--dry-run", "Preview generated files without writing them")
@@ -607,6 +614,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Explain why a project issue is not dispatching")
       .argument("<issue>", "Issue identifier, for example owner/repo#123")
       .option("--project-id <projectId>", "Project identifier")
+      .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command, issue: string) {
@@ -614,6 +622,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args = ["explain", issue];
     pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--workflow", values.workflow);
     await invokeHandler("project", args, values);
   });
 

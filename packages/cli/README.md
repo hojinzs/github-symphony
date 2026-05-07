@@ -210,12 +210,17 @@ logs manually:
 ```bash
 gh-symphony project explain owner/repo#123
 gh-symphony project explain owner/repo#123 --json
+gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
 ```
 
 The command checks project repository linkage, GitHub Project item presence,
 `WORKFLOW.md` active / wait / terminal state mapping, blocker state, existing
 run / retry / convergence ownership, and project or per-state concurrency
 limits.
+
+If the project has no previous local run snapshot and the repository path is
+not stored in the managed project config, pass `--workflow` so the command
+does not guess from the current shell directory.
 
 ```text
 Issue dispatch explanation: owner/repo#123

@@ -332,6 +332,7 @@ when a GitHub Project issue stays idle:
 ```bash
 gh-symphony project explain owner/repo#123
 gh-symphony project explain owner/repo#123 --json
+gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
 ```
 
 The report checks whether the repository is linked to the active managed
@@ -339,6 +340,10 @@ project, the issue is present in the GitHub Project item set, the current
 project status maps to active / wait / terminal in `WORKFLOW.md`, blockers are
 resolved, an existing run / retry / convergence state already owns the issue,
 and project or per-state concurrency limits still have capacity.
+
+If the project has no previous local run snapshot and the repository path is
+not stored in the managed project config, pass `--workflow` so the command
+evaluates the same `WORKFLOW.md` that orchestration will use.
 
 Example:
 

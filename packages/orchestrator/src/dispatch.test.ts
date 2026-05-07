@@ -218,7 +218,9 @@ describe("explainIssueDispatch", () => {
     });
     const issue = makeIssue({
       identifier: "acme/repo#1",
-      blockedBy: [{ id: "blocker-1", identifier: blocker.identifier, state: null }],
+      blockedBy: [
+        { id: "blocker-1", identifier: blocker.identifier, state: null },
+      ],
     });
     const report = explainIssueDispatch({
       identifier: issue.identifier,
@@ -285,6 +287,26 @@ describe("explainIssueDispatch", () => {
       expect.arrayContaining([
         expect.objectContaining({ id: "dispatch_limits", status: "block" }),
       ])
+    );
+  });
+
+  it("prioritizes repository linkage in the not-found summary", () => {
+    const report = explainIssueDispatch({
+      identifier: "other/repo#1",
+      issue: null,
+      projectRepository,
+      allIssues: [],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.summary).toContain(
+      "Repository other/repo is not the active managed project repository"
     );
   });
 });

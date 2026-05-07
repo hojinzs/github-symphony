@@ -39,6 +39,12 @@ export type DispatchExplainReport = {
   checks: DispatchExplainCheck[];
 };
 
+export type ParsedIssueIdentifier = {
+  owner: string;
+  name: string;
+  number: number;
+};
+
 export type ExplainDispatchInput = {
   identifier: string;
   issue: TrackedIssue | null;
@@ -71,6 +77,11 @@ export function explainIssueDispatch(
 
   if (!issue) {
     const dispatchable = false;
+    const blocking = checks.filter((check) => check.status === "block");
+    const summary =
+      blocking.length > 0
+        ? `Not dispatchable: ${blocking[0]!.message}`
+        : "Not dispatchable: the issue is not present in the managed GitHub Project item set.";
     return {
       issue: {
         identifier: input.identifier,
@@ -81,20 +92,14 @@ export function explainIssueDispatch(
         url: null,
       },
       dispatchable,
-      summary: "Not dispatchable: the issue is not present in the managed GitHub Project item set.",
+      summary,
       checks,
     };
   }
 
   checks.push(explainWorkflowState(issue, input.lifecycle));
   checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
-  checks.push(
-    explainRuntimeOwnership(
-      issue,
-      input.issueRecords,
-      input.runs
-    )
-  );
+  checks.push(explainRuntimeOwnership(issue, input.issueRecords, input.runs));
   checks.push(
     explainDispatchLimits(
       issue,
@@ -199,7 +204,8 @@ function explainRepositoryLinked(
   }
 
   const configured = `${projectRepository.owner}/${projectRepository.name}`;
-  const linked = normalizeIdentifier(configured) === normalizeIdentifier(repository);
+  const linked =
+    normalizeIdentifier(configured) === normalizeIdentifier(repository);
   return {
     id: "repository_linked",
     status: linked ? "pass" : "block",
@@ -297,13 +303,12 @@ function explainRuntimeOwnership(
 ): DispatchExplainCheck {
   const record = issueRecords.find(
     (candidate) =>
-      candidate.issueId === issue.id || candidate.identifier === issue.identifier
+      candidate.issueId === issue.id ||
+      candidate.identifier === issue.identifier
   );
   const latestRun = latestRunForIssue(runs, issue.id);
   const activeRun = runs.find(
-    (run) =>
-      run.issueId === issue.id &&
-      isActiveRunRecordStatus(run.status)
+    (run) => run.issueId === issue.id && isActiveRunRecordStatus(run.status)
   );
 
   if (activeRun) {
@@ -366,11 +371,16 @@ function explainRuntimeOwnership(
     const suppressedAtMs = parseTimestampMs(
       latestRun.completedAt ?? latestRun.updatedAt
     );
-    if (issueUpdatedAtMs === null || suppressedAtMs === null || issueUpdatedAtMs <= suppressedAtMs) {
+    if (
+      issueUpdatedAtMs === null ||
+      suppressedAtMs === null ||
+      issueUpdatedAtMs <= suppressedAtMs
+    ) {
       return {
         id: "runtime_ownership",
         status: "block",
-        message: "Failure retry limit has suppressed redispatch for the current tracker state.",
+        message:
+          "Failure retry limit has suppressed redispatch for the current tracker state.",
         details: {
           failureRetryCount: record.failureRetryCount,
           runId: latestRun.runId,
@@ -384,7 +394,8 @@ function explainRuntimeOwnership(
   return {
     id: "runtime_ownership",
     status: "pass",
-    message: "No active run, retry, convergence lock, or suppression owns the issue.",
+    message:
+      "No active run, retry, convergence lock, or suppression owns the issue.",
     details: record
       ? {
           orchestrationState: record.state,
@@ -416,8 +427,7 @@ function explainDispatchLimits(
   if (stateLimit !== undefined) {
     const activeInState = runs.filter(
       (run) =>
-        run.issueState === issue.state &&
-        isActiveRunRecordStatus(run.status)
+        run.issueState === issue.state && isActiveRunRecordStatus(run.status)
     ).length;
     if (activeInState >= stateLimit) {
       return {
@@ -433,7 +443,8 @@ function explainDispatchLimits(
   return {
     id: "dispatch_limits",
     status: "pass",
-    message: "Project and per-state concurrency limits have available capacity.",
+    message:
+      "Project and per-state concurrency limits have available capacity.",
     details: {
       activeRunCount,
       maxConcurrentAgents,
@@ -461,7 +472,11 @@ function unresolvedBlockers(
   issue: TrackedIssue,
   lifecycle: WorkflowLifecycleConfig,
   issues: readonly TrackedIssue[]
-): Array<{ id: string | null; identifier: string | null; state: string | null }> {
+): Array<{
+  id: string | null;
+  identifier: string | null;
+  state: string | null;
+}> {
   return issue.blockedBy.filter((blockerRef) => {
     if (blockerRef.state && isStateTerminal(blockerRef.state, lifecycle)) {
       return false;
@@ -503,9 +518,9 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function parseIssueIdentifier(
+export function parseIssueIdentifier(
   identifier: string
-): { owner: string; name: string; number: number } | null {
+): ParsedIssueIdentifier | null {
   const match = identifier.match(/^([^/\s#]+)\/([^/\s#]+)#(\d+)$/);
   if (!match) {
     return null;

@@ -61,6 +61,7 @@ Examples:
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project
   gh-symphony project explain owner/repo#123
+  gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
   gh-symphony repo add owner/name      # Validate a repo target before saving it
   gh-symphony repo sync --dry-run      # Preview linked repository drift
   gh-symphony start                   # Start orchestrator
