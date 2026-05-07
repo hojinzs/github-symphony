@@ -12,6 +12,7 @@ import {
   stripAnsi,
 } from "../ansi.js";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -316,7 +317,9 @@ export function renderDashboard(
     const hasRetries = snap.retryQueue.length > 0;
     if (!hasActiveRuns && !hasRetries) continue;
 
-    lines.push(sectionDivider(snap.slug, width, c));
+    lines.push(
+      sectionDivider(formatRepositoryDisplay(snap), width, c)
+    );
     if (hasActiveRuns) {
       lines.push(tableHeaderRow(c));
       for (const rawRun of snap.activeRuns) {

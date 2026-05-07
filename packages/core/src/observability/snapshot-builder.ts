@@ -49,11 +49,11 @@ export function buildProjectSnapshot(
   );
 
   return {
-    projectId: project.projectId,
-    slug: project.slug,
+    repository: project.repository,
     tracker: {
       adapter: project.tracker.adapter,
       bindingId: project.tracker.bindingId,
+      settings: project.tracker.settings,
     },
     lastTickAt,
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
@@ -101,7 +101,10 @@ export function buildProjectSnapshot(
 function aggregateTokenUsageByIssue(
   runs: OrchestratorRunRecord[]
 ): Map<string, NonNullable<OrchestratorRunRecord["tokenUsage"]>> {
-  const totals = new Map<string, NonNullable<OrchestratorRunRecord["tokenUsage"]>>();
+  const totals = new Map<
+    string,
+    NonNullable<OrchestratorRunRecord["tokenUsage"]>
+  >();
 
   for (const run of runs) {
     if (!run.tokenUsage) {
@@ -133,8 +136,7 @@ function attachCumulativeTokenUsage(
   return {
     ...tokenUsage,
     cumulativeInputTokens: cumulative?.inputTokens ?? tokenUsage.inputTokens,
-    cumulativeOutputTokens:
-      cumulative?.outputTokens ?? tokenUsage.outputTokens,
+    cumulativeOutputTokens: cumulative?.outputTokens ?? tokenUsage.outputTokens,
     cumulativeTotalTokens: cumulative?.totalTokens ?? tokenUsage.totalTokens,
   };
 }

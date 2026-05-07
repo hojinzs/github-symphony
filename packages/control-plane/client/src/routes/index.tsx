@@ -108,7 +108,11 @@ function getSummaryCards(projectState: ProjectState): SummaryCardDefinition[] {
   ];
 }
 
-function Section(props: { title: string; count?: number; children: ReactNode }) {
+function Section(props: {
+  title: string;
+  count?: number;
+  children: ReactNode;
+}) {
   return (
     <section className="overflow-hidden rounded-xl border border-border-default bg-bg-surface shadow-[0_20px_80px_rgb(0_0_0_/_0.24)]">
       <div className="flex items-center gap-2 px-5 py-4">
@@ -145,7 +149,9 @@ function SummaryCards(props: { projectState: ProjectState | undefined }) {
               <div className="text-4xl font-semibold tracking-tight text-text-primary">
                 {card.value}
               </div>
-              <div className="mt-1 text-sm text-text-secondary">{card.label}</div>
+              <div className="mt-1 text-sm text-text-secondary">
+                {card.label}
+              </div>
             </>
           ) : (
             <div className="space-y-2">
@@ -209,7 +215,9 @@ function LoadingTable(props: { columns: string[] }) {
 function ActiveRunsTable(props: { projectState: ProjectState }) {
   if (props.projectState.activeRuns.length === 0) {
     return (
-      <div className="px-5 pb-5 text-sm text-text-secondary">No active runs</div>
+      <div className="px-5 pb-5 text-sm text-text-secondary">
+        No active runs
+      </div>
     );
   }
 
@@ -310,11 +318,18 @@ function RetryQueueTable(props: { projectState: ProjectState }) {
   );
 }
 
-function DataStatus(props: { projectState: ProjectState }) {
+export function DataStatus(props: { projectState: ProjectState }) {
+  const repository = props.projectState.repository
+    ? `${props.projectState.repository.owner}/${props.projectState.repository.name}`
+    : "unavailable";
+  const trackerProjectId = props.projectState.tracker.settings?.projectId;
+
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-text-secondary">
       <span>Last tick {formatRelativeTime(props.projectState.lastTickAt)}</span>
+      <span>Repository {repository}</span>
       <span>Tracker {props.projectState.tracker.bindingId}</span>
+      {trackerProjectId ? <span>GitHub Project {trackerProjectId}</span> : null}
       {props.projectState.lastError ? (
         <span className="text-status-failed-text">
           Last error: {props.projectState.lastError}
@@ -341,7 +356,9 @@ function ProjectOverviewRoute() {
 
       <SummaryCards projectState={projectState.data} />
 
-      {projectState.data ? <DataStatus projectState={projectState.data} /> : null}
+      {projectState.data ? (
+        <DataStatus projectState={projectState.data} />
+      ) : null}
 
       <Section
         title="Active Runs"

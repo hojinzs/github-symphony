@@ -52,7 +52,9 @@ function RootErrorBoundary(props: { error: Error; reset: () => void }) {
 function RootLayout() {
   const projectState = useProjectState();
   const refresh = useRefresh();
-  const projectName = projectState.data?.slug ?? "project";
+  const repositoryName = projectState.data?.repository
+    ? `${projectState.data.repository.owner}/${projectState.data.repository.name}`
+    : "repository";
 
   return (
     <Shell>
@@ -70,12 +72,14 @@ function RootLayout() {
               className="h-5 w-px shrink-0 bg-border-subtle"
             />
             <span className="truncate font-mono text-sm text-text-muted">
-              {projectName}
+              {repositoryName}
             </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <Badge variant={mapHealthToBadgeVariant(projectState.data?.health)} />
+            <Badge
+              variant={mapHealthToBadgeVariant(projectState.data?.health)}
+            />
             <Button
               size="sm"
               variant="ghost"

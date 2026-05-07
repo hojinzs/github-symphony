@@ -41,29 +41,18 @@ function createRun(
 }
 
 describe("status-assembler", () => {
-  it("matches runs by project and either issue id or identifier", () => {
+  it("matches runs by either issue id or identifier", () => {
     const run = createRun();
 
-    expect(
-      isMatchingIssueRun(run, "project-1", "issue-1", "other/repo#2")
-    ).toBe(true);
-    expect(
-      isMatchingIssueRun(run, "project-1", "other-issue", "acme/repo#1")
-    ).toBe(true);
-    expect(
-      isMatchingIssueRun(run, "project-2", "issue-1", "acme/repo#1")
-    ).toBe(false);
-    expect(
-      isMatchingIssueRun(null, "project-1", "issue-1", "acme/repo#1")
-    ).toBe(false);
+    expect(isMatchingIssueRun(run, "issue-1", "other/repo#2")).toBe(true);
+    expect(isMatchingIssueRun(run, "other-issue", "acme/repo#1")).toBe(true);
+    expect(isMatchingIssueRun(null, "issue-1", "acme/repo#1")).toBe(false);
   });
 
   it("maps orchestration states to status surface values", () => {
     expect(mapIssueOrchestrationStateToStatus("claimed")).toBe("starting");
     expect(mapIssueOrchestrationStateToStatus("running")).toBe("running");
-    expect(mapIssueOrchestrationStateToStatus("retry_queued")).toBe(
-      "retrying"
-    );
+    expect(mapIssueOrchestrationStateToStatus("retry_queued")).toBe("retrying");
     expect(mapIssueOrchestrationStateToStatus("released")).toBe("released");
     expect(mapIssueOrchestrationStateToStatus("unclaimed")).toBe("pending");
   });

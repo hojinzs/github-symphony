@@ -235,7 +235,6 @@ export class OrchestratorService {
       : null;
     const currentRun = isMatchingIssueRun(
       currentRunCandidate,
-      this.projectConfig.projectId,
       issueRecord.issueId,
       issueIdentifier
     )
@@ -627,7 +626,6 @@ export class OrchestratorService {
           syncedActiveRuns.find((run) =>
             isMatchingIssueRun(
               run,
-              tenant.projectId,
               issueRecord.issueId,
               issueRecord.identifier
             )
