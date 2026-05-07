@@ -1,5 +1,16 @@
 # @gh-symphony/cli
 
+## 0.0.22
+
+### Patch Changes
+
+- [#269](https://github.com/hojinzs/github-symphony/pull/269) [`adbdd07`](https://github.com/hojinzs/github-symphony/commit/adbdd07acf5da01494789036ef125af361392700) Thanks [@moncher-dev](https://github.com/moncher-dev)! - BREAKING: switch repository orchestration commands to the cwd-based single-repo workflow. `gh-symphony repo init/start/status/stop` now use repo-local `.runtime/orchestrator` state, `--project-id` is rejected with a removal error, and `repo init` migrates a single legacy `.runtime/orchestrator/projects/<projectId>` directory while failing with manual cleanup guidance for multiple legacy project directories.
+
+- [#274](https://github.com/hojinzs/github-symphony/pull/274) [`6ebe9d5`](https://github.com/hojinzs/github-symphony/commit/6ebe9d550601bd0a2cc6a07f83a05e2a816b2b49) Thanks [@moncher-dev](https://github.com/moncher-dev)! - BREAKING: complete the single-repository orchestrator transition. Runtime
+  state is now repo-local, project routing is no longer part of the public status
+  surface, project configs use one canonical `repository`, and Docker E2E now
+  validates the `git clone -> cd -> repo init -> repo start` golden path.
+
 ## Unreleased
 
 ### Minor Changes
