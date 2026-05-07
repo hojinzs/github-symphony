@@ -1,7 +1,7 @@
 {
-  "projectId": "e2e-project",
-  "slug": "e2e-project",
-  "workspaceDir": "/e2e/workspaces",
+  "projectId": "repository",
+  "slug": "test-repo",
+  "workspaceDir": "/e2e/work/test-repo",
   "repository": {
     "owner": "test-owner",
     "name": "test-repo",

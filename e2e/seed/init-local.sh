@@ -7,10 +7,8 @@ set -euo pipefail
 
 ROOT_DIR="$(pwd)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
-PROJECT_ID="e2e-project"
 REPO_DIR="$RUNTIME_DIR/e2e/repos/test-owner/test-repo"
-WORKSPACE_DIR="$RUNTIME_DIR/e2e/workspaces"
-CONFIG_DIR="$RUNTIME_DIR/projects/$PROJECT_ID"
+WORK_DIR="$RUNTIME_DIR/e2e/work/test-repo"
 ISSUES_PATH="$ROOT_DIR/e2e/fixtures/issues.json"
 STUB_WORKER_JS="$ROOT_DIR/e2e/dist/stub-worker.js"
 
@@ -28,9 +26,9 @@ npx tsc e2e/stub-worker.ts \
   --moduleResolution nodenext \
   --skipLibCheck
 
-# ── 2. Create bare git repo ─────────────────────────────────────
+# ── 2. Create source git repo ───────────────────────────────────
 log "Creating test git repo at $REPO_DIR"
-rm -rf "$REPO_DIR"
+rm -rf "$REPO_DIR" "$WORK_DIR"
 mkdir -p "$REPO_DIR"
 (
   cd "$REPO_DIR"
@@ -72,39 +70,18 @@ EOF
   git commit -m "Initial commit with WORKFLOW.md"
 )
 
-# ── 3. Create runtime directory structure ────────────────────────
-log "Setting up runtime at $RUNTIME_DIR"
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$WORKSPACE_DIR"
+# ── 3. Clone work repo and initialize repo-local runtime ─────────
+log "Cloning work repo to $WORK_DIR"
+mkdir -p "$(dirname "$WORK_DIR")"
+git clone "$REPO_DIR" "$WORK_DIR"
+git -C "$WORK_DIR" remote set-url origin test-owner/test-repo
 
-cat > "$RUNTIME_DIR/config.json" << EOF
-{
-  "activeProject": "$PROJECT_ID",
-  "projects": ["$PROJECT_ID"]
-}
-EOF
-
-cat > "$CONFIG_DIR/project.json" << EOF
-{
-  "projectId": "$PROJECT_ID",
-  "slug": "$PROJECT_ID",
-  "workspaceDir": "$WORKSPACE_DIR",
-  "repository": {
-    "owner": "test-owner",
-    "name": "test-repo",
-    "cloneUrl": "$REPO_DIR",
-    "path": "$REPO_DIR"
-  },
-  "tracker": {
-    "adapter": "file",
-    "bindingId": "e2e-test",
-    "settings": {
-      "issuesPath": "$ISSUES_PATH",
-      "repository": "test-owner/test-repo"
-    }
-  }
-}
-EOF
+log "Initializing repo-local runtime at $WORK_DIR/.runtime/orchestrator"
+(
+  cd "$WORK_DIR"
+  GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$ISSUES_PATH" \
+    node "$ROOT_DIR/packages/cli/dist/index.js" repo init
+)
 
 # ── 4. Generate local fixtures (Docker paths → local paths) ──────
 DOCKER_CLONE_URL="/e2e/repos/test-owner/test-repo"

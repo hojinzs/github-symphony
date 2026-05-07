@@ -86,6 +86,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     trackerAdapter === "file" &&
     process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
   ) {
+    // E2E-only escape hatch for binding the file tracker to a mounted fixture.
     trackerSettings.issuesPath =
       process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
   }

@@ -4,12 +4,14 @@ set -euo pipefail
 REPO_DIR="/e2e/repos/test-owner/test-repo"
 WORK_DIR="/e2e/work/test-repo"
 
-# Ensure runtime directories exist
-mkdir -p /e2e/work /e2e/workspaces
+# Ensure the tmpfs-backed work root exists.
+mkdir -p /e2e/work
 rm -rf "$WORK_DIR"
 git clone "$REPO_DIR" "$WORK_DIR"
 git -C "$WORK_DIR" remote set-url origin test-owner/test-repo
 
+# GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH is intentionally limited to the
+# file-tracker E2E workflow so repo init can bind the mounted fixture file.
 cd "$WORK_DIR"
 GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="/e2e/fixtures/issues.json" \
 node /app/packages/cli/dist/index.js repo init
