@@ -3,7 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sortCandidatesForDispatch, OrchestratorService } from "./service.js";
+import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
+import { explainIssueDispatch } from "./explain.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
@@ -41,6 +42,42 @@ function makeIssue(
       itemId: "item-1",
     },
     metadata: {},
+    ...overrides,
+  };
+}
+
+function makeRun(
+  overrides: Partial<OrchestratorRunRecord> & { runId: string; issueId: string }
+): OrchestratorRunRecord {
+  return {
+    runId: overrides.runId,
+    projectId: "tenant-1",
+    projectSlug: "tenant-1",
+    issueId: overrides.issueId,
+    issueSubjectId: overrides.issueId,
+    issueIdentifier: "acme/repo#1",
+    issueTitle: "Test",
+    issueState: "Todo",
+    repository: {
+      owner: "acme",
+      name: "repo",
+      cloneUrl: "https://github.com/acme/repo.git",
+    },
+    status: "running",
+    attempt: 1,
+    processId: null,
+    port: null,
+    workingDirectory: "/tmp/work",
+    issueWorkspaceKey: "acme-repo-1",
+    workspaceRuntimeDir: "/tmp/runtime",
+    workflowPath: null,
+    retryKind: null,
+    createdAt: "2026-03-09T00:00:00.000Z",
+    updatedAt: "2026-03-09T00:00:00.000Z",
+    startedAt: "2026-03-09T00:00:00.000Z",
+    completedAt: null,
+    lastError: null,
+    nextRetryAt: null,
     ...overrides,
   };
 }
@@ -131,6 +168,146 @@ describe("sortCandidatesForDispatch", () => {
 
   it("returns empty array for empty input", () => {
     expect(sortCandidatesForDispatch([])).toEqual([]);
+  });
+});
+
+describe("explainIssueDispatch", () => {
+  const lifecycle = {
+    stateFieldName: "Status",
+    activeStates: ["Todo", "In Progress"],
+    terminalStates: ["Done"],
+    blockerCheckStates: ["Todo"],
+  };
+  const projectRepository = {
+    owner: "acme",
+    name: "repo",
+    cloneUrl: "https://github.com/acme/repo.git",
+  };
+
+  it("explains inactive workflow states", () => {
+    const issue = makeIssue({ identifier: "acme/repo#1", state: "Backlog" });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "workflow_state",
+          status: "block",
+        }),
+      ])
+    );
+  });
+
+  it("explains unresolved blockers", () => {
+    const blocker = makeIssue({
+      id: "blocker-1",
+      identifier: "acme/repo#2",
+      state: "Todo",
+    });
+    const issue = makeIssue({
+      identifier: "acme/repo#1",
+      blockedBy: [
+        { id: "blocker-1", identifier: blocker.identifier, state: null },
+      ],
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue, blocker],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "blockers", status: "block" }),
+      ])
+    );
+  });
+
+  it("explains already running ownership", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const run = makeRun({ runId: "run-1", issueId: issue.id });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [run],
+      activeRunCount: 1,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "runtime_ownership", status: "block" }),
+      ])
+    );
+  });
+
+  it("explains project concurrency limits", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 2,
+      maxConcurrentAgents: 2,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "dispatch_limits", status: "block" }),
+      ])
+    );
+  });
+
+  it("prioritizes repository linkage in the not-found summary", () => {
+    const report = explainIssueDispatch({
+      identifier: "other/repo#1",
+      issue: null,
+      projectRepository,
+      allIssues: [],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.summary).toContain(
+      "Repository other/repo is not the active managed project repository"
+    );
   });
 });
 
