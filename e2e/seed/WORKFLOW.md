@@ -1,6 +1,7 @@
 ---
 tracker:
   kind: file
+  project_id: e2e-test
   state_field: Status
   active_states:
     - Ready

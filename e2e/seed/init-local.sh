@@ -92,15 +92,9 @@ cat > "$CONFIG_DIR/project.json" << EOF
   "repository": {
     "owner": "test-owner",
     "name": "test-repo",
-    "cloneUrl": "$REPO_DIR"
+    "cloneUrl": "$REPO_DIR",
+    "path": "$REPO_DIR"
   },
-  "repositories": [
-    {
-      "owner": "test-owner",
-      "name": "test-repo",
-      "cloneUrl": "$REPO_DIR"
-    }
-  ],
   "tracker": {
     "adapter": "file",
     "bindingId": "e2e-test",

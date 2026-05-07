@@ -24,7 +24,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
    ```
 4. Inspect persisted run records inside the container.
    ```bash
-   docker exec symphony-e2e sh -c 'find /app/.runtime/projects/e2e-project/runs -name run.json -exec cat {} \;'
+   docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/runs -name run.json -exec cat {} \;'
    ```
 5. Verify that both the original run and the recovered retry run preserve the original issue title instead of replacing it with the identifier.
 

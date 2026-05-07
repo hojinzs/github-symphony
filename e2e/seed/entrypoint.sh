@@ -1,24 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUNTIME_DIR="/app/.runtime"
-PROJECT_ID="e2e-project"
-CONFIG_DIR="$RUNTIME_DIR/projects/$PROJECT_ID"
+REPO_DIR="/e2e/repos/test-owner/test-repo"
+WORK_DIR="/e2e/work/test-repo"
 
 # Ensure runtime directories exist
-mkdir -p "$CONFIG_DIR"
-mkdir -p /e2e/workspaces
+mkdir -p /e2e/work /e2e/workspaces
+rm -rf "$WORK_DIR"
+git clone "$REPO_DIR" "$WORK_DIR"
+git -C "$WORK_DIR" remote set-url origin test-owner/test-repo
 
-# Place CLI config where the start command expects it
-cat > "$RUNTIME_DIR/config.json" <<EOF
-{
-  "activeProject": "$PROJECT_ID",
-  "projects": ["$PROJECT_ID"]
-}
-EOF
-
-# Place project config where the CLI/orchestrator expect it
-cp /e2e/seed/config.json "$CONFIG_DIR/project.json"
+cd "$WORK_DIR"
+GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="/e2e/fixtures/issues.json" \
+node /app/packages/cli/dist/index.js repo init
 
 # Create an empty issues.json if none mounted
 if [ ! -f /e2e/fixtures/issues.json ]; then
@@ -26,8 +20,7 @@ if [ ! -f /e2e/fixtures/issues.json ]; then
 fi
 
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
-GH_SYMPHONY_CONFIG_DIR="$RUNTIME_DIR" \
-node /app/packages/cli/dist/index.js start \
+node /app/packages/cli/dist/index.js repo start \
   --http 4680 &
 CLI_PID=$!
 

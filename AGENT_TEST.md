@@ -56,7 +56,7 @@ pnpm e2e:init       # .runtime/ 구조 생성, stub worker 컴파일, seed repo 
 `e2e:init`이 수행하는 작업:
 1. `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js` 컴파일
 2. `.runtime/e2e/repos/test-owner/test-repo` bare git repo 생성 (WORKFLOW.md 포함)
-3. `.runtime/projects/e2e-project/project.json` 프로젝트 설정
+3. `.runtime/projects/e2e-project/project.json` 단일 `repository` 프로젝트 설정
 4. `e2e/fixtures/issues.json` 빈 배열로 초기화
 
 ### 실행
@@ -145,8 +145,9 @@ AI Agent
 │  File Tracker                                     │
 │  (/e2e/fixtures/issues.json)                      │
 │                                                   │
-│  .runtime/ (tmpfs, 컨테이너 종료 시 소멸)         │
+│  /app/.runtime (tmpfs, 컨테이너 종료 시 소멸)     │
 │  /e2e/repos/ (pre-seeded local git repo)          │
+│  /e2e/work/test-repo/.runtime/orchestrator        │
 │                                                   │
 │  :4680 dashboard API (외부 노출)                  │
 └──────────────────────────────────────────────────┘
@@ -156,6 +157,7 @@ AI Agent
 - **Stub Worker** (`e2e/stub-worker.ts`): Codex AI 없이 Worker 동작을 시뮬레이션
 - **격리**: 모든 상태는 tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
 - **이벤트 미러링(선택)**: `docker-compose.e2e.events.yml` override를 함께 쓰면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
+- **골든 패스**: 컨테이너 entrypoint는 `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680` 순서로 단일-리포 런타임을 기동한다.
 
 ### Stub Worker 시나리오
 
@@ -287,13 +289,13 @@ run `events.ndjson`를 직접 읽어 다음을 검증한다.
 docker logs symphony-e2e
 
 # 이벤트 로그 (구조화된 NDJSON, 기본 tmpfs)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/events.ndjson'
+docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
 
 # 호스트 미러 로그 (events override 활성화 시)
-tail -f evidence/projects/e2e-project/runs/*/events.ndjson
+tail -f evidence/runs/*/events.ndjson
 
 # Worker 로그 (stderr만 캡처됨)
-docker exec symphony-e2e sh -c 'cat /app/.runtime/projects/e2e-project/runs/*/worker.log'
+docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
 ```
 
 ### 7. 정리

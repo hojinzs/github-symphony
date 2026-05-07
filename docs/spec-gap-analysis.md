@@ -306,7 +306,7 @@ Implementation: GitHub Symphony (pnpm monorepo, TypeScript)
 | **D1** | `tracker.kind: github-project` (spec: `linear`) | Intentional — GitHub target |
 | **D2** | `tracker.project_slug` → `projectId` | GitHub Project V2 ID scheme |
 | **D3** | `linear_graphql` → `github_graphql` tool | Target platform change |
-| **D4** | Workspace path `<root>/<projectId>/issues/<key>` | Multi-tenant support extension |
+| **D4** | Workspace path `<root>/<projectId>/issues/<key>` | **CLOSED** — single-repo runtime stores issue workspaces directly under repo-local `.runtime/orchestrator/<key>` |
 | **D5** | `WorkflowExecutionPhase` added (planning → human-review → implementation → awaiting-merge → completed) | GitHub workflow extension not in spec |
 | **D6** | `assignedOnly` filtering option | GitHub-specific extension |
 

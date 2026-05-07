@@ -61,6 +61,7 @@ describe("OrchestratorService", () => {
     const first = await service.runOnce();
     const second = await service.runOnce();
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
 
     expect(first.summary.dispatched).toBe(1);
     expect(first.tracker).toEqual({
@@ -80,6 +81,22 @@ describe("OrchestratorService", () => {
     expect(second.summary.dispatched).toBe(0);
     expect(issueRecords).toHaveLength(1);
     expect(issueRecords[0]?.state).toBe("retry_queued");
+    await expect(
+      readFile(join(tempRoot, workspaceKey, "workspace.json"), "utf8")
+    ).resolves.toContain(`"workspaceKey": "${workspaceKey}"`);
+    await expect(
+      readFile(
+        join(
+          tempRoot,
+          "projects",
+          "tenant-1",
+          "issues",
+          workspaceKey,
+          "workspace.json"
+        ),
+        "utf8"
+      )
+    ).rejects.toThrow();
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
