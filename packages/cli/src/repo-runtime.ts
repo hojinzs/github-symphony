@@ -82,10 +82,12 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
-  if (
-    trackerAdapter === "file" &&
-    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
-  ) {
+  if (trackerAdapter === "file") {
+    if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
+      throw new Error(
+        "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH to point to the issues fixture."
+      );
+    }
     // E2E-only escape hatch for binding the file tracker to a mounted fixture.
     trackerSettings.issuesPath =
       process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
