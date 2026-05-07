@@ -401,7 +401,8 @@ function isRepositoryRef(value: unknown): value is RepositoryRef {
     typeof repository.owner === "string" &&
     repository.owner.length > 0 &&
     typeof repository.name === "string" &&
-    repository.name.length > 0
+    repository.name.length > 0 &&
+    typeof repository.cloneUrl === "string"
   );
 }
 

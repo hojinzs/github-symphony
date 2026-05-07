@@ -134,7 +134,7 @@ describe("Project overview helpers", () => {
       </Theme>
     );
 
-    expect(markup).toContain("Repository repository unavailable");
+    expect(markup).toContain("Repository unavailable");
     expect(markup).toContain("Tracker binding-1");
   });
 });

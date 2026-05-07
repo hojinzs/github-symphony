@@ -321,7 +321,7 @@ function RetryQueueTable(props: { projectState: ProjectState }) {
 export function DataStatus(props: { projectState: ProjectState }) {
   const repository = props.projectState.repository
     ? `${props.projectState.repository.owner}/${props.projectState.repository.name}`
-    : "repository unavailable";
+    : "unavailable";
   const trackerProjectId = props.projectState.tracker.settings?.projectId;
 
   return (
