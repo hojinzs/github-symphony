@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -7,9 +7,11 @@ import {
   parseWorkflowMarkdown,
   resolveWorkflowRuntimeCommand,
   type AgentEvent,
+  type AgentRuntimeAdapter,
   type OrchestratorChannelEvent,
   type RunAttemptPhase,
   type SessionExitClassification,
+  type WorkflowDefinition,
   type WorkflowExecutionPhase,
 } from "@gh-symphony/core";
 import {
@@ -40,7 +42,13 @@ import {
   evaluateTurnProgress,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
+import {
+  createWorkerNonCodexRuntimeAdapter,
+  type WorkerNonCodexRuntimeAdapter,
+  type WorkerNonCodexTurnResult,
+} from "./non-codex-runtime.js";
 import { resolveExitRunPhase } from "./run-phase.js";
+import { resolveWorkerRuntimeRoute } from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
@@ -128,7 +136,8 @@ console.log(
   )
 );
 
-let childProcess: ReturnType<typeof launchCodexAppServer> | null = null;
+let childProcess: ChildProcess | null = null;
+let runtimeAdapter: AgentRuntimeAdapter | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let orchestratorChannelDrainPending = false;
 const pendingOrchestratorChannelPayloads: string[] = [];
@@ -169,6 +178,7 @@ function shutdown(signal: NodeJS.Signals) {
         // Ignore shutdown races.
       }
     }
+    await runtimeAdapter?.cancel(`worker received ${signal}`);
 
     stopOrchestratorHeartbeatTimer();
     emitOrchestratorHeartbeat();
@@ -479,7 +489,12 @@ async function startAssignedRun() {
       await readFile(workflowPath, "utf8"),
       launcherEnv
     );
-    if (isClaudeRuntimeCommand(workflow.codex.command)) {
+    const route = resolveWorkerRuntimeRoute(workflow);
+    if (
+      route === "runtime-adapter" &&
+      workflow.runtime?.kind === "claude-print" &&
+      isClaudeRuntimeCommand(resolveWorkflowRuntimeCommand(workflow))
+    ) {
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
         launcherEnv.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
@@ -499,21 +514,21 @@ async function startAssignedRun() {
         );
         return;
       }
-      await exitWorkerStartupFailure(
-        "Claude runtime worker launch is not yet implemented in this branch."
-      );
-      return;
     }
     runtimeState.executionPhase = resolveInitialExecutionPhase({
       issueState: runtimeState.run?.state,
       blockerCheckStates: workflow.lifecycle.blockerCheckStates,
       activeStates: workflow.lifecycle.activeStates,
     });
+    runtimeState.runPhase = "launching_agent";
+
+    if (route === "runtime-adapter") {
+      await runNonCodexRuntimeAdapterLifecycle(workflow, launcherEnv);
+      return;
+    }
+
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
-    runtimeState.runPhase = "launching_agent";
-    // TODO(#254): route claude-print/custom runtime kinds through runtime
-    // adapters instead of the Codex app-server client protocol.
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";
@@ -565,15 +580,268 @@ async function startAssignedRun() {
       void persistSessionTokenUsageArtifact(launcherEnv);
     });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown worker startup error";
     runtimeState.status = "failed";
     runtimeState.runPhase = "failed";
 
     if (runtimeState.run) {
-      runtimeState.run.lastError =
-        error instanceof Error ? error.message : "Unknown worker startup error";
+      runtimeState.run.lastError = message;
     }
+    process.stderr.write(`[worker] startup failed: ${message}\n`);
     await persistSessionTokenUsageArtifact(launcherEnv);
   }
+}
+
+async function runNonCodexRuntimeAdapterLifecycle(
+  workflow: WorkflowDefinition,
+  env: NodeJS.ProcessEnv
+): Promise<void> {
+  const renderedPrompt = env.SYMPHONY_RENDERED_PROMPT;
+  if (!renderedPrompt) {
+    await exitWorkerStartupFailure(
+      "SYMPHONY_RENDERED_PROMPT not set; cannot run runtime adapter lifecycle."
+    );
+    return;
+  }
+
+  const runId = env.SYMPHONY_RUN_ID;
+  if (!runId) {
+    await exitWorkerStartupFailure(
+      "SYMPHONY_RUN_ID not set; cannot prepare runtime adapter lifecycle."
+    );
+    return;
+  }
+
+  const runtimeKind = workflow.runtime?.kind;
+  if (runtimeKind !== "claude-print" && runtimeKind !== "custom") {
+    await exitWorkerStartupFailure(
+      "Runtime adapter lifecycle requested for an unsupported runtime kind."
+    );
+    return;
+  }
+
+  const adapter = createWorkerNonCodexRuntimeAdapter(workflow, {
+    workingDirectory: env.WORKING_DIRECTORY!,
+    env,
+    runtimeRoot: env.WORKSPACE_RUNTIME_DIR,
+    runtimeDirectory: env.WORKSPACE_RUNTIME_DIR,
+    onSpawned: (child) => {
+      childProcess = child;
+      if (runtimeState.run) {
+        runtimeState.run.processId = child.pid ?? null;
+      }
+    },
+  });
+  runtimeAdapter = adapter as AgentRuntimeAdapter;
+
+  let terminalFailure: string | null = null;
+  const unsubscribe = adapter.onEvent((event) => {
+    const agentEvent = event as AgentEvent;
+    handleNonCodexRuntimeEvent(agentEvent);
+    if (agentEvent.name === "agent.inputRequired") {
+      terminalFailure = agentEvent.payload.reason;
+    }
+    if (
+      agentEvent.name === "agent.turnFailed" ||
+      agentEvent.name === "agent.error"
+    ) {
+      terminalFailure =
+        agentEvent.name === "agent.error"
+          ? agentEvent.payload.error
+          : JSON.stringify(agentEvent.payload.params);
+    }
+  });
+
+  const turnTelemetry: ActiveTurnTelemetry = {
+    startedAt: new Date().toISOString(),
+    threadId: null,
+    turnId: `${runId}-turn-1`,
+    turnCount: 1,
+    sessionId: runId,
+    tokenUsageBaseline: cloneTokenUsageSnapshot(),
+  };
+
+  try {
+    await (adapter as AgentRuntimeAdapter<{ runId: string }>).prepare({
+      runId,
+    });
+    runtimeState.status = "running";
+    runtimeState.runPhase = "streaming_turn";
+    runtimeState.sessionInfo = {
+      threadId: turnTelemetry.threadId,
+      turnId: turnTelemetry.turnId,
+      turnCount: turnTelemetry.turnCount,
+      sessionId: turnTelemetry.sessionId,
+      exitClassification: null,
+    };
+    runtimeState.sessionId = turnTelemetry.sessionId;
+    emitTurnStartedEvent(turnTelemetry);
+
+    const result = await spawnNonCodexRuntimeTurn(
+      adapter,
+      runtimeKind,
+      renderedPrompt,
+      env
+    );
+    if (isNonCodexTurnFailure(result)) {
+      terminalFailure = describeNonCodexTurnFailure(result);
+    }
+
+    runtimeState.status = terminalFailure ? "failed" : "completed";
+    runtimeState.runPhase = terminalFailure ? "failed" : "succeeded";
+    if (runtimeState.run) {
+      runtimeState.run.lastError = terminalFailure;
+    }
+    runtimeState.sessionInfo.exitClassification = classifySessionExit({
+      runPhase: runtimeState.runPhase,
+      userInputRequired:
+        terminalFailure === DEFAULT_AGENT_INPUT_REQUIRED_REASON ||
+        terminalFailure?.startsWith("turn_input_required:") === true,
+      budgetExceeded: false,
+      convergenceDetected: false,
+      maxTurnsReached: false,
+    });
+
+    if (terminalFailure) {
+      emitTurnFailedEvent(turnTelemetry, terminalFailure);
+    } else {
+      emitTurnCompletedEvent(turnTelemetry);
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown runtime adapter lifecycle error";
+    runtimeState.status = "failed";
+    runtimeState.runPhase = "failed";
+    if (runtimeState.run) {
+      runtimeState.run.lastError = message;
+    }
+    runtimeState.sessionInfo.exitClassification = classifySessionExit({
+      runPhase: runtimeState.runPhase,
+      userInputRequired: false,
+      budgetExceeded: false,
+      convergenceDetected: false,
+      maxTurnsReached: false,
+    });
+    emitTurnFailedEvent(turnTelemetry, message);
+  } finally {
+    unsubscribe();
+    await adapter.shutdown();
+    runtimeAdapter = null;
+    childProcess = null;
+    runtimeState.runPhase = runtimeState.runPhase ?? "failed";
+    stopOrchestratorHeartbeatTimer();
+    emitOrchestratorHeartbeat();
+    await persistSessionTokenUsageArtifact(env);
+    await waitForPendingOrchestratorChannelFlush(
+      resolveTerminalOrchestratorChannelFlushTimeoutMs()
+    );
+    setTimeout(() => {
+      process.exit(runtimeState.status === "completed" ? 0 : 1);
+    }, 1500);
+  }
+}
+
+async function spawnNonCodexRuntimeTurn(
+  adapter: WorkerNonCodexRuntimeAdapter,
+  runtimeKind: "claude-print" | "custom",
+  renderedPrompt: string,
+  env: NodeJS.ProcessEnv
+): Promise<WorkerNonCodexTurnResult> {
+  if (runtimeKind === "claude-print") {
+    return await (
+      adapter as {
+        spawnTurn(input: {
+          messages: Array<{ type: "user"; text: string }>;
+          cwd?: string;
+          env?: NodeJS.ProcessEnv;
+        }): Promise<WorkerNonCodexTurnResult>;
+      }
+    ).spawnTurn({
+      messages: [{ type: "user", text: renderedPrompt }],
+      cwd: env.WORKING_DIRECTORY,
+      env,
+    });
+  }
+
+  return await (
+    adapter as {
+      spawnTurn(input: {
+        prompt: string;
+        cwd?: string;
+        env?: NodeJS.ProcessEnv;
+      }): Promise<WorkerNonCodexTurnResult>;
+    }
+  ).spawnTurn({
+    prompt: renderedPrompt,
+    cwd: env.WORKING_DIRECTORY,
+    env,
+  });
+}
+
+function handleNonCodexRuntimeEvent(event: AgentEvent): void {
+  if (event.payload.suppressUpdate) {
+    return;
+  }
+  runtimeState.lastEventAt = new Date().toISOString();
+
+  switch (event.name) {
+    case "agent.tokenUsageUpdated": {
+      const tokenUsage = extractAbsoluteTokenUsage(event.payload.params);
+      if (tokenUsage) {
+        applyTokenUsageUpdate(
+          event.payload.observabilityEvent ?? event.name,
+          tokenUsage
+        );
+      }
+      break;
+    }
+    case "agent.rateLimit": {
+      const rateLimits = extractRateLimitPayload(event.payload.params);
+      if (rateLimits) {
+        applyRateLimitUpdate(
+          event.payload.observabilityEvent ?? event.name,
+          rateLimits,
+          "runtime-adapter"
+        );
+      }
+      break;
+    }
+    case "agent.inputRequired":
+      runtimeState.status = "failed";
+      if (runtimeState.run) {
+        runtimeState.run.lastError = event.payload.reason;
+      }
+      break;
+    case "agent.turnFailed":
+    case "agent.turnCancelled":
+    case "agent.error":
+      runtimeState.status = "failed";
+      if (runtimeState.run) {
+        runtimeState.run.lastError =
+          event.name === "agent.error"
+            ? event.payload.error
+            : JSON.stringify(event.payload.params);
+      }
+      break;
+    default:
+      break;
+  }
+
+  emitOrchestratorChannelEvent(event.payload.observabilityEvent ?? event.name);
+}
+
+function isNonCodexTurnFailure(result: WorkerNonCodexTurnResult): boolean {
+  return result.result !== "success";
+}
+
+function describeNonCodexTurnFailure(result: WorkerNonCodexTurnResult): string {
+  return (
+    result.errorMessage ??
+    `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}`
+  );
 }
 
 async function exitWorkerStartupFailure(message: string): Promise<void> {
@@ -1412,11 +1680,12 @@ function applyTokenUsageUpdate(
 
 function applyRateLimitUpdate(
   source: string,
-  rateLimits: Record<string, unknown>
+  rateLimits: Record<string, unknown>,
+  runtimeSource = "codex"
 ): void {
   runtimeState.rateLimits = {
     ...rateLimits,
-    source: "codex",
+    source: runtimeSource,
   };
   process.stderr.write(
     `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits).slice(0, 300)}\n`

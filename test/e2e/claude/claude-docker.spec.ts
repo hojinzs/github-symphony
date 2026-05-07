@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -71,6 +72,59 @@ describe("Claude Docker E2E with stub claude binary", () => {
       "In review",
     ]);
     expect(await harness.readInvocations()).toHaveLength(1);
+  });
+
+  it("routes worker claude-print runtime through the adapter lifecycle", async () => {
+    const root = await mkdtemp(join(tmpdir(), "worker-claude-e2e-"));
+    createdRoots.push(root);
+    const workspace = join(root, "workspace");
+    const runtimeRoot = join(root, "runtime");
+    const logDir = join(root, "stub-log");
+    const workflowPath = join(workspace, "WORKFLOW.md");
+    await mkdir(workspace, { recursive: true });
+    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(logDir, { recursive: true });
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+runtime:
+  kind: claude-print
+  command: claude
+---
+Worker prompt.
+`,
+      "utf8"
+    );
+
+    const result = await runWorkerProcess({
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
+        CLAUDE_STUB_LOG_DIR: logDir,
+        CLAUDE_STUB_SCENARIO: "success",
+        ANTHROPIC_API_KEY: "stub-anthropic-key",
+        GITHUB_GRAPHQL_TOKEN: "stub-token",
+        GITHUB_PROJECT_ID: "stub-project",
+        WORKING_DIRECTORY: workspace,
+        WORKSPACE_RUNTIME_DIR: runtimeRoot,
+        SYMPHONY_WORKFLOW_PATH: workflowPath,
+        SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
+        SYMPHONY_RUN_ID: "run-worker-claude",
+        SYMPHONY_ISSUE_ID: "issue-worker-claude",
+        SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
+        SYMPHONY_ISSUE_STATE: "In progress",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Claude runtime preflight");
+    expect(result.stderr).toContain("claude-print/result");
+    expect(result.stderr).toContain('"type":"turn_completed"');
+    expect(result.stderr).not.toContain("sending codex initialize");
+    expect(result.stderr).not.toContain("codex client protocol");
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
@@ -263,11 +317,7 @@ async function createHarness(initialScenario: string) {
       const events = eventsByRun.get(runId) ?? [];
       const flushedEventCount = flushedEventCountsByRun.get(runId) ?? 0;
       const newEvents = events.slice(flushedEventCount);
-      await appendRunEvents(
-        runDirectory,
-        result.args,
-        newEvents
-      );
+      await appendRunEvents(runDirectory, result.args, newEvents);
       flushedEventCountsByRun.set(runId, events.length);
       return result;
     },
@@ -362,6 +412,37 @@ async function readOptional(path: string): Promise<string> {
     }
     throw error;
   }
+}
+
+function runWorkerProcess(options: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<{
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  stderr: string;
+}> {
+  return new Promise((resolveResult, reject) => {
+    const child = spawn("node", ["packages/worker/dist/index.js"], {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    let settled = false;
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (exitCode, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolveResult({ exitCode, signal, stderr });
+    });
+  });
 }
 
 function valueAfter(argv: readonly string[], flag: string): string | undefined {
