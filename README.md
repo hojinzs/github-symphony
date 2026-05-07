@@ -289,6 +289,7 @@ gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
 gh-symphony project status           # Show status for a specific project
+gh-symphony project explain owner/repo#123  # Explain why one issue is not dispatching
 gh-symphony project start            # Start a specific project
 gh-symphony project start --once     # Run one orchestration tick for a specific project
 gh-symphony project stop             # Stop a specific project
@@ -322,6 +323,43 @@ Dispatch a single issue:
 gh-symphony run org/repo#123
 gh-symphony run org/repo#123 --watch  # Watch status after dispatch
 ```
+
+### Why Is My Issue Not Running?
+
+Use `gh-symphony project explain <owner/repo#number>` as the first diagnostic
+when a GitHub Project issue stays idle:
+
+```bash
+gh-symphony project explain owner/repo#123
+gh-symphony project explain owner/repo#123 --json
+gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
+```
+
+The report checks whether the repository is linked to the active managed
+project, the issue is present in the GitHub Project item set, the current
+project status maps to active / wait / terminal in `WORKFLOW.md`, blockers are
+resolved, an existing run / retry / convergence state already owns the issue,
+and project or per-state concurrency limits still have capacity.
+
+If the project has no previous local run snapshot and the repository path is
+not stored in the managed project config, pass `--workflow` so the command
+evaluates the same `WORKFLOW.md` that orchestration will use.
+
+Example:
+
+```text
+Issue dispatch explanation: owner/repo#123
+Not dispatchable: Project state "Backlog" maps to wait, not active, in WORKFLOW.md.
+
+Checks:
+  ✓ Repository owner/repo is linked to the active managed project.
+  ✓ Issue is present in the bound GitHub Project item set.
+  ✗ Project state "Backlog" maps to wait, not active, in WORKFLOW.md.
+    Hint: Move the GitHub Project item to an active state or run 'gh-symphony workflow preview' to inspect WORKFLOW.md state mappings.
+```
+
+Hints point back to existing troubleshooting commands such as `workflow
+preview`, `doctor`, `project status`, and `logs --issue`.
 
 Recover stalled runs:
 

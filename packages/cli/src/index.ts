@@ -66,6 +66,7 @@ type CliOptionValues = Partial<
     web?: string | boolean;
     repoDir?: string;
     workflowFile?: string;
+    workflow?: string;
     workspaceDir?: string;
     watch?: boolean;
     sample?: string;
@@ -606,6 +607,24 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args = ["status"];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--watch", values.watch);
+    await invokeHandler("project", args, values);
+  });
+
+  addGlobalOptions(
+    project
+      .command("explain")
+      .description("Explain why a project issue is not dispatching")
+      .argument("<issue>", "Issue identifier, for example owner/repo#123")
+      .option("--project-id <projectId>", "Project identifier")
+      .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
+      .addOption(new Option("--project <projectId>").hideHelp())
+      .allowExcessArguments(false)
+  ).action(async function (this: Command, issue: string) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args = ["explain", issue];
+    pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--workflow", values.workflow);
     await invokeHandler("project", args, values);
   });
 

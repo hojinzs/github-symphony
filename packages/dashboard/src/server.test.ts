@@ -10,7 +10,6 @@ function createReader() {
     loadAllRuns: vi.fn(),
     loadRunsForIssue: vi.fn(),
     loadRecentRunEvents: vi.fn(),
-    projectId: "tenant-1",
     runtimeRoot: "/tmp/runtime",
     projectDir: vi.fn(),
     runDir: vi.fn(),
@@ -24,11 +23,17 @@ afterEach(() => {
 describe("GET /api/v1/state", () => {
   it("returns a single project snapshot", async () => {
     const snapshot = {
-      projectId: "tenant-1",
-      slug: "tenant-1",
+      repository: {
+        owner: "acme",
+        name: "repo",
+        cloneUrl: "https://github.com/acme/repo.git",
+      },
       tracker: {
         adapter: "github-project",
         bindingId: "project-1",
+        settings: {
+          projectId: "PVT_project_1",
+        },
       },
       lastTickAt: new Date().toISOString(),
       health: "idle",
@@ -70,6 +75,8 @@ describe("GET /api/v1/state", () => {
 
     expect(result.status).toBe(200);
     expect(result.payload).toEqual(snapshot);
+    expect(result.payload).not.toHaveProperty("projectId");
+    expect(result.payload).not.toHaveProperty("slug");
     expect(reader.loadProjectState).toHaveBeenCalledOnce();
   });
 

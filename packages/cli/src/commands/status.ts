@@ -11,6 +11,7 @@ import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 function healthIcon(health: "idle" | "running" | "degraded"): string {
   switch (health) {
@@ -60,7 +61,7 @@ function renderLegacyStatus(
   const lines: string[] = [];
 
   // Header
-  const headerTitle = `gh-symphony ∙ ${snapshot.slug}`;
+  const headerTitle = `gh-symphony ∙ ${formatRepositoryDisplay(snapshot)}`;
   const headerWidth = 45;
   const headerPadding = Math.max(
     0,
@@ -182,15 +183,20 @@ function parseStatusArgs(args: string[]): {
 
 async function readStatusSnapshot(
   runtimeRoot: string,
-  _projectId: string
+  projectId: string
 ): Promise<ProjectStatusSnapshot | null> {
-  try {
-    const statusPath = join(runtimeRoot, "status.json");
-    const content = await readFile(statusPath, "utf-8");
-    return JSON.parse(content) as ProjectStatusSnapshot;
-  } catch {
-    return null;
+  for (const statusPath of [
+    join(runtimeRoot, "status.json"),
+    join(runtimeRoot, "projects", projectId, "status.json"),
+  ]) {
+    try {
+      const content = await readFile(statusPath, "utf-8");
+      return JSON.parse(content) as ProjectStatusSnapshot;
+    } catch {
+      // Try the next known runtime layout.
+    }
   }
+  return null;
 }
 
 const handler = async (

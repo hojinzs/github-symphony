@@ -35,6 +35,7 @@ import {
 import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import { getGhToken } from "../github/gh-auth.js";
+import { formatRepositoryDisplay } from "../format/repository.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -158,7 +159,9 @@ function logTickResult(
           : cyan;
     logLine(
       green("\u25CF"),
-      `Project ${bold(snapshot.slug)} connected ${dim("(")}${healthColor(snapshot.health)}${dim(")")}`
+      `Repository ${bold(formatRepositoryDisplay(snapshot))} connected ${dim(
+        "("
+      )}${healthColor(snapshot.health)}${dim(")")}`
     );
     if (snapshot.summary.activeRuns > 0) {
       logLine(cyan("\u25B8"), `${snapshot.summary.activeRuns} active run(s)`);
@@ -340,7 +343,7 @@ async function startHttpServer(input: {
   initialPort: number;
   service: { requestReconcile(): void };
 }): Promise<{ server: Server; port: number; url: string }> {
-  const reader = new DashboardFsReader(input.runtimeRoot, input.projectId);
+  const reader = new DashboardFsReader(input.runtimeRoot);
 
   for (let port = input.initialPort; port <= 65_535; port += 1) {
     const server = createServer((request, response) => {
@@ -584,7 +587,6 @@ const handler = async (
               host: HTTP_HOST,
               port: parsed.webPort,
               runtimeRoot,
-              projectId,
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined
@@ -775,18 +777,23 @@ async function tailWorkerLog(
   runId: string,
   issueIdentifier: string
 ): Promise<void> {
-  try {
-    const logPath = join(runtimeRoot, "runs", runId, "worker.log");
-    const content = await readFile(logPath, "utf8");
-    const lines = content.split("\n").filter((l) => l.trim());
-    if (lines.length === 0) return;
-    const tail = lines.slice(-30);
-    logLine(red("\u2717"), red(`Worker stderr (${issueIdentifier}):`));
-    for (const line of tail) {
-      process.stdout.write(`  ${dim(line)}\n`);
+  for (const logPath of [
+    join(runtimeRoot, "runs", runId, "worker.log"),
+    join(runtimeRoot, "projects", projectId, "runs", runId, "worker.log"),
+  ]) {
+    try {
+      const content = await readFile(logPath, "utf8");
+      const lines = content.split("\n").filter((l) => l.trim());
+      if (lines.length === 0) return;
+      const tail = lines.slice(-30);
+      logLine(red("\u2717"), red(`Worker stderr (${issueIdentifier}):`));
+      for (const line of tail) {
+        process.stdout.write(`  ${dim(line)}\n`);
+      }
+      return;
+    } catch {
+      // Try the next known runtime layout.
     }
-  } catch {
-    // worker.log 없거나 읽기 실패 시 무시
   }
 }
 

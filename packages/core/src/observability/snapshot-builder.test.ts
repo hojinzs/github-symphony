@@ -274,13 +274,19 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns).toHaveLength(2);
   });
 
-  it("preserves project metadata in snapshot", () => {
+  it("exposes repository and tracker metadata in snapshot", () => {
     const project = mockProject({
-      projectId: "custom-project-id",
-      slug: "custom-slug",
+      repository: {
+        owner: "octo",
+        name: "repo",
+        cloneUrl: "https://github.com/octo/repo.git",
+      },
       tracker: {
         adapter: "github",
         bindingId: "custom-binding",
+        settings: {
+          projectId: "PVT_project_123",
+        },
       },
     });
 
@@ -294,10 +300,18 @@ describe("buildProjectSnapshot", () => {
 
     const snapshot = buildProjectSnapshot(input);
 
-    expect(snapshot.projectId).toBe("custom-project-id");
-    expect(snapshot.slug).toBe("custom-slug");
+    expect(snapshot).not.toHaveProperty("projectId");
+    expect(snapshot).not.toHaveProperty("slug");
+    expect(snapshot.repository).toEqual({
+      owner: "octo",
+      name: "repo",
+      cloneUrl: "https://github.com/octo/repo.git",
+    });
     expect(snapshot.tracker.adapter).toBe("github");
     expect(snapshot.tracker.bindingId).toBe("custom-binding");
+    expect(snapshot.tracker.settings).toEqual({
+      projectId: "PVT_project_123",
+    });
   });
 
   it("includes summary counts in snapshot", () => {

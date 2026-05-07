@@ -127,7 +127,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 
   async saveProjectStatus(status: ProjectStatusSnapshot): Promise<void> {
     await writeJsonFile(
-      join(this.projectDir(status.projectId), "status.json"),
+      join(this.projectDir(), "status.json"),
       status
     );
   }

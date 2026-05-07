@@ -47,12 +47,13 @@ function captureWrites(stream: NodeJS.WriteStream): {
   restore: () => void;
 } {
   let buffer = "";
-  const spy = vi
-    .spyOn(stream, "write")
-    .mockImplementation(((chunk: string | Uint8Array) => {
-      buffer += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-      return true;
-    }) as typeof stream.write);
+  const spy = vi.spyOn(stream, "write").mockImplementation(((
+    chunk: string | Uint8Array
+  ) => {
+    buffer +=
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    return true;
+  }) as typeof stream.write);
 
   return {
     output: () => buffer,
@@ -93,11 +94,7 @@ async function seedProject(
   }
 
   if (input.snapshot) {
-    const runtimeDir = join(
-      configDir,
-      "projects",
-      input.projectId
-    );
+    const runtimeDir = join(configDir, "projects", input.projectId);
     await mkdir(runtimeDir, { recursive: true });
     await writeFile(
       join(runtimeDir, "status.json"),
@@ -237,7 +234,9 @@ describe("project list", () => {
       stdout.restore();
     }
 
-    const output = JSON.parse(stdout.output()) as Array<Record<string, unknown>>;
+    const output = JSON.parse(stdout.output()) as Array<
+      Record<string, unknown>
+    >;
     expect(output).toEqual([
       expect.objectContaining({
         id: "infra-e5f6",
@@ -254,7 +253,9 @@ describe("project list", () => {
   });
 
   it("emits nulls for unknown runtime fields in JSON mode", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-list-json-stopped-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-list-json-stopped-")
+    );
     const stdout = captureWrites(process.stdout);
 
     await saveGlobalConfig(configDir, {
@@ -279,7 +280,9 @@ describe("project list", () => {
       stdout.restore();
     }
 
-    const output = JSON.parse(stdout.output()) as Array<Record<string, unknown>>;
+    const output = JSON.parse(stdout.output()) as Array<
+      Record<string, unknown>
+    >;
     expect(output).toEqual([
       {
         id: "front-c3d4",
@@ -324,6 +327,275 @@ describe("project list", () => {
     expect(stdout.output()).not.toContain("Endpoint");
   });
 });
+
+describe("project explain", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
+  });
+
+  it("rejects malformed issue identifiers before loading project state", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-explain-invalid-"));
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await projectCommand(["explain", "not-an-issue"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Issue identifier must use the form <owner>/<repo>#<number>"
+    );
+  });
+
+  it("prints a friendly authentication error when gh auth is unavailable", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "project-explain-auth-"));
+    const stderr = captureWrites(process.stderr);
+    await seedExplainProject(configDir);
+    vi.spyOn(ghAuth, "getGhToken").mockImplementation(() => {
+      throw new ghAuth.GhAuthError(
+        "not_authenticated",
+        "gh is not authenticated."
+      );
+    });
+
+    try {
+      await projectCommand(["explain", "acme/widgets#42"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "GitHub authentication is required for project explain"
+    );
+    expect(stderr.output()).toContain(
+      "gh auth login --scopes repo,read:org,project"
+    );
+  });
+
+  it("fails clearly instead of silently using default workflow settings", async () => {
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-explain-workflow-")
+    );
+    const stderr = captureWrites(process.stderr);
+    await seedExplainProject(configDir);
+    vi.spyOn(ghAuth, "getGhToken").mockReturnValue("gho_test");
+    vi.stubGlobal("fetch", vi.fn(mockProjectItemsFetch));
+
+    try {
+      await projectCommand(["explain", "acme/widgets#42"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stderr.restore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain("No WORKFLOW.md path could be resolved");
+    expect(stderr.output()).toContain("--workflow <path-to-WORKFLOW.md>");
+  });
+
+  it("uses an explicit workflow path for the explanation report", async () => {
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-explain-explicit-")
+    );
+    const workflowDir = await mkdtemp(
+      join(tmpdir(), "project-explain-workflow-file-")
+    );
+    const workflowPath = join(workflowDir, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_test
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+agent:
+  max_concurrent_agents: 2
+codex:
+  command: codex app-server
+---
+Follow the issue instructions.
+`,
+      "utf8"
+    );
+    await seedExplainProject(configDir);
+    vi.spyOn(ghAuth, "getGhToken").mockReturnValue("gho_test");
+    vi.stubGlobal("fetch", vi.fn(mockProjectItemsFetch));
+
+    try {
+      await projectCommand(
+        ["explain", "acme/widgets#42", "--workflow", workflowPath],
+        {
+          configDir,
+          verbose: false,
+          json: false,
+          noColor: true,
+        }
+      );
+    } finally {
+      stdout.restore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.output()).toContain(
+      "Dispatchable: no blocking project, workflow, runtime, or budget condition was found."
+    );
+    expect(stdout.output()).toContain(
+      'Project state "Ready" maps to an active state in WORKFLOW.md.'
+    );
+  });
+});
+
+async function seedExplainProject(configDir: string): Promise<void> {
+  const projectId = "explain-project";
+  await saveGlobalConfig(configDir, {
+    activeProject: projectId,
+    projects: [projectId],
+  });
+  await saveProjectConfig(configDir, projectId, {
+    projectId,
+    slug: projectId,
+    displayName: "Explain Project",
+    workspaceDir: join(configDir, "workspaces"),
+    repository: {
+      owner: "acme",
+      name: "widgets",
+      cloneUrl: "https://github.com/acme/widgets.git",
+    },
+    tracker: {
+      adapter: "github-project",
+      bindingId: "PVT_test",
+      settings: {
+        projectId: "PVT_test",
+      },
+    },
+  });
+}
+
+async function mockProjectItemsFetch(
+  _input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const body =
+    typeof init?.body === "string"
+      ? (JSON.parse(init.body) as { query?: string })
+      : {};
+  const query = body.query ?? "";
+  if (query.includes("RepositoryIssue")) {
+    return jsonResponse({
+      data: {
+        repository: {
+          issue: {
+            ...mockIssueContent(),
+            projectItems: {
+              nodes: [mockIssueProjectItem()],
+              pageInfo: {
+                endCursor: null,
+                hasNextPage: false,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  return jsonResponse({
+    data: {
+      node: {
+        __typename: "ProjectV2",
+        items: {
+          nodes: [
+            {
+              ...mockIssueProjectItem(),
+              content: mockIssueContent(),
+            },
+          ],
+          pageInfo: {
+            endCursor: null,
+            hasNextPage: false,
+          },
+        },
+      },
+    },
+  });
+}
+
+function mockIssueProjectItem() {
+  return {
+    id: "PVTI_item_42",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    project: {
+      id: "PVT_test",
+    },
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          name: "Ready",
+          optionId: "ready",
+          field: {
+            name: "Status",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function mockIssueContent() {
+  return {
+    __typename: "Issue",
+    id: "I_42",
+    number: 42,
+    title: "Make widgets responsive",
+    body: "Issue body",
+    url: "https://github.com/acme/widgets/issues/42",
+    createdAt: "2026-05-06T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z",
+    labels: { nodes: [] },
+    assignees: { nodes: [] },
+    repository: {
+      name: "widgets",
+      url: "https://github.com/acme/widgets",
+      owner: { login: "acme" },
+    },
+    blockedBy: { nodes: [] },
+  };
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+    },
+  });
+}
 
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_project_1",
@@ -430,12 +702,7 @@ describe("project add interactive", () => {
 
     const project = JSON.parse(
       await readFile(
-        join(
-          configDir,
-          "projects",
-          projectId,
-          "project.json"
-        ),
+        join(configDir, "projects", projectId, "project.json"),
         "utf8"
       )
     ) as CliProjectConfig;
@@ -530,12 +797,7 @@ describe("project add interactive", () => {
 
     const project = JSON.parse(
       await readFile(
-        join(
-          configDir,
-          "projects",
-          projectId,
-          "project.json"
-        ),
+        join(configDir, "projects", projectId, "project.json"),
         "utf8"
       )
     ) as CliProjectConfig;
@@ -627,7 +889,9 @@ describe("project add interactive", () => {
   });
 
   it("uses --assigned-only as the interactive prompt default", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-add-assigned-only-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-add-assigned-only-")
+    );
     const projectId = generateProjectId(
       MOCK_PROJECT_DETAIL.title,
       MOCK_PROJECT_DETAIL.id
@@ -646,7 +910,10 @@ describe("project add interactive", () => {
     });
 
     const project = JSON.parse(
-      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
     ) as CliProjectConfig;
 
     expect(project.tracker.settings?.assignedOnly).toBe(true);
@@ -681,7 +948,10 @@ describe("project add interactive", () => {
     });
 
     const project = JSON.parse(
-      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
     ) as CliProjectConfig;
 
     expect(confirmSpy).toHaveBeenNthCalledWith(
@@ -699,7 +969,9 @@ describe("project add interactive", () => {
       "Configuration Summary"
     );
     expect(p.outro).toHaveBeenCalledWith(
-      expect.stringContaining(`Project "${projectId}" created with 0 repositories.`)
+      expect.stringContaining(
+        `Project "${projectId}" created with 0 repositories.`
+      )
     );
     expect(p.outro).toHaveBeenCalledWith(
       expect.stringContaining("gh-symphony repo add <owner/name>")
@@ -743,7 +1015,9 @@ describe("project add interactive", () => {
   });
 
   it("guides empty projects toward repo add validation", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-add-empty-project-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-add-empty-project-")
+    );
     vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
       ...MOCK_PROJECT_DETAIL,
       linkedRepositories: [],
@@ -791,7 +1065,9 @@ describe("project add non-interactive", () => {
   });
 
   it("prints zero-repository completion guidance in non-interactive mode", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-add-non-interactive-empty-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-add-non-interactive-empty-")
+    );
     const stdout = captureWrites(process.stdout);
     const projectId = generateProjectId(
       EMPTY_PROJECT_DETAIL.title,
@@ -816,7 +1092,10 @@ describe("project add non-interactive", () => {
     }
 
     const project = JSON.parse(
-      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
     ) as CliProjectConfig;
 
     expect(project.repositories).toEqual([]);
@@ -831,7 +1110,9 @@ describe("project add non-interactive", () => {
   });
 
   it("prints repository count without zero-repository follow-up when linked repositories exist", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "project-add-non-interactive-linked-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "project-add-non-interactive-linked-")
+    );
     const stdout = captureWrites(process.stdout);
     const projectId = generateProjectId(
       MOCK_PROJECT_DETAIL.title,
@@ -856,7 +1137,10 @@ describe("project add non-interactive", () => {
     }
 
     const project = JSON.parse(
-      await readFile(join(configDir, "projects", projectId, "project.json"), "utf8")
+      await readFile(
+        join(configDir, "projects", projectId, "project.json"),
+        "utf8"
+      )
     ) as CliProjectConfig;
 
     expect(project.repositories).toHaveLength(3);

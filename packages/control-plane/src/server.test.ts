@@ -21,7 +21,6 @@ function createReader() {
     loadAllRuns: vi.fn(),
     loadRunsForIssue: vi.fn(),
     loadRecentRunEvents: vi.fn(),
-    projectId: "tenant-1",
     runtimeRoot: "/tmp/runtime",
     projectDir: vi.fn(),
     runDir: vi.fn(),
@@ -54,11 +53,17 @@ describe("createControlPlaneHandler", () => {
   it("delegates GET /api/v1/state to the dashboard resolver", async () => {
     const reader = createReader();
     reader.loadProjectState.mockResolvedValue({
-      projectId: "tenant-1",
-      slug: "tenant-1",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
       tracker: {
         adapter: "github-project",
         bindingId: "project-1",
+        settings: {
+          projectId: "PVT_project_1",
+        },
       },
       lastTickAt: "2026-04-09T00:00:00.000Z",
       health: "idle",
@@ -81,15 +86,21 @@ describe("createControlPlaneHandler", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      projectId: "tenant-1",
+      repository: { owner: "acme", name: "platform" },
+      tracker: { settings: { projectId: "PVT_project_1" } },
       health: "idle",
     });
   });
 
   it("serves static assets from client/dist", async () => {
     await mkdir(join(CLIENT_DIST_DIR, "assets"), { recursive: true });
-    await writeFile(join(CLIENT_DIST_DIR, "assets", "app.js"), "console.log(1);");
-    const handler = createControlPlaneHandler({ reader: createReader() as never });
+    await writeFile(
+      join(CLIENT_DIST_DIR, "assets", "app.js"),
+      "console.log(1);"
+    );
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+    });
 
     const response = await fetchWithHandler(handler, "/assets/app.js");
 
@@ -104,9 +115,11 @@ describe("createControlPlaneHandler", () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
       join(CLIENT_DIST_DIR, "index.html"),
-      "<!doctype html><div id=\"root\"></div>"
+      '<!doctype html><div id="root"></div>'
     );
-    const handler = createControlPlaneHandler({ reader: createReader() as never });
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+    });
 
     const response = await fetchWithHandler(handler, "/assets/app%2Ejs");
 
@@ -118,9 +131,11 @@ describe("createControlPlaneHandler", () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
       join(CLIENT_DIST_DIR, "index.html"),
-      "<!doctype html><div id=\"root\"></div>"
+      '<!doctype html><div id="root"></div>'
     );
-    const handler = createControlPlaneHandler({ reader: createReader() as never });
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+    });
 
     const response = await fetchWithHandler(handler, "/%E0%A4%A");
 
@@ -132,24 +147,31 @@ describe("createControlPlaneHandler", () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
       join(CLIENT_DIST_DIR, "index.html"),
-      "<!doctype html><div id=\"root\"></div>"
+      '<!doctype html><div id="root"></div>'
     );
-    const handler = createControlPlaneHandler({ reader: createReader() as never });
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+    });
 
-    const response = await fetchWithHandler(handler, "/issues/acme%2Frepo%23123");
+    const response = await fetchWithHandler(
+      handler,
+      "/issues/acme%2Frepo%23123"
+    );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
-    await expect(response.text()).resolves.toContain("<div id=\"root\"></div>");
+    await expect(response.text()).resolves.toContain('<div id="root"></div>');
   });
 
   it("serves index.html with no-cache even when requested directly", async () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
       join(CLIENT_DIST_DIR, "index.html"),
-      "<!doctype html><div id=\"root\"></div>"
+      '<!doctype html><div id="root"></div>'
     );
-    const handler = createControlPlaneHandler({ reader: createReader() as never });
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+    });
 
     const response = await fetchWithHandler(handler, "/index.html");
 
@@ -163,16 +185,23 @@ describe("startControlPlaneServer", () => {
     await mkdir(CLIENT_DIST_DIR, { recursive: true });
     await writeFile(
       join(CLIENT_DIST_DIR, "index.html"),
-      "<!doctype html><div id=\"root\"></div>"
+      '<!doctype html><div id="root"></div>'
     );
     const runtimeRoot = await mkdtemp(join(tmpdir(), "control-plane-runtime-"));
-    await mkdir(join(runtimeRoot, "projects", "tenant-1"), { recursive: true });
+    await mkdir(runtimeRoot, { recursive: true });
     await writeFile(
-      join(runtimeRoot, "projects", "tenant-1", "status.json"),
+      join(runtimeRoot, "status.json"),
       JSON.stringify({
-        projectId: "tenant-1",
-        slug: "tenant-1",
-        tracker: { adapter: "github-project", bindingId: "project-1" },
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-1",
+          settings: { projectId: "PVT_project_1" },
+        },
         lastTickAt: "2026-04-09T00:00:00.000Z",
         health: "idle",
         summary: {
@@ -187,16 +216,12 @@ describe("startControlPlaneServer", () => {
         lastError: null,
       })
     );
-    await writeFile(
-      join(runtimeRoot, "projects", "tenant-1", "issues.json"),
-      "[]"
-    );
+    await writeFile(join(runtimeRoot, "issues.json"), "[]");
 
     const started = await startControlPlaneServer({
       host: "127.0.0.1",
       port: 0,
       runtimeRoot,
-      projectId: "tenant-1",
     });
 
     try {

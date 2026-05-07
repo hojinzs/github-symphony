@@ -1,11 +1,29 @@
 import * as p from "@clack/prompts";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
-import type { ProjectStatusSnapshot } from "@gh-symphony/core";
-import { stripAnsi } from "../ansi.js";
+import {
+  WorkflowConfigStore,
+  type IssueOrchestrationRecord,
+  type OrchestratorProjectConfig,
+  type OrchestratorRunRecord,
+  type ProjectItemsCache,
+  type ProjectStatusSnapshot,
+  type RepositoryRef,
+  type WorkflowLifecycleConfig,
+} from "@gh-symphony/core";
+import {
+  explainIssueDispatch,
+  findGithubProjectIssue,
+  isActiveRunRecordStatus,
+  parseIssueIdentifier,
+  resolveTrackerAdapter,
+  type DispatchExplainReport,
+} from "@gh-symphony/orchestrator";
+import { bold, green, red, stripAnsi, yellow } from "../ansi.js";
 import {
   createClient,
   validateToken,
@@ -20,6 +38,7 @@ import {
   type LinkedRepository,
 } from "../github/client.js";
 import { getGhTokenWithSource, GhAuthError } from "../github/gh-auth.js";
+import { getGhToken } from "../github/gh-auth.js";
 import { resolveGitHubAuth } from "../github/gh-auth.js";
 import {
   loadGlobalConfig,
@@ -41,6 +60,10 @@ import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import {
+  handleMissingManagedProjectConfig,
+  resolveManagedProjectConfig,
+} from "../project-selection.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -96,7 +119,10 @@ function formatProjectRepoSummary(
   return `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${totalLinked} linked)`;
 }
 
-function projectCreatedMessage(projectId: string, repositoryCount: number): string {
+function projectCreatedMessage(
+  projectId: string,
+  repositoryCount: number
+): string {
   const lines = [
     `Project "${projectId}" created with ${repositoryCount} repositor${repositoryCount === 1 ? "y" : "ies"}.`,
     "Run 'gh-symphony start' to begin orchestration.",
@@ -159,6 +185,58 @@ function parseProjectAddFlags(args: string[]): ProjectAddFlags {
   return flags;
 }
 
+type ProjectExplainFlags = {
+  identifier?: string;
+  projectId?: string;
+  workflowPath?: string;
+  error?: string;
+};
+
+function parseProjectExplainFlags(args: string[]): ProjectExplainFlags {
+  const parsed: ProjectExplainFlags = {};
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--project" || arg === "--project-id") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--workflow" || arg === "--workflow-path") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      parsed.workflowPath = value;
+      i += 1;
+      continue;
+    }
+    if (arg?.startsWith("-")) {
+      parsed.error = `Unknown option '${arg}'`;
+      return parsed;
+    }
+    if (parsed.identifier) {
+      parsed.error = "Only one issue identifier can be explained at a time";
+      return parsed;
+    }
+    parsed.identifier = arg;
+  }
+
+  if (!parsed.identifier) {
+    parsed.error = "Issue identifier argument missing";
+  } else if (!parseIssueIdentifier(parsed.identifier)) {
+    parsed.error = "Issue identifier must use the form <owner>/<repo>#<number>";
+  }
+
+  return parsed;
+}
+
 const handler = async (
   args: string[],
   options: GlobalOptions
@@ -187,9 +265,12 @@ const handler = async (
     case "status":
       await statusCommand(rest, options);
       return;
+    case "explain":
+      await projectExplain(rest, options);
+      return;
     default:
       process.stdout.write(
-        "Usage: gh-symphony project <add|list|remove|start|stop|switch|status>\n"
+        "Usage: gh-symphony project <add|list|remove|start|stop|switch|status|explain>\n"
       );
   }
 };
@@ -286,11 +367,7 @@ function isProcessRunning(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "EPERM"
-    ) {
+    if (error instanceof Error && "code" in error && error.code === "EPERM") {
       return true;
     }
     return false;
@@ -320,12 +397,318 @@ async function fetchProjectSnapshot(
   return readPersistedSnapshot(configDir, projectId);
 }
 
+async function projectExplain(
+  args: string[],
+  options: GlobalOptions
+): Promise<void> {
+  const parsed = parseProjectExplainFlags(args);
+  if (parsed.error) {
+    process.stderr.write(`${parsed.error}\n`);
+    process.stderr.write(
+      "Usage: gh-symphony project explain <owner/repo#number> [--project-id <project-id>] [--workflow <path>]\n"
+    );
+    process.exitCode = 2;
+    return;
+  }
+
+  const projectConfig = await resolveManagedProjectConfig({
+    configDir: options.configDir,
+    requestedProjectId: parsed.projectId,
+  });
+  if (!projectConfig) {
+    handleMissingManagedProjectConfig();
+    return;
+  }
+
+  const identifier = parsed.identifier!;
+  const parsedIdentifier = parseIssueIdentifier(identifier)!;
+  const fallbackRepository: RepositoryRef = {
+    owner: parsedIdentifier.owner,
+    name: parsedIdentifier.name,
+    cloneUrl: `https://github.com/${parsedIdentifier.owner}/${parsedIdentifier.name}.git`,
+  };
+  const workflowRepository = projectConfig.repository ?? fallbackRepository;
+  let token: string;
+  try {
+    token = getGhToken();
+  } catch (error) {
+    if (error instanceof GhAuthError) {
+      process.stderr.write(
+        `Error: GitHub authentication is required for project explain. ${error.message}\n`
+      );
+      process.stderr.write(
+        "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN, then re-run this command.\n"
+      );
+      process.exitCode = 2;
+      return;
+    }
+    throw error;
+  }
+  const trackerAdapter = resolveTrackerAdapter(projectConfig.tracker);
+  const orchestratorProject = {
+    ...projectConfig,
+    repository: workflowRepository,
+  } as OrchestratorProjectConfig;
+  const trackerDependencies = {
+    token,
+    projectItemsCache: createProjectItemsCache(),
+  };
+  const runtimeRoot = join(
+    resolveRuntimeRoot(options.configDir),
+    "projects",
+    projectConfig.projectId
+  );
+  const issuesPromise = trackerAdapter.listIssues(
+    orchestratorProject,
+    trackerDependencies
+  );
+  const issuePromise =
+    projectConfig.tracker.adapter === "github-project"
+      ? findGithubProjectIssue(
+          orchestratorProject,
+          identifier,
+          trackerDependencies
+        )
+      : issuesPromise.then(
+          (issues) =>
+            issues.find(
+              (candidate) =>
+                candidate.identifier.trim().toLowerCase() ===
+                identifier.trim().toLowerCase()
+            ) ?? null
+        );
+  const [issues, issue, issueRecords, runs, snapshot] = await Promise.all([
+    issuesPromise,
+    issuePromise,
+    readJsonFile<IssueOrchestrationRecord[]>(join(runtimeRoot, "issues.json")),
+    readRuns(runtimeRoot, projectConfig.projectId),
+    readPersistedSnapshot(options.configDir, projectConfig.projectId),
+  ]);
+  let workflow: ExplainWorkflowSettings;
+  try {
+    workflow = await loadExplainWorkflow({
+      explicitWorkflowPath: parsed.workflowPath,
+      repository: workflowRepository,
+      runs,
+    });
+  } catch (error) {
+    if (error instanceof ProjectExplainWorkflowError) {
+      process.stderr.write(`Error: ${error.message}\n`);
+      process.stderr.write(
+        "Hint: pass --workflow <path-to-WORKFLOW.md> or run 'gh-symphony workflow preview --file <path>' to verify the workflow file.\n"
+      );
+      process.exitCode = 2;
+      return;
+    }
+    throw error;
+  }
+  const activeRunCount = runs.filter((run) =>
+    isActiveRunRecordStatus(run.status)
+  ).length;
+  const report = explainIssueDispatch({
+    identifier,
+    issue,
+    projectRepository: projectConfig.repository ?? null,
+    allIssues: issues,
+    lifecycle: workflow.lifecycle,
+    issueRecords: issueRecords ?? [],
+    runs,
+    activeRunCount,
+    maxConcurrentAgents: workflow.maxConcurrentAgents,
+    maxConcurrentAgentsByState: workflow.maxConcurrentAgentsByState,
+  });
+  const enrichedReport = {
+    ...report,
+    project: {
+      id: projectConfig.projectId,
+      slug: projectConfig.slug,
+      tracker: projectConfig.tracker,
+      lastTickAt: snapshot?.lastTickAt ?? null,
+      health: snapshot?.health ?? null,
+    },
+  };
+
+  if (options.json) {
+    process.stdout.write(JSON.stringify(enrichedReport, null, 2) + "\n");
+    return;
+  }
+
+  process.stdout.write(renderProjectExplainReport(report, options.noColor));
+}
+
+type ExplainWorkflowSettings = {
+  lifecycle: WorkflowLifecycleConfig;
+  maxConcurrentAgents: number;
+  maxConcurrentAgentsByState: Record<string, number>;
+};
+
+class ProjectExplainWorkflowError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProjectExplainWorkflowError";
+  }
+}
+
+async function loadExplainWorkflow(input: {
+  explicitWorkflowPath?: string;
+  repository: RepositoryRef;
+  runs: readonly OrchestratorRunRecord[];
+}): Promise<ExplainWorkflowSettings> {
+  const workflowPaths = resolveExplainWorkflowCandidates(input);
+  if (workflowPaths.length === 0) {
+    throw new ProjectExplainWorkflowError(
+      "No WORKFLOW.md path could be resolved from --workflow, the configured repository path, or previous run records."
+    );
+  }
+
+  const failures: string[] = [];
+  for (const workflowPath of workflowPaths) {
+    try {
+      const resolution = await new WorkflowConfigStore().load(workflowPath);
+      return {
+        lifecycle: resolution.lifecycle,
+        maxConcurrentAgents: resolution.workflow.agent.maxConcurrentAgents,
+        maxConcurrentAgentsByState:
+          resolution.workflow.agent.maxConcurrentAgentsByState,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${workflowPath}: ${message}`);
+    }
+  }
+
+  throw new ProjectExplainWorkflowError(
+    `Unable to load WORKFLOW.md for project explain. Checked: ${failures.join("; ")}`
+  );
+}
+
+function resolveExplainWorkflowCandidates(input: {
+  explicitWorkflowPath?: string;
+  repository: RepositoryRef;
+  runs: readonly OrchestratorRunRecord[];
+}): string[] {
+  const paths: string[] = [];
+  if (input.explicitWorkflowPath) {
+    paths.push(resolve(input.explicitWorkflowPath));
+  }
+  if (input.repository.path) {
+    paths.push(join(resolve(input.repository.path), "WORKFLOW.md"));
+  }
+
+  const newestRuns = [...input.runs].sort(
+    (left, right) =>
+      (Date.parse(right.updatedAt) || 0) - (Date.parse(left.updatedAt) || 0)
+  );
+  for (const run of newestRuns) {
+    if (run.workflowPath) {
+      paths.push(resolve(run.workflowPath));
+    }
+    if (run.workingDirectory) {
+      paths.push(join(resolve(run.workingDirectory), "WORKFLOW.md"));
+    }
+  }
+
+  return [...new Set(paths)];
+}
+
+function createProjectItemsCache(): ProjectItemsCache {
+  const entries = new Map<string, ReturnType<ProjectItemsCache["getOrLoad"]>>();
+  return {
+    getOrLoad(key, load) {
+      const cached = entries.get(key);
+      if (cached) {
+        return cached;
+      }
+      const pending = load().catch((error) => {
+        entries.delete(key);
+        throw error;
+      });
+      entries.set(key, pending);
+      return pending;
+    },
+  };
+}
+
+async function readRuns(
+  runtimeRoot: string,
+  projectId: string
+): Promise<OrchestratorRunRecord[]> {
+  let runIds: string[];
+  try {
+    runIds = await readdir(join(runtimeRoot, "runs"));
+  } catch {
+    return [];
+  }
+
+  const runs = await Promise.all(
+    runIds.map((runId) =>
+      readJsonFile<OrchestratorRunRecord>(
+        join(runtimeRoot, "runs", runId, "run.json")
+      )
+    )
+  );
+  return runs.filter(
+    (run): run is OrchestratorRunRecord =>
+      run !== null && run.projectId === projectId
+  );
+}
+
+async function readJsonFile<T>(path: string): Promise<T | null> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+function renderProjectExplainReport(
+  report: DispatchExplainReport,
+  noColor: boolean
+): string {
+  const apply = noColor
+    ? (value: string) => stripAnsi(value)
+    : (value: string) => value;
+  const lines = [
+    apply(bold(`Issue dispatch explanation: ${report.issue.identifier}`)),
+    report.summary,
+    "",
+    `State: ${report.issue.state ?? "unknown"}`,
+    `Repository: ${report.issue.repository}`,
+    "",
+    "Checks:",
+  ];
+
+  for (const check of report.checks) {
+    const marker =
+      check.status === "pass"
+        ? green("✓")
+        : check.status === "warn"
+          ? yellow("!")
+          : red("✗");
+    lines.push(`  ${apply(marker)} ${check.message}`);
+    if (check.hint) {
+      lines.push(`    Hint: ${check.hint}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("Related commands:");
+  lines.push("  gh-symphony workflow preview");
+  lines.push("  gh-symphony doctor");
+  lines.push("  gh-symphony project status");
+  lines.push("  gh-symphony logs --issue " + report.issue.identifier);
+  return lines.join("\n") + "\n";
+}
+
 async function readHttpEndpoint(
   configDir: string,
   projectId: string
 ): Promise<string | null> {
   try {
-    const content = await readFile(httpStatusPath(configDir, projectId), "utf8");
+    const content = await readFile(
+      httpStatusPath(configDir, projectId),
+      "utf8"
+    );
     const state = JSON.parse(content) as HttpBindingState;
     return typeof state.endpoint === "string" && state.endpoint.length > 0
       ? state.endpoint
@@ -341,7 +724,12 @@ async function readProcessUptime(pid: number): Promise<string> {
   }
 
   try {
-    const { stdout } = await execFile("ps", ["-o", "etime=", "-p", String(pid)]);
+    const { stdout } = await execFile("ps", [
+      "-o",
+      "etime=",
+      "-p",
+      String(pid),
+    ]);
     const seconds = parsePsElapsedTime(stdout);
     return seconds === null ? "-" : formatDuration(seconds);
   } catch {
@@ -545,7 +933,8 @@ async function projectAddNonInteractive(
   }
 
   const projectId = generateProjectId(project.title, project.id);
-  const workspaceDir = flags.workspaceDir ?? join(options.configDir, "workspaces");
+  const workspaceDir =
+    flags.workspaceDir ?? join(options.configDir, "workspaces");
 
   await writeConfig(options.configDir, {
     projectId,
@@ -677,14 +1066,13 @@ async function projectAddInteractive(
     assignedOnly: promptAssignedOnly,
     selectedRepos,
     workspaceDir,
-  } =
-    await promptProjectRegistrationOptions({
-      projectDetail,
-      defaultWorkspaceDir,
-      assignedOnlyMessage:
-        "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
-      assignedOnlyInitialValue: flags.assignedOnly,
-    });
+  } = await promptProjectRegistrationOptions({
+    projectDetail,
+    defaultWorkspaceDir,
+    assignedOnlyMessage:
+      "Step 2/2 - Only process issues assigned to the authenticated GitHub user?",
+    assignedOnlyInitialValue: flags.assignedOnly,
+  });
   const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const repoSummary = formatProjectRepoSummary(
@@ -881,7 +1269,9 @@ async function projectRemove(
     return;
   }
 
-  const updatedProjects = global.projects.filter((entry) => entry !== projectId);
+  const updatedProjects = global.projects.filter(
+    (entry) => entry !== projectId
+  );
   if (updatedProjects.length === global.projects.length) {
     process.stderr.write(`Project "${projectId}" not found.\n`);
     process.exitCode = 1;

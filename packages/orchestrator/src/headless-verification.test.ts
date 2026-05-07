@@ -58,12 +58,27 @@ describe("headless orchestration verification", () => {
       });
 
       const cliStatus = JSON.parse(stdout) as {
-        projectId: string;
+        repository: {
+          owner: string;
+          name: string;
+        };
+        tracker: {
+          settings?: {
+            projectId?: string;
+          };
+        };
         summary: {
           dispatched: number;
         };
       };
-      expect(cliStatus.projectId).toBe("tenant-1");
+      expect(cliStatus).not.toHaveProperty("projectId");
+      expect(cliStatus).not.toHaveProperty("slug");
+      expect(cliStatus.repository).toEqual({
+        owner: "acme",
+        name: "platform",
+        cloneUrl: repository.cloneUrl,
+      });
+      expect(cliStatus.tracker.settings?.projectId).toBe("project-123");
       expect(cliStatus.summary.dispatched).toBe(1);
       expect(spawnImpl).toHaveBeenCalledTimes(1);
     } finally {

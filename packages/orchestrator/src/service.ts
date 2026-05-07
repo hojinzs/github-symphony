@@ -14,11 +14,9 @@ import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
   executeWorkspaceHook,
-  isStateActive,
   isStateTerminal,
   isMatchingIssueRun,
   isOrchestratorChannelEvent,
-  matchesWorkflowState,
   mapIssueOrchestrationStateToStatus,
   readEnvFile,
   renderPrompt,
@@ -54,6 +52,12 @@ import {
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
+import {
+  hasConvergenceLockedRunForIssue,
+  isActiveRunRecordStatus,
+  isIssueCandidateEligibleWithReason,
+  isIssueOrchestrationClaimedState,
+} from "./explain.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_CONCURRENCY = 3;
@@ -231,7 +235,6 @@ export class OrchestratorService {
       : null;
     const currentRun = isMatchingIssueRun(
       currentRunCandidate,
-      this.projectConfig.projectId,
       issueRecord.issueId,
       issueIdentifier
     )
@@ -407,7 +410,7 @@ export class OrchestratorService {
     const allRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
-    const activeRuns = allRuns.filter((run) => isActiveRunStatus(run.status));
+    const activeRuns = allRuns.filter((run) => isActiveRunRecordStatus(run.status));
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(
         tenant,
@@ -422,7 +425,7 @@ export class OrchestratorService {
     }
     const reconciledRuns = (await this.store.loadAllRuns()).filter(
       (run) =>
-        run.projectId === tenant.projectId && isActiveRunStatus(run.status)
+        run.projectId === tenant.projectId && isActiveRunRecordStatus(run.status)
     );
     const projectRunsAfterReconcile = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
@@ -433,7 +436,7 @@ export class OrchestratorService {
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>
-          run.projectId === tenant.projectId && isActiveRunStatus(run.status)
+          run.projectId === tenant.projectId && isActiveRunRecordStatus(run.status)
       );
       const {
         runs: syncedActiveRuns,
@@ -487,7 +490,7 @@ export class OrchestratorService {
       );
       const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
-        isIssueOrchestrationClaimed(record.state)
+        isIssueOrchestrationClaimedState(record.state)
       ).length;
       const availableSlots = Math.max(0, concurrency - currentlyActive);
       const latestRunsByIssueId = buildLatestRunMapByIssueId(
@@ -496,7 +499,7 @@ export class OrchestratorService {
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
         if (
-          hasConvergenceLockedRun(
+          hasConvergenceLockedRunForIssue(
             projectRunsAfterReconcile,
             issue.id,
             issue.state,
@@ -509,7 +512,7 @@ export class OrchestratorService {
         return !issueRecords.some(
           (record) =>
             record.issueId === issue.id &&
-            isIssueOrchestrationClaimed(record.state)
+            isIssueOrchestrationClaimedState(record.state)
         );
       });
 
@@ -607,7 +610,7 @@ export class OrchestratorService {
       }
 
       for (const issueRecord of issueRecords) {
-        if (!isIssueOrchestrationClaimed(issueRecord.state)) {
+        if (!isIssueOrchestrationClaimedState(issueRecord.state)) {
           continue;
         }
 
@@ -623,7 +626,6 @@ export class OrchestratorService {
           syncedActiveRuns.find((run) =>
             isMatchingIssueRun(
               run,
-              tenant.projectId,
               issueRecord.issueId,
               issueRecord.identifier
             )
@@ -703,7 +705,7 @@ export class OrchestratorService {
       (run) => run.projectId === tenant.projectId
     );
     const latestRuns = allTenantRuns.filter((run) =>
-      isActiveRunStatus(run.status)
+      isActiveRunRecordStatus(run.status)
     );
     rateLimits = rateLimits ?? resolveProjectRateLimits(latestRuns, []);
     const status = buildProjectSnapshot({
@@ -990,33 +992,7 @@ export class OrchestratorService {
     lifecycle: WorkflowLifecycleConfig,
     issues: readonly TrackedIssue[]
   ): boolean {
-    if (!isStateActive(issue.state, lifecycle)) {
-      return false;
-    }
-
-    if (
-      !matchesWorkflowState(issue.state, lifecycle.blockerCheckStates) ||
-      issue.blockedBy.length === 0
-    ) {
-      return true;
-    }
-
-    return !issue.blockedBy.some((blockerRef) => {
-      if (blockerRef.state && isStateTerminal(blockerRef.state, lifecycle)) {
-        return false;
-      }
-
-      if (blockerRef.identifier) {
-        const blockerIssue = issues.find(
-          (candidate) => candidate.identifier === blockerRef.identifier
-        );
-        if (blockerIssue?.state) {
-          return !isStateTerminal(blockerIssue.state, lifecycle);
-        }
-      }
-
-      return true;
-    });
+    return isIssueCandidateEligibleWithReason(issue, lifecycle, issues).eligible;
   }
 
   private async loadProjectWorkflow(
@@ -1117,6 +1093,7 @@ export class OrchestratorService {
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
+      existingWorkspace: Boolean(existingWorkspaceRecord),
     });
 
     if (!existingWorkspaceRecord) {
@@ -2346,7 +2323,7 @@ export class OrchestratorService {
   }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
-    // and isActiveRunStatus() picks it up on every tick, calling restartRun()
+    // and isActiveRunRecordStatus() picks it up on every tick, calling restartRun()
     // again each time → exponential run multiplication.
     const supersededRecord: OrchestratorRunRecord = {
       ...run,
@@ -2520,9 +2497,7 @@ export class OrchestratorService {
           : NaN
       )
       .catch(() => NaN);
-    return Number.isFinite(limit) && limit >= 0
-      ? limit
-      : DEFAULT_CONCURRENCY;
+    return Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_CONCURRENCY;
   }
 
   private async resolveWorkflowResolution(
@@ -2605,7 +2580,9 @@ export class OrchestratorService {
     return `${repository.owner}/${repository.name}:${this.normalizeRepositoryCloneUrl(repository.cloneUrl)}`;
   }
 
-  private resolveWorkflowRepositoryDirectory(repository: RepositoryRef): string {
+  private resolveWorkflowRepositoryDirectory(
+    repository: RepositoryRef
+  ): string {
     if (repository.path) {
       return repository.path;
     }
@@ -2625,9 +2602,7 @@ export class OrchestratorService {
       const url = new URL(cloneUrl);
       return url.protocol === "file:" ? fileURLToPath(url) : null;
     } catch {
-      return isAbsolute(cloneUrl) || cloneUrl.startsWith(".")
-        ? cloneUrl
-        : null;
+      return isAbsolute(cloneUrl) || cloneUrl.startsWith(".") ? cloneUrl : null;
     }
   }
 
@@ -3026,37 +3001,6 @@ function resolvePersistedCumulativeTurnCount(
   return run.cumulativeTurnCount ?? run.turnCount ?? 0;
 }
 
-function hasConvergenceLockedRun(
-  runs: readonly OrchestratorRunRecord[],
-  issueId: string,
-  issueState: string,
-  issueUpdatedAt: string | null | undefined
-): boolean {
-  const latestRun = runs
-    .filter((run) => run.issueId === issueId)
-    .sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-    )[0];
-
-  if (
-    latestRun?.runtimeSession?.exitClassification !== "convergence-detected" ||
-    latestRun.issueState !== issueState
-  ) {
-    return false;
-  }
-
-  const convergedAtMs = parseTimestampMs(
-    latestRun.completedAt ?? latestRun.updatedAt
-  );
-  const issueUpdatedAtMs = parseTimestampMs(issueUpdatedAt);
-  if (convergedAtMs === null || issueUpdatedAtMs === null) {
-    return true;
-  }
-
-  return issueUpdatedAtMs <= convergedAtMs;
-}
-
 function resolveCumulativeTurnCount(
   run: OrchestratorRunRecord,
   turnCount: number | null
@@ -3235,12 +3179,6 @@ function buildLatestRunMapByIssueId(
   return latestRuns;
 }
 
-function isIssueOrchestrationClaimed(
-  state: IssueOrchestrationRecord["state"]
-): boolean {
-  return state === "claimed" || state === "running" || state === "retry_queued";
-}
-
 function upsertIssueOrchestration(
   issueRecords: IssueOrchestrationRecord[],
   nextRecord: Omit<
@@ -3284,14 +3222,5 @@ function releaseIssueOrchestration(
           updatedAt: now.toISOString(),
         }
       : record
-  );
-}
-
-function isActiveRunStatus(status: OrchestratorRunRecord["status"]): boolean {
-  return (
-    status === "pending" ||
-    status === "starting" ||
-    status === "running" ||
-    status === "retrying"
   );
 }

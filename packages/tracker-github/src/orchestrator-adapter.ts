@@ -6,6 +6,7 @@ import type {
 } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
+  fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
 } from "./adapter.js";
 
@@ -70,6 +71,25 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 };
 
+export async function findGithubProjectIssue(
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
+  identifier: string,
+  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
+) {
+  const parsed = parseIssueIdentifier(identifier);
+  if (!parsed) {
+    return null;
+  }
+
+  const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+  return fetchGithubProjectIssueByRepositoryAndNumber(
+    trackerConfig,
+    { owner: parsed.owner, name: parsed.name },
+    parsed.number,
+    dependencies.fetchImpl
+  );
+}
+
 async function listProjectIssues(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
   dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
@@ -89,7 +109,9 @@ async function listProjectIssues(
 async function fetchProjectIssueStatesByIds(
   project: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[0],
   issueIds: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[1],
-  dependencies: Parameters<OrchestratorTrackerAdapter["fetchIssueStatesByIds"]>[2] = {}
+  dependencies: Parameters<
+    OrchestratorTrackerAdapter["fetchIssueStatesByIds"]
+  >[2] = {}
 ) {
   const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
 
@@ -227,4 +249,19 @@ function readOptionalStringTrackerSetting(
 function parseIssueNumber(identifier: string): number {
   const match = identifier.match(/#(\d+)$/);
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
+}
+
+function parseIssueIdentifier(
+  identifier: string
+): { owner: string; name: string; number: number } | null {
+  const match = identifier.match(/^([^/\s#]+)\/([^/\s#]+)#(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    owner: match[1]!,
+    name: match[2]!,
+    number: Number.parseInt(match[3]!, 10),
+  };
 }

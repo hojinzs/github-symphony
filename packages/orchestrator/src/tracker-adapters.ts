@@ -1,4 +1,5 @@
 import { resolveTrackerAdapter as resolveGitHubAdapter } from "@gh-symphony/tracker-github";
+export { findGithubProjectIssue } from "@gh-symphony/tracker-github";
 import { fileTrackerAdapter } from "@gh-symphony/tracker-file";
 import type {
   OrchestratorTrackerAdapter,
@@ -10,7 +11,7 @@ const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
 ]);
 
 export function resolveTrackerAdapter(
-  tracker: OrchestratorTrackerConfig,
+  tracker: OrchestratorTrackerConfig
 ): OrchestratorTrackerAdapter {
   const local = localAdapters.get(tracker.adapter);
   if (local) return local;

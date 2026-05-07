@@ -5,14 +5,8 @@ import { describe, expect, it } from "vitest";
 import { DashboardFsReader, statusForIssue } from "./store.js";
 
 describe("DashboardFsReader", () => {
-  it("rejects project IDs that would escape the runtime root", () => {
-    expect(() => new DashboardFsReader("/tmp/runtime", "../tenant-1")).toThrow(
-      'Invalid project ID "../tenant-1"'
-    );
-  });
-
   it("rejects run IDs that would escape the runtime root", async () => {
-    const reader = new DashboardFsReader("/tmp/runtime", "tenant-1");
+    const reader = new DashboardFsReader("/tmp/runtime");
 
     await expect(reader.loadRun("../run-1")).rejects.toThrow(
       'Invalid run ID "../run-1"'
@@ -31,6 +25,11 @@ describe("DashboardFsReader", () => {
       JSON.stringify({
         projectId: "tenant-1",
         slug: "tenant-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: { adapter: "github-project", bindingId: "project-1" },
         lastTickAt: "2026-03-20T00:00:00.000Z",
         health: "idle",
@@ -42,12 +41,40 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
-    await expect(reader.loadProjectStatus()).resolves.toMatchObject({
-      projectId: "tenant-1",
+    const snapshot = await reader.loadProjectStatus();
+
+    expect(snapshot).toMatchObject({
+      repository: { owner: "acme", name: "platform" },
       health: "idle",
     });
+    expect(snapshot).not.toHaveProperty("projectId");
+    expect(snapshot).not.toHaveProperty("slug");
+  });
+
+  it("treats legacy status snapshots without repository identity as unavailable", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "dashboard-store-"));
+    await writeFile(
+      join(runtimeRoot, "status.json"),
+      JSON.stringify({
+        projectId: "tenant-1",
+        slug: "tenant-1",
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        lastTickAt: "2026-03-20T00:00:00.000Z",
+        health: "idle",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: null,
+      }) + "\n",
+      "utf8"
+    );
+
+    const reader = new DashboardFsReader(runtimeRoot);
+
+    await expect(reader.loadProjectStatus()).resolves.toBeNull();
+    await expect(reader.loadProjectState()).resolves.toBeNull();
   });
 
   it("assembles issue status snapshots from persisted runtime files", async () => {
@@ -181,7 +208,7 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(statusForIssue(reader, "acme/platform#1")).resolves.toEqual({
       issue_identifier: "acme/platform#1",
@@ -302,7 +329,7 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(
       statusForIssue(reader, "acme/platform#1")
@@ -421,7 +448,7 @@ describe("DashboardFsReader", () => {
     );
     await writeFile(join(malformedRunDir, "run.json"), "{not-json\n", "utf8");
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(
       statusForIssue(reader, "acme/platform#1")
@@ -456,7 +483,7 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(reader.loadProjectIssueOrchestrations()).resolves.toEqual([
       {
@@ -480,8 +507,11 @@ describe("DashboardFsReader", () => {
     await writeFile(
       join(projectDir, "status.json"),
       JSON.stringify({
-        projectId: "tenant-1",
-        slug: "tenant-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
         tracker: { adapter: "github-project", bindingId: "project-1" },
         lastTickAt: "2026-03-20T00:00:00.000Z",
         health: "idle",
@@ -521,10 +551,10 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(reader.loadProjectState()).resolves.toMatchObject({
-      projectId: "tenant-1",
+      repository: { owner: "acme", name: "platform" },
       completedCount: 1,
       issues: [
         { issueId: "issue-1", completedOnce: true },
@@ -563,7 +593,7 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(reader.loadRecentRunEvents("run-1", 2)).resolves.toEqual([
       {
@@ -618,7 +648,7 @@ describe("DashboardFsReader", () => {
       "utf8"
     );
 
-    const reader = new DashboardFsReader(runtimeRoot, "tenant-1");
+    const reader = new DashboardFsReader(runtimeRoot);
 
     await expect(reader.loadAllRuns()).resolves.toMatchObject([
       {
