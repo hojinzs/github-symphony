@@ -1,7 +1,5 @@
 ---
-"@gh-symphony/core": minor
-"@gh-symphony/dashboard": minor
-"@gh-symphony/control-plane": minor
+"@gh-symphony/control-plane": patch
 ---
 
 Breaking API change: `/api/v1/state` no longer exposes orchestrator-side

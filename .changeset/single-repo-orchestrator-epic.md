@@ -1,10 +1,6 @@
 ---
-"@gh-symphony/cli": minor
-"@gh-symphony/core": minor
-"@gh-symphony/orchestrator": minor
-"@gh-symphony/control-plane": minor
-"@gh-symphony/dashboard": minor
-"@gh-symphony/tracker-file": minor
+"@gh-symphony/cli": patch
+"@gh-symphony/control-plane": patch
 ---
 
 BREAKING: complete the single-repository orchestrator transition. Runtime
