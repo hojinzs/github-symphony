@@ -129,7 +129,9 @@ describe("Commander CLI entrypoint", () => {
     }
 
     expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain("option '--config <dir>' argument missing");
+    expect(stderr.output()).toContain(
+      "option '--config <dir>' argument missing"
+    );
   });
 
   it("falls back to root help when no command is provided", async () => {
@@ -183,7 +185,9 @@ describe("Commander CLI entrypoint", () => {
     const output = stdout.output() + stderr.output();
     expect(output).toContain("--dry-run");
     expect(output).toContain("--prune");
-    expect(output).toContain("Sync repositories from the active GitHub Project");
+    expect(output).toContain(
+      "Sync repositories from the active GitHub Project"
+    );
   });
 
   it("shows doctor remediation help", async () => {
@@ -199,6 +203,8 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output() + stderr.output();
     expect(output).toContain("--fix");
+    expect(output).toContain("--smoke");
+    expect(output).toContain("--issue");
     expect(output).toContain("remediation");
   });
 });

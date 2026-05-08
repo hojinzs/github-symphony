@@ -68,7 +68,14 @@ describe("completion renderer", () => {
   it("suggests project subcommands when completing the second token", () => {
     const suggestions = runBashCompletion(["gh-symphony", "project", ""], 2);
     expect(suggestions).toEqual(
-      expect.arrayContaining(["add", "list", "remove", "start", "stop", "status"])
+      expect.arrayContaining([
+        "add",
+        "list",
+        "remove",
+        "start",
+        "stop",
+        "status",
+      ])
     );
   });
 
@@ -83,9 +90,19 @@ describe("completion renderer", () => {
   });
 
   it("suggests repo sync flags after the sync subcommand", () => {
-    const suggestions = runBashCompletion(["gh-symphony", "repo", "sync", ""], 3);
+    const suggestions = runBashCompletion(
+      ["gh-symphony", "repo", "sync", ""],
+      3
+    );
     expect(suggestions).toEqual(
       expect.arrayContaining(["--dry-run", "--prune", "--json"])
+    );
+  });
+
+  it("suggests doctor smoke flags", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "doctor", ""], 2);
+    expect(suggestions).toEqual(
+      expect.arrayContaining(["--smoke", "--issue", "--fix", "--json"])
     );
   });
 });

@@ -2,7 +2,11 @@ import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
+import {
+  parseWorkflowMarkdown,
+  type ParsedWorkflow,
+  type TrackedIssue,
+} from "@gh-symphony/core";
 import {
   runClaudePreflight,
   isClaudeRuntimeCommand,
@@ -11,9 +15,15 @@ import {
   type ClaudePreflightCheck,
 } from "@gh-symphony/runtime-claude";
 import {
+  fetchGithubProjectIssueByRepositoryAndNumber,
+  fetchGithubProjectIssues,
+} from "@gh-symphony/tracker-github";
+import {
   createClient,
+  findLinkedRepository,
   getProjectDetail,
   GitHubApiError,
+  type ProjectDetail,
 } from "../github/client.js";
 import {
   checkGhAuthenticated,
@@ -31,6 +41,11 @@ import {
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
+import {
+  parseIssueReference,
+  readGitHubProjectBinding,
+  renderIssueWorkflowPreview,
+} from "./workflow.js";
 
 type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
@@ -48,6 +63,10 @@ type DoctorCheckId =
   | "workspace_root"
   | "workflow_file"
   | "runtime_command"
+  | "project_repository_link"
+  | "smoke_issue"
+  | "workflow_prompt_render"
+  | "workflow_hooks"
   | "claude_binary"
   | "anthropic_api_key"
   | "claude_mcp_config";
@@ -59,6 +78,11 @@ type ProjectResolutionReason =
   | "missing_binding"
   | "api_error"
   | "selection_failed";
+
+type ResolvedManagedProjectSelection = Extract<
+  Awaited<ReturnType<typeof inspectManagedProjectSelection>>,
+  { kind: "resolved" }
+>;
 
 export type DoctorCheckResult = {
   id: DoctorCheckId;
@@ -97,6 +121,8 @@ export type DoctorReport = {
 type ParsedDoctorArgs = {
   projectId?: string;
   fix: boolean;
+  smoke: boolean;
+  issue?: string;
   error?: string;
 };
 
@@ -106,6 +132,7 @@ type WorkflowCheckState =
       command: string;
       workflowPath: string;
       format: string;
+      workflow: ParsedWorkflow;
     }
   | {
       status: "fail";
@@ -133,6 +160,8 @@ export type DoctorDependencies = {
   inspectManagedProjectSelection: typeof inspectManagedProjectSelection;
   createClient: typeof createClient;
   getProjectDetail: typeof getProjectDetail;
+  fetchProjectIssues: typeof fetchGithubProjectIssues;
+  fetchProjectIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
   readFile: typeof readFile;
   access: typeof access;
   mkdir: typeof mkdir;
@@ -163,6 +192,8 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   inspectManagedProjectSelection,
   createClient,
   getProjectDetail,
+  fetchProjectIssues: fetchGithubProjectIssues,
+  fetchProjectIssue: fetchGithubProjectIssueByRepositoryAndNumber,
   readFile,
   access,
   mkdir,
@@ -185,6 +216,8 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
+const DOCTOR_USAGE =
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>]";
 
 type GitInstallationState =
   | {
@@ -197,7 +230,7 @@ type GitInstallationState =
     };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
-  const parsed: ParsedDoctorArgs = { fix: false };
+  const parsed: ParsedDoctorArgs = { fix: false, smoke: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -214,6 +247,22 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
 
     if (arg === "--fix") {
       parsed.fix = true;
+      continue;
+    }
+
+    if (arg === "--smoke") {
+      parsed.smoke = true;
+      continue;
+    }
+
+    if (arg === "--issue") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = "Option '--issue' argument missing";
+        return parsed;
+      }
+      parsed.issue = value;
+      i += 1;
       continue;
     }
 
@@ -561,6 +610,7 @@ async function checkWorkflow(
       command: parsed.agentCommand,
       workflowPath,
       format: parsed.format,
+      workflow: parsed,
     };
   } catch (error) {
     return {
@@ -578,6 +628,406 @@ async function checkWorkflow(
   }
 }
 
+function buildGithubTrackerConfig(input: {
+  projectConfig: ResolvedManagedProjectSelection;
+  bindingId: string;
+  token: string;
+  workflow: ParsedWorkflow;
+}) {
+  const settings = input.projectConfig.projectConfig.tracker.settings;
+  return {
+    projectId: input.bindingId,
+    token: input.token,
+    apiUrl: input.projectConfig.projectConfig.tracker.apiUrl,
+    lifecycle: input.workflow.lifecycle,
+    assignedOnly: settings?.assignedOnly === true,
+    priorityFieldName:
+      typeof settings?.priorityFieldName === "string"
+        ? settings.priorityFieldName
+        : undefined,
+    timeoutMs:
+      typeof settings?.timeoutMs === "number" ? settings.timeoutMs : undefined,
+  };
+}
+
+function isActiveSmokeIssue(
+  issue: TrackedIssue,
+  workflow: ParsedWorkflow
+): boolean {
+  const normalized = issue.state.trim().toLowerCase();
+  return workflow.lifecycle.activeStates.some(
+    (state) => state.trim().toLowerCase() === normalized
+  );
+}
+
+function selectRepresentativeIssue(
+  issues: TrackedIssue[],
+  workflow: ParsedWorkflow
+): TrackedIssue | null {
+  const activeIssues = issues.filter((issue) =>
+    isActiveSmokeIssue(issue, workflow)
+  );
+  activeIssues.sort((a, b) => {
+    const left = a.updatedAt ?? a.createdAt ?? "";
+    const right = b.updatedAt ?? b.createdAt ?? "";
+    return right.localeCompare(left);
+  });
+  return activeIssues[0] ?? null;
+}
+
+function isRepositoryConfigured(
+  projectConfig: ResolvedManagedProjectSelection,
+  owner: string,
+  name: string
+): boolean {
+  const repositories = [
+    ...(projectConfig.projectConfig.repository
+      ? [projectConfig.projectConfig.repository]
+      : []),
+    ...(projectConfig.projectConfig.repositories ?? []),
+  ];
+  const normalizedOwner = owner.trim().toLowerCase();
+  const normalizedName = name.trim().toLowerCase();
+  return repositories.some(
+    (repo) =>
+      repo.owner.trim().toLowerCase() === normalizedOwner &&
+      repo.name.trim().toLowerCase() === normalizedName
+  );
+}
+
+function isHookPathLike(command: string): boolean {
+  const trimmed = command.trim();
+  return (
+    trimmed.length > 0 &&
+    !trimmed.includes("\n") &&
+    !/\s/.test(trimmed) &&
+    (trimmed.startsWith("/") ||
+      trimmed.startsWith("./") ||
+      trimmed.startsWith("../") ||
+      trimmed.includes("/") ||
+      trimmed.includes("\\"))
+  );
+}
+
+async function buildHookChecks(
+  repoRoot: string,
+  workflow: ParsedWorkflow,
+  deps: Pick<DoctorDependencies, "access">
+): Promise<DoctorCheckResult[]> {
+  const hooks = [
+    ["after_create", workflow.hooks.afterCreate],
+    ["before_run", workflow.hooks.beforeRun],
+    ["after_run", workflow.hooks.afterRun],
+    ["before_remove", workflow.hooks.beforeRemove],
+  ] as const;
+  const configured = hooks.filter(([, command]) => command);
+
+  if (configured.length === 0) {
+    return [
+      passCheck(
+        "workflow_hooks",
+        "Workflow hook paths",
+        "No WORKFLOW.md hooks are configured.",
+        { configured: 0 }
+      ),
+    ];
+  }
+
+  const unresolved: Array<{ hook: string; command: string; path: string }> = [];
+  const checked: Array<{ hook: string; command: string; path: string }> = [];
+
+  for (const [hook, command] of configured) {
+    if (!command || !isHookPathLike(command)) {
+      continue;
+    }
+    const path = isAbsolute(command) ? command : resolve(repoRoot, command);
+    try {
+      await deps.access(path, constants.F_OK);
+      checked.push({ hook, command, path });
+    } catch {
+      unresolved.push({ hook, command, path });
+    }
+  }
+
+  if (unresolved.length > 0) {
+    return [
+      failCheck(
+        "workflow_hooks",
+        "Workflow hook paths",
+        `Unresolved WORKFLOW.md hook path${unresolved.length === 1 ? "" : "s"}: ${unresolved.map((entry) => `${entry.hook}=${entry.command}`).join(", ")}.`,
+        "Create the referenced hook script(s), fix the hook path(s), or replace them with inline commands.",
+        { unresolved, checked }
+      ),
+    ];
+  }
+
+  return [
+    passCheck(
+      "workflow_hooks",
+      "Workflow hook paths",
+      checked.length === 0
+        ? "Configured WORKFLOW.md hooks are inline commands."
+        : `Resolved ${checked.length} WORKFLOW.md hook path${checked.length === 1 ? "" : "s"}.`,
+      { configured: configured.length, checked }
+    ),
+  ];
+}
+
+async function buildDoctorSmokeChecks(input: {
+  auth: ResolvedGitHubAuth | null;
+  selection: Awaited<ReturnType<typeof inspectManagedProjectSelection>>;
+  workflow: WorkflowCheckState;
+  projectDetail: ProjectDetail | null;
+  projectBindingId: string | null;
+  options: GlobalOptions;
+  parsedArgs: ParsedDoctorArgs;
+  deps: DoctorDependencies;
+}): Promise<DoctorCheckResult[]> {
+  const checks: DoctorCheckResult[] = [];
+
+  if (input.selection.kind !== "resolved") {
+    checks.push(
+      failCheck(
+        "smoke_issue",
+        "Smoke target issue",
+        "Smoke check could not choose an issue because managed project selection failed.",
+        "Fix the managed project selection check first, then re-run 'gh-symphony doctor --smoke'.",
+        { blockedBy: "managed_project" }
+      )
+    );
+    return checks;
+  }
+
+  if (!input.auth) {
+    checks.push(
+      failCheck(
+        "smoke_issue",
+        "Smoke target issue",
+        "Smoke check could not read live issues because GitHub authentication failed.",
+        "Fix GitHub authentication first, then re-run 'gh-symphony doctor --smoke'.",
+        { blockedBy: "gh_authentication" }
+      )
+    );
+    return checks;
+  }
+
+  if (input.workflow.status !== "pass") {
+    checks.push(
+      failCheck(
+        "smoke_issue",
+        "Smoke target issue",
+        "Smoke check could not read a live issue because WORKFLOW.md is missing or invalid.",
+        "Fix WORKFLOW.md first, then re-run 'gh-symphony doctor --smoke'.",
+        { blockedBy: "workflow_file" }
+      )
+    );
+    return checks;
+  }
+
+  if (!input.projectBindingId || !input.projectDetail) {
+    checks.push(
+      failCheck(
+        "smoke_issue",
+        "Smoke target issue",
+        "Smoke check could not read live issues because the GitHub Project binding did not resolve.",
+        "Fix the GitHub project resolution check first, then re-run 'gh-symphony doctor --smoke'.",
+        { blockedBy: "github_project_resolution" }
+      )
+    );
+    return checks;
+  }
+
+  const trackerConfig = buildGithubTrackerConfig({
+    projectConfig: input.selection,
+    bindingId: input.projectBindingId,
+    token: input.auth.token,
+    workflow: input.workflow.workflow,
+  });
+
+  let issue: TrackedIssue | null = null;
+  if (input.parsedArgs.issue) {
+    const issueRef = parseIssueReference(input.parsedArgs.issue);
+    if (
+      !findLinkedRepository(input.projectDetail, issueRef.owner, issueRef.name)
+    ) {
+      checks.push(
+        failCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${input.projectDetail.title}".`,
+          `Run 'gh-symphony repo add ${issueRef.owner}/${issueRef.name}' or re-run 'gh-symphony project add' with the correct project binding.`,
+          {
+            repository: `${issueRef.owner}/${issueRef.name}`,
+            projectTitle: input.projectDetail.title,
+          }
+        )
+      );
+    } else if (
+      !isRepositoryConfigured(input.selection, issueRef.owner, issueRef.name)
+    ) {
+      checks.push(
+        failCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${issueRef.owner}/${issueRef.name} is linked to the GitHub Project but is not configured locally.`,
+          `Run 'gh-symphony repo sync' or 'gh-symphony repo add ${issueRef.owner}/${issueRef.name}' before running start.`,
+          { repository: `${issueRef.owner}/${issueRef.name}` }
+        )
+      );
+    } else {
+      checks.push(
+        passCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${issueRef.owner}/${issueRef.name} is linked to the GitHub Project and configured locally.`,
+          { repository: `${issueRef.owner}/${issueRef.name}` }
+        )
+      );
+    }
+
+    issue = await input.deps.fetchProjectIssue(
+      trackerConfig,
+      { owner: issueRef.owner, name: issueRef.name },
+      issueRef.number
+    );
+    if (!issue) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `Issue ${issueRef.identifier} is not in the configured GitHub Project or is not readable.`,
+          "Add the issue to the project, confirm the token can read it, and re-run the smoke check.",
+          { issue: issueRef.identifier }
+        )
+      );
+      return checks;
+    }
+  } else {
+    const issues = await input.deps.fetchProjectIssues(trackerConfig);
+    issue = selectRepresentativeIssue(issues, input.workflow.workflow);
+    if (!issue) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `No active live issue was found in GitHub Project "${input.projectDetail.title}".`,
+          `Move one issue into an active state (${input.workflow.workflow.lifecycle.activeStates.join(", ")}) or re-run with '--issue owner/repo#number'.`,
+          {
+            projectTitle: input.projectDetail.title,
+            activeStates: input.workflow.workflow.lifecycle.activeStates,
+          }
+        )
+      );
+      return checks;
+    }
+  }
+
+  const repositoryName = `${issue.repository.owner}/${issue.repository.name}`;
+  if (!checks.some((check) => check.id === "project_repository_link")) {
+    if (
+      !findLinkedRepository(
+        input.projectDetail,
+        issue.repository.owner,
+        issue.repository.name
+      )
+    ) {
+      checks.push(
+        failCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${repositoryName} is not linked to GitHub Project "${input.projectDetail.title}".`,
+          `Run 'gh-symphony repo add ${repositoryName}' or re-run 'gh-symphony project add' with the correct project binding.`,
+          {
+            repository: repositoryName,
+            projectTitle: input.projectDetail.title,
+          }
+        )
+      );
+    } else if (
+      !isRepositoryConfigured(
+        input.selection,
+        issue.repository.owner,
+        issue.repository.name
+      )
+    ) {
+      checks.push(
+        failCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${repositoryName} is linked to the GitHub Project but is not configured locally.`,
+          `Run 'gh-symphony repo sync' or 'gh-symphony repo add ${repositoryName}' before running start.`,
+          { repository: repositoryName }
+        )
+      );
+    } else {
+      checks.push(
+        passCheck(
+          "project_repository_link",
+          "Project repository link",
+          `Repository ${repositoryName} is linked to the GitHub Project and configured locally.`,
+          { repository: repositoryName }
+        )
+      );
+    }
+  }
+
+  checks.push(
+    passCheck(
+      "smoke_issue",
+      "Smoke target issue",
+      `Using live issue ${issue.identifier} (${issue.state}).`,
+      {
+        issue: issue.identifier,
+        state: issue.state,
+        source: input.parsedArgs.issue ? "explicit" : "auto",
+      }
+    )
+  );
+
+  try {
+    const renderedPrompt = renderIssueWorkflowPreview({
+      workflow: input.workflow.workflow,
+      issue,
+      attempt: null,
+    });
+    checks.push(
+      passCheck(
+        "workflow_prompt_render",
+        "Workflow prompt render",
+        `WORKFLOW.md rendered successfully for ${issue.identifier}.`,
+        {
+          issue: issue.identifier,
+          promptLength: renderedPrompt.length,
+          workflowPath: input.workflow.workflowPath,
+        }
+      )
+    );
+  } catch (error) {
+    checks.push(
+      failCheck(
+        "workflow_prompt_render",
+        "Workflow prompt render",
+        `WORKFLOW.md failed to render for ${issue.identifier}.`,
+        "Fix the prompt template variables or run 'gh-symphony workflow preview --issue ...' for a detailed preview error.",
+        {
+          issue: issue.identifier,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      )
+    );
+  }
+
+  checks.push(
+    ...(await buildHookChecks(
+      process.cwd(),
+      input.workflow.workflow,
+      input.deps
+    ))
+  );
+
+  return checks;
+}
+
 export async function runDoctorDiagnostics(
   options: GlobalOptions,
   args: string[],
@@ -586,9 +1036,7 @@ export async function runDoctorDiagnostics(
   const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
   const parsedArgs = parseDoctorArgs(args);
   if (parsedArgs.error) {
-    throw new Error(
-      `${parsedArgs.error}\nUsage: gh-symphony doctor [--project-id <project-id>] [--fix]`
-    );
+    throw new Error(`${parsedArgs.error}\n${DOCTOR_USAGE}`);
   }
 
   const checks: DoctorCheckResult[] = [];
@@ -601,6 +1049,8 @@ export async function runDoctorDiagnostics(
   let resolvedProjectConfig: Awaited<
     ReturnType<typeof inspectManagedProjectSelection>
   > | null = null;
+  let resolvedGithubProjectDetail: ProjectDetail | null = null;
+  let resolvedGithubProjectBindingId: string | null = null;
   const envToken = deps.getEnvGitHubToken();
 
   const currentNodeVersion = deps.processVersion;
@@ -842,7 +1292,7 @@ export async function runDoctorDiagnostics(
     );
   } else if (
     resolvedProjectConfig.kind === "resolved" &&
-    !resolvedProjectConfig.projectConfig.tracker.bindingId
+    !readGitHubProjectBinding(resolvedProjectConfig.projectConfig)
   ) {
     checks.push(
       failCheck(
@@ -859,21 +1309,26 @@ export async function runDoctorDiagnostics(
   } else if (
     auth &&
     resolvedProjectConfig.kind === "resolved" &&
-    resolvedProjectConfig.projectConfig.tracker.bindingId
+    readGitHubProjectBinding(resolvedProjectConfig.projectConfig)
   ) {
     try {
-      const client = deps.createClient(auth.token);
-      const detail = await deps.getProjectDetail(
-        client,
-        resolvedProjectConfig.projectConfig.tracker.bindingId
+      const bindingId = readGitHubProjectBinding(
+        resolvedProjectConfig.projectConfig
       );
+      if (!bindingId) {
+        throw new Error("Managed project is not bound to a GitHub Project.");
+      }
+      resolvedGithubProjectBindingId = bindingId;
+      const client = deps.createClient(auth.token);
+      const detail = await deps.getProjectDetail(client, bindingId);
+      resolvedGithubProjectDetail = detail;
       checks.push(
         passCheck(
           "github_project_resolution",
           "GitHub project resolution",
           `Resolved GitHub Project "${detail.title}".`,
           {
-            bindingId: resolvedProjectConfig.projectConfig.tracker.bindingId,
+            bindingId: resolvedGithubProjectBindingId,
             url: detail.url,
           }
         )
@@ -889,11 +1344,11 @@ export async function runDoctorDiagnostics(
         failCheck(
           "github_project_resolution",
           "GitHub project resolution",
-          `Failed to resolve configured project binding '${resolvedProjectConfig.projectConfig.tracker.bindingId}'.`,
+          `Failed to resolve configured project binding '${resolvedGithubProjectBindingId}'.`,
           "Re-run 'gh-symphony project add' and select a valid GitHub Project, then run the doctor command again.",
           {
             reason: "api_error" satisfies ProjectResolutionReason,
-            bindingId: resolvedProjectConfig.projectConfig.tracker.bindingId,
+            bindingId: resolvedGithubProjectBindingId,
             error: message,
           }
         )
@@ -1039,6 +1494,21 @@ export async function runDoctorDiagnostics(
         "Fix the WORKFLOW.md check first so the configured runtime command can be validated.",
         { blockedBy: "workflow_file" }
       )
+    );
+  }
+
+  if (parsedArgs.smoke) {
+    checks.push(
+      ...(await buildDoctorSmokeChecks({
+        auth,
+        selection: resolvedProjectConfig,
+        workflow,
+        projectDetail: resolvedGithubProjectDetail,
+        projectBindingId: resolvedGithubProjectBindingId,
+        options,
+        parsedArgs,
+        deps,
+      }))
     );
   }
 
@@ -1537,9 +2007,7 @@ export async function runDoctorCommand(
     const deps = { ...DEFAULT_DEPENDENCIES, ...dependencies };
     const parsedArgs = parseDoctorArgs(args);
     if (parsedArgs.error) {
-      throw new Error(
-        `${parsedArgs.error}\nUsage: gh-symphony doctor [--project-id <project-id>] [--fix]`
-      );
+      throw new Error(`${parsedArgs.error}\n${DOCTOR_USAGE}`);
     }
 
     const initialReport = await runDoctorDiagnostics(options, args, deps);

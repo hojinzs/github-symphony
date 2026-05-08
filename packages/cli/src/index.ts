@@ -70,6 +70,7 @@ type CliOptionValues = Partial<
     workspaceDir?: string;
     watch?: boolean;
     sample?: string;
+    smoke?: boolean;
     attempt?: string;
   }
 >;
@@ -336,6 +337,11 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "--fix",
         "Apply safe remediation steps and print manual follow-ups"
       )
+      .option(
+        "--smoke",
+        "Run a safe live issue readiness check without dispatching work"
+      )
+      .option("--issue <owner/repo#number>", "Live issue to validate")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -344,6 +350,8 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--fix", values.fix);
+    pushOption(args, "--smoke", values.smoke);
+    pushOption(args, "--issue", values.issue);
     await invokeHandler("doctor", args, values);
   });
 

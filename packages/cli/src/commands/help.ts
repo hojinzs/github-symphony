@@ -57,6 +57,7 @@ Examples:
   gh-symphony project add              # Add a project (interactive)
   gh-symphony doctor                   # Validate local setup and prerequisites
   gh-symphony doctor --fix             # Apply safe remediation and print manual follow-ups
+  gh-symphony doctor --smoke --issue owner/repo#123
   gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
   gh-symphony project list             # List all projects
   gh-symphony project remove <id>      # Remove a project

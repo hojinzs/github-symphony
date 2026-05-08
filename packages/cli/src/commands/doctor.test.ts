@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TrackedIssue } from "@gh-symphony/core";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
@@ -44,17 +45,69 @@ function baseOptions(configDir: string): GlobalOptions {
 
 function createProjectConfig(
   workspaceDir: string,
-  bindingId = "PVT_test"
+  bindingId = "PVT_test",
+  repositories: CliProjectConfig["repositories"] = []
 ): CliProjectConfig {
   return {
     projectId: "tenant-a",
     slug: "tenant-a",
     workspaceDir,
-    repositories: [],
+    repositories,
     tracker: {
       adapter: "github-project",
       bindingId,
     },
+  };
+}
+
+function createTrackedIssue(
+  overrides: Partial<TrackedIssue> = {}
+): TrackedIssue {
+  return {
+    id: "issue-1",
+    identifier: "acme/widgets#1",
+    number: 1,
+    title: "Smoke target",
+    description: "Validate the first-run smoke path.",
+    priority: 1,
+    state: "Ready",
+    branchName: null,
+    url: "https://github.com/acme/widgets/issues/1",
+    labels: [],
+    blockedBy: [],
+    createdAt: "2026-05-01T00:00:00Z",
+    updatedAt: "2026-05-02T00:00:00Z",
+    repository: {
+      owner: "acme",
+      name: "widgets",
+      url: "https://github.com/acme/widgets",
+      cloneUrl: "https://github.com/acme/widgets.git",
+    },
+    tracker: {
+      adapter: "github-project",
+      bindingId: "PVT_test",
+      itemId: "item-1",
+    },
+    metadata: {},
+    ...overrides,
+  };
+}
+
+function createProjectDetail() {
+  return {
+    id: "PVT_test",
+    title: "Acme Platform",
+    url: "https://github.com/orgs/acme/projects/1",
+    statusFields: [],
+    textFields: [],
+    linkedRepositories: [
+      {
+        owner: "acme",
+        name: "widgets",
+        url: "https://github.com/acme/widgets",
+        cloneUrl: "https://github.com/acme/widgets.git",
+      },
+    ],
   };
 }
 
@@ -107,7 +160,7 @@ async function createWorkflowFixture(
     const gitExecutable = join(binDir, "git");
     await writeFile(
       gitExecutable,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'git version 2.44.0'\n  exit 0\nfi\nexit 1\n",
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo \'git version 2.44.0\'\n  exit 0\nfi\nexit 1\n',
       "utf8"
     );
     await chmod(gitExecutable, 0o755);
@@ -178,8 +231,7 @@ afterEach(() => {
   if (originalCredentialBrokerSecret === undefined) {
     delete process.env.AGENT_CREDENTIAL_BROKER_SECRET;
   } else {
-    process.env.AGENT_CREDENTIAL_BROKER_SECRET =
-      originalCredentialBrokerSecret;
+    process.env.AGENT_CREDENTIAL_BROKER_SECRET = originalCredentialBrokerSecret;
   }
   process.exitCode = undefined;
 });
@@ -223,7 +275,9 @@ describe("runDoctorDiagnostics", () => {
     expect(report.authSource).toBe("gh");
     expect(report.authLogin).toBe("tester");
     expect(report.checks.every((check) => check.status === "pass")).toBe(true);
-    expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
+    expect(
+      report.checks.find((check) => check.id === "node_runtime")
+    ).toMatchObject({
       status: "pass",
       details: {
         currentVersion: DOCTOR_TEST_NODE_VERSION,
@@ -248,7 +302,7 @@ describe("runDoctorDiagnostics", () => {
     const claudeExecutable = join(pathEnv, "claude");
     await writeFile(claudeExecutable, "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(claudeExecutable, 0o755);
-    await writeFile(join(repoDir, ".mcp.json"), "{\"mcpServers\":{}}\n", "utf8");
+    await writeFile(join(repoDir, ".mcp.json"), '{"mcpServers":{}}\n', "utf8");
     process.env.ANTHROPIC_API_KEY = "sk-test";
 
     const report = await withCwd(repoDir, () =>
@@ -285,12 +339,18 @@ describe("runDoctorDiagnostics", () => {
     );
 
     expect(report.ok).toBe(true);
-    expect(report.checks.find((check) => check.id === "claude_binary"))
-      .toMatchObject({ status: "pass", summary: expect.stringContaining("1.2.3") });
-    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
-      .toMatchObject({ status: "pass" });
-    expect(report.checks.find((check) => check.id === "claude_mcp_config"))
-      .toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "claude_binary")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining("1.2.3"),
+    });
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "claude_mcp_config")
+    ).toMatchObject({ status: "pass" });
   });
 
   it("reports Claude missing API key with a concrete fix", async () => {
@@ -336,13 +396,15 @@ describe("runDoctorDiagnostics", () => {
     );
 
     expect(report.ok).toBe(false);
-    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
-      .toMatchObject({
-        status: "fail",
-        remediation: expect.stringContaining("Set ANTHROPIC_API_KEY"),
-      });
-    expect(report.checks.find((check) => check.id === "claude_mcp_config"))
-      .toMatchObject({ status: "warn" });
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "fail",
+      remediation: expect.stringContaining("Set ANTHROPIC_API_KEY"),
+    });
+    expect(
+      report.checks.find((check) => check.id === "claude_mcp_config")
+    ).toMatchObject({ status: "warn" });
   });
 
   it("uses injected fetch when checking brokered Claude credentials", async () => {
@@ -399,11 +461,12 @@ describe("runDoctorDiagnostics", () => {
       "https://broker.test/agent",
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
-    expect(report.checks.find((check) => check.id === "anthropic_api_key"))
-      .toMatchObject({
-        status: "pass",
-        details: expect.objectContaining({ source: "broker" }),
-      });
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ source: "broker" }),
+    });
   });
 
   it("reports an actionable failure for unsupported Node.js versions", async () => {
@@ -435,7 +498,9 @@ describe("runDoctorDiagnostics", () => {
     );
 
     expect(report.ok).toBe(false);
-    expect(report.checks.find((check) => check.id === "node_runtime")).toMatchObject({
+    expect(
+      report.checks.find((check) => check.id === "node_runtime")
+    ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("v22.11.0"),
       remediation: expect.stringContaining("v24.0.0"),
@@ -625,7 +690,9 @@ describe("runDoctorDiagnostics", () => {
     const getGhToken = vi.fn(() => "gh-token");
     const validateGitHubToken = vi
       .fn()
-      .mockRejectedValueOnce(new Error("GITHUB_GRAPHQL_TOKEN is invalid or expired."))
+      .mockRejectedValueOnce(
+        new Error("GITHUB_GRAPHQL_TOKEN is invalid or expired.")
+      )
       .mockResolvedValueOnce({
         source: "gh",
         token: "gh-token",
@@ -666,7 +733,11 @@ describe("runDoctorDiagnostics", () => {
 
     expect(report.ok).toBe(true);
     expect(getGhToken).toHaveBeenCalledWith({ allowEnv: false });
-    expect(validateGitHubToken).toHaveBeenNthCalledWith(1, "bad-env-token", "env");
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(
+      1,
+      "bad-env-token",
+      "env"
+    );
     expect(validateGitHubToken).toHaveBeenNthCalledWith(2, "gh-token", "gh");
     expect(
       report.checks.find((check) => check.id === "gh_authentication")
@@ -790,7 +861,10 @@ describe("runDoctorDiagnostics", () => {
       report.checks.find((check) => check.id === "gh_authentication")
     ).toMatchObject({
       status: "pass",
-      details: expect.objectContaining({ authSource: "env", login: "env-user" }),
+      details: expect.objectContaining({
+        authSource: "env",
+        login: "env-user",
+      }),
     });
   });
 
@@ -991,25 +1065,29 @@ describe("doctor command handler", () => {
 
     try {
       await withCwd(repoDir, () =>
-        runDoctorCommand([], { ...baseOptions(configDir), json: true }, {
-          ...authDependencies(),
-          inspectManagedProjectSelection: async () => ({
-            kind: "resolved",
-            projectId: "tenant-a",
-            projectConfig: createProjectConfig(workspaceDir),
-          }),
-          getProjectDetail: (async () =>
-            ({
-              id: "PVT_test",
-              title: "Acme Platform",
-              url: "https://github.com/orgs/acme/projects/1",
-              statusFields: [],
-              textFields: [],
-              linkedRepositories: [],
-            }) as never) as never,
-          execFileSync: (() => "git version 2.43.0") as never,
-          pathEnv,
-        })
+        runDoctorCommand(
+          [],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              ({
+                id: "PVT_test",
+                title: "Acme Platform",
+                url: "https://github.com/orgs/acme/projects/1",
+                statusFields: [],
+                textFields: [],
+                linkedRepositories: [],
+              }) as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
       );
     } finally {
       stdout.restore();
@@ -1026,11 +1104,12 @@ describe("doctor command handler", () => {
     expect(report.checks.some((check) => check.id === "runtime_command")).toBe(
       true
     );
-    expect(report.checks.find((check) => check.id === "node_runtime")?.details)
-      .toMatchObject({
-        currentVersion: DOCTOR_TEST_NODE_VERSION,
-        minimumVersion: "v24.0.0",
-      });
+    expect(
+      report.checks.find((check) => check.id === "node_runtime")?.details
+    ).toMatchObject({
+      currentVersion: DOCTOR_TEST_NODE_VERSION,
+      minimumVersion: "v24.0.0",
+    });
   });
 
   it("sets exit code 2 for invalid args", async () => {
@@ -1056,24 +1135,28 @@ describe("doctor command handler", () => {
 
     try {
       await withCwd(repoDir, () =>
-        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
-          ...authDependencies(),
-          inspectManagedProjectSelection: async () => ({
-            kind: "resolved",
-            projectId: "tenant-a",
-            projectConfig: createProjectConfig(workspaceDir),
-          }),
-          getProjectDetail: (async () =>
-            ({
-              id: "PVT_test",
-              title: "Acme Platform",
-              url: "https://github.com/orgs/acme/projects/1",
-              statusFields: [],
-              textFields: [],
-              linkedRepositories: [],
-            }) as never) as never,
-          pathEnv,
-        })
+        runDoctorCommand(
+          ["--fix"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              ({
+                id: "PVT_test",
+                title: "Acme Platform",
+                url: "https://github.com/orgs/acme/projects/1",
+                statusFields: [],
+                textFields: [],
+                linkedRepositories: [],
+              }) as never) as never,
+            pathEnv,
+          }
+        )
       );
     } finally {
       stdout.restore();
@@ -1081,7 +1164,10 @@ describe("doctor command handler", () => {
 
     const report = JSON.parse(stdout.output()) as {
       ok: boolean;
-      remediation?: { attempted: boolean; steps: Array<{ checkId: string; status: string }> };
+      remediation?: {
+        attempted: boolean;
+        steps: Array<{ checkId: string; status: string }>;
+      };
       checks: Array<{ id: string; status: string }>;
     };
     expect(report.ok).toBe(true);
@@ -1116,17 +1202,21 @@ describe("doctor command handler", () => {
 
     try {
       await withCwd(repoDir, () =>
-        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
-          checkGhInstalled: () => true,
-          checkGhAuthenticated: () => ({ authenticated: false }),
-          inspectManagedProjectSelection: async () => ({
-            kind: "no_projects",
-            message:
-              "No managed projects are configured. Run 'gh-symphony project add' first.",
-          }),
-          stdinIsTTY: false,
-          stdoutIsTTY: false,
-        })
+        runDoctorCommand(
+          ["--fix"],
+          { ...baseOptions(configDir), json: true },
+          {
+            checkGhInstalled: () => true,
+            checkGhAuthenticated: () => ({ authenticated: false }),
+            inspectManagedProjectSelection: async () => ({
+              kind: "no_projects",
+              message:
+                "No managed projects are configured. Run 'gh-symphony project add' first.",
+            }),
+            stdinIsTTY: false,
+            stdoutIsTTY: false,
+          }
+        )
       );
     } finally {
       stdout.restore();
@@ -1170,18 +1260,22 @@ describe("doctor command handler", () => {
 
     try {
       await withCwd(repoDir, () =>
-        runDoctorCommand(["--fix"], { ...baseOptions(configDir), json: true }, {
-          checkGhInstalled: () => true,
-          checkGhAuthenticated: () => ({ authenticated: false }),
-          inspectManagedProjectSelection: async () => ({
-            kind: "no_projects",
-            message:
-              "No managed projects are configured. Run 'gh-symphony project add' first.",
-          }),
-          stdinIsTTY: true,
-          stdoutIsTTY: true,
-          spawnSync,
-        })
+        runDoctorCommand(
+          ["--fix"],
+          { ...baseOptions(configDir), json: true },
+          {
+            checkGhInstalled: () => true,
+            checkGhAuthenticated: () => ({ authenticated: false }),
+            inspectManagedProjectSelection: async () => ({
+              kind: "no_projects",
+              message:
+                "No managed projects are configured. Run 'gh-symphony project add' first.",
+            }),
+            stdinIsTTY: true,
+            stdoutIsTTY: true,
+            spawnSync,
+          }
+        )
       );
     } finally {
       stdout.restore();
@@ -1253,5 +1347,172 @@ describe("doctor command handler", () => {
       ["/tmp/gh-symphony.js", "--config", configDir, "project", "add"],
       { stdio: "inherit" }
     );
+  });
+
+  it("reports no managed project for smoke checks", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "no_projects",
+          message:
+            "No managed projects are configured. Run 'gh-symphony project add' first.",
+        }),
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("managed project selection failed"),
+      details: { blockedBy: "managed_project" },
+    });
+  });
+
+  it("fails smoke checks when no representative live issue is active", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({ state: "Done" }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("No active live issue was found"),
+      remediation: expect.stringContaining("--issue owner/repo#number"),
+    });
+  });
+
+  it("reports prompt render failures in smoke checks", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nPrompt {{ issue.not_a_real_field }}\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({ state: "In progress" }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "workflow_prompt_render")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("failed to render"),
+      remediation: expect.stringContaining("workflow preview"),
+    });
+  });
+
+  it("passes smoke checks for an explicit readable project issue", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await mkdir(join(repoDir, "hooks"), { recursive: true });
+    await writeFile(
+      join(repoDir, "hooks", "after_create.sh"),
+      "#!/bin/sh\n",
+      "utf8"
+    );
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/after_create.sh\n---\nPrompt {{ issue.identifier }}\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(
+        baseOptions(configDir),
+        ["--smoke", "--issue", "acme/widgets#1"],
+        {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+              {
+                owner: "acme",
+                name: "widgets",
+                url: "https://github.com/acme/widgets",
+                cloneUrl: "https://github.com/acme/widgets.git",
+              },
+            ]),
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          fetchProjectIssue: (async () => createTrackedIssue()) as never,
+          pathEnv,
+        }
+      )
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "pass",
+      details: expect.objectContaining({ source: "explicit" }),
+    });
+    expect(
+      report.checks.find((check) => check.id === "workflow_prompt_render")
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "workflow_hooks")
+    ).toMatchObject({ status: "pass" });
   });
 });
