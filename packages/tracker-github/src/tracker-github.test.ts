@@ -155,6 +155,189 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.priority).toBe(1);
   });
 
+  it("keeps existing Issue content normalization unchanged", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-1",
+        issueId: "issue-1",
+        number: 1,
+        title: "Regression issue",
+        assignees: [],
+        state: "Ready",
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue).toMatchObject({
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Regression issue",
+      description: null,
+      priority: null,
+      state: "Ready",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-14T00:00:00.000Z",
+      updatedAt: "2026-03-14T00:00:00.000Z",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        url: "https://github.com/acme/platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+    });
+    expect(issue?.metadata).toEqual({ Status: "Ready" });
+  });
+
+  it("normalizes PullRequest Project item content instead of dropping it", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makePullRequestProjectItem({
+        itemId: "item-pr-7",
+        pullRequestId: "pr-7",
+        number: 7,
+        title: "Ship tracker PR metadata",
+        state: "Ready",
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue).toMatchObject({
+      id: "pr-7",
+      identifier: "acme/platform#7",
+      number: 7,
+      title: "Ship tracker PR metadata",
+      description: "PR body",
+      state: "Ready",
+      branchName: "feature/pr-metadata",
+      url: "https://github.com/acme/platform/pull/7",
+      labels: ["enhancement", "tracker"],
+      blockedBy: [],
+      repository: {
+        owner: "acme",
+        name: "platform",
+        url: "https://github.com/acme/platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+    });
+    expect(issue?.metadata).toMatchObject({
+      Status: "Ready",
+      contentType: "PullRequest",
+      linkedPullRequests: [],
+      pullRequest: {
+        id: "pr-7",
+        number: 7,
+        identifier: "acme/platform#7",
+        title: "Ship tracker PR metadata",
+        body: "PR body",
+        url: "https://github.com/acme/platform/pull/7",
+        state: "OPEN",
+        isDraft: false,
+        merged: false,
+        headRefName: "feature/pr-metadata",
+        baseRefName: "main",
+        headRepository: {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        repository: {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        labels: ["enhancement", "tracker"],
+        assignees: ["octocat"],
+        createdAt: "2026-03-13T00:00:00.000Z",
+        updatedAt: "2026-03-14T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("attaches Issue linked pull request metadata from closedByPullRequestsReferences", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        ...makeProjectItem({
+          itemId: "item-1",
+          issueId: "issue-1",
+          number: 1,
+          title: "Issue with linked PR",
+          assignees: [],
+        }),
+        content: {
+          ...makeProjectItem({
+            itemId: "item-1",
+            issueId: "issue-1",
+            number: 1,
+            title: "Issue with linked PR",
+            assignees: [],
+          }).content,
+          closedByPullRequestsReferences: {
+            nodes: [
+              makePullRequestProjectItem({
+                itemId: "item-pr-7",
+                pullRequestId: "pr-7",
+                number: 7,
+                title: "Fix linked issue",
+              }).content,
+            ],
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    const metadata = issue?.metadata as Record<string, unknown> | undefined;
+
+    expect(metadata?.linkedPullRequests).toEqual([
+      expect.objectContaining({
+        id: "pr-7",
+        number: 7,
+        identifier: "acme/platform#7",
+        url: "https://github.com/acme/platform/pull/7",
+        headRefName: "feature/pr-metadata",
+        baseRefName: "main",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          url: "https://github.com/acme/platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+      }),
+    ]);
+  });
+
+  it("continues to ignore unsupported Project item content types", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        id: "item-1",
+        updatedAt: "2026-03-14T00:00:00.000Z",
+        fieldValues: { nodes: [] },
+        content: {
+          __typename: "DraftIssue",
+          id: "draft-1",
+          title: "Unsupported draft",
+        },
+      } as unknown as Parameters<typeof normalizeGithubProjectItem>[1],
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue).toBeNull();
+  });
+
   it("uses the newer project item timestamp when it is later than the issue timestamp", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -2525,6 +2708,59 @@ function makeProjectItem(input: {
         owner: { login: "acme" },
       },
       blockedBy: { nodes: [] },
+    },
+  };
+}
+
+function makePullRequestProjectItem(input: {
+  itemId: string;
+  pullRequestId: string;
+  number: number;
+  title: string;
+  state?: string;
+}) {
+  return {
+    id: input.itemId,
+    updatedAt: "2026-03-14T00:05:00.000Z",
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
+          name: input.state ?? "Todo",
+          field: { name: "Status" },
+        },
+      ],
+    },
+    content: {
+      __typename: "PullRequest" as const,
+      id: input.pullRequestId,
+      number: input.number,
+      title: input.title,
+      body: "PR body",
+      url: `https://github.com/acme/platform/pull/${input.number}`,
+      state: "OPEN",
+      isDraft: false,
+      merged: false,
+      headRefName: "feature/pr-metadata",
+      baseRefName: "main",
+      headRepository: {
+        name: "platform",
+        url: "https://github.com/acme/platform",
+        owner: { login: "acme" },
+      },
+      repository: {
+        name: "platform",
+        url: "https://github.com/acme/platform",
+        owner: { login: "acme" },
+      },
+      labels: {
+        nodes: [{ name: "tracker" }, { name: "enhancement" }],
+      },
+      assignees: {
+        nodes: [{ login: "octocat" }],
+      },
+      createdAt: "2026-03-13T00:00:00.000Z",
+      updatedAt: "2026-03-14T00:00:00.000Z",
     },
   };
 }
