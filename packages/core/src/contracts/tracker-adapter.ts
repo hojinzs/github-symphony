@@ -17,6 +17,35 @@ export type BlockerRef = {
   state: string | null;
 };
 
+export type TrackedIssueContentType = "Issue" | "PullRequest";
+
+export type TrackedPullRequestContext = {
+  id: string;
+  number: number;
+  identifier: string;
+  url: string | null;
+  state: string | null;
+  projectState?: string | null;
+  isDraft?: boolean | null;
+  merged?: boolean | null;
+  headRefName?: string | null;
+  baseRefName?: string | null;
+  repository?: {
+    owner: string;
+    name: string;
+    url: string;
+    cloneUrl: string;
+  };
+  [key: string]: unknown;
+};
+
+export type TrackedIssueMetadata = {
+  contentType?: TrackedIssueContentType;
+  linkedPullRequests?: TrackedPullRequestContext[];
+  pullRequest?: TrackedPullRequestContext;
+  [key: string]: unknown;
+};
+
 export type TrackedIssue = {
   id: string;
   identifier: string;
@@ -37,7 +66,7 @@ export type TrackedIssue = {
   tracker: TrackerBindingSummary & {
     itemId: string;
   };
-  metadata: Record<string, string>;
+  metadata: TrackedIssueMetadata;
   rateLimits?: Record<string, unknown> | null;
 };
 
