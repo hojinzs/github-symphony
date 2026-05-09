@@ -29,6 +29,26 @@ export type GitHubRepositoryRef = {
   cloneUrl: string;
 };
 
+export type GitHubPullRequestMetadata = {
+  id: string;
+  number: number;
+  identifier: string;
+  title: string;
+  body: string | null;
+  url: string | null;
+  state: string | null;
+  isDraft: boolean | null;
+  merged: boolean | null;
+  headRefName: string | null;
+  baseRefName: string | null;
+  headRepository: GitHubRepositoryRef | null;
+  repository: GitHubRepositoryRef;
+  labels: string[];
+  assignees: string[];
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type GitHubTrackedIssue = TrackedIssue & {
   repository: GitHubRepositoryRef;
   tracker: TrackedIssue["tracker"] & {
@@ -82,6 +102,9 @@ type GraphQLIssueNode = {
     url: string;
     owner: { login: string };
   };
+  closedByPullRequestsReferences?: {
+    nodes: Array<GraphQLPullRequestNode | null> | null;
+  } | null;
   blockedBy: {
     nodes: Array<{
       id: string;
@@ -95,11 +118,39 @@ type GraphQLIssueNode = {
   } | null;
 };
 
+type GraphQLPullRequestNode = {
+  __typename: "PullRequest";
+  id: string;
+  number: number;
+  title: string;
+  body: string | null;
+  url: string | null;
+  state: string | null;
+  isDraft: boolean | null;
+  merged: boolean | null;
+  headRefName: string | null;
+  baseRefName: string | null;
+  headRepository: {
+    name: string;
+    url: string;
+    owner: { login: string };
+  } | null;
+  repository: {
+    name: string;
+    url: string;
+    owner: { login: string };
+  };
+  labels: { nodes: Array<{ name: string | null } | null> | null } | null;
+  assignees: { nodes: Array<{ login: string | null } | null> | null } | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 type GraphQLProjectItem = {
   id: string;
   updatedAt: string | null;
   fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
-  content: GraphQLIssueNode | null;
+  content: GraphQLIssueNode | GraphQLPullRequestNode | null;
 };
 
 type GraphQLIssueProjectItemNode = {
@@ -142,10 +193,12 @@ type GraphQLProjectFieldsResponse = {
 };
 
 type GraphQLIssueStateLookupNode = {
-  __typename: "Issue";
+  __typename: "Issue" | "PullRequest";
   id: string;
   number: number;
+  url?: string | null;
   updatedAt: string | null;
+  headRefName?: string | null;
   repository: {
     name: string;
     url: string;
@@ -218,12 +271,28 @@ export function normalizeProjectItem(
   } = {},
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
-  if (item.content?.__typename !== "Issue") {
+  if (
+    item.content?.__typename !== "Issue" &&
+    item.content?.__typename !== "PullRequest"
+  ) {
     return null;
   }
 
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
+
+  if (item.content.__typename === "PullRequest") {
+    return normalizePullRequestProjectItem(
+      projectId,
+      item,
+      item.content,
+      fieldValues,
+      state,
+      priority,
+      rateLimits
+    );
+  }
+
   const repository = item.content.repository;
   const blockedBy = (item.content.blockedBy?.nodes ?? []).flatMap((node) =>
     node
@@ -243,6 +312,9 @@ export function normalizeProjectItem(
     (issueUpdatedAtMs === null || itemUpdatedAtMs > issueUpdatedAtMs)
       ? item.updatedAt
       : (item.content.updatedAt ?? item.updatedAt);
+  const linkedPullRequests = normalizePullRequestNodes(
+    item.content.closedByPullRequestsReferences?.nodes ?? []
+  );
 
   return {
     id: item.content.id,
@@ -254,9 +326,7 @@ export function normalizeProjectItem(
     state,
     branchName: null,
     url: item.content.url,
-    labels: (item.content.labels?.nodes ?? [])
-      .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
-      .sort(),
+    labels: normalizeLabelNames(item.content.labels?.nodes ?? []),
     blockedBy,
     createdAt: item.content.createdAt,
     updatedAt: trackedUpdatedAt,
@@ -271,7 +341,57 @@ export function normalizeProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
-    metadata: fieldValues,
+    metadata: withIssueMetadata(fieldValues, linkedPullRequests),
+    rateLimits,
+  };
+}
+
+function normalizePullRequestProjectItem(
+  projectId: string,
+  item: GraphQLProjectItem,
+  content: GraphQLPullRequestNode,
+  fieldValues: Record<string, string>,
+  state: string,
+  priority: {
+    fieldName?: string;
+    optionIds?: PriorityMap;
+  },
+  rateLimits: Record<string, unknown> | null
+): GitHubTrackedIssue {
+  const pullRequest = normalizePullRequestNode(content);
+  const itemUpdatedAtMs = parseTimestampMs(item.updatedAt);
+  const pullRequestUpdatedAtMs = parseTimestampMs(content.updatedAt);
+  const trackedUpdatedAt =
+    itemUpdatedAtMs !== null &&
+    (pullRequestUpdatedAtMs === null || itemUpdatedAtMs > pullRequestUpdatedAtMs)
+      ? item.updatedAt
+      : (content.updatedAt ?? item.updatedAt);
+
+  return {
+    id: content.id,
+    identifier: pullRequest.identifier,
+    number: content.number,
+    title: content.title,
+    description: content.body,
+    priority: resolvePriority(item, priority),
+    state,
+    branchName: content.headRefName,
+    url: content.url,
+    labels: pullRequest.labels,
+    blockedBy: [],
+    createdAt: content.createdAt,
+    updatedAt: trackedUpdatedAt,
+    repository: pullRequest.repository,
+    tracker: {
+      adapter: "github-project",
+      bindingId: projectId,
+      itemId: item.id,
+    },
+    metadata: withGitHubMetadata(fieldValues, {
+      contentType: "PullRequest",
+      pullRequest,
+      linkedPullRequests: [],
+    }),
     rateLimits,
   };
 }
@@ -543,7 +663,10 @@ function isIssueAssignedToLogin(
   item: GraphQLProjectItem,
   login: string
 ): boolean {
-  if (item.content?.__typename !== "Issue") {
+  if (
+    item.content?.__typename !== "Issue" &&
+    item.content?.__typename !== "PullRequest"
+  ) {
     return false;
   }
 
@@ -601,7 +724,7 @@ function normalizeIssueStateLookupNode(
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
-  if (issue?.__typename !== "Issue") {
+  if (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") {
     return null;
   }
   if (!projectItem) {
@@ -612,6 +735,9 @@ function normalizeIssueStateLookupNode(
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
+  const url =
+    issue.url ??
+    `${repository.url}/${issue.__typename === "PullRequest" ? "pull" : "issues"}/${issue.number}`;
 
   return {
     id: issue.id,
@@ -621,8 +747,9 @@ function normalizeIssueStateLookupNode(
     description: null,
     priority: null,
     state,
-    branchName: null,
-    url: `${repository.url}/issues/${issue.number}`,
+    branchName:
+      issue.__typename === "PullRequest" ? (issue.headRefName ?? null) : null,
+    url,
     labels: [],
     blockedBy: [],
     createdAt: null,
@@ -672,12 +799,98 @@ function normalizeRepositoryIssueLookup(
   );
 }
 
+function normalizePullRequestNodes(
+  nodes: Array<GraphQLPullRequestNode | null>
+): GitHubPullRequestMetadata[] {
+  return nodes.flatMap((node) => (node ? [normalizePullRequestNode(node)] : []));
+}
+
+function normalizePullRequestNode(
+  node: GraphQLPullRequestNode
+): GitHubPullRequestMetadata {
+  const repository = normalizeRepositoryRef(node.repository);
+
+  return {
+    id: node.id,
+    number: node.number,
+    identifier: `${repository.owner}/${repository.name}#${node.number}`,
+    title: node.title,
+    body: node.body,
+    url: node.url,
+    state: node.state,
+    isDraft: node.isDraft,
+    merged: node.merged,
+    headRefName: node.headRefName,
+    baseRefName: node.baseRefName,
+    headRepository: node.headRepository
+      ? normalizeRepositoryRef(node.headRepository)
+      : null,
+    repository,
+    labels: normalizeLabelNames(node.labels?.nodes ?? []),
+    assignees: normalizeAssigneeLogins(node.assignees?.nodes ?? []),
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+  };
+}
+
+function normalizeRepositoryRef(repository: {
+  name: string;
+  url: string;
+  owner: { login: string };
+}): GitHubRepositoryRef {
+  return {
+    owner: repository.owner.login,
+    name: repository.name,
+    url: repository.url,
+    cloneUrl: deriveCloneUrl(repository.url),
+  };
+}
+
+function normalizeLabelNames(
+  nodes: Array<{ name: string | null } | null>
+): string[] {
+  return nodes
+    .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
+    .sort();
+}
+
+function normalizeAssigneeLogins(
+  nodes: Array<{ login: string | null } | null>
+): string[] {
+  return nodes.flatMap((assignee) =>
+    assignee?.login ? [assignee.login] : []
+  );
+}
+
+function withGitHubMetadata(
+  fieldValues: Record<string, string>,
+  metadata: Record<string, unknown>
+): TrackedIssue["metadata"] {
+  return {
+    ...fieldValues,
+    ...metadata,
+  } as TrackedIssue["metadata"];
+}
+
+function withIssueMetadata(
+  fieldValues: Record<string, string>,
+  linkedPullRequests: GitHubPullRequestMetadata[]
+): TrackedIssue["metadata"] {
+  if (linkedPullRequests.length === 0) {
+    return fieldValues;
+  }
+
+  return withGitHubMetadata(fieldValues, {
+    linkedPullRequests,
+  });
+}
+
 async function resolveIssueProjectItemForStateLookup(
   config: GitHubTrackerConfig,
   issue: GraphQLIssueStateLookupNode | null,
   fetchImpl: FetchLike
 ): Promise<GraphQLIssueProjectItemNode | null> {
-  if (issue?.__typename !== "Issue") {
+  if (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") {
     return null;
   }
 
@@ -725,7 +938,10 @@ async function fetchIssueProjectItemsPage(
   const data = result.data;
   const issue = data.node;
 
-  if (issue?.__typename !== "Issue" || !issue.projectItems) {
+  if (
+    (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") ||
+    !issue.projectItems
+  ) {
     throw new GitHubTrackerQueryError(
       "GitHub GraphQL response did not include issue project items."
     );
@@ -1115,6 +1331,14 @@ const PROJECT_ITEMS_QUERY = `
                     }
                   }
                 }
+                closedByPullRequestsReferences(first: 20) {
+                  nodes {
+                    ...PullRequestMetadata
+                  }
+                }
+              }
+              ... on PullRequest {
+                ...PullRequestMetadata
               }
             }
           }
@@ -1125,6 +1349,45 @@ const PROJECT_ITEMS_QUERY = `
         }
       }
     }
+  }
+
+  fragment PullRequestMetadata on PullRequest {
+    id
+    number
+    title
+    body
+    url
+    state
+    isDraft
+    merged
+    headRefName
+    baseRefName
+    headRepository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    repository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    labels(first: 20) {
+      nodes {
+        name
+      }
+    }
+    assignees(first: 20) {
+      nodes {
+        login
+      }
+    }
+    createdAt
+    updatedAt
   }
 `;
 
@@ -1157,7 +1420,57 @@ const ISSUE_STATES_BY_IDS_QUERY = `
       ... on Issue {
         id
         number
+        url
         updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        url
+        updatedAt
+        headRefName
         repository {
           name
           url
@@ -1212,7 +1525,57 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
       ... on Issue {
         id
         number
+        url
         updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, after: $cursor, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        url
+        updatedAt
+        headRefName
         repository {
           name
           url
@@ -1306,6 +1669,11 @@ const REPOSITORY_ISSUE_QUERY = `
             }
           }
         }
+        closedByPullRequestsReferences(first: 20) {
+          nodes {
+            ...RepositoryIssuePullRequestMetadata
+          }
+        }
         projectItems(first: 20, includeArchived: false) {
           nodes {
             id
@@ -1343,5 +1711,44 @@ const REPOSITORY_ISSUE_QUERY = `
         }
       }
     }
+  }
+
+  fragment RepositoryIssuePullRequestMetadata on PullRequest {
+    id
+    number
+    title
+    body
+    url
+    state
+    isDraft
+    merged
+    headRefName
+    baseRefName
+    headRepository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    repository {
+      name
+      url
+      owner {
+        login
+      }
+    }
+    labels(first: 20) {
+      nodes {
+        name
+      }
+    }
+    assignees(first: 20) {
+      nodes {
+        login
+      }
+    }
+    createdAt
+    updatedAt
   }
 `;
