@@ -193,10 +193,12 @@ type GraphQLProjectFieldsResponse = {
 };
 
 type GraphQLIssueStateLookupNode = {
-  __typename: "Issue";
+  __typename: "Issue" | "PullRequest";
   id: string;
   number: number;
+  url?: string | null;
   updatedAt: string | null;
+  headRefName?: string | null;
   repository: {
     name: string;
     url: string;
@@ -722,7 +724,7 @@ function normalizeIssueStateLookupNode(
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
-  if (issue?.__typename !== "Issue") {
+  if (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") {
     return null;
   }
   if (!projectItem) {
@@ -733,6 +735,9 @@ function normalizeIssueStateLookupNode(
   const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
+  const url =
+    issue.url ??
+    `${repository.url}/${issue.__typename === "PullRequest" ? "pull" : "issues"}/${issue.number}`;
 
   return {
     id: issue.id,
@@ -742,8 +747,9 @@ function normalizeIssueStateLookupNode(
     description: null,
     priority: null,
     state,
-    branchName: null,
-    url: `${repository.url}/issues/${issue.number}`,
+    branchName:
+      issue.__typename === "PullRequest" ? (issue.headRefName ?? null) : null,
+    url,
     labels: [],
     blockedBy: [],
     createdAt: null,
@@ -884,7 +890,7 @@ async function resolveIssueProjectItemForStateLookup(
   issue: GraphQLIssueStateLookupNode | null,
   fetchImpl: FetchLike
 ): Promise<GraphQLIssueProjectItemNode | null> {
-  if (issue?.__typename !== "Issue") {
+  if (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") {
     return null;
   }
 
@@ -1411,7 +1417,57 @@ const ISSUE_STATES_BY_IDS_QUERY = `
       ... on Issue {
         id
         number
+        url
         updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        url
+        updatedAt
+        headRefName
         repository {
           name
           url
@@ -1466,7 +1522,57 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
       ... on Issue {
         id
         number
+        url
         updatedAt
+        repository {
+          name
+          url
+          owner {
+            login
+          }
+        }
+        projectItems(first: 100, after: $cursor, includeArchived: false) {
+          nodes {
+            id
+            updatedAt
+            project {
+              id
+            }
+            fieldValues(first: 20) {
+              nodes {
+                __typename
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                  field {
+                    ... on ProjectV2SingleSelectField {
+                      name
+                    }
+                  }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text
+                  field {
+                    ... on ProjectV2FieldCommon {
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        url
+        updatedAt
+        headRefName
         repository {
           name
           url

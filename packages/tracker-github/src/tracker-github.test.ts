@@ -2273,6 +2273,8 @@ describe("resolveTrackerAdapter", () => {
           expect(body.query).toContain(
             "projectItems(first: 100, includeArchived: false)"
           );
+          expect(body.query).toContain("... on Issue");
+          expect(body.query).toContain("... on PullRequest");
           expect(body.query).not.toContain("blockedBy(");
           expect(body.query).not.toContain("labels(");
           expect(body.query).not.toContain("assignees(");
@@ -2316,6 +2318,79 @@ describe("resolveTrackerAdapter", () => {
       "acme/platform#2",
     ]);
     expect(issues.map((issue) => issue.state)).toEqual(["In Progress", "Done"]);
+  });
+
+  it("fetches pull request states by GraphQL pull request ids", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["pr-1"],
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            query: string;
+            variables: { issueIds: string[] };
+          };
+
+          expect(body.query).toContain("... on PullRequest");
+          expect(body.query).toContain("headRefName");
+          expect(body.variables.issueIds).toEqual(["pr-1"]);
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                nodes: [
+                  makePullRequestStateLookupNode({
+                    projectId: "project-123",
+                    itemId: "item-pr-1",
+                    pullRequestId: "pr-1",
+                    number: 42,
+                    state: "Ready",
+                    headRefName: "feature/pr-card",
+                  }),
+                ],
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.id).toBe("pr-1");
+    expect(issues[0]?.identifier).toBe("acme/platform#42");
+    expect(issues[0]?.state).toBe("Ready");
+    expect(issues[0]?.branchName).toBe("feature/pr-card");
+    expect(issues[0]?.url).toBe("https://github.com/acme/platform/pull/42");
+    expect(issues[0]?.tracker.itemId).toBe("item-pr-1");
   });
 
   it("attaches GitHub API rate-limit headers to fetched issue state lookups", async () => {
@@ -2440,6 +2515,7 @@ describe("resolveTrackerAdapter", () => {
       expect(body.query).toContain(
         "query IssueProjectItemsPage($issueId: ID!, $cursor: String)"
       );
+      expect(body.query).toContain("... on PullRequest");
       expect(body.variables.issueId).toBe("issue-1");
       expect(body.variables.cursor).toBe("cursor-1");
 
@@ -2782,6 +2858,55 @@ function makeIssueStateLookupNode(input: {
     id: input.issueId,
     number: input.number,
     updatedAt: "2026-03-14T00:00:00.000Z",
+    repository: {
+      name: "platform",
+      url: "https://github.com/acme/platform",
+      owner: { login: "acme" },
+    },
+    projectItems: {
+      nodes: [
+        {
+          id: input.itemId,
+          updatedAt: "2026-03-14T00:00:00.000Z",
+          project: { id: input.projectId },
+          fieldValues: {
+            nodes: [
+              {
+                __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
+                name: input.state,
+                field: { name: "Status" },
+              },
+            ],
+          },
+        },
+      ],
+      pageInfo: input.pageInfo ?? {
+        endCursor: null,
+        hasNextPage: false,
+      },
+    },
+  };
+}
+
+function makePullRequestStateLookupNode(input: {
+  projectId: string;
+  itemId: string;
+  pullRequestId: string;
+  number: number;
+  state: string;
+  headRefName?: string | null;
+  pageInfo?: {
+    endCursor: string | null;
+    hasNextPage: boolean;
+  };
+}) {
+  return {
+    __typename: "PullRequest" as const,
+    id: input.pullRequestId,
+    number: input.number,
+    url: `https://github.com/acme/platform/pull/${input.number}`,
+    updatedAt: "2026-03-14T00:00:00.000Z",
+    headRefName: input.headRefName ?? null,
     repository: {
       name: "platform",
       url: "https://github.com/acme/platform",
