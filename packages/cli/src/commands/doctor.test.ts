@@ -1414,6 +1414,99 @@ describe("doctor command handler", () => {
     });
   });
 
+  it("reports tracker fetch failures as smoke diagnostics", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        fetchProjectIssues: (async () => {
+          throw new Error("GitHub Project query failed");
+        }) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("could not read live issues"),
+      remediation: expect.stringContaining("token scopes"),
+      details: expect.objectContaining({
+        error: "GitHub Project query failed",
+      }),
+    });
+  });
+
+  it("rejects --issue outside smoke mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+
+    await expect(
+      runDoctorDiagnostics(baseOptions(configDir), [
+        "--issue",
+        "acme/widgets#1",
+      ])
+    ).rejects.toThrow("Option '--issue' requires '--smoke'");
+  });
+
+  it("reports malformed explicit smoke issues as diagnostics", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke", "--issue", "garbage"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+            {
+              owner: "acme",
+              name: "widgets",
+              url: "https://github.com/acme/widgets",
+              cloneUrl: "https://github.com/acme/widgets.git",
+            },
+          ]),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("issue reference is invalid"),
+      remediation: expect.stringContaining("owner/repo#number"),
+      details: expect.objectContaining({
+        issue: "garbage",
+        expectedFormat: "owner/repo#number",
+      }),
+    });
+  });
+
   it("reports prompt render failures in smoke checks", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
@@ -1514,5 +1607,61 @@ describe("doctor command handler", () => {
     expect(
       report.checks.find((check) => check.id === "workflow_hooks")
     ).toMatchObject({ status: "pass" });
+  });
+
+  it("fails smoke checks for unresolved workflow hook paths", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\nhooks:\n  after_create: hooks/missing.sh\n  before_run: echo ready\n---\nPrompt {{ issue.identifier }}\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(
+        baseOptions(configDir),
+        ["--smoke", "--issue", "acme/widgets#1"],
+        {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+              {
+                owner: "acme",
+                name: "widgets",
+                url: "https://github.com/acme/widgets",
+                cloneUrl: "https://github.com/acme/widgets.git",
+              },
+            ]),
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          fetchProjectIssue: (async () => createTrackedIssue()) as never,
+          pathEnv,
+        }
+      )
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "workflow_hooks")
+    ).toMatchObject({
+      status: "fail",
+      summary: expect.stringContaining("Unresolved WORKFLOW.md hook path"),
+      details: expect.objectContaining({
+        pathsChecked: 0,
+        inline: 1,
+        unresolved: [
+          expect.objectContaining({
+            hook: "after_create",
+            command: "hooks/missing.sh",
+          }),
+        ],
+      }),
+    });
   });
 });

@@ -272,6 +272,10 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
     }
   }
 
+  if (parsed.issue && !parsed.smoke) {
+    parsed.error = "Option '--issue' requires '--smoke'";
+  }
+
   return parsed;
 }
 
@@ -735,9 +739,11 @@ async function buildHookChecks(
 
   const unresolved: Array<{ hook: string; command: string; path: string }> = [];
   const checked: Array<{ hook: string; command: string; path: string }> = [];
+  let inline = 0;
 
   for (const [hook, command] of configured) {
     if (!command || !isHookPathLike(command)) {
+      inline += 1;
       continue;
     }
     const path = isAbsolute(command) ? command : resolve(repoRoot, command);
@@ -756,21 +762,32 @@ async function buildHookChecks(
         "Workflow hook paths",
         `Unresolved WORKFLOW.md hook path${unresolved.length === 1 ? "" : "s"}: ${unresolved.map((entry) => `${entry.hook}=${entry.command}`).join(", ")}.`,
         "Create the referenced hook script(s), fix the hook path(s), or replace them with inline commands.",
-        { unresolved, checked }
+        { configured: configured.length, pathsChecked: checked.length, inline, unresolved, checked }
       ),
     ];
   }
+
+  const pathSummary =
+    checked.length === 0
+      ? "No hook paths required filesystem validation."
+      : `Resolved ${checked.length} WORKFLOW.md hook path${checked.length === 1 ? "" : "s"}.`;
+  const inlineSummary =
+    inline === 0
+      ? ""
+      : ` Treated ${inline} hook${inline === 1 ? "" : "s"} as inline command${inline === 1 ? "" : "s"}.`;
 
   return [
     passCheck(
       "workflow_hooks",
       "Workflow hook paths",
-      checked.length === 0
-        ? "Configured WORKFLOW.md hooks are inline commands."
-        : `Resolved ${checked.length} WORKFLOW.md hook path${checked.length === 1 ? "" : "s"}.`,
-      { configured: configured.length, checked }
+      `${pathSummary}${inlineSummary}`,
+      { configured: configured.length, pathsChecked: checked.length, inline, checked }
     ),
   ];
+}
+
+function formatSmokeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function buildDoctorSmokeChecks(input: {
@@ -779,6 +796,7 @@ async function buildDoctorSmokeChecks(input: {
   workflow: WorkflowCheckState;
   projectDetail: ProjectDetail | null;
   projectBindingId: string | null;
+  repoRoot: string;
   options: GlobalOptions;
   parsedArgs: ParsedDoctorArgs;
   deps: DoctorDependencies;
@@ -846,7 +864,26 @@ async function buildDoctorSmokeChecks(input: {
 
   let issue: TrackedIssue | null = null;
   if (input.parsedArgs.issue) {
-    const issueRef = parseIssueReference(input.parsedArgs.issue);
+    let issueRef: ReturnType<typeof parseIssueReference>;
+    try {
+      issueRef = parseIssueReference(input.parsedArgs.issue);
+    } catch (error) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `Smoke check issue reference is invalid: ${input.parsedArgs.issue}.`,
+          "Use the expected '--issue owner/repo#number' format and re-run the smoke check.",
+          {
+            issue: input.parsedArgs.issue,
+            expectedFormat: "owner/repo#number",
+            error: formatSmokeError(error),
+          }
+        )
+      );
+      return checks;
+    }
+
     if (
       !findLinkedRepository(input.projectDetail, issueRef.owner, issueRef.name)
     ) {
@@ -885,11 +922,25 @@ async function buildDoctorSmokeChecks(input: {
       );
     }
 
-    issue = await input.deps.fetchProjectIssue(
-      trackerConfig,
-      { owner: issueRef.owner, name: issueRef.name },
-      issueRef.number
-    );
+    try {
+      issue = await input.deps.fetchProjectIssue(
+        trackerConfig,
+        { owner: issueRef.owner, name: issueRef.name },
+        issueRef.number
+      );
+    } catch (error) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `Smoke check could not read issue ${issueRef.identifier}.`,
+          "Confirm GitHub token scopes, project visibility, and network access, then re-run the smoke check.",
+          { issue: issueRef.identifier, error: formatSmokeError(error) }
+        )
+      );
+      return checks;
+    }
+
     if (!issue) {
       checks.push(
         failCheck(
@@ -903,7 +954,25 @@ async function buildDoctorSmokeChecks(input: {
       return checks;
     }
   } else {
-    const issues = await input.deps.fetchProjectIssues(trackerConfig);
+    let issues: TrackedIssue[];
+    try {
+      issues = await input.deps.fetchProjectIssues(trackerConfig);
+    } catch (error) {
+      checks.push(
+        failCheck(
+          "smoke_issue",
+          "Smoke target issue",
+          `Smoke check could not read live issues from GitHub Project "${input.projectDetail.title}".`,
+          "Confirm GitHub token scopes, project visibility, and network access, then re-run the smoke check.",
+          {
+            projectTitle: input.projectDetail.title,
+            error: formatSmokeError(error),
+          }
+        )
+      );
+      return checks;
+    }
+
     issue = selectRepresentativeIssue(issues, input.workflow.workflow);
     if (!issue) {
       checks.push(
@@ -1019,7 +1088,7 @@ async function buildDoctorSmokeChecks(input: {
 
   checks.push(
     ...(await buildHookChecks(
-      process.cwd(),
+      input.repoRoot,
       input.workflow.workflow,
       input.deps
     ))
@@ -1038,6 +1107,7 @@ export async function runDoctorDiagnostics(
   if (parsedArgs.error) {
     throw new Error(`${parsedArgs.error}\n${DOCTOR_USAGE}`);
   }
+  const repoRoot = process.cwd();
 
   const checks: DoctorCheckResult[] = [];
   let auth: ResolvedGitHubAuth | null = null;
@@ -1505,6 +1575,7 @@ export async function runDoctorDiagnostics(
         workflow,
         projectDetail: resolvedGithubProjectDetail,
         projectBindingId: resolvedGithubProjectBindingId,
+        repoRoot,
         options,
         parsedArgs,
         deps,
