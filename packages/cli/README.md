@@ -36,6 +36,7 @@ Validate the machine and repo prerequisites before first use:
 gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
+gh-symphony doctor --smoke
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
@@ -62,6 +63,7 @@ gh-symphony workflow init
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
 gh-symphony workflow preview --issue owner/repo#123
+gh-symphony doctor --smoke --issue owner/repo#123
 ```
 
 The interactive wizard will:
@@ -179,6 +181,7 @@ If the selected GitHub Project is brand new and has no linked repositories yet, 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
+gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project explain owner/repo#123  # Explain why one issue is not dispatching
@@ -254,7 +257,7 @@ gh-symphony start --daemon          # Start in background
 gh-symphony stop                    # Stop the daemon
 ```
 
-Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
+Run `doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
 
 ### Monitor
 
@@ -280,7 +283,18 @@ gh-symphony recover --dry-run       # Preview what would be recovered
 
 ## Diagnostics
 
-`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --fix` extends that flow with safe remediation and guided follow-up:
+`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
+
+Use an explicit issue when you want a deterministic check:
+
+```bash
+gh-symphony doctor --smoke --issue owner/repo#123
+gh-symphony doctor --smoke --issue owner/repo#123 --json
+```
+
+Without `--issue`, doctor auto-selects one active live issue from the managed project. If none is suitable, the report explains which active states it expected and suggests re-running with `--issue`.
+
+`gh-symphony doctor --fix` extends the regular diagnostic flow with safe remediation and guided follow-up:
 
 - creates missing config/runtime/workspace directories
 - launches `gh auth login` or `gh auth refresh` when a TTY is available, otherwise prints the exact command to run
@@ -298,12 +312,14 @@ The diagnostic checks cover:
 - config/runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
+- with `--smoke`: linked repository readiness, live issue readability, strict prompt rendering, and hook path resolution
 
 Use JSON output for scripts and CI smoke checks. `--fix --json` includes a remediation section where each step is reported as `applied`, `skipped`, or `manual`.
 
 ```bash
 gh-symphony doctor --json
 gh-symphony doctor --fix --json
+gh-symphony doctor --smoke --json
 gh-symphony start --once
 ```
 
@@ -316,7 +332,7 @@ Setup:
   workflow init       Interactive repository setup wizard
   workflow validate   Parse and strictly validate WORKFLOW.md
   workflow preview    Render the final worker prompt from a sample or live issue
-  doctor              Run diagnostics and optional first-run remediation
+  doctor              Run diagnostics, smoke checks, and optional remediation
   config show         Show current configuration
   config set          Set a configuration value
   config edit         Open config in $EDITOR

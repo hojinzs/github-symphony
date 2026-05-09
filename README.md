@@ -43,6 +43,7 @@ Validate the local prerequisites before setup:
 gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
+gh-symphony doctor --smoke
 ```
 
 Token-only validation works without `gh`:
@@ -148,7 +149,7 @@ docker run --rm \
   -e GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
   -v gh-symphony-data:/var/lib/gh-symphony \
   ghcr.io/hojinzs/github-symphony:latest \
-  gh-symphony start --once --project-id your-project-id
+  gh-symphony doctor --smoke --project-id your-project-id
 ```
 
 ### 2. Run Setup
@@ -198,6 +199,7 @@ Preview the generated files without writing anything:
 gh-symphony workflow init --dry-run
 gh-symphony workflow validate
 gh-symphony workflow preview --issue owner/repo#123
+gh-symphony doctor --smoke --issue owner/repo#123
 ```
 
 The interactive wizard will:
@@ -285,6 +287,7 @@ Managing projects:
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
+gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
 gh-symphony project list             # List all configured projects
 gh-symphony project remove <id>      # Remove a project
 gh-symphony project switch           # Switch the active project
@@ -403,7 +406,18 @@ gh-symphony config edit             # Open config in $EDITOR
 
 ### Diagnostics
 
-`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. It can:
+`gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
+
+Use an explicit issue when you want a deterministic check:
+
+```bash
+gh-symphony doctor --smoke --issue owner/repo#123
+gh-symphony doctor --smoke --issue owner/repo#123 --json
+```
+
+Without `--issue`, doctor auto-selects one active live issue from the managed project. If none is suitable, the report explains which active states it expected and suggests re-running with `--issue`.
+
+`gh-symphony doctor --fix` can:
 
 - create missing config, runtime, and workspace directories
 - launch `gh auth login` / `gh auth refresh` in TTY environments, or print the exact command in non-interactive environments
@@ -420,12 +434,14 @@ The diagnostic checks cover:
 - config directory, runtime root, and managed workspace writability
 - repository `WORKFLOW.md` presence and parse validity
 - configured runtime command availability on `PATH`
+- with `--smoke`: linked repository readiness, live issue readability, strict prompt rendering, and hook path resolution
 
 Use `--json` for setup automation and smoke checks. When combined with `--fix`, the JSON report also includes a structured remediation step list with `applied`, `skipped`, or `manual` outcomes.
 
 ```bash
 gh-symphony doctor --json
 gh-symphony doctor --fix --json
+gh-symphony doctor --smoke --json
 gh-symphony start --once
 ```
 
@@ -671,7 +687,7 @@ Runtime state lives under `.runtime/orchestrator/`:
 
 Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
 
-`gh-symphony start --once` is the safest first production-like run when you want to validate the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility without immediately starting a long-lived poller. It is also a useful CI smoke check for a managed project. Add `--http` when you want the dashboard/API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`.
+Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--http` when you want the dashboard/API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`.
 
 ## Verification
 

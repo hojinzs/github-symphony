@@ -43,7 +43,7 @@ type PreviewFlags = {
   sample?: string;
 };
 
-type PreviewIssueReference = {
+export type PreviewIssueReference = {
   owner: string;
   name: string;
   number: number;
@@ -513,7 +513,7 @@ async function loadSampleIssue(samplePath?: string): Promise<{
   };
 }
 
-function parseIssueReference(value: string): PreviewIssueReference {
+export function parseIssueReference(value: string): PreviewIssueReference {
   const match =
     /^(?<owner>[A-Za-z0-9_.-]+)\/(?<name>[A-Za-z0-9_.-]+)#(?<number>\d+)$/.exec(
       value.trim()
@@ -533,7 +533,7 @@ function parseIssueReference(value: string): PreviewIssueReference {
   };
 }
 
-function readGitHubProjectBinding(
+export function readGitHubProjectBinding(
   projectConfig: CliProjectConfig
 ): string | null {
   const bindingId = projectConfig.tracker.bindingId?.trim();
@@ -546,6 +546,19 @@ function readGitHubProjectBinding(
     settingsProjectId.trim().length > 0
     ? settingsProjectId.trim()
     : null;
+}
+
+export function renderIssueWorkflowPreview(input: {
+  workflow: { promptTemplate: string };
+  issue: TrackedIssue;
+  attempt: number | null;
+}): string {
+  const variables = buildPromptVariables(input.issue, {
+    attempt: input.attempt,
+  });
+  return renderPrompt(input.workflow.promptTemplate, variables, {
+    strict: true,
+  });
 }
 
 function formatAuthError(error: GhAuthError | Error): string {
@@ -796,11 +809,10 @@ async function runPreview(
   const { issue, sampleSource } = flags.issue
     ? await loadLiveIssue(flags.issue, flags.projectId, options)
     : await loadSampleIssue(flags.sample);
-  const variables = buildPromptVariables(issue, {
+  const renderedPrompt = renderIssueWorkflowPreview({
+    workflow,
+    issue,
     attempt: flags.attempt,
-  });
-  const renderedPrompt = renderPrompt(workflow.promptTemplate, variables, {
-    strict: true,
   });
 
   if (options.json) {
