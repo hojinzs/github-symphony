@@ -2594,6 +2594,138 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.tracker.itemId).toBe("item-1");
     expect(issues[0]?.state).toBe("Done");
   });
+
+  it("paginates pull request projectItems until the configured project item is found", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables: {
+          issueIds?: string[];
+          issueId?: string;
+          cursor?: string | null;
+        };
+      };
+
+      if (body.query.includes("query IssueStatesByIds")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              nodes: [
+                makePullRequestStateLookupNode({
+                  projectId: "project-999",
+                  itemId: "item-other",
+                  pullRequestId: "pr-1",
+                  number: 42,
+                  state: "Todo",
+                  headRefName: "feature/pr-card",
+                  pageInfo: {
+                    endCursor: "cursor-1",
+                    hasNextPage: true,
+                  },
+                }),
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      expect(body.query).toContain(
+        "query IssueProjectItemsPage($issueId: ID!, $cursor: String)"
+      );
+      expect(body.query).toContain("... on PullRequest");
+      expect(body.variables.issueId).toBe("pr-1");
+      expect(body.variables.cursor).toBe("cursor-1");
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "PullRequest",
+              id: "pr-1",
+              number: 42,
+              url: "https://github.com/acme/platform/pull/42",
+              updatedAt: "2026-03-14T00:00:00.000Z",
+              headRefName: "feature/pr-card",
+              repository: {
+                name: "platform",
+                url: "https://github.com/acme/platform",
+                owner: { login: "acme" },
+              },
+              projectItems: {
+                nodes: [
+                  {
+                    id: "item-pr-1",
+                    updatedAt: "2026-03-14T00:01:00.000Z",
+                    project: { id: "project-123" },
+                    fieldValues: {
+                      nodes: [
+                        {
+                          __typename: "ProjectV2ItemFieldSingleSelectValue",
+                          name: "Done",
+                          field: { name: "Status" },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                pageInfo: {
+                  endCursor: null,
+                  hasNextPage: false,
+                },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      ["pr-1"],
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.tracker.itemId).toBe("item-pr-1");
+    expect(issues[0]?.state).toBe("Done");
+    expect(issues[0]?.branchName).toBe("feature/pr-card");
+  });
 });
 
 describe("validateWorkflowFieldMapping", () => {

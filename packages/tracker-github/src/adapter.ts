@@ -938,7 +938,10 @@ async function fetchIssueProjectItemsPage(
   const data = result.data;
   const issue = data.node;
 
-  if (issue?.__typename !== "Issue" || !issue.projectItems) {
+  if (
+    (issue?.__typename !== "Issue" && issue?.__typename !== "PullRequest") ||
+    !issue.projectItems
+  ) {
     throw new GitHubTrackerQueryError(
       "GitHub GraphQL response did not include issue project items."
     );
