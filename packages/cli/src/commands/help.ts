@@ -1,81 +1,200 @@
+import { bold, cyan, yellow } from "../ansi.js";
 import type { GlobalOptions } from "../index.js";
 
-const HELP_TEXT = `
-gh-symphony — AI Coding Agent Orchestrator
+type HelpEntry = {
+  name: string;
+  description: string | string[];
+};
 
-Usage: gh-symphony <command> [options]
+type HelpSection = {
+  title: string;
+  entries: HelpEntry[];
+};
 
-Setup:
-  setup           Run the one-command setup flow
-  workflow init   Generate WORKFLOW.md and workflow support files
-  workflow validate
-                  Parse and strictly validate WORKFLOW.md
-  workflow preview
-                  Render the final worker prompt from a sample issue
-  doctor          Run diagnostics and optional first-run remediation
-  config show     Show current configuration
-  config set      Set a configuration value
-  config edit     Open config in $EDITOR
+const DESCRIPTION_COLUMN = 23;
+const COMMAND_COLUMN_WIDTH = DESCRIPTION_COLUMN - 2;
 
-Orchestration:
-  start           Start the orchestrator (foreground)
-  start --daemon  Start the orchestrator (background)
-  stop            Stop the background orchestrator
-  status          Show orchestrator status
-  run <issue>     Dispatch a single issue
-  recover         Recover stalled runs
-  logs            View orchestrator logs
+const HELP_SECTIONS: HelpSection[] = [
+  {
+    title: "Setup",
+    entries: [
+      {
+        name: "setup",
+        description: "Run the one-command first-run setup flow",
+      },
+      {
+        name: "workflow init",
+        description: "Generate WORKFLOW.md and workflow support files",
+      },
+      {
+        name: "workflow validate",
+        description: "Strictly validate WORKFLOW.md",
+      },
+      {
+        name: "workflow preview",
+        description: "Render the worker prompt from a sample or live issue",
+      },
+      {
+        name: "doctor",
+        description: "Run diagnostics and optional remediation",
+      },
+      {
+        name: "config show",
+        description: "Show current configuration",
+      },
+      {
+        name: "config set",
+        description: "Set a configuration value",
+      },
+      {
+        name: "config edit",
+        description: "Open config in $EDITOR",
+      },
+    ],
+  },
+  {
+    title: "Orchestration (current repository)",
+    entries: [
+      {
+        name: "repo init",
+        description: "Initialize gh-symphony for the current repository",
+      },
+      {
+        name: "repo start",
+        description: "Start the orchestrator (foreground)",
+      },
+      {
+        name: "repo start --daemon",
+        description: "Start the orchestrator in the background",
+      },
+      {
+        name: "repo stop",
+        description: "Stop the background orchestrator",
+      },
+      {
+        name: "repo status",
+        description: "Show orchestrator status",
+      },
+      {
+        name: "repo run <issue>",
+        description: "Dispatch a single issue",
+      },
+      {
+        name: "repo recover",
+        description: "Recover stalled runs",
+      },
+      {
+        name: "repo logs",
+        description: "View orchestrator logs",
+      },
+      {
+        name: "repo explain <issue>",
+        description: "Explain why an issue is not dispatching",
+      },
+    ],
+  },
+  {
+    title: "Maintenance",
+    entries: [
+      {
+        name: "upgrade",
+        description: "Upgrade the CLI to the latest published version",
+      },
+      {
+        name: "completion <shell>",
+        description: "Print shell completion (bash/zsh/fish)",
+      },
+      {
+        name: "version",
+        description: "Show version",
+      },
+      {
+        name: "help [command]",
+        description: "Show help for a command",
+      },
+    ],
+  },
+  {
+    title: "Global Options",
+    entries: [
+      {
+        name: "--config <dir>",
+        description: [
+          "Config directory override (advanced; default resolves",
+          "per-repo to <repo>/.runtime/orchestrator)",
+        ],
+      },
+      {
+        name: "--verbose, -v",
+        description: "Verbose output",
+      },
+      {
+        name: "--json",
+        description: "JSON output",
+      },
+      {
+        name: "--no-color",
+        description: "Disable color output",
+      },
+      {
+        name: "--help, -h",
+        description: "Show help",
+      },
+      {
+        name: "--version, -V",
+        description: "Show version",
+      },
+    ],
+  },
+];
 
-Project Management:
-  project add      Add a new project (interactive wizard)
-  project list     List all configured projects
-  project remove   Remove a project
+function sectionTitle(title: string, color: boolean): string {
+  const label = `${title}:`;
+  return color ? yellow(bold(label)) : label;
+}
 
-Project / Repo:
-  project list    List projects
-  project switch  Switch active project
-  project status  Show orchestrator status for a project
-  project explain Explain why a project issue is not dispatching
-  repo list       List configured repositories
-  repo add        Validate and add a repository
-  repo remove     Remove a repository
-  repo sync       Sync repositories from the linked GitHub Project
+function entryName(name: string, color: boolean): string {
+  return color ? cyan(name) : name;
+}
 
-Global Options:
-  --config <dir>  Config directory (default: ~/.gh-symphony)
-  --verbose       Enable verbose output
-  --json          Output in JSON format
-  --no-color      Disable color output
-  --help, -h      Show this help message
-  --version, -V   Show version
+function renderEntry(entry: HelpEntry, color: boolean): string[] {
+  const descriptions = Array.isArray(entry.description)
+    ? entry.description
+    : [entry.description];
+  const lines = [
+    `  ${entryName(entry.name, color)}${" ".repeat(
+      Math.max(COMMAND_COLUMN_WIDTH - entry.name.length, 1)
+    )}${descriptions[0]}`,
+  ];
 
-Examples:
-  gh-symphony setup                   # Generate workflow files and register the project
-  gh-symphony workflow init           # Generate WORKFLOW.md for the current repo
-  gh-symphony workflow validate       # Strictly validate WORKFLOW.md authoring changes
-  gh-symphony workflow preview --attempt 2
-  gh-symphony project add              # Add a project (interactive)
-  gh-symphony doctor                   # Validate local setup and prerequisites
-  gh-symphony doctor --fix             # Apply safe remediation and print manual follow-ups
-  gh-symphony doctor --smoke --issue owner/repo#123
-  gh-symphony project add --non-interactive --project <id> --workspace-dir <path>
-  gh-symphony project list             # List all projects
-  gh-symphony project remove <id>      # Remove a project
-  gh-symphony project explain owner/repo#123
-  gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
-  gh-symphony repo add owner/name      # Validate a repo target before saving it
-  gh-symphony repo sync --dry-run      # Preview linked repository drift
-  gh-symphony start                   # Start orchestrator
-  gh-symphony start --daemon          # Start in background
-  gh-symphony run org/repo#123        # Dispatch a specific issue
-  gh-symphony status --watch          # Watch status in real-time
-`.trimStart();
+  for (const line of descriptions.slice(1)) {
+    lines.push(`${" ".repeat(DESCRIPTION_COLUMN)}${line}`);
+  }
+
+  return lines;
+}
+
+export function renderHelp(options: { color: boolean }): string {
+  const lines = ["gh-symphony — AI Coding Agent Orchestrator", ""];
+
+  for (const [index, section] of HELP_SECTIONS.entries()) {
+    if (index > 0) {
+      lines.push("");
+    }
+    lines.push(sectionTitle(section.title, options.color));
+    for (const entry of section.entries) {
+      lines.push(...renderEntry(entry, options.color));
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
 
 const handler = async (
   _args: string[],
-  _options: GlobalOptions
+  options: GlobalOptions
 ): Promise<void> => {
-  process.stdout.write(HELP_TEXT);
+  process.stdout.write(renderHelp({ color: !options.noColor }));
 };
 
 export default handler;

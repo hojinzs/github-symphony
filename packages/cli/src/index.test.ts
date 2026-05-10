@@ -146,8 +146,9 @@ describe("Commander CLI entrypoint", () => {
     }
 
     const output = stdout.output() + stderr.output();
-    expect(output).toContain("Usage: gh-symphony");
-    expect(output).toContain("workflow");
+    expect(output).toContain("gh-symphony — AI Coding Agent Orchestrator");
+    expect(output).toContain("Setup:");
+    expect(output).toContain("workflow init");
     expect(output).toContain("setup");
     expect(output).toContain("doctor");
     expect(output).toContain("upgrade");
