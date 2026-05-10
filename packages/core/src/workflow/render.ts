@@ -1,4 +1,8 @@
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
+import type {
+  TrackedIssueContentType,
+  TrackedPullRequestContext,
+} from "../contracts/tracker-adapter.js";
 import {
   Liquid,
   ParseError,
@@ -25,6 +29,10 @@ export type PromptIssueVariables = {
   labels: string[];
   blocked_by: TrackedIssue["blockedBy"];
   branch_name: string | null;
+  content_type: TrackedIssueContentType;
+  linked_pull_requests: TrackedPullRequestContext[];
+  primary_pull_request: TrackedPullRequestContext | null;
+  has_linked_pr: boolean;
   created_at: string | null;
   updated_at: string | null;
   repository: string;
@@ -55,6 +63,17 @@ export function buildPromptVariables(
     attempt: number | null;
   }
 ): PromptVariables {
+  const contentType = issue.metadata.contentType ?? "Issue";
+  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
+    ? issue.metadata.linkedPullRequests
+    : [];
+  const primaryPullRequest =
+    contentType === "PullRequest"
+      ? (issue.metadata.pullRequest ??
+        linkedPullRequests[0] ??
+        buildPullRequestContextFromIssue(issue))
+      : (linkedPullRequests[0] ?? null);
+
   return {
     issue: {
       id: issue.id,
@@ -68,11 +87,35 @@ export function buildPromptVariables(
       labels: issue.labels,
       blocked_by: issue.blockedBy,
       branch_name: issue.branchName,
+      content_type: contentType,
+      linked_pull_requests: linkedPullRequests,
+      primary_pull_request: primaryPullRequest,
+      has_linked_pr: linkedPullRequests.length > 0,
       created_at: issue.createdAt,
       updated_at: issue.updatedAt,
       repository: `${issue.repository.owner}/${issue.repository.name}`,
     },
     attempt: options.attempt,
+  };
+}
+
+function buildPullRequestContextFromIssue(
+  issue: TrackedIssue
+): TrackedPullRequestContext {
+  return {
+    id: issue.id,
+    number: issue.number,
+    identifier: issue.identifier,
+    url: issue.url,
+    state: null,
+    projectState: issue.state,
+    headRefName: issue.branchName,
+    repository: {
+      owner: issue.repository.owner,
+      name: issue.repository.name,
+      url: issue.repository.url ?? "",
+      cloneUrl: issue.repository.cloneUrl,
+    },
   };
 }
 
