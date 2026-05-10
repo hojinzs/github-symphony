@@ -116,6 +116,91 @@ function parseFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+function resolveCanonicalSubjectIssues(
+  issues: readonly TrackedIssue[]
+): TrackedIssue[] {
+  const pullRequestsById = new Map<string, TrackedIssue>();
+  const pullRequestsByIdentifier = new Map<string, TrackedIssue>();
+
+  for (const issue of issues) {
+    if (issue.metadata.contentType !== "PullRequest") {
+      continue;
+    }
+
+    pullRequestsById.set(issue.id, issue);
+    pullRequestsByIdentifier.set(issue.identifier, issue);
+  }
+
+  const linkedPullRequestIds = new Set<string>();
+  const linkedPullRequestIdentifiers = new Set<string>();
+  const canonicalIssues: TrackedIssue[] = [];
+
+  for (const issue of issues) {
+    if (issue.metadata.contentType === "PullRequest") {
+      continue;
+    }
+
+    const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
+      ? issue.metadata.linkedPullRequests
+      : [];
+    if (linkedPullRequests.length === 0) {
+      canonicalIssues.push(issue);
+      continue;
+    }
+
+    let mergedAnyProjectItem = false;
+    const mergedLinkedPullRequests = linkedPullRequests.map((pullRequest) => {
+      linkedPullRequestIds.add(pullRequest.id);
+      linkedPullRequestIdentifiers.add(pullRequest.identifier);
+
+      const projectPullRequest =
+        pullRequestsById.get(pullRequest.id) ??
+        pullRequestsByIdentifier.get(pullRequest.identifier);
+      if (!projectPullRequest) {
+        return pullRequest;
+      }
+
+      mergedAnyProjectItem = true;
+      return {
+        ...pullRequest,
+        projectState: projectPullRequest.state,
+        projectItemId: projectPullRequest.tracker.itemId,
+        tracker: projectPullRequest.tracker,
+        priority: projectPullRequest.priority,
+      };
+    });
+
+    canonicalIssues.push(
+      mergedAnyProjectItem
+        ? {
+            ...issue,
+            metadata: {
+              ...issue.metadata,
+              linkedPullRequests: mergedLinkedPullRequests,
+            },
+          }
+        : issue
+    );
+  }
+
+  for (const pullRequest of issues) {
+    if (pullRequest.metadata.contentType !== "PullRequest") {
+      continue;
+    }
+
+    if (
+      linkedPullRequestIds.has(pullRequest.id) ||
+      linkedPullRequestIdentifiers.has(pullRequest.identifier)
+    ) {
+      continue;
+    }
+
+    canonicalIssues.push(pullRequest);
+  }
+
+  return canonicalIssues;
+}
+
 export class OrchestratorService {
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
@@ -451,11 +536,12 @@ export class OrchestratorService {
         tenant,
         trackerDependencies
       );
+      const canonicalIssues = resolveCanonicalSubjectIssues(issues);
       const filteredIssues = issueIdentifier
-        ? issues.filter(
+        ? canonicalIssues.filter(
             (issue: TrackedIssue) => issue.identifier === issueIdentifier
           )
-        : issues;
+        : canonicalIssues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
