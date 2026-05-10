@@ -1,0 +1,83 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`help output > renders the colored grouped help snapshot 1`] = `
+"gh-symphony — AI Coding Agent Orchestrator
+
+[33m[1mSetup:[0m[0m
+  [36msetup[0m                Run the one-command first-run setup flow
+  [36mworkflow init[0m        Generate WORKFLOW.md and workflow support files
+  [36mworkflow validate[0m    Strictly validate WORKFLOW.md
+  [36mworkflow preview[0m     Render the worker prompt from a sample or live issue
+  [36mdoctor[0m               Run diagnostics and optional remediation
+  [36mconfig show[0m          Show current configuration
+  [36mconfig set[0m           Set a configuration value
+  [36mconfig edit[0m          Open config in $EDITOR
+
+[33m[1mOrchestration (current repository):[0m[0m
+  [36mrepo init[0m            Initialize gh-symphony for the current repository
+  [36mrepo start[0m           Start the orchestrator (foreground)
+  [36mrepo start --daemon[0m  Start the orchestrator in the background
+  [36mrepo stop[0m            Stop the background orchestrator
+  [36mrepo status[0m          Show orchestrator status
+  [36mrepo run <issue>[0m     Dispatch a single issue
+  [36mrepo recover[0m         Recover stalled runs
+  [36mrepo logs[0m            View orchestrator logs
+  [36mrepo explain <issue>[0m Explain why an issue is not dispatching
+
+[33m[1mMaintenance:[0m[0m
+  [36mupgrade[0m              Upgrade the CLI to the latest published version
+  [36mcompletion <shell>[0m   Print shell completion (bash/zsh/fish)
+  [36mversion[0m              Show version
+  [36mhelp [command][0m       Show help for a command
+
+[33m[1mGlobal Options:[0m[0m
+  [36m--config <dir>[0m       Config directory override (advanced; default resolves
+                       per-repo to <repo>/.runtime/orchestrator)
+  [36m--verbose, -v[0m        Verbose output
+  [36m--json[0m               JSON output
+  [36m--no-color[0m           Disable color output
+  [36m--help, -h[0m           Show help
+  [36m--version, -V[0m        Show version
+"
+`;
+
+exports[`help output > renders the non-colored grouped help snapshot 1`] = `
+"gh-symphony — AI Coding Agent Orchestrator
+
+Setup:
+  setup                Run the one-command first-run setup flow
+  workflow init        Generate WORKFLOW.md and workflow support files
+  workflow validate    Strictly validate WORKFLOW.md
+  workflow preview     Render the worker prompt from a sample or live issue
+  doctor               Run diagnostics and optional remediation
+  config show          Show current configuration
+  config set           Set a configuration value
+  config edit          Open config in $EDITOR
+
+Orchestration (current repository):
+  repo init            Initialize gh-symphony for the current repository
+  repo start           Start the orchestrator (foreground)
+  repo start --daemon  Start the orchestrator in the background
+  repo stop            Stop the background orchestrator
+  repo status          Show orchestrator status
+  repo run <issue>     Dispatch a single issue
+  repo recover         Recover stalled runs
+  repo logs            View orchestrator logs
+  repo explain <issue> Explain why an issue is not dispatching
+
+Maintenance:
+  upgrade              Upgrade the CLI to the latest published version
+  completion <shell>   Print shell completion (bash/zsh/fish)
+  version              Show version
+  help [command]       Show help for a command
+
+Global Options:
+  --config <dir>       Config directory override (advanced; default resolves
+                       per-repo to <repo>/.runtime/orchestrator)
+  --verbose, -v        Verbose output
+  --json               JSON output
+  --no-color           Disable color output
+  --help, -h           Show help
+  --version, -V        Show version
+"
+`;

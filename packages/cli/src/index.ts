@@ -6,8 +6,10 @@ import {
   InvalidArgumentError,
   Option,
 } from "commander";
+import { setNoColor } from "./ansi.js";
 import { resolveConfigDir } from "./config.js";
 import { renderCompletionScript } from "./completion.js";
+import { renderHelp } from "./commands/help.js";
 
 export type GlobalOptions = {
   configDir: string;
@@ -120,6 +122,7 @@ function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
   if (options.noColor) {
     process.env.NO_COLOR = "1";
   }
+  setNoColor(options.noColor);
 
   return options;
 }
@@ -173,8 +176,15 @@ function resolveVersionOptions(argv: string[]): GlobalOptions {
   if (options.noColor) {
     process.env.NO_COLOR = "1";
   }
+  setNoColor(options.noColor);
 
   return options;
+}
+
+function renderRootHelp(command: Command): string {
+  const values = command.optsWithGlobals<CliOptionValues>();
+  const noColor = Boolean(values.noColor);
+  return renderHelp({ color: !noColor });
 }
 
 function createProgram(): { program: Command; wasInvoked: () => boolean } {
@@ -193,6 +203,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .showHelpAfterError("(run with --help for usage)")
       .option("-V, --version", "Show version")
   );
+  program.helpInformation = () => renderRootHelp(program);
 
   addGlobalOptions(
     program
