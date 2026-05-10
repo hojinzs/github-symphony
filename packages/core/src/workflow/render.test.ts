@@ -127,12 +127,59 @@ describe("buildPromptVariables", () => {
       number: 9,
       identifier: "acme/platform#9",
       url: "https://github.com/acme/platform/pull/9",
-      state: "Ready",
+      state: null,
+      projectState: "Ready",
       headRefName: "feature/pr-metadata",
     });
     expect(renderPrompt("branch={{ issue.branch_name }}", variables)).toBe(
       "branch=feature/pr-metadata"
     );
+  });
+
+  it("prefers the subject pull request over linked pull requests for pull request subjects", () => {
+    const variables = buildPromptVariables(
+      createTrackedIssue({
+        id: "pr-9",
+        identifier: "acme/platform#9",
+        number: 9,
+        title: "Ship PR metadata",
+        state: "In review",
+        branchName: "feature/pr-metadata",
+        url: "https://github.com/acme/platform/pull/9",
+        metadata: {
+          contentType: "PullRequest",
+          pullRequest: {
+            id: "pr-9",
+            number: 9,
+            identifier: "acme/platform#9",
+            url: "https://github.com/acme/platform/pull/9",
+            state: "OPEN",
+            projectState: "In review",
+            headRefName: "feature/pr-metadata",
+            baseRefName: "main",
+          },
+          linkedPullRequests: [
+            {
+              id: "pr-8",
+              number: 8,
+              identifier: "acme/platform#8",
+              url: "https://github.com/acme/platform/pull/8",
+              state: "OPEN",
+              projectState: "Ready",
+            },
+          ],
+        },
+      }),
+      { attempt: null }
+    );
+
+    expect(variables.issue.has_linked_pr).toBe(true);
+    expect(variables.issue.primary_pull_request).toMatchObject({
+      id: "pr-9",
+      identifier: "acme/platform#9",
+      state: "OPEN",
+      projectState: "In review",
+    });
   });
 });
 

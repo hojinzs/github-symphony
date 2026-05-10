@@ -24,7 +24,15 @@ export type TrackedPullRequestContext = {
   number: number;
   identifier: string;
   url: string | null;
+  /**
+   * Pull request state from the tracker source when available
+   * (for example, GitHub GraphQL states such as OPEN, CLOSED, or MERGED).
+   */
   state: string | null;
+  /**
+   * Workflow/project state for the pull request item, when distinct from the
+   * pull request's source state.
+   */
   projectState?: string | null;
   isDraft?: boolean | null;
   merged?: boolean | null;

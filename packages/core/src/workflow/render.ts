@@ -68,10 +68,11 @@ export function buildPromptVariables(
     ? issue.metadata.linkedPullRequests
     : [];
   const primaryPullRequest =
-    linkedPullRequests[0] ??
-    (contentType === "PullRequest"
-      ? (issue.metadata.pullRequest ?? buildPullRequestContextFromIssue(issue))
-      : null);
+    contentType === "PullRequest"
+      ? (issue.metadata.pullRequest ??
+        linkedPullRequests[0] ??
+        buildPullRequestContextFromIssue(issue))
+      : (linkedPullRequests[0] ?? null);
 
   return {
     issue: {
@@ -106,7 +107,8 @@ function buildPullRequestContextFromIssue(
     number: issue.number,
     identifier: issue.identifier,
     url: issue.url,
-    state: issue.state,
+    state: null,
+    projectState: issue.state,
     headRefName: issue.branchName,
     repository: {
       owner: issue.repository.owner,
