@@ -104,6 +104,9 @@ type GraphQLIssueNode = {
   };
   closedByPullRequestsReferences?: {
     nodes: Array<GraphQLPullRequestNode | null> | null;
+    pageInfo?: {
+      hasNextPage: boolean;
+    } | null;
   } | null;
   blockedBy: {
     nodes: Array<{
@@ -315,6 +318,8 @@ export function normalizeProjectItem(
   const linkedPullRequests = normalizePullRequestNodes(
     item.content.closedByPullRequestsReferences?.nodes ?? []
   );
+  const linkedPullRequestsTruncated =
+    item.content.closedByPullRequestsReferences?.pageInfo?.hasNextPage ?? false;
 
   return {
     id: item.content.id,
@@ -341,7 +346,11 @@ export function normalizeProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
-    metadata: withIssueMetadata(fieldValues, linkedPullRequests),
+    metadata: withIssueMetadata(
+      fieldValues,
+      linkedPullRequests,
+      linkedPullRequestsTruncated
+    ),
     rateLimits,
   };
 }
@@ -874,14 +883,16 @@ function withGitHubMetadata(
 
 function withIssueMetadata(
   fieldValues: Record<string, string>,
-  linkedPullRequests: GitHubPullRequestMetadata[]
+  linkedPullRequests: GitHubPullRequestMetadata[],
+  linkedPullRequestsTruncated = false
 ): TrackedIssue["metadata"] {
-  if (linkedPullRequests.length === 0) {
+  if (linkedPullRequests.length === 0 && !linkedPullRequestsTruncated) {
     return fieldValues;
   }
 
   return withGitHubMetadata(fieldValues, {
     linkedPullRequests,
+    linkedPullRequestsTruncated,
   });
 }
 
@@ -1335,6 +1346,9 @@ const PROJECT_ITEMS_QUERY = `
                   nodes {
                     ...PullRequestMetadata
                   }
+                  pageInfo {
+                    hasNextPage
+                  }
                 }
               }
               ... on PullRequest {
@@ -1672,6 +1686,9 @@ const REPOSITORY_ISSUE_QUERY = `
         closedByPullRequestsReferences(first: 20) {
           nodes {
             ...RepositoryIssuePullRequestMetadata
+          }
+          pageInfo {
+            hasNextPage
           }
         }
         projectItems(first: 20, includeArchived: false) {

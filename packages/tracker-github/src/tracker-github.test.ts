@@ -317,6 +317,61 @@ describe("resolveTrackerAdapter", () => {
         },
       }),
     ]);
+    expect(metadata?.linkedPullRequestsTruncated).toBe(false);
+  });
+
+  it("marks Issue linked pull request metadata as truncated when GitHub has another page", () => {
+    const linkedPullRequests = Array.from({ length: 20 }, (_, index) => {
+      const number = index + 1;
+      return makePullRequestProjectItem({
+        itemId: `item-pr-${number}`,
+        pullRequestId: `pr-${number}`,
+        number,
+        title: `Linked PR ${number}`,
+      }).content;
+    });
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        ...makeProjectItem({
+          itemId: "item-1",
+          issueId: "issue-1",
+          number: 1,
+          title: "Issue with many linked PRs",
+          assignees: [],
+        }),
+        content: {
+          ...makeProjectItem({
+            itemId: "item-1",
+            issueId: "issue-1",
+            number: 1,
+            title: "Issue with many linked PRs",
+            assignees: [],
+          }).content,
+          closedByPullRequestsReferences: {
+            nodes: linkedPullRequests,
+            pageInfo: {
+              hasNextPage: true,
+            },
+          },
+        },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    const metadata = issue?.metadata as Record<string, unknown> | undefined;
+
+    expect(metadata?.linkedPullRequests).toHaveLength(20);
+    expect(metadata?.linkedPullRequestsTruncated).toBe(true);
+    expect(metadata?.linkedPullRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "pr-20",
+          number: 20,
+          identifier: "acme/platform#20",
+        }),
+      ])
+    );
   });
 
   it("continues to ignore unsupported Project item content types", () => {
