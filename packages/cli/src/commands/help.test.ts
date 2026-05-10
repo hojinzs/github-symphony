@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setNoColor, stripAnsi } from "../ansi.js";
 import { runCli } from "../index.js";
-import { renderHelp } from "./help.js";
+import {
+  COMMAND_COLUMN_WIDTH,
+  HELP_SECTIONS,
+  renderHelp,
+} from "./help.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -46,6 +50,16 @@ describe("help output", () => {
     expect(output).toBe(stripAnsi(output));
   });
 
+  it("keeps command names within the fixed help column", () => {
+    const longestName = Math.max(
+      ...HELP_SECTIONS.flatMap((section) =>
+        section.entries.map((entry) => entry.name.length)
+      )
+    );
+
+    expect(longestName).toBeLessThanOrEqual(COMMAND_COLUMN_WIDTH);
+  });
+
   it("prints byte-identical output for help and root --help", async () => {
     const helpStdout = captureWrites(process.stdout);
     try {
@@ -53,6 +67,9 @@ describe("help output", () => {
     } finally {
       helpStdout.restore();
     }
+    setNoColor(false);
+    delete process.env.NO_COLOR;
+    process.exitCode = undefined;
 
     const rootHelpStdout = captureWrites(process.stdout);
     try {

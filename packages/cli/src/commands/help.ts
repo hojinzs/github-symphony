@@ -1,20 +1,20 @@
 import { bold, cyan, yellow } from "../ansi.js";
 import type { GlobalOptions } from "../index.js";
 
-type HelpEntry = {
+export type HelpEntry = {
   name: string;
   description: string | string[];
 };
 
-type HelpSection = {
+export type HelpSection = {
   title: string;
   entries: HelpEntry[];
 };
 
-const DESCRIPTION_COLUMN = 23;
-const COMMAND_COLUMN_WIDTH = DESCRIPTION_COLUMN - 2;
+export const DESCRIPTION_COLUMN = 23;
+export const COMMAND_COLUMN_WIDTH = DESCRIPTION_COLUMN - 2;
 
-const HELP_SECTIONS: HelpSection[] = [
+export const HELP_SECTIONS: HelpSection[] = [
   {
     title: "Setup",
     entries: [

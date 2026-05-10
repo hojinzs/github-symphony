@@ -184,7 +184,6 @@ function resolveVersionOptions(argv: string[]): GlobalOptions {
 function renderRootHelp(command: Command): string {
   const values = command.optsWithGlobals<CliOptionValues>();
   const noColor = Boolean(values.noColor);
-  setNoColor(noColor);
   return renderHelp({ color: !noColor });
 }
 
