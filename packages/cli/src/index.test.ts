@@ -8,6 +8,7 @@ import {
   saveProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
+import { REMOVED_PROJECT_ID_MESSAGE } from "./removed-project-id.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -157,6 +158,29 @@ describe("Commander CLI entrypoint", () => {
       "option '--config <dir>' argument missing"
     );
   });
+
+  it.each([
+    ["start", ["repo", "start", "--project-id", "tenant-a"]],
+    ["status", ["repo", "status", "--project-id", "tenant-a"]],
+    ["stop", ["repo", "stop", "--project-id", "tenant-a"]],
+    ["run", ["repo", "run", "owner/repo#1", "--project-id", "tenant-a"]],
+    ["recover", ["repo", "recover", "--project-id", "tenant-a"]],
+    ["logs", ["repo", "logs", "--project-id", "tenant-a"]],
+  ])(
+    "routes repo %s removed project options to the deprecation handler",
+    async (_command, args) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(args);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(stderr.output()).toBe(`${REMOVED_PROJECT_ID_MESSAGE}\n`);
+      expect(process.exitCode).toBe(2);
+    }
+  );
 
   it("falls back to root help when no command is provided", async () => {
     const stdout = captureWrites(process.stdout);

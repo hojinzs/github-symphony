@@ -180,6 +180,7 @@ function registerRemovedCommand(
   message: string,
   markInvoked: () => void
 ): void {
+  const handler = createRemovedCommandHandler(message);
   addGlobalOptions(
     program
       .command(commandSpec, { hidden: true })
@@ -188,7 +189,7 @@ function registerRemovedCommand(
   ).action(async function (this: Command) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    await createRemovedCommandHandler(message)([], resolveGlobalOptions(values));
+    await handler([], resolveGlobalOptions(values));
   });
 }
 
@@ -379,7 +380,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   );
   registerRemovedCommand(
     program,
-    "run [args...]",
+    "run",
     "Use 'gh-symphony repo run <issue>'.",
     markInvoked
   );
@@ -595,11 +596,12 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Expose the control plane web dashboard and API over HTTP"
       )
       .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .allowExcessArguments(false)
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
   ).action(async function (this: Command) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["start"];
+    const args: string[] = ["start", ...this.args];
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--http", values.http);
@@ -613,11 +615,12 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("status")
       .description("Show current repository orchestrator status")
       .option("-w, --watch", "Watch status continuously")
-      .allowExcessArguments(false)
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
   ).action(async function (this: Command) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["status"];
+    const args: string[] = ["status", ...this.args];
     pushOption(args, "--watch", values.watch);
     await invokeHandler("repo", args, values);
   });
@@ -627,12 +630,67 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("stop")
       .description("Stop the current repository background orchestrator")
       .option("--force", "Force stop with SIGKILL")
-      .allowExcessArguments(false)
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
   ).action(async function (this: Command) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["stop"];
+    const args: string[] = ["stop", ...this.args];
     pushOption(args, "--force", values.force);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("run")
+      .description("Dispatch a single issue from the current repository")
+      .argument("[args...]", "Issue identifier and passthrough options")
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
+      .option("-w, --watch", "Watch status after dispatch")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
+  ).action(async function (this: Command, passthrough: string[]) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["run", ...passthrough];
+    pushOption(args, "--log-level", values.logLevel);
+    pushOption(args, "--watch", values.watch);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("recover")
+      .description("Recover stalled runs for the current repository")
+      .option("--dry-run", "Show recoverable runs without recovering")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["recover", ...this.args];
+    pushOption(args, "--dry-run", values.dryRun);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("logs")
+      .description("View current repository orchestrator logs")
+      .option("-f, --follow", "Follow new log lines")
+      .option("--issue <issue>", "Filter by issue identifier")
+      .option("--run <runId>", "Read events for a specific run")
+      .option("--level <level>", "Filter by log level")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["logs", ...this.args];
+    pushOption(args, "--follow", values.follow);
+    pushOption(args, "--issue", values.issue);
+    pushOption(args, "--run", values.run);
+    pushOption(args, "--level", values.level);
     await invokeHandler("repo", args, values);
   });
 

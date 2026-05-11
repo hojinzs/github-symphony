@@ -1,4 +1,7 @@
 import type { GlobalOptions } from "../index.js";
+import logsCommand from "./logs.js";
+import recoverCommand from "./recover.js";
+import runCommand from "./run.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
@@ -52,6 +55,18 @@ const handler = async (
       if (rejectRemovedProjectId(rest)) return;
       await stopCommand(rest, repoOptions(options));
       break;
+    case "run":
+      if (rejectRemovedProjectId(rest)) return;
+      await runCommand(rest, repoOptions(options));
+      break;
+    case "recover":
+      if (rejectRemovedProjectId(rest)) return;
+      await recoverCommand(rest, repoOptions(options));
+      break;
+    case "logs":
+      if (rejectRemovedProjectId(rest)) return;
+      await logsCommand(rest, repoOptions(options));
+      break;
     case "add":
       await repoAdd(rest, options);
       break;
@@ -63,7 +78,7 @@ const handler = async (
       break;
     default:
       process.stderr.write(
-        "Usage: gh-symphony repo <init|start|status|stop|list|add|remove|sync> [repo]\n"
+        "Usage: gh-symphony repo <init|start|status|stop|run|recover|logs|list|add|remove|sync> [repo]\n"
       );
       process.exitCode = 2;
   }
