@@ -29,6 +29,10 @@ export type RepositorySyncResult = {
   changed: boolean;
 };
 
+export type PullRequestBranchCheckoutTarget = {
+  headRefName: string;
+};
+
 export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
@@ -107,15 +111,23 @@ export async function ensureIssueWorkspaceRepository(input: {
   repository: RepositoryRef;
   issueWorkspacePath: string;
   existingWorkspace: boolean;
+  pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
 }): Promise<string> {
-  if (!input.existingWorkspace) {
-    return cloneRepositoryForRun({
-      repository: input.repository,
-      targetDirectory: input.issueWorkspacePath,
-    });
+  const repositoryDirectory = input.existingWorkspace
+    ? await syncExistingIssueWorkspaceRepository(input)
+    : await cloneRepositoryForRun({
+        repository: input.repository,
+        targetDirectory: input.issueWorkspacePath,
+      });
+
+  if (input.pullRequestBranch) {
+    await checkoutPullRequestBranch(
+      repositoryDirectory,
+      input.pullRequestBranch
+    );
   }
 
-  return syncExistingIssueWorkspaceRepository(input);
+  return repositoryDirectory;
 }
 
 export async function loadRepositoryWorkflow(
@@ -253,6 +265,59 @@ async function syncExistingIssueWorkspaceRepository(input: {
       await rm(tempRepositoryDirectory, { recursive: true, force: true });
     }
   });
+}
+
+async function checkoutPullRequestBranch(
+  repositoryDirectory: string,
+  target: PullRequestBranchCheckoutTarget
+): Promise<void> {
+  const branchName = target.headRefName.trim();
+
+  if (!branchName) {
+    throw new Error(
+      "Cannot checkout pull request branch because headRefName is empty."
+    );
+  }
+
+  try {
+    await runCommand("git", ["check-ref-format", "--branch", branchName]);
+  } catch (error) {
+    throw new Error(
+      `Cannot checkout pull request branch ${branchName}: invalid branch name (${formatCommandError(error, "git check-ref-format failed")}).`
+    );
+  }
+
+  const remoteRef = `refs/remotes/origin/${branchName}`;
+  try {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "fetch",
+      "origin",
+      `${branchName}:${remoteRef}`,
+      "--depth",
+      "1",
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Cannot checkout pull request branch ${branchName}: git fetch origin ${branchName} failed (${formatCommandError(error, "git fetch failed")}).`
+    );
+  }
+
+  try {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "checkout",
+      "-B",
+      branchName,
+      remoteRef,
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Cannot checkout pull request branch ${branchName}: git checkout failed (${formatCommandError(error, "git checkout failed")}).`
+    );
+  }
 }
 
 function createIssueWorkspacePreservedError(

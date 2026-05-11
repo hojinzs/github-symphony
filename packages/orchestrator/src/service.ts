@@ -43,6 +43,7 @@ import {
   type RuntimeSessionRow,
   type SessionExitClassification,
   type TrackedIssue,
+  type TrackedPullRequestContext,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -199,6 +200,66 @@ function resolveCanonicalSubjectIssues(
   }
 
   return canonicalIssues;
+}
+
+function resolvePullRequestBranchCheckoutTarget(
+  issue: TrackedIssue
+): { headRefName: string } | null {
+  const pullRequest =
+    issue.metadata.contentType === "PullRequest"
+      ? (issue.metadata.pullRequest ??
+        issue.metadata.linkedPullRequests?.[0] ??
+        buildPullRequestContextFromIssue(issue))
+      : (issue.metadata.linkedPullRequests?.[0] ?? null);
+
+  if (!pullRequest) {
+    return null;
+  }
+
+  const headRefName = pullRequest.headRefName?.trim();
+  if (!headRefName) {
+    throw new Error(
+      `Cannot checkout pull request branch for ${pullRequest.identifier}: missing headRefName.`
+    );
+  }
+
+  const headRepository = pullRequest.headRepository ?? null;
+  if (
+    !headRepository ||
+    headRepository.owner !== issue.repository.owner ||
+    headRepository.name !== issue.repository.name
+  ) {
+    const source = headRepository
+      ? `${headRepository.owner}/${headRepository.name}`
+      : "unknown fork";
+    throw new Error(
+      `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
+    );
+  }
+
+  return { headRefName };
+}
+
+function buildPullRequestContextFromIssue(
+  issue: TrackedIssue
+): TrackedPullRequestContext {
+  const repository = {
+    owner: issue.repository.owner,
+    name: issue.repository.name,
+    url: issue.repository.url ?? "",
+    cloneUrl: issue.repository.cloneUrl,
+  };
+
+  return {
+    id: issue.id,
+    number: issue.number,
+    identifier: issue.identifier,
+    url: issue.url,
+    state: issue.state,
+    headRefName: issue.branchName,
+    repository,
+    headRepository: repository,
+  };
 }
 
 export class OrchestratorService {
@@ -495,7 +556,9 @@ export class OrchestratorService {
     const allRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
-    const activeRuns = allRuns.filter((run) => isActiveRunRecordStatus(run.status));
+    const activeRuns = allRuns.filter((run) =>
+      isActiveRunRecordStatus(run.status)
+    );
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(
         tenant,
@@ -510,7 +573,8 @@ export class OrchestratorService {
     }
     const reconciledRuns = (await this.store.loadAllRuns()).filter(
       (run) =>
-        run.projectId === tenant.projectId && isActiveRunRecordStatus(run.status)
+        run.projectId === tenant.projectId &&
+        isActiveRunRecordStatus(run.status)
     );
     const projectRunsAfterReconcile = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
@@ -521,7 +585,8 @@ export class OrchestratorService {
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>
-          run.projectId === tenant.projectId && isActiveRunRecordStatus(run.status)
+          run.projectId === tenant.projectId &&
+          isActiveRunRecordStatus(run.status)
       );
       const {
         runs: syncedActiveRuns,
@@ -710,11 +775,7 @@ export class OrchestratorService {
           : null;
         const activeRun =
           syncedActiveRuns.find((run) =>
-            isMatchingIssueRun(
-              run,
-              issueRecord.issueId,
-              issueRecord.identifier
-            )
+            isMatchingIssueRun(run, issueRecord.issueId, issueRecord.identifier)
           ) ?? persistedRun;
         const resolvedIssue = actionableCandidates.find(
           (candidate) => candidate.identifier === issue.identifier
@@ -1078,7 +1139,8 @@ export class OrchestratorService {
     lifecycle: WorkflowLifecycleConfig,
     issues: readonly TrackedIssue[]
   ): boolean {
-    return isIssueCandidateEligibleWithReason(issue, lifecycle, issues).eligible;
+    return isIssueCandidateEligibleWithReason(issue, lifecycle, issues)
+      .eligible;
   }
 
   private async loadProjectWorkflow(
@@ -1175,11 +1237,13 @@ export class OrchestratorService {
       projectDir,
       workspaceKey
     );
+    const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
 
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
       existingWorkspace: Boolean(existingWorkspaceRecord),
+      pullRequestBranch,
     });
 
     if (!existingWorkspaceRecord) {

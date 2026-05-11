@@ -3033,6 +3033,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranchFixture(repository.path);
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4308,
@@ -3060,6 +3061,12 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "linked=acme/platform#2:Todo"
     );
+    expect(
+      execSync(
+        `git -C ${shell(workerEnv?.WORKING_DIRECTORY ?? "")} branch --show-current`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("feature/canonical-pr");
   });
 
   it("does not dispatch a ready pull request when its linked issue is in review", async () => {
@@ -3110,6 +3117,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranchFixture(repository.path);
 
     const spawnImpl = vi.fn().mockReturnValue({
       pid: 4310,
@@ -3133,6 +3141,55 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     expect(result.summary.dispatched).toBe(1);
     expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("pr-2");
     expect(workerEnv?.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#2");
+    expect(
+      execSync(
+        `git -C ${shell(workerEnv?.WORKING_DIRECTORY ?? "")} branch --show-current`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("feature/canonical-pr");
+  });
+
+  it("blocks fork pull request subjects before automatic checkout", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-pr-fork-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4313,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseFromProjectItems([
+          makeTrackerProjectPullRequest(repository, "Todo", {
+            headRepository: {
+              owner: "contributor",
+              name: "platform",
+              cloneUrl: join(tempRoot, "contributor-platform"),
+            },
+          }),
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toMatch(
+      /fork pull requests are unsupported for automatic checkout\/push \(contributor\/platform -> acme\/platform\)/
+    );
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("syncs active run state for a standalone pull request subject", async () => {
@@ -3148,6 +3205,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranchFixture(repository.path);
 
     const fetchImpl = vi
       .fn()
@@ -9125,7 +9183,14 @@ function makeTrackerProjectIssueWithLinkedPullRequest(
 
 function makeTrackerProjectPullRequest(
   repository: { owner: string; name: string; cloneUrl: string },
-  state: string
+  state: string,
+  options: {
+    headRepository?: {
+      owner: string;
+      name: string;
+      cloneUrl: string;
+    };
+  } = {}
 ) {
   return {
     id: "item-pr-2",
@@ -9141,15 +9206,26 @@ function makeTrackerProjectPullRequest(
         },
       ],
     },
-    content: makeTrackerPullRequestContent(repository),
+    content: makeTrackerPullRequestContent(repository, options),
   };
 }
 
-function makeTrackerPullRequestContent(repository: {
-  owner: string;
-  name: string;
-  cloneUrl: string;
-}) {
+function makeTrackerPullRequestContent(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  options: {
+    headRepository?: {
+      owner: string;
+      name: string;
+      cloneUrl: string;
+    };
+  } = {}
+) {
+  const headRepository = options.headRepository ?? repository;
+
   return {
     __typename: "PullRequest",
     id: "pr-2",
@@ -9163,10 +9239,10 @@ function makeTrackerPullRequestContent(repository: {
     headRefName: "feature/canonical-pr",
     baseRefName: "main",
     headRepository: {
-      name: repository.name,
-      url: `file://${repository.cloneUrl}`,
+      name: headRepository.name,
+      url: `file://${headRepository.cloneUrl}`,
       owner: {
-        login: repository.owner,
+        login: headRepository.owner,
       },
     },
     repository: {
@@ -9185,6 +9261,12 @@ function makeTrackerPullRequestContent(repository: {
     createdAt: "2026-03-08T00:00:00.000Z",
     updatedAt: "2026-03-08T00:00:00.000Z",
   };
+}
+
+function createPullRequestBranchFixture(repositoryRoot: string): void {
+  execSync(`git -C ${shell(repositoryRoot)} branch feature/canonical-pr`, {
+    stdio: "ignore",
+  });
 }
 
 function makeTrackerIssueStateLookupNode(
