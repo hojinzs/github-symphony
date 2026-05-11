@@ -74,6 +74,26 @@ describe("Commander CLI entrypoint", () => {
     );
   });
 
+  it.each([
+    [["repo", "add"], "repo add"],
+    [["repo", "add", "owner/name"], "repo add owner/name"],
+    [["repo", "remove"], "repo remove"],
+    [["repo", "remove", "owner/name"], "repo remove owner/name"],
+  ])("routes removed %s to the migration message", async (args) => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(args);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Removed. The orchestrator binds to the cwd repository via 'repo init'."
+    );
+  });
+
   it("prints JSON version output for global --version", async () => {
     const stdout = captureWrites(process.stdout);
 

@@ -441,7 +441,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("add")
       .description("Removed")
-      .argument("<owner/name>", "Repository spec")
+      .argument("[owner/name]", "Repository spec")
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();
@@ -455,7 +455,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("remove")
       .description("Removed")
-      .argument("<owner/name>", "Repository spec")
+      .argument("[owner/name]", "Repository spec")
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();
