@@ -98,6 +98,23 @@ afterEach(() => {
 });
 
 describe("repo init runtime migration", () => {
+  it("does not advertise removed repo-set commands in fallback usage", async () => {
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    try {
+      await repoCommand(["unknown"], baseOptions(tmpdir()));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Usage: gh-symphony repo <init|start|status|stop|run|recover|logs|explain> [repo]"
+    );
+    expect(stderr.output()).not.toContain("list|add|remove|sync");
+  });
+
   it("promotes a single legacy project directory and strips projectId from run records", async () => {
     const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);

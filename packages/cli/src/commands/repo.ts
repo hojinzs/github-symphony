@@ -53,7 +53,7 @@ const handler = async (
       break;
     default:
       process.stderr.write(
-        "Usage: gh-symphony repo <init|start|status|stop|run|recover|logs|explain|list|add|remove|sync> [repo]\n"
+        "Usage: gh-symphony repo <init|start|status|stop|run|recover|logs|explain> [repo]\n"
       );
       process.exitCode = 2;
   }
