@@ -29,7 +29,6 @@ type LoaderKey =
   | "setup"
   | "doctor"
   | "upgrade"
-  | "project"
   | "repo"
   | "config"
   | "version";
@@ -77,7 +76,6 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     setup: () => import("./commands/setup.js"),
     doctor: () => import("./commands/doctor.js"),
     upgrade: () => import("./commands/upgrade.js"),
-    project: () => import("./commands/project.js"),
     repo: () => import("./commands/repo.js"),
     config: () => import("./commands/config-cmd.js"),
     version: () => import("./commands/version.js"),
@@ -397,150 +395,18 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     markInvoked
   );
 
-  const project = addGlobalOptions(
-    program.command("project").description("Manage configured projects")
-  );
-
-  project.action(async function (this: Command) {
-    markInvoked();
-    await invokeHandler("project", [], this.optsWithGlobals<CliOptionValues>());
-  });
-
   addGlobalOptions(
-    project
-      .command("add")
-      .description("Add a new project")
-      .option("--non-interactive", "Run without prompts")
-      .option("--project <id>", "GitHub Project ID")
-      .option("--workspace-dir <path>", "Workspace directory")
-      .option("--assigned-only", "Limit processing to assigned issues")
-      .allowExcessArguments(false)
+    program
+      .command("project")
+      .description("Removed project namespace")
+      .argument("[args...]", "Removed project command arguments")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
   ).action(async function (this: Command) {
     markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = [];
-    pushOption(args, "--non-interactive", values.nonInteractive);
-    pushOption(args, "--project", values.project);
-    pushOption(args, "--workspace-dir", values.workspaceDir);
-    pushOption(args, "--assigned-only", values.assignedOnly);
-    await invokeHandler("project", ["add", ...args], values);
-  });
-
-  addGlobalOptions(
-    project.command("list").description("List configured projects")
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    await invokeHandler("project", ["list"], values);
-  });
-
-  addGlobalOptions(
-    project
-      .command("remove")
-      .description("Remove a project")
-      .argument("<projectId>", "Project identifier")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command, projectId: string) {
-    markInvoked();
-    await invokeHandler(
-      "project",
-      ["remove", projectId],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    project
-      .command("start")
-      .description("Start a specific project")
-      .option("-d, --daemon", "Start in daemon mode")
-      .option("--once", "Run a single orchestration tick and exit")
-      .option(
-        "--http [port]",
-        "Expose dashboard and refresh endpoints over HTTP"
-      )
-      .option(
-        "--web [port]",
-        "Expose the control plane web dashboard and API over HTTP"
-      )
-      .option("--log-level <level>", "Orchestrator lifecycle log level")
-      .option("--project-id <projectId>", "Project identifier")
-      .addOption(new Option("--project <projectId>").hideHelp())
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["start"];
-    pushOption(args, "--project-id", resolveProjectId(values));
-    pushOption(args, "--daemon", values.daemon);
-    pushOption(args, "--once", values.once);
-    pushOption(args, "--http", values.http);
-    pushOption(args, "--web", values.web);
-    pushOption(args, "--log-level", values.logLevel);
-    await invokeHandler("project", args, values);
-  });
-
-  addGlobalOptions(
-    project
-      .command("stop")
-      .description("Stop a specific project")
-      .option("--force", "Force stop with SIGKILL")
-      .option("--project-id <projectId>", "Project identifier")
-      .addOption(new Option("--project <projectId>").hideHelp())
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["stop"];
-    pushOption(args, "--project-id", resolveProjectId(values));
-    pushOption(args, "--force", values.force);
-    await invokeHandler("project", args, values);
-  });
-
-  addGlobalOptions(
-    project.command("switch").description("Switch the active project")
-  ).action(async function (this: Command) {
-    markInvoked();
-    await invokeHandler(
-      "project",
-      ["switch"],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    project
-      .command("status")
-      .description("Show status for a specific project")
-      .option("-w, --watch", "Watch status continuously")
-      .option("--project-id <projectId>", "Project identifier")
-      .addOption(new Option("--project <projectId>").hideHelp())
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["status"];
-    pushOption(args, "--project-id", resolveProjectId(values));
-    pushOption(args, "--watch", values.watch);
-    await invokeHandler("project", args, values);
-  });
-
-  addGlobalOptions(
-    project
-      .command("explain")
-      .description("Explain why a project issue is not dispatching")
-      .argument("<issue>", "Issue identifier, for example owner/repo#123")
-      .option("--project-id <projectId>", "Project identifier")
-      .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
-      .addOption(new Option("--project <projectId>").hideHelp())
-      .allowExcessArguments(false)
-  ).action(async function (this: Command, issue: string) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["explain", issue];
-    pushOption(args, "--project-id", resolveProjectId(values));
-    pushOption(args, "--workflow", values.workflow);
-    await invokeHandler("project", args, values);
+    await createRemovedCommandHandler(
+      "The 'project' command was removed. The orchestrator is now per-repository. Run 'gh-symphony repo init' in the target repository."
+    )([], resolveGlobalOptions(this.optsWithGlobals<CliOptionValues>()));
   });
 
   const repo = addGlobalOptions(
@@ -691,6 +557,22 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--issue", values.issue);
     pushOption(args, "--run", values.run);
     pushOption(args, "--level", values.level);
+    await invokeHandler("repo", args, values);
+  });
+
+  addGlobalOptions(
+    repo
+      .command("explain")
+      .description("Explain why a repository issue is not dispatching")
+      .argument("[args...]", "Issue identifier and passthrough options")
+      .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
+      .allowUnknownOption(true)
+      .allowExcessArguments(true)
+  ).action(async function (this: Command, passthrough: string[]) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["explain", ...passthrough];
+    pushOption(args, "--workflow", values.workflow);
     await invokeHandler("repo", args, values);
   });
 

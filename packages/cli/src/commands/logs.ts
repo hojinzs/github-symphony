@@ -188,14 +188,18 @@ function formatEvent(event: Record<string, unknown>): string {
 }
 
 async function listProjectRunRoots(runtimeRoot: string): Promise<string[]> {
+  const roots = [join(runtimeRoot, "runs")];
   try {
     const projectIds = await readdir(join(runtimeRoot, "projects"));
-    return projectIds.map((projectId) =>
-      join(runtimeRoot, "projects", projectId, "runs")
+    roots.push(
+      ...projectIds.map((projectId) =>
+        join(runtimeRoot, "projects", projectId, "runs")
+      )
     );
   } catch {
-    return [];
+    // Flat per-repo runtimes do not have a projects directory.
   }
+  return roots;
 }
 
 async function resolveRunEventsPath(
