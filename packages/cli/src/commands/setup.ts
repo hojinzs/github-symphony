@@ -25,7 +25,7 @@ import {
   writeEcosystem,
   writeWorkflowPlan,
   promptStateMappings,
-} from "./init.js";
+} from "./workflow-init.js";
 import { validateStateMapping } from "../mapping/smart-defaults.js";
 import {
   promptProjectRegistrationOptions,

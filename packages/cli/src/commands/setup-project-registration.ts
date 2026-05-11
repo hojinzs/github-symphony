@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import type { LinkedRepository, ProjectDetail } from "../github/client.js";
-import { abortIfCancelled } from "./init.js";
+import { abortIfCancelled } from "./workflow-init.js";
 
 export type ProjectRegistrationOptions = {
   assignedOnly: boolean;
