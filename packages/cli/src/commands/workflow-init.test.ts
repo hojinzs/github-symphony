@@ -39,7 +39,7 @@ import {
   DEFAULT_AFTER_CREATE_HOOK_LABEL,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "../workflow/default-hooks.js";
-import initCommand from "./init.js";
+import initCommand from "./workflow-init.js";
 import {
   buildDryRunJsonResult,
   generateProjectId,
@@ -48,7 +48,7 @@ import {
   renderDryRunPreview,
   writeConfig,
   writeEcosystem,
-} from "./init.js";
+} from "./workflow-init.js";
 
 function mockSpinner() {
   return {

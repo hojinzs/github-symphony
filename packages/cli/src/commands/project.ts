@@ -55,7 +55,7 @@ import {
   generateProjectId,
   abortIfCancelled,
   warnIfProjectDiscoveryPartial,
-} from "./init.js";
+} from "./workflow-init.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";

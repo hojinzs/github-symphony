@@ -40,7 +40,7 @@ import {
 } from "../config.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
-import { generateProjectId } from "./init.js";
+import { generateProjectId } from "./workflow-init.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;

@@ -21,7 +21,7 @@ import {
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
-import initCommand from "./init.js";
+import initCommand from "./workflow-init.js";
 
 type WorkflowSubcommand = "init" | "validate" | "preview";
 

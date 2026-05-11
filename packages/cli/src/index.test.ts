@@ -116,8 +116,32 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow setup doctor upgrade start stop status");
+    expect(output).toContain("workflow setup doctor upgrade project repo");
   });
+
+  it.each([
+    [["init"], "Use 'gh-symphony workflow init'."],
+    [["start"], "Use 'gh-symphony repo start' from the target repository."],
+    [["stop"], "Use 'gh-symphony repo stop'."],
+    [["status"], "Use 'gh-symphony repo status'."],
+    [["run", "owner/repo#1"], "Use 'gh-symphony repo run <issue>'."],
+    [["recover"], "Use 'gh-symphony repo recover'."],
+    [["logs"], "Use 'gh-symphony repo logs'."],
+  ])(
+    "reports the migration path for removed top-level command %s",
+    async (args, message) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(args);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(stderr.output()).toBe(`${message}\n`);
+      expect(process.exitCode).toBe(2);
+    }
+  );
 
   it("reports a missing root config argument", async () => {
     const stderr = captureWrites(process.stderr);
@@ -153,6 +177,13 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("doctor");
     expect(output).toContain("upgrade");
     expect(output).toContain("completion");
+    expect(output).not.toContain("\n  init ");
+    expect(output).not.toContain("\n  start ");
+    expect(output).not.toContain("\n  stop ");
+    expect(output).not.toContain("\n  status ");
+    expect(output).not.toContain("\n  run ");
+    expect(output).not.toContain("\n  recover ");
+    expect(output).not.toContain("\n  logs ");
   });
 
   it("shows workflow init dry-run in command help", async () => {

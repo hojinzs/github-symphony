@@ -36,7 +36,7 @@ import setupCommand from "./setup.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
 import type { CliProjectConfig } from "../config.js";
-import { generateProjectId } from "./init.js";
+import { generateProjectId } from "./workflow-init.js";
 
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_setup_1",
