@@ -40,7 +40,7 @@ const handler = async (
   const parsed = parseStopArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write("Usage: gh-symphony stop [--force]\n");
+    process.stderr.write("Usage: gh-symphony repo stop [--force]\n");
     process.exitCode = 2;
     return;
   }

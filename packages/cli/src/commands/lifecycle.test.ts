@@ -163,7 +163,7 @@ describe("lifecycle command integration", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      [process.argv[1], "start"],
+      [process.argv[1], "repo", "start"],
       expect.any(Object)
     );
   });
@@ -212,7 +212,7 @@ describe("lifecycle command integration", () => {
     expect(orchestratorRunCli).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith("Cancelled.");
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).not.toContain(
-      "No project configured. Run 'gh-symphony project add' first."
+      "No repository runtime config found. Run 'gh-symphony repo init' first."
     );
     expect(process.exitCode).toBe(130);
   });
@@ -235,7 +235,7 @@ describe("lifecycle command integration", () => {
     expect(orchestratorRunCli).not.toHaveBeenCalled();
     const output = stderr.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain(
-      "Multiple projects are configured. Re-run with --project-id in non-interactive environments."
+      "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime."
     );
     expect(process.exitCode).toBe(1);
   });
@@ -314,7 +314,7 @@ describe("lifecycle command integration", () => {
     const output = stderr.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain("Unknown option '--proejct-id'");
     expect(output).toContain(
-      "Usage: gh-symphony stop [--force]"
+      "Usage: gh-symphony repo stop [--force]"
     );
     expect(killSpy).not.toHaveBeenCalled();
     await expect(

@@ -615,7 +615,7 @@ describe("runDoctorDiagnostics", () => {
         inspectManagedProjectSelection: async () => ({
           kind: "no_projects",
           message:
-            "No managed projects are configured. Run 'gh-symphony project add' first.",
+            "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
         }),
         pathEnv: "",
       })
@@ -632,7 +632,7 @@ describe("runDoctorDiagnostics", () => {
       report.checks.find((check) => check.id === "managed_project")
     ).toMatchObject({
       status: "fail",
-      summary: expect.stringContaining("project add"),
+      summary: expect.stringContaining("repo init"),
     });
   });
 
@@ -797,7 +797,7 @@ describe("runDoctorDiagnostics", () => {
         inspectManagedProjectSelection: async () => ({
           kind: "no_projects",
           message:
-            "No managed projects are configured. Run 'gh-symphony project add' first.",
+            "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
         }),
       })
     );
@@ -1018,7 +1018,7 @@ describe("runDoctorDiagnostics", () => {
     ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("is not bound to a GitHub Project"),
-      remediation: expect.stringContaining("project add"),
+      remediation: expect.stringContaining("workflow init"),
     });
   });
 
@@ -1216,7 +1216,7 @@ describe("doctor command handler", () => {
             inspectManagedProjectSelection: async () => ({
               kind: "no_projects",
               message:
-                "No managed projects are configured. Run 'gh-symphony project add' first.",
+                "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
             }),
             stdinIsTTY: false,
             stdoutIsTTY: false,
@@ -1244,7 +1244,7 @@ describe("doctor command handler", () => {
         expect.objectContaining({
           checkId: "managed_project",
           status: "manual",
-          command: `gh-symphony --config ${configDir} project add`,
+          command: `gh-symphony --config ${configDir} repo init`,
         }),
       ])
     );
@@ -1274,7 +1274,7 @@ describe("doctor command handler", () => {
             inspectManagedProjectSelection: async () => ({
               kind: "no_projects",
               message:
-                "No managed projects are configured. Run 'gh-symphony project add' first.",
+                "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
             }),
             stdinIsTTY: true,
             stdoutIsTTY: true,
@@ -1334,7 +1334,7 @@ describe("doctor command handler", () => {
           inspectManagedProjectSelection: async () => ({
             kind: "no_projects",
             message:
-              "No managed projects are configured. Run 'gh-symphony project add' first.",
+              "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
           }),
           stdinIsTTY: true,
           stdoutIsTTY: true,
@@ -1349,7 +1349,7 @@ describe("doctor command handler", () => {
 
     expect(spawnSync).toHaveBeenCalledWith(
       process.execPath,
-      ["/tmp/gh-symphony.js", "--config", configDir, "project", "add"],
+      ["/tmp/gh-symphony.js", "--config", configDir, "repo", "init"],
       { stdio: "inherit" }
     );
   });
@@ -1364,7 +1364,7 @@ describe("doctor command handler", () => {
         inspectManagedProjectSelection: async () => ({
           kind: "no_projects",
           message:
-            "No managed projects are configured. Run 'gh-symphony project add' first.",
+            "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
         }),
         pathEnv,
       })

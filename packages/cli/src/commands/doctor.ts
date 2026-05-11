@@ -603,7 +603,7 @@ async function checkWorkflow(
       workflowPath,
       summary: "WORKFLOW.md was not found in the repository root.",
       remediation:
-        "Run 'gh-symphony init' in this repository or add a valid WORKFLOW.md at the repo root.",
+        "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
     };
   }
 
@@ -623,7 +623,7 @@ async function checkWorkflow(
       workflowPath,
       summary: "WORKFLOW.md could not be parsed.",
       remediation:
-        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony init' to regenerate it.",
+        "Fix the WORKFLOW.md front matter or re-run 'gh-symphony workflow init' to regenerate it.",
       error:
         error instanceof Error
           ? error.message
@@ -890,7 +890,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${input.projectDetail.title}".`,
-          "Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.",
+          "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
           {
             repository: `${issueRef.owner}/${issueRef.name}`,
             projectTitle: input.projectDetail.title,
@@ -1003,7 +1003,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${repositoryName} is not linked to GitHub Project "${input.projectDetail.title}".`,
-          "Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.",
+          "Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.",
           {
             repository: repositoryName,
             projectTitle: input.projectDetail.title,
@@ -1324,7 +1324,7 @@ export async function runDoctorDiagnostics(
         "managed_project",
         "Managed project selection",
         resolvedProjectConfig.message,
-        "Run 'gh-symphony project add' to register a project, or select one with 'gh-symphony project switch' / '--project-id'.",
+        "Run 'gh-symphony repo init' from the target repository.",
         {
           reason: resolvedProjectConfig.kind,
           ...(resolvedProjectConfig.projectId
@@ -1367,7 +1367,7 @@ export async function runDoctorDiagnostics(
         "github_project_resolution",
         "GitHub project resolution",
         `Managed project "${resolvedProjectConfig.projectId}" is not bound to a GitHub Project.`,
-        "Re-run 'gh-symphony project add' and select a valid GitHub Project binding, then run the doctor command again.",
+        "Run 'gh-symphony workflow init' to select a valid GitHub Project binding, then run 'gh-symphony repo init' again.",
         {
           reason: "missing_binding" satisfies ProjectResolutionReason,
           projectId: resolvedProjectConfig.projectId,
@@ -1413,7 +1413,7 @@ export async function runDoctorDiagnostics(
           "github_project_resolution",
           "GitHub project resolution",
           `Failed to resolve configured project binding '${resolvedGithubProjectBindingId}'.`,
-          "Re-run 'gh-symphony project add' and select a valid GitHub Project, then run the doctor command again.",
+          "Run 'gh-symphony workflow init' to select a valid GitHub Project, then run 'gh-symphony repo init' again.",
           {
             reason: "api_error" satisfies ProjectResolutionReason,
             bindingId: resolvedGithubProjectBindingId,
@@ -1869,9 +1869,9 @@ async function runDoctorFixes(
         if (check.details?.reason === "multiple_projects_require_selection") {
           steps.push(
             runCliRemediation(
-              "Managed project selection",
+              "Repository runtime setup",
               check.id,
-              ["project", "switch"],
+              ["repo", "init"],
               deps,
               options,
               interactive,
@@ -1882,9 +1882,9 @@ async function runDoctorFixes(
         }
         steps.push(
           runCliRemediation(
-            "Managed project setup",
+            "Repository runtime setup",
             check.id,
-            ["project", "add"],
+            ["repo", "init"],
             deps,
             options,
             interactive,
@@ -1914,7 +1914,7 @@ async function runDoctorFixes(
             runCliRemediation(
               "GitHub project binding setup",
               check.id,
-              ["project", "add"],
+              ["setup"],
               deps,
               options,
               interactive,
@@ -1930,7 +1930,7 @@ async function runDoctorFixes(
             check.title,
             "manual",
             check.remediation ?? "Resolve the GitHub Project binding manually.",
-            formatGhSymphonyCommand(["project", "add"], deps, options),
+            formatGhSymphonyCommand(["setup"], deps, options),
             check.details
           )
         );

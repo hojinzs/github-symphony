@@ -98,7 +98,7 @@ describe("resolveManagedProjectConfig", () => {
 
     expect(project).toBeNull();
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
-      "Multiple projects are configured. Re-run with --project-id in non-interactive environments."
+      "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime."
     );
     expect(process.exitCode).toBe(1);
   });
@@ -160,7 +160,7 @@ describe("inspectManagedProjectSelection", () => {
     expect(result).toMatchObject({
       kind: "multiple_projects_require_selection",
       message:
-        "Multiple projects are configured. Re-run with --project-id in non-interactive environments.",
+        "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime.",
     });
   });
 

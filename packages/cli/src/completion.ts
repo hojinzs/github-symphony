@@ -3,7 +3,6 @@ const TOP_LEVEL_COMMANDS = [
   "setup",
   "doctor",
   "upgrade",
-  "project",
   "repo",
   "config",
   "completion",
@@ -42,8 +41,6 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   "workflow:preview": ["--file", "--sample", "--attempt", ...GLOBAL_OPTIONS],
   setup: [
     "--non-interactive",
-    "--project",
-    "--workspace-dir",
     "--assigned-only",
     "--output",
     "--skip-skills",
@@ -59,41 +56,15 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
     ...GLOBAL_OPTIONS,
   ],
   upgrade: [...GLOBAL_OPTIONS],
-  project: ["add", "list", "remove", "start", "stop", "switch", "status"],
-  "project:add": [
-    "--non-interactive",
-    "--project",
-    "--workspace-dir",
-    "--assigned-only",
-    ...GLOBAL_OPTIONS,
-  ],
-  "project:list": [...GLOBAL_OPTIONS],
-  "project:remove": [...GLOBAL_OPTIONS],
-  "project:start": [
-    "--project-id",
-    "--project",
-    "--daemon",
-    "-d",
-    ...GLOBAL_OPTIONS,
-  ],
-  "project:stop": ["--project-id", "--project", "--force", ...GLOBAL_OPTIONS],
-  "project:switch": [...GLOBAL_OPTIONS],
-  "project:status": [
-    "--project-id",
-    "--project",
-    "--watch",
-    "-w",
-    ...GLOBAL_OPTIONS,
-  ],
-  repo: ["init", "start", "status", "stop", "list", "add", "remove", "sync"],
+  repo: ["init", "start", "status", "stop", "run", "recover", "logs", "explain"],
   "repo:init": ["--repo-dir", "--workflow-file", ...GLOBAL_OPTIONS],
   "repo:start": ["--daemon", "-d", "--once", "--http", "--web", "--log-level", ...GLOBAL_OPTIONS],
   "repo:status": ["--watch", "-w", ...GLOBAL_OPTIONS],
   "repo:stop": ["--force", ...GLOBAL_OPTIONS],
-  "repo:list": [...GLOBAL_OPTIONS],
-  "repo:add": [...GLOBAL_OPTIONS],
-  "repo:remove": [...GLOBAL_OPTIONS],
-  "repo:sync": [...GLOBAL_OPTIONS],
+  "repo:run": ["--watch", ...GLOBAL_OPTIONS],
+  "repo:recover": ["--dry-run", ...GLOBAL_OPTIONS],
+  "repo:logs": ["--follow", "-f", "--issue", "--run", "--level", ...GLOBAL_OPTIONS],
+  "repo:explain": ["--json", "--workflow", ...GLOBAL_OPTIONS],
   config: ["show", "set", "edit"],
   "config:show": [...GLOBAL_OPTIONS],
   "config:set": [...GLOBAL_OPTIONS],
@@ -114,7 +85,6 @@ function renderBashCasePatterns(): string {
         }
         if (
           command === "workflow" ||
-          command === "project" ||
           command === "repo" ||
           command === "config"
         ) {
@@ -138,12 +108,6 @@ function renderFishLines(): string {
   for (const command of TOP_LEVEL_COMMANDS) {
     lines.push(
       `complete -c gh-symphony -f -n '__fish_use_subcommand' -a '${command}'`
-    );
-  }
-
-  for (const subcommand of COMMAND_OPTIONS.project ?? []) {
-    lines.push(
-      `complete -c gh-symphony -f -n '__fish_seen_subcommand_from project' -a '${subcommand}'`
     );
   }
 
@@ -236,7 +200,7 @@ _gh_symphony_completion() {
     return
   fi
 
-  if [[ "\${path}" == "workflow" || "\${path}" == "project" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
+  if [[ "\${path}" == "workflow" || "\${path}" == "repo" || "\${path}" == "config" || "\${path}" == "completion" ]]; then
     if [[ -n "\${GH_SYMPHONY_SUBCOMMAND}" ]]; then
       path="\${path}:\${GH_SYMPHONY_SUBCOMMAND}"
     fi

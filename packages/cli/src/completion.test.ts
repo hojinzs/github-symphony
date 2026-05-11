@@ -37,10 +37,10 @@ describe("completion renderer", () => {
     expect(output).toContain("workflow setup doctor upgrade");
     expect(output).not.toContain("upgrade start stop status");
     expect(output).toContain("workflow:init");
-    expect(output).toContain("project repo config completion");
+    expect(output).toContain("repo config completion");
     expect(output).toContain("setup)");
-    expect(output).toContain("project:add");
-    expect(output).toContain("repo:sync");
+    expect(output).toContain("repo:init");
+    expect(output).toContain("repo:explain");
   });
 
   it("renders zsh completion wrapper", () => {
@@ -55,7 +55,7 @@ describe("completion renderer", () => {
     expect(output).toContain("complete -c gh-symphony -f -l config");
     expect(output).toContain("complete -c gh-symphony -f -s v");
     expect(output).toContain("__fish_seen_subcommand_from workflow");
-    expect(output).toContain("__fish_seen_subcommand_from project");
+    expect(output).toContain("__fish_seen_subcommand_from repo");
     expect(output).toContain("__fish_seen_subcommand_from completion");
   });
 
@@ -66,16 +66,18 @@ describe("completion renderer", () => {
     );
   });
 
-  it("suggests project subcommands when completing the second token", () => {
-    const suggestions = runBashCompletion(["gh-symphony", "project", ""], 2);
+  it("suggests repo subcommands when completing the second token", () => {
+    const suggestions = runBashCompletion(["gh-symphony", "repo", ""], 2);
     expect(suggestions).toEqual(
       expect.arrayContaining([
-        "add",
-        "list",
-        "remove",
+        "init",
         "start",
-        "stop",
         "status",
+        "stop",
+        "run",
+        "recover",
+        "logs",
+        "explain",
       ])
     );
   });
@@ -86,7 +88,7 @@ describe("completion renderer", () => {
       3
     );
     expect(suggestions).toEqual(
-      expect.arrayContaining(["list", "add", "remove", "sync"])
+      expect.arrayContaining(["init", "start", "status", "run", "logs"])
     );
   });
 
@@ -97,7 +99,7 @@ describe("completion renderer", () => {
     );
     expect(suggestions).not.toEqual(expect.arrayContaining(["--dry-run"]));
     expect(suggestions).not.toEqual(expect.arrayContaining(["--prune"]));
-    expect(suggestions).toEqual(expect.arrayContaining(["--json"]));
+    expect(suggestions).toEqual([]);
   });
 
   it("suggests doctor smoke flags", () => {

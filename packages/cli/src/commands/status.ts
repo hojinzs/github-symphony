@@ -209,7 +209,7 @@ const handler = async (
   const parsed = parseStatusArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write("Usage: gh-symphony status [--watch]\n");
+    process.stderr.write("Usage: gh-symphony repo status [--watch]\n");
     process.exitCode = 2;
     return;
   }

@@ -199,7 +199,7 @@ function explainRepositoryLinked(
       id: "repository_linked",
       status: "warn",
       message: "No repository is configured for the active managed project.",
-      hint: "Run 'gh-symphony repo add <owner/name>' or re-run 'gh-symphony project add'.",
+      hint: "Run 'gh-symphony repo init' from the target repository.",
     };
   }
 
@@ -215,7 +215,7 @@ function explainRepositoryLinked(
     details: { configuredRepository: configured, issueRepository: repository },
     hint: linked
       ? undefined
-      : "Run 'gh-symphony repo add <owner/name>' or select the correct project with 'gh-symphony project switch'.",
+      : "Run 'gh-symphony repo init' from the repository that owns this issue.",
   };
 }
 
@@ -232,7 +232,7 @@ function explainProjectItemPresent(
     details: issue ? { itemId: issue.tracker.itemId } : undefined,
     hint: issue
       ? undefined
-      : "Add the issue to the GitHub Project or run 'gh-symphony project status' to confirm the active project.",
+      : "Add the issue to the GitHub Project or run 'gh-symphony repo status' to confirm the repository runtime.",
   };
 }
 
@@ -322,7 +322,7 @@ function explainRuntimeOwnership(
         retryKind: activeRun.retryKind,
         nextRetryAt: activeRun.nextRetryAt,
       },
-      hint: "Run 'gh-symphony status' or 'gh-symphony logs --issue <owner/repo#number>' to inspect the current owner.",
+      hint: "Run 'gh-symphony repo status' or 'gh-symphony repo logs --issue <owner/repo#number>' to inspect the current owner.",
     };
   }
 
@@ -336,7 +336,7 @@ function explainRuntimeOwnership(
         currentRunId: record.currentRunId,
         retryEntry: record.retryEntry,
       },
-      hint: "Run 'gh-symphony status' to inspect active and retrying work.",
+      hint: "Run 'gh-symphony repo status' to inspect active and retrying work.",
     };
   }
 

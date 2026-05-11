@@ -66,7 +66,7 @@ const handler = async (
   }
 
   if (!parsed.issue) {
-    process.stderr.write("Usage: gh-symphony run <owner/repo#number>\n");
+    process.stderr.write("Usage: gh-symphony repo run <owner/repo#number>\n");
     process.exitCode = 2;
     return;
   }

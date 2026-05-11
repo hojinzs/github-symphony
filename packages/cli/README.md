@@ -107,16 +107,16 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
-### Project `.env` Mapping
+### Repository `.env` Mapping
 
-If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the project runtime directory instead of hardcoding them in `WORKFLOW.md`.
+If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the repository runtime directory instead of hardcoding them in `WORKFLOW.md`.
 
-1. Find the project id from `gh-symphony project list`.
+1. Initialize the repository runtime with `gh-symphony repo init`.
 2. Create the runtime env file:
 
 ```bash
-mkdir -p ~/.gh-symphony/projects/<project-id>
-cat > ~/.gh-symphony/projects/<project-id>/.env <<'EOF'
+mkdir -p .runtime/orchestrator
+cat > .runtime/orchestrator/.env <<'EOF'
 STAGING_API_HOST=https://staging.example.com
 DATABASE_URL=postgres://user:pass@staging-db:5432/app
 PLAYWRIGHT_BASE_URL=http://localhost:3000
@@ -137,14 +137,14 @@ Env precedence during hook execution and worker spawn is:
 - system env as the override layer
 - Symphony context vars such as `SYMPHONY_*` as the highest-priority layer
 
-If you use `--config <dir>`, replace `~/.gh-symphony` with that directory.
+The repository runtime always lives under `.runtime/orchestrator/`.
 
-## 3. Set Orchestrator Runner (Project)
+## 3. Set Orchestrator Runner (Repository)
 
-On the machine where you want the orchestrator to run, register a project:
+From inside the cloned repository that should run orchestration, initialize the workflow and repository runtime:
 
 ```bash
-gh-symphony project add
+gh-symphony setup
 ```
 
 The interactive wizard will:
@@ -152,8 +152,7 @@ The interactive wizard will:
 1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
 2. Let you select a **GitHub Project**
 3. Optionally limit processing to issues assigned to the authenticated user
-4. Optionally customize advanced settings for repository filtering and workspace root directory
-5. Write project configuration to `~/.gh-symphony/`
+4. Write `WORKFLOW.md`, support files, and `.runtime/orchestrator/` in the repository
 
 This wizard uses the same pagination-aware discovery path as `workflow init`, so it can enumerate large personal and organization-backed GitHub accounts more reliably. If the CLI stops at a safety limit, it warns that the visible project list may be incomplete.
 
@@ -164,56 +163,40 @@ GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
   gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
 
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token \
-  gh-symphony project add --non-interactive --project PVT_xxx --workspace-dir ~/.gh-symphony/workspaces
+  gh-symphony repo init
 ```
 
-Token-only project registration is also supported:
+Token-only setup is also supported when exactly one GitHub Project is visible to the token:
 
 ```bash
 export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
-gh-symphony project add
+gh-symphony setup
 ```
 
-If the selected GitHub Project is brand new and has no linked repositories yet, the setup still succeeds. The completion message reports `0 repositories` and suggests either `gh-symphony repo add <owner/name>` or adding a repo-linked issue to the GitHub Project.
-
-### Project Management
+### Repository Management
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Apply safe fixes and guide/launch follow-up recovery commands
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
-gh-symphony project list             # List all configured projects
-gh-symphony project remove <id>      # Remove a project
-gh-symphony project explain owner/repo#123  # Explain why one issue is not dispatching
-gh-symphony repo add owner/name      # Validate and save a repo target manually
-gh-symphony repo sync                # Add newly linked repositories from the GitHub Project
-gh-symphony repo sync --dry-run      # Preview linked repository drift
-gh-symphony repo sync --prune        # Remove local repositories no longer linked
+gh-symphony repo init                # Bind .runtime/orchestrator to the cwd repository
+gh-symphony repo status              # Show current repository orchestration status
+gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatching
+gh-symphony repo start               # Start this repository
+gh-symphony repo stop                # Stop this repository
 ```
 
-Use `gh-symphony repo add owner/name` as the onboarding safety check when a
-project starts empty or when you want to register a repository before it is
-linked on the GitHub Project board. Successful validation stores the canonical
-clone URL from the GitHub API. If auth is unavailable or the API is offline,
-the CLI still saves the repo with the fallback HTTPS clone URL and prints a
-warning that validation was skipped.
-
-Use `gh-symphony repo sync` when the GitHub Project board has gained or lost
-linked repositories since the project was first added locally. Default sync is
-additive; `--prune` switches to strict alignment, and `--json` prints the added,
-removed, unchanged, and final repository sets.
-
-For empty projects, use `gh-symphony repo add owner/name` after setup to seed the local repository list without re-running the whole wizard.
+`gh-symphony repo init` reads `WORKFLOW.md`, infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`.
 
 ### Why Is My Issue Not Running?
 
-Use `gh-symphony project explain <owner/repo#number>` before digging through
+Use `gh-symphony repo explain <owner/repo#number>` before digging through
 logs manually:
 
 ```bash
-gh-symphony project explain owner/repo#123
-gh-symphony project explain owner/repo#123 --json
-gh-symphony project explain owner/repo#123 --workflow ./WORKFLOW.md
+gh-symphony repo explain owner/repo#123
+gh-symphony repo explain owner/repo#123 --json
+gh-symphony repo explain owner/repo#123 --workflow ./WORKFLOW.md
 ```
 
 The command checks project repository linkage, GitHub Project item presence,
@@ -238,23 +221,22 @@ Checks:
 ```
 
 The remediation hints point to existing commands such as `workflow preview`,
-`doctor`, `project status`, and `logs --issue`.
+`doctor`, `repo status`, and `repo logs --issue`.
 
 ## 4. Run the Orchestrator
 
 ### Foreground
 
 ```bash
-gh-symphony start
-gh-symphony start --once            # Run startup cleanup + one orchestration tick, then exit
-gh-symphony project start --once    # Same one-shot flow for an explicit project
+gh-symphony repo start
+gh-symphony repo start --once            # Run startup cleanup + one orchestration tick, then exit
 ```
 
 ### Background (daemon)
 
 ```bash
-gh-symphony start --daemon          # Start in background
-gh-symphony stop                    # Stop the daemon
+gh-symphony repo start --daemon          # Start in background
+gh-symphony repo stop                    # Stop the daemon
 ```
 
 Run `doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. Use `start --once` for the first real managed-project run or a CI smoke check. It reuses the configured GitHub Project binding and `WORKFLOW.md` and performs exactly one poll/reconcile/dispatch cycle instead of entering the long-running orchestration loop. `--daemon --once` is rejected because the modes conflict. If you add `--http`, the dashboard/API remains available after that one-shot tick completes, and the process stays up until you interrupt it with `Ctrl+C`.
@@ -262,28 +244,28 @@ Run `doctor --smoke` before the first `start --once` when you want a safe pre-di
 ### Monitor
 
 ```bash
-gh-symphony status                  # Show current status
-gh-symphony status --watch          # Live dashboard
-gh-symphony logs                    # View event logs
-gh-symphony logs --follow           # Stream logs in real-time
+gh-symphony repo status                  # Show current status
+gh-symphony repo status --watch          # Live dashboard
+gh-symphony repo logs                    # View event logs
+gh-symphony repo logs --follow           # Stream logs in real-time
 ```
 
 ### Dispatch a Single Issue
 
 ```bash
-gh-symphony run org/repo#123
+gh-symphony repo run org/repo#123
 ```
 
 ### Recover Stalled Runs
 
 ```bash
-gh-symphony recover                 # Recover stalled runs
-gh-symphony recover --dry-run       # Preview what would be recovered
+gh-symphony repo recover                 # Recover stalled runs
+gh-symphony repo recover --dry-run       # Preview what would be recovered
 ```
 
 ## Diagnostics
 
-`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
+`gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
 
 Use an explicit issue when you want a deterministic check:
 
@@ -298,8 +280,8 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 
 - creates missing config/runtime/workspace directories
 - launches `gh auth login` or `gh auth refresh` when a TTY is available, otherwise prints the exact command to run
-- launches `gh-symphony init` when `WORKFLOW.md` is missing or invalid
-- launches `gh-symphony project add` when managed project setup or GitHub Project binding must be repaired
+- launches `gh-symphony workflow init` when `WORKFLOW.md` is missing or invalid
+- launches `gh-symphony setup` when repository runtime setup or GitHub Project binding must be repaired
 - prints concrete runtime install guidance when the configured command is missing on `PATH`
 
 The diagnostic checks cover:
@@ -308,8 +290,8 @@ The diagnostic checks cover:
 - Node.js runtime version against the documented minimum (`v24+`) and the current `process.version`
 - Git installation availability on `PATH`, including `git --version` when available
 - GitHub authentication via `GITHUB_GRAPHQL_TOKEN` or `gh`, including required scopes
-- managed project selection plus GitHub Project binding resolution
-- config/runtime/workspace path writability
+- repository runtime selection plus GitHub Project binding resolution
+- runtime/workspace path writability
 - repository `WORKFLOW.md` presence and parse validity
 - runtime command availability on `PATH`
 - with `--smoke`: linked repository readiness, live issue readability, strict prompt rendering, and hook path resolution
@@ -320,7 +302,7 @@ Use JSON output for scripts and CI smoke checks. `--fix --json` includes a remed
 gh-symphony doctor --json
 gh-symphony doctor --fix --json
 gh-symphony doctor --smoke --json
-gh-symphony start --once
+gh-symphony repo start --once
 ```
 
 JSON output includes the resolved auth source as `env` or `gh`.
@@ -329,6 +311,7 @@ JSON output includes the resolved auth source as `env` or `gh`.
 
 ```
 Setup:
+  setup               Generate WORKFLOW.md and initialize the cwd repository runtime
   workflow init       Interactive repository setup wizard
   workflow validate   Parse and strictly validate WORKFLOW.md
   workflow preview    Render the final worker prompt from a sample or live issue
@@ -338,21 +321,17 @@ Setup:
   config edit         Open config in $EDITOR
 
 Orchestration:
-  start               Start the orchestrator (foreground)
-  start --once        Run a single orchestration tick and exit
-  start --daemon      Start the orchestrator (background)
-  stop                Stop the background orchestrator
-  status              Show orchestrator status
-  run <issue>         Dispatch a single issue
-  recover             Recover stalled runs
-  logs                View orchestrator logs
+  repo init           Bind .runtime/orchestrator to the cwd repository
+  repo start          Start the orchestrator (foreground)
+  repo start --once   Run a single orchestration tick and exit
+  repo start --daemon Start the orchestrator (background)
+  repo stop           Stop the background orchestrator
+  repo status         Show orchestrator status
+  repo run <issue>    Dispatch a single issue
+  repo recover        Recover stalled runs
+  repo logs           View orchestrator logs
+  repo explain        Explain why an issue is not dispatching
   completion <shell>  Print shell completion for bash/zsh/fish
-
-Project Management:
-  project add          Add a new project (interactive wizard)
-  project list         List all configured projects
-  project remove       Remove a project
-  repo sync            Refresh repositories from the linked GitHub Project
 
 Global Options:
   --config <dir>      Config directory (default: ~/.gh-symphony)

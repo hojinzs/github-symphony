@@ -587,7 +587,7 @@ async function loadLiveIssue(
   const githubProjectId = readGitHubProjectBinding(selection.projectConfig);
   if (!githubProjectId) {
     throw new Error(
-      `Managed project "${selection.projectId}" is not bound to a GitHub Project. Re-run 'gh-symphony project add' and select a valid GitHub Project binding.`
+      `Managed project "${selection.projectId}" is not bound to a GitHub Project. Run 'gh-symphony workflow init' to select a valid GitHub Project binding, then run 'gh-symphony repo init'.`
     );
   }
 
@@ -629,7 +629,7 @@ async function loadLiveIssue(
 
   if (!findLinkedRepository(detail, issue.owner, issue.name)) {
     throw new Error(
-      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.`
+      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony setup' from inside the target repository, or run 'gh-symphony workflow init' followed by 'gh-symphony repo init'.`
     );
   }
 

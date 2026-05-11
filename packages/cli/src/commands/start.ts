@@ -438,7 +438,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony start [--daemon] [--once] [--http [port]] [--web [port]]\n"
+      "Usage: gh-symphony repo start [--daemon] [--once] [--http [port]] [--web [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -818,6 +818,7 @@ async function startDaemon(
     process.execPath,
     [
       process.argv[1]!,
+      "repo",
       "start",
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
