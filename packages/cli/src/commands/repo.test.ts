@@ -3,42 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  projectConfigPath,
-  saveGlobalConfig,
-  saveProjectConfig,
-  type CliProjectConfig,
-} from "../config.js";
-
-type RepoConfigEntry = CliProjectConfig["repositories"][number];
-
-const githubClientMock = vi.hoisted(() => ({
-  createClient: vi.fn(),
-  validateToken: vi.fn(),
-  checkRequiredScopes: vi.fn(),
-  getProjectDetail: vi.fn(),
-  getRepositoryMetadata: vi.fn(),
-}));
-
-const ghAuthMock = vi.hoisted(() => ({
-  getGhToken: vi.fn(),
-}));
-
-vi.mock("../github/client.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../github/client.js")>();
-  return {
-    ...actual,
-    createClient: githubClientMock.createClient,
-    validateToken: githubClientMock.validateToken,
-    checkRequiredScopes: githubClientMock.checkRequiredScopes,
-    getProjectDetail: githubClientMock.getProjectDetail,
-    getRepositoryMetadata: githubClientMock.getRepositoryMetadata,
-  };
-});
-
-vi.mock("../github/gh-auth.js", () => ({
-  getGhToken: ghAuthMock.getGhToken,
-}));
+import type { CliProjectConfig } from "../config.js";
 
 async function loadRepoCommand() {
   vi.resetModules();
@@ -74,25 +39,6 @@ function baseOptions(configDir: string) {
   };
 }
 
-function createProjectConfig(
-  repositories: CliProjectConfig["repositories"]
-): CliProjectConfig {
-  return {
-    projectId: "managed-project",
-    slug: "managed-project",
-    displayName: "Managed Project",
-    workspaceDir: join(tmpdir(), "managed-project"),
-    repositories,
-    tracker: {
-      adapter: "github-project",
-      bindingId: "PVT_project_123",
-      settings: {
-        projectId: "PVT_project_123",
-      },
-    },
-  };
-}
-
 const VALID_WORKFLOW = `---
 tracker:
   kind: github-project
@@ -116,454 +62,46 @@ codex:
 Handle {{issue.identifier}}.
 `;
 
-async function seedActiveProject(
-  configDir: string,
-  repositories: CliProjectConfig["repositories"]
-): Promise<void> {
-  await saveGlobalConfig(configDir, {
-    activeProject: "managed-project",
-    projects: ["managed-project"],
-  });
-  await saveProjectConfig(
-    configDir,
-    "managed-project",
-    createProjectConfig(repositories)
-  );
+async function createGitRepo(remoteName = "platform"): Promise<string> {
+  const repoDir = await mkdtemp(join(tmpdir(), "repo-init-"));
+  execFileSync("git", ["-C", repoDir, "init"]);
+  execFileSync("git", [
+    "-C",
+    repoDir,
+    "remote",
+    "add",
+    "origin",
+    `https://github.com/acme/${remoteName}.git`,
+  ]);
+  return repoDir;
 }
 
-describe("repo sync", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    ghAuthMock.getGhToken.mockReset();
-    delete process.env.GITHUB_GRAPHQL_TOKEN;
-    process.exitCode = undefined;
-  });
+async function readRepoProjectConfig(repoDir: string): Promise<CliProjectConfig> {
+  return JSON.parse(
+    await readFile(
+      join(
+        repoDir,
+        ".runtime",
+        "orchestrator",
+        "projects",
+        "repository",
+        "project.json"
+      ),
+      "utf8"
+    )
+  ) as CliProjectConfig;
+}
 
-  it("adds newly linked repositories in additive mode and keeps local-only entries", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-additive-"));
-    const stdout = captureWrites(process.stdout);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-      {
-        owner: "acme",
-        name: "legacy-tools",
-        cloneUrl: "https://github.com/acme/legacy-tools.git",
-      },
-    ]);
-
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    githubClientMock.validateToken.mockResolvedValue({
-      login: "octocat",
-      name: "Octocat",
-      scopes: ["repo", "read:org", "project"],
-    });
-    githubClientMock.checkRequiredScopes.mockReturnValue({
-      valid: true,
-      missing: [],
-    });
-    githubClientMock.getProjectDetail.mockResolvedValue({
-      id: "PVT_project_123",
-      title: "Acme Project",
-      url: "https://github.com/orgs/acme/projects/1",
-      statusFields: [],
-      textFields: [],
-      linkedRepositories: [
-        {
-          owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-        {
-          owner: "acme",
-          name: "api",
-          url: "https://github.com/acme/api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-      ],
-    });
-
-    try {
-      await repoCommand(["sync"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-      {
-        owner: "acme",
-        name: "legacy-tools",
-        cloneUrl: "https://github.com/acme/legacy-tools.git",
-      },
-      {
-        owner: "acme",
-        name: "api",
-        cloneUrl: "https://github.com/acme/api.git",
-      },
-    ]);
-    expect(stdout.output()).toContain(
-      "Repository sync complete for managed-project"
-    );
-    expect(stdout.output()).toContain("Mode: additive");
-    expect(stdout.output()).toContain("Added");
-    expect(stdout.output()).toContain("acme/api");
-    expect(stdout.output()).toContain("Unchanged");
-    expect(stdout.output()).toContain("acme/legacy-tools");
-  });
-
-  it("reports planned changes without writing config in dry-run mode", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-dry-run-"));
-    const stdout = captureWrites(process.stdout);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
-
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    githubClientMock.validateToken.mockResolvedValue({
-      login: "octocat",
-      name: "Octocat",
-      scopes: ["repo", "read:org", "project"],
-    });
-    githubClientMock.checkRequiredScopes.mockReturnValue({
-      valid: true,
-      missing: [],
-    });
-    githubClientMock.getProjectDetail.mockResolvedValue({
-      id: "PVT_project_123",
-      title: "Acme Project",
-      url: "https://github.com/orgs/acme/projects/1",
-      statusFields: [],
-      textFields: [],
-      linkedRepositories: [
-        {
-          owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-        {
-          owner: "acme",
-          name: "api",
-          url: "https://github.com/acme/api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-      ],
-    });
-
-    try {
-      await repoCommand(["sync", "--dry-run"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
-    expect(stdout.output()).toContain(
-      "Repository sync preview for managed-project"
-    );
-    expect(stdout.output()).toContain("No config changes written.");
-  });
-
-  it("prunes removed repositories and emits structured JSON output", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-prune-"));
-    const stdout = captureWrites(process.stdout);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "acme",
-        name: "legacy-tools",
-        cloneUrl: "https://github.com/acme/legacy-tools.git",
-      },
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
-
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    githubClientMock.validateToken.mockResolvedValue({
-      login: "octocat",
-      name: "Octocat",
-      scopes: ["repo", "read:org", "project"],
-    });
-    githubClientMock.checkRequiredScopes.mockReturnValue({
-      valid: true,
-      missing: [],
-    });
-    githubClientMock.getProjectDetail.mockResolvedValue({
-      id: "PVT_project_123",
-      title: "Acme Project",
-      url: "https://github.com/orgs/acme/projects/1",
-      statusFields: [],
-      textFields: [],
-      linkedRepositories: [
-        {
-          owner: "acme",
-          name: "api",
-          url: "https://github.com/acme/api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-        {
-          owner: "acme",
-          name: "platform",
-          url: "https://github.com/acme/platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-      ],
-    });
-
-    try {
-      await repoCommand(["sync", "--prune"], {
-        ...baseOptions(configDir),
-        json: true,
-      });
-    } finally {
-      stdout.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-    const output = JSON.parse(stdout.output()) as {
-      projectId: string;
-      githubProjectId: string;
-      dryRun: boolean;
-      prune: boolean;
-      added: RepoConfigEntry[];
-      removed: RepoConfigEntry[];
-      unchanged: RepoConfigEntry[];
-      repositories: RepoConfigEntry[];
-    };
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-      {
-        owner: "acme",
-        name: "api",
-        cloneUrl: "https://github.com/acme/api.git",
-      },
-    ]);
-    expect(output).toEqual({
-      projectId: "managed-project",
-      githubProjectId: "PVT_project_123",
-      dryRun: false,
-      prune: true,
-      added: [
-        {
-          owner: "acme",
-          name: "api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-      ],
-      removed: [
-        {
-          owner: "acme",
-          name: "legacy-tools",
-          cloneUrl: "https://github.com/acme/legacy-tools.git",
-        },
-      ],
-      unchanged: [
-        {
-          owner: "acme",
-          name: "platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-      ],
-      repositories: [
-        {
-          owner: "acme",
-          name: "platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-        {
-          owner: "acme",
-          name: "api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-      ],
-    });
-  });
-
-  it("preserves existing order for retained repositories in prune mode", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-sync-prune-order-"));
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "acme",
-        name: "zeta",
-        cloneUrl: "https://github.com/acme/zeta.git",
-      },
-      {
-        owner: "acme",
-        name: "alpha",
-        cloneUrl: "https://github.com/acme/alpha.git",
-      },
-      {
-        owner: "acme",
-        name: "legacy-tools",
-        cloneUrl: "https://github.com/acme/legacy-tools.git",
-      },
-    ]);
-
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    githubClientMock.validateToken.mockResolvedValue({
-      login: "octocat",
-      name: "Octocat",
-      scopes: ["repo", "read:org", "project"],
-    });
-    githubClientMock.checkRequiredScopes.mockReturnValue({
-      valid: true,
-      missing: [],
-    });
-    githubClientMock.getProjectDetail.mockResolvedValue({
-      id: "PVT_project_123",
-      title: "Acme Project",
-      url: "https://github.com/orgs/acme/projects/1",
-      statusFields: [],
-      textFields: [],
-      linkedRepositories: [
-        {
-          owner: "acme",
-          name: "beta",
-          url: "https://github.com/acme/beta",
-          cloneUrl: "https://github.com/acme/beta.git",
-        },
-        {
-          owner: "acme",
-          name: "alpha",
-          url: "https://github.com/acme/alpha",
-          cloneUrl: "https://github.com/acme/alpha.git",
-        },
-        {
-          owner: "acme",
-          name: "zeta",
-          url: "https://github.com/acme/zeta",
-          cloneUrl: "https://github.com/acme/zeta.git",
-        },
-      ],
-    });
-
-    await repoCommand(["sync", "--prune"], baseOptions(configDir));
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "zeta",
-        cloneUrl: "https://github.com/acme/zeta.git",
-      },
-      {
-        owner: "acme",
-        name: "alpha",
-        cloneUrl: "https://github.com/acme/alpha.git",
-      },
-      {
-        owner: "acme",
-        name: "beta",
-        cloneUrl: "https://github.com/acme/beta.git",
-      },
-    ]);
-  });
-
-  it("fails when the active project has no GitHub Project binding", async () => {
-    const configDir = await mkdtemp(
-      join(tmpdir(), "repo-sync-missing-binding-")
-    );
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await saveGlobalConfig(configDir, {
-      activeProject: "managed-project",
-      projects: ["managed-project"],
-    });
-    await saveProjectConfig(configDir, "managed-project", {
-      ...createProjectConfig([]),
-      tracker: {
-        adapter: "github-project",
-        bindingId: "",
-        settings: {},
-      },
-    });
-
-    try {
-      await repoCommand(["sync"], baseOptions(configDir));
-    } finally {
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain(
-      "Active project is missing its GitHub Project binding"
-    );
-  });
+afterEach(() => {
+  vi.restoreAllMocks();
+  process.exitCode = undefined;
 });
 
 describe("repo init runtime migration", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    process.exitCode = undefined;
-  });
-
   it("promotes a single legacy project directory and strips projectId from run records", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-single-"));
+    const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
 
     const runDir = join(
@@ -601,41 +139,21 @@ describe("repo init runtime migration", () => {
         "utf8"
       )
     ) as Record<string, unknown>;
-    const projectConfig = JSON.parse(
-      await readFile(
-        join(
-          repoDir,
-          ".runtime",
-          "orchestrator",
-          "projects",
-          "repository",
-          "project.json"
-        ),
-        "utf8"
-      )
-    ) as CliProjectConfig;
+    const projectConfig = await readRepoProjectConfig(repoDir);
 
     expect(migratedRun).not.toHaveProperty("projectId");
     expect(projectConfig.repository).toMatchObject({
       owner: "acme",
       name: "platform",
     });
+    expect(projectConfig).not.toHaveProperty("repositories");
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
   });
 
   it("can run repo init again after the repository layout exists", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-idempotent-"));
+    const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
 
     try {
@@ -657,20 +175,11 @@ describe("repo init runtime migration", () => {
   });
 
   it("resolves a relative --workflow-file against --repo-dir", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-workflow-file-"));
+    const repoDir = await createGitRepo();
     const elsewhere = await mkdtemp(join(tmpdir(), "repo-init-elsewhere-"));
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
     const originalCwd = process.cwd();
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(join(repoDir, "CUSTOM.md"), VALID_WORKFLOW, "utf8");
 
     try {
@@ -696,18 +205,9 @@ describe("repo init runtime migration", () => {
   ])(
     "infers GitHub repository names containing dots: %s",
     async (remoteName, expectedName) => {
-      const repoDir = await mkdtemp(join(tmpdir(), "repo-init-dotted-"));
+      const repoDir = await createGitRepo(remoteName);
       const stdout = captureWrites(process.stdout);
       const repoCommand = await loadRepoCommand();
-      execFileSync("git", ["-C", repoDir, "init"]);
-      execFileSync("git", [
-        "-C",
-        repoDir,
-        "remote",
-        "add",
-        "origin",
-        `https://github.com/acme/${remoteName}.git`,
-      ]);
       await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
 
       try {
@@ -719,19 +219,7 @@ describe("repo init runtime migration", () => {
         stdout.restore();
       }
 
-      const projectConfig = JSON.parse(
-        await readFile(
-          join(
-            repoDir,
-            ".runtime",
-            "orchestrator",
-            "projects",
-            "repository",
-            "project.json"
-          ),
-          "utf8"
-        )
-      ) as CliProjectConfig;
+      const projectConfig = await readRepoProjectConfig(repoDir);
 
       expect(projectConfig.repository).toMatchObject({
         owner: "acme",
@@ -744,18 +232,9 @@ describe("repo init runtime migration", () => {
   );
 
   it("fails with manual cleanup guidance when multiple legacy project directories exist", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-multi-"));
+    const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
     await mkdir(
       join(repoDir, ".runtime", "orchestrator", "projects", "tenant-a"),
@@ -801,19 +280,10 @@ describe("repo init runtime migration", () => {
   });
 
   it("writes a single-repository file-tracker config for repo-local E2E init", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-file-tracker-"));
+    const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);
     const repoCommand = await loadRepoCommand();
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
       VALID_WORKFLOW.replace("github-project", "file").replace(
@@ -839,25 +309,13 @@ describe("repo init runtime migration", () => {
       stdout.restore();
     }
 
-    const projectConfig = JSON.parse(
-      await readFile(
-        join(
-          repoDir,
-          ".runtime",
-          "orchestrator",
-          "projects",
-          "repository",
-          "project.json"
-        ),
-        "utf8"
-      )
-    ) as CliProjectConfig;
+    const projectConfig = await readRepoProjectConfig(repoDir);
 
     expect(projectConfig.repository).toMatchObject({
       owner: "acme",
       name: "platform",
     });
-    expect(projectConfig.repositories).toBeUndefined();
+    expect(projectConfig).not.toHaveProperty("repositories");
     expect(projectConfig.tracker).toMatchObject({
       adapter: "file",
       bindingId: "e2e-test",
@@ -871,19 +329,10 @@ describe("repo init runtime migration", () => {
   });
 
   it("fails fast when file-tracker repo init has no issues fixture path", async () => {
-    const repoDir = await mkdtemp(join(tmpdir(), "repo-init-file-missing-"));
+    const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
-    execFileSync("git", ["-C", repoDir, "init"]);
-    execFileSync("git", [
-      "-C",
-      repoDir,
-      "remote",
-      "add",
-      "origin",
-      "https://github.com/acme/platform.git",
-    ]);
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
       VALID_WORKFLOW.replace("github-project", "file").replace(
@@ -911,291 +360,6 @@ describe("repo init runtime migration", () => {
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
       "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH"
-    );
-  });
-});
-
-describe("repo add", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    ghAuthMock.getGhToken.mockReset();
-    delete process.env.GITHUB_GRAPHQL_TOKEN;
-    process.exitCode = undefined;
-  });
-
-  it("stores canonical repository metadata after validation", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-add-validated-"));
-    const stdout = captureWrites(process.stdout);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, []);
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    githubClientMock.getRepositoryMetadata.mockResolvedValue({
-      owner: "AcmeOrg",
-      name: "Platform",
-      url: "https://github.com/AcmeOrg/Platform",
-      cloneUrl: "https://github.com/AcmeOrg/Platform.git",
-      visibility: "private",
-    });
-
-    try {
-      await repoCommand(["add", "acmeorg/platform"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(githubClientMock.getRepositoryMetadata).toHaveBeenCalledWith(
-      { token: "gho_test" },
-      "acmeorg",
-      "platform"
-    );
-    expect(saved.repositories).toEqual([
-      {
-        owner: "AcmeOrg",
-        name: "Platform",
-        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
-      },
-    ]);
-    expect(stdout.output()).toContain(
-      "Added repository after validation: AcmeOrg/Platform"
-    );
-  });
-
-  it("rejects removing the last repository regardless of input casing", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-remove-casing-"));
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "AcmeOrg",
-        name: "Platform",
-        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
-      },
-    ]);
-
-    try {
-      await repoCommand(["remove", "acmeorg/platform"], baseOptions(configDir));
-    } finally {
-      stderr.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "AcmeOrg",
-        name: "Platform",
-        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
-      },
-    ]);
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain(
-      "Repository removal would leave the project without a repository"
-    );
-  });
-
-  it("removes one repository when another repository remains", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-remove-one-"));
-    const stdout = captureWrites(process.stdout);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, [
-      {
-        owner: "AcmeOrg",
-        name: "Platform",
-        cloneUrl: "https://github.com/AcmeOrg/Platform.git",
-      },
-      {
-        owner: "AcmeOrg",
-        name: "Api",
-        cloneUrl: "https://github.com/AcmeOrg/Api.git",
-      },
-    ]);
-
-    try {
-      await repoCommand(["remove", "acmeorg/platform"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repository).toEqual({
-      owner: "AcmeOrg",
-      name: "Api",
-      cloneUrl: "https://github.com/AcmeOrg/Api.git",
-    });
-    expect(saved.repositories).toEqual([
-      {
-        owner: "AcmeOrg",
-        name: "Api",
-        cloneUrl: "https://github.com/AcmeOrg/Api.git",
-      },
-    ]);
-    expect(saved.tracker.settings?.repository).toBe("AcmeOrg/Api");
-    expect(stdout.output()).toContain("Removed repository: acmeorg/platform");
-  });
-
-  it("falls back to unvalidated save when authentication is unavailable", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-add-no-auth-"));
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, []);
-    delete process.env.GITHUB_GRAPHQL_TOKEN;
-    ghAuthMock.getGhToken.mockImplementation(() => {
-      throw new Error("no auth");
-    });
-
-    try {
-      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-      stderr.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
-    expect(stderr.output()).toContain(
-      "Warning: GitHub authentication is unavailable"
-    );
-    expect(stdout.output()).toContain(
-      "Added repository without validation: acme/platform"
-    );
-  });
-
-  it("falls back to unvalidated save when the GitHub API is offline", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-add-offline-"));
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, []);
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    const { GitHubRepositoryLookupError } = await import("../github/client.js");
-    githubClientMock.getRepositoryMetadata.mockRejectedValue(
-      new GitHubRepositoryLookupError(
-        "offline",
-        "GitHub repository validation could not reach the API.",
-        "Check your network connection and re-run the command to validate before saving."
-      )
-    );
-
-    try {
-      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
-    } finally {
-      stdout.restore();
-      stderr.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
-    expect(stderr.output()).toContain(
-      "Warning: GitHub repository validation could not reach the API. Saved the repository without validation."
-    );
-    expect(stdout.output()).toContain(
-      "Added repository without validation: acme/platform"
-    );
-  });
-
-  it("reports a missing repository with remediation and does not save it", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-add-not-found-"));
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, []);
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    const { GitHubRepositoryLookupError } = await import("../github/client.js");
-    githubClientMock.getRepositoryMetadata.mockRejectedValue(
-      new GitHubRepositoryLookupError(
-        "not_found",
-        "Repository acme/missing was not found.",
-        "Check the owner/name spelling. If the repository is private, confirm the current token can access it.",
-        404
-      )
-    );
-
-    try {
-      await repoCommand(["add", "acme/missing"], baseOptions(configDir));
-    } finally {
-      stderr.restore();
-    }
-
-    const saved = JSON.parse(
-      await readFile(projectConfigPath(configDir, "managed-project"), "utf8")
-    ) as CliProjectConfig;
-
-    expect(saved.repositories).toEqual([]);
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain("Repository acme/missing was not found.");
-    expect(stderr.output()).toContain("Check the owner/name spelling.");
-  });
-
-  it("reports rate limits with a distinct remediation message", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "repo-add-rate-limit-"));
-    const stderr = captureWrites(process.stderr);
-    const repoCommand = await loadRepoCommand();
-
-    await seedActiveProject(configDir, []);
-    process.env.GITHUB_GRAPHQL_TOKEN = "gho_test";
-    ghAuthMock.getGhToken.mockReturnValue("gho_test");
-    githubClientMock.createClient.mockReturnValue({ token: "gho_test" });
-    const { GitHubRepositoryLookupError } = await import("../github/client.js");
-    githubClientMock.getRepositoryMetadata.mockRejectedValue(
-      new GitHubRepositoryLookupError(
-        "rate_limited",
-        "GitHub API rate limit blocked repository validation.",
-        "Wait for the rate limit window to reset, then re-run 'gh-symphony repo add owner/name'.",
-        403
-      )
-    );
-
-    try {
-      await repoCommand(["add", "acme/platform"], baseOptions(configDir));
-    } finally {
-      stderr.restore();
-    }
-
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toContain(
-      "GitHub API rate limit blocked repository validation."
-    );
-    expect(stderr.output()).toContain(
-      "Wait for the rate limit window to reset"
     );
   });
 });

@@ -84,16 +84,16 @@ const handler = async (
   const projectId = projectConfig.projectId;
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
-  const configuredRepos = [
-    ...(projectConfig.repository ? [projectConfig.repository] : []),
-    ...(projectConfig.repositories ?? []),
-  ]
-    .filter((repository) => repository.owner && repository.name)
+  const configuredRepos = [projectConfig.repository]
+    .filter(
+      (repository): repository is NonNullable<typeof repository> =>
+        Boolean(repository?.owner && repository.name)
+    )
     .map((repository) => `${repository.owner}/${repository.name}`);
   const configuredRepoSet = new Set(configuredRepos);
   if (configuredRepoSet.size === 0) {
     process.stderr.write(
-      "No repository is configured in this project. Run 'gh-symphony repo add owner/name' first.\n"
+      "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.\n"
     );
     process.exitCode = 1;
     return;

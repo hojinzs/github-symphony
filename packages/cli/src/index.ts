@@ -139,6 +139,13 @@ async function invokeHandler(
   await module.default(args, resolveGlobalOptions(values));
 }
 
+async function invokeRemovedCommand(
+  message: string,
+  values: CliOptionValues
+): Promise<void> {
+  await createRemovedCommandHandler(message)([], resolveGlobalOptions(values));
+}
+
 function shellArgument(value: string): "bash" | "zsh" | "fish" {
   if (value === "bash" || value === "zsh" || value === "fish") {
     return value;
@@ -412,7 +419,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const repo = addGlobalOptions(
     program
       .command("repo")
-      .description("Manage repositories in the active project")
+      .description("Manage the current repository runtime")
   );
 
   repo.action(async function (this: Command) {
@@ -420,13 +427,50 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     await invokeHandler("repo", [], this.optsWithGlobals<CliOptionValues>());
   });
 
+  addGlobalOptions(repo.command("list").description("Removed")).action(
+    async function (this: Command) {
+      markInvoked();
+      await invokeRemovedCommand(
+        "Removed. Repository identity is shown by 'repo status'.",
+        this.optsWithGlobals<CliOptionValues>()
+      );
+    }
+  );
+
   addGlobalOptions(
-    repo.command("list").description("List repositories")
+    repo
+      .command("add")
+      .description("Removed")
+      .argument("<owner/name>", "Repository spec")
+      .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();
-    await invokeHandler(
-      "repo",
-      ["list"],
+    await invokeRemovedCommand(
+      "Removed. The orchestrator binds to the cwd repository via 'repo init'.",
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
+
+  addGlobalOptions(
+    repo
+      .command("remove")
+      .description("Removed")
+      .argument("<owner/name>", "Repository spec")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeRemovedCommand(
+      "Removed. The orchestrator binds to the cwd repository via 'repo init'.",
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
+
+  addGlobalOptions(
+    repo.command("sync").description("Removed").allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeRemovedCommand(
+      "Removed. Single-repo model has no linked-repo set to sync.",
       this.optsWithGlobals<CliOptionValues>()
     );
   });
@@ -573,52 +617,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = ["explain", ...passthrough];
     pushOption(args, "--workflow", values.workflow);
-    await invokeHandler("repo", args, values);
-  });
-
-  addGlobalOptions(
-    repo
-      .command("add")
-      .description("Add a repository")
-      .argument("<owner/name>", "Repository spec")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command, repoSpec: string) {
-    markInvoked();
-    await invokeHandler(
-      "repo",
-      ["add", repoSpec],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("remove")
-      .description("Remove a repository")
-      .argument("<owner/name>", "Repository spec")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command, repoSpec: string) {
-    markInvoked();
-    await invokeHandler(
-      "repo",
-      ["remove", repoSpec],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
-
-  addGlobalOptions(
-    repo
-      .command("sync")
-      .description("Sync repositories from the active GitHub Project")
-      .option("--dry-run", "Preview repository changes without writing config")
-      .option("--prune", "Remove local repositories that are no longer linked")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command) {
-    markInvoked();
-    const values = this.optsWithGlobals<CliOptionValues>();
-    const args = ["sync"];
-    pushOption(args, "--dry-run", values.dryRun);
-    pushOption(args, "--prune", values.prune);
     await invokeHandler("repo", args, values);
   });
 

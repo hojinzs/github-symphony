@@ -33,7 +33,6 @@ export type CliProjectConfig = Omit<
 > & {
   displayName?: string;
   repository?: RepositoryRef;
-  repositories?: RepositoryRef[];
   tracker: Omit<OrchestratorProjectConfig["tracker"], "settings"> & {
     settings?: CliProjectTrackerSettings;
   };
@@ -119,23 +118,7 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  const config = await readJsonFile<
-    CliProjectConfig & {
-      repository?: RepositoryRef;
-      repositories?: RepositoryRef[];
-    }
-  >(projectConfigPath(configDir, projectId));
-  if (!config) {
-    return null;
-  }
-
-  // P1 compat: tolerate legacy `repositories[]` JSON written by older CLI;
-  // the first valid entry becomes the canonical `repository`.
-  const repository = config.repository ?? firstConfiguredRepository(config);
-  return {
-    ...config,
-    ...(repository ? { repository } : {}),
-  };
+  return readJsonFile<CliProjectConfig>(projectConfigPath(configDir, projectId));
 }
 
 export async function saveProjectConfig(
@@ -185,17 +168,5 @@ function isFileMissing(error: unknown): boolean {
     typeof error === "object" &&
     "code" in error &&
     (error.code === "ENOENT" || error.code === "ENOTDIR")
-  );
-}
-
-function firstConfiguredRepository(config: {
-  repositories?: RepositoryRef[];
-}): RepositoryRef | undefined {
-  return config.repositories?.find(
-    (repository) =>
-      typeof repository.owner === "string" &&
-      repository.owner.length > 0 &&
-      typeof repository.name === "string" &&
-      repository.name.length > 0
   );
 }

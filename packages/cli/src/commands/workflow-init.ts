@@ -1296,11 +1296,6 @@ export async function writeConfig(
           },
         }
       : {}),
-    repositories: input.repos.map((r) => ({
-      owner: r.owner,
-      name: r.name,
-      cloneUrl: r.cloneUrl,
-    })),
     tracker: {
       adapter: "github-project",
       bindingId: input.project.id,

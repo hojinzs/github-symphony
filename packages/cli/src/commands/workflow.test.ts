@@ -190,7 +190,6 @@ describe("workflow command handler", () => {
           projectId: "tenant-a",
           slug: "tenant-a",
           workspaceDir: "/tmp/tenant-a",
-          repositories: [],
           tracker: {
             adapter: "github-project",
             bindingId: "PVT_project_123",
@@ -303,7 +302,6 @@ describe("workflow command handler", () => {
           projectId: "tenant-a",
           slug: "tenant-a",
           workspaceDir: "/tmp/tenant-a",
-          repositories: [],
           tracker: {
             adapter: "github-project",
             bindingId: "PVT_project_123",
@@ -372,7 +370,6 @@ describe("workflow command handler", () => {
           projectId: "tenant-a",
           slug: "tenant-a",
           workspaceDir: "/tmp/tenant-a",
-          repositories: [],
           tracker: {
             adapter: "github-project",
             bindingId: "PVT_project_123",
@@ -436,7 +433,6 @@ describe("workflow command handler", () => {
           projectId: "tenant-a",
           slug: "tenant-a",
           workspaceDir: "/tmp/tenant-a",
-          repositories: [],
           tracker: {
             adapter: "github-project",
             bindingId: "PVT_project_123",
