@@ -308,7 +308,7 @@ describe("cloneRepositoryForRun", () => {
     });
 
     execSync(`git -C "${repository.path}" checkout feature/pr-branch`);
-    execSync(`git -C "${repository.path}" reset --hard main`);
+    execSync(`git -C "${repository.path}" reset --hard HEAD~1`);
     await writeFile(
       join(repository.path, "WORKFLOW.md"),
       "# pull request workflow v2\n",
