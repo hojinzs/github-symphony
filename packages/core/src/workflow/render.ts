@@ -152,6 +152,8 @@ function buildPullRequestVariables(options: {
     has_linked_pr: options.linkedPullRequests.length > 0,
     has_primary_pr: hasPrimaryPr,
     checkout_branch: checkoutBranch,
+    // Policy flag for prompt templates: any primary PR means the worker must
+    // inspect review threads and checks before editing code.
     review_first: hasPrimaryPr,
   };
 }

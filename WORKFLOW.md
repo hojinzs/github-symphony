@@ -54,16 +54,20 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 - Primary PR: {{pull_request_context.primary_pull_request.identifier}}
 - PR URL: {{pull_request_context.primary_pull_request.url}}
-- Head branch: {{pull_request_context.primary_pull_request.headRefName}}
-- Base branch: {{pull_request_context.primary_pull_request.baseRefName}}
-- PR status: {{pull_request_context.primary_pull_request.state}}
-- Draft: {{pull_request_context.primary_pull_request.isDraft}}
-- Merged: {{pull_request_context.primary_pull_request.merged}}
-- Checkout branch: {{pull_request_context.checkout_branch}}
+- Head branch: {% if pull_request_context.primary_pull_request.headRefName == null %}unknown{% else %}{{pull_request_context.primary_pull_request.headRefName}}{% endif %}
+- Base branch: {% if pull_request_context.primary_pull_request.baseRefName == null %}unknown{% else %}{{pull_request_context.primary_pull_request.baseRefName}}{% endif %}
+- PR status: {% if pull_request_context.primary_pull_request.state == null %}unknown{% else %}{{pull_request_context.primary_pull_request.state}}{% endif %}
+- Draft: {% if pull_request_context.primary_pull_request.isDraft == null %}unknown{% else %}{{pull_request_context.primary_pull_request.isDraft}}{% endif %}
+- Merged: {% if pull_request_context.primary_pull_request.merged == null %}unknown{% else %}{{pull_request_context.primary_pull_request.merged}}{% endif %}
+- Checkout branch: {% if pull_request_context.checkout_branch == null %}unknown{% else %}{{pull_request_context.checkout_branch}}{% endif %}
+{% if pull_request_context.linked_pull_requests.size > 0 -%}
 - Linked PRs:
-  {% for pr in pull_request_context.linked_pull_requests %}
-  - {{pr.identifier}} — {{pr.url}} — head: {{pr.headRefName}} — base: {{pr.baseRefName}} — status: {{pr.state}} — draft: {{pr.isDraft}} — merged: {{pr.merged}}
-    {% endfor %}
+{%- for pr in pull_request_context.linked_pull_requests %}
+  - {{pr.identifier}} — {{pr.url}} — head: {% if pr.headRefName == null %}unknown{% else %}{{pr.headRefName}}{% endif %} — base: {% if pr.baseRefName == null %}unknown{% else %}{{pr.baseRefName}}{% endif %} — status: {% if pr.state == null %}unknown{% else %}{{pr.state}}{% endif %} — draft: {% if pr.isDraft == null %}unknown{% else %}{{pr.isDraft}}{% endif %} — merged: {% if pr.merged == null %}unknown{% else %}{{pr.merged}}{% endif %}
+{%- endfor %}
+{% else -%}
+- Linked PRs: none
+{% endif %}
 
 Before changing code, inspect review comments, failing checks, and unresolved review threads for the primary PR and linked PRs. If this is an Issue with a linked PR, do not create a new branch; checkout and update the existing PR head branch. If this is a PR-only item, perform the rework on the PR branch.
 {% endif %}

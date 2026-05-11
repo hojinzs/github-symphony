@@ -155,13 +155,75 @@ describe("buildPromptVariables", () => {
     });
     expect(
       renderPrompt(
-        "draft={{ pull_request_context.primary_pull_request.isDraft }} base={{ pull_request_context.primary_pull_request.baseRefName }}",
+        "draft={% if pull_request_context.primary_pull_request.isDraft == null %}unknown{% else %}{{ pull_request_context.primary_pull_request.isDraft }}{% endif %} base={% if pull_request_context.primary_pull_request.baseRefName == null %}unknown{% else %}{{ pull_request_context.primary_pull_request.baseRefName }}{% endif %}",
         variables
       )
-    ).toBe("draft= base=");
+    ).toBe("draft=unknown base=unknown");
     expect(renderPrompt("branch={{ issue.branch_name }}", variables)).toBe(
       "branch=feature/pr-metadata"
     );
+  });
+
+  it("renders PR lists without whitespace-only list artifacts", () => {
+    const variables = buildPromptVariables(
+      createTrackedIssue({
+        metadata: {
+          contentType: "Issue",
+          linkedPullRequests: [
+            {
+              id: "pr-7",
+              number: 7,
+              identifier: "acme/platform#7",
+              url: "https://github.com/acme/platform/pull/7",
+              state: "OPEN",
+              headRefName: "fix/issue-42",
+              baseRefName: "main",
+              isDraft: false,
+              merged: false,
+              repository: {
+                owner: "acme",
+                name: "platform",
+                url: "https://github.com/acme/platform",
+                cloneUrl: "https://github.com/acme/platform.git",
+              },
+            },
+            {
+              id: "pr-8",
+              number: 8,
+              identifier: "acme/platform#8",
+              url: "https://github.com/acme/platform/pull/8",
+              state: null,
+              repository: {
+                owner: "acme",
+                name: "platform",
+                url: "https://github.com/acme/platform",
+                cloneUrl: "https://github.com/acme/platform.git",
+              },
+            },
+          ],
+        },
+      }),
+      { attempt: null }
+    );
+
+    const rendered = renderPrompt(
+      [
+        "- Linked PRs:",
+        "{%- for pr in pull_request_context.linked_pull_requests %}",
+        "  - {{pr.identifier}} -- head: {% if pr.headRefName == null %}unknown{% else %}{{pr.headRefName}}{% endif %} -- status: {% if pr.state == null %}unknown{% else %}{{pr.state}}{% endif %} -- draft: {% if pr.isDraft == null %}unknown{% else %}{{pr.isDraft}}{% endif %} -- merged: {% if pr.merged == null %}unknown{% else %}{{pr.merged}}{% endif %}",
+        "{%- endfor %}",
+      ].join("\n"),
+      variables
+    );
+
+    expect(rendered).toBe(
+      [
+        "- Linked PRs:",
+        "  - acme/platform#7 -- head: fix/issue-42 -- status: OPEN -- draft: false -- merged: false",
+        "  - acme/platform#8 -- head: unknown -- status: unknown -- draft: unknown -- merged: unknown",
+      ].join("\n")
+    );
+    expect(rendered).not.toMatch(/\n\s+\n/);
   });
 
   it("prefers the subject pull request over linked pull requests for pull request subjects", () => {
