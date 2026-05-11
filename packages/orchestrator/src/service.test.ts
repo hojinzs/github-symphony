@@ -2993,6 +2993,224 @@ Prefer focused changes.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
+  it("dispatches only the issue when a linked issue and pull request are both active project items", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-issue-pr-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+agent:
+  max_concurrent_agents: 10
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.projectState }}{% endfor %}
+`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4308,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
+          issueState: "Todo",
+          pullRequestState: "Todo",
+        })
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
+    expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "linked=acme/platform#2:Todo"
+    );
+  });
+
+  it("does not dispatch a ready pull request when its linked issue is in review", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-review-pr-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4309,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
+          issueState: "In review",
+          pullRequestState: "Todo",
+        })
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a standalone ready pull request subject", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-pr-standalone-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4310,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithPullRequestOnly(repository, "Todo")
+        ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("pr-2");
+    expect(workerEnv?.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#2");
+  });
+
+  it("syncs active run state for a standalone pull request subject", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-pr-sync-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createTrackerResponseWithPullRequestOnly(repository, "Todo")
+      )
+      .mockResolvedValueOnce(
+        createPullRequestStateLookupResponse(repository, "In Progress")
+      )
+      .mockResolvedValueOnce(createEmptyTrackerResponse());
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4312,
+        unref: vi.fn(),
+      }) as never,
+      isProcessRunning: () => true,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    await service.runOnce();
+    const runs = await store.loadAllRuns();
+
+    expect(runs[0]?.issueId).toBe("pr-2");
+    expect(runs[0]?.issueState).toBe("In Progress");
+  });
+
+  it("does not dispatch a ready pull request when its linked issue is terminal", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-done-pr-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4311,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
+          issueState: "Done",
+          pullRequestState: "Todo",
+        })
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
   it("keeps the last known good workflow when a reload becomes invalid", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -8521,6 +8739,119 @@ function createEmptyTrackerResponse() {
   };
 }
 
+function createTrackerResponseWithLinkedIssueAndPullRequest(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  options: {
+    issueState: string;
+    pullRequestState: string;
+  }
+) {
+  return createTrackerResponseFromProjectItems([
+    makeTrackerProjectIssueWithLinkedPullRequest(
+      repository,
+      options.issueState
+    ),
+    makeTrackerProjectPullRequest(repository, options.pullRequestState),
+  ]);
+}
+
+function createTrackerResponseWithPullRequestOnly(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  state: string
+) {
+  return createTrackerResponseFromProjectItems([
+    makeTrackerProjectPullRequest(repository, state),
+  ]);
+}
+
+function createPullRequestStateLookupResponse(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  state: string
+) {
+  return {
+    ok: true,
+    json: async () => ({
+      data: {
+        nodes: [
+          {
+            __typename: "PullRequest",
+            id: "pr-2",
+            number: 2,
+            url: `https://example.test/${repository.owner}/${repository.name}/pull/2`,
+            updatedAt: "2026-03-08T00:00:00.000Z",
+            headRefName: "feature/canonical-pr",
+            repository: {
+              name: repository.name,
+              url: `file://${repository.cloneUrl}`,
+              owner: {
+                login: repository.owner,
+              },
+            },
+            projectItems: {
+              nodes: [
+                {
+                  id: "item-pr-2",
+                  updatedAt: "2026-03-08T00:01:00.000Z",
+                  project: {
+                    id: "project-123",
+                  },
+                  fieldValues: {
+                    nodes: [
+                      {
+                        __typename: "ProjectV2ItemFieldSingleSelectValue",
+                        name: state,
+                        field: {
+                          name: "Status",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+              pageInfo: {
+                endCursor: null,
+                hasNextPage: false,
+              },
+            },
+          },
+        ],
+      },
+    }),
+  };
+}
+
+function createTrackerResponseFromProjectItems(items: unknown[]) {
+  return {
+    ok: true,
+    json: async () => ({
+      data: {
+        node: {
+          __typename: "ProjectV2",
+          items: {
+            nodes: items,
+            pageInfo: {
+              endCursor: null,
+              hasNextPage: false,
+            },
+          },
+        },
+      },
+    }),
+  };
+}
+
 function createTrackerResponseWithRateLimits(
   repository: {
     owner: string;
@@ -8739,6 +9070,120 @@ function makeTrackerProjectItem(
         },
       },
     },
+  };
+}
+
+function makeTrackerProjectIssueWithLinkedPullRequest(
+  repository: { owner: string; name: string; cloneUrl: string },
+  state: string
+) {
+  return {
+    id: "item-issue-1",
+    updatedAt: "2026-03-08T00:00:00.000Z",
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          name: state,
+          field: {
+            name: "Status",
+          },
+        },
+      ],
+    },
+    content: {
+      __typename: "Issue",
+      id: "issue-1",
+      number: 1,
+      title: "Issue with linked PR",
+      body: null,
+      url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      labels: {
+        nodes: [],
+      },
+      assignees: {
+        nodes: [],
+      },
+      blockedBy: {
+        nodes: [],
+      },
+      closedByPullRequestsReferences: {
+        nodes: [makeTrackerPullRequestContent(repository)],
+      },
+      repository: {
+        name: repository.name,
+        url: `file://${repository.cloneUrl}`,
+        owner: {
+          login: repository.owner,
+        },
+      },
+    },
+  };
+}
+
+function makeTrackerProjectPullRequest(
+  repository: { owner: string; name: string; cloneUrl: string },
+  state: string
+) {
+  return {
+    id: "item-pr-2",
+    updatedAt: "2026-03-08T00:00:00.000Z",
+    fieldValues: {
+      nodes: [
+        {
+          __typename: "ProjectV2ItemFieldSingleSelectValue",
+          name: state,
+          field: {
+            name: "Status",
+          },
+        },
+      ],
+    },
+    content: makeTrackerPullRequestContent(repository),
+  };
+}
+
+function makeTrackerPullRequestContent(repository: {
+  owner: string;
+  name: string;
+  cloneUrl: string;
+}) {
+  return {
+    __typename: "PullRequest",
+    id: "pr-2",
+    number: 2,
+    title: "Pull request subject",
+    body: null,
+    url: `https://example.test/${repository.owner}/${repository.name}/pull/2`,
+    state: "OPEN",
+    isDraft: false,
+    merged: false,
+    headRefName: "feature/canonical-pr",
+    baseRefName: "main",
+    headRepository: {
+      name: repository.name,
+      url: `file://${repository.cloneUrl}`,
+      owner: {
+        login: repository.owner,
+      },
+    },
+    repository: {
+      name: repository.name,
+      url: `file://${repository.cloneUrl}`,
+      owner: {
+        login: repository.owner,
+      },
+    },
+    labels: {
+      nodes: [],
+    },
+    assignees: {
+      nodes: [],
+    },
+    createdAt: "2026-03-08T00:00:00.000Z",
+    updatedAt: "2026-03-08T00:00:00.000Z",
   };
 }
 

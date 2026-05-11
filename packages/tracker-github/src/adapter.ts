@@ -774,7 +774,10 @@ function normalizeIssueStateLookupNode(
       bindingId: projectId,
       itemId: projectItem.id,
     },
-    metadata: fieldValues,
+    metadata:
+      issue.__typename === "PullRequest"
+        ? withGitHubMetadata(fieldValues, { contentType: "PullRequest" })
+        : fieldValues,
     rateLimits,
   };
 }
