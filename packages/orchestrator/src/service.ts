@@ -201,6 +201,22 @@ function resolveCanonicalSubjectIssues(
   return canonicalIssues;
 }
 
+function matchesTargetIssueIdentifier(
+  issue: TrackedIssue,
+  issueIdentifier: string
+): boolean {
+  if (issue.identifier === issueIdentifier) {
+    return true;
+  }
+
+  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
+    ? issue.metadata.linkedPullRequests
+    : [];
+  return linkedPullRequests.some(
+    (pullRequest) => pullRequest.identifier === issueIdentifier
+  );
+}
+
 export class OrchestratorService {
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
@@ -539,7 +555,8 @@ export class OrchestratorService {
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
       const filteredIssues = issueIdentifier
         ? canonicalIssues.filter(
-            (issue: TrackedIssue) => issue.identifier === issueIdentifier
+            (issue: TrackedIssue) =>
+              matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : canonicalIssues;
       const { candidates: actionableCandidates, lifecycle } =
