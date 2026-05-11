@@ -191,6 +191,42 @@ describe("Commander CLI entrypoint", () => {
     );
   });
 
+  it("shows repo lifecycle and diagnostic commands in help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["repo", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("run");
+    expect(output).toContain("recover");
+    expect(output).toContain("logs");
+    expect(output).toContain("explain");
+  });
+
+  it.each([["project"], ["project", "add", "--non-interactive"]])(
+    "prints the removed project namespace message for %s",
+    async (...argv) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(argv);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(process.exitCode).toBe(2);
+      expect(stderr.output()).toContain("The 'project' command was removed.");
+      expect(stderr.output()).toContain("gh-symphony repo init");
+      process.exitCode = undefined;
+    }
+  );
+
   it("shows doctor remediation help", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);

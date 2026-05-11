@@ -1265,7 +1265,7 @@ async function runInteractiveStandalone(
   });
 }
 
-// ── Config writing (used by project.ts via import) ─────────────────────────────
+// ── Config writing (used by setup via import) ──────────────────────────────────
 
 type WriteConfigInput = {
   projectId: string;
