@@ -39,7 +39,6 @@ vi.mock("node:child_process", async () => {
 
 const runModule = await import("./run.js");
 const startModule = await import("./start.js");
-const projectModule = await import("./project.js");
 const recoverModule = await import("./recover.js");
 const stopModule = await import("./stop.js");
 
@@ -265,76 +264,6 @@ describe("lifecycle command integration", () => {
     expect(process.exitCode).toBe(2);
   });
 
-  it("supports project start subcommand for the active repository", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createTenant("tenant-a", "acme", "platform")],
-    });
-
-    spawnMock.mockReturnValue({
-      pid: 8765,
-      stdout: { pipe: vi.fn() },
-      stderr: { pipe: vi.fn() },
-      unref: vi.fn(),
-    });
-
-    await projectModule.default(["start", "--daemon", "--log-level", "verbose"], baseOptions(configDir));
-
-    expect(spawnMock).toHaveBeenCalledWith(
-      process.execPath,
-      [process.argv[1], "start", "--log-level", "verbose"],
-      expect.any(Object)
-    );
-  });
-
-  it("routes project status to the active repository orchestrator snapshot", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [createTenant("tenant-a", "acme", "platform")],
-    });
-    await writeStatusSnapshot(configDir, "tenant-a", {
-      slug: "tenant-a",
-      health: "running",
-    });
-
-    const stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
-
-    await projectModule.default(["status"], baseOptions(configDir));
-
-    const output = stdout.mock.calls.map((call) => String(call[0])).join("");
-    expect(output).toContain("gh-symphony");
-    expect(output).toContain("tenant-a");
-    expect(output).not.toContain("tenant-b");
-  });
-
-  it("rejects unknown project status flags instead of falling back to the active project", async () => {
-    const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
-      projects: [
-        createTenant("tenant-a", "acme", "platform"),
-        createTenant("tenant-b", "beta", "api"),
-      ],
-    });
-
-    const stderr = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-
-    await projectModule.default(
-      ["status", "--proejct-id", "tenant-b"],
-      baseOptions(configDir)
-    );
-
-    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
-    expect(output).toContain("Unknown option '--proejct-id'");
-    expect(output).toContain(
-      "Usage: gh-symphony status [--watch]"
-    );
-    expect(process.exitCode).toBe(2);
-  });
-
   it("stops the active repository daemon files", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -499,34 +428,4 @@ async function createConfigFixture(input: {
   }
 
   return configDir;
-}
-
-async function writeStatusSnapshot(
-  configDir: string,
-  _projectId: string,
-  input: { slug: string; health: "idle" | "running" | "degraded" }
-): Promise<void> {
-  await writeFile(
-    join(configDir, "status.json"),
-    JSON.stringify(
-      {
-        slug: input.slug,
-        health: input.health,
-        lastTickAt: new Date().toISOString(),
-        summary: {
-          dispatched: 0,
-          activeRuns: 0,
-          suppressed: 0,
-          recovered: 0,
-        },
-        activeRuns: [],
-        retryQueue: [],
-        lastError: null,
-        codexTotals: null,
-      },
-      null,
-      2
-    ) + "\n",
-    "utf8"
-  );
 }
