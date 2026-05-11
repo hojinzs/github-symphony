@@ -6,7 +6,9 @@ import {
 } from "./render.js";
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
 
-function createTrackedIssue(overrides: Partial<TrackedIssue> = {}): TrackedIssue {
+function createTrackedIssue(
+  overrides: Partial<TrackedIssue> = {}
+): TrackedIssue {
   return {
     id: "issue-1",
     identifier: "acme/platform#42",
@@ -47,11 +49,17 @@ describe("buildPromptVariables", () => {
     expect(variables.issue.linked_pull_requests).toEqual([]);
     expect(variables.issue.primary_pull_request).toBeNull();
     expect(variables.issue.has_linked_pr).toBe(false);
+    expect(variables.pull_request_context).toMatchObject({
+      subject_type: "Issue",
+      linked_pull_requests: [],
+      primary_pull_request: null,
+      has_linked_pr: false,
+      has_primary_pr: false,
+      checkout_branch: null,
+      review_first: false,
+    });
     expect(
-      renderPrompt(
-        "Fix {{issue.title}} on {{issue.branch_name}}.",
-        variables
-      )
+      renderPrompt("Fix {{issue.title}} on {{issue.branch_name}}.", variables)
     ).toBe("Fix Fix the bug on .");
   });
 
@@ -89,8 +97,10 @@ describe("buildPromptVariables", () => {
       [
         "type={{ issue.content_type }}",
         "has_pr={{ issue.has_linked_pr }}",
+        "review_first={{ pull_request_context.review_first }}",
         "primary={{ issue.primary_pull_request.identifier }}",
-        "branch={{ issue.primary_pull_request.headRefName }}",
+        "branch={{ pull_request_context.checkout_branch }}",
+        "base={{ pull_request_context.primary_pull_request.baseRefName }}",
         "{% for pr in issue.linked_pull_requests %}[{{ pr.number }}:{{ pr.state }}]{% endfor %}",
       ].join("\n"),
       variables
@@ -98,8 +108,10 @@ describe("buildPromptVariables", () => {
 
     expect(rendered).toContain("type=Issue");
     expect(rendered).toContain("has_pr=true");
+    expect(rendered).toContain("review_first=true");
     expect(rendered).toContain("primary=acme/platform#7");
     expect(rendered).toContain("branch=fix/issue-42");
+    expect(rendered).toContain("base=main");
     expect(rendered).toContain("[7:OPEN]");
   });
 
@@ -122,6 +134,13 @@ describe("buildPromptVariables", () => {
 
     expect(variables.issue.content_type).toBe("PullRequest");
     expect(variables.issue.has_linked_pr).toBe(false);
+    expect(variables.pull_request_context).toMatchObject({
+      subject_type: "PullRequest",
+      has_linked_pr: false,
+      has_primary_pr: true,
+      checkout_branch: "feature/pr-metadata",
+      review_first: true,
+    });
     expect(variables.issue.primary_pull_request).toMatchObject({
       id: "pr-9",
       number: 9,
@@ -130,7 +149,16 @@ describe("buildPromptVariables", () => {
       state: null,
       projectState: "Ready",
       headRefName: "feature/pr-metadata",
+      baseRefName: null,
+      isDraft: null,
+      merged: null,
     });
+    expect(
+      renderPrompt(
+        "draft={{ pull_request_context.primary_pull_request.isDraft }} base={{ pull_request_context.primary_pull_request.baseRefName }}",
+        variables
+      )
+    ).toBe("draft= base=");
     expect(renderPrompt("branch={{ issue.branch_name }}", variables)).toBe(
       "branch=feature/pr-metadata"
     );
@@ -174,6 +202,13 @@ describe("buildPromptVariables", () => {
     );
 
     expect(variables.issue.has_linked_pr).toBe(true);
+    expect(variables.pull_request_context).toMatchObject({
+      subject_type: "PullRequest",
+      has_linked_pr: true,
+      has_primary_pr: true,
+      checkout_branch: "feature/pr-metadata",
+      review_first: true,
+    });
     expect(variables.issue.primary_pull_request).toMatchObject({
       id: "pr-9",
       identifier: "acme/platform#9",
@@ -193,17 +228,18 @@ describe("renderContinuationGuidance", () => {
           lastTurnSummary: "Validated the workflow prompt.",
         }
       )
-    ).toBe(
-      "Continue after 3 turns. Summary: Validated the workflow prompt."
-    );
+    ).toBe("Continue after 3 turns. Summary: Validated the workflow prompt.");
   });
 
   it("rejects Liquid tags", () => {
     expect(() =>
-      renderContinuationGuidance("{% if cumulativeTurnCount %}resume{% endif %}", {
-        cumulativeTurnCount: "3",
-        lastTurnSummary: "Validated the workflow prompt.",
-      })
+      renderContinuationGuidance(
+        "{% if cumulativeTurnCount %}resume{% endif %}",
+        {
+          cumulativeTurnCount: "3",
+          lastTurnSummary: "Validated the workflow prompt.",
+        }
+      )
     ).toThrow("continuation guidance does not support Liquid tags");
   });
 
