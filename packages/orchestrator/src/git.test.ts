@@ -235,6 +235,103 @@ describe("cloneRepositoryForRun", () => {
     ).toBe("# pull request workflow\n");
   });
 
+  it("keeps pull request branch workspaces reusable on the second cycle", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# pull request workflow\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update PR workflow"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    const firstDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+    const secondDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: true,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+
+    expect(secondDirectory).toBe(firstDirectory);
+    expect(
+      execSync(
+        `git -C "${secondDirectory}" rev-parse --abbrev-ref --symbolic-full-name "@{u}"`,
+        {
+          encoding: "utf8",
+        }
+      ).trim()
+    ).toBe("origin/feature/pr-branch");
+    expect(
+      execSync(`git -C "${secondDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("feature/pr-branch");
+  });
+
+  it("updates pull request branch workspaces after a force-push", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# pull request workflow v1\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update PR workflow v1"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+
+    execSync(`git -C "${repository.path}" checkout feature/pr-branch`);
+    execSync(`git -C "${repository.path}" reset --hard main`);
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# pull request workflow v2\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update PR workflow v2"`);
+    execSync(`git -C "${repository.path}" push --force origin feature/pr-branch`);
+
+    await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: true,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toBe("# pull request workflow v2\n");
+  });
+
   it("keeps checkout failures actionable when the pull request branch is missing", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
     const repository = await createRepositoryFixture(tempRoot);

@@ -114,7 +114,10 @@ export async function ensureIssueWorkspaceRepository(input: {
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
 }): Promise<string> {
   const repositoryDirectory = input.existingWorkspace
-    ? await syncExistingIssueWorkspaceRepository(input)
+    ? await syncExistingIssueWorkspaceRepository({
+        ...input,
+        skipPull: Boolean(input.pullRequestBranch),
+      })
     : await cloneRepositoryForRun({
         repository: input.repository,
         targetDirectory: input.issueWorkspacePath,
@@ -193,6 +196,7 @@ async function readGitHead(
 async function syncExistingIssueWorkspaceRepository(input: {
   repository: RepositoryRef;
   issueWorkspacePath: string;
+  skipPull?: boolean;
 }): Promise<string> {
   await mkdir(input.issueWorkspacePath, { recursive: true });
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
@@ -220,19 +224,24 @@ async function syncExistingIssueWorkspaceRepository(input: {
         );
       }
 
-      try {
-        await runCommand("git", [
-          "-C",
-          repositoryDirectory,
-          "pull",
-          "--ff-only",
-        ]);
-      } catch (error) {
-        const message = formatCommandError(error, "git pull --ff-only failed");
-        throw createIssueWorkspacePreservedError(
-          repositoryDirectory,
-          `could not be fast-forwarded: ${message}`
-        );
+      if (!input.skipPull) {
+        try {
+          await runCommand("git", [
+            "-C",
+            repositoryDirectory,
+            "pull",
+            "--ff-only",
+          ]);
+        } catch (error) {
+          const message = formatCommandError(
+            error,
+            "git pull --ff-only failed"
+          );
+          throw createIssueWorkspacePreservedError(
+            repositoryDirectory,
+            `could not be fast-forwarded: ${message}`
+          );
+        }
       }
 
       return repositoryDirectory;
@@ -294,13 +303,28 @@ async function checkoutPullRequestBranch(
       repositoryDirectory,
       "fetch",
       "origin",
-      `${branchName}:${remoteRef}`,
+      `+refs/heads/${branchName}:${remoteRef}`,
       "--depth",
       "1",
     ]);
   } catch (error) {
     throw new Error(
       `Cannot checkout pull request branch ${branchName}: git fetch origin ${branchName} failed (${formatCommandError(error, "git fetch failed")}).`
+    );
+  }
+
+  try {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "config",
+      "--replace-all",
+      "remote.origin.fetch",
+      "+refs/heads/*:refs/remotes/origin/*",
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Cannot checkout pull request branch ${branchName}: git config remote.origin.fetch failed (${formatCommandError(error, "git config failed")}).`
     );
   }
 
@@ -316,6 +340,21 @@ async function checkoutPullRequestBranch(
   } catch (error) {
     throw new Error(
       `Cannot checkout pull request branch ${branchName}: git checkout failed (${formatCommandError(error, "git checkout failed")}).`
+    );
+  }
+
+  try {
+    await runCommand("git", [
+      "-C",
+      repositoryDirectory,
+      "branch",
+      "--set-upstream-to",
+      `origin/${branchName}`,
+      branchName,
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Cannot checkout pull request branch ${branchName}: git branch --set-upstream-to failed (${formatCommandError(error, "git branch --set-upstream-to failed")}).`
     );
   }
 }

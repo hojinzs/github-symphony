@@ -43,7 +43,6 @@ import {
   type RuntimeSessionRow,
   type SessionExitClassification,
   type TrackedIssue,
-  type TrackedPullRequestContext,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -207,12 +206,16 @@ function resolvePullRequestBranchCheckoutTarget(
 ): { headRefName: string } | null {
   const pullRequest =
     issue.metadata.contentType === "PullRequest"
-      ? (issue.metadata.pullRequest ??
-        issue.metadata.linkedPullRequests?.[0] ??
-        buildPullRequestContextFromIssue(issue))
+      ? (issue.metadata.pullRequest ?? issue.metadata.linkedPullRequests?.[0])
       : (issue.metadata.linkedPullRequests?.[0] ?? null);
 
   if (!pullRequest) {
+    if (issue.metadata.contentType === "PullRequest") {
+      throw new Error(
+        `Cannot checkout pull request branch for ${issue.identifier}: missing pull request metadata.`
+      );
+    }
+
     return null;
   }
 
@@ -224,10 +227,14 @@ function resolvePullRequestBranchCheckoutTarget(
   }
 
   const headRepository = pullRequest.headRepository ?? null;
+  const sameOwner =
+    headRepository?.owner.toLowerCase() === issue.repository.owner.toLowerCase();
+  const sameName =
+    headRepository?.name.toLowerCase() === issue.repository.name.toLowerCase();
   if (
     !headRepository ||
-    headRepository.owner !== issue.repository.owner ||
-    headRepository.name !== issue.repository.name
+    !sameOwner ||
+    !sameName
   ) {
     const source = headRepository
       ? `${headRepository.owner}/${headRepository.name}`
@@ -238,28 +245,6 @@ function resolvePullRequestBranchCheckoutTarget(
   }
 
   return { headRefName };
-}
-
-function buildPullRequestContextFromIssue(
-  issue: TrackedIssue
-): TrackedPullRequestContext {
-  const repository = {
-    owner: issue.repository.owner,
-    name: issue.repository.name,
-    url: issue.repository.url ?? "",
-    cloneUrl: issue.repository.cloneUrl,
-  };
-
-  return {
-    id: issue.id,
-    number: issue.number,
-    identifier: issue.identifier,
-    url: issue.url,
-    state: issue.state,
-    headRefName: issue.branchName,
-    repository,
-    headRepository: repository,
-  };
 }
 
 export class OrchestratorService {

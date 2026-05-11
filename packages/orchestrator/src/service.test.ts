@@ -3149,6 +3149,47 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     ).toBe("feature/canonical-pr");
   });
 
+  it("treats case-only repository owner/name differences as same-repo pull requests", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-pr-case-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    createPullRequestBranchFixture(repository.path);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4314,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseFromProjectItems([
+          makeTrackerProjectPullRequest(repository, "Todo", {
+            headRepository: {
+              owner: "ACME",
+              name: "Platform",
+              cloneUrl: repository.cloneUrl,
+            },
+          }),
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("blocks fork pull request subjects before automatic checkout", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -3188,6 +3229,45 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     expect(result.health).toBe("degraded");
     expect(result.lastError).toMatch(
       /fork pull requests are unsupported for automatic checkout\/push \(contributor\/platform -> acme\/platform\)/
+    );
+    expect(spawnImpl).not.toHaveBeenCalled();
+  });
+
+  it("blocks pull request subjects with missing head repository metadata", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-canonical-pr-missing-head-repo-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4315,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseFromProjectItems([
+          makeTrackerProjectPullRequest(repository, "Todo", {
+            headRepository: null,
+          }),
+        ])
+      ),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toMatch(
+      /fork pull requests are unsupported for automatic checkout\/push \(unknown fork -> acme\/platform\)/
     );
     expect(spawnImpl).not.toHaveBeenCalled();
   });
@@ -9189,7 +9269,7 @@ function makeTrackerProjectPullRequest(
       owner: string;
       name: string;
       cloneUrl: string;
-    };
+    } | null;
   } = {}
 ) {
   return {
@@ -9221,10 +9301,11 @@ function makeTrackerPullRequestContent(
       owner: string;
       name: string;
       cloneUrl: string;
-    };
+    } | null;
   } = {}
 ) {
-  const headRepository = options.headRepository ?? repository;
+  const headRepository =
+    options.headRepository === undefined ? repository : options.headRepository;
 
   return {
     __typename: "PullRequest",
@@ -9238,13 +9319,15 @@ function makeTrackerPullRequestContent(
     merged: false,
     headRefName: "feature/canonical-pr",
     baseRefName: "main",
-    headRepository: {
-      name: headRepository.name,
-      url: `file://${headRepository.cloneUrl}`,
-      owner: {
-        login: headRepository.owner,
-      },
-    },
+    headRepository: headRepository
+      ? {
+          name: headRepository.name,
+          url: `file://${headRepository.cloneUrl}`,
+          owner: {
+            login: headRepository.owner,
+          },
+        }
+      : null,
     repository: {
       name: repository.name,
       url: `file://${repository.cloneUrl}`,
