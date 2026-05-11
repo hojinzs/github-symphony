@@ -31,13 +31,14 @@ codex:
   turn_timeout_ms: 3600000
   stall_timeout_ms: 900000
 ---
+
 ## Status Map
 
-- **Backlog** [wait] *(Do not work. Exit quietly without commenting.)*
-- **Ready** [active] *(Triage scope and clarity first. If the issue returns here with an existing PR, this starts a new work cycle — create a new workpad comment with the rework plan before coding.)*
-- **In progress** [active] *(Continue implementation. If a PR exists and this is a new work cycle, create a new workpad comment with the rework plan. If the current cycle's workpad already exists, update it in place.)*
-- **In review** [wait] *(Wait by default. Reactivate only when review feedback requires code changes.)*
-- **Done** [terminal] *(Completed, agent exits immediately.)*
+- **Backlog** [wait] _(Do not work. Exit quietly without commenting.)_
+- **Ready** [active] _(Triage scope and clarity first. If the issue returns here with an existing PR, this starts a new work cycle — create a new workpad comment with the rework plan before coding.)_
+- **In progress** [active] _(Continue implementation. If a PR exists and this is a new work cycle, create a new workpad comment with the rework plan. If the current cycle's workpad already exists, update it in place.)_
+- **In review** [wait] _(Wait by default. Reactivate only when review feedback requires code changes.)_
+- **Done** [terminal] _(Completed, agent exits immediately.)_
 
 ## Agent Instructions
 
@@ -45,6 +46,31 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 **Repository:** {{issue.repository}}
 **Current state:** {{issue.state}}
+**Subject type:** {{pull_request_context.subject_type}}
+
+{% if pull_request_context.review_first %}
+
+### Pull Request Context
+
+- Primary PR: {{pull_request_context.primary_pull_request.identifier}}
+- PR URL: {{pull_request_context.primary_pull_request.url}}
+- Head branch: {% if pull_request_context.primary_pull_request.headRefName == null %}unknown{% else %}{{pull_request_context.primary_pull_request.headRefName}}{% endif %}
+- Base branch: {% if pull_request_context.primary_pull_request.baseRefName == null %}unknown{% else %}{{pull_request_context.primary_pull_request.baseRefName}}{% endif %}
+- PR status: {% if pull_request_context.primary_pull_request.state == null %}unknown{% else %}{{pull_request_context.primary_pull_request.state}}{% endif %}
+- Draft: {% if pull_request_context.primary_pull_request.isDraft == null %}unknown{% else %}{{pull_request_context.primary_pull_request.isDraft}}{% endif %}
+- Merged: {% if pull_request_context.primary_pull_request.merged == null %}unknown{% else %}{{pull_request_context.primary_pull_request.merged}}{% endif %}
+- Checkout branch: {% if pull_request_context.checkout_branch == null %}unknown{% else %}{{pull_request_context.checkout_branch}}{% endif %}
+{% if pull_request_context.linked_pull_requests.size > 0 -%}
+- Linked PRs:
+{%- for pr in pull_request_context.linked_pull_requests %}
+  - {{pr.identifier}} — {{pr.url}} — head: {% if pr.headRefName == null %}unknown{% else %}{{pr.headRefName}}{% endif %} — base: {% if pr.baseRefName == null %}unknown{% else %}{{pr.baseRefName}}{% endif %} — status: {% if pr.state == null %}unknown{% else %}{{pr.state}}{% endif %} — draft: {% if pr.isDraft == null %}unknown{% else %}{{pr.isDraft}}{% endif %} — merged: {% if pr.merged == null %}unknown{% else %}{{pr.merged}}{% endif %}
+{%- endfor %}
+{% else -%}
+- Linked PRs: none
+{% endif %}
+
+Before changing code, inspect review comments, failing checks, and unresolved review threads for the primary PR and linked PRs. If this is an Issue with a linked PR, do not create a new branch; checkout and update the existing PR head branch. If this is a PR-only item, perform the rework on the PR branch.
+{% endif %}
 
 ### Task
 
@@ -61,6 +87,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 7. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
 8. **Whenever you transition the issue to a different state, post a comment on the issue** in the report language explaining the transition: what state it is moving to, why, and what was decided or completed. This is mandatory for every state change — do not transition silently.
 9. If the issue re-enters `Ready` or `In progress` while a PR already exists, treat that as a **new work cycle**: inspect the PR's main merge blockers first, then create a new workpad comment with the revised plan before making code changes. Within the same work cycle, always update the existing workpad comment in place instead of creating additional ones.
+10. If the current subject is an Issue and `Pull Request Context` is present, treat the Issue as the canonical project item and treat any PR card as context only.
 
 ### Workflow
 
@@ -85,7 +112,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 5. Treat the issue as too large in scope if it would likely require changes to more than 20 files or more than 3 packages.
 6. If the issue is actionable and a PR already exists, inspect the PR review timeline, failing checks, and unresolved comments to identify the major merge blockers before touching the code.
 7. If Step 6 applies, this is a new work cycle — create a new workpad comment in the report language that records the re-entry trigger, the major merge blockers, and the revised implementation plan.
-8. If the issue is actionable and Step 7 did not apply, create or continue the workpad, create a branch if needed, post a comment indicating that triage passed and implementation is starting, and continue to Step 2.
+8. If the issue is actionable and Step 7 did not apply, create or continue the workpad, create a branch if needed, post a comment indicating that triage passed and implementation is starting, and continue to Step 2. If `Pull Request Context` is present, do not create a branch; checkout the existing PR head branch instead.
 
 #### Step 2: Execution phase
 
@@ -105,6 +132,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 9. Distill the main merge blockers into a short prioritized list, then update the current cycle's workpad comment in the report language to capture those blockers and the revised execution plan. If no workpad exists for this cycle yet, create one.
 10. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
 11. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
+12. If the current subject is `PullRequest`, perform all rework on the PR head branch and keep the PR as the primary review surface.
 
 #### Step 3: In review handling
 
@@ -123,6 +151,8 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 - Do not start implementation for issues sent back to `Backlog` in the same run.
 - When a PR exists, do not ignore inline review comments; read them all and reply to each one.
 - When an issue re-enters `Ready` or `In progress` with an existing PR, do not silently resume work; inspect the main merge blockers first and create a new workpad comment that restates the plan for the new work cycle. Within that cycle, update the same workpad comment — never create a second one.
+- If both an Issue and its linked PR appear in the Project, the Issue is the canonical item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only.
+- Current limitation: if only the PR card status changes while the canonical Issue card does not move into an active state, the worker may not be re-dispatched from that PR card status change alone.
 
 ### Workpad Lifecycle
 
