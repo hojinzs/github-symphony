@@ -34,13 +34,11 @@ function createProject(projectId: string): CliProjectConfig {
     projectId,
     slug: projectId,
     workspaceDir: join("/tmp", projectId),
-    repositories: [
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ],
+    repository: {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-binding`,
@@ -54,9 +52,9 @@ afterEach(() => {
 });
 
 describe("Commander CLI entrypoint", () => {
-  it("supports global options after subcommands", async () => {
+  it("supports global options after removed repo subcommands", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-index-"));
-    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
 
     await saveGlobalConfig(configDir, {
       activeProject: "tenant-a",
@@ -67,17 +65,33 @@ describe("Commander CLI entrypoint", () => {
     try {
       await runCli(["repo", "list", "--json", "--config", configDir]);
     } finally {
-      stdout.restore();
+      stderr.restore();
     }
 
-    const output = JSON.parse(stdout.output()) as Array<Record<string, string>>;
-    expect(output).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Removed. Repository identity is shown by 'repo status'."
+    );
+  });
+
+  it.each([
+    [["repo", "add"], "repo add"],
+    [["repo", "add", "owner/name"], "repo add owner/name"],
+    [["repo", "remove"], "repo remove"],
+    [["repo", "remove", "owner/name"], "repo remove owner/name"],
+  ])("routes removed %s to the migration message", async (args) => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(args);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Removed. The orchestrator binds to the cwd repository via 'repo init'."
+    );
   });
 
   it("prints JSON version output for global --version", async () => {
@@ -227,7 +241,7 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--skip-context");
   });
 
-  it("shows repo sync options in command help", async () => {
+  it("shows repo sync as removed in command help", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
 
@@ -239,11 +253,9 @@ describe("Commander CLI entrypoint", () => {
     }
 
     const output = stdout.output() + stderr.output();
-    expect(output).toContain("--dry-run");
-    expect(output).toContain("--prune");
-    expect(output).toContain(
-      "Sync repositories from the active GitHub Project"
-    );
+    expect(output).not.toContain("--dry-run");
+    expect(output).not.toContain("--prune");
+    expect(output).toContain("Removed");
   });
 
   it("shows repo lifecycle and diagnostic commands in help", async () => {

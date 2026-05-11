@@ -90,14 +90,14 @@ describe("completion renderer", () => {
     );
   });
 
-  it("suggests repo sync flags after the sync subcommand", () => {
+  it("does not suggest removed repo sync flags", () => {
     const suggestions = runBashCompletion(
       ["gh-symphony", "repo", "sync", ""],
       3
     );
-    expect(suggestions).toEqual(
-      expect.arrayContaining(["--dry-run", "--prune", "--json"])
-    );
+    expect(suggestions).not.toEqual(expect.arrayContaining(["--dry-run"]));
+    expect(suggestions).not.toEqual(expect.arrayContaining(["--prune"]));
+    expect(suggestions).toEqual(expect.arrayContaining(["--json"]));
   });
 
   it("suggests doctor smoke flags", () => {

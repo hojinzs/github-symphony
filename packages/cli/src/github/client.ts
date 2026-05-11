@@ -181,7 +181,7 @@ export async function getRepositoryMetadata(
       throw new GitHubRepositoryLookupError(
         "rate_limited",
         "GitHub API rate limit blocked repository validation.",
-        "Wait for the rate limit window to reset, then re-run 'gh-symphony repo add owner/name'.",
+        "Wait for the rate limit window to reset, then re-run the command.",
         response.status
       );
     }

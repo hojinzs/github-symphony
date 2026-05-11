@@ -94,10 +94,11 @@ describe("lifecycle command integration", () => {
       )
     ) as CliProjectConfig;
     expect(synced.projectId).toBe("tenant-b");
-    expect(synced.repositories[0]).toMatchObject({
+    expect(synced.repository).toMatchObject({
       owner: "beta",
       name: "api",
     });
+    expect(synced).not.toHaveProperty("repositories");
   });
 
   it("forwards --log-level to orchestrator single-issue dispatch", async () => {
@@ -380,13 +381,11 @@ function createTenant(
     projectId,
     slug: projectId,
     workspaceDir: join("/tmp", projectId),
-    repositories: [
-      {
-        owner,
-        name,
-        cloneUrl: `https://github.com/${owner}/${name}.git`,
-      },
-    ],
+    repository: {
+      owner,
+      name,
+      cloneUrl: `https://github.com/${owner}/${name}.git`,
+    },
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-project`,

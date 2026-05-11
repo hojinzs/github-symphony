@@ -684,12 +684,10 @@ function isRepositoryConfigured(
   owner: string,
   name: string
 ): boolean {
-  const repositories = [
-    ...(projectConfig.projectConfig.repository
-      ? [projectConfig.projectConfig.repository]
-      : []),
-    ...(projectConfig.projectConfig.repositories ?? []),
-  ];
+  const repositories = [projectConfig.projectConfig.repository].filter(
+    (repository): repository is NonNullable<typeof repository> =>
+      Boolean(repository?.owner && repository.name)
+  );
   const normalizedOwner = owner.trim().toLowerCase();
   const normalizedName = name.trim().toLowerCase();
   return repositories.some(
@@ -892,7 +890,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${issueRef.owner}/${issueRef.name} is not linked to GitHub Project "${input.projectDetail.title}".`,
-          `Run 'gh-symphony repo add ${issueRef.owner}/${issueRef.name}' or re-run 'gh-symphony project add' with the correct project binding.`,
+          "Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.",
           {
             repository: `${issueRef.owner}/${issueRef.name}`,
             projectTitle: input.projectDetail.title,
@@ -907,7 +905,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${issueRef.owner}/${issueRef.name} is linked to the GitHub Project but is not configured locally.`,
-          `Run 'gh-symphony repo sync' or 'gh-symphony repo add ${issueRef.owner}/${issueRef.name}' before running start.`,
+          "Run 'gh-symphony repo init' from the target repository before running start.",
           { repository: `${issueRef.owner}/${issueRef.name}` }
         )
       );
@@ -1005,7 +1003,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${repositoryName} is not linked to GitHub Project "${input.projectDetail.title}".`,
-          `Run 'gh-symphony repo add ${repositoryName}' or re-run 'gh-symphony project add' with the correct project binding.`,
+          "Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.",
           {
             repository: repositoryName,
             projectTitle: input.projectDetail.title,
@@ -1024,7 +1022,7 @@ async function buildDoctorSmokeChecks(input: {
           "project_repository_link",
           "Project repository link",
           `Repository ${repositoryName} is linked to the GitHub Project but is not configured locally.`,
-          `Run 'gh-symphony repo sync' or 'gh-symphony repo add ${repositoryName}' before running start.`,
+          "Run 'gh-symphony repo init' from the target repository before running start.",
           { repository: repositoryName }
         )
       );

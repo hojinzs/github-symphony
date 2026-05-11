@@ -34,7 +34,6 @@ function createProject(projectId: string, displayName?: string): CliProjectConfi
     slug: projectId,
     displayName,
     workspaceDir: join("/tmp", projectId),
-    repositories: [],
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-binding`,

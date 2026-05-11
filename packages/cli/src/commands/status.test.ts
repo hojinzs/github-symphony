@@ -30,7 +30,6 @@ function createProject(projectId: string): CliProjectConfig {
     slug: projectId,
     displayName: projectId.toUpperCase(),
     workspaceDir: join("/tmp", projectId),
-    repositories: [],
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-binding`,

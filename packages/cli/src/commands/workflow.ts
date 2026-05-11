@@ -629,7 +629,7 @@ async function loadLiveIssue(
 
   if (!findLinkedRepository(detail, issue.owner, issue.name)) {
     throw new Error(
-      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo add ${issue.owner}/${issue.name}' or re-run 'gh-symphony project add' with the correct project binding.`
+      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.`
     );
   }
 

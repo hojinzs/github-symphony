@@ -1017,13 +1017,11 @@ function createProject(
     projectId,
     slug: projectId,
     workspaceDir: join("/tmp", projectId),
-    repositories: [
-      {
-        owner,
-        name,
-        cloneUrl: `https://github.com/${owner}/${name}.git`,
-      },
-    ],
+    repository: {
+      owner,
+      name,
+      cloneUrl: `https://github.com/${owner}/${name}.git`,
+    },
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-project`,
