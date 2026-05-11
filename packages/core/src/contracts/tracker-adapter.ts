@@ -44,6 +44,12 @@ export type TrackedPullRequestContext = {
     url: string;
     cloneUrl: string;
   };
+  headRepository?: {
+    owner: string;
+    name: string;
+    url: string;
+    cloneUrl: string;
+  } | null;
   [key: string]: unknown;
 };
 
