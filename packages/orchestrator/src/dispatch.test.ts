@@ -10,6 +10,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   TrackedIssue,
+  TrackedPullRequestContext,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
@@ -80,6 +81,42 @@ function makeRun(
     nextRetryAt: null,
     ...overrides,
   };
+}
+
+function makePullRequestContext(
+  repository: { owner: string; name: string; cloneUrl: string; path: string },
+  number: number,
+  branchName = `feature/pr-${number}`
+): TrackedPullRequestContext {
+  return {
+    id: `pr-${number}`,
+    number,
+    identifier: `${repository.owner}/${repository.name}#${number}`,
+    url: `https://github.com/${repository.owner}/${repository.name}/pull/${number}`,
+    state: "OPEN",
+    headRefName: branchName,
+    repository: {
+      owner: repository.owner,
+      name: repository.name,
+      url: `https://github.com/${repository.owner}/${repository.name}`,
+      cloneUrl: repository.cloneUrl,
+    },
+    headRepository: {
+      owner: repository.owner,
+      name: repository.name,
+      url: `https://github.com/${repository.owner}/${repository.name}`,
+      cloneUrl: repository.cloneUrl,
+    },
+  };
+}
+
+function createPullRequestBranch(
+  repository: { path: string },
+  branchName: string
+): void {
+  execSync(`git -C ${shell(repository.path)} branch ${shell(branchName)}`, {
+    stdio: "ignore",
+  });
 }
 
 describe("sortCandidatesForDispatch", () => {
@@ -709,6 +746,367 @@ describe("blocker eligibility", () => {
   });
 });
 
+describe("targeted canonical subject dispatch", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("dispatches the canonical Issue when targeting a linked PR identifier", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-pr-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-107");
+
+    const issue = makeIssue({
+      id: "issue-7",
+      identifier: "acme/platform#7",
+      number: 7,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-issue-7",
+      },
+      metadata: {
+        contentType: "Issue",
+        linkedPullRequests: [
+          makePullRequestContext(repository, 107, "feature/pr-107"),
+        ],
+      },
+    });
+    const linkedPullRequest = makeIssue({
+      id: "pr-107",
+      identifier: "acme/platform#107",
+      number: 107,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-pr-107",
+      },
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 107, "feature/pr-107"),
+      },
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [issue, linkedPullRequest])
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5401, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: "acme/platform#107",
+    });
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", expect.stringMatching(/worker/)],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#7",
+          SYMPHONY_ISSUE_SUBJECT_ID: "issue-7",
+        }),
+      })
+    );
+  });
+
+  it.each(["Done", "In review"])(
+    "does not dispatch a canonical Issue in %s when targeting a linked PR identifier",
+    async (state) => {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-targeted-pr-suppressed-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(
+        tempRoot,
+        repository.cloneUrl,
+        repository.owner,
+        repository.name
+      );
+      await store.saveProjectConfig(projectConfig);
+
+      const issue = makeIssue({
+        id: "issue-8",
+        identifier: "acme/platform#8",
+        number: 8,
+        state,
+        repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-issue-8",
+        },
+        metadata: {
+          contentType: "Issue",
+          linkedPullRequests: [
+            makePullRequestContext(repository, 108, "feature/pr-108"),
+          ],
+        },
+      });
+      const linkedPullRequest = makeIssue({
+        id: "pr-108",
+        identifier: "acme/platform#108",
+        number: 108,
+        state: "Todo",
+        repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-pr-108",
+        },
+        metadata: {
+          contentType: "PullRequest",
+          pullRequest: makePullRequestContext(repository, 108, "feature/pr-108"),
+        },
+      });
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+        createDispatchAdapter(repository, [issue, linkedPullRequest])
+      );
+
+      const spawnImpl = vi.fn().mockReturnValue({ pid: 5402, unref: vi.fn() });
+      const service = new OrchestratorService(store, projectConfig, {
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      const result = await service.runOnce({
+        issueIdentifier: "acme/platform#108",
+      });
+
+      expect(result.summary.dispatched).toBe(0);
+      expect(spawnImpl).not.toHaveBeenCalled();
+    }
+  );
+
+  it("dispatches a standalone PR subject when targeting its identifier", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-standalone-pr-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-109");
+
+    const pullRequest = makeIssue({
+      id: "pr-109",
+      identifier: "acme/platform#109",
+      number: 109,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-pr-109",
+      },
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 109, "feature/pr-109"),
+      },
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [pullRequest])
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5403, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: "acme/platform#109",
+    });
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", expect.stringMatching(/worker/)],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#109",
+          SYMPHONY_ISSUE_SUBJECT_ID: "pr-109",
+        }),
+      })
+    );
+  });
+
+  it("continues dispatching existing Issue identifier targets", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-issue-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const issue = makeIssue({
+      id: "issue-10",
+      identifier: "acme/platform#10",
+      number: 10,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-issue-10",
+      },
+      metadata: {
+        contentType: "Issue",
+      },
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [issue])
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5404, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: "acme/platform#10",
+    });
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", expect.stringMatching(/worker/)],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#10",
+          SYMPHONY_ISSUE_SUBJECT_ID: "issue-10",
+        }),
+      })
+    );
+  });
+
+  it("keeps default project scans deduped under the canonical Issue subject", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-default-pr-dedup-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-111");
+
+    const issue = makeIssue({
+      id: "issue-11",
+      identifier: "acme/platform#11",
+      number: 11,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-issue-11",
+      },
+      metadata: {
+        contentType: "Issue",
+        linkedPullRequests: [
+          makePullRequestContext(repository, 111, "feature/pr-111"),
+        ],
+      },
+    });
+    const linkedPullRequest = makeIssue({
+      id: "pr-111",
+      identifier: "acme/platform#111",
+      number: 111,
+      state: "Todo",
+      repository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-pr-111",
+      },
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 111, "feature/pr-111"),
+      },
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [issue, linkedPullRequest])
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5405, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "bash",
+      ["-lc", expect.stringMatching(/worker/)],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/platform#11",
+          SYMPHONY_ISSUE_SUBJECT_ID: "issue-11",
+        }),
+      })
+    );
+  });
+});
+
 describe("codex policy propagation", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
 
@@ -908,6 +1306,41 @@ function createProjectConfig(
         repository: `${owner}/${name}`,
       },
     },
+  };
+}
+
+function createDispatchAdapter(
+  repository: {
+    owner: string;
+    name: string;
+    cloneUrl: string;
+  },
+  issues: TrackedIssue[]
+): OrchestratorTrackerAdapter {
+  return {
+    listIssues: vi.fn().mockResolvedValue(issues),
+    listIssuesByStates: vi.fn().mockResolvedValue([]),
+    fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+    buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
+    reviveIssue: (
+      _tenant: OrchestratorProjectConfig,
+      run: OrchestratorRunRecord
+    ) =>
+      makeIssue({
+        id: run.issueId,
+        identifier: run.issueIdentifier,
+        state: run.issueState,
+        repository: {
+          owner: repository.owner,
+          name: repository.name,
+          cloneUrl: repository.cloneUrl,
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: run.issueId,
+        },
+      }),
   };
 }
 
