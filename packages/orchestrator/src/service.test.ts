@@ -3024,10 +3024,15 @@ Prefer focused changes.
 
     const first = await service.runOnce();
     const second = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
 
     expect(first.summary.dispatched).toBe(1);
     expect(second.summary.dispatched).toBe(0);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
+    expect(workerEnv?.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#1");
   });
 
   it("dispatches only the issue when linked Ready issue and pull request Project items both exist", async () => {
@@ -3106,7 +3111,7 @@ Prefer focused changes.
       fetchImpl: vi.fn().mockResolvedValue(
         createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
           issueState: "In review",
-          pullRequestState: "Todo",
+          pullRequestState: "Ready",
         })
       ),
       spawnImpl: spawnImpl as never,
@@ -3354,7 +3359,7 @@ Prefer focused changes.
       fetchImpl: vi.fn().mockResolvedValue(
         createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
           issueState: "Done",
-          pullRequestState: "Todo",
+          pullRequestState: "Ready",
         })
       ),
       spawnImpl: spawnImpl as never,
@@ -8755,6 +8760,8 @@ tracker:
     - Done
   blocker_check_states:
     - Ready
+hooks:
+  commands: []
 polling:
   interval_ms: 30000
 workspace:

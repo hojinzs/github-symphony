@@ -266,6 +266,7 @@ describe("resolveTrackerAdapter", () => {
   });
 
   it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
+    // Checkout safety for fork PR subjects is enforced at the orchestrator layer.
     const issue = normalizeGithubProjectItem(
       "project-123",
       makePullRequestProjectItem({
