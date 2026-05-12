@@ -68,7 +68,7 @@ function parseSetupFlags(args: string[]): SetupFlags {
       default:
         if (arg?.startsWith("-")) {
           throw new Error(
-            `Unknown option '${arg}'. Use 'gh-symphony setup' from inside the target repository.`
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context.`
           );
         }
     }

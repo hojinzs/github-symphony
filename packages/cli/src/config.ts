@@ -1,5 +1,6 @@
+import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type {
   OrchestratorProjectConfig,
@@ -11,6 +12,7 @@ export const CONFIG_FILE = "config.json";
 export const DAEMON_PID_FILE = "daemon.pid";
 export const ORCHESTRATOR_LOG_FILE = "orchestrator.log";
 export const HTTP_STATUS_FILE = "http.json";
+export const REPO_RUNTIME_DIR = join(".runtime", "orchestrator");
 
 export type CliGlobalConfig = {
   activeProject: string | null;
@@ -43,7 +45,19 @@ export type StateRole = "active" | "wait" | "terminal";
 export type StateMapping = { role: StateRole; goal?: string };
 
 export function resolveConfigDir(override?: string): string {
-  return override ?? process.env.GH_SYMPHONY_CONFIG_DIR ?? DEFAULT_CONFIG_DIR;
+  if (override) {
+    return override;
+  }
+  if (process.env.GH_SYMPHONY_CONFIG_DIR) {
+    return process.env.GH_SYMPHONY_CONFIG_DIR;
+  }
+
+  const repoRuntimeDir = resolve(process.cwd(), REPO_RUNTIME_DIR);
+  if (existsSync(configFilePath(repoRuntimeDir))) {
+    return repoRuntimeDir;
+  }
+
+  return DEFAULT_CONFIG_DIR;
 }
 
 export function configFilePath(configDir: string): string {

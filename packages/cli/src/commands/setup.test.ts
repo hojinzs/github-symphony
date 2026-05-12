@@ -160,6 +160,31 @@ describe("setup command", () => {
     process.chdir(originalCwd);
   });
 
+  it("reports removed project/workspace setup flags with migration guidance", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--project", "PVT_removed"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(2);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Removed project/workspace flags are no longer supported"
+      )
+    );
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context."
+      )
+    );
+  });
+
   it("writes workflow files and managed-project config in non-interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-cwd-"));
     const configDir = await mkdtemp(join(tmpdir(), "setup-non-interactive-config-"));

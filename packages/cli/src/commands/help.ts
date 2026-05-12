@@ -120,8 +120,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         name: "--config <dir>",
         description: [
-          "Config directory override (advanced; default resolves",
-          "per-repo to <repo>/.runtime/orchestrator)",
+          "Config directory override (advanced; default uses initialized",
+          "cwd runtime, then ~/.gh-symphony)",
         ],
       },
       {
