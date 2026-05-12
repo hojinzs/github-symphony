@@ -46,13 +46,18 @@ function baseOptions(configDir: string): GlobalOptions {
 function createProjectConfig(
   workspaceDir: string,
   bindingId = "PVT_test",
-  repositories: CliProjectConfig["repositories"] = []
+  repositoryInput:
+    | CliProjectConfig["repository"]
+    | CliProjectConfig["repository"][] = undefined
 ): CliProjectConfig {
+  const repository = Array.isArray(repositoryInput)
+    ? repositoryInput[0]
+    : repositoryInput;
   return {
     projectId: "tenant-a",
     slug: "tenant-a",
     workspaceDir,
-    repositories,
+    ...(repository ? { repository } : {}),
     tracker: {
       adapter: "github-project",
       bindingId,

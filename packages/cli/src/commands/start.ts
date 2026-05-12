@@ -460,7 +460,7 @@ const handler = async (
   }
   if (!hasConfiguredRepository(projectConfig)) {
     process.stderr.write(
-      "No repository is configured in this project. Run 'gh-symphony repo add owner/name' first.\n"
+      "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.\n"
     );
     process.exitCode = 1;
     return;

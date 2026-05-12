@@ -25,12 +25,12 @@ import {
   writeEcosystem,
   writeWorkflowPlan,
   promptStateMappings,
-} from "./init.js";
+} from "./workflow-init.js";
 import { validateStateMapping } from "../mapping/smart-defaults.js";
 import {
   promptProjectRegistrationOptions,
   renderProjectRegistrationSummary,
-} from "./project.js";
+} from "./setup-project-registration.js";
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 

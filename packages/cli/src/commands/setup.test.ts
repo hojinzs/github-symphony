@@ -36,7 +36,7 @@ import setupCommand from "./setup.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
 import type { CliProjectConfig } from "../config.js";
-import { generateProjectId } from "./init.js";
+import { generateProjectId } from "./workflow-init.js";
 
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_setup_1",
@@ -187,7 +187,11 @@ describe("setup command", () => {
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(contextYaml).toContain("PVT_setup_1");
     expect(project.displayName).toBe("Setup Project");
-    expect(project.repositories).toHaveLength(2);
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "repo-a",
+    });
+    expect(project).not.toHaveProperty("repositories");
   });
 
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
@@ -229,7 +233,8 @@ describe("setup command", () => {
     ) as CliProjectConfig;
 
     expect(project.workspaceDir).toBe("/tmp/setup-workspaces");
-    expect(project.repositories.map((repo) => repo.name)).toEqual(["repo-b"]);
+    expect(project.repository?.name).toBe("repo-b");
+    expect(project).not.toHaveProperty("repositories");
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),
       "Final summary"

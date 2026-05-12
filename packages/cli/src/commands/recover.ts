@@ -87,47 +87,54 @@ async function listRecoverCandidates(
   runtimeRoot: string,
   projectId: string
 ): Promise<RecoverCandidate[]> {
-  const runsDir = join(runtimeRoot, "projects", projectId, "runs");
+  const runRoots = [
+    join(runtimeRoot, "runs"),
+    join(runtimeRoot, "projects", projectId, "runs"),
+  ];
   const candidates: RecoverCandidate[] = [];
 
-  let entries: string[] = [];
-  try {
-    entries = await readdir(runsDir);
-  } catch {
-    return candidates;
-  }
-
-  for (const entry of entries) {
-    const runPath = join(runsDir, entry, "run.json");
+  for (const runsDir of runRoots) {
+    let entries: string[] = [];
     try {
-      const raw = await readFile(runPath, "utf8");
-      const run = JSON.parse(raw) as {
-        runId: string;
-        projectId: string;
-        issueIdentifier: string;
-        status: string;
-        processId: number | null;
-        startedAt: string | null;
-        nextRetryAt: string | null;
-      };
-
-      if (run.projectId !== projectId) {
-        continue;
-      }
-
-      const reason = detectRecoveryReason(run);
-      if (!reason) {
-        continue;
-      }
-
-      candidates.push({
-        runId: run.runId,
-        issueIdentifier: run.issueIdentifier,
-        status: run.status,
-        reason,
-      });
+      entries = await readdir(runsDir);
     } catch {
-      // Skip malformed or partial run records.
+      continue;
+    }
+
+    for (const entry of entries) {
+      const runPath = join(runsDir, entry, "run.json");
+      try {
+        const raw = await readFile(runPath, "utf8");
+        const run = JSON.parse(raw) as {
+          runId: string;
+          projectId?: string;
+          issueIdentifier: string;
+          status: string;
+          processId: number | null;
+          startedAt: string | null;
+          nextRetryAt: string | null;
+        };
+
+        if (run.projectId && run.projectId !== projectId) {
+          continue;
+        }
+
+        const reason = detectRecoveryReason(run);
+        if (!reason) {
+          continue;
+        }
+
+        if (!candidates.some((candidate) => candidate.runId === run.runId)) {
+          candidates.push({
+            runId: run.runId,
+            issueIdentifier: run.issueIdentifier,
+            status: run.status,
+            reason,
+          });
+        }
+      } catch {
+        // Skip malformed or partial run records.
+      }
     }
   }
 

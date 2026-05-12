@@ -21,7 +21,7 @@ import {
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
-import initCommand from "./init.js";
+import initCommand from "./workflow-init.js";
 
 type WorkflowSubcommand = "init" | "validate" | "preview";
 
@@ -629,7 +629,7 @@ async function loadLiveIssue(
 
   if (!findLinkedRepository(detail, issue.owner, issue.name)) {
     throw new Error(
-      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo add ${issue.owner}/${issue.name}' or re-run 'gh-symphony project add' with the correct project binding.`
+      `Repository ${issue.owner}/${issue.name} is not linked to the configured GitHub Project "${detail.title}". Run 'gh-symphony repo init' from the target repository or re-run 'gh-symphony project add' with the correct project binding.`
     );
   }
 

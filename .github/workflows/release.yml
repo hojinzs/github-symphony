@@ -120,39 +120,39 @@ jobs:
           docker pull "${IMAGE_REF}"
 
           TMPDIR="$(mktemp -d)"
-          mkdir -p "${TMPDIR}/config/projects/smoke"
+          mkdir -p "${TMPDIR}/config/repo"
 
-          cat > "${TMPDIR}/config/config.json" <<'EOF'
-          {
-            "activeProject": "smoke",
-            "projects": ["smoke"]
-          }
-          EOF
-
-          cat > "${TMPDIR}/config/projects/smoke/project.json" <<'EOF'
-          {
-            "projectId": "smoke",
-            "slug": "smoke",
-            "workspaceDir": "/var/lib/gh-symphony/workspaces/smoke",
-            "repositories": [],
-            "tracker": {
-              "adapter": "file",
-              "bindingId": "smoke-file",
-              "settings": {
-                "issuesPath": "/var/lib/gh-symphony/issues.json"
-              }
-            }
-          }
+          cat > "${TMPDIR}/config/repo/WORKFLOW.md" <<'EOF'
+          ---
+          tracker:
+            kind: file
+            project_id: smoke-file
+            state_field: Status
+            active_states:
+              - Ready
+            terminal_states:
+              - Done
+          polling:
+            interval_ms: 30000
+          agent:
+            max_concurrent_agents: 1
+          codex:
+            command: node /app/e2e/stub-worker.js
+          ---
+          Smoke test workflow.
           EOF
 
           echo "[]" > "${TMPDIR}/config/issues.json"
+          git -C "${TMPDIR}/config/repo" init
+          git -C "${TMPDIR}/config/repo" remote add origin https://github.com/smoke-org/smoke-repo.git
           sudo chown -R 1000:1000 "${TMPDIR}/config"
 
           docker run --rm "${IMAGE_REF}" gh-symphony --version
           docker run --rm \
             -v "${TMPDIR}/config:/var/lib/gh-symphony" \
+            -e GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/var/lib/gh-symphony/issues.json \
             "${IMAGE_REF}" \
-            gh-symphony start --once --project-id smoke
+            sh -lc 'cd /var/lib/gh-symphony/repo && gh-symphony repo init && gh-symphony repo start --once'
 
       - name: Tag and create GitHub Release
         if: steps.changesets.outputs.published == 'true'

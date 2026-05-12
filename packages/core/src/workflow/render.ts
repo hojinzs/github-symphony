@@ -38,14 +38,26 @@ export type PromptIssueVariables = {
   repository: string;
 };
 
+export type PromptPullRequestVariables = {
+  subject_type: TrackedIssueContentType;
+  linked_pull_requests: TrackedPullRequestContext[];
+  primary_pull_request: TrackedPullRequestContext | null;
+  has_linked_pr: boolean;
+  has_primary_pr: boolean;
+  checkout_branch: string | null;
+  review_first: boolean;
+};
+
 /**
  * Variables available for prompt template rendering.
  *
  * - `issue` — normalized issue payload
+ * - `pull_request_context` — normalized PR context and checkout guidance
  * - `attempt` — null for first execution, attempt number for retries
  */
 export type PromptVariables = {
   issue: PromptIssueVariables;
+  pull_request_context: PromptPullRequestVariables;
   attempt: number | null;
 };
 
@@ -65,14 +77,22 @@ export function buildPromptVariables(
 ): PromptVariables {
   const contentType = issue.metadata.contentType ?? "Issue";
   const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-    ? issue.metadata.linkedPullRequests
+    ? issue.metadata.linkedPullRequests.map(normalizePullRequestContext)
     : [];
   const primaryPullRequest =
     contentType === "PullRequest"
-      ? (issue.metadata.pullRequest ??
-        linkedPullRequests[0] ??
-        buildPullRequestContextFromIssue(issue))
+      ? normalizePullRequestContext(
+          issue.metadata.pullRequest ??
+            linkedPullRequests[0] ??
+            buildPullRequestContextFromIssue(issue)
+        )
       : (linkedPullRequests[0] ?? null);
+  const pullRequestContext = buildPullRequestVariables({
+    contentType,
+    linkedPullRequests,
+    primaryPullRequest,
+    issueBranchName: issue.branchName,
+  });
 
   return {
     issue: {
@@ -95,7 +115,46 @@ export function buildPromptVariables(
       updated_at: issue.updatedAt,
       repository: `${issue.repository.owner}/${issue.repository.name}`,
     },
+    pull_request_context: pullRequestContext,
     attempt: options.attempt,
+  };
+}
+
+function normalizePullRequestContext(
+  pullRequest: TrackedPullRequestContext
+): TrackedPullRequestContext {
+  return {
+    ...pullRequest,
+    state: pullRequest.state ?? null,
+    projectState: pullRequest.projectState ?? null,
+    isDraft: pullRequest.isDraft ?? null,
+    merged: pullRequest.merged ?? null,
+    headRefName: pullRequest.headRefName ?? null,
+    baseRefName: pullRequest.baseRefName ?? null,
+  };
+}
+
+function buildPullRequestVariables(options: {
+  contentType: TrackedIssueContentType;
+  linkedPullRequests: TrackedPullRequestContext[];
+  primaryPullRequest: TrackedPullRequestContext | null;
+  issueBranchName: string | null;
+}): PromptPullRequestVariables {
+  const checkoutBranch =
+    options.primaryPullRequest?.headRefName ??
+    (options.contentType === "PullRequest" ? options.issueBranchName : null);
+  const hasPrimaryPr = options.primaryPullRequest !== null;
+
+  return {
+    subject_type: options.contentType,
+    linked_pull_requests: options.linkedPullRequests,
+    primary_pull_request: options.primaryPullRequest,
+    has_linked_pr: options.linkedPullRequests.length > 0,
+    has_primary_pr: hasPrimaryPr,
+    checkout_branch: checkoutBranch,
+    // Policy flag for prompt templates: any primary PR means the worker must
+    // inspect review threads and checks before editing code.
+    review_first: hasPrimaryPr,
   };
 }
 

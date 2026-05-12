@@ -31,13 +31,14 @@ codex:
   turn_timeout_ms: 3600000
   stall_timeout_ms: 900000
 ---
+
 ## Status Map
 
-- **Backlog** [wait] *(Do not work. Exit quietly without commenting.)*
-- **Ready** [active] *(Triage scope and clarity first. If the issue returns here with an existing PR, this starts a new work cycle — create a new workpad comment with the rework plan before coding.)*
-- **In progress** [active] *(Continue implementation. If a PR exists and this is a new work cycle, create a new workpad comment with the rework plan. If the current cycle's workpad already exists, update it in place.)*
-- **In review** [wait] *(Wait by default. Reactivate only when review feedback requires code changes.)*
-- **Done** [terminal] *(Completed, agent exits immediately.)*
+- **Backlog** [wait] _(Do not work. Exit quietly without commenting.)_
+- **Ready** [active] _(Triage scope and clarity first. If the issue returns here with an existing PR, this starts a new work cycle — create a new workpad comment with the rework plan before coding.)_
+- **In progress** [active] _(Continue implementation. If a PR exists and this is a new work cycle, create a new workpad comment with the rework plan. If the current cycle's workpad already exists, update it in place.)_
+- **In review** [wait] _(Wait by default. Reactivate only when review feedback requires code changes.)_
+- **Done** [terminal] _(Completed, agent exits immediately.)_
 
 ## Agent Instructions
 
@@ -45,6 +46,8 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 **Repository:** {{issue.repository}}
 **Current state:** {{issue.state}}
+
+> Temporary compatibility note: this workflow intentionally avoids `pull_request_context` template variables so older installed `gh-symphony` daemons can render prompts until the runtime is upgraded.
 
 ### Task
 
@@ -61,6 +64,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 7. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
 8. **Whenever you transition the issue to a different state, post a comment on the issue** in the report language explaining the transition: what state it is moving to, why, and what was decided or completed. This is mandatory for every state change — do not transition silently.
 9. If the issue re-enters `Ready` or `In progress` while a PR already exists, treat that as a **new work cycle**: inspect the PR's main merge blockers first, then create a new workpad comment with the revised plan before making code changes. Within the same work cycle, always update the existing workpad comment in place instead of creating additional ones.
+10. Treat Issue cards as the canonical project item for planning and state transitions. If an issue already has an open PR, inspect it from the issue timeline or GitHub links before deciding whether to create a new branch.
 
 ### Workflow
 
@@ -85,7 +89,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 5. Treat the issue as too large in scope if it would likely require changes to more than 20 files or more than 3 packages.
 6. If the issue is actionable and a PR already exists, inspect the PR review timeline, failing checks, and unresolved comments to identify the major merge blockers before touching the code.
 7. If Step 6 applies, this is a new work cycle — create a new workpad comment in the report language that records the re-entry trigger, the major merge blockers, and the revised implementation plan.
-8. If the issue is actionable and Step 7 did not apply, create or continue the workpad, create a branch if needed, post a comment indicating that triage passed and implementation is starting, and continue to Step 2.
+8. If the issue is actionable and Step 7 did not apply, create or continue the workpad, create a branch if needed, post a comment indicating that triage passed and implementation is starting, and continue to Step 2. If an existing PR is discovered from the issue timeline, prefer checking out and updating that PR head branch instead of creating a duplicate branch.
 
 #### Step 2: Execution phase
 
@@ -105,6 +109,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 9. Distill the main merge blockers into a short prioritized list, then update the current cycle's workpad comment in the report language to capture those blockers and the revised execution plan. If no workpad exists for this cycle yet, create one.
 10. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
 11. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
+12. If the current subject is `PullRequest`, perform all rework on the PR head branch and keep the PR as the primary review surface.
 
 #### Step 3: In review handling
 
@@ -123,6 +128,8 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 - Do not start implementation for issues sent back to `Backlog` in the same run.
 - When a PR exists, do not ignore inline review comments; read them all and reply to each one.
 - When an issue re-enters `Ready` or `In progress` with an existing PR, do not silently resume work; inspect the main merge blockers first and create a new workpad comment that restates the plan for the new work cycle. Within that cycle, update the same workpad comment — never create a second one.
+- If both an Issue and its linked PR appear in the Project, the Issue is the canonical item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only.
+- Current limitation: if only the PR card status changes while the canonical Issue card does not move into an active state, the worker may not be re-dispatched from that PR card status change alone.
 
 ### Workpad Lifecycle
 

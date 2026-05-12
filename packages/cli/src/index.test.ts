@@ -8,6 +8,7 @@ import {
   saveProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
+import { REMOVED_PROJECT_ID_MESSAGE } from "./removed-project-id.js";
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -33,13 +34,11 @@ function createProject(projectId: string): CliProjectConfig {
     projectId,
     slug: projectId,
     workspaceDir: join("/tmp", projectId),
-    repositories: [
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ],
+    repository: {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
     tracker: {
       adapter: "github-project",
       bindingId: `${projectId}-binding`,
@@ -53,9 +52,9 @@ afterEach(() => {
 });
 
 describe("Commander CLI entrypoint", () => {
-  it("supports global options after subcommands", async () => {
+  it("supports global options after removed repo subcommands", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-index-"));
-    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
 
     await saveGlobalConfig(configDir, {
       activeProject: "tenant-a",
@@ -66,17 +65,33 @@ describe("Commander CLI entrypoint", () => {
     try {
       await runCli(["repo", "list", "--json", "--config", configDir]);
     } finally {
-      stdout.restore();
+      stderr.restore();
     }
 
-    const output = JSON.parse(stdout.output()) as Array<Record<string, string>>;
-    expect(output).toEqual([
-      {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      },
-    ]);
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Removed. Repository identity is shown by 'repo status'."
+    );
+  });
+
+  it.each([
+    [["repo", "add"], "repo add"],
+    [["repo", "add", "owner/name"], "repo add owner/name"],
+    [["repo", "remove"], "repo remove"],
+    [["repo", "remove", "owner/name"], "repo remove owner/name"],
+  ])("routes removed %s to the migration message", async (args) => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(args);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Removed. The orchestrator binds to the cwd repository via 'repo init'."
+    );
   });
 
   it("prints JSON version output for global --version", async () => {
@@ -116,8 +131,32 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow setup doctor upgrade start stop status");
+    expect(output).toContain("workflow setup doctor upgrade project repo");
   });
+
+  it.each([
+    [["init"], "Use 'gh-symphony workflow init'."],
+    [["start"], "Use 'gh-symphony repo start' from the target repository."],
+    [["stop"], "Use 'gh-symphony repo stop'."],
+    [["status"], "Use 'gh-symphony repo status'."],
+    [["run", "owner/repo#1"], "Use 'gh-symphony repo run <issue>'."],
+    [["recover"], "Use 'gh-symphony repo recover'."],
+    [["logs"], "Use 'gh-symphony repo logs'."],
+  ])(
+    "reports the migration path for removed top-level command %s",
+    async (args, message) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(args);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(stderr.output()).toBe(`${message}\n`);
+      expect(process.exitCode).toBe(2);
+    }
+  );
 
   it("reports a missing root config argument", async () => {
     const stderr = captureWrites(process.stderr);
@@ -133,6 +172,29 @@ describe("Commander CLI entrypoint", () => {
       "option '--config <dir>' argument missing"
     );
   });
+
+  it.each([
+    ["start", ["repo", "start", "--project-id", "tenant-a"]],
+    ["status", ["repo", "status", "--project-id", "tenant-a"]],
+    ["stop", ["repo", "stop", "--project-id", "tenant-a"]],
+    ["run", ["repo", "run", "owner/repo#1", "--project-id", "tenant-a"]],
+    ["recover", ["repo", "recover", "--project-id", "tenant-a"]],
+    ["logs", ["repo", "logs", "--project-id", "tenant-a"]],
+  ])(
+    "routes repo %s removed project options to the deprecation handler",
+    async (_command, args) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(args);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(stderr.output()).toBe(`${REMOVED_PROJECT_ID_MESSAGE}\n`);
+      expect(process.exitCode).toBe(2);
+    }
+  );
 
   it("falls back to root help when no command is provided", async () => {
     const stdout = captureWrites(process.stdout);
@@ -153,6 +215,13 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("doctor");
     expect(output).toContain("upgrade");
     expect(output).toContain("completion");
+    expect(output).not.toContain("\n  init ");
+    expect(output).not.toContain("\n  start ");
+    expect(output).not.toContain("\n  stop ");
+    expect(output).not.toContain("\n  status ");
+    expect(output).not.toContain("\n  run ");
+    expect(output).not.toContain("\n  recover ");
+    expect(output).not.toContain("\n  logs ");
   });
 
   it("shows workflow init dry-run in command help", async () => {
@@ -172,7 +241,7 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--skip-context");
   });
 
-  it("shows repo sync options in command help", async () => {
+  it("shows repo sync as removed in command help", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
 
@@ -184,12 +253,46 @@ describe("Commander CLI entrypoint", () => {
     }
 
     const output = stdout.output() + stderr.output();
-    expect(output).toContain("--dry-run");
-    expect(output).toContain("--prune");
-    expect(output).toContain(
-      "Sync repositories from the active GitHub Project"
-    );
+    expect(output).not.toContain("--dry-run");
+    expect(output).not.toContain("--prune");
+    expect(output).toContain("Removed");
   });
+
+  it("shows repo lifecycle and diagnostic commands in help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["repo", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("run");
+    expect(output).toContain("recover");
+    expect(output).toContain("logs");
+    expect(output).toContain("explain");
+  });
+
+  it.each([["project"], ["project", "add", "--non-interactive"]])(
+    "prints the removed project namespace message for %s",
+    async (...argv) => {
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli(argv);
+      } finally {
+        stderr.restore();
+      }
+
+      expect(process.exitCode).toBe(2);
+      expect(stderr.output()).toContain("The 'project' command was removed.");
+      expect(stderr.output()).toContain("gh-symphony repo init");
+      process.exitCode = undefined;
+    }
+  );
 
   it("shows doctor remediation help", async () => {
     const stdout = captureWrites(process.stdout);

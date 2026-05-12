@@ -10,6 +10,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   TrackedIssue,
+  TrackedPullRequestContext,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
@@ -80,6 +81,42 @@ function makeRun(
     nextRetryAt: null,
     ...overrides,
   };
+}
+
+function makePullRequestContext(
+  repository: { owner: string; name: string; cloneUrl: string; path: string },
+  number: number,
+  branchName = `feature/pr-${number}`
+): TrackedPullRequestContext {
+  return {
+    id: `pr-${number}`,
+    number,
+    identifier: `${repository.owner}/${repository.name}#${number}`,
+    url: `https://github.com/${repository.owner}/${repository.name}/pull/${number}`,
+    state: "OPEN",
+    headRefName: branchName,
+    repository: {
+      owner: repository.owner,
+      name: repository.name,
+      url: `https://github.com/${repository.owner}/${repository.name}`,
+      cloneUrl: repository.cloneUrl,
+    },
+    headRepository: {
+      owner: repository.owner,
+      name: repository.name,
+      url: `https://github.com/${repository.owner}/${repository.name}`,
+      cloneUrl: repository.cloneUrl,
+    },
+  };
+}
+
+function createPullRequestBranch(
+  repository: { path: string },
+  branchName: string
+): void {
+  execSync(`git -C ${shell(repository.path)} branch ${shell(branchName)}`, {
+    stdio: "ignore",
+  });
 }
 
 describe("sortCandidatesForDispatch", () => {
@@ -731,6 +768,7 @@ describe("targeted canonical subject dispatch", () => {
       repository.name
     );
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-107");
 
     const issue = makeIssue({
       id: "issue-7",
@@ -746,13 +784,7 @@ describe("targeted canonical subject dispatch", () => {
       metadata: {
         contentType: "Issue",
         linkedPullRequests: [
-          {
-            id: "pr-107",
-            number: 107,
-            identifier: "acme/platform#107",
-            url: "https://github.com/acme/platform/pull/107",
-            state: "OPEN",
-          },
+          makePullRequestContext(repository, 107, "feature/pr-107"),
         ],
       },
     });
@@ -769,6 +801,7 @@ describe("targeted canonical subject dispatch", () => {
       },
       metadata: {
         contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 107, "feature/pr-107"),
       },
     });
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
@@ -833,13 +866,7 @@ describe("targeted canonical subject dispatch", () => {
         metadata: {
           contentType: "Issue",
           linkedPullRequests: [
-            {
-              id: "pr-108",
-              number: 108,
-              identifier: "acme/platform#108",
-              url: "https://github.com/acme/platform/pull/108",
-              state: "OPEN",
-            },
+            makePullRequestContext(repository, 108, "feature/pr-108"),
           ],
         },
       });
@@ -856,6 +883,7 @@ describe("targeted canonical subject dispatch", () => {
         },
         metadata: {
           contentType: "PullRequest",
+          pullRequest: makePullRequestContext(repository, 108, "feature/pr-108"),
         },
       });
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
@@ -894,6 +922,7 @@ describe("targeted canonical subject dispatch", () => {
       repository.name
     );
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-109");
 
     const pullRequest = makeIssue({
       id: "pr-109",
@@ -908,6 +937,7 @@ describe("targeted canonical subject dispatch", () => {
       },
       metadata: {
         contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 109, "feature/pr-109"),
       },
     });
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
@@ -1014,6 +1044,7 @@ describe("targeted canonical subject dispatch", () => {
       repository.name
     );
     await store.saveProjectConfig(projectConfig);
+    createPullRequestBranch(repository, "feature/pr-111");
 
     const issue = makeIssue({
       id: "issue-11",
@@ -1029,13 +1060,7 @@ describe("targeted canonical subject dispatch", () => {
       metadata: {
         contentType: "Issue",
         linkedPullRequests: [
-          {
-            id: "pr-111",
-            number: 111,
-            identifier: "acme/platform#111",
-            url: "https://github.com/acme/platform/pull/111",
-            state: "OPEN",
-          },
+          makePullRequestContext(repository, 111, "feature/pr-111"),
         ],
       },
     });
@@ -1052,6 +1077,7 @@ describe("targeted canonical subject dispatch", () => {
       },
       metadata: {
         contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 111, "feature/pr-111"),
       },
     });
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
