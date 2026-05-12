@@ -2993,7 +2993,44 @@ Prefer focused changes.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("dispatches only the issue when a linked issue and pull request are both active project items", async () => {
+  it("dispatches a single Ready issue-only Project item once", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-ready-issue-only-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: createReadyStateWorkflow(),
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4306,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Ready")),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const first = await service.runOnce();
+    const second = await service.runOnce();
+
+    expect(first.summary.dispatched).toBe(1);
+    expect(second.summary.dispatched).toBe(0);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatches only the issue when linked Ready issue and pull request Project items both exist", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-canonical-issue-pr-")
@@ -3003,31 +3040,9 @@ Prefer focused changes.
       "acme",
       "platform",
       {
-        rawWorkflow: `---
-tracker:
-  kind: github-project
-  project_id: project-123
-  state_field: Status
-  active_states:
-    - Todo
-  terminal_states:
-    - Done
-  blocker_check_states:
-    - Todo
-agent:
-  max_concurrent_agents: 10
-polling:
-  interval_ms: 30000
-workspace:
-  root: .runtime/symphony-workspaces
-codex:
-  command: codex app-server
-  read_timeout_ms: 5000
-  stall_timeout_ms: 300000
-  turn_timeout_ms: 3600000
----
-linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.projectState }}{% endfor %}
-`,
+        rawWorkflow: createReadyStateWorkflow(
+          "linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.projectState }}{% endfor %}\n"
+        ),
       }
     );
     const store = new OrchestratorFsStore(tempRoot);
@@ -3042,8 +3057,8 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(
         createTrackerResponseWithLinkedIssueAndPullRequest(repository, {
-          issueState: "Todo",
-          pullRequestState: "Todo",
+          issueState: "Ready",
+          pullRequestState: "Ready",
         })
       ),
       spawnImpl: spawnImpl as never,
@@ -3059,7 +3074,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(workerEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
     expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
-      "linked=acme/platform#2:Todo"
+      "linked=acme/platform#2:Ready"
     );
     expect(
       execSync(
@@ -3104,7 +3119,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it("dispatches a standalone ready pull request subject", async () => {
+  it("dispatches a standalone Ready pull request subject", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-canonical-pr-standalone-")
@@ -3112,7 +3127,10 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
-      "platform"
+      "platform",
+      {
+        rawWorkflow: createReadyStateWorkflow(),
+      }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -3127,7 +3145,7 @@ linked={% for pr in issue.linked_pull_requests %}{{ pr.identifier }}:{{ pr.proje
       fetchImpl: vi
         .fn()
         .mockResolvedValue(
-          createTrackerResponseWithPullRequestOnly(repository, "Todo")
+          createTrackerResponseWithPullRequestOnly(repository, "Ready")
         ),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
@@ -8723,6 +8741,33 @@ codex:
 Prefer focused changes.
 `;
   await writeFile(join(repositoryRoot, "WORKFLOW.md"), content, "utf8");
+}
+
+function createReadyStateWorkflow(prompt = "{{ issue.title }}\n"): string {
+  return `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Ready
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+${prompt}`;
 }
 
 function createTrackerResponse(repository: {

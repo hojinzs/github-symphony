@@ -265,6 +265,41 @@ describe("resolveTrackerAdapter", () => {
     });
   });
 
+  it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makePullRequestProjectItem({
+        itemId: "item-pr-8",
+        pullRequestId: "pr-8",
+        number: 8,
+        title: "Validate fork PR metadata",
+        state: "Ready",
+        headRepository: {
+          name: "platform-fork",
+          url: "https://github.com/contributor/platform-fork",
+          owner: { login: "contributor" },
+        },
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.metadata.pullRequest).toMatchObject({
+      id: "pr-8",
+      identifier: "acme/platform#8",
+      headRefName: "feature/pr-metadata",
+      headRepository: {
+        owner: "contributor",
+        name: "platform-fork",
+        url: "https://github.com/contributor/platform-fork",
+        cloneUrl: "https://github.com/contributor/platform-fork.git",
+      },
+      repository: {
+        owner: "acme",
+        name: "platform",
+      },
+    });
+  });
+
   it("attaches Issue linked pull request metadata from closedByPullRequestsReferences", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -2981,6 +3016,11 @@ function makePullRequestProjectItem(input: {
   number: number;
   title: string;
   state?: string;
+  headRepository?: {
+    name: string;
+    url: string;
+    owner: { login: string };
+  } | null;
 }) {
   return {
     id: input.itemId,
@@ -3006,11 +3046,14 @@ function makePullRequestProjectItem(input: {
       merged: false,
       headRefName: "feature/pr-metadata",
       baseRefName: "main",
-      headRepository: {
-        name: "platform",
-        url: "https://github.com/acme/platform",
-        owner: { login: "acme" },
-      },
+      headRepository:
+        input.headRepository === undefined
+          ? {
+              name: "platform",
+              url: "https://github.com/acme/platform",
+              owner: { login: "acme" },
+            }
+          : input.headRepository,
       repository: {
         name: "platform",
         url: "https://github.com/acme/platform",
