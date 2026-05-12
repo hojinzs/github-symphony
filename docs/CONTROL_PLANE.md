@@ -269,18 +269,18 @@ pnpm --filter @gh-symphony/control-plane dev:server
 pnpm --filter @gh-symphony/control-plane dev:client
 ```
 
-During development, the React app is served by Vite on `:5173`. API calls are proxied to the Node.js server on `:4680`. The `gh-symphony project start --web` command starts only the Node.js server; point a browser at `:5173` during dev, `:4680` in production.
+During development, the React app is served by Vite on `:5173`. API calls are proxied to the Node.js server on `:4680`. The `gh-symphony repo start --web` command starts only the Node.js server; point a browser at `:5173` during dev, `:4680` in production.
 
 ---
 
 ## 5. CLI Integration
 
-The `--web` flag is added to `gh-symphony start` (and `gh-symphony project start`):
+The `--web` flag is available on `gh-symphony repo start`:
 
 ```bash
-gh-symphony project start --web          # orchestrator + HTML dashboard
-gh-symphony project start --web 4680     # explicit port
-gh-symphony project start --http         # orchestrator + JSON API only (existing)
+gh-symphony repo start --web       # orchestrator + HTML dashboard
+gh-symphony repo start --web 4680  # explicit port
+gh-symphony repo start --http      # orchestrator + JSON API only
 ```
 
 In `packages/cli/src/commands/start.ts`:

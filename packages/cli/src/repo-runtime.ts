@@ -24,6 +24,7 @@ import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
 export type RepoInitFlags = {
   repoDir: string;
   workflowFile?: string;
+  assignedOnly?: boolean;
 };
 
 const INTERNAL_PROJECT_ID = "repository";
@@ -76,12 +77,15 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   const trackerAdapter = workflow.tracker.kind ?? "github-project";
   const trackerBindingId =
     workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "";
-  const trackerSettings: Record<string, string> = {
+  const trackerSettings: Record<string, string | boolean> = {
     ...(workflow.tracker.projectId
       ? { projectId: workflow.tracker.projectId }
       : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
+  if (flags.assignedOnly) {
+    trackerSettings.assignedOnly = true;
+  }
   if (trackerAdapter === "file") {
     if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
       throw new Error(

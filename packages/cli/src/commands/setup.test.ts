@@ -1,4 +1,5 @@
 import { mkdtemp, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,8 +36,6 @@ import * as p from "@clack/prompts";
 import setupCommand from "./setup.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
-import type { CliProjectConfig } from "../config.js";
-import { generateProjectId } from "./workflow-init.js";
 
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_setup_1",
@@ -114,6 +113,14 @@ const MOCK_PROJECT_DETAIL_WITH_AMBIGUOUS_PRIORITY = {
   ],
 };
 
+function initializeGitRemote(cwd: string, remote = "https://github.com/acme/repo-a.git"): void {
+  execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", remote], {
+    cwd,
+    stdio: "ignore",
+  });
+}
+
 describe("setup command", () => {
   const originalCwd = process.cwd();
 
@@ -153,40 +160,57 @@ describe("setup command", () => {
     process.chdir(originalCwd);
   });
 
+  it("reports removed project/workspace setup flags with migration guidance", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--project", "PVT_removed"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(2);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Removed project/workspace flags are no longer supported"
+      )
+    );
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context."
+      )
+    );
+  });
+
   it("writes workflow files and managed-project config in non-interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-cwd-"));
     const configDir = await mkdtemp(join(tmpdir(), "setup-non-interactive-config-"));
+    initializeGitRemote(cwd);
     process.chdir(cwd);
 
-    await setupCommand(
-      ["--non-interactive", "--project", MOCK_PROJECT_SUMMARY.id],
-      {
-        configDir,
-        verbose: false,
-        json: false,
-        noColor: true,
-      }
-    );
+    await setupCommand(["--non-interactive"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
 
-    const projectId = generateProjectId(
-      MOCK_PROJECT_DETAIL.title,
-      MOCK_PROJECT_DETAIL.id
-    );
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
     const contextYaml = await readFile(
       join(cwd, ".gh-symphony", "context.yaml"),
       "utf8"
     );
     const project = JSON.parse(
-      await readFile(
-        join(configDir, "projects", projectId, "project.json"),
-        "utf8"
-      )
-    ) as CliProjectConfig;
+      await readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+    );
 
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(contextYaml).toContain("PVT_setup_1");
-    expect(project.displayName).toBe("Setup Project");
+    expect(project.projectId).toBe("repository");
+    expect(project.workspaceDir).toBe(cwd);
     expect(project.repository).toMatchObject({
       owner: "acme",
       name: "repo-a",
@@ -197,6 +221,7 @@ describe("setup command", () => {
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-cwd-"));
     const configDir = await mkdtemp(join(tmpdir(), "setup-interactive-config-"));
+    initializeGitRemote(cwd, "https://github.com/acme/repo-b.git");
     process.chdir(cwd);
 
     vi.mocked(p.select)
@@ -209,11 +234,6 @@ describe("setup command", () => {
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);
-    vi.mocked(p.multiselect).mockResolvedValue([
-      MOCK_PROJECT_DETAIL.linkedRepositories[1],
-    ] as never);
-    vi.mocked(p.text).mockResolvedValue("/tmp/setup-workspaces" as never);
-
     await setupCommand([], {
       configDir,
       verbose: false,
@@ -221,26 +241,21 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const projectId = generateProjectId(
-      MOCK_PROJECT_DETAIL.title,
-      MOCK_PROJECT_DETAIL.id
-    );
     const project = JSON.parse(
       await readFile(
-        join(configDir, "projects", projectId, "project.json"),
+        join(cwd, ".runtime", "orchestrator", "project.json"),
         "utf8"
       )
-    ) as CliProjectConfig;
+    );
 
-    expect(project.workspaceDir).toBe("/tmp/setup-workspaces");
+    expect(project.workspaceDir).toBe(cwd);
     expect(project.repository?.name).toBe("repo-b");
-    expect(project).not.toHaveProperty("repositories");
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),
       "Final summary"
     );
     expect(p.note).toHaveBeenCalledWith(
-      expect.stringContaining("Repos:      acme/repo-b  (1 of 2 linked)"),
+      expect.stringContaining("Repository:     current working directory"),
       "Final summary"
     );
   });
@@ -250,6 +265,7 @@ describe("setup command", () => {
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-non-interactive-priority-config-")
     );
+    initializeGitRemote(cwd);
     process.chdir(cwd);
 
     vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
@@ -259,15 +275,12 @@ describe("setup command", () => {
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
 
-    await setupCommand(
-      ["--non-interactive", "--project", MOCK_PROJECT_SUMMARY.id],
-      {
-        configDir,
-        verbose: false,
-        json: false,
-        noColor: true,
-      }
-    );
+    await setupCommand(["--non-interactive"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
 
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
 
@@ -282,6 +295,7 @@ describe("setup command", () => {
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-interactive-assigned-config-")
     );
+    initializeGitRemote(cwd);
     process.chdir(cwd);
 
     vi.mocked(p.select)
@@ -290,8 +304,6 @@ describe("setup command", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never);
     vi.mocked(p.confirm)
-      .mockResolvedValueOnce(true as never)
-      .mockResolvedValueOnce(false as never)
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);
 
@@ -302,16 +314,12 @@ describe("setup command", () => {
       noColor: true,
     });
 
-    const projectId = generateProjectId(
-      MOCK_PROJECT_DETAIL.title,
-      MOCK_PROJECT_DETAIL.id
-    );
     const project = JSON.parse(
       await readFile(
-        join(configDir, "projects", projectId, "project.json"),
+        join(cwd, ".runtime", "orchestrator", "project.json"),
         "utf8"
       )
-    ) as CliProjectConfig;
+    );
 
     expect(project.tracker.settings?.assignedOnly).toBe(true);
     expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({

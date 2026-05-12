@@ -62,7 +62,6 @@ type CliOptionValues = Partial<
     repoDir?: string;
     workflowFile?: string;
     workflow?: string;
-    workspaceDir?: string;
     watch?: boolean;
     sample?: string;
     smoke?: boolean;
@@ -307,8 +306,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("setup")
       .description("Run the one-command first-run setup flow")
       .option("--non-interactive", "Run without prompts")
-      .option("--project <id>", "GitHub Project ID or URL")
-      .option("--workspace-dir <path>", "Workspace directory")
       .option("--assigned-only", "Limit processing to assigned issues")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
       .option("--skip-skills", "Skip runtime skill generation")
@@ -319,8 +316,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [];
     pushOption(args, "--non-interactive", values.nonInteractive);
-    pushOption(args, "--project", values.project);
-    pushOption(args, "--workspace-dir", values.workspaceDir);
     pushOption(args, "--assigned-only", values.assignedOnly);
     pushOption(args, "--output", values.output);
     pushOption(args, "--skip-skills", values.skipSkills);

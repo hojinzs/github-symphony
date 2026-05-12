@@ -31,8 +31,8 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mhelp [command][0m       Show help for a command
 
 [33m[1mGlobal Options:[0m[0m
-  [36m--config <dir>[0m       Config directory override (advanced; default resolves
-                       per-repo to <repo>/.runtime/orchestrator)
+  [36m--config <dir>[0m       Config directory override (advanced; default uses initialized
+                       cwd runtime, then ~/.gh-symphony)
   [36m--verbose, -v[0m        Verbose output
   [36m--json[0m               JSON output
   [36m--no-color[0m           Disable color output
@@ -72,8 +72,8 @@ Maintenance:
   help [command]       Show help for a command
 
 Global Options:
-  --config <dir>       Config directory override (advanced; default resolves
-                       per-repo to <repo>/.runtime/orchestrator)
+  --config <dir>       Config directory override (advanced; default uses initialized
+                       cwd runtime, then ~/.gh-symphony)
   --verbose, -v        Verbose output
   --json               JSON output
   --no-color           Disable color output

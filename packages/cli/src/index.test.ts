@@ -131,7 +131,7 @@ describe("Commander CLI entrypoint", () => {
 
     const output = stdout.output();
     expect(output).toContain("complete -F _gh_symphony_completion gh-symphony");
-    expect(output).toContain("workflow setup doctor upgrade project repo");
+    expect(output).toContain("workflow setup doctor upgrade repo");
   });
 
   it.each([

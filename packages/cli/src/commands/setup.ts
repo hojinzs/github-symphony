@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
   createClient,
@@ -16,28 +16,21 @@ import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
 import {
   abortIfCancelled,
   buildAutomaticStateMappings,
-  generateProjectId,
   planWorkflowArtifacts,
   resolvePriorityField,
   renderDryRunPreview,
   resolveStatusField,
-  writeConfig,
   writeEcosystem,
   writeWorkflowPlan,
   promptStateMappings,
 } from "./workflow-init.js";
 import { validateStateMapping } from "../mapping/smart-defaults.js";
-import {
-  promptProjectRegistrationOptions,
-  renderProjectRegistrationSummary,
-} from "./setup-project-registration.js";
+import { initRepoRuntime } from "../repo-runtime.js";
 
 const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
 type SetupFlags = {
   nonInteractive: boolean;
-  project?: string;
-  workspaceDir?: string;
   assignedOnly?: boolean;
   output?: string;
   skipSkills: boolean;
@@ -59,14 +52,6 @@ function parseSetupFlags(args: string[]): SetupFlags {
       case "--non-interactive":
         flags.nonInteractive = true;
         break;
-      case "--project":
-        flags.project = next;
-        i += 1;
-        break;
-      case "--workspace-dir":
-        flags.workspaceDir = next;
-        i += 1;
-        break;
       case "--assigned-only":
         flags.assignedOnly = true;
         break;
@@ -80,6 +65,12 @@ function parseSetupFlags(args: string[]): SetupFlags {
       case "--skip-context":
         flags.skipContext = true;
         break;
+      default:
+        if (arg?.startsWith("-")) {
+          throw new Error(
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context.`
+          );
+        }
     }
   }
 
@@ -106,10 +97,7 @@ function displayScopeError(
   );
 }
 
-async function resolveProjectDetail(
-  client: GitHubClient,
-  projectArg?: string
-): Promise<ProjectDetail> {
+async function resolveProjectDetail(client: GitHubClient): Promise<ProjectDetail> {
   const projects = await listUserProjects(client);
 
   if (projects.length === 0) {
@@ -118,21 +106,13 @@ async function resolveProjectDetail(
     );
   }
 
-  if (projectArg) {
-    const match = projects.find(
-      (project) => project.id === projectArg || project.url === projectArg
-    );
-    if (!match) {
-      throw new Error(`Project not found: ${projectArg}`);
-    }
-    return getProjectDetail(client, match.id);
-  }
-
   if (projects.length === 1) {
     return getProjectDetail(client, projects[0]!.id);
   }
 
-  throw new Error("Error: --project is required when multiple projects exist.");
+  throw new Error(
+    "Error: non-interactive setup requires exactly one GitHub Project. Use 'gh-symphony workflow init' for project selection, then run 'gh-symphony repo init'."
+  );
 }
 
 async function selectProjectSummary(
@@ -160,29 +140,20 @@ async function selectProjectSummary(
   return projects.find((project) => project.id === selectedProjectId)!;
 }
 
-function formatRepoSummary(
-  projectDetail: ProjectDetail,
-  selectedRepos: ProjectDetail["linkedRepositories"]
-): string {
-  return selectedRepos.length === projectDetail.linkedRepositories.length
-    ? `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (all ${selectedRepos.length} linked)`
-    : `${selectedRepos.map((repo) => `${repo.owner}/${repo.name}`).join(", ")}  (${selectedRepos.length} of ${projectDetail.linkedRepositories.length} linked)`;
-}
-
 function printNonInteractiveSummary(input: {
-  projectId: string;
   githubProjectTitle: string;
   githubProjectId: string;
   workflowPath: string;
-  workspaceDir: string;
+  runtimeDir: string;
+  repository: string;
 }): void {
   process.stdout.write(
     [
       `GitHub Project   ${input.githubProjectTitle}  (${input.githubProjectId})`,
-      `Managed project  ${input.projectId}`,
+      `Repository       ${input.repository}`,
       `WORKFLOW.md      ${input.workflowPath}`,
-      `Workspace root   ${input.workspaceDir}`,
-      "Ready. Run 'gh-symphony start' to begin orchestration.",
+      `Runtime          ${input.runtimeDir}`,
+      "Ready. Run 'gh-symphony repo start' to begin orchestration.",
     ]
       .map((line) => `  ${line}`)
       .join("\n") + "\n"
@@ -193,7 +164,16 @@ const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  const flags = parseSetupFlags(args);
+  let flags: SetupFlags;
+  try {
+    flags = parseSetupFlags(args);
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Invalid setup arguments"}\n`
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   if (flags.nonInteractive) {
     await runNonInteractive(flags, options);
@@ -242,7 +222,7 @@ async function runNonInteractive(
 
   let projectDetail: ProjectDetail;
   try {
-    projectDetail = await resolveProjectDetail(client, flags.project);
+    projectDetail = await resolveProjectDetail(client);
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : "Unknown error"}\n`
@@ -299,14 +279,9 @@ async function runNonInteractive(
     skipContext: flags.skipContext,
   });
 
-  const projectId = generateProjectId(projectDetail.title, projectDetail.id);
-  const workspaceDir = flags.workspaceDir ?? join(options.configDir, "workspaces");
-
-  await writeConfig(options.configDir, {
-    projectId,
-    project: projectDetail,
-    repos: projectDetail.linkedRepositories,
-    workspaceDir,
+  const runtime = await initRepoRuntime({
+    repoDir: process.cwd(),
+    workflowFile: workflowPath,
     assignedOnly: flags.assignedOnly,
   });
 
@@ -315,7 +290,8 @@ async function runNonInteractive(
       JSON.stringify({
         status: "created",
         output: workflowPath,
-        projectId,
+        runtimeDir: runtime.configDir,
+        repository: `${runtime.repository.owner}/${runtime.repository.name}`,
         githubProjectId: projectDetail.id,
       }) + "\n"
     );
@@ -323,17 +299,17 @@ async function runNonInteractive(
   }
 
   printNonInteractiveSummary({
-    projectId,
     githubProjectTitle: projectDetail.title,
     githubProjectId: projectDetail.id,
     workflowPath,
-    workspaceDir,
+    runtimeDir: runtime.configDir,
+    repository: `${runtime.repository.owner}/${runtime.repository.name}`,
   });
 }
 
 async function runInteractive(
   flags: SetupFlags,
-  options: GlobalOptions
+  _options: GlobalOptions
 ): Promise<void> {
   p.intro("gh-symphony — One-command Setup");
 
@@ -399,14 +375,6 @@ async function runInteractive(
     return;
   }
 
-  if (projectDetail.linkedRepositories.length === 0) {
-    p.log.error(
-      "No linked repositories found in this project. Add issues from repositories to the project first."
-    );
-    process.exitCode = 1;
-    return;
-  }
-
   const statusField = resolveStatusField(projectDetail);
   if (!statusField) {
     p.log.error(
@@ -464,20 +432,15 @@ async function runInteractive(
         })()
       : priorityResolution.field;
 
-  const {
-    assignedOnly: promptAssignedOnly,
-    selectedRepos,
-    workspaceDir,
-  } =
-    await promptProjectRegistrationOptions({
-      projectDetail,
-      defaultWorkspaceDir: flags.workspaceDir ?? join(options.configDir, "workspaces"),
-      assignedOnlyMessage:
+  const promptAssignedOnly = await abortIfCancelled(
+    p.confirm({
+      message:
         `${
           priorityResolution.ambiguous.length > 0 ? "Step 4/4" : "Step 3/3"
         } — Only process issues assigned to the authenticated GitHub user?`,
-      assignedOnlyInitialValue: flags.assignedOnly,
-    });
+      initialValue: flags.assignedOnly ?? false,
+    })
+  );
   const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
@@ -493,16 +456,12 @@ async function runInteractive(
     skipContext: flags.skipContext,
   });
 
-  const projectId = generateProjectId(projectDetail.title, projectDetail.id);
   p.note(
     [
-      renderProjectRegistrationSummary({
-        login,
-        projectTitle: projectDetail.title,
-        repoSummary: formatRepoSummary(projectDetail, selectedRepos),
-        assignedOnly,
-        workspaceDir,
-      }),
+      `GitHub Project: ${projectDetail.title}`,
+      `Authenticated:  ${login}`,
+      `Repository:     current working directory`,
+      `Assigned:       ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
       "",
       renderDryRunPreview(workflowPath, workflowPlan, ecosystemPlan).trimEnd(),
     ].join("\n"),
@@ -533,14 +492,12 @@ async function runInteractive(
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
     });
-    await writeConfig(options.configDir, {
-      projectId,
-      project: projectDetail,
-      repos: selectedRepos,
-      workspaceDir,
+    const runtime = await initRepoRuntime({
+      repoDir: process.cwd(),
+      workflowFile: workflowPath,
       assignedOnly,
     });
-    writeSpinner.stop("Setup saved.");
+    writeSpinner.stop(`Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`);
   } catch (error) {
     writeSpinner.stop("Setup failed.");
     p.log.error(error instanceof Error ? error.message : "Unknown error");
@@ -549,6 +506,6 @@ async function runInteractive(
   }
 
   p.outro(
-    `Project "${projectId}" is ready.\n  Run 'gh-symphony start' to begin orchestration.`
+    "Repository runtime is ready.\n  Run 'gh-symphony repo start' to begin orchestration."
   );
 }

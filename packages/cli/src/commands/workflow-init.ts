@@ -1085,7 +1085,7 @@ async function runNonInteractive(
   } else {
     printEcosystemSummary(ecosystemResult, outputPath, {
       interactive: false,
-      nextSteps: "Run 'gh-symphony project add' to register a project.",
+      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
     });
   }
 }
@@ -1261,7 +1261,7 @@ async function runInteractiveStandalone(
 
   printEcosystemSummary(ecosystemResult, outputPath, {
     interactive: true,
-    nextSteps: "Run 'gh-symphony project add' to register a project.",
+    nextSteps: "Run 'gh-symphony repo init' from the target repository.",
   });
 }
 

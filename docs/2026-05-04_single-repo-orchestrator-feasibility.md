@@ -22,7 +22,7 @@ upstream Symphony spec (`docs/symphony-spec.md` §3, §5) 은 명시적으로 **
 
 1. **PR #255 와의 충돌** — Linear 어댑터는 "이슈에 repo 가 없다 → config 에서 단일 repo 를 주입한다" 는 단일-repo 매핑을 1차 범위로 권장. GitHub 쪽은 array, Linear 쪽은 single 으로 양식이 갈라진다.
 2. **upstream spec 부합 약화** — `docs/symphony-spec.md` §5.1 은 "the workflow file is expected to be repository-owned"; 현재는 `loadProjectWorkflow` 가 `tenant.repositories[0]` 또는 `issue.repository` 의 WORKFLOW.md 를 로드하는 정책 의존 동작이 됐다 (`packages/orchestrator/src/service.ts:1100-1140`).
-3. **부트스트랩 복잡도** — 사용자가 GitHub Project ID, projectSlug, projectConfig 디렉터리를 거쳐야 시작할 수 있다. 한편 spec/레퍼런스는 `cd repo && gh-symphony start` 의 단일 동작이다.
+3. **부트스트랩 복잡도** — 사용자가 GitHub Project ID, projectSlug, projectConfig 디렉터리를 거쳐야 시작할 수 있다. 현재 repo-centric CLI 방향은 `cd repo && gh-symphony repo init && gh-symphony repo start` 로 이 경로를 단순화한다.
 
 ---
 
