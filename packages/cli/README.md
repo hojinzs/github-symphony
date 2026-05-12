@@ -334,7 +334,7 @@ Orchestration:
   completion <shell>  Print shell completion for bash/zsh/fish
 
 Global Options:
-  --config <dir>      Config directory (default: ~/.gh-symphony)
+  --config <dir>      Config directory (default: initialized cwd runtime, then ~/.gh-symphony)
   --verbose           Enable verbose output
   --json              Output in JSON format
   --no-color          Disable color output

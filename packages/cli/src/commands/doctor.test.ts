@@ -1250,6 +1250,63 @@ describe("doctor command handler", () => {
     );
   });
 
+  it("reports workflow init for missing workflow file remediation", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "doctor-missing-workflow-"));
+    const configDir = join(rootDir, "config");
+    const workspaceDir = join(rootDir, "workspace");
+    const repoDir = join(rootDir, "repo");
+    const binDir = join(rootDir, "bin");
+    await mkdir(repoDir, { recursive: true });
+    await mkdir(binDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
+
+    const gitExecutable = join(binDir, "git");
+    await writeFile(
+      gitExecutable,
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo \'git version 2.44.0\'\n  exit 0\nfi\nexit 1\n',
+      "utf8"
+    );
+    await chmod(gitExecutable, 0o755);
+
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--fix"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () => createProjectDetail() as never) as never,
+            pathEnv: binDir,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      remediation?: {
+        steps: Array<{ checkId: string; status: string; command?: string }>;
+      };
+    };
+    expect(report.remediation?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkId: "workflow_file",
+          status: "manual",
+          command: `gh-symphony --config ${configDir} workflow init`,
+        }),
+      ])
+    );
+  });
+
   it("does not launch remediation subprocesses while preserving JSON-only stdout", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-json-fix-"));
     const { repoDir } = await createWorkflowFixture();

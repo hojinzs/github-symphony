@@ -1966,7 +1966,7 @@ async function runDoctorFixes(
           runCliRemediation(
             title,
             check.id,
-            ["init"],
+            ["workflow", "init"],
             deps,
             options,
             interactive,
