@@ -1,5 +1,18 @@
 # @gh-symphony/cli
 
+## 0.1.0
+
+### Minor Changes
+
+- [#306](https://github.com/hojinzs/github-symphony/pull/306) [`d5fbb53`](https://github.com/hojinzs/github-symphony/commit/d5fbb5350ce5ea89484cf46dbf0699e48859984b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - @gh-symphony/cli: BREAKING — restructure CLI to repo-centric model
+  - Removed: top-level `start`, `stop`, `status`, `run`, `recover`, `logs`, `init`
+  - Removed: `project` namespace (add/list/remove/switch/start/stop/status/explain)
+  - Removed: `repo add`, `repo remove`, `repo sync`, `repo list`
+  - Added: `repo run`, `repo recover`, `repo logs`, `repo explain`
+  - The orchestrator now binds strictly to the cwd repository via `repo init`.
+    Per-repo runtime: `<repo>/.runtime/orchestrator/`.
+  - Migrate by running `gh-symphony repo init` in each target repository.
+
 ## 0.0.22
 
 ### Patch Changes
