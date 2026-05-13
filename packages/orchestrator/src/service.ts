@@ -54,6 +54,7 @@ import { OrchestratorFsStore } from "./fs-store.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
   hasConvergenceLockedRunForIssue,
+  findActiveLinkedPullRequest,
   isActiveRunRecordStatus,
   isIssueCandidateEligibleWithReason,
   isIssueOrchestrationClaimedState,
@@ -67,6 +68,8 @@ const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
+const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
+  "gh-symphony:linked-pr-active-while-issue-inactive";
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -116,7 +119,7 @@ function parseFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-function resolveCanonicalSubjectIssues(
+export function resolveCanonicalSubjectIssues(
   issues: readonly TrackedIssue[]
 ): TrackedIssue[] {
   const pullRequestsById = new Map<string, TrackedIssue>();
@@ -244,14 +247,11 @@ function resolvePullRequestBranchCheckoutTarget(
 
   const headRepository = pullRequest.headRepository ?? null;
   const sameOwner =
-    headRepository?.owner.toLowerCase() === issue.repository.owner.toLowerCase();
+    headRepository?.owner.toLowerCase() ===
+    issue.repository.owner.toLowerCase();
   const sameName =
     headRepository?.name.toLowerCase() === issue.repository.name.toLowerCase();
-  if (
-    !headRepository ||
-    !sameOwner ||
-    !sameName
-  ) {
+  if (!headRepository || !sameOwner || !sameName) {
     const source = headRepository
       ? `${headRepository.owner}/${headRepository.name}`
       : "unknown fork";
@@ -261,6 +261,37 @@ function resolvePullRequestBranchCheckoutTarget(
   }
 
   return { headRefName };
+}
+
+function buildLinkedPullRequestActiveAdvisoryMarker(
+  issueId: string,
+  pullRequestId: string
+): string {
+  return `<!-- ${LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX} issue=${issueId} pr=${pullRequestId} -->`;
+}
+
+function buildLinkedPullRequestActiveAdvisoryBody(input: {
+  marker: string;
+  issue: TrackedIssue;
+  linkedPullRequest: {
+    identifier: string;
+    projectState: string;
+  };
+  lifecycle: WorkflowLifecycleConfig;
+}): string {
+  const activeStates = input.lifecycle.activeStates
+    .map((state) => `\`${state}\``)
+    .join(" or ");
+
+  return `${input.marker}
+
+Linked PR card status alone does not trigger dispatch.
+
+- Canonical Issue: ${input.issue.identifier} (${input.issue.state})
+- Linked PR card: ${input.linkedPullRequest.identifier} (${input.linkedPullRequest.projectState})
+- No worker was started for this PR card status change.
+
+To request rework, move the canonical Issue card to ${activeStates}.`;
 }
 
 export class OrchestratorService {
@@ -604,13 +635,19 @@ export class OrchestratorService {
       );
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
       const filteredIssues = issueIdentifier
-        ? canonicalIssues.filter(
-            (issue: TrackedIssue) =>
-              matchesTargetIssueIdentifier(issue, issueIdentifier)
+        ? canonicalIssues.filter((issue: TrackedIssue) =>
+            matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : canonicalIssues;
       const { candidates: actionableCandidates, lifecycle } =
         await this.resolveActionableCandidates(tenant, filteredIssues);
+      await this.publishLinkedPullRequestActiveAdvisories(
+        tenant,
+        trackerAdapter,
+        filteredIssues,
+        lifecycle,
+        trackerDependencies
+      );
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         syncedIssuesByIdentifier
       );
@@ -1143,6 +1180,56 @@ export class OrchestratorService {
   ): boolean {
     return isIssueCandidateEligibleWithReason(issue, lifecycle, issues)
       .eligible;
+  }
+
+  private async publishLinkedPullRequestActiveAdvisories(
+    tenant: OrchestratorProjectConfig,
+    trackerAdapter: OrchestratorTrackerAdapter,
+    issues: readonly TrackedIssue[],
+    lifecycle: WorkflowLifecycleConfig,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<void> {
+    if (!trackerAdapter.upsertIssueComment) {
+      return;
+    }
+
+    for (const issue of issues) {
+      if (issue.metadata.contentType === "PullRequest") {
+        continue;
+      }
+      if (isStateTerminal(issue.state, lifecycle)) {
+        continue;
+      }
+
+      const linkedPullRequest = findActiveLinkedPullRequest(issue, lifecycle);
+      if (!linkedPullRequest) {
+        continue;
+      }
+
+      const marker = buildLinkedPullRequestActiveAdvisoryMarker(
+        issue.id,
+        linkedPullRequest.id
+      );
+      const body = buildLinkedPullRequestActiveAdvisoryBody({
+        marker,
+        issue,
+        linkedPullRequest,
+        lifecycle,
+      });
+
+      try {
+        await trackerAdapter.upsertIssueComment(
+          tenant,
+          issue,
+          { marker, body },
+          trackerDependencies
+        );
+      } catch (error) {
+        this.writeStderr(
+          `[orchestrator] failed to publish linked PR active advisory for ${issue.identifier}: ${this.formatErrorMessage(error)}`
+        );
+      }
+    }
   }
 
   private async loadProjectWorkflow(

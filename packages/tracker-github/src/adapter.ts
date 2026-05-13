@@ -171,6 +171,43 @@ type GraphQLIssueProjectItemsConnection = {
   };
 };
 
+type GraphQLIssueCommentNode = {
+  id: string;
+  body: string;
+};
+
+type GraphQLIssueCommentsConnection = {
+  nodes: Array<GraphQLIssueCommentNode | null> | null;
+  pageInfo: {
+    endCursor: string | null;
+    hasNextPage: boolean;
+  };
+};
+
+type GraphQLIssueCommentsByIdResponse = {
+  node:
+    | {
+        __typename: "Issue";
+        comments: GraphQLIssueCommentsConnection;
+      }
+    | { __typename: string }
+    | null;
+};
+
+type GraphQLAddIssueCommentResponse = {
+  addComment: {
+    commentEdge: {
+      node: GraphQLIssueCommentNode | null;
+    } | null;
+  } | null;
+};
+
+type GraphQLUpdateIssueCommentResponse = {
+  updateIssueComment: {
+    issueComment: GraphQLIssueCommentNode | null;
+  } | null;
+};
+
 type GraphQLProjectItemsPage = {
   nodes: Array<GraphQLProjectItem | null> | null;
   pageInfo: {
@@ -372,7 +409,8 @@ function normalizePullRequestProjectItem(
   const pullRequestUpdatedAtMs = parseTimestampMs(content.updatedAt);
   const trackedUpdatedAt =
     itemUpdatedAtMs !== null &&
-    (pullRequestUpdatedAtMs === null || itemUpdatedAtMs > pullRequestUpdatedAtMs)
+    (pullRequestUpdatedAtMs === null ||
+      itemUpdatedAtMs > pullRequestUpdatedAtMs)
       ? item.updatedAt
       : (content.updatedAt ?? item.updatedAt);
 
@@ -634,6 +672,98 @@ export const fetchGithubProjectIssues = fetchProjectIssues;
 export const fetchGithubIssueStatesByIds = fetchIssueStatesByIds;
 export const fetchGithubProjectIssueByRepositoryAndNumber =
   fetchProjectIssueByRepositoryAndNumber;
+export const upsertGithubIssueComment = upsertIssueComment;
+
+async function upsertIssueComment(
+  config: GitHubTrackerConfig,
+  issueId: string,
+  input: {
+    marker: string;
+    body: string;
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<"created" | "updated" | "unchanged"> {
+  const existingComment = await findIssueCommentByMarker(
+    config,
+    issueId,
+    input.marker,
+    fetchImpl
+  );
+
+  if (!existingComment) {
+    await executeGraphQLQuery<GraphQLAddIssueCommentResponse>(
+      config,
+      ADD_ISSUE_COMMENT_MUTATION,
+      {
+        subjectId: issueId,
+        body: input.body,
+      },
+      fetchImpl
+    );
+    return "created";
+  }
+
+  if (existingComment.body === input.body) {
+    return "unchanged";
+  }
+
+  await executeGraphQLQuery<GraphQLUpdateIssueCommentResponse>(
+    config,
+    UPDATE_ISSUE_COMMENT_MUTATION,
+    {
+      commentId: existingComment.id,
+      body: input.body,
+    },
+    fetchImpl
+  );
+  return "updated";
+}
+
+async function findIssueCommentByMarker(
+  config: GitHubTrackerConfig,
+  issueId: string,
+  marker: string,
+  fetchImpl: FetchLike
+): Promise<GraphQLIssueCommentNode | null> {
+  let cursor: string | null = null;
+
+  while (true) {
+    const data: GraphQLIssueCommentsByIdResponse =
+      await executeGraphQLQuery<GraphQLIssueCommentsByIdResponse>(
+        config,
+        ISSUE_COMMENTS_BY_ID_QUERY,
+        {
+          issueId,
+          cursor,
+        },
+        fetchImpl
+      );
+
+    if (data.node?.__typename !== "Issue") {
+      throw new GitHubTrackerQueryError(
+        "GitHub GraphQL response did not include issue comments."
+      );
+    }
+    const issueNode = data.node as Extract<
+      GraphQLIssueCommentsByIdResponse["node"],
+      { __typename: "Issue" }
+    >;
+
+    const match =
+      issueNode.comments.nodes?.find(
+        (comment: GraphQLIssueCommentNode | null) =>
+          comment?.body.includes(marker)
+      ) ?? null;
+    if (match) {
+      return match;
+    }
+
+    if (!issueNode.comments.pageInfo.hasNextPage) {
+      return null;
+    }
+    cursor = issueNode.comments.pageInfo.endCursor;
+  }
+}
 
 async function fetchCurrentUserLogin(
   config: GitHubTrackerConfig,
@@ -814,7 +944,9 @@ function normalizeRepositoryIssueLookup(
 function normalizePullRequestNodes(
   nodes: Array<GraphQLPullRequestNode | null>
 ): GitHubPullRequestMetadata[] {
-  return nodes.flatMap((node) => (node ? [normalizePullRequestNode(node)] : []));
+  return nodes.flatMap((node) =>
+    node ? [normalizePullRequestNode(node)] : []
+  );
 }
 
 function normalizePullRequestNode(
@@ -869,9 +1001,7 @@ function normalizeLabelNames(
 function normalizeAssigneeLogins(
   nodes: Array<{ login: string | null } | null>
 ): string[] {
-  return nodes.flatMap((assignee) =>
-    assignee?.login ? [assignee.login] : []
-  );
+  return nodes.flatMap((assignee) => (assignee?.login ? [assignee.login] : []));
 }
 
 function withGitHubMetadata(
@@ -1635,6 +1765,50 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
             hasNextPage
           }
         }
+      }
+    }
+  }
+`;
+
+const ISSUE_COMMENTS_BY_ID_QUERY = `
+  query IssueCommentsById($issueId: ID!, $cursor: String) {
+    node(id: $issueId) {
+      __typename
+      ... on Issue {
+        comments(first: 100, after: $cursor) {
+          nodes {
+            id
+            body
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+    }
+  }
+`;
+
+const ADD_ISSUE_COMMENT_MUTATION = `
+  mutation AddIssueComment($subjectId: ID!, $body: String!) {
+    addComment(input: { subjectId: $subjectId, body: $body }) {
+      commentEdge {
+        node {
+          id
+          body
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_ISSUE_COMMENT_MUTATION = `
+  mutation UpdateIssueComment($commentId: ID!, $body: String!) {
+    updateIssueComment(input: { id: $commentId, body: $body }) {
+      issueComment {
+        id
+        body
       }
     }
   }

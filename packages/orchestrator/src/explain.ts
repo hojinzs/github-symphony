@@ -250,6 +250,24 @@ function explainWorkflowState(
   }
 
   const role = isStateTerminal(issue.state, lifecycle) ? "terminal" : "wait";
+  const linkedPullRequest = findActiveLinkedPullRequest(issue, lifecycle);
+  if (linkedPullRequest) {
+    return {
+      id: "workflow_state",
+      status: "block",
+      message: `Linked PR card ${linkedPullRequest.identifier} is active in project state "${linkedPullRequest.projectState}", but canonical Issue state "${issue.state}" maps to ${role}, not active, in WORKFLOW.md.`,
+      details: {
+        activeStates: lifecycle.activeStates,
+        terminalStates: lifecycle.terminalStates,
+        blockerCheckStates: lifecycle.blockerCheckStates,
+        canonicalIssueState: issue.state,
+        linkedPullRequestIdentifier: linkedPullRequest.identifier,
+        linkedPullRequestProjectState: linkedPullRequest.projectState,
+      },
+      hint: "Linked PR card status alone does not trigger dispatch. Move the canonical Issue card to an active state to request rework.",
+    };
+  }
+
   return {
     id: "workflow_state",
     status: "block",
@@ -261,6 +279,34 @@ function explainWorkflowState(
     },
     hint: "Move the GitHub Project item to an active state or run 'gh-symphony workflow preview' to inspect WORKFLOW.md state mappings.",
   };
+}
+
+export function findActiveLinkedPullRequest(
+  issue: TrackedIssue,
+  lifecycle: WorkflowLifecycleConfig
+): { id: string; identifier: string; projectState: string } | null {
+  if (isStateActive(issue.state, lifecycle)) {
+    return null;
+  }
+
+  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
+    ? issue.metadata.linkedPullRequests
+    : [];
+  for (const pullRequest of linkedPullRequests) {
+    const projectState =
+      typeof pullRequest.projectState === "string"
+        ? pullRequest.projectState
+        : null;
+    if (projectState && isStateActive(projectState, lifecycle)) {
+      return {
+        id: pullRequest.id,
+        identifier: pullRequest.identifier,
+        projectState,
+      };
+    }
+  }
+
+  return null;
 }
 
 function explainBlockers(

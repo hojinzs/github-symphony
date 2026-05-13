@@ -247,6 +247,53 @@ describe("explainIssueDispatch", () => {
     );
   });
 
+  it("explains active linked PR cards when the canonical Issue is inactive", () => {
+    const issue = makeIssue({
+      identifier: "acme/repo#1",
+      state: "In review",
+      metadata: {
+        contentType: "Issue",
+        linkedPullRequests: [
+          {
+            id: "pr-2",
+            number: 2,
+            identifier: "acme/repo#2",
+            url: "https://github.com/acme/repo/pull/2",
+            state: "OPEN",
+            projectState: "In Progress",
+          },
+        ],
+      },
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.summary).toContain("Linked PR card");
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "workflow_state",
+          status: "block",
+          message: expect.stringContaining('canonical Issue state "In review"'),
+          hint: expect.stringContaining(
+            "Linked PR card status alone does not trigger dispatch"
+          ),
+        }),
+      ])
+    );
+  });
+
   it("explains unresolved blockers", () => {
     const blocker = makeIssue({
       id: "blocker-1",
@@ -752,9 +799,7 @@ describe("targeted canonical subject dispatch", () => {
   });
 
   it("dispatches the canonical Issue when targeting a linked PR identifier", async () => {
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-targeted-pr-")
-    );
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-targeted-pr-"));
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -883,7 +928,11 @@ describe("targeted canonical subject dispatch", () => {
         },
         metadata: {
           contentType: "PullRequest",
-          pullRequest: makePullRequestContext(repository, 108, "feature/pr-108"),
+          pullRequest: makePullRequestContext(
+            repository,
+            108,
+            "feature/pr-108"
+          ),
         },
       });
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
@@ -902,6 +951,108 @@ describe("targeted canonical subject dispatch", () => {
 
       expect(result.summary.dispatched).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["Todo", "In Progress"])(
+    "posts a deduplicated advisory and does not dispatch when linked PR is %s but canonical Issue is inactive",
+    async (pullRequestState) => {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-linked-pr-active-advisory-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(
+        tempRoot,
+        repository.cloneUrl,
+        repository.owner,
+        repository.name
+      );
+      await store.saveProjectConfig(projectConfig);
+
+      const issue = makeIssue({
+        id: "issue-9",
+        identifier: "acme/platform#9",
+        number: 9,
+        state: "In review",
+        repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-issue-9",
+        },
+        metadata: {
+          contentType: "Issue",
+          linkedPullRequests: [
+            makePullRequestContext(repository, 109, "feature/pr-109"),
+          ],
+        },
+      });
+      const linkedPullRequest = makeIssue({
+        id: "pr-109",
+        identifier: "acme/platform#109",
+        number: 109,
+        state: pullRequestState,
+        repository,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          itemId: "item-pr-109",
+        },
+        metadata: {
+          contentType: "PullRequest",
+          pullRequest: makePullRequestContext(
+            repository,
+            109,
+            "feature/pr-109"
+          ),
+        },
+      });
+      const adapter = createDispatchAdapter(repository, [
+        issue,
+        linkedPullRequest,
+      ]);
+      const upsertIssueComment = vi.fn().mockResolvedValue("created");
+      adapter.upsertIssueComment = upsertIssueComment;
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+        adapter
+      );
+
+      const spawnImpl = vi.fn().mockReturnValue({ pid: 5406, unref: vi.fn() });
+      const service = new OrchestratorService(store, projectConfig, {
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      const result = await service.runOnce({
+        issueIdentifier: "acme/platform#109",
+      });
+
+      expect(result.summary.dispatched).toBe(0);
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(upsertIssueComment).toHaveBeenCalledTimes(1);
+      expect(upsertIssueComment).toHaveBeenCalledWith(
+        projectConfig,
+        expect.objectContaining({
+          id: "issue-9",
+          identifier: "acme/platform#9",
+        }),
+        expect.objectContaining({
+          marker:
+            "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-9 pr=pr-109 -->",
+          body: expect.stringContaining(
+            "Linked PR card status alone does not trigger dispatch."
+          ),
+        }),
+        expect.any(Object)
+      );
+      expect(upsertIssueComment.mock.calls[0]?.[2].body).toContain(
+        "No worker was started for this PR card status change."
+      );
     }
   );
 
