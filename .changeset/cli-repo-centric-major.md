@@ -1,5 +1,5 @@
 ---
-"@gh-symphony/cli": major
+"@gh-symphony/cli": minor
 ---
 
 @gh-symphony/cli: BREAKING — restructure CLI to repo-centric model
