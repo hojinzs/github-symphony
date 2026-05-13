@@ -1,203 +1,277 @@
 # ADR: Linear Tracker Integration
 
 - **Date**: 2026-04-29
-- **Status**: Draft
-- **Related Spec**: `docs/symphony-spec.md` (Tracker layer), `CLAUDE.md` (Six Symphony Layers)
+- **Decision Update**: 2026-05-13
+- **Status**: Accepted with review items
+- **Related Spec**: `docs/symphony-spec.md` §5, §10.5, §11; upstream OpenAI Symphony `SPEC.md`
+- **Reference Implementation**: <https://github.com/openai/symphony/tree/main/elixir>
 - **Related ADRs**: `docs/adr/2026-05-04_single-repo-orchestrator.md` (단일-리포 전환 — Linear 어댑터의 단일 repo 매핑과 양식 통일)
-- **Depends On**: 단일-리포 ADR Phase P1 (Contract) 가 먼저 머지되어 `OrchestratorProjectConfig.repositories[] → repository` 와 `tracker.settings.repository` override 모양이 정착된 상태를 전제한다. 본 ADR 의 모든 코드 참조는 _post-single-repo_ 형태 기준.
-- **Layers Affected**: Integration (신규 어댑터), Configuration (스키마 확장), Coordination (와이어링·CLI), Policy (선택)
+- **Layers Affected**: Integration (Linear tracker adapter), Configuration (`WORKFLOW.md` schema), Coordination (worker/tool injection), Policy (`WORKFLOW.md` prompt)
 
 ## Context
 
-GitHub Symphony는 현재 GitHub Project V2 (`packages/tracker-github`)와 파일 기반 fixture (`packages/tracker-file`) 두 가지 tracker만 지원한다. `OrchestratorTrackerAdapter` 계약(`packages/core/src/contracts/tracker-adapter.ts`)은 이미 추상화되어 있으나, 실제 운영 환경에서 Linear를 사용하는 팀의 도입 요구가 있다.
+GitHub Symphony는 현재 GitHub Project V2 (`packages/tracker-github`)와 파일 기반 fixture (`packages/tracker-file`) 두 가지 tracker를 지원한다. `OrchestratorTrackerAdapter` 계약(`packages/core/src/contracts/tracker-adapter.ts`)은 이미 추상화되어 있으나, 실제 운영 환경에서 Linear를 사용하는 팀의 도입 요구가 있다.
 
-본 문서는 Linear를 1급 tracker로 추가하기 위한 상세 요구사항을 정의한다. VCS는 GitHub을 그대로 유지하고 Linear는 issue tracking 책임만 담당하는 **하이브리드 모델**을 채택한다.
+2026-05-13 재검토 결과, 본 ADR은 GitHub Symphony 고유의 multi-tenant/approval-extension 관성보다 **upstream OpenAI Symphony spec과 Elixir reference implementation**을 우선한다. 즉, 이 ADR의 목표는 “GitHub Symphony에 Linear를 끼워 넣기”가 아니라, `WORKFLOW.md` 중심의 Symphony 모델에 Linear tracker를 맞추는 것이다.
+
+핵심 기준:
+
+1. `WORKFLOW.md`가 중요한 진실의 원천이다.
+2. orchestrator 인스턴스 하나는 repo 하나에 대응한다.
+3. Symphony는 scheduler/runner + tracker reader이며, ticket write business logic은 worker에게 주입된 도구와 workflow prompt가 수행한다.
+4. Webhook push 모델은 이 프로젝트의 목표와 맞지 않는다. Symphony는 외부 노출 없는 polling 구조를 추구한다.
+5. 구현은 최대한 단순하게 유지한다.
 
 ## Goals
 
-1. GitHub Project V2 외에 Linear를 1급 tracker로 지원해 멀티-트래커 환경에서 동일한 orchestration 루프를 재사용한다.
-2. VCS는 GitHub 그대로 유지 — Linear는 issue tracking 책임만 갖고, PR/브랜치/머지는 기존 GitHub 스택이 처리한다.
-3. 단일-리포 ADR 이 정착시킨 `OrchestratorTrackerAdapter` 계약 (`repository: RepositoryRef` 단일 필드 + `tracker.settings.repository` 옵셔널 override) 을 그대로 따르며, `tracker-file` 수준의 격리를 유지한다.
+1. Linear를 1급 tracker로 지원하되 upstream Symphony의 `tracker.kind: linear` / `tracker.project_slug` 모델에 최대한 맞춘다.
+2. VCS는 GitHub 그대로 유지한다. Linear는 issue tracking 책임만 갖고, PR/브랜치/머지는 기존 GitHub 스택과 worker workflow가 처리한다.
+3. 단일-리포 ADR이 정착시킨 `OrchestratorProjectConfig.repository: RepositoryRef` 단일 필드를 그대로 따른다. Linear 이슈에는 repo 개념이 없으므로 orchestrator 인스턴스의 cwd repo가 모든 Linear 이슈의 대상 repo다.
+4. Worker가 Linear 상태 변경, workpad comment 작성, PR 링크 comment 등을 직접 수행할 수 있도록 `linear_graphql`, issue env, runtime-managed Linear auth, optional `LINEAR_API_KEY` compatibility fallback을 제공한다.
+5. Orchestrator core에는 Linear write business logic을 넣지 않는다.
 
 ## Non-Goals
 
-- Linear webhook 기반 푸시 모델 (1차 범위는 폴링 유지)
-- Linear OAuth 멀티테넌트 인증 (1차 범위는 personal API key)
-- Linear Cycles/Estimates/Triage inbox 등 고급 기능 (필요 시 후속 ADR)
-- GitLab/Jira 등 다른 트래커 (별도 작업)
-- Linear ↔ GitHub 양방향 자동 동기화 데몬 (필요 시 별도 패키지)
+- Linear webhook 기반 푸시 모델. Webhook은 1차 범위 밖이 아니라 **현재 방향성상 out of spec**이다.
+- Linear OAuth 멀티테넌트 인증. 1차 범위는 personal API key다.
+- Orchestrator-side approval workflow extension이 Linear ticket writes를 대행하는 구조.
+- Linear Cycles/Estimates/Triage inbox 등 고급 기능.
+- GitLab/Jira 등 다른 트래커.
+- Linear ↔ GitHub 양방향 자동 동기화 데몬.
+- Multi-repo fan-out. 여러 repo를 운영하려면 repo별 orchestrator 인스턴스를 띄운다.
 
 ## User Stories
 
-| # | 시나리오 | 결과 |
-|---|---|---|
-| US-1 | 운영자가 Linear 팀 `ENG`의 워크플로 상태가 `In Progress`인 이슈에 대해 GitHub Symphony를 돌리고 싶다 | orchestrator가 폴링 → worker dispatch → Linear 상태 갱신 |
-| US-2 | Worker가 작업을 마치면 GitHub PR을 생성하고, PR URL을 Linear 이슈 코멘트로 남긴다 | Linear 이슈에 PR 링크 자동 attach |
-| US-3 | Linear 이슈가 `Cancelled`로 변경되면 진행 중인 worker run이 abort된다 | 다음 polling tick에서 lease 해제 |
-| US-4 | 한 머신에서 GitHub 인스턴스 (`repo-A` 의 cwd) 와 Linear 인스턴스 (`repo-B` 의 cwd) 를 동시에 운영한다 (점진 마이그레이션) | 인스턴스별 `.runtime/` 격리 — tracker 다른 두 인스턴스가 별도 포트로 공존 (단일-리포 ADR 의 unix-style multiplex) |
-| US-5 | 운영자가 CLI로 `gs workflow preview --linear ENG-123` 실행 | Linear 이슈 단건 미리보기 |
+| #    | 시나리오                                                                                                             | 결과                                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| US-1 | 운영자가 repo cwd에서 `WORKFLOW.md`에 `tracker.kind: linear`와 `tracker.project_slug`를 설정하고 Symphony를 시작한다 | orchestrator가 Linear project issue를 polling하고 eligible issue를 worker에 dispatch한다                      |
+| US-2 | Worker가 `Todo` Linear issue를 시작한다                                                                              | worker가 주입된 `linear_graphql`/Linear tooling으로 `In Progress` 전환과 workpad comment 생성을 직접 수행한다 |
+| US-3 | Worker가 작업을 마치면 GitHub PR을 생성하고 PR URL을 Linear workpad/comment에 남긴다                                 | Linear 이슈에 PR 링크가 남고 workflow prompt에 정의된 handoff state로 이동한다                                |
+| US-4 | Linear 이슈가 `Done`, `Cancelled`, `Duplicate` 등 terminal state로 변경된다                                          | 다음 polling/reconciliation tick에서 active worker를 중지하고 terminal cleanup 정책을 적용한다                |
+| US-5 | 한 머신에서 여러 repo를 운영한다                                                                                     | repo별 `.runtime/`과 별도 process/port로 unix-style multiplex 운영한다                                        |
 
 ## Domain Mapping (Linear ↔ Symphony)
 
-| Symphony 개념 | GitHub Project V2 | Linear |
-|---|---|---|
-| Project (tracker container) | ProjectV2 (`projectId`) | Team (`teamId`) 또는 Project (`projectId`) |
-| Tracked item id | issue node id | issue id (UUID) |
-| `identifier` | `owner/repo#N` | `ENG-123` (Linear issue identifier) |
-| `number` | `N` (정수) | Linear 자체 숫자 (`issue.number`) |
-| State | Project field "Status" 옵션 | Linear `WorkflowState` (per-team) |
-| Priority | 커스텀 필드 매핑 | `issue.priority` (0–4 enum) |
-| Labels | issue labels | Linear `IssueLabel[]` |
-| BlockedBy | dependency relations (custom) | Linear `IssueRelation` (`type=blocks`) |
-| URL | `https://github.com/.../issues/N` | `https://linear.app/<workspace>/issue/<identifier>` |
-| Repository | issue가 속한 repo | **Linear 이슈에는 repo 개념이 없음** → workspace config에서 `repository` 명시 필요 |
+| Symphony 개념     | GitHub Project V2           | Linear                                                       |
+| ----------------- | --------------------------- | ------------------------------------------------------------ |
+| Tracker container | ProjectV2 (`projectId`)     | Linear Project (`project_slug` → Linear `Project.slugId`)    |
+| Tracked item id   | issue node id               | issue id (UUID)                                              |
+| `identifier`      | `owner/repo#N`              | `ENG-123` (Linear issue identifier)                          |
+| Workspace key     | sanitized identifier        | sanitized `ENG-123` (workspace key is the issue identifier)  |
+| `number`          | `N` (정수)                  | Linear 자체 숫자 (`issue.number`)                            |
+| State             | Project field "Status" 옵션 | Linear `WorkflowState.name`                                  |
+| Priority          | 커스텀 필드 매핑            | `issue.priority` (0–4 enum)                                  |
+| Labels            | issue labels                | `IssueLabel[]`                                               |
+| BlockedBy         | dependency relations        | Linear inverse relation where `type=blocks`                  |
+| URL               | GitHub issue URL            | Linear issue URL                                             |
+| Repository        | issue가 속한 repo           | Linear에는 repo 개념이 없음 → orchestrator instance cwd repo |
 
 ### Linear에는 repo가 없다는 핵심 차이
 
-GitHub 이슈는 `owner/repo#N`으로 본질적으로 repo에 묶이지만 Linear 이슈는 그렇지 않다. 단일-리포 ADR 이후 orchestrator 인스턴스는 cwd 의 한 repo 를 watch 하므로, Linear 어댑터는 **그 인스턴스의 repo 를 자동으로 알 수 있다** (cwd 의 git remote 추론, 또는 `tracker.settings.repository` override).
+GitHub 이슈는 `owner/repo#N`으로 본질적으로 repo에 묶이지만 Linear 이슈는 그렇지 않다. 단일-리포 ADR 이후 orchestrator 인스턴스는 cwd의 한 repo를 watch하므로 Linear adapter는 **그 인스턴스의 repo를 자동으로 대상 repo로 사용**한다.
 
-- **기본**: 인스턴스의 cwd repo 가 모든 Linear 이슈의 라우팅 대상.
-- **명시적 override**: `tracker.settings.repository = "owner/repo"` — cwd 와 다른 repo 를 강제하고 싶을 때만 사용 (예: 모노레포 안의 sub-path 운영).
-- **Linear 측 work scope 좁히기** (후속): `tracker.settings.includeLabel = "repo:platform"` 등으로 _이 인스턴스가 처리할_ Linear 이슈 부분집합을 좁히는 용도. multi-repo fan-out 이 아니라 single-repo 인스턴스 _안_에서의 필터링이라는 점에 주의.
+- **기본**: 인스턴스의 cwd repo가 모든 Linear 이슈의 라우팅 대상.
+- **명시적 override**: 가능하면 두지 않는다. 꼭 필요할 때만 `tracker.settings.repository = "owner/repo"` 같은 escape hatch를 검토한다.
+- **Linear 측 work scope 좁히기**: upstream 기준은 `tracker.project_slug`다. 추가 label filter는 단일-리포 인스턴스 안에서의 subset filter일 뿐 multi-repo routing이 아니다.
 
-> 단일-리포 ADR 이전 초안에 있던 "라벨 기반 multi-repo 라우팅 (Phase 3)" 은 단일-리포 모델과 충돌하므로 제거됨. multi-repo 가 정말 필요한 사용자는 unix-style multiplex (리포당 인스턴스) 를 사용한다.
-
-## Package Layout
-
-```
-packages/
-├── tracker-linear/                # 신규
-│   ├── src/
-│   │   ├── adapter.ts             # Linear GraphQL 클라이언트 + 정규화
-│   │   ├── orchestrator-adapter.ts # OrchestratorTrackerAdapter 구현
-│   │   ├── validation.ts          # team/state 매핑 검증
-│   │   └── index.ts
-│   └── package.json
-└── extension-linear-workflow/     # 신규 (Phase 2)
-    ├── src/
-    │   ├── linear-approval-client.ts  # ApprovalWorkflowClient (Linear)
-    │   └── index.ts
-    └── package.json
-```
+> 결정: orchestrator 인스턴스 하나 = repo 하나. 이 결정을 위해 single-repo 전환을 수행했다. multi-repo가 필요하면 repo별 인스턴스를 운영한다.
 
 ## Configuration Schema
 
-```jsonc
-// .gh-symphony/config.json (cwd 기반, single-repo ADR 이후 형태)
-{
-  "tracker": {
-    "adapter": "linear",
-    "bindingId": "linear-eng-team",
-    "apiUrl": "https://api.linear.app/graphql",
-    "settings": {
-      "teamId": "TEAM_UUID_OR_KEY",
-      "projectId": "LINEAR_PROJECT_UUID",     // Linear 측 ID (선택, 비우면 team 전체)
-      "repository": "hojinzs/github-symphony", // 선택 — 미지정 시 cwd 의 git remote 에서 추론
-      "includeLabel": "repo:platform",         // 선택 — Linear 측 work scope 필터
-      "assignedOnly": "false",
-      "priorityMapping": "linear-default",
-      "timeoutMs": 30000
-    },
-    "lifecycle": {
-      "active":    ["In Progress", "In Review"],
-      "planning":  ["Backlog", "Todo"],
-      "completed": ["Done"],
-      "cancelled": ["Cancelled", "Duplicate"]
-    }
-  }
-}
+Upstream Symphony와 동일하게 repo-local `WORKFLOW.md` YAML front matter를 1차 source of truth로 사용한다. `.gh-symphony/config.json`은 transition/legacy input으로만 취급하며, 점진적으로 제거한다. Linear 설계는 `.gh-symphony/config.json` 호환성을 design input으로 삼지 않는다. Migration 기간의 read fallback은 별도 구현 이슈로 다룰 수 있다.
+
+```yaml
+---
+tracker:
+  kind: linear
+  # Optional; defaults to https://api.linear.app/graphql.
+  endpoint: https://api.linear.app/graphql
+  api_key: $LINEAR_API_KEY
+  project_slug: "symphony-0c79b11b75ea"
+  active_states:
+    - Todo
+    - In Progress
+    - Rework
+    - Merging
+  terminal_states:
+    - Closed
+    - Cancelled
+    - Canceled
+    - Duplicate
+    - Done
+polling:
+  interval_ms: 5000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_turns: 20
+codex:
+  command: codex app-server
+---
 ```
 
-> 최상위 `projectId` 가 없는 점에 주목 — 단일-리포 ADR 이 orchestrator-side `projectId` 를 제거. tracker-side ID 는 `tracker.settings` 안에만 위치한다.
+Prompt body controls Linear state transitions, workpad comment policy, PR handoff, and validation gates.
 
-**환경 변수**:
+`tracker.endpoint` is optional and defaults to `https://api.linear.app/graphql`. `tracker.api_key` follows the upstream `$ENV_VAR` reference shape; the runtime resolves it before configuring Linear tooling.
 
-- `LINEAR_API_KEY` (required) — Linear personal API key
-- `LINEAR_GRAPHQL_URL` (optional override)
+**Environment variables**:
+
+- `LINEAR_API_KEY` (required) — Linear personal API key. Upstream canonical env var.
+- `LINEAR_GRAPHQL_URL` (optional runtime override; default comes from `tracker.endpoint` or `https://api.linear.app/graphql`).
+
+### Linear config naming and `teamId` decision
+
+Linear user-facing workflow config is upstream-shaped and `project_slug`-only:
+
+```yaml
+tracker:
+  kind: linear
+  project_slug: "symphony-0c79b11b75ea"
+```
+
+`tracker.project_id`, `projectId`, and `teamId` must not be accepted as Linear config aliases. Existing `projectId` vocabulary in GitHub-Symphony is either GitHub Project V2-specific (`tracker.project_id`) or legacy/internal orchestration namespace. Linear implementation must not write/read `tracker.settings.projectId`; use adapter-specific normalization instead:
+
+- `tracker.kind: linear` → require `tracker.project_slug`, set internal binding to the Linear project slug, and expose `settings.projectSlug` if an internal settings field is needed.
+- `tracker.kind: github-project` → continue using GitHub Project V2 `tracker.project_id` / `settings.projectId`.
+
+`teamId` was present in the earlier draft. Remove it from required configuration.
+
+Rationale:
+
+- Upstream Elixir config schema has `tracker.project_slug` and no `project_id`, `projectId`, or `teamId` field for Linear.
+- Candidate polling is simpler and upstream-aligned when scoped by `tracker.project_slug` (`project.slugId`) plus state names.
+- State transitions can resolve the target state id from the issue itself (`issue.team.states`) instead of trusting a configured team id.
+- Comment create/update does not need team id.
+- Optional assignee filtering can remain project-scoped by combining `project_slug` with viewer/assignee identity, matching the Elixir reference behavior.
+- Team-wide orchestration without a Linear Project is not an MVP use case; operators should create/use a Linear Project for the repo.
+- Config is simpler with only `tracker.project_slug` as the Linear project boundary.
+
+If a future feature genuinely needs team-level scope, add `teamId` as optional derived/convenience metadata rather than making it a dispatch preflight requirement.
+
+`tracker.kind` is the user-facing upstream enum. The TypeScript adapter registry should use the same string (`"linear"`) as the internal adapter key unless a future adapter layer requires an explicit mapping.
+
+### Linear state names, not universal lifecycle phases
+
+Do not introduce a universal lifecycle phase mapping for Linear. Linear `WorkflowState.name` values are workflow-local policy labels. Symphony only needs to know which state names are active candidates and which are terminal for reconciliation. Any richer lifecycle semantics belong in the `WORKFLOW.md` prompt/policy, not in the tracker adapter contract.
+
+The `active_states` and `terminal_states` examples above are examples, not prescribed lifecycle phases. Different teams may use different Linear workflow names; the adapter must treat them as configured strings.
+
+### Workspace key normalization
+
+Use the Linear issue identifier (for example `ENG-123`) as the workspace key after deterministic sanitization:
+
+1. Preserve uppercase ASCII letters, digits, and hyphens.
+2. Trim surrounding whitespace and normalize to uppercase for matching Linear identifiers.
+3. Reject identifiers that do not match `^[A-Z][A-Z0-9]*-\d+$` instead of inventing a fallback path.
+4. Use the sanitized identifier directly as the workspace directory name under the configured workspace root.
+
+Collision handling is scoped by the orchestrator instance. Since one instance maps to one repo and one runtime workspace root, `ENG-123` in repo A and `ENG-123` in repo B do not collide when each repo runs its own instance/root. If an operator deliberately points multiple instances at the same workspace root, that is an unsupported deployment shape unless the operator also namespaces the root per repo.
 
 ## OrchestratorTrackerAdapter Implementation
 
-5개 메서드 모두 구현. GitHub과의 차이점만 기술한다.
+Implement the tracker adapter read contract and keep write operations out of orchestrator business logic.
 
-### `listIssues(project, deps)`
+### `listIssues(project, deps)` / candidate polling
 
-- Linear GraphQL `issues(filter: { team: { id: $teamId }, state: { type: { in: [...] } } })`로 페이지네이션 (50건/page, cursor 기반)
-- `tracker.settings.assignedOnly === "true"`면 `viewer` 쿼리로 user id 조회 후 `assignee: { id: { eq } }` 필터 추가
-- `tracker.settings.includeLabel` 이 있으면 `labels: { name: { in: [...] } }` 필터 추가 (단일-리포 인스턴스의 work scope 좁히기)
-- `repository` 는 cwd 의 git remote 추론 또는 `tracker.settings.repository` override 로 주입 (Linear 응답에는 없음)
-- 정규화 함수가 Linear 응답을 `TrackedIssue`로 변환
+- Linear GraphQL query filters by `project: { slugId: { eq: $projectSlug } }` and `state: { name: { in: $stateNames } }`.
+- Page size defaults to 50 and cursor pagination is required.
+- Optional `assignedOnly` may query viewer and add `assignee` filtering, matching the Elixir reference behavior.
+- `repository` is injected from the orchestrator instance repo, not from Linear response.
+- Normalize Linear response to `TrackedIssue`.
 
 ### `listIssuesByStates(project, states)`
 
-- GitHub과 달리 **Linear는 server-side state filter가 가능** → GraphQL `state: { name: { in: $states } }`로 직접 필터링 (per-tick cache 불필요)
-- 결과적으로 ADR 2026-03-19의 `projectItemsCache` 의존성에서 자유로움 (deps에 cache가 와도 무시)
+- Linear supports server-side state filtering; use `state: { name: { in: $states } }`.
+- Do not depend on GitHub Project V2 `projectItemsCache`. Linear can query the necessary states directly.
 
 ### `fetchIssueStatesByIds(project, ids)`
 
-- `issues(filter: { id: { in: $ids } })`로 bulk 조회
+- Use `issues(filter: { id: { in: $ids } })` with GraphQL variable type `[ID!]`.
+- This supports active-run reconciliation without full project fetch.
 
 ### `buildWorkerEnvironment(project, issue)`
 
-주입 env:
+Worker env should include enough non-secret context for direct Linear tooling:
 
-```
-LINEAR_TEAM_ID=...
+```bash
+LINEAR_GRAPHQL_URL=https://api.linear.app/graphql
 LINEAR_ISSUE_ID=...
 LINEAR_ISSUE_IDENTIFIER=ENG-123
-LINEAR_API_KEY=...
 SYMPHONY_TRACKER_KIND=linear
 ```
 
+Do **not** require `LINEAR_TEAM_ID` for MVP. If included later, treat it as optional convenience metadata.
+
+`LINEAR_API_KEY` may be injected into the worker process environment as an MVP compatibility fallback when the selected agent/tooling stack cannot call authenticated runtime tools directly. This is not the design center; prefer `linear_graphql` with runtime-managed auth.
+
 ### `reviveIssue(project, run)`
 
-- `run.issueId`(Linear UUID), `run.issueIdentifier`(`ENG-123`), `run.issueState`로 최소 `TrackedIssue` 재구성
-- `repository`는 cwd 또는 `tracker.settings.repository` override 에서 다시 주입 (run record 의 `repository` 필드도 단일-리포 ADR 이후 단일 `RepositoryRef`)
+- Reconstruct minimal `TrackedIssue` from `run.issueId`, `run.issueIdentifier`, and `run.issueState`.
+- Reinject repository from the single repo instance config/cwd.
 
-## Core Changes (최소화)
+## Worker Linear Tooling Boundary
 
-### `TrackerAdapterKind`
+This ADR adopts upstream’s tracker write boundary:
 
-```ts
-export type TrackerAdapterKind = "github-project" | "linear" | "file" | (string & {});
-```
+> Symphony is a scheduler/runner and tracker reader. Ticket writes (state transitions, comments, PR links) are typically performed by the coding agent using tools available in the workflow/runtime environment.
 
-(이미 `(string & {})` 확장 가능 — 타입 명시만 추가)
+### Linear auth boundary
 
-### `TrackedIssue.number` 완화
+The canonical workflow config may reference `api_key: $LINEAR_API_KEY`, matching upstream. The orchestrator/runtime resolves that secret and uses it to configure Linear runtime tooling.
 
-Linear도 `issue.number`(팀 내 일련번호)를 가지므로 유지. 단, `identifier`가 `ENG-123` 포맷일 수 있음을 문서화한다.
+The preferred worker boundary is tool-mediated auth: worker sessions receive a `linear_graphql` tool and pass only GraphQL `query`/`variables`. The model should not need to inspect, echo, or scrape the raw Linear token.
 
-### `OrchestratorTrackerConfig`
+For MVP compatibility, the runtime may also inject `LINEAR_API_KEY` into the worker process environment when required by the selected agent/tooling stack. Treat this as a bootstrap fallback, not the design center:
 
-단일-리포 ADR 이후의 `OrchestratorTrackerConfig` (`adapter`, `bindingId`, `apiUrl`, `settings: Record<string, unknown>`) 그대로 사용. 신규 필드 없음 — Linear-specific 옵션은 모두 `settings` 안.
+- do not persist the token in run state;
+- do not include it in structured logs, prompts, workpad comments, or observability metadata;
+- scrub it from child process diagnostics where possible;
+- prefer `linear_graphql` over shell-level Linear API calls;
+- allow disabling raw env exposure once the runtime tool bridge can execute authenticated GraphQL directly.
 
-## Approval Workflow Integration (`extension-linear-workflow`)
+`LINEAR_GRAPHQL_URL` is optional and defaults to `tracker.endpoint` or `https://api.linear.app/graphql`.
 
-`ApprovalWorkflowClient` 인터페이스를 Linear backend로 구현:
+### `linear_graphql` tool contract
 
-| 메서드 | Linear 매핑 |
-|---|---|
-| `findIssueCommentByMarker(issueId, marker)` | `issue.comments` 페이지네이션 → body에 marker 포함 검색 |
-| `createIssueComment(issueId, body)` | `commentCreate` mutation |
-| `updateIssueComment(commentId, body)` | `commentUpdate` mutation |
-| `updateProjectItemState({…, state})` | `issueUpdate(input: { stateId })` — `state` 이름→`stateId` 해결 캐시 필요 |
-| `findPullRequestByBranch(...)` | **GitHub backend로 위임** (Linear는 PR을 소유하지 않음) |
-| `createPullRequest(...)` | **GitHub backend로 위임** + 생성 후 Linear 이슈에 PR URL 코멘트 |
-| `updatePullRequest(...)` | **GitHub backend로 위임** |
+Therefore:
 
-### Hybrid Approval Client
+1. Include a `linear_graphql` client-side tool for worker sessions.
+2. Reuse active Symphony workflow/runtime Linear endpoint and auth; the worker should not scrape tokens from disk.
+3. Accept input shape:
 
-- `LinearApprovalWorkflowClient`는 내부적으로 `GitHubApprovalWorkflowClient`를 composition으로 보유
-- 이슈 관련 메서드 → Linear API
-- PR 관련 메서드 → GitHub API에 그대로 위임
-- 추가 책임: PR 생성 직후 Linear 이슈에 `Linked PR: <url>` 코멘트 (idempotent marker 사용)
+   ```json
+   {
+     "query": "single GraphQL query or mutation document",
+     "variables": {}
+   }
+   ```
+
+4. Reject documents containing multiple GraphQL operations, matching upstream spec. TypeScript implementation should enforce this with a GraphQL parser rather than parser-lite string inspection. If a document contains exactly one operation, `operationName` is optional; if the parser detects more than one operation definition, reject before sending the request to Linear.
+5. Return structured success/error payloads, preserving GraphQL errors for debugging.
+6. Prefer workflow prompt + repo skills to define state transitions/comment policy.
+7. Do not add orchestrator-side first-class APIs for Linear comments/state updates unless a future upstream spec requires it.
+
+## Rejected: `extension-linear-workflow` as primary write path
+
+The earlier draft proposed `extension-linear-workflow` implementing `ApprovalWorkflowClient` and delegating PR operations to GitHub. This is now rejected as the primary design because it moves ticket write business logic into the orchestrator/extension layer.
+
+Worker-driven writes are simpler and closer to upstream:
+
+- worker receives `linear_graphql` / Linear CLI/tool access;
+- `WORKFLOW.md` defines the comment, workpad, state, and handoff policy;
+- orchestrator remains scheduler/runner + reader;
+- Linear comments and PR links are resolved by the worker, not by a hybrid approval client.
+
+A thin helper package or skill may still exist for ergonomics, but it must be worker tooling, not orchestrator coordination policy.
 
 ## CLI Changes
 
-- `packages/cli/src/commands/workflow.ts`의 `fetchGithubProjectIssueByRepositoryAndNumber` 직접 import 제거
-- `resolveTrackerAdapter()`를 통해 어댑터 위임으로 변경
-- `gh-symphony workflow preview ENG-123` 형식 식별자 인식 (정규식 `^[A-Z]+-\d+$` → linear, `owner/repo#N` → github)
-- 단일-리포 ADR 이후의 `gh-symphony repo init` cwd 기반 흐름과 호환 — `repo init` 이 tracker `adapter: "linear"` 를 만나면 `LINEAR_API_KEY` 와 `teamId` 검증 단계를 추가
+- `gh-symphony repo init/start` remain cwd/repo based.
+- `WORKFLOW.md` is the canonical config/prompt file.
+- `gh-symphony workflow preview ENG-123` may recognize Linear identifiers (`^[A-Z]+-\d+$`) and fetch one issue through the active tracker adapter.
+- `repo init` should validate that `LINEAR_API_KEY` resolves when `tracker.kind: linear`, and that `tracker.project_slug` is present.
+- Do not add webhook setup commands for Linear.
 
 ## Wiring
 
@@ -210,55 +284,69 @@ const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
 ]);
 ```
 
+Runtime/tool wiring should ensure Linear sessions expose `linear_graphql` when `tracker.kind: linear` and valid auth is configured.
+
 ## Observability
 
-- 이벤트 타입은 변경 없이 재사용 (`tracker.list`, `tracker.fetchByIds`, `worker.dispatched`)
-- 추가 메타데이터: `tracker.adapter = "linear"`, `tracker.linear.teamId`
-- Rate limit: Linear는 응답 헤더 `X-RateLimit-Requests-Remaining`/`X-RateLimit-Requests-Reset` → 기존 `rateLimits` 필드에 정규화 저장
+- Reuse existing event types where possible (`tracker.list`, `tracker.fetchByIds`, `worker.dispatched`).
+- Include `tracker.adapter = "linear"`, `tracker.projectSlug`, issue identifier, and issue id in structured metadata.
+- Do not include `teamId` in required observability metadata for MVP.
+- Normalize Linear rate-limit headers into existing `rateLimits` fields where available.
 
 ## Test Strategy
 
-| 레벨 | 범위 |
-|---|---|
-| Unit | `tracker-linear` 정규화·필터링·priority 매핑 (mocked fetch) |
-| Unit | `LinearApprovalWorkflowClient` 위임 동작 (PR 호출이 GitHub backend로 가는지) |
-| Conformance | `core-conformance.test.ts` 패턴 따라 5개 메서드 계약 검증 |
-| Integration | `tracker-adapters.ts` 가 `"linear"` 키를 올바르게 해석 |
-| E2E (Docker) | `AGENT_TEST.md` 가이드에 따라 Linear sandbox team으로 1 issue 라이프사이클 (planning → completed) |
+| Level       | Scope                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| Unit        | `tracker-linear` GraphQL query construction, pagination, normalization, blocker derivation, priority mapping |
+| Unit        | `linear_graphql` tool input validation and success/error payloads                                            |
+| Conformance | Required tracker operations: candidate fetch, fetch by states, fetch states by ids                           |
+| Integration | `tracker-adapters.ts` resolves `"linear"`; runtime exposes `linear_graphql` for Linear workflow              |
+| CLI         | `repo init`/`workflow preview ENG-123` read `WORKFLOW.md` and validate Linear config                         |
+| E2E         | Linear sandbox project: Todo → In Progress → Human Review/Done via worker tooling and workpad comment        |
 
 ## Rollout
 
-0. **Phase 0 (선행 의존)**: 단일-리포 ADR P1 (Contract) 머지. `OrchestratorProjectConfig.repository` 단일 필드, `tracker.settings.repository` override 모양 정착.
-1. **Phase 1 (MVP, ~50h)**: tracker-linear 어댑터만, approval workflow는 mock — 운영자가 read-only 폴링/상태 동기화 검증. 단일-리포 ADR P1 의 단일 `repository` scaffolding 활용으로 ~5~10h 절감.
-2. **Phase 2 (~60h)**: extension-linear-workflow 추가 — 풀 라이프사이클 (PR 생성 + Linear 코멘트)
-3. **Phase 3 (후속)**: webhook 지원 + Linear 측 work scope 좁히기 (`includeLabel` 등 라벨 필터). 단일-리포 모델 하에서 multi-repo fan-out 은 본 ADR 의 범위 밖 — 필요 시 별도 ADR.
+0. **Phase 0 — Contract alignment**: ensure single-repo contract is in place and `WORKFLOW.md` is treated as the policy/config source.
+1. **Phase 1 — Linear reader MVP**: implement `tracker-linear` with `project_slug`, server-side state filtering, pagination, and reconciliation queries.
+2. **Phase 2 — Worker tool support**: provide `linear_graphql`, runtime-managed Linear auth, optional `LINEAR_API_KEY` compatibility fallback, and issue env so worker can update state/comments directly.
+3. **Phase 3 — CLI/docs**: `repo init`, `workflow preview`, docs, and examples aligned to upstream `WORKFLOW.md` shape.
+4. **Phase 4 — Hardening**: rate-limit observability, sandbox E2E, retry/reconciliation edge cases.
 
-## Cost Estimate
+No webhook phase is planned.
 
-| 작업 | 시간 |
-|---|---|
-| `packages/tracker-linear` (Linear GraphQL 클라이언트 + 5 어댑터 메서드, ~1,200 LOC) | 40~60h |
-| Validation 모듈 (필드 매핑·중복 검출 — Linear 의미가 다름) | 8~12h |
-| `tracker-adapters.ts` 등록·와이어링 | 2~4h |
-| CLI `workflow` preview 명령 | 8~12h |
-| `extension-linear-workflow` (`ApprovalWorkflowClient` 구현) | 20~30h |
-| 단위/통합/E2E 테스트 | 16~20h |
-| 문서화 | 4~6h |
-| **합계** | **93~134h ≒ 2.3~3.4주 (1인 기준)** |
+## Decision Record (2026-05-13)
 
-> 단일-리포 ADR P1 머지 후의 추정. P1 이 `repository: RepositoryRef` 단일 모양 + `tracker.settings.repository` override 흐름을 이미 깔아주므로, "Validation 모듈" 과 "와이어링" 항목에서 ~5~10h 절감.
+Steve provided the following decisions, with explicit instruction to challenge them against upstream spec and simplicity:
 
-## Open Questions
+1. **WORKFLOW.md source of truth** — accepted. Upstream spec and Elixir implementation agree.
+2. **`teamId` required?** — resolved: remove from required config. Use `project_slug` as the Linear project boundary; resolve team-specific state ids from the issue (`issue.team.states`) when needed.
+3. **One instance = one repo** — accepted. This is the reason for the single-repo work.
+4. **`{project}-{repo}` disambiguation** — resolved: avoid. Upstream Elixir uses sanitized issue identifiers as workspace paths, and one repo instance already scopes the repository.
+5. **Workspace key** — accepted: use issue identifier/workspace key (e.g. `ENG-123` sanitized), not project×repo compound keys.
+6. **Current lifecycle structure** — accepted only insofar as it stays within upstream Symphony lifecycle. Do not add a universal Linear lifecycle phase mapping; `active_states`/`terminal_states` are workflow-local policy strings.
+7. **Linear writes by worker** — accepted. Worker gets CLI/tool access and changes Linear directly.
+8. **Spec alignment over custom structure** — accepted. Follow upstream spec and Elixir implementation where possible.
+9. **Avoid orchestrator write business logic** — accepted, same rationale as #7.
+10. **Include worker Linear capability** — accepted: include `linear_graphql`, issue env, runtime-managed auth, and optional `LINEAR_API_KEY` compatibility fallback.
+11. **Linear comments + `linear_graphql`; no webhook** — accepted. Some Phase 2 worker-tool pieces should move earlier because comments/workpad are central. Webhook is out of spec.
+12. **Personal API key first** — accepted.
+13. **No `projectItemsCache` dependency for Linear** — accepted. Linear can server-side filter states.
+14. **Keep polling model** — accepted.
+15. **Most single-repo groundwork already implemented** — accepted as implementation context, but code must be verified per PR because main still contains legacy `projectId` references in some paths.
 
-1. **인증 모델**: 1차는 personal API key 고정인가? 향후 OAuth 도입 시 worker env 주입 방식은?
-2. **State 이름 vs ID**: Linear state는 team별 UUID — config에 이름으로 적되 런타임에 ID로 해석하는 캐시 위치 (orchestrator? adapter?)
-3. **라벨 동기화**: GitHub PR 라벨과 Linear 라벨을 어느 방향으로 동기화할지? (1차 범위 제외 권장)
-4. **이슈 식별자 충돌**: 동일 워크스페이스에 GitHub `#123`과 Linear `ENG-123`이 공존할 때 `runId` 생성 규칙
-5. **PR ↔ Linear 링크 마커**: HTML 코멘트(`<!-- symphony:pr-link -->`)를 Linear comment body에 사용할지 마커 컨벤션
-6. **테스트 자격증명**: CI에서 Linear sandbox 팀을 어떻게 격리·재사용할지
+## Implementation Constraints / Deferred Hardening
 
-## Decision Points (합의 필요)
+1. **GraphQL operation validation**: `linear_graphql` must reject multiple operations, matching upstream spec. TypeScript should enforce this with a GraphQL parser before sending requests to Linear.
+2. **Token exposure**: Passing `LINEAR_API_KEY` to worker is acceptable only as an MVP compatibility fallback. The preferred/default boundary is the upstream pattern: `linear_graphql` executes with Symphony runtime auth and does not require the model to inspect raw token values.
+3. **Current implementation drift**: `main` has single-repo runtime layout mostly in place, but many core/CLI types still carry legacy `projectId` vocabulary. Treat this as an implementation constraint, not a Linear design input. Linear work should not wait for a full `projectId` cleanup; it must instead add adapter-specific normalization boundaries so Linear never aliases `tracker.project_id`, never writes/reads `settings.projectId`, and stays `tracker.project_slug`-only.
 
-1. ~~**단일 repo 매핑으로 시작 vs 처음부터 라벨 라우팅**~~ — 단일-리포 ADR (`docs/adr/2026-05-04_single-repo-orchestrator.md`) 채택으로 자동 해소. orchestrator 인스턴스 = 단일 repo 가 mandated.
-2. **Hybrid composition 모델** — Linear extension이 GitHub extension을 내부적으로 호출하는 구조에 대한 합의
-3. **Phase 1 MVP 우선 머지 vs Phase 2까지 일괄 진행** — 본 문서는 Phase 1 우선을 권장
+## References
+
+- upstream spec: <https://github.com/openai/symphony/blob/main/SPEC.md>
+- upstream Elixir workflow example: <https://github.com/openai/symphony/blob/main/elixir/WORKFLOW.md>
+- upstream Elixir Linear client/tooling:
+  - <https://github.com/openai/symphony/blob/main/elixir/lib/symphony_elixir/linear/client.ex>
+  - <https://github.com/openai/symphony/blob/main/elixir/lib/symphony_elixir/codex/dynamic_tool.ex>
+  - <https://github.com/openai/symphony/blob/main/elixir/lib/symphony_elixir/linear/adapter.ex>
+- local spec: `docs/symphony-spec.md`
+- single-repo ADR: `docs/adr/2026-05-04_single-repo-orchestrator.md`
