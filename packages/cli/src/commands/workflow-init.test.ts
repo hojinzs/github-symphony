@@ -326,14 +326,14 @@ describe("init priority field detection", () => {
     expect(payload.priorityFieldName).toBe("Priority");
   });
 
-  it("runs Claude preflight for init --runtime claude-code", async () => {
+  it("allows Claude preflight for init --runtime claude-code with local auth", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-claude-preflight-"));
     const binDir = join(configDir, "bin");
     await mkdir(binDir, { recursive: true });
-    const claude = join(binDir, "claude-code");
+    const claude = join(binDir, "claude");
     await writeFile(
       claude,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude-code 1.0.0'; fi\n",
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 1.0.0'; fi\n",
       "utf8"
     );
     await chmod(claude, 0o755);
@@ -385,9 +385,12 @@ describe("init priority field detection", () => {
       }
     );
 
-    expect(process.exitCode).toBe(1);
-    expect(p.log.error).toHaveBeenCalledWith(
-      expect.stringContaining("Neither ANTHROPIC_API_KEY")
+    expect(process.exitCode).toBeUndefined();
+    expect(p.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("WARN Claude authentication")
+    );
+    expect(p.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("Claude Code local login")
     );
   });
 
@@ -836,7 +839,7 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("    - bypassPermissions");
     expect(plan.workflowMd).toContain("    bare: false");
     expect(plan.workflowMd).toContain("    strict_mcp_config: false");
-    expect(plan.workflowMd).toContain("    env: ANTHROPIC_API_KEY");
+    expect(plan.workflowMd).not.toContain("    env: ANTHROPIC_API_KEY");
     expect(plan.workflowMd).toContain("    stall_timeout_ms: 900000");
     expect(plan.workflowMd).toContain("## Runtime Constraints");
     expect(plan.workflowMd).toContain("Runtime trade-off note:");

@@ -47,7 +47,7 @@ describe("Claude runtime preflight", () => {
     });
   });
 
-  it("reports missing ANTHROPIC_API_KEY with broker guidance", async () => {
+  it("reports missing ANTHROPIC_API_KEY with broker guidance when API key auth is required", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-key-"));
     const report = await runClaudePreflight(
       { cwd, env: {}, command: "claude" },
@@ -63,6 +63,29 @@ describe("Claude runtime preflight", () => {
       remediation: expect.stringContaining(
         "Set ANTHROPIC_API_KEY or configure"
       ),
+    });
+  });
+
+  it("warns when local Claude Code auth is allowed and no API key or broker is configured", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-local-"));
+    const report = await runClaudePreflight(
+      {
+        cwd,
+        env: {},
+        command: "claude",
+        authMode: "local-or-api-key",
+      },
+      { execFileSync: vi.fn(execSuccess) as never }
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "warn",
+      title: "Claude authentication",
+      summary: expect.stringContaining("Claude Code local login"),
+      details: { source: "local" },
     });
   });
 

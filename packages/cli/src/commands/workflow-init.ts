@@ -192,6 +192,7 @@ async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
     command:
       resolveClaudeCommandBinary(resolveRuntimeCommand(runtime)) ??
       resolveRuntimeCommand(runtime),
+    authMode: "local-or-api-key",
     includeGhAuth: !hasGitHubGraphqlToken,
   });
   const message = formatClaudePreflightText(report);

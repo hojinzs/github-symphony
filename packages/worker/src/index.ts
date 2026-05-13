@@ -48,7 +48,10 @@ import {
   type WorkerNonCodexTurnResult,
 } from "./non-codex-runtime.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import { resolveWorkerRuntimeRoute } from "./runtime-routing.js";
+import {
+  resolveClaudePreflightAuthMode,
+  resolveWorkerRuntimeRoute,
+} from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
@@ -495,14 +498,15 @@ async function startAssignedRun() {
       workflow.runtime?.kind === "claude-print" &&
       isClaudeRuntimeCommand(resolveWorkflowRuntimeCommand(workflow))
     ) {
+      const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
         launcherEnv.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
-        command:
-          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
+        command: resolveClaudeCommandBinary(runtimeCommand) ?? runtimeCommand,
+        authMode: resolveClaudePreflightAuthMode(workflow),
         includeGhAuth: !hasGitHubGraphqlToken,
       });
       process.stderr.write(
