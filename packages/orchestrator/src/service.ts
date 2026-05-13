@@ -645,7 +645,6 @@ export class OrchestratorService {
         tenant,
         trackerAdapter,
         filteredIssues,
-        lifecycle,
         trackerDependencies
       );
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
@@ -1186,7 +1185,6 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     trackerAdapter: OrchestratorTrackerAdapter,
     issues: readonly TrackedIssue[],
-    lifecycle: WorkflowLifecycleConfig,
     trackerDependencies: OrchestratorTrackerDependencies
   ): Promise<void> {
     if (!trackerAdapter.upsertIssueComment) {
@@ -1197,6 +1195,16 @@ export class OrchestratorService {
       if (issue.metadata.contentType === "PullRequest") {
         continue;
       }
+
+      const resolution = await this.loadProjectWorkflow(
+        tenant,
+        issue.repository
+      );
+      if (!isUsableWorkflowResolution(resolution)) {
+        continue;
+      }
+      const lifecycle = resolution.lifecycle;
+
       if (isStateTerminal(issue.state, lifecycle)) {
         continue;
       }

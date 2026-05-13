@@ -1056,6 +1056,109 @@ describe("targeted canonical subject dispatch", () => {
     }
   );
 
+  it("evaluates linked PR advisory states with each issue repository workflow", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-linked-pr-advisory-per-repo-workflow-")
+    );
+    const defaultRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const alternateRepository = await createRepositoryFixture(
+      tempRoot,
+      "other",
+      "service",
+      { activeStates: ["Doing"] }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      defaultRepository.cloneUrl,
+      defaultRepository.owner,
+      defaultRepository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const defaultIssue = makeIssue({
+      id: "issue-10",
+      identifier: "acme/platform#10",
+      number: 10,
+      state: "Done",
+      repository: defaultRepository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-issue-10",
+      },
+      metadata: { contentType: "Issue" },
+    });
+    const alternateIssue = makeIssue({
+      id: "issue-11",
+      identifier: "other/service#11",
+      number: 11,
+      state: "Review",
+      repository: alternateRepository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-issue-11",
+      },
+      metadata: {
+        contentType: "Issue",
+        linkedPullRequests: [
+          makePullRequestContext(
+            alternateRepository,
+            111,
+            "feature/pr-111"
+          ),
+        ],
+      },
+    });
+    const alternatePullRequest = makeIssue({
+      id: "pr-111",
+      identifier: "other/service#111",
+      number: 111,
+      state: "Todo",
+      repository: alternateRepository,
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        itemId: "item-pr-111",
+      },
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: makePullRequestContext(
+          alternateRepository,
+          111,
+          "feature/pr-111"
+        ),
+      },
+    });
+    const adapter = createDispatchAdapter(defaultRepository, [
+      defaultIssue,
+      alternateIssue,
+      alternatePullRequest,
+    ]);
+    const upsertIssueComment = vi.fn().mockResolvedValue("created");
+    adapter.upsertIssueComment = upsertIssueComment;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      adapter
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5410, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(upsertIssueComment).not.toHaveBeenCalled();
+  });
+
   it("dispatches a standalone PR subject when targeting its identifier", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-targeted-standalone-pr-")
@@ -1328,6 +1431,7 @@ async function createRepositoryFixture(
   owner: string,
   name: string,
   options: {
+    activeStates?: string[];
     maxConcurrentByState?: Record<string, number>;
     codex?: {
       approvalPolicy?: string;
@@ -1367,6 +1471,7 @@ async function createRepositoryFixture(
 async function writeWorkflowFixture(
   repositoryRoot: string,
   options: {
+    activeStates?: string[];
     maxConcurrentByState?: Record<string, number>;
     codex?: {
       approvalPolicy?: string;
@@ -1375,6 +1480,10 @@ async function writeWorkflowFixture(
     };
   } = {}
 ): Promise<void> {
+  const activeStates = options.activeStates ?? ["Todo", "In Progress"];
+  const activeStateLines = activeStates
+    .map((state) => `    - ${state}`)
+    .join("\n");
   const maxConcurrentByState = options.maxConcurrentByState
     ? `  max_concurrent_agents_by_state:\n${Object.entries(
         options.maxConcurrentByState
@@ -1411,8 +1520,7 @@ tracker:
   project_id: project-123
   state_field: Status
   active_states:
-    - Todo
-    - In Progress
+${activeStateLines}
   terminal_states:
     - Done
   blocker_check_states:
