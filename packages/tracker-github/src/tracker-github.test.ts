@@ -732,6 +732,164 @@ describe("resolveTrackerAdapter", () => {
     expect(issue.state).toBe("Ready");
   });
 
+  it("creates advisory comments when the marker is absent", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              addComment: {
+                commentEdge: {
+                  node: {
+                    id: "comment-1",
+                    body: "marker body",
+                  },
+                },
+              },
+            },
+          })
+        )
+      );
+
+    const result = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      {
+        marker:
+          "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-1 pr=pr-2 -->",
+        body: "marker body",
+      },
+      { token: "test-token", fetchImpl }
+    );
+
+    expect(result).toBe("created");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const mutationBody = JSON.parse(
+      String(fetchImpl.mock.calls[1]?.[1]?.body)
+    ) as { query: string; variables: Record<string, string> };
+    expect(mutationBody.query).toContain("mutation AddIssueComment");
+    expect(mutationBody.variables.subjectId).toBe("issue-1");
+  });
+
+  it("does not update advisory comments when the existing body is unchanged", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const marker =
+      "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-1 pr=pr-2 -->";
+    const body = `${marker}\n\nLinked PR card status alone does not trigger dispatch.`;
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "Issue",
+              comments: {
+                nodes: [{ id: "comment-1", body }],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        })
+      )
+    );
+
+    const result = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      { marker, body },
+      { token: "test-token", fetchImpl }
+    );
+
+    expect(result).toBe("unchanged");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates advisory comments when the marker exists with a different body", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const marker =
+      "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-1 pr=pr-2 -->";
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: [{ id: "comment-1", body: `${marker}\nold body` }],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              updateIssueComment: {
+                issueComment: {
+                  id: "comment-1",
+                  body: `${marker}\nnew body`,
+                },
+              },
+            },
+          })
+        )
+      );
+
+    const result = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      { marker, body: `${marker}\nnew body` },
+      { token: "test-token", fetchImpl }
+    );
+
+    expect(result).toBe("updated");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const mutationBody = JSON.parse(
+      String(fetchImpl.mock.calls[1]?.[1]?.body)
+    ) as { query: string; variables: Record<string, string> };
+    expect(mutationBody.query).toContain("mutation UpdateIssueComment");
+    expect(mutationBody.variables.commentId).toBe("comment-1");
+  });
+
   it("throws for unsupported tracker adapters", () => {
     expect(() =>
       resolveTrackerAdapter({
@@ -3164,6 +3322,57 @@ function makePullRequestStateLookupNode(input: {
         endCursor: null,
         hasNextPage: false,
       },
+    },
+  };
+}
+
+function makeProjectConfig() {
+  return {
+    projectId: "tenant-1",
+    slug: "tenant-1",
+    workspaceDir: "/tmp/workspaces/tenant-1",
+    repository: {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
+    tracker: {
+      adapter: "github-project" as const,
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    },
+  };
+}
+
+function makeTrackedIssue(): TrackedIssue {
+  return {
+    id: "issue-1",
+    identifier: "acme/platform#1",
+    number: 1,
+    title: "Test issue",
+    description: null,
+    priority: null,
+    state: "In review",
+    branchName: null,
+    url: "https://github.com/acme/platform/issues/1",
+    labels: [],
+    blockedBy: [],
+    createdAt: null,
+    updatedAt: null,
+    repository: {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    },
+    tracker: {
+      adapter: "github-project",
+      bindingId: "project-123",
+      itemId: "item-1",
+    },
+    metadata: {
+      contentType: "Issue",
     },
   };
 }

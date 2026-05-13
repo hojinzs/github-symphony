@@ -120,4 +120,13 @@ export type OrchestratorTrackerAdapter = {
     project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
+  upsertIssueComment?(
+    project: OrchestratorProjectConfig,
+    issue: TrackedIssue,
+    input: {
+      marker: string;
+      body: string;
+    },
+    dependencies?: OrchestratorTrackerDependencies
+  ): Promise<"created" | "updated" | "unchanged">;
 };
