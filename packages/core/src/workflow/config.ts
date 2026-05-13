@@ -112,6 +112,7 @@ export type ParsedWorkflow = WorkflowDefinition & {
 export const DEFAULT_CODEX_COMMAND = "codex app-server";
 export const DEFAULT_CLAUDE_COMMAND = "claude";
 export const DEFAULT_AGENT_COMMAND = DEFAULT_CODEX_COMMAND;
+export const DEFAULT_LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 export const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 300_000;

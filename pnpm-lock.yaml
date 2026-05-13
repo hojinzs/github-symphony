@@ -178,6 +178,9 @@ importers:
       '@gh-symphony/tracker-github':
         specifier: workspace:*
         version: link:../tracker-github
+      '@gh-symphony/tracker-linear':
+        specifier: workspace:*
+        version: link:../tracker-linear
 
   packages/runtime-claude:
     dependencies:
@@ -206,6 +209,12 @@ importers:
         version: link:../core
 
   packages/tracker-github:
+    dependencies:
+      '@gh-symphony/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/tracker-linear:
     dependencies:
       '@gh-symphony/core':
         specifier: workspace:*

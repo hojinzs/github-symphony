@@ -28,6 +28,10 @@ export default defineConfig({
         packageRoot,
         "../tracker-github/src/index.ts"
       ),
+      "@gh-symphony/tracker-linear": resolve(
+        packageRoot,
+        "../tracker-linear/src/index.ts"
+      ),
     },
   },
   test: {

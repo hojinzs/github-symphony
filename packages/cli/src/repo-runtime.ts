@@ -81,6 +81,12 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     ...(workflow.tracker.projectId
       ? { projectId: workflow.tracker.projectId }
       : {}),
+    ...(workflow.tracker.projectSlug
+      ? { projectSlug: workflow.tracker.projectSlug }
+      : {}),
+    ...(trackerAdapter === "linear"
+      ? { activeStates: workflow.tracker.activeStates.join("\n") }
+      : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
   if (flags.assignedOnly) {
@@ -105,6 +111,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     tracker: {
       adapter: trackerAdapter,
       bindingId: trackerBindingId,
+      ...(workflow.tracker.endpoint
+        ? { apiUrl: workflow.tracker.endpoint }
+        : {}),
       settings: trackerSettings,
     },
   };

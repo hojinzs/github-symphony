@@ -76,7 +76,9 @@ async function createGitRepo(remoteName = "platform"): Promise<string> {
   return repoDir;
 }
 
-async function readRepoProjectConfig(repoDir: string): Promise<CliProjectConfig> {
+async function readRepoProjectConfig(
+  repoDir: string
+): Promise<CliProjectConfig> {
   return JSON.parse(
     await readFile(
       join(
@@ -189,6 +191,51 @@ describe("repo init runtime migration", () => {
 
     expect(process.exitCode).toBeUndefined();
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
+  });
+
+  it("initializes a Linear tracker runtime from WORKFLOW.md", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  active_states:
+    - Todo
+    - In Progress
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const projectConfig = await readRepoProjectConfig(repoDir);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(projectConfig.tracker).toMatchObject({
+      adapter: "linear",
+      bindingId: "symphony-0c79b11b75ea",
+      apiUrl: "https://api.linear.app/graphql",
+      settings: {
+        projectSlug: "symphony-0c79b11b75ea",
+        activeStates: "Todo\nIn Progress",
+        repository: "acme/platform",
+      },
+    });
   });
 
   it("resolves a relative --workflow-file against --repo-dir", async () => {

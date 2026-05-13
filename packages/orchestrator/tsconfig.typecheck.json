@@ -12,7 +12,8 @@
         "../tool-github-graphql/src/index.ts"
       ],
       "@gh-symphony/tracker-file": ["../tracker-file/src/index.ts"],
-      "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"]
+      "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"],
+      "@gh-symphony/tracker-linear": ["../tracker-linear/src/index.ts"]
     }
   }
 }

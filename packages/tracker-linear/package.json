@@ -1,10 +1,10 @@
 {
-  "name": "@gh-symphony/orchestrator",
+  "name": "@gh-symphony/tracker-linear",
   "version": "0.0.14",
   "private": true,
   "license": "MIT",
   "author": "hojinzs",
-  "description": "Headless CLI orchestrator with filesystem-backed state management for GitHub Symphony",
+  "description": "Linear tracker adapter implementing the Symphony tracker contract",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,7 +26,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/hojinzs/github-symphony.git",
-    "directory": "packages/orchestrator"
+    "directory": "packages/tracker-linear"
   },
   "homepage": "https://github.com/hojinzs/github-symphony#readme",
   "bugs": {
@@ -34,18 +34,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node --watch src/index.ts",
     "lint": "eslint src --ext .ts",
-    "start": "node dist/index.js",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.typecheck.json"
   },
   "dependencies": {
-    "@gh-symphony/core": "workspace:*",
-    "@gh-symphony/runtime-claude": "workspace:*",
-    "@gh-symphony/runtime-codex": "workspace:*",
-    "@gh-symphony/tracker-file": "workspace:*",
-    "@gh-symphony/tracker-github": "workspace:*",
-    "@gh-symphony/tracker-linear": "workspace:*"
+    "@gh-symphony/core": "workspace:*"
   }
 }
