@@ -89,6 +89,42 @@ describe("Claude runtime preflight", () => {
     });
   });
 
+  it("fails clearly when credential broker configuration is incomplete", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "claude-preflight-partial-broker-")
+    );
+    const report = await runClaudePreflight(
+      {
+        cwd,
+        env: {
+          AGENT_CREDENTIAL_BROKER_URL: "https://broker.test/agent",
+        },
+        command: "claude",
+        authMode: "local-or-api-key",
+      },
+      { execFileSync: vi.fn(execSuccess) as never }
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "fail",
+      title: "Claude authentication",
+      summary: expect.stringContaining(
+        "AGENT_CREDENTIAL_BROKER_SECRET is not configured"
+      ),
+      remediation: expect.stringContaining(
+        "Set AGENT_CREDENTIAL_BROKER_SECRET"
+      ),
+      details: {
+        source: "broker",
+        brokerUrl: "https://broker.test/agent",
+        missing: "AGENT_CREDENTIAL_BROKER_SECRET",
+      },
+    });
+  });
+
   it("reports gh authentication failure when requested", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-gh-"));
     const execFileSync = vi.fn(

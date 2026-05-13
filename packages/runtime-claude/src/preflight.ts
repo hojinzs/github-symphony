@@ -55,7 +55,9 @@ export type ClaudePreflightOptions = {
   probeCredentialBroker?: boolean;
   /**
    * `local-or-api-key` allows Claude Code's local OAuth/keychain login path
-   * and reports missing API-key/broker credentials as a warning.
+   * and reports entirely missing API-key/broker credentials as a warning.
+   * Partially configured broker credentials still fail because they indicate
+   * an attempted broker setup that cannot work as configured.
    *
    * `api-key-required` is for headless/bare runtime paths where local Claude
    * Code auth is not sufficient.
@@ -271,6 +273,23 @@ async function checkClaudeAuthentication(
         "ANTHROPIC_API_KEY and agent credential broker are not configured; Claude Code local login may be used for this non-bare runtime.",
         "If this runtime will run headlessly or with runtime.isolation.bare: true, set ANTHROPIC_API_KEY or configure AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
         { source: "local" }
+      );
+    }
+
+    if (brokerUrl || brokerSecret) {
+      const missingName = brokerUrl
+        ? "AGENT_CREDENTIAL_BROKER_SECRET"
+        : "AGENT_CREDENTIAL_BROKER_URL";
+      return fail(
+        "anthropic_api_key",
+        "Claude authentication",
+        `Agent credential broker configuration is incomplete: ${missingName} is not configured.`,
+        `Set ${missingName} or remove the partial broker configuration and use ANTHROPIC_API_KEY instead.`,
+        {
+          source: "broker",
+          brokerUrl: brokerUrl ?? null,
+          missing: missingName,
+        }
       );
     }
 

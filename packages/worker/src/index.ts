@@ -24,7 +24,6 @@ import {
 } from "@gh-symphony/runtime-codex";
 import {
   formatClaudePreflightText,
-  isClaudeRuntimeCommand,
   resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
@@ -493,19 +492,20 @@ async function startAssignedRun() {
       launcherEnv
     );
     const route = resolveWorkerRuntimeRoute(workflow);
+    const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
+    const claudeCommand = resolveClaudeCommandBinary(runtimeCommand);
     if (
       route === "runtime-adapter" &&
       workflow.runtime?.kind === "claude-print" &&
-      isClaudeRuntimeCommand(resolveWorkflowRuntimeCommand(workflow))
+      claudeCommand
     ) {
-      const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
         launcherEnv.GITHUB_GRAPHQL_TOKEN.trim().length > 0;
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
-        command: resolveClaudeCommandBinary(runtimeCommand) ?? runtimeCommand,
+        command: claudeCommand,
         authMode: resolveClaudePreflightAuthMode(workflow),
         includeGhAuth: !hasGitHubGraphqlToken,
       });
