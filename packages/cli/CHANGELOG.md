@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.1.3
+
+### Patch Changes
+
+- [#326](https://github.com/hojinzs/github-symphony/pull/326) [`66686f4`](https://github.com/hojinzs/github-symphony/commit/66686f4a3b3a2034c551d9218cedaebf5d871f7e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep Symphony-managed Claude MCP config in the issue runtime directory so retries do not fail on a generated workspace `.mcp.json` dirty status. Fixes [#325](https://github.com/hojinzs/github-symphony/issues/325).
+
 ## 0.1.2
 
 ### Patch Changes
