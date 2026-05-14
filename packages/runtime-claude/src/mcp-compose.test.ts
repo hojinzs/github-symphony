@@ -202,7 +202,7 @@ describe("composeClaudeMcpConfig", () => {
 
   it("keeps an existing git workspace clean after non-strict preparation", async () => {
     const workspaceRoot = await createTempWorkspace();
-    const runtimeRoot = join(workspaceRoot, "..", "runtime");
+    const runtimeRoot = await createTempWorkspace();
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
     const userConfig = JSON.stringify({
       mcpServers: {
@@ -218,6 +218,8 @@ describe("composeClaudeMcpConfig", () => {
     await execFileAsync(
       "git",
       [
+        "-c",
+        "commit.gpgsign=false",
         "-c",
         "user.email=test@example.com",
         "-c",
