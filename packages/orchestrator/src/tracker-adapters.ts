@@ -1,6 +1,7 @@
 import { resolveTrackerAdapter as resolveGitHubAdapter } from "@gh-symphony/tracker-github";
 export { findGithubProjectIssue } from "@gh-symphony/tracker-github";
 import { fileTrackerAdapter } from "@gh-symphony/tracker-file";
+import { linearTrackerAdapter } from "@gh-symphony/tracker-linear";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerConfig,
@@ -8,6 +9,7 @@ import type {
 
 const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
   ["file", fileTrackerAdapter],
+  ["linear", linearTrackerAdapter],
 ]);
 
 export function resolveTrackerAdapter(

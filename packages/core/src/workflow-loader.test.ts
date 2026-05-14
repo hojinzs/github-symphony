@@ -86,6 +86,99 @@ Prompt body.
     expect(workflow.agent.maxFailureRetries).toBe(10);
   });
 
+  it("parses Linear tracker config with default endpoint", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  api_key: $LINEAR_API_KEY
+  active_states:
+    - Todo
+    - In Progress
+codex:
+  command: codex app-server
+---
+Prompt body.
+`,
+      { LINEAR_API_KEY: "lin_api_key" } as NodeJS.ProcessEnv
+    );
+
+    expect(workflow.tracker.kind).toBe("linear");
+    expect(workflow.tracker.projectSlug).toBe("symphony-0c79b11b75ea");
+    expect(workflow.tracker.endpoint).toBe("https://api.linear.app/graphql");
+    expect(workflow.tracker.apiKey).toBe("lin_api_key");
+    expect(workflow.tracker.projectId).toBeNull();
+  });
+
+  it.each(["project_id", "projectId", "teamId", "team_id"])(
+    "rejects Linear tracker alias %s",
+    (key) => {
+      expect(() =>
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  ${key}: forbidden
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+      ).toThrow(
+        `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
+      );
+    }
+  );
+
+  it("requires project_slug for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank project_slug for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank endpoint for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  endpoint: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+    );
+  });
+
   it("resolves environment indirection from yaml front matter", () => {
     const workflow = parseWorkflowMarkdown(
       `---
@@ -161,7 +254,9 @@ Prompt body.
 `);
 
     expect(workflow.runtime).toBeNull();
-    expect(workflow.codex.command).toBe("claude -p --output-format stream-json");
+    expect(workflow.codex.command).toBe(
+      "claude -p --output-format stream-json"
+    );
     expect(workflow.agentCommand).toBe("claude -p --output-format stream-json");
   });
 
@@ -289,7 +384,9 @@ runtime:
 ---
 Prompt body.
 `)
-    ).toThrow(/Workflow front matter field "runtime\.isolation" must be an object/);
+    ).toThrow(
+      /Workflow front matter field "runtime\.isolation" must be an object/
+    );
   });
 
   it("reports nested runtime boolean paths clearly", () => {
@@ -404,9 +501,9 @@ Prompt body.
 `);
 
     expect(workflow.runtime?.kind).toBe("claude-print");
-    expect(
-      "session" in (workflow.runtime as Record<string, unknown>)
-    ).toBe(false);
+    expect("session" in (workflow.runtime as Record<string, unknown>)).toBe(
+      false
+    );
   });
 });
 

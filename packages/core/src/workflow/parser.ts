@@ -2,6 +2,7 @@ import {
   DEFAULT_AGENT_COMMAND,
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_CLAUDE_COMMAND,
+  DEFAULT_LINEAR_GRAPHQL_URL,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_MAX_CONCURRENT_AGENTS,
   DEFAULT_MAX_FAILURE_RETRIES,
@@ -62,6 +63,7 @@ export function parseWorkflowMarkdown(
     : readRequiredObject(frontMatter, "codex");
 
   const trackerKind = readRequiredString(tracker, "kind", env);
+  validateTrackerConfig(tracker, trackerKind, env);
   const activeStates =
     readStringList(tracker, "active_states") ??
     DEFAULT_WORKFLOW_TRACKER.activeStates;
@@ -108,7 +110,9 @@ export function parseWorkflowMarkdown(
     ),
     tracker: {
       kind: trackerKind,
-      endpoint: readOptionalString(tracker, "endpoint", env),
+      endpoint:
+        readOptionalString(tracker, "endpoint", env) ??
+        (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
       apiKey: readOptionalString(tracker, "api_key", env),
       projectSlug: readOptionalString(tracker, "project_slug", env),
       activeStates,
@@ -171,6 +175,40 @@ export function parseWorkflowMarkdown(
   };
 
   return parsed;
+}
+
+function validateTrackerConfig(
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  trackerKind: string,
+  env: NodeJS.ProcessEnv
+): void {
+  if (trackerKind !== "linear") {
+    return;
+  }
+
+  for (const key of ["project_id", "projectId", "teamId", "team_id"]) {
+    if (key in tracker) {
+      throw new Error(
+        `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
+      );
+    }
+  }
+
+  const projectSlug = readOptionalString(tracker, "project_slug", env);
+  if (!projectSlug || projectSlug.trim().length === 0) {
+    throw new Error(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  }
+
+  if ("endpoint" in tracker) {
+    const endpoint = readOptionalString(tracker, "endpoint", env);
+    if (!endpoint || endpoint.trim().length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+      );
+    }
+  }
 }
 
 function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
@@ -382,7 +420,9 @@ function splitInlineArrayEntries(inner: string): string[] {
   }
 
   if (quote) {
-    throw new Error("Workflow front matter inline array has an unterminated string.");
+    throw new Error(
+      "Workflow front matter inline array has an unterminated string."
+    );
   }
 
   pushInlineArrayEntry(entries, current, "end");
@@ -397,9 +437,7 @@ function pushInlineArrayEntry(
   const trimmed = entry.trim();
   if (!trimmed) {
     const reason =
-      position === "end"
-        ? "has a trailing comma"
-        : "contains an empty item";
+      position === "end" ? "has a trailing comma" : "contains an empty item";
     throw new Error(`Workflow front matter inline array ${reason}.`);
   }
   entries.push(trimmed);
@@ -669,6 +707,17 @@ function resolveEnvironmentValue(
     if (!resolved) {
       throw new Error(
         `Workflow front matter requires environment variable ${envTokenMatch[1]}.`
+      );
+    }
+    return resolved;
+  }
+
+  const dollarEnvTokenMatch = value.match(/^\$([A-Z0-9_]+)$/);
+  if (dollarEnvTokenMatch) {
+    const resolved = env[dollarEnvTokenMatch[1]];
+    if (!resolved) {
+      throw new Error(
+        `Workflow front matter requires environment variable ${dollarEnvTokenMatch[1]}.`
       );
     }
     return resolved;

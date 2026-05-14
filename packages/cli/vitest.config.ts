@@ -15,7 +15,10 @@ export default defineConfig({
         "../control-plane/src/index.ts"
       ),
       "@gh-symphony/core": resolve(packageRoot, "../core/src/index.ts"),
-      "@gh-symphony/dashboard": resolve(packageRoot, "../dashboard/src/index.ts"),
+      "@gh-symphony/dashboard": resolve(
+        packageRoot,
+        "../dashboard/src/index.ts"
+      ),
       "@gh-symphony/extension-github-workflow": resolve(
         packageRoot,
         "../extension-github-workflow/src/index.ts"
@@ -43,6 +46,10 @@ export default defineConfig({
       "@gh-symphony/tracker-github": resolve(
         packageRoot,
         "../tracker-github/src/index.ts"
+      ),
+      "@gh-symphony/tracker-linear": resolve(
+        packageRoot,
+        "../tracker-linear/src/index.ts"
       ),
       "@gh-symphony/worker": resolve(packageRoot, "../worker/src/index.ts"),
     },
