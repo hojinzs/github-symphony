@@ -28,14 +28,13 @@ export async function composeClaudeMcpConfig(
   symphonyTokenEnv: ClaudeMcpTokenEnvironment = {}
 ): Promise<ClaudeMcpCompositionResult> {
   const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
-  const finalPath = strictMode
-    ? resolveStrictMcpConfigPath(workspaceRoot, symphonyTokenEnv)
-    : workspaceMcpPath;
+  const finalPath = resolveRuntimeMcpConfigPath(
+    workspaceRoot,
+    symphonyTokenEnv
+  );
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
   const mergedConfig = mergeGitHubGraphQLMcpServer(baseConfig, symphonyTokenEnv);
 
-  // Non-strict mode mutates the workspace .mcp.json in-place so Claude's
-  // auto-discovery can pick up both user-authored and Symphony-managed entries.
   await mkdir(dirname(finalPath), { recursive: true });
   await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", "utf8");
 
@@ -43,8 +42,8 @@ export async function composeClaudeMcpConfig(
     finalPath,
     extraArgv: strictMode
       ? ["--strict-mcp-config", "--mcp-config", finalPath]
-      : [],
-    ...(strictMode ? { cleanupPath: finalPath } : {}),
+      : ["--mcp-config", finalPath],
+    cleanupPath: finalPath,
   };
 }
 
@@ -86,16 +85,20 @@ function mergeGitHubGraphQLMcpServer(
   };
 }
 
-function resolveStrictMcpConfigPath(
+function resolveRuntimeMcpConfigPath(
   workspaceRoot: string,
   env: ClaudeMcpTokenEnvironment
 ): string {
   // Direct package tests and ad-hoc callers may not have the worker runtime
-  // directory yet; keep their strict config inside the workspace fallback path.
+  // directory yet; keep fallback artifacts next to, not inside, the checkout.
   const normalizedWorkspaceRoot = resolve(workspaceRoot);
   const runtimeDir =
     env.WORKSPACE_RUNTIME_DIR ??
-    join(normalizedWorkspaceRoot, ".runtime", basename(normalizedWorkspaceRoot));
+    join(
+      dirname(normalizedWorkspaceRoot),
+      ".runtime",
+      basename(normalizedWorkspaceRoot)
+    );
 
   return join(runtimeDir, "mcp.json");
 }

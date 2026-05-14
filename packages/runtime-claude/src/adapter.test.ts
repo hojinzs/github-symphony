@@ -411,13 +411,64 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
   });
 
+  it("prepares non-strict MCP config argv without writing workspace .mcp.json", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    tempRoots.push(workspaceRoot);
+    const calls: Array<{
+      args: ReadonlyArray<string>;
+    }> = [];
+    const { child, stdout, stderr } = createStubChild();
+
+    const spawnImpl: SpawnLike = (_command, args) => {
+      calls.push({ args });
+
+      queueMicrotask(() => {
+        stdout.end();
+        stderr.end();
+        child.emit("close", 0, null);
+      });
+
+      return child;
+    };
+
+    const adapter = new ClaudePrintRuntimeAdapter(
+      {
+        workingDirectory: workspaceRoot,
+        runtimeDirectory: runtimeRoot,
+        env: {
+          GITHUB_GRAPHQL_TOKEN: "runtime-token",
+        },
+      },
+      { spawnImpl }
+    );
+
+    await adapter.prepare({ runId: "run-1" });
+    await adapter.spawnTurn({
+      messages: [],
+    });
+
+    const mcpConfigPath = join(runtimeRoot, "mcp.json");
+    expect(calls[0]?.args).toContain("--mcp-config");
+    expect(calls[0]?.args).toContain(mcpConfigPath);
+    expect(calls[0]?.args).not.toContain("--strict-mcp-config");
+    expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
+    await expect(
+      readFile(join(workspaceRoot, ".mcp.json"), "utf8")
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("does not inherit host MCP credentials during prepare unless enabled", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
     const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
     tempRoots.push(workspaceRoot);
 
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
       env: {
         GITHUB_PROJECT_ID: "project-from-config",
       },
@@ -426,7 +477,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     await adapter.prepare({ runId: "run-1" });
 
     const config = JSON.parse(
-      await readFile(join(workspaceRoot, ".mcp.json"), "utf8")
+      await readFile(join(runtimeRoot, "mcp.json"), "utf8")
     ) as {
       mcpServers?: {
         github_graphql?: {
@@ -446,16 +497,18 @@ describe("ClaudePrintRuntimeAdapter", () => {
   it("can opt in to inheriting host MCP credentials during prepare", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
     const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
+    const runtimeRoot = join(workspaceRoot, "runtime");
     tempRoots.push(workspaceRoot);
 
     const adapter = new ClaudePrintRuntimeAdapter({
       workingDirectory: workspaceRoot,
+      runtimeDirectory: runtimeRoot,
       inheritProcessEnv: true,
     });
 
     await adapter.prepare({ runId: "run-1" });
 
-    expect(await readFile(join(workspaceRoot, ".mcp.json"), "utf8")).toContain(
+    expect(await readFile(join(runtimeRoot, "mcp.json"), "utf8")).toContain(
       "host-token"
     );
   });
