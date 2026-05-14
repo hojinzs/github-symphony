@@ -165,12 +165,12 @@ v1은 **`permissive` 동작만 지원**한다. Claude는 `--permission-mode bypa
 
 #### 4.6.2 MCP config 합성 (Claude 전용)
 
-Worker 초기화 단계에서 symphony-required MCP (`github_graphql`) 를 사용자 `.mcp.json` 과 병합한다. 최종 파일 위치와 argv 는 `runtime.isolation.strict_mcp_config` 에 따라 분기:
+Worker 초기화 단계에서 symphony-required MCP (`github_graphql`) 를 사용자 `.mcp.json` 과 병합한다. 병합 결과는 체크아웃 루트를 오염시키지 않도록 항상 worker runtime directory 의 ephemeral 파일에 기록한다. `runtime.isolation.strict_mcp_config` 는 auto-discovery 차단 여부만 제어한다:
 
 | `strict_mcp_config` | 병합 결과 위치 | argv 추가 |
 |---|---|---|
-| **false (default)** | 워크스페이스 루트 `.mcp.json` 에 mutation 으로 merge. 워크스페이스는 throwaway clone 이므로 오염 영향 없음. | 없음 (Claude auto-discovery 가 픽업) |
-| true | `.runtime/<workspace>/mcp.json` (ephemeral) | `--strict-mcp-config --mcp-config <path>` |
+| **false (default)** | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--mcp-config <path>` |
+| true | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--strict-mcp-config --mcp-config <path>` |
 
 병합 규칙:
 - Base: 워크스페이스 루트 `.mcp.json` 이 있으면 그 내용, 없으면 `{ mcpServers: {} }`.
@@ -201,7 +201,7 @@ Codex 런타임 prompt는 현행 유지.
 | Knob | off (default) — Claude Code 네이티브 | on — 격리 |
 |---|---|---|
 | `runtime.isolation.bare` | `CLAUDE.md` 자동 주입, skills/hooks/plugins discovery 활성 | argv 에 `--bare` 추가 — discovery 모두 스킵 |
-| `runtime.isolation.strict_mcp_config` | 사용자 `.mcp.json` + `~/.claude` MCP 모두 로드. Symphony MCP 는 워크스페이스 `.mcp.json` merge 로 공급 (§4.6.2) | argv 에 `--strict-mcp-config --mcp-config <ephemeral>` 추가. Symphony-merged ephemeral 만 로드 |
+| `runtime.isolation.strict_mcp_config` | 사용자 `.mcp.json` + `~/.claude` MCP 모두 로드. Symphony MCP 는 `--mcp-config <ephemeral>` 로 공급 (§4.6.2) | argv 에 `--strict-mcp-config --mcp-config <ephemeral>` 추가. Symphony-merged ephemeral 만 로드 |
 
 Default 근거:
 - `bypassPermissions` 를 v1 default 로 놓은 §4.4 와 동일 철학: "넓게 시작, 좁힐 팀이 명시 opt-in".
