@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.1.1
+
+### Patch Changes
+
+- [#319](https://github.com/hojinzs/github-symphony/pull/319) [`d82f0da`](https://github.com/hojinzs/github-symphony/commit/d82f0da65dcac3ec136c9f7c4d8c726489415673) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Allow `gh-symphony init` Claude runtime preflight to pass with Claude Code local authentication instead of requiring `ANTHROPIC_API_KEY`.
+
 ## 0.1.0
 
 ### Minor Changes
