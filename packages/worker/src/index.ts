@@ -49,6 +49,7 @@ import {
 import { resolveExitRunPhase } from "./run-phase.js";
 import {
   resolveClaudePreflightAuthMode,
+  shouldExposeLinearGraphQLTool,
   resolveWorkerRuntimeRoute,
 } from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
@@ -533,6 +534,13 @@ async function startAssignedRun() {
 
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
+    config.enableLinearGraphqlTool = shouldExposeLinearGraphQLTool(
+      workflow,
+      launcherEnv
+    );
+    config.linearApiKey = launcherEnv.LINEAR_API_KEY;
+    config.linearAuthorization = launcherEnv.LINEAR_AUTHORIZATION;
+    config.linearGraphqlUrl = launcherEnv.LINEAR_GRAPHQL_URL;
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";

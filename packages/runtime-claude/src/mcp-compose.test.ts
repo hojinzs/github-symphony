@@ -21,10 +21,14 @@ async function readJson(path: string): Promise<Record<string, unknown>> {
 
 describe("composeClaudeMcpConfig", () => {
   afterEach(async () => {
-    await Promise.all(tempRoots.splice(0).map((root) => rm(root, {
-      force: true,
-      recursive: true,
-    })));
+    await Promise.all(
+      tempRoots.splice(0).map((root) =>
+        rm(root, {
+          force: true,
+          recursive: true,
+        })
+      )
+    );
   });
 
   it("creates a runtime mcp config with only github_graphql when none exists", async () => {
@@ -112,18 +116,109 @@ describe("composeClaudeMcpConfig", () => {
     });
   });
 
+  it("adds linear_graphql only for Linear tracker sessions", async () => {
+    const workspaceRoot = await createTempWorkspace();
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      SYMPHONY_TRACKER_KIND: "linear",
+      LINEAR_API_KEY: "lin_api_key",
+      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+    });
+
+    expect(await readJson(result.finalPath)).toEqual({
+      mcpServers: {
+        github_graphql: {
+          command: "node",
+          args: [expect.stringContaining("mcp-server.js")],
+          env: {
+            GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+          },
+        },
+        linear_graphql: {
+          command: "node",
+          args: [expect.stringContaining("mcp-server.js")],
+          env: {
+            LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(await readJson(result.finalPath))).not.toContain(
+      "lin_api_key"
+    );
+  });
+
+  it("does not add linear_graphql for non-Linear tracker sessions", async () => {
+    const workspaceRoot = await createTempWorkspace();
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      LINEAR_API_KEY: "lin_api_key",
+    });
+    const config = await readJson(result.finalPath);
+
+    expect(
+      (config.mcpServers as Record<string, unknown>).linear_graphql
+    ).toBeUndefined();
+  });
+
+  it("removes stale linear_graphql entries for non-Linear tracker sessions", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
+    await writeFile(
+      workspaceMcpPath,
+      JSON.stringify({
+        mcpServers: {
+          user_server: {
+            command: "node",
+            args: ["user-server.js"],
+          },
+          linear_graphql: {
+            command: "old",
+            env: {
+              LINEAR_API_KEY: "old-secret",
+            },
+          },
+        },
+      }) + "\n",
+      "utf8"
+    );
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {});
+    const config = await readJson(result.finalPath);
+
+    expect(config.mcpServers).toEqual({
+      user_server: {
+        command: "node",
+        args: ["user-server.js"],
+      },
+      github_graphql: {
+        command: "node",
+        args: [expect.stringContaining("mcp-server.js")],
+        env: {
+          GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+        },
+      },
+    });
+    expect(JSON.stringify(config)).not.toContain("old-secret");
+  });
+
   it("writes strict mode config to an ephemeral path without mutating the workspace file", async () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime-root");
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
-    const originalConfig = JSON.stringify({
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
+    const originalConfig =
+      JSON.stringify(
+        {
+          mcpServers: {
+            user_server: {
+              command: "node",
+              args: ["user-server.js"],
+            },
+          },
         },
-      },
-    }, null, 2) + "\n";
+        null,
+        2
+      ) + "\n";
     await writeFile(workspaceMcpPath, originalConfig, "utf8");
 
     const result = await composeClaudeMcpConfig(workspaceRoot, true, {

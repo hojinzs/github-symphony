@@ -20,6 +20,10 @@ export default defineConfig({
         packageRoot,
         "../tool-github-graphql/src/index.ts"
       ),
+      "@gh-symphony/tool-linear-graphql": resolve(
+        packageRoot,
+        "../tool-linear-graphql/src/index.ts"
+      ),
       "@gh-symphony/tracker-file": resolve(
         packageRoot,
         "../tracker-file/src/index.ts"

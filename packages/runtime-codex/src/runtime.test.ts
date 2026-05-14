@@ -6,6 +6,7 @@ import {
   createCodexRuntimeAdapter,
   createGitCredentialHelperEnvironment,
   createGitHubGraphQLToolDefinition,
+  createLinearGraphQLToolDefinition,
   getCodexObservabilityEventName,
   normalizeCodexRuntimeEvents,
   prepareCodexRuntimePlan,
@@ -39,6 +40,21 @@ describe("createGitHubGraphQLToolDefinition", () => {
   });
 });
 
+describe("createLinearGraphQLToolDefinition", () => {
+  it("builds a runtime tool definition for Linear GraphQL access", () => {
+    const tool = createLinearGraphQLToolDefinition({
+      linearGraphqlUrl: "https://linear.example/graphql",
+    });
+
+    expect(tool.name).toBe("linear_graphql");
+    expect(tool.command).toBe("node");
+    expect(tool.args[0]).toContain("mcp-server.js");
+    expect(tool.env).toEqual({
+      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+    });
+  });
+});
+
 describe("buildCodexRuntimePlan", () => {
   it("prepares the codex app-server launch contract", () => {
     const plan = buildCodexRuntimePlan({
@@ -63,14 +79,79 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.tools).toHaveLength(1);
     expect(plan.env.CODEX_PROJECT_ID).toBe("workspace-123");
     expect(plan.env.GITHUB_GRAPHQL_TOOL_NAME).toBe("github_graphql");
-    expect(plan.env.GITHUB_GRAPHQL_TOOL_COMMAND).toContain(
-      "mcp-server.js"
-    );
+    expect(plan.env.GITHUB_GRAPHQL_TOOL_COMMAND).toContain("mcp-server.js");
     expect(plan.env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
     expect(plan.env.CODEX_HOME).toBe("/tmp/workspace-123/.codex-agent");
+  });
+
+  it("exposes linear_graphql only when enabled for Linear tracker sessions", () => {
+    const nonLinearPlan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+    expect(nonLinearPlan.tools.map((tool) => tool.name)).toEqual([
+      "github_graphql",
+    ]);
+    expect(nonLinearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("");
+    expect(nonLinearPlan.env.LINEAR_GRAPHQL_URL).toBeUndefined();
+    expect(nonLinearPlan.env.LINEAR_API_KEY).toBeUndefined();
+    expect(nonLinearPlan.env.LINEAR_AUTHORIZATION).toBeUndefined();
+
+    const nonLinearPlanWithLinearSecret = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      linearApiKey: "lin_api_key",
+      linearAuthorization: "Bearer lin_api_key",
+      linearGraphqlUrl: "https://linear.example/graphql",
+      extraEnv: {
+        LINEAR_API_KEY: "global-lin-api-key",
+        LINEAR_AUTHORIZATION: "Bearer global-lin-api-key",
+        LINEAR_GRAPHQL_URL: "https://global-linear.example/graphql",
+      },
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("");
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_URL).toBeUndefined();
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_API_KEY).toBeUndefined();
+    expect(
+      nonLinearPlanWithLinearSecret.env.LINEAR_AUTHORIZATION
+    ).toBeUndefined();
+
+    const linearPlan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      enableLinearGraphqlTool: true,
+      linearApiKey: "lin_api_key",
+      linearGraphqlUrl: "https://linear.example/graphql",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+
+    expect(linearPlan.tools.map((tool) => tool.name)).toEqual([
+      "github_graphql",
+      "linear_graphql",
+    ]);
+    expect(linearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("linear_graphql");
+    expect(linearPlan.env.LINEAR_GRAPHQL_URL).toBe(
+      "https://linear.example/graphql"
+    );
+    expect(linearPlan.env.LINEAR_API_KEY).toBe("lin_api_key");
+    const linearTool = linearPlan.tools.find(
+      (tool) => tool.name === "linear_graphql"
+    );
+    expect(linearTool?.env).toEqual({
+      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+    });
+    expect(JSON.stringify(linearTool)).not.toContain("lin_api_key");
   });
 });
 
@@ -200,18 +281,16 @@ describe("resolveAgentRuntimeEnvironment", () => {
       },
       {
         fetchImpl: fetchImpl as typeof fetch,
-        readFileImpl: vi
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify({
-              env: {
-                OPENAI_API_KEY: "sk-cached-agent",
-                OPENAI_BASE_URL: "https://openai.example.test/v1",
-              },
-              expires_at: "2026-04-22T10:10:00.000Z",
-              cachedAt: "2026-04-22T10:00:00.000Z",
-            })
-          ) as never,
+        readFileImpl: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            env: {
+              OPENAI_API_KEY: "sk-cached-agent",
+              OPENAI_BASE_URL: "https://openai.example.test/v1",
+            },
+            expires_at: "2026-04-22T10:10:00.000Z",
+            cachedAt: "2026-04-22T10:00:00.000Z",
+          })
+        ) as never,
         now: new Date("2026-04-22T10:00:00.000Z"),
       }
     );
@@ -247,17 +326,15 @@ describe("resolveAgentRuntimeEnvironment", () => {
             { status: 200 }
           )
         ) as never,
-        readFileImpl: vi
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify({
-              env: {
-                OPENAI_API_KEY: "sk-stale-agent",
-              },
-              expires_at: "2026-04-22T10:00:30.000Z",
-              cachedAt: "2026-04-22T09:50:00.000Z",
-            })
-          ) as never,
+        readFileImpl: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            env: {
+              OPENAI_API_KEY: "sk-stale-agent",
+            },
+            expires_at: "2026-04-22T10:00:30.000Z",
+            cachedAt: "2026-04-22T09:50:00.000Z",
+          })
+        ) as never,
         writeFileImpl,
         now: new Date("2026-04-22T10:00:00.000Z"),
       }
@@ -283,15 +360,13 @@ describe("resolveAgentRuntimeEnvironment", () => {
       },
       {
         fetchImpl: fetchImpl as typeof fetch,
-        readFileImpl: vi
-          .fn()
-          .mockResolvedValue(
-            JSON.stringify({
-              env: {
-                OPENAI_API_KEY: "sk-legacy-agent",
-              },
-            })
-          ) as never,
+        readFileImpl: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            env: {
+              OPENAI_API_KEY: "sk-legacy-agent",
+            },
+          })
+        ) as never,
         now: new Date("2026-04-22T11:00:00.000Z"),
       }
     );
@@ -610,7 +685,9 @@ describe("createCodexRuntimeAdapter", () => {
     const result = await adapter.spawnTurn();
 
     expect(result.plan.env.OPENAI_API_KEY).toBe("sk-direct-runtime");
-    expect(result.plan.env.CODEX_HOME).toBe(resolveStagedCodexHome("/tmp/workspace-123"));
+    expect(result.plan.env.CODEX_HOME).toBe(
+      resolveStagedCodexHome("/tmp/workspace-123")
+    );
     expect(spawnImpl).toHaveBeenCalledOnce();
 
     await adapter.shutdown();

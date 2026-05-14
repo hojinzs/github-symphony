@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
+import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
 
 export type ClaudeMcpTokenEnvironment = {
   GITHUB_GRAPHQL_TOKEN?: string;
@@ -9,6 +10,10 @@ export type ClaudeMcpTokenEnvironment = {
   GITHUB_TOKEN_BROKER_SECRET?: string;
   GITHUB_TOKEN_CACHE_PATH?: string;
   GITHUB_PROJECT_ID?: string;
+  LINEAR_API_KEY?: string;
+  LINEAR_AUTHORIZATION?: string;
+  LINEAR_GRAPHQL_URL?: string;
+  SYMPHONY_TRACKER_KIND?: string;
   WORKSPACE_RUNTIME_DIR?: string;
 };
 
@@ -33,10 +38,14 @@ export async function composeClaudeMcpConfig(
     symphonyTokenEnv
   );
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
-  const mergedConfig = mergeGitHubGraphQLMcpServer(baseConfig, symphonyTokenEnv);
+  const mergedConfig = mergeSymphonyMcpServers(baseConfig, symphonyTokenEnv);
 
   await mkdir(dirname(finalPath), { recursive: true });
-  await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", "utf8");
+  await writeFile(
+    finalPath,
+    JSON.stringify(mergedConfig, null, 2) + "\n",
+    "utf8"
+  );
 
   return {
     finalPath,
@@ -61,7 +70,7 @@ async function readBaseMcpConfig(workspaceMcpPath: string): Promise<McpConfig> {
   }
 }
 
-function mergeGitHubGraphQLMcpServer(
+function mergeSymphonyMcpServers(
   baseConfig: McpConfig,
   env: ClaudeMcpTokenEnvironment
 ): McpConfig {
@@ -69,19 +78,29 @@ function mergeGitHubGraphQLMcpServer(
     ? baseConfig.mcpServers
     : {};
 
+  const mergedServers: Record<string, unknown> = {
+    ...mcpServers,
+    github_graphql: createGitHubGraphQLMcpServerEntry({
+      githubToken: env.GITHUB_GRAPHQL_TOKEN,
+      githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
+      githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
+      githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
+      githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
+      githubProjectId: env.GITHUB_PROJECT_ID,
+    }),
+  };
+
+  if (env.SYMPHONY_TRACKER_KIND === "linear") {
+    mergedServers.linear_graphql = createLinearGraphQLMcpServerEntry({
+      linearGraphqlUrl: env.LINEAR_GRAPHQL_URL,
+    });
+  } else {
+    delete mergedServers.linear_graphql;
+  }
+
   return {
     ...baseConfig,
-    mcpServers: {
-      ...mcpServers,
-      github_graphql: createGitHubGraphQLMcpServerEntry({
-        githubToken: env.GITHUB_GRAPHQL_TOKEN,
-        githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
-        githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
-        githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
-        githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
-        githubProjectId: env.GITHUB_PROJECT_ID,
-      }),
-    },
+    mcpServers: mergedServers,
   };
 }
 

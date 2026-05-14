@@ -11,6 +11,9 @@
       "@gh-symphony/tool-github-graphql": [
         "../tool-github-graphql/src/index.ts"
       ],
+      "@gh-symphony/tool-linear-graphql": [
+        "../tool-linear-graphql/src/index.ts"
+      ],
       "@gh-symphony/tracker-file": ["../tracker-file/src/index.ts"],
       "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"],
       "@gh-symphony/tracker-linear": ["../tracker-linear/src/index.ts"]

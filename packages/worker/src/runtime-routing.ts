@@ -22,3 +22,14 @@ export function resolveClaudePreflightAuthMode(
     ? "api-key-required"
     : "local-or-api-key";
 }
+
+export function shouldExposeLinearGraphQLTool(
+  workflow: WorkflowDefinition,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return (
+    workflow.tracker.kind === "linear" ||
+    env.SYMPHONY_TRACKER_KIND === "linear" ||
+    env.SYMPHONY_TRACKER_ADAPTER === "linear"
+  );
+}
