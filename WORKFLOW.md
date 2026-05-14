@@ -104,12 +104,18 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
    - Run `pnpm lint && pnpm test && pnpm typecheck && pnpm build` and confirm all pass.
    - If the change affects integration behavior (orchestrator dispatch, worker lifecycle, tracker adapters, status API, etc.), write a short TC and run a Docker E2E blackbox test following [AGENT_TEST.md](AGENT_TEST.md).
    - Record the validation results (commands executed and their outcomes) in the workpad comment under the **Validation** section.
-7. If no PR exists and the completion bar is met, use the `/gh-pr-writeup` skill to run a brief pre-PR validation pass, create a PR with the required linked-issue, evidence, and human validation sections, post a comment summarizing what was implemented, and move the issue to `In review`.
-8. If a PR already exists while the issue is `In progress`, read all PR review activity, failing checks, and unresolved inline comments before changing any code.
-9. Distill the main merge blockers into a short prioritized list, then update the current cycle's workpad comment in the report language to capture those blockers and the revised execution plan. If no workpad exists for this cycle yet, create one.
-10. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
-11. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
-12. If the current subject is `PullRequest`, perform all rework on the PR head branch and keep the PR as the primary review surface.
+7. **Changeset policy (mandatory immediately before PR creation/update):**
+   - Inspect the issue labels. If the issue has one of `changeset:major`, `changeset:minor`, or `changeset:patch`, create a Changeset before creating or updating the PR.
+   - The release package must be `@gh-symphony/cli` only. Do not add private/internal workspace packages to the Changeset because releases publish only the CLI package.
+   - Use the label as the bump type: `changeset:major` -> major, `changeset:minor` -> minor, `changeset:patch` -> patch. If multiple changeset labels exist, use the highest-impact bump (`major` > `minor` > `patch`) and note the ambiguity in the workpad.
+   - The Changeset summary must describe the user-visible CLI/runtime behavior change and reference the issue identifier when practical.
+   - Record the created Changeset file path in the workpad **Validation** section.
+8. If no PR exists and the completion bar is met, use the `/gh-pr-writeup` skill to run a brief pre-PR validation pass, create a PR with the required linked-issue, evidence, and human validation sections, post a comment summarizing what was implemented, and move the issue to `In review`.
+9. If a PR already exists while the issue is `In progress`, read all PR review activity, failing checks, and unresolved inline comments before changing any code.
+10. Distill the main merge blockers into a short prioritized list, then update the current cycle's workpad comment in the report language to capture those blockers and the revised execution plan. If no workpad exists for this cycle yet, create one.
+11. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
+12. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
+13. If the current subject is `PullRequest`, perform all rework on the PR head branch and keep the PR as the primary review surface.
 
 #### Step 3: In review handling
 
