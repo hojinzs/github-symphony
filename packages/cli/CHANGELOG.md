@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.1.2
+
+### Patch Changes
+
+- [#304](https://github.com/hojinzs/github-symphony/pull/304) [`826c6ae`](https://github.com/hojinzs/github-symphony/commit/826c6ae1e9e5e379f9c620595a9e837af2021aaa) Thanks [@hojinzs](https://github.com/hojinzs)! - Expose normalized linked pull request prompt variables, including top-level `issue.linked_pull_requests` entries with missing optional PR fields represented as `null`.
+
 ## 0.1.1
 
 ### Patch Changes
