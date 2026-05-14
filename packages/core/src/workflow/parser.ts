@@ -63,7 +63,7 @@ export function parseWorkflowMarkdown(
     : readRequiredObject(frontMatter, "codex");
 
   const trackerKind = readRequiredString(tracker, "kind", env);
-  validateTrackerConfig(tracker, trackerKind);
+  validateTrackerConfig(tracker, trackerKind, env);
   const activeStates =
     readStringList(tracker, "active_states") ??
     DEFAULT_WORKFLOW_TRACKER.activeStates;
@@ -179,13 +179,14 @@ export function parseWorkflowMarkdown(
 
 function validateTrackerConfig(
   tracker: Record<string, WorkflowFrontMatterNode>,
-  trackerKind: string
+  trackerKind: string,
+  env: NodeJS.ProcessEnv
 ): void {
   if (trackerKind !== "linear") {
     return;
   }
 
-  for (const key of ["project_id", "projectId", "teamId"]) {
+  for (const key of ["project_id", "projectId", "teamId", "team_id"]) {
     if (key in tracker) {
       throw new Error(
         `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
@@ -193,10 +194,20 @@ function validateTrackerConfig(
     }
   }
 
-  if (!("project_slug" in tracker)) {
+  const projectSlug = readOptionalString(tracker, "project_slug", env);
+  if (!projectSlug || projectSlug.trim().length === 0) {
     throw new Error(
       'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
     );
+  }
+
+  if ("endpoint" in tracker) {
+    const endpoint = readOptionalString(tracker, "endpoint", env);
+    if (!endpoint || endpoint.trim().length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+      );
+    }
   }
 }
 

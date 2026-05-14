@@ -111,7 +111,7 @@ Prompt body.
     expect(workflow.tracker.projectId).toBeNull();
   });
 
-  it.each(["project_id", "projectId", "teamId"])(
+  it.each(["project_id", "projectId", "teamId", "team_id"])(
     "rejects Linear tracker alias %s",
     (key) => {
       expect(() =>
@@ -143,6 +143,39 @@ Prompt body.
 `)
     ).toThrow(
       'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank project_slug for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank endpoint for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  endpoint: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
     );
   });
 

@@ -182,6 +182,22 @@ describe("linearTrackerAdapter", () => {
     expect(request.variables.stateNames).toEqual(["Rework"]);
   });
 
+  it("requires active state names when polling Linear candidates", async () => {
+    await expect(
+      linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: { projectSlug: "symphony-0c79b11b75ea", activeStates: "" },
+        }),
+        {
+          fetchImpl: vi.fn(),
+          token: "linear-token",
+        }
+      )
+    ).rejects.toThrow(
+      'Tracker adapter "linear" requires at least one active state name in the "activeStates" setting.'
+    );
+  });
+
   it("fetchIssueStatesByIds filters by Linear ids", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -225,6 +241,19 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
+  it("defaults blank tracker apiUrl to the Linear GraphQL endpoint", () => {
+    const env = linearTrackerAdapter.buildWorkerEnvironment(
+      makeProject({ apiUrl: "   " }),
+      normalizeLinearIssue(makeProject(), "project-slug", {
+        id: "issue-1",
+        identifier: "eng-123",
+        state: { name: "Todo" },
+      })
+    );
+
+    expect(env.LINEAR_GRAPHQL_URL).toBe("https://api.linear.app/graphql");
+  });
+
   it("revives issues with repository routing from the orchestrator project", () => {
     const revived = linearTrackerAdapter.reviveIssue(makeProject(), {
       runId: "run-1",
@@ -258,6 +287,42 @@ describe("linearTrackerAdapter", () => {
 
     expect(revived.identifier).toBe("ENG-123");
     expect(revived.number).toBe(123);
+    expect(revived.repository).toBe(repository);
+  });
+
+  it("revives legacy issue identifiers without blocking recovery", () => {
+    const revived = linearTrackerAdapter.reviveIssue(makeProject(), {
+      runId: "run-1",
+      projectId: "repository",
+      projectSlug: "platform",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "legacy identifier",
+      issueState: "Todo",
+      repository: {
+        owner: "ignored",
+        name: "ignored",
+        cloneUrl: "https://example.test/ignored.git",
+      },
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: "/workspace",
+      issueWorkspaceKey: "legacy identifier",
+      workspaceRuntimeDir: "/runtime",
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    expect(revived.identifier).toBe("legacy identifier");
+    expect(revived.number).toBe(0);
     expect(revived.repository).toBe(repository);
   });
 

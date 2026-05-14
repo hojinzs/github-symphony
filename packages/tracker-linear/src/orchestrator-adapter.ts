@@ -1,13 +1,14 @@
-import type {
-  OrchestratorProjectConfig,
-  OrchestratorRunRecord,
-  OrchestratorTrackerAdapter,
-  OrchestratorTrackerConfig,
-  OrchestratorTrackerDependencies,
-  TrackedIssue,
+import {
+  DEFAULT_LINEAR_GRAPHQL_URL as CORE_DEFAULT_LINEAR_GRAPHQL_URL,
+  type OrchestratorProjectConfig,
+  type OrchestratorRunRecord,
+  type OrchestratorTrackerAdapter,
+  type OrchestratorTrackerConfig,
+  type OrchestratorTrackerDependencies,
+  type TrackedIssue,
 } from "@gh-symphony/core";
 
-export const DEFAULT_LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
+export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
 const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
@@ -169,10 +170,12 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   reviveIssue(project, run: OrchestratorRunRecord): TrackedIssue {
+    const revivedIdentifier = reviveLinearIdentifier(run.issueIdentifier);
+
     return {
       id: run.issueId,
-      identifier: sanitizeLinearIdentifier(run.issueIdentifier),
-      number: parseLinearIssueNumber(run.issueIdentifier),
+      identifier: revivedIdentifier,
+      number: parseLinearIssueNumberOrZero(revivedIdentifier),
       title: run.issueTitle ?? run.issueIdentifier,
       description: null,
       priority: null,
@@ -203,6 +206,11 @@ async function listLinearIssues(
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
   const stateNames = readStringArray(stateNamesInput);
+  if (!issueIds && (!stateNames || stateNames.length === 0)) {
+    throw new Error(
+      'Tracker adapter "linear" requires at least one active state name in the "activeStates" setting.'
+    );
+  }
   const nodes = await fetchPaginatedLinearIssues(client, {
     projectSlug: config.projectSlug,
     stateNames,
@@ -371,7 +379,7 @@ function resolveLinearTrackerConfig(
 }
 
 function resolveLinearEndpoint(tracker: OrchestratorTrackerConfig): string {
-  return tracker.apiUrl ?? DEFAULT_LINEAR_GRAPHQL_URL;
+  return tracker.apiUrl?.trim() || DEFAULT_LINEAR_GRAPHQL_URL;
 }
 
 function readRequiredSetting(
@@ -445,4 +453,20 @@ function sanitizeLinearIdentifier(identifier: string): string {
 function parseLinearIssueNumber(identifier: string): number {
   const sanitized = sanitizeLinearIdentifier(identifier);
   return Number.parseInt(sanitized.split("-").at(-1) ?? "0", 10);
+}
+
+function parseLinearIssueNumberOrZero(identifier: string): number {
+  try {
+    return parseLinearIssueNumber(identifier);
+  } catch {
+    return 0;
+  }
+}
+
+function reviveLinearIdentifier(identifier: string): string {
+  try {
+    return sanitizeLinearIdentifier(identifier);
+  } catch {
+    return identifier;
+  }
 }
