@@ -45,7 +45,7 @@ describe("generateReferenceWorkflow", () => {
     });
     expect(output).toContain("kind: claude-print");
     expect(output).toContain("command: claude");
-    expect(output).toContain("    env: ANTHROPIC_API_KEY");
+    expect(output).not.toContain("    env: ANTHROPIC_API_KEY");
     expect(output).toContain("    stall_timeout_ms: 900000");
   });
 

@@ -114,7 +114,7 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain("kind: claude-print");
     expect(markdown).toContain("command: claude");
     expect(markdown).toContain("    - -p");
-    expect(markdown).toContain("    env: ANTHROPIC_API_KEY");
+    expect(markdown).not.toContain("    env: ANTHROPIC_API_KEY");
     expect(markdown).toContain("    stall_timeout_ms: 900000");
   });
 

@@ -24,7 +24,6 @@ import {
 } from "@gh-symphony/runtime-codex";
 import {
   formatClaudePreflightText,
-  isClaudeRuntimeCommand,
   resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
@@ -48,7 +47,10 @@ import {
   type WorkerNonCodexTurnResult,
 } from "./non-codex-runtime.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import { resolveWorkerRuntimeRoute } from "./runtime-routing.js";
+import {
+  resolveClaudePreflightAuthMode,
+  resolveWorkerRuntimeRoute,
+} from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
@@ -490,10 +492,12 @@ async function startAssignedRun() {
       launcherEnv
     );
     const route = resolveWorkerRuntimeRoute(workflow);
+    const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
+    const claudeCommand = resolveClaudeCommandBinary(runtimeCommand);
     if (
       route === "runtime-adapter" &&
       workflow.runtime?.kind === "claude-print" &&
-      isClaudeRuntimeCommand(resolveWorkflowRuntimeCommand(workflow))
+      claudeCommand
     ) {
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
@@ -501,8 +505,8 @@ async function startAssignedRun() {
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
-        command:
-          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
+        command: claudeCommand,
+        authMode: resolveClaudePreflightAuthMode(workflow),
         includeGhAuth: !hasGitHubGraphqlToken,
       });
       process.stderr.write(

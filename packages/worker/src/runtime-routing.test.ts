@@ -3,7 +3,10 @@ import {
   DEFAULT_WORKFLOW_DEFINITION,
   type WorkflowDefinition,
 } from "@gh-symphony/core";
-import { resolveWorkerRuntimeRoute } from "./runtime-routing.js";
+import {
+  resolveClaudePreflightAuthMode,
+  resolveWorkerRuntimeRoute,
+} from "./runtime-routing.js";
 
 describe("resolveWorkerRuntimeRoute", () => {
   it("keeps legacy codex fallback on the Codex app-server route", () => {
@@ -38,6 +41,32 @@ describe("resolveWorkerRuntimeRoute", () => {
       ).toBe("runtime-adapter");
     }
   );
+
+  it("allows local Claude Code auth for non-bare Claude runtimes", () => {
+    expect(
+      resolveClaudePreflightAuthMode(
+        workflowWithRuntime({
+          kind: "claude-print",
+          command: "claude",
+          args: [],
+          bare: false,
+        })
+      )
+    ).toBe("local-or-api-key");
+  });
+
+  it("requires API-key auth for bare Claude runtimes", () => {
+    expect(
+      resolveClaudePreflightAuthMode(
+        workflowWithRuntime({
+          kind: "claude-print",
+          command: "claude",
+          args: [],
+          bare: true,
+        })
+      )
+    ).toBe("api-key-required");
+  });
 });
 
 function workflowWithRuntime(
@@ -45,6 +74,7 @@ function workflowWithRuntime(
     kind: "codex-app-server" | "claude-print" | "custom";
     command: string;
     args: readonly string[];
+    bare?: boolean;
   }
 ): WorkflowDefinition {
   return {
@@ -57,7 +87,7 @@ function workflowWithRuntime(
             command: runtime.command,
             args: runtime.args,
             isolation: {
-              bare: false,
+              bare: runtime.bare ?? false,
               strictMcpConfig: false,
             },
             auth: {
