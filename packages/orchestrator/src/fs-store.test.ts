@@ -167,6 +167,72 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     ]);
   });
 
+  it("redacts tokens from run.json and events.ndjson before persistence", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "project-1",
+      issueId: "issue-1",
+      issueIdentifier: "ENG-123",
+      issueTitle: "Linear issue",
+      issueState: "Todo",
+      issueSubjectId: "issue-1",
+      repository: {
+        owner: "acme",
+        name: "repo",
+        cloneUrl: "https://github.com/acme/repo.git",
+        url: "https://github.com/acme/repo",
+      },
+      workspaceKey: "ENG-123",
+      workspacePath: "/tmp/workspace",
+      repositoryPath: "/tmp/workspace/repository",
+      status: "active",
+      attempt: 1,
+      maxAttempts: 1,
+      processId: null,
+      sessionId: null,
+      startedAt: "2026-05-14T00:00:00.000Z",
+      updatedAt: "2026-05-14T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      lastWorkerLog: null,
+      lastTurnSummary: null,
+      tokenUsage: undefined,
+      linear: {
+        LINEAR_API_KEY: "lin_secret",
+      },
+    } as never);
+
+    await store.appendRunEvent("run-1", {
+      at: "2026-05-14T00:00:00.000Z",
+      event: "worker-error",
+      projectId: "project-1",
+      runId: "run-1",
+      issueIdentifier: "ENG-123",
+      error: "worker failed",
+      attempt: 1,
+      headers: {
+        authorization: "Bearer lin_secret",
+      },
+    } as never);
+
+    const runJson = await readFile(
+      join(store.runDir("run-1", "project-1"), "run.json"),
+      "utf8"
+    );
+    const eventsNdjson = await readFile(
+      join(store.runDir("run-1", "project-1"), "events.ndjson"),
+      "utf8"
+    );
+
+    expect(runJson).not.toContain("lin_secret");
+    expect(eventsNdjson).not.toContain("lin_secret");
+    expect(runJson).toContain("[REDACTED]");
+    expect(eventsNdjson).toContain("[REDACTED]");
+  });
+
   it("mirrors events to an external directory when configured", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const eventsMirrorRoot = await mkdtemp(
@@ -185,15 +251,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     });
 
     await expect(
-      readFile(
-        join(
-          eventsMirrorRoot,
-          "runs",
-          "run-1",
-          "events.ndjson"
-        ),
-        "utf8"
-      )
+      readFile(join(eventsMirrorRoot, "runs", "run-1", "events.ndjson"), "utf8")
     ).resolves.toContain('"event":"hook-failed"');
   });
 
@@ -218,20 +276,10 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       });
 
       const primaryStats = await stat(
-        join(
-          runtimeRoot,
-          "runs",
-          "run-1",
-          "events.ndjson"
-        )
+        join(runtimeRoot, "runs", "run-1", "events.ndjson")
       );
       const mirroredStats = await stat(
-        join(
-          eventsMirrorRoot,
-          "runs",
-          "run-1",
-          "events.ndjson"
-        )
+        join(eventsMirrorRoot, "runs", "run-1", "events.ndjson")
       );
 
       expect(primaryStats.mode & 0o644).toBe(0o644);
@@ -264,12 +312,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
 
       await expect(
         readFile(
-          join(
-            eventsMirrorRoot,
-            "runs",
-            "run-1",
-            "events.ndjson"
-          ),
+          join(eventsMirrorRoot, "runs", "run-1", "events.ndjson"),
           "utf8"
         )
       ).resolves.toContain('"event":"hook-failed"');
@@ -300,15 +343,7 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       ).resolves.toBeUndefined();
 
       await expect(
-        readFile(
-          join(
-            runtimeRoot,
-            "runs",
-            "run-1",
-            "events.ndjson"
-          ),
-          "utf8"
-        )
+        readFile(join(runtimeRoot, "runs", "run-1", "events.ndjson"), "utf8")
       ).resolves.toContain('"event":"hook-failed"');
       expect(warnSpy).toHaveBeenCalledOnce();
     } finally {

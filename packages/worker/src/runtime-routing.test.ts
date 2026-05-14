@@ -5,6 +5,7 @@ import {
 } from "@gh-symphony/core";
 import {
   resolveClaudePreflightAuthMode,
+  shouldExposeLinearGraphQLTool,
   resolveWorkerRuntimeRoute,
 } from "./runtime-routing.js";
 
@@ -66,6 +67,43 @@ describe("resolveWorkerRuntimeRoute", () => {
         })
       )
     ).toBe("api-key-required");
+  });
+});
+
+describe("shouldExposeLinearGraphQLTool", () => {
+  it("enables the Linear tool for Linear tracker workflow sessions", () => {
+    expect(
+      shouldExposeLinearGraphQLTool({
+        ...DEFAULT_WORKFLOW_DEFINITION,
+        tracker: {
+          ...DEFAULT_WORKFLOW_DEFINITION.tracker,
+          kind: "linear",
+        },
+      })
+    ).toBe(true);
+  });
+
+  it("keeps the Linear tool hidden for non-Linear tracker sessions", () => {
+    expect(
+      shouldExposeLinearGraphQLTool(
+        {
+          ...DEFAULT_WORKFLOW_DEFINITION,
+          tracker: {
+            ...DEFAULT_WORKFLOW_DEFINITION.tracker,
+            kind: "github",
+          },
+        },
+        {}
+      )
+    ).toBe(false);
+  });
+
+  it("recognizes runtime Linear tracker env injected by tracker adapters", () => {
+    expect(
+      shouldExposeLinearGraphQLTool(DEFAULT_WORKFLOW_DEFINITION, {
+        SYMPHONY_TRACKER_KIND: "linear",
+      })
+    ).toBe(true);
   });
 });
 

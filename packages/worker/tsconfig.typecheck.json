@@ -6,10 +6,17 @@
     "baseUrl": ".",
     "paths": {
       "@gh-symphony/core": ["../core/src/index.ts"],
-      "@gh-symphony/extension-github-workflow": ["../extension-github-workflow/src/index.ts"],
+      "@gh-symphony/extension-github-workflow": [
+        "../extension-github-workflow/src/index.ts"
+      ],
       "@gh-symphony/runtime-claude": ["../runtime-claude/src/index.ts"],
       "@gh-symphony/runtime-codex": ["../runtime-codex/src/index.ts"],
-      "@gh-symphony/tool-github-graphql": ["../tool-github-graphql/src/index.ts"],
+      "@gh-symphony/tool-github-graphql": [
+        "../tool-github-graphql/src/index.ts"
+      ],
+      "@gh-symphony/tool-linear-graphql": [
+        "../tool-linear-graphql/src/index.ts"
+      ],
       "@gh-symphony/tracker-github": ["../tracker-github/src/index.ts"]
     }
   }

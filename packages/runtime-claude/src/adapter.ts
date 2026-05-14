@@ -29,10 +29,7 @@ import {
   type ClaudeSpawnTurnResult,
   type ClaudeWireMessage,
 } from "./spawn.js";
-import {
-  ClaudeSessionStore,
-  type ClaudeSessionFile,
-} from "./session-store.js";
+import { ClaudeSessionStore, type ClaudeSessionFile } from "./session-store.js";
 
 export type ClaudeRuntimeConfig = {
   workingDirectory: string;
@@ -643,10 +640,7 @@ function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
   // constrained to resume-related lines that include an HTTP 4xx code.
   return result.records.some((record) => {
     const text = record.line.toLowerCase();
-    return (
-      text.includes("resume") &&
-      /\b4\d\d\b/.test(text)
-    );
+    return text.includes("resume") && /\b4\d\d\b/.test(text);
   });
 }
 
@@ -678,6 +672,10 @@ function buildClaudeMcpTokenEnvironment(options: {
     GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
     GITHUB_TOKEN_CACHE_PATH: source.GITHUB_TOKEN_CACHE_PATH,
     GITHUB_PROJECT_ID: source.GITHUB_PROJECT_ID,
+    LINEAR_API_KEY: source.LINEAR_API_KEY,
+    LINEAR_AUTHORIZATION: source.LINEAR_AUTHORIZATION,
+    LINEAR_GRAPHQL_URL: source.LINEAR_GRAPHQL_URL,
+    SYMPHONY_TRACKER_KIND: source.SYMPHONY_TRACKER_KIND,
     WORKSPACE_RUNTIME_DIR:
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
   };

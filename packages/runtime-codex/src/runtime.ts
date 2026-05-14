@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
+  DEFAULT_LINEAR_GRAPHQL_URL,
   readAgentCredentialCache,
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
@@ -15,6 +16,7 @@ import {
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
+import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
@@ -27,7 +29,7 @@ const DIRECT_AGENT_ENV_KEYS = [
 ] as const;
 
 export type RuntimeToolDefinition = {
-  name: "github_graphql";
+  name: "github_graphql" | "linear_graphql";
   description: string;
   command: string;
   args: string[];
@@ -53,6 +55,10 @@ export type CodexRuntimeConfig = {
   agentCredentialCachePath?: string;
   githubProjectId?: string;
   githubGraphqlApiUrl?: string;
+  enableLinearGraphqlTool?: boolean;
+  linearApiKey?: string;
+  linearAuthorization?: string;
+  linearGraphqlUrl?: string;
   extraEnv?: NodeJS.ProcessEnv;
   /** Shell command to launch codex app-server. Leading "bash -lc " is stripped if present, since the runtime always wraps in bash -lc. */
   agentCommand?: string;
@@ -63,7 +69,7 @@ export type CodexRuntimePlan = {
   command: string;
   args: string[];
   env: NodeJS.ProcessEnv;
-  tools: [RuntimeToolDefinition];
+  tools: RuntimeToolDefinition[];
 };
 
 export class AgentRuntimeResolutionError extends Error {}
@@ -164,16 +170,47 @@ export function createGitHubGraphQLToolDefinition(
   };
 }
 
+export function createLinearGraphQLToolDefinition(
+  config: Pick<CodexRuntimeConfig, "linearGraphqlUrl">
+): RuntimeToolDefinition {
+  const entry = createLinearGraphQLMcpServerEntry(config);
+
+  return {
+    name: "linear_graphql",
+    description:
+      "Execute a single Linear GraphQL query or mutation for the active Linear issue using runtime-managed auth.",
+    command: entry.command,
+    args: entry.args,
+    env: entry.env,
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Single GraphQL query or mutation document.",
+        },
+        variables: {
+          type: "object",
+          description: "Variables for the GraphQL document.",
+        },
+        operationName: {
+          type: "string",
+          description: "Optional GraphQL operation name.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value != null && typeof value === "object"
     ? (value as Record<string, unknown>)
     : {};
 }
 
-function hasOwn(
-  record: Record<string, unknown>,
-  key: string
-): boolean {
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
@@ -391,7 +428,9 @@ export function resolvePreparedAgentEnvironment(
   const preparedEnv = Object.fromEntries(
     DIRECT_AGENT_ENV_KEYS.flatMap((key) => {
       const value = env?.[key];
-      return typeof value === "string" && value.length > 0 ? [[key, value]] : [];
+      return typeof value === "string" && value.length > 0
+        ? [[key, value]]
+        : [];
     })
   );
 
@@ -408,7 +447,18 @@ export function resolvePreparedAgentEnvironment(
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
-  const tool = createGitHubGraphQLToolDefinition(config);
+  const githubTool = createGitHubGraphQLToolDefinition(config);
+  const tools = [
+    githubTool,
+    ...(config.enableLinearGraphqlTool
+      ? [
+          createLinearGraphQLToolDefinition({
+            linearGraphqlUrl:
+              config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
+          }),
+        ]
+      : []),
+  ];
   const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
 
   const shellCmd = (() => {
@@ -430,13 +480,30 @@ export function buildCodexRuntimePlan(
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
-      GITHUB_GRAPHQL_TOOL_NAME: tool.name,
-      GITHUB_GRAPHQL_TOOL_COMMAND: [tool.command, ...tool.args].join(" "),
+      GITHUB_GRAPHQL_TOOL_NAME: githubTool.name,
+      GITHUB_GRAPHQL_TOOL_COMMAND: [
+        githubTool.command,
+        ...githubTool.args,
+      ].join(" "),
+      LINEAR_GRAPHQL_TOOL_NAME: config.enableLinearGraphqlTool
+        ? "linear_graphql"
+        : "",
+      LINEAR_GRAPHQL_URL: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
+      ...(config.linearAuthorization
+        ? {
+            LINEAR_AUTHORIZATION: config.linearAuthorization,
+          }
+        : {}),
+      ...(config.linearApiKey
+        ? {
+            LINEAR_API_KEY: config.linearApiKey,
+          }
+        : {}),
       ...agentEnv,
       ...gitCredentialHelper,
-      ...tool.env,
+      ...Object.assign({}, ...tools.map((tool) => tool.env)),
     },
-    tools: [tool],
+    tools,
   };
 }
 
@@ -451,16 +518,13 @@ export function launchCodexAppServer(
   });
 }
 
-export class CodexRuntimeAdapter
-  implements
-    AgentRuntimeAdapter<
-      CodexRuntimePrepareContext,
-      CodexRuntimeTurnInput,
-      CodexRuntimeTurnResult,
-      CodexRuntimeEvent,
-      CodexRuntimeCredentialBrokerResponse
-    >
-{
+export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
+  CodexRuntimePrepareContext,
+  CodexRuntimeTurnInput,
+  CodexRuntimeTurnResult,
+  CodexRuntimeEvent,
+  CodexRuntimeCredentialBrokerResponse
+> {
   // Event emission is intentionally deferred until the worker-owned loop is
   // neutralized in #4. Until then, keep handler registration compatible.
   private readonly handlers = new Set<(event: CodexRuntimeEvent) => void>();
@@ -491,7 +555,9 @@ export class CodexRuntimeAdapter
     });
   }
 
-  async spawnTurn(_input?: CodexRuntimeTurnInput): Promise<CodexRuntimeTurnResult> {
+  async spawnTurn(
+    _input?: CodexRuntimeTurnInput
+  ): Promise<CodexRuntimeTurnResult> {
     if (!this.plan) {
       await this.prepare();
     }
@@ -650,10 +716,16 @@ export async function resolveAgentRuntimeEnvironment(
   const now = dependencies.now ?? new Date();
   const readFileImpl = dependencies.readFileImpl ?? readFile;
   const cachedCredentials = config.agentCredentialCachePath
-    ? await readAgentCredentialCache(config.agentCredentialCachePath, readFileImpl)
+    ? await readAgentCredentialCache(
+        config.agentCredentialCachePath,
+        readFileImpl
+      )
     : null;
 
-  if (cachedCredentials && shouldReuseAgentCredentialCache(cachedCredentials, now)) {
+  if (
+    cachedCredentials &&
+    shouldReuseAgentCredentialCache(cachedCredentials, now)
+  ) {
     return resolveRuntimeCredentials(config, cachedCredentials, adapter);
   }
 
@@ -665,10 +737,11 @@ export async function resolveAgentRuntimeEnvironment(
       authorization: `Bearer ${config.agentCredentialBrokerSecret}`,
     },
   });
-  const payload = (await response.json()) as AgentRuntimeCredentialBrokerResponse & {
-    error?: string;
-    expires_at?: string;
-  };
+  const payload =
+    (await response.json()) as AgentRuntimeCredentialBrokerResponse & {
+      error?: string;
+      expires_at?: string;
+    };
   const resolvedEnv =
     payload.env && response.ok
       ? adapter
@@ -720,7 +793,10 @@ function resolveRuntimeCredentials(
 ): Record<string, string> {
   return adapter
     ? adapter.resolveCredentials(brokerResponse)
-    : resolvePreparedAgentEnvironment(config.workingDirectory, brokerResponse.env);
+    : resolvePreparedAgentEnvironment(
+        config.workingDirectory,
+        brokerResponse.env
+      );
 }
 
 async function stageCodexHome(
