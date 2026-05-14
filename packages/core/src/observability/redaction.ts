@@ -1,6 +1,11 @@
 const REDACTED = "[REDACTED]";
-const SENSITIVE_KEY_PATTERN =
-  /(^|_|\b)(authorization|linear_api_key|github_graphql_token|token|api_key|secret)(_|$|\b)/i;
+const SENSITIVE_KEY_SUBSTRINGS = [
+  "authorization",
+  "secret",
+  "apiKey",
+  "api-key",
+  "api_key",
+];
 
 export function redactObservabilitySecrets<T>(value: T): T {
   return redactValue(value) as T;
@@ -24,7 +29,14 @@ function redactValue(value: unknown): unknown {
 }
 
 function shouldRedactKey(key: string): boolean {
-  return SENSITIVE_KEY_PATTERN.test(key);
+  const normalizedKey = key.toLowerCase();
+  return (
+    normalizedKey === "token" ||
+    normalizedKey.endsWith("token") ||
+    SENSITIVE_KEY_SUBSTRINGS.some((pattern) =>
+      normalizedKey.includes(pattern.toLowerCase())
+    )
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

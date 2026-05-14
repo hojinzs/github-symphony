@@ -64,7 +64,7 @@ export function validateLinearGraphQLInvocation(
     (definition) => definition.kind === "OperationDefinition"
   ).length;
 
-  if (operationCount > 1) {
+  if (operationCount !== 1) {
     throw new Error(
       "linear_graphql accepts exactly one GraphQL operation per request; split multi-operation documents before calling Linear."
     );

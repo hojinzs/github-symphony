@@ -99,6 +99,31 @@ describe("buildCodexRuntimePlan", () => {
       "github_graphql",
     ]);
     expect(nonLinearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("");
+    expect(nonLinearPlan.env.LINEAR_GRAPHQL_URL).toBeUndefined();
+    expect(nonLinearPlan.env.LINEAR_API_KEY).toBeUndefined();
+    expect(nonLinearPlan.env.LINEAR_AUTHORIZATION).toBeUndefined();
+
+    const nonLinearPlanWithLinearSecret = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      linearApiKey: "lin_api_key",
+      linearAuthorization: "Bearer lin_api_key",
+      linearGraphqlUrl: "https://linear.example/graphql",
+      extraEnv: {
+        LINEAR_API_KEY: "global-lin-api-key",
+        LINEAR_AUTHORIZATION: "Bearer global-lin-api-key",
+        LINEAR_GRAPHQL_URL: "https://global-linear.example/graphql",
+      },
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("");
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_URL).toBeUndefined();
+    expect(nonLinearPlanWithLinearSecret.env.LINEAR_API_KEY).toBeUndefined();
+    expect(
+      nonLinearPlanWithLinearSecret.env.LINEAR_AUTHORIZATION
+    ).toBeUndefined();
 
     const linearPlan = buildCodexRuntimePlan({
       projectId: "workspace-123",

@@ -469,6 +469,28 @@ export function buildCodexRuntimePlan(
     config.workingDirectory,
     config.agentEnv
   );
+  const linearGraphqlEnv = config.enableLinearGraphqlTool
+    ? {
+        LINEAR_GRAPHQL_TOOL_NAME: "linear_graphql",
+        LINEAR_GRAPHQL_URL:
+          config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
+        ...(config.linearAuthorization
+          ? {
+              LINEAR_AUTHORIZATION: config.linearAuthorization,
+            }
+          : {}),
+        ...(config.linearApiKey
+          ? {
+              LINEAR_API_KEY: config.linearApiKey,
+            }
+          : {}),
+      }
+    : {
+        LINEAR_GRAPHQL_TOOL_NAME: "",
+        LINEAR_GRAPHQL_URL: undefined,
+        LINEAR_API_KEY: undefined,
+        LINEAR_AUTHORIZATION: undefined,
+      };
 
   return {
     cwd: config.workingDirectory,
@@ -485,20 +507,7 @@ export function buildCodexRuntimePlan(
         githubTool.command,
         ...githubTool.args,
       ].join(" "),
-      LINEAR_GRAPHQL_TOOL_NAME: config.enableLinearGraphqlTool
-        ? "linear_graphql"
-        : "",
-      LINEAR_GRAPHQL_URL: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
-      ...(config.linearAuthorization
-        ? {
-            LINEAR_AUTHORIZATION: config.linearAuthorization,
-          }
-        : {}),
-      ...(config.linearApiKey
-        ? {
-            LINEAR_API_KEY: config.linearApiKey,
-          }
-        : {}),
+      ...linearGraphqlEnv,
       ...agentEnv,
       ...gitCredentialHelper,
       ...Object.assign({}, ...tools.map((tool) => tool.env)),

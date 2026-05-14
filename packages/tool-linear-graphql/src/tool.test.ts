@@ -43,6 +43,14 @@ describe("validateLinearGraphQLInvocation", () => {
       })
     ).toThrow(/exactly one GraphQL operation/);
   });
+
+  it("rejects fragment-only documents before HTTP", () => {
+    expect(() =>
+      validateLinearGraphQLInvocation({
+        query: "fragment IssueFields on Issue { id identifier }",
+      })
+    ).toThrow(/exactly one GraphQL operation/);
+  });
 });
 
 describe("executeLinearGraphQL", () => {
@@ -91,6 +99,23 @@ describe("executeLinearGraphQL", () => {
       executeLinearGraphQL(
         {
           query: "query Q1 { viewer { id } } query Q2 { viewer { name } }",
+        },
+        {
+          apiKey: "lin_api_key",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/exactly one GraphQL operation/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects fragment-only documents before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "fragment IssueFields on Issue { id identifier }",
         },
         {
           apiKey: "lin_api_key",
