@@ -222,6 +222,34 @@ describe("linearTrackerAdapter", () => {
     expect(request.variables.issueIds).toEqual(["issue-1", "issue-2"]);
   });
 
+  it("fetchIssueStatesByIds routes Linear identifiers through an identifier filter", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), ["ENG-123"], {
+      fetchImpl,
+      token: "linear-token",
+    });
+
+    const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    expect(request.query).toContain(
+      "identifier: { in: $issueIdentifiers }"
+    );
+    expect(request.variables.issueIdentifiers).toEqual(["ENG-123"]);
+    expect(request.variables).not.toHaveProperty("issueIds");
+  });
+
   it("injects worker environment without requiring team id", () => {
     const env = linearTrackerAdapter.buildWorkerEnvironment(
       makeProject({ apiUrl: undefined }),

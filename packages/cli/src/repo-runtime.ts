@@ -73,6 +73,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
 
   const workflowPath = resolve(repoDir, flags.workflowFile ?? "WORKFLOW.md");
   const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
+  validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);
   const trackerAdapter = workflow.tracker.kind ?? "github-project";
   const trackerBindingId =
@@ -140,6 +141,26 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     workflowPath,
     repository,
   };
+}
+
+function validateRepoInitWorkflow(
+  workflow: ReturnType<typeof parseWorkflowMarkdown>
+): void {
+  if (workflow.tracker.kind !== "linear") {
+    return;
+  }
+
+  if (!workflow.tracker.projectSlug?.trim()) {
+    throw new Error(
+      'Linear tracker repo init requires WORKFLOW.md field "tracker.project_slug".'
+    );
+  }
+
+  if (!workflow.tracker.apiKey?.trim()) {
+    throw new Error(
+      'Linear tracker repo init requires WORKFLOW.md field "tracker.api_key" to reference a resolvable environment variable such as "$LINEAR_API_KEY".'
+    );
+  }
 }
 
 export async function migrateLegacyRuntime(runtimeRoot: string): Promise<void> {

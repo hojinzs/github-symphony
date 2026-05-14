@@ -107,6 +107,25 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
+### Linear Tracker Repositories
+
+For Linear, configure the tracker in `WORKFLOW.md` and initialize the repository runtime from the target GitHub repository:
+
+```yaml
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+```
+
+`gh-symphony repo init` validates `tracker.project_slug` and resolves `tracker.api_key`, so `LINEAR_API_KEY` must be set before initialization. Linear aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected, and `.gh-symphony/config.json` is not a Linear source of truth.
+
+Linear runs are polling-only. There is no webhook setup command. Put state transition, workpad comment, and PR handoff policy in `WORKFLOW.md`; see `docs/examples/linear-WORKFLOW.md` in the repository for a complete example. Preview a Linear issue prompt with:
+
+```bash
+gh-symphony workflow preview ENG-123
+```
+
 ### Repository `.env` Mapping
 
 If your hooks or worker runs need staging hosts, database URLs, Playwright base URLs, or other runtime-only values, store them in the repository runtime directory instead of hardcoding them in `WORKFLOW.md`.

@@ -85,6 +85,22 @@ export function generateReferenceWorkflow(
   }
 
   lines.push("");
+  lines.push("# Linear tracker example:");
+  lines.push("# tracker:");
+  lines.push("#   kind: linear");
+  lines.push("#   endpoint: https://api.linear.app/graphql");
+  lines.push("#   api_key: $LINEAR_API_KEY");
+  lines.push("#   project_slug: symphony-0c79b11b75ea");
+  lines.push("#   active_states:");
+  lines.push("#     - Todo");
+  lines.push("#     - In Progress");
+  lines.push("#   terminal_states:");
+  lines.push("#     - Done");
+  lines.push("#     - Canceled");
+  lines.push("#     - Duplicate");
+  lines.push("# Linear uses repository-local polling; gh-symphony does not provide");
+  lines.push("# a Linear webhook setup command.");
+  lines.push("");
 
   lines.push("polling:");
   lines.push("  interval_ms: 30000");

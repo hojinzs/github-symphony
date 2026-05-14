@@ -47,6 +47,25 @@ Attempt={{ attempt }}
 Labels={% for label in issue.labels %}{{ label }} {% endfor %}
 `;
 
+const LINEAR_WORKFLOW = `---
+tracker:
+  kind: linear
+  api_key: lin_test_token
+  project_slug: symphony-0c79b11b75ea
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+runtime:
+  kind: codex-app-server
+  command: codex
+  args:
+    - app-server
+---
+# Issue
+{{ issue.identifier }}: {{ issue.title }}
+`;
+
 afterEach(() => {
   vi.restoreAllMocks();
   resetWorkflowCommandDependenciesForTest();
@@ -268,6 +287,103 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("Sample: live:acme/api#9");
     expect(stdout.output()).toContain("acme/api#9: Fix preview rendering");
     expect(stdout.output()).toContain("Attempt=2");
+  });
+
+  it("routes Linear identifiers through the active tracker adapter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-linear-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
+      {
+        id: "linear-issue-id",
+        identifier: "ENG-123",
+        number: 123,
+        title: "Add Linear preview",
+        description: "Preview should fetch through Linear.",
+        priority: 2,
+        state: "Todo",
+        branchName: null,
+        url: "https://linear.app/acme/issue/ENG-123",
+        labels: ["cli"],
+        blockedBy: [],
+        createdAt: "2026-05-01T00:00:00Z",
+        updatedAt: "2026-05-02T00:00:00Z",
+        repository: {
+          owner: "acme",
+          name: "api",
+          cloneUrl: "https://github.com/acme/api.git",
+        },
+        tracker: {
+          adapter: "linear",
+          bindingId: "symphony-0c79b11b75ea",
+          itemId: "linear-issue-id",
+        },
+        metadata: {},
+      },
+    ]);
+    const resolveTrackerAdapter = vi.fn().mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+    });
+
+    await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      loadActiveProjectConfig: vi.fn().mockResolvedValue({
+        projectId: "repository",
+        slug: "api",
+        workspaceDir: root,
+        repository: {
+          owner: "acme",
+          name: "api",
+          cloneUrl: "https://github.com/acme/api.git",
+        },
+        tracker: {
+          adapter: "linear",
+          bindingId: "symphony-0c79b11b75ea",
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+          },
+        },
+      }),
+      resolveTrackerAdapter,
+    });
+
+    try {
+      await workflowCommand(["preview", "--file", workflowPath, "ENG-123"], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(resolveTrackerAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "linear",
+        bindingId: "symphony-0c79b11b75ea",
+        settings: expect.objectContaining({
+          projectSlug: "symphony-0c79b11b75ea",
+        }),
+      })
+    );
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: expect.objectContaining({
+          owner: "acme",
+          name: "api",
+        }),
+      }),
+      ["ENG-123"],
+      { token: "lin_test_token" }
+    );
+    expect(stdout.output()).toContain("Sample: live:ENG-123");
+    expect(stdout.output()).toContain("ENG-123: Add Linear preview");
   });
 
   it("fails live preview when the repository is not linked to the bound GitHub Project", async () => {

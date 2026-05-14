@@ -145,6 +145,20 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("project_id: PVT_abc123");
   });
 
+  it("includes a Linear tracker example without webhook setup", () => {
+    const output = generateReferenceWorkflow(defaultInput);
+
+    expect(output).toContain("# Linear tracker example:");
+    expect(output).toContain("#   kind: linear");
+    expect(output).toContain("#   api_key: $LINEAR_API_KEY");
+    expect(output).toContain("#   project_slug: symphony-0c79b11b75ea");
+    expect(output).toContain(
+      "# a Linear webhook setup command."
+    );
+    expect(output).not.toContain("#   project_id:");
+    expect(output).not.toContain("#   teamId:");
+  });
+
   it("includes priority_field in front matter when configured", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("priority_field: Priority");
