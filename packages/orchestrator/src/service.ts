@@ -781,11 +781,19 @@ export class OrchestratorService {
         await this.store.saveRun(run);
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
+          event: "tracker.list",
+          projectId: tenant.projectId,
+          ...buildStructuredTrackerEventMetadata(tenant, issue),
+          rateLimits: issue.rateLimits ?? null,
+        });
+        await this.store.appendRunEvent(run.runId, {
+          at: now.toISOString(),
           event: "run-dispatched",
           projectId: tenant.projectId,
           issueIdentifier: issue.identifier,
           issueId: run.issueId,
           issueState: issue.state,
+          ...buildStructuredTrackerEventMetadata(tenant, issue),
         });
         this.logVerbose(
           `[dispatch] Issue ${issue.identifier} → run ${run.runId}`
@@ -803,11 +811,6 @@ export class OrchestratorService {
           continue;
         }
 
-        const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
-        if (!issue) {
-          continue;
-        }
-
         const persistedRun = issueRecord.currentRunId
           ? await this.store.loadRun(issueRecord.currentRunId, tenant.projectId)
           : null;
@@ -815,6 +818,40 @@ export class OrchestratorService {
           syncedActiveRuns.find((run) =>
             isMatchingIssueRun(run, issueRecord.issueId, issueRecord.identifier)
           ) ?? persistedRun;
+        const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
+        if (!issue) {
+          if (
+            !activeRun ||
+            activeRun.processId === null ||
+            !this.isProcessRunning(activeRun.processId)
+          ) {
+            continue;
+          }
+          const activeWorkerPid = activeRun.processId;
+          this.sendSignal(activeWorkerPid, "SIGTERM");
+          this.retireWorkerPid(activeWorkerPid);
+          const suppressedRun: OrchestratorRunRecord = {
+            ...activeRun,
+            status: "suppressed",
+            processId: null,
+            completedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            runPhase: "canceled_by_reconciliation",
+            lastError:
+              "Run suppressed because the tracker issue is no longer tracked.",
+          };
+          await this.store.saveRun(suppressedRun);
+          this.logVerbose(
+            `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+          );
+          issueRecords = releaseIssueOrchestration(
+            issueRecords,
+            issueRecord.issueId,
+            now
+          );
+          suppressed += 1;
+          continue;
+        }
         const resolvedIssue = actionableCandidates.find(
           (candidate) => candidate.identifier === issue.identifier
         );
@@ -874,9 +911,18 @@ export class OrchestratorService {
       effectivePollIntervalMs > pollIntervalMs &&
       isLowRateLimit(trackerRateLimits, LOW_RATE_LIMIT_WARNING_THRESHOLD)
     ) {
+      const observedTrackerRateLimits = trackerRateLimits ?? {};
+      const rateLimitSource =
+        observedTrackerRateLimits.source === "github"
+          ? "GitHub"
+          : observedTrackerRateLimits.source === "linear"
+            ? "Linear"
+            : typeof observedTrackerRateLimits.source === "string"
+              ? observedTrackerRateLimits.source
+              : "tracker";
       this.writeStderr(
-        `[orchestrator] low GitHub rate limit for ${tenant.projectId}: interval=${effectivePollIntervalMs}ms rateLimits=${JSON.stringify(
-          trackerRateLimits
+        `[orchestrator] low ${rateLimitSource} rate limit for ${tenant.projectId}: interval=${effectivePollIntervalMs}ms rateLimits=${JSON.stringify(
+          observedTrackerRateLimits
         )}`
       );
     }
@@ -1683,6 +1729,16 @@ export class OrchestratorService {
 
     const syncedRuns: OrchestratorRunRecord[] = [];
     for (const run of activeRuns) {
+      const currentIssue = issuesByIdentifier.get(run.issueIdentifier);
+      if (currentIssue) {
+        await this.store.appendRunEvent(run.runId, {
+          at: now.toISOString(),
+          event: "tracker.fetchByIds",
+          projectId: tenant.projectId,
+          ...buildStructuredTrackerEventMetadata(tenant, currentIssue),
+          rateLimits: currentIssue.rateLimits ?? null,
+        });
+      }
       const currentTrackerState = issueStateByIdentifier.get(
         run.issueIdentifier
       );
@@ -3136,11 +3192,38 @@ function resolveProjectRateLimits(
   return null;
 }
 
+function buildStructuredTrackerEventMetadata(
+  tenant: OrchestratorProjectConfig,
+  issue: TrackedIssue
+): {
+  tracker: { adapter: string; projectSlug?: string };
+  issue: { identifier: string; id: string };
+} {
+  const projectSlug =
+    typeof issue.metadata.projectSlug === "string"
+      ? issue.metadata.projectSlug
+      : tenant.tracker.adapter === "linear" &&
+          typeof tenant.tracker.settings?.projectSlug === "string"
+        ? tenant.tracker.settings.projectSlug
+        : undefined;
+
+  return {
+    tracker: {
+      adapter: issue.tracker.adapter,
+      ...(projectSlug ? { projectSlug } : {}),
+    },
+    issue: {
+      identifier: issue.identifier,
+      id: issue.id,
+    },
+  };
+}
+
 function resolveTrackerRateLimits(
   issues: Iterable<TrackedIssue>
 ): Record<string, unknown> | null {
   for (const issue of issues) {
-    if (isGitHubTrackerRateLimits(issue.rateLimits)) {
+    if (isTrackerGraphqlRateLimits(issue.rateLimits)) {
       return issue.rateLimits;
     }
   }
@@ -3188,10 +3271,13 @@ function extractRateLimitRatio(
   return remaining / limit;
 }
 
-function isGitHubTrackerRateLimits(
+function isTrackerGraphqlRateLimits(
   rateLimits: Record<string, unknown> | null | undefined
 ): rateLimits is Record<string, unknown> {
-  if (!isRecord(rateLimits) || rateLimits.source !== "github") {
+  if (
+    !isRecord(rateLimits) ||
+    (rateLimits.source !== "github" && rateLimits.source !== "linear")
+  ) {
     return false;
   }
 

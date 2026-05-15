@@ -38,6 +38,16 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
+function jsonResponseWithHeaders(
+  body: unknown,
+  headers: Record<string, string>
+): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
+}
+
 describe("linearTrackerAdapter", () => {
   it("queries Linear by project slug and state names with cursor pagination", async () => {
     const fetchImpl = vi
@@ -180,6 +190,81 @@ describe("linearTrackerAdapter", () => {
     };
     expect(projectItemsCache.getOrLoad).not.toHaveBeenCalled();
     expect(request.variables.stateNames).toEqual(["Rework"]);
+  });
+
+  it("normalizes Linear rate-limit headers onto listed issues", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponseWithHeaders(
+        {
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: "issue-1",
+                  identifier: "ENG-1",
+                  number: 1,
+                  title: "First issue",
+                  state: { name: "Todo" },
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+        {
+          "x-ratelimit-requests-limit": "1500",
+          "x-ratelimit-requests-remaining": "1498",
+          "x-ratelimit-requests-reset": "1773892800",
+        }
+      )
+    );
+
+    const issues = await linearTrackerAdapter.listIssues(makeProject(), {
+      fetchImpl,
+      token: "linear-token",
+    });
+
+    expect(issues[0]?.rateLimits).toEqual({
+      source: "linear",
+      limit: 1500,
+      remaining: 1498,
+      used: 2,
+      reset: 1773892800,
+      resetAt: "2026-03-19T04:00:00.000Z",
+      retryAfter: null,
+      resource: "graphql",
+    });
+  });
+
+  it("surfaces Linear 429 retry metadata without leaking auth", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "rate limited" }] }), {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "retry-after": "30",
+          "x-ratelimit-requests-limit": "1500",
+          "x-ratelimit-requests-remaining": "0",
+        },
+      })
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssues(makeProject(), {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.toThrow(
+      "Linear GraphQL request failed with HTTP 429. Retry after 30 seconds."
+    );
+    await expect(
+      linearTrackerAdapter.listIssues(makeProject(), {
+        fetchImpl,
+        token: "linear-token",
+      })
+    ).rejects.not.toThrow("linear-token");
   });
 
   it("requires active state names when polling Linear candidates", async () => {
