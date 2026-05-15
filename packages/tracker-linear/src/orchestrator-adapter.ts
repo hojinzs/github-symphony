@@ -135,6 +135,26 @@ const LINEAR_ISSUES_BY_IDS_QUERY = /* GraphQL */ `
   }
 `;
 
+const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
+  query SymphonyLinearIssueStatesByIdentifier(
+    $projectSlug: String!
+    $issueIdentifiers: [String!]!
+    $first: Int!
+    $after: String
+  ) {
+    issues(
+      first: $first
+      after: $after
+      filter: {
+        project: { slugId: { eq: $projectSlug } }
+        identifier: { in: $issueIdentifiers }
+      }
+    ) {
+      ${LINEAR_ISSUE_FIELDS}
+    }
+  }
+`;
+
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
     return listLinearIssues(
@@ -214,7 +234,14 @@ async function listLinearIssues(
   const nodes = await fetchPaginatedLinearIssues(client, {
     projectSlug: config.projectSlug,
     stateNames,
-    issueIds: issueIds ? [...issueIds] : undefined,
+    issueIds:
+      issueIds && !issueIds.every(isLinearIdentifier)
+        ? [...issueIds]
+        : undefined,
+    issueIdentifiers:
+      issueIds && issueIds.every(isLinearIdentifier)
+        ? issueIds.map((identifier) => identifier.trim().toUpperCase())
+        : undefined,
     pageSize: config.pageSize,
   });
 
@@ -229,6 +256,7 @@ async function fetchPaginatedLinearIssues(
     projectSlug: string;
     stateNames?: string[];
     issueIds?: string[];
+    issueIdentifiers?: string[];
     pageSize: number;
   }
 ): Promise<LinearIssueNode[]> {
@@ -236,16 +264,20 @@ async function fetchPaginatedLinearIssues(
   let after: string | null = null;
 
   do {
-    const query = input.issueIds
-      ? LINEAR_ISSUES_BY_IDS_QUERY
-      : LINEAR_ISSUES_BY_STATES_QUERY;
+    const query = input.issueIdentifiers
+      ? LINEAR_ISSUES_BY_IDENTIFIERS_QUERY
+      : input.issueIds
+        ? LINEAR_ISSUES_BY_IDS_QUERY
+        : LINEAR_ISSUES_BY_STATES_QUERY;
     const response: LinearIssuesResponse = await client<LinearIssuesResponse>(
       query,
       {
         projectSlug: input.projectSlug,
-        ...(input.issueIds
-          ? { issueIds: input.issueIds }
-          : { stateNames: input.stateNames ?? [] }),
+        ...(input.issueIdentifiers
+          ? { issueIdentifiers: input.issueIdentifiers }
+          : input.issueIds
+            ? { issueIds: input.issueIds }
+            : { stateNames: input.stateNames ?? [] }),
         first: input.pageSize,
         after,
       }
@@ -259,6 +291,13 @@ async function fetchPaginatedLinearIssues(
   } while (after);
 
   return issues;
+}
+
+function isLinearIdentifier(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed === trimmed.toUpperCase() && LINEAR_IDENTIFIER_PATTERN.test(trimmed)
+  );
 }
 
 export function normalizeLinearIssue(
