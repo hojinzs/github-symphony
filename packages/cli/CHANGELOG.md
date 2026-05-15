@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.1.4
+
+### Patch Changes
+
+- [#330](https://github.com/hojinzs/github-symphony/pull/330) [`330a625`](https://github.com/hojinzs/github-symphony/commit/330a625c6fa7902379c4c3af1de3f9c1cd665e28) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix claude-print worker turns for issue [#329](https://github.com/hojinzs/github-symphony/issues/329) by sending Claude Code 2.1.x-compatible stream-json user messages and surfacing Claude stderr in runtime failure reports.
+
 ## 0.1.3
 
 ### Patch Changes
