@@ -109,7 +109,15 @@ describe("ClaudePrintRuntimeAdapter", () => {
     );
 
     const result = await adapter.spawnTurn({
-      messages: [{ type: "user", text: "hello" }],
+      messages: [
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "hello" }],
+          },
+        },
+      ],
       session: {
         mode: "start",
         sessionId: "session-1",

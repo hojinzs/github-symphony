@@ -134,6 +134,7 @@ export async function spawnClaudeTurn(
       classification.kind === "process-error") &&
     !emittedErrorEvent
   ) {
+    const stderrSummary = summarizeClaudeStderr(records);
     emitEvent({
       name: "agent.error",
       payload: {
@@ -147,8 +148,11 @@ export async function spawnClaudeTurn(
           classification,
           errorMessage:
             "errorMessage" in outcome ? outcome.errorMessage : undefined,
+          stderr: stderrSummary ?? undefined,
         },
-        error: classification.reason,
+        error: stderrSummary
+          ? `${classification.reason}: ${stderrSummary}`
+          : classification.reason,
       },
     });
   }
@@ -164,6 +168,20 @@ export async function spawnClaudeTurn(
     classification,
     errorMessage: "errorMessage" in outcome ? outcome.errorMessage : undefined,
   };
+}
+
+function summarizeClaudeStderr(records: ClaudeSpawnRecord[]): string | null {
+  const stderrLines = records
+    .filter((record) => record.stream === "stderr")
+    .map((record) => record.line || record.parseError)
+    .filter((line): line is string => Boolean(line?.trim()))
+    .map((line) => line.trim());
+
+  if (stderrLines.length === 0) {
+    return null;
+  }
+
+  return stderrLines.slice(-3).join(" | ").slice(0, 1000);
 }
 
 export function classifyClaudeTurnResult(

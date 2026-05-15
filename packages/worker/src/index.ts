@@ -766,13 +766,27 @@ async function spawnNonCodexRuntimeTurn(
     return await (
       adapter as {
         spawnTurn(input: {
-          messages: Array<{ type: "user"; text: string }>;
+          messages: Array<{
+            type: "user";
+            message: {
+              role: "user";
+              content: Array<{ type: "text"; text: string }>;
+            };
+          }>;
           cwd?: string;
           env?: NodeJS.ProcessEnv;
         }): Promise<WorkerNonCodexTurnResult>;
       }
     ).spawnTurn({
-      messages: [{ type: "user", text: renderedPrompt }],
+      messages: [
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: renderedPrompt }],
+          },
+        },
+      ],
       cwd: env.WORKING_DIRECTORY,
       env,
     });
@@ -850,10 +864,51 @@ function isNonCodexTurnFailure(result: WorkerNonCodexTurnResult): boolean {
 }
 
 function describeNonCodexTurnFailure(result: WorkerNonCodexTurnResult): string {
+  const stderrSummary = extractRuntimeStderrSummary(result);
+  if (stderrSummary) {
+    return (
+      result.errorMessage ??
+      `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}: ${stderrSummary}`
+    );
+  }
+
   return (
     result.errorMessage ??
     `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}`
   );
+}
+
+function extractRuntimeStderrSummary(
+  result: WorkerNonCodexTurnResult
+): string | null {
+  if ("stderr" in result) {
+    return summarizeRuntimeStderr(result.stderr);
+  }
+
+  if ("records" in result) {
+    return summarizeRuntimeStderr(
+      result.records
+        .filter((record) => record.stream === "stderr")
+        .map((record) => record.line || record.parseError)
+        .filter((line): line is string => Boolean(line))
+        .join("\n")
+    );
+  }
+
+  return null;
+}
+
+function summarizeRuntimeStderr(stderr: string): string | null {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return lines.slice(-3).join(" | ").slice(0, 1000);
 }
 
 async function exitWorkerStartupFailure(message: string): Promise<void> {
