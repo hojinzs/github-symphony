@@ -386,6 +386,82 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("ENG-123: Add Linear preview");
   });
 
+  it("rejects Linear preview when the active runtime is not bound to the workflow project", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-preview-linear-mismatch-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+    const resolveTrackerAdapter = vi.fn();
+
+    await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
+
+    setWorkflowCommandDependenciesForTest({
+      loadActiveProjectConfig: vi.fn().mockResolvedValue({
+        projectId: "tenant-a",
+        slug: "tenant-a",
+        workspaceDir: root,
+        repository: {
+          owner: "acme",
+          name: "api",
+          cloneUrl: "https://github.com/acme/api.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "PVT_project_123",
+          settings: {
+            projectId: "PVT_project_123",
+          },
+        },
+      }),
+      resolveTrackerAdapter,
+    });
+
+    try {
+      await workflowCommand(["preview", "--file", workflowPath, "ENG-123"], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      'Linear live issue preview requires an active repository runtime initialized for project "symphony-0c79b11b75ea".'
+    );
+    expect(resolveTrackerAdapter).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("rejects duplicate preview issue identifiers regardless of argument order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-duplicate-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "ENG-123", "--issue", "ENG-124"],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Only one preview issue identifier can be provided."
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
   it("fails live preview when the repository is not linked to the bound GitHub Project", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "workflow-preview-live-missing-repo-")

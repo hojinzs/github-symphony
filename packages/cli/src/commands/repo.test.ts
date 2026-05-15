@@ -279,6 +279,39 @@ Handle {{issue.identifier}}.
     );
   });
 
+  it("fails Linear repo init when tracker.project_slug is missing", async () => {
+    const repoDir = await createGitRepo();
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  api_key: lin_test_token
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
   it("fails Linear repo init when LINEAR_API_KEY reference is unresolved", async () => {
     const repoDir = await createGitRepo();
     const stderr = captureWrites(process.stderr);

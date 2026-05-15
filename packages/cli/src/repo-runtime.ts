@@ -150,12 +150,6 @@ function validateRepoInitWorkflow(
     return;
   }
 
-  if (!workflow.tracker.projectSlug?.trim()) {
-    throw new Error(
-      'Linear tracker repo init requires WORKFLOW.md field "tracker.project_slug".'
-    );
-  }
-
   if (!workflow.tracker.apiKey?.trim()) {
     throw new Error(
       'Linear tracker repo init requires WORKFLOW.md field "tracker.api_key" to reference a resolvable environment variable such as "$LINEAR_API_KEY".'

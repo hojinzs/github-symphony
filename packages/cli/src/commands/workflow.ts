@@ -252,6 +252,9 @@ function parsePreviewFlags(args: string[]): PreviewFlags {
         if (!value || value.startsWith("-")) {
           throw new Error("Option '--issue' argument missing");
         }
+        if (flags.issue) {
+          throw new Error("Only one preview issue identifier can be provided.");
+        }
         flags.issue = value;
         i += 1;
         break;
@@ -708,7 +711,8 @@ async function loadLinearIssue(
     );
   }
 
-  if (!workflow.tracker.projectSlug?.trim()) {
+  const workflowProjectSlug = workflow.tracker.projectSlug?.trim();
+  if (!workflowProjectSlug) {
     throw new Error(
       'Linear live issue preview requires WORKFLOW.md field "tracker.project_slug".'
     );
@@ -720,25 +724,24 @@ async function loadLinearIssue(
     );
   }
 
-  const tracker = {
-    adapter: "linear",
-    bindingId: workflow.tracker.projectSlug,
-    ...(workflow.tracker.endpoint ? { apiUrl: workflow.tracker.endpoint } : {}),
-    settings: {
-      projectSlug: workflow.tracker.projectSlug,
-      activeStates: workflow.tracker.activeStates.join("\n"),
-      repository: `${projectConfig.repository.owner}/${projectConfig.repository.name}`,
-    },
-  };
+  if (
+    projectConfig.tracker.adapter !== "linear" ||
+    projectConfig.tracker.bindingId !== workflowProjectSlug
+  ) {
+    throw new Error(
+      `Linear live issue preview requires an active repository runtime initialized for project "${workflowProjectSlug}". Run 'gh-symphony repo init' from this repository, then re-run the preview.`
+    );
+  }
+
   const orchestratorProject: OrchestratorProjectConfig = {
     projectId: projectConfig.projectId,
     slug: projectConfig.slug,
     workspaceDir: projectConfig.workspaceDir,
     repository: projectConfig.repository,
-    tracker,
+    tracker: projectConfig.tracker,
   };
   const trackerAdapter =
-    workflowCommandDependencies.resolveTrackerAdapter(tracker);
+    workflowCommandDependencies.resolveTrackerAdapter(projectConfig.tracker);
   const [issue] = await trackerAdapter.fetchIssueStatesByIds(
     orchestratorProject,
     [issueIdentifier.trim().toUpperCase()],
