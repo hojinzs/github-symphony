@@ -84,6 +84,10 @@ export type TrackedIssue = {
   rateLimits?: Record<string, unknown> | null;
 };
 
+export type TrackedIssueList = TrackedIssue[] & {
+  rateLimits?: Record<string, unknown> | null;
+};
+
 export type ProjectItemsCache = {
   getOrLoad(
     key: string,
@@ -101,17 +105,17 @@ export type OrchestratorTrackerAdapter = {
   listIssues(
     project: OrchestratorProjectConfig,
     dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackedIssue[]>;
+  ): Promise<TrackedIssueList>;
   listIssuesByStates(
     project: OrchestratorProjectConfig,
     states: readonly string[],
     dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackedIssue[]>;
+  ): Promise<TrackedIssueList>;
   fetchIssueStatesByIds(
     project: OrchestratorProjectConfig,
     issueIds: readonly string[],
     dependencies?: OrchestratorTrackerDependencies
-  ): Promise<TrackedIssue[]>;
+  ): Promise<TrackedIssueList>;
   buildWorkerEnvironment(
     project: OrchestratorProjectConfig,
     issue: TrackedIssue

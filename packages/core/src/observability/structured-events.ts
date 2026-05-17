@@ -7,6 +7,34 @@
  * without coupling consumers to internal implementation details.
  */
 
+export type TrackerEventMetadata = {
+  adapter: string;
+  projectSlug?: string;
+};
+
+export type IssueEventMetadata = {
+  identifier: string;
+  id: string;
+};
+
+export type TrackerListEvent = {
+  at: string;
+  event: "tracker.list";
+  projectId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  rateLimits?: Record<string, unknown> | null;
+};
+
+export type TrackerFetchByIdsEvent = {
+  at: string;
+  event: "tracker.fetchByIds";
+  projectId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  rateLimits?: Record<string, unknown> | null;
+};
+
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
@@ -15,6 +43,8 @@ export type RunDispatchedEvent = {
   issueState?: string;
   issueId?: string;
   sessionId?: string;
+  tracker?: TrackerEventMetadata;
+  issue?: IssueEventMetadata;
 };
 
 export type RunRecoveredEvent = {
@@ -164,6 +194,8 @@ export type SessionInvalidatedEvent = {
  * Union of all structured orchestration events. Discriminated on `event`.
  */
 export type OrchestratorEvent =
+  | TrackerListEvent
+  | TrackerFetchByIdsEvent
   | RunDispatchedEvent
   | RunRecoveredEvent
   | RunRetriedEvent

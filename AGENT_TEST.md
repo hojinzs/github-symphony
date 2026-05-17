@@ -346,6 +346,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/03-stall-detection.md` | stall → SIGTERM → retry |
 | `e2e/scenarios/04-fail-retry.md` | 실패 → 재시도 스케줄링 |
 | `e2e/scenarios/08-evidence-permissions.md` | 이벤트 미러 evidence 파일 권한 및 cleanup 검증 |
+| `e2e/scenarios/09-linear-sandbox.md` | Linear sandbox `Todo → In Progress → Human Review/Done` 및 reconciliation edge case 검증 |
 
 ## TC 작성 가이드
 

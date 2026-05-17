@@ -6,16 +6,31 @@ import {
   type OrchestratorTrackerConfig,
   type OrchestratorTrackerDependencies,
   type TrackedIssue,
+  type TrackedIssueList,
 } from "@gh-symphony/core";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
 const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
+type LinearRateLimitPayload = {
+  source: "linear";
+  limit: number | null;
+  remaining: number | null;
+  used: number | null;
+  reset: number | null;
+  resetAt: string | null;
+  retryAfter: number | null;
+  resource: "graphql";
+};
+
 type LinearGraphqlClient = <TData>(
   query: string,
   variables: Record<string, unknown>
-) => Promise<TData>;
+) => Promise<{
+  data: TData;
+  rateLimits: LinearRateLimitPayload | null;
+}>;
 
 type LinearConnection<TNode> = {
   nodes?: TNode[] | null;
@@ -222,7 +237,7 @@ async function listLinearIssues(
   stateNamesInput: unknown,
   dependencies: OrchestratorTrackerDependencies,
   issueIds?: readonly string[]
-): Promise<TrackedIssue[]> {
+): Promise<TrackedIssueList> {
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
   const stateNames = readStringArray(stateNamesInput);
@@ -231,7 +246,7 @@ async function listLinearIssues(
       'Tracker adapter "linear" requires at least one active state name in the "activeStates" setting.'
     );
   }
-  const nodes = await fetchPaginatedLinearIssues(client, {
+  const result = await fetchPaginatedLinearIssues(client, {
     projectSlug: config.projectSlug,
     stateNames,
     issueIds:
@@ -245,9 +260,16 @@ async function listLinearIssues(
     pageSize: config.pageSize,
   });
 
-  return nodes.map((node) =>
-    normalizeLinearIssue(project, config.projectSlug, node)
-  );
+  const issues = result.nodes.map((node) =>
+    normalizeLinearIssue(project, config.projectSlug, node, result.rateLimits)
+  ) as TrackedIssueList;
+  Object.defineProperty(issues, "rateLimits", {
+    configurable: true,
+    enumerable: false,
+    value: result.rateLimits,
+    writable: true,
+  });
+  return issues;
 }
 
 async function fetchPaginatedLinearIssues(
@@ -259,8 +281,12 @@ async function fetchPaginatedLinearIssues(
     issueIdentifiers?: string[];
     pageSize: number;
   }
-): Promise<LinearIssueNode[]> {
+): Promise<{
+  nodes: LinearIssueNode[];
+  rateLimits: LinearRateLimitPayload | null;
+}> {
   const issues: LinearIssueNode[] = [];
+  let latestRateLimits: LinearRateLimitPayload | null = null;
   let after: string | null = null;
 
   do {
@@ -269,28 +295,32 @@ async function fetchPaginatedLinearIssues(
       : input.issueIds
         ? LINEAR_ISSUES_BY_IDS_QUERY
         : LINEAR_ISSUES_BY_STATES_QUERY;
-    const response: LinearIssuesResponse = await client<LinearIssuesResponse>(
-      query,
-      {
-        projectSlug: input.projectSlug,
-        ...(input.issueIdentifiers
-          ? { issueIdentifiers: input.issueIdentifiers }
-          : input.issueIds
-            ? { issueIds: input.issueIds }
-            : { stateNames: input.stateNames ?? [] }),
-        first: input.pageSize,
-        after,
-      }
-    );
+    const response: {
+      data: LinearIssuesResponse;
+      rateLimits: LinearRateLimitPayload | null;
+    } = await client<LinearIssuesResponse>(query, {
+      projectSlug: input.projectSlug,
+      ...(input.issueIdentifiers
+        ? { issueIdentifiers: input.issueIdentifiers }
+        : input.issueIds
+          ? { issueIds: input.issueIds }
+          : { stateNames: input.stateNames ?? [] }),
+      first: input.pageSize,
+      after,
+    });
+    latestRateLimits = response.rateLimits ?? latestRateLimits;
     const connection: LinearConnection<LinearIssueNode> | null | undefined =
-      response.issues;
+      response.data.issues;
     issues.push(...(connection?.nodes ?? []));
     after = connection?.pageInfo?.hasNextPage
       ? (connection.pageInfo.endCursor ?? null)
       : null;
   } while (after);
 
-  return issues;
+  return {
+    nodes: issues,
+    rateLimits: latestRateLimits,
+  };
 }
 
 function isLinearIdentifier(value: string): boolean {
@@ -303,7 +333,8 @@ function isLinearIdentifier(value: string): boolean {
 export function normalizeLinearIssue(
   project: OrchestratorProjectConfig,
   projectSlug: string,
-  issue: LinearIssueNode
+  issue: LinearIssueNode,
+  rateLimits: Record<string, unknown> | null = null
 ): TrackedIssue {
   const id = requireString(issue.id, "Linear issue id");
   const identifier = sanitizeLinearIdentifier(
@@ -348,6 +379,7 @@ export function normalizeLinearIssue(
     metadata: {
       projectSlug,
     },
+    rateLimits,
   };
 }
 
@@ -358,7 +390,10 @@ function createLinearGraphqlClient(
   return async <TData>(
     query: string,
     variables: Record<string, unknown>
-  ): Promise<TData> => {
+  ): Promise<{
+    data: TData;
+    rateLimits: LinearRateLimitPayload | null;
+  }> => {
     const response = await fetchImpl(config.endpoint, {
       method: "POST",
       headers: {
@@ -367,10 +402,16 @@ function createLinearGraphqlClient(
       },
       body: JSON.stringify({ query, variables }),
     });
+    const rateLimits = extractLinearRateLimits(response.headers);
 
     if (!response.ok) {
+      const retryAfter = rateLimits?.retryAfter;
+      const retrySuffix =
+        typeof retryAfter === "number"
+          ? ` Retry after ${retryAfter} seconds.`
+          : "";
       throw new Error(
-        `Linear GraphQL request failed with HTTP ${response.status}.`
+        `Linear GraphQL request failed with HTTP ${response.status}.${retrySuffix}`
       );
     }
 
@@ -392,8 +433,79 @@ function createLinearGraphqlClient(
       throw new Error("Linear GraphQL response did not include data.");
     }
 
-    return payload.data;
+    return {
+      data: payload.data,
+      rateLimits,
+    };
   };
+}
+
+function extractLinearRateLimits(
+  headers: Pick<Headers, "get"> | null | undefined
+): LinearRateLimitPayload | null {
+  if (!headers || typeof headers.get !== "function") {
+    return null;
+  }
+
+  const limit =
+    parseIntegerHeader(headers.get("x-ratelimit-requests-limit")) ??
+    parseIntegerHeader(headers.get("x-ratelimit-limit"));
+  const remaining =
+    parseIntegerHeader(headers.get("x-ratelimit-requests-remaining")) ??
+    parseIntegerHeader(headers.get("x-ratelimit-remaining"));
+  const reset =
+    parseIntegerHeader(headers.get("x-ratelimit-requests-reset")) ??
+    parseIntegerHeader(headers.get("x-ratelimit-reset"));
+  const retryAfter = parseIntegerHeader(headers.get("retry-after"));
+  const used =
+    limit !== null && remaining !== null
+      ? Math.max(0, limit - remaining)
+      : null;
+
+  if (
+    limit === null &&
+    remaining === null &&
+    reset === null &&
+    retryAfter === null
+  ) {
+    return null;
+  }
+
+  return {
+    source: "linear",
+    limit,
+    remaining,
+    used,
+    reset,
+    resetAt: resolveRateLimitResetAt(reset),
+    retryAfter,
+    resource: "graphql",
+  };
+}
+
+function resolveRateLimitResetAt(reset: number | null): string | null {
+  if (reset === null) {
+    return null;
+  }
+
+  if (reset > 1_000_000_000_000) {
+    return new Date(reset).toISOString();
+  }
+
+  if (reset > 1_000_000_000) {
+    return new Date(reset * 1000).toISOString();
+  }
+
+  return new Date(Date.now() + reset * 1000).toISOString();
+}
+
+function parseIntegerHeader(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function resolveLinearTrackerConfig(
