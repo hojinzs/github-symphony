@@ -14,7 +14,7 @@ export type TrackerEventMetadata = {
 
 export type IssueEventMetadata = {
   identifier: string;
-  id?: string;
+  id: string;
 };
 
 export type TrackerListEvent = {

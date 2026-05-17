@@ -9,6 +9,38 @@ describe("event-formatter", () => {
   it("formats supported orchestrator events", () => {
     expect(
       formatEventMessage({
+        at: "2026-05-17T00:00:00.000Z",
+        event: "tracker.list",
+        projectId: "project-1",
+        tracker: {
+          adapter: "linear",
+          projectSlug: "symphony-0c79b11b75ea",
+        },
+        issue: {
+          identifier: "ENG-1",
+          id: "linear-issue-1",
+        },
+      })
+    ).toBe("Tracker list saw ENG-1");
+
+    expect(
+      formatEventMessage({
+        at: "2026-05-17T00:01:00.000Z",
+        event: "tracker.fetchByIds",
+        projectId: "project-1",
+        tracker: {
+          adapter: "linear",
+          projectSlug: "symphony-0c79b11b75ea",
+        },
+        issue: {
+          identifier: "ENG-1",
+          id: "linear-issue-1",
+        },
+      })
+    ).toBe("Tracker fetch refreshed ENG-1");
+
+    expect(
+      formatEventMessage({
         at: "2026-03-16T00:00:00.000Z",
         event: "run-dispatched",
         projectId: "project-1",

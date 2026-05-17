@@ -6,6 +6,7 @@ import {
   type OrchestratorTrackerConfig,
   type OrchestratorTrackerDependencies,
   type TrackedIssue,
+  type TrackedIssueList,
 } from "@gh-symphony/core";
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
@@ -236,7 +237,7 @@ async function listLinearIssues(
   stateNamesInput: unknown,
   dependencies: OrchestratorTrackerDependencies,
   issueIds?: readonly string[]
-): Promise<TrackedIssue[]> {
+): Promise<TrackedIssueList> {
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
   const stateNames = readStringArray(stateNamesInput);
@@ -259,9 +260,16 @@ async function listLinearIssues(
     pageSize: config.pageSize,
   });
 
-  return result.nodes.map((node) =>
+  const issues = result.nodes.map((node) =>
     normalizeLinearIssue(project, config.projectSlug, node, result.rateLimits)
-  );
+  ) as TrackedIssueList;
+  Object.defineProperty(issues, "rateLimits", {
+    configurable: true,
+    enumerable: false,
+    value: result.rateLimits,
+    writable: true,
+  });
+  return issues;
 }
 
 async function fetchPaginatedLinearIssues(

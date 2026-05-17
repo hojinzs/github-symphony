@@ -17,6 +17,7 @@ import {
   resolveIssueWorkspaceDirectory,
   type OrchestratorProjectConfig,
   type RepositoryRef,
+  type TrackedIssueList,
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -7595,6 +7596,34 @@ Prefer focused changes.
       lastError: null,
       nextRetryAt: null,
     });
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
 
     const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
@@ -7644,6 +7673,10 @@ Prefer focused changes.
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+    const workspaceRecord = await store.loadIssueWorkspace(
+      "tenant-1",
+      workspaceKey
+    );
 
     expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
     expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
@@ -7652,7 +7685,12 @@ Prefer focused changes.
     expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.issueState).toBe("Done");
+    expect(updatedRun?.lastError).toBe(
+      "Run suppressed because the tracker issue moved to a terminal state."
+    );
     expect(issueRecords[0]?.state).toBe("released");
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(workspaceRecord?.status).toBe("removed");
     expect(snapshot.activeRuns).toHaveLength(0);
   });
 
@@ -7792,6 +7830,175 @@ Handle Linear issue.`,
         }),
       ])
     );
+  });
+
+  it("records tracker.fetchByIds metadata when active Linear runs are refreshed", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-linear-fetch-events-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      tracker: {
+        adapter: "linear" as const,
+        bindingId: "symphony-0c79b11b75ea",
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo\nIn Progress",
+        },
+      },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "linear-issue-1",
+      issueSubjectId: "linear-issue-1",
+      issueIdentifier: "ENG-1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4603,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const issue = {
+      id: "linear-issue-1",
+      identifier: "ENG-1",
+      number: 1,
+      title: "Linear issue",
+      description: null,
+      priority: null,
+      state: "In Progress",
+      branchName: null,
+      url: "https://linear.app/acme/issue/ENG-1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      repository,
+      tracker: {
+        adapter: "linear" as const,
+        bindingId: "symphony-0c79b11b75ea",
+        itemId: "linear-issue-1",
+      },
+      metadata: {
+        projectSlug: "symphony-0c79b11b75ea",
+      },
+      rateLimits: {
+        source: "linear",
+        limit: 1500,
+        remaining: 1498,
+        resource: "graphql",
+      },
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        LINEAR_ISSUE_ID: "linear-issue-1",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const rawEvents = (
+      await readFile(
+        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(rawEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "tracker.fetchByIds",
+          tracker: {
+            adapter: "linear",
+            projectSlug: "symphony-0c79b11b75ea",
+          },
+          issue: {
+            identifier: "ENG-1",
+            id: "linear-issue-1",
+          },
+          rateLimits: expect.objectContaining({
+            source: "linear",
+            remaining: 1498,
+          }),
+        }),
+      ])
+    );
+  });
+
+  it("uses empty tracker list rate limits in project snapshots", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-empty-list-rate-limits-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const listedIssues = [] as TrackedIssueList;
+    listedIssues.rateLimits = {
+      source: "linear",
+      limit: 1500,
+      remaining: 1496,
+      resource: "graphql",
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(listedIssues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createEmptyTrackerResponse()) as never,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.rateLimits).toEqual({
+      source: "linear",
+      limit: 1500,
+      remaining: 1496,
+      resource: "graphql",
+    });
   });
 
   it("stops active runs when the tracker issue is deleted or moved out of scope", async () => {

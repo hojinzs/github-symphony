@@ -43,6 +43,7 @@ import {
   type RuntimeSessionRow,
   type SessionExitClassification,
   type TrackedIssue,
+  type TrackedIssueList,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -672,10 +673,12 @@ export class OrchestratorService {
       }
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
-        trackedIssuesByIdentifier.values()
+        trackedIssuesByIdentifier.values(),
+        getTrackedIssueListRateLimits(issues)
       );
       trackerRateLimits = resolveTrackerRateLimits(
-        trackedIssuesByIdentifier.values()
+        trackedIssuesByIdentifier.values(),
+        getTrackedIssueListRateLimits(issues)
       );
       const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
@@ -864,6 +867,7 @@ export class OrchestratorService {
           this.retireWorkerPid(activeRun.processId);
         }
         if (activeRun) {
+          const terminalState = isStateTerminal(issue.state, lifecycle);
           const suppressedRun: OrchestratorRunRecord = {
             ...activeRun,
             status: "suppressed",
@@ -871,8 +875,9 @@ export class OrchestratorService {
             completedAt: now.toISOString(),
             updatedAt: now.toISOString(),
             runPhase: "canceled_by_reconciliation",
-            lastError:
-              "Run suppressed because the tracker state is no longer actionable.",
+            lastError: terminalState
+              ? "Run suppressed because the tracker issue moved to a terminal state."
+              : "Run suppressed because the tracker state is no longer actionable.",
           };
           await this.store.saveRun(suppressedRun);
           this.logVerbose(
@@ -3157,9 +3162,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function getTrackedIssueListRateLimits(
+  issues: readonly TrackedIssue[]
+): Record<string, unknown> | null {
+  const rateLimits = (issues as TrackedIssueList).rateLimits;
+  return isRecord(rateLimits) ? rateLimits : null;
+}
+
 function resolveProjectRateLimits(
   runs: Iterable<OrchestratorRunRecord>,
-  issues: Iterable<TrackedIssue>
+  issues: Iterable<TrackedIssue>,
+  fallbackRateLimits: Record<string, unknown> | null = null
 ): Record<string, unknown> | null {
   let latestRunRateLimits: Record<string, unknown> | null = null;
   let latestRunTimestamp = -Infinity;
@@ -3189,7 +3202,7 @@ function resolveProjectRateLimits(
     }
   }
 
-  return null;
+  return fallbackRateLimits;
 }
 
 function buildStructuredTrackerEventMetadata(
@@ -3220,7 +3233,8 @@ function buildStructuredTrackerEventMetadata(
 }
 
 function resolveTrackerRateLimits(
-  issues: Iterable<TrackedIssue>
+  issues: Iterable<TrackedIssue>,
+  fallbackRateLimits: Record<string, unknown> | null = null
 ): Record<string, unknown> | null {
   for (const issue of issues) {
     if (isTrackerGraphqlRateLimits(issue.rateLimits)) {
@@ -3228,7 +3242,9 @@ function resolveTrackerRateLimits(
     }
   }
 
-  return null;
+  return isTrackerGraphqlRateLimits(fallbackRateLimits)
+    ? fallbackRateLimits
+    : null;
 }
 
 function resolveAdaptivePollIntervalMs(

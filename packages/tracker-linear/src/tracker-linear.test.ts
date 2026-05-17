@@ -238,6 +238,43 @@ describe("linearTrackerAdapter", () => {
     });
   });
 
+  it("preserves Linear rate-limit headers when no issues are returned", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponseWithHeaders(
+        {
+          data: {
+            issues: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+        {
+          "x-ratelimit-requests-limit": "1500",
+          "x-ratelimit-requests-remaining": "1497",
+          "x-ratelimit-requests-reset": "1773892800",
+        }
+      )
+    );
+
+    const issues = await linearTrackerAdapter.listIssues(makeProject(), {
+      fetchImpl,
+      token: "linear-token",
+    });
+
+    expect(issues).toHaveLength(0);
+    expect(issues.rateLimits).toEqual({
+      source: "linear",
+      limit: 1500,
+      remaining: 1497,
+      used: 3,
+      reset: 1773892800,
+      resetAt: "2026-03-19T04:00:00.000Z",
+      retryAfter: null,
+      resource: "graphql",
+    });
+  });
+
   it("surfaces Linear 429 retry metadata without leaking auth", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ errors: [{ message: "rate limited" }] }), {
