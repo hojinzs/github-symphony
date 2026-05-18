@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- [#333](https://github.com/hojinzs/github-symphony/pull/333) [`364e090`](https://github.com/hojinzs/github-symphony/commit/364e09051762bcb5a5da0ba0ac6d222a76d82c54) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add Linear tracker support for issue [#312](https://github.com/hojinzs/github-symphony/issues/312), including WORKFLOW.md validation for `tracker.kind: linear` and `tracker.project_slug`, orchestrator polling through the Linear adapter, and runtime-managed `linear_graphql` worker access.
+
 ## 0.1.4
 
 ### Patch Changes
