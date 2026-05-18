@@ -155,6 +155,171 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.priority).toBe(1);
   });
 
+  it("maps explicit project-field priority by field display value instead of option order", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-1",
+        issueId: "issue-1",
+        number: 1,
+        title: "Explicit field priority",
+        assignees: [],
+        priorityName: "High",
+        priorityOptionId: "priority-p2",
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE,
+      {
+        explicit: {
+          source: "project-field",
+          field: "Priority",
+          values: {
+            Low: 3,
+            High: 1,
+            Urgent: 0,
+          },
+        },
+        legacy: {
+          fieldName: "Priority",
+          optionIds: {
+            "priority-p2": 2,
+          },
+        },
+      }
+    );
+
+    expect(issue?.priority).toBe(1);
+  });
+
+  it("maps explicit labels priority using exact configured label names", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-1",
+        issueId: "issue-1",
+        number: 1,
+        title: "Label priority",
+        assignees: [],
+        labels: ["P1", "enhancement"],
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE,
+      {
+        explicit: {
+          source: "labels",
+          labels: {
+            P0: 0,
+            P1: 1,
+          },
+        },
+      }
+    );
+
+    expect(issue?.priority).toBe(1);
+  });
+
+  it("chooses the lowest numeric priority when multiple configured labels match", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    try {
+      const issue = normalizeGithubProjectItem(
+        "project-123",
+        makeProjectItem({
+          itemId: "item-1",
+          issueId: "issue-1",
+          number: 1,
+          title: "Conflicting labels",
+          assignees: [],
+          labels: ["P2", "P0"],
+        }),
+        DEFAULT_WORKFLOW_LIFECYCLE,
+        {
+          explicit: {
+            source: "labels",
+            labels: {
+              P0: 0,
+              P2: 2,
+            },
+          },
+        }
+      );
+
+      expect(issue?.priority).toBe(0);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"priority.label_conflict_resolved"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"chosenValue":0')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("keeps explicit priority null for unmapped project field values and emits an event", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    try {
+      const issue = normalizeGithubProjectItem(
+        "project-123",
+        makeProjectItem({
+          itemId: "item-1",
+          issueId: "issue-1",
+          number: 1,
+          title: "Unmapped field priority",
+          assignees: [],
+          priorityName: "Medium",
+          priorityOptionId: "priority-medium",
+        }),
+        DEFAULT_WORKFLOW_LIFECYCLE,
+        {
+          explicit: {
+            source: "project-field",
+            field: "Priority",
+            values: {
+              Urgent: 0,
+              High: 1,
+            },
+          },
+        }
+      );
+
+      expect(issue?.priority).toBeNull();
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"priority.unmapped"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"rawValues":["Medium"]')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("keeps explicit priority null when disabled even if legacy priority_field is present", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-1",
+        issueId: "issue-1",
+        number: 1,
+        title: "Disabled priority",
+        assignees: [],
+        priorityOptionId: "priority-p0",
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE,
+      {
+        explicit: { source: "disabled" },
+        legacy: {
+          fieldName: "Priority",
+          optionIds: {
+            "priority-p0": 0,
+          },
+        },
+      }
+    );
+
+    expect(issue?.priority).toBeNull();
+  });
+
   it("keeps existing Issue content normalization unchanged", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -2083,6 +2248,94 @@ describe("resolveTrackerAdapter", () => {
     expect(issues.map((issue) => issue.priority)).toEqual([0, 1]);
   });
 
+  it("uses explicit project-field mapping during listing without fetching option order", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      priority: {
+        source: "project-field",
+        field: "Priority",
+        values: {
+          High: 1,
+          Low: 3,
+        },
+      },
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { query: string };
+      expect(body.query).not.toContain("query ProjectFields");
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [
+                  makeProjectItem({
+                    itemId: "item-1",
+                    issueId: "issue-1",
+                    number: 1,
+                    title: "Explicit priority issue",
+                    assignees: [],
+                    priorityName: "High",
+                    priorityOptionId: "priority-low-order",
+                  }),
+                ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          priority: {
+            source: "project-field",
+            field: "Priority",
+            values: {
+              High: 1,
+              Low: 3,
+            },
+          },
+          settings: {
+            projectId: "project-123",
+            priorityFieldName: "Priority",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(issues[0]?.priority).toBe(1);
+  });
+
   it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -3122,6 +3375,8 @@ function makeProjectItem(input: {
   title: string;
   assignees: string[];
   state?: string;
+  labels?: string[];
+  priorityName?: string;
   priorityOptionId?: string;
 }) {
   return {
@@ -3138,7 +3393,7 @@ function makeProjectItem(input: {
           ? [
               {
                 __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
-                name: "P1",
+                name: input.priorityName ?? "P1",
                 optionId: input.priorityOptionId,
                 field: { name: "Priority" },
               },
@@ -3155,7 +3410,9 @@ function makeProjectItem(input: {
       url: `https://github.com/acme/platform/issues/${input.number}`,
       createdAt: "2026-03-14T00:00:00.000Z",
       updatedAt: "2026-03-14T00:00:00.000Z",
-      labels: { nodes: [] },
+      labels: {
+        nodes: (input.labels ?? []).map((name) => ({ name })),
+      },
       assignees: {
         nodes: input.assignees.map((login) => ({ login })),
       },

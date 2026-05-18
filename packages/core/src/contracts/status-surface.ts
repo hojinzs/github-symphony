@@ -1,5 +1,8 @@
 import type { RepositoryRef } from "../domain/workspace.js";
-import type { WorkflowDefinition } from "../workflow/config.js";
+import type {
+  WorkflowDefinition,
+  WorkflowPriorityConfig,
+} from "../workflow/config.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 import type { TrackerAdapterKind } from "./tracker-adapter.js";
 import type { RunAttemptPhase } from "./run-attempt-phase.js";
@@ -9,6 +12,7 @@ export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
   bindingId: string;
   apiUrl?: string;
+  priority?: WorkflowPriorityConfig | null;
   settings?: Record<string, string | number | boolean>;
 };
 

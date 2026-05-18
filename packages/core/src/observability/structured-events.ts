@@ -190,6 +190,26 @@ export type SessionInvalidatedEvent = {
   reason: string;
 };
 
+export type PriorityLabelConflictResolvedEvent = {
+  at: string;
+  event: "priority.label_conflict_resolved";
+  issue: IssueEventMetadata;
+  matched: Array<{
+    label: string;
+    value: number;
+  }>;
+  chosenValue: number;
+  chosenLabels: string[];
+};
+
+export type PriorityUnmappedEvent = {
+  at: string;
+  event: "priority.unmapped";
+  issue: IssueEventMetadata;
+  source: "project-field" | "labels";
+  rawValues: string[];
+};
+
 /**
  * Union of all structured orchestration events. Discriminated on `event`.
  */
@@ -208,4 +228,6 @@ export type OrchestratorEvent =
   | TurnStartedEvent
   | TurnCompletedEvent
   | TurnFailedEvent
-  | SessionInvalidatedEvent;
+  | SessionInvalidatedEvent
+  | PriorityLabelConflictResolvedEvent
+  | PriorityUnmappedEvent;
