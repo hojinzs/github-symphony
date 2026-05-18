@@ -22,6 +22,10 @@ import {
   validateGitHubToken,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
+import {
+  buildPriorityConfigDiagnostics,
+  type PriorityDiagnostic,
+} from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 import initCommand from "./workflow-init.js";
 
@@ -72,6 +76,7 @@ type WorkflowValidationReport = {
     promptRetry: "pass";
     continuationGuidance: "pass" | "skip";
   };
+  warnings: PriorityDiagnostic[];
   summary: {
     trackerKind: string | null;
     githubProjectId: string | null;
@@ -585,6 +590,7 @@ function formatAuthError(error: GhAuthError | Error): string {
 async function loadLiveIssue(
   issueReference: string,
   projectId: string | undefined,
+  workflow: ReturnType<typeof parseWorkflowMarkdown>,
   options: GlobalOptions
 ): Promise<{
   issue: TrackedIssue;
@@ -657,6 +663,7 @@ async function loadLiveIssue(
       apiUrl: selection.projectConfig.tracker.apiUrl,
       assignedOnly:
         selection.projectConfig.tracker.settings?.assignedOnly === true,
+      priority: workflow.tracker.priority,
       priorityFieldName:
         typeof selection.projectConfig.tracker.settings?.priorityFieldName ===
         "string"
@@ -791,6 +798,7 @@ function validateWorkflow(
       promptRetry: "pass",
       continuationGuidance: continuationGuidanceStatus,
     },
+    warnings: buildPriorityConfigDiagnostics(workflow),
     summary: {
       trackerKind: workflow.tracker.kind,
       githubProjectId: workflow.githubProjectId,
@@ -862,6 +870,15 @@ Hooks
   before_remove=${report.summary.hooks.beforeRemove ?? "unset"}
   hooks.timeout_ms=${report.summary.hooks.timeoutMs}
 `);
+  if (report.warnings.length > 0) {
+    process.stdout.write("\nWarnings\n");
+    for (const warning of report.warnings) {
+      process.stdout.write(`  ${warning.title}: ${warning.summary}\n`);
+      if (warning.remediation) {
+        process.stdout.write(`    Fix: ${warning.remediation}\n`);
+      }
+    }
+  }
 }
 
 async function runValidate(
@@ -904,7 +921,7 @@ async function runPreview(
   const { issue, sampleSource } = flags.issue
     ? workflow.tracker.kind === "linear"
       ? await loadLinearIssue(flags.issue, workflow, options)
-      : await loadLiveIssue(flags.issue, flags.projectId, options)
+      : await loadLiveIssue(flags.issue, flags.projectId, workflow, options)
     : await loadSampleIssue(flags.sample);
   const renderedPrompt = renderIssueWorkflowPreview({
     workflow,

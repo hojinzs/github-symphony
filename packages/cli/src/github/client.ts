@@ -56,6 +56,10 @@ export type RepositoryLookupResult = LinkedRepository & {
   visibility: "public" | "private" | "internal" | null;
 };
 
+export type RepositoryLabel = {
+  name: string;
+};
+
 export type ProjectTextField = {
   id: string;
   name: string;
@@ -241,6 +245,54 @@ export async function getRepositoryMetadata(
     visibility:
       repo.visibility ?? (repo.private === true ? "private" : "public"),
   };
+}
+
+export async function listRepositoryLabels(
+  client: GitHubClient,
+  owner: string,
+  name: string
+): Promise<RepositoryLabel[]> {
+  const restUrl = client.apiUrl.replace("/graphql", "");
+  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const labels: RepositoryLabel[] = [];
+  let page = 1;
+
+  while (true) {
+    const response = await client.fetchImpl(
+      `${baseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/labels?per_page=100&page=${page}`,
+      {
+        headers: {
+          authorization: `Bearer ${client.token}`,
+          accept: "application/vnd.github+json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        message?: string;
+      } | null;
+      const message = payload?.message?.trim() || response.statusText;
+      throw new GitHubApiError(
+        `GitHub label lookup failed for ${owner}/${name}: ${response.status} ${message}`.trim(),
+        response.status
+      );
+    }
+
+    const pageLabels = (await response.json()) as Array<{ name?: string }>;
+    labels.push(
+      ...pageLabels.flatMap((label) =>
+        typeof label.name === "string" ? [{ name: label.name }] : []
+      )
+    );
+
+    if (pageLabels.length < 100) {
+      break;
+    }
+    page += 1;
+  }
+
+  return labels;
 }
 
 // ── 2.1: Token validation & scope check ──────────────────────────────────────

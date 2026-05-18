@@ -247,6 +247,57 @@ The generated skill files (under `.codex/skills/` or `.claude/skills/`) define h
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
+#### Explicit GitHub Priority Mapping
+
+GitHub Project V2 priority is repository policy in `WORKFLOW.md`. The runtime uses exactly one configured source and never falls back or guesses renamed labels, Project fields, or option values. Anything unmapped resolves to `priority = null`.
+
+Use a Project single-select field:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Medium: 2
+      Low: 3
+```
+
+Or use exact repository labels:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+      P2: 2
+```
+
+Or disable priority dispatch explicitly:
+
+```yaml
+tracker:
+  kind: github-project
+  priority:
+    source: disabled
+```
+
+Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
+
+Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
+
+`gh-symphony workflow validate` reports local config errors and legacy priority warnings. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
+
 ### 4. Set Orchestrator Runner (Repository)
 
 From inside the cloned repository that should run orchestration, initialize the workflow and repository runtime:
