@@ -1,3 +1,4 @@
+import type { WorkflowPriorityConfig } from "@gh-symphony/core";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import {
   DEFAULT_AFTER_CREATE_HOOK_COMMENT,
@@ -13,7 +14,7 @@ export type ReferenceWorkflowInput = {
     role: "active" | "wait" | "terminal" | null;
   }>;
   projectId: string;
-  priorityFieldName: string | null;
+  priority: WorkflowPriorityConfig | null;
   detectedEnvironment: Pick<
     DetectedEnvironment,
     "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
@@ -45,11 +46,7 @@ export function generateReferenceWorkflow(
   lines.push("  kind: github-project");
   lines.push(`  project_id: ${input.projectId}`);
   lines.push("  state_field: Status");
-  if (input.priorityFieldName) {
-    lines.push(`  priority_field: ${input.priorityFieldName}`);
-  } else {
-    lines.push("  # priority_field: Priority");
-  }
+  lines.push(...buildReferencePriorityLines(input.priority));
   lines.push("");
 
   const activeColumns = input.statusColumns.filter((c) => c.role === "active");
@@ -385,6 +382,63 @@ export function generateReferenceWorkflow(
   lines.push("");
 
   return lines.join("\n");
+}
+
+function buildReferencePriorityLines(
+  priority: WorkflowPriorityConfig | null
+): string[] {
+  const lines: string[] = [];
+  if (priority?.source === "project-field" || priority?.source === "labels") {
+    lines.push(
+      "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
+    );
+  } else {
+    lines.push(
+      "  # Priority dispatch is disabled until an operator chooses one explicit source."
+    );
+  }
+  lines.push(
+    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+  );
+  if (priority?.source === "project-field") {
+    lines.push("  priority:");
+    lines.push("    source: project-field");
+    lines.push(`    field: ${JSON.stringify(priority.field)}`);
+    lines.push("    values:");
+    for (const [name, value] of Object.entries(priority.values)) {
+      lines.push(`      ${JSON.stringify(name)}: ${value}`);
+    }
+    return lines;
+  }
+
+  if (priority?.source === "labels") {
+    lines.push("  priority:");
+    lines.push("    source: labels");
+    lines.push("    labels:");
+    for (const [name, value] of Object.entries(priority.labels)) {
+      lines.push(`      ${JSON.stringify(name)}: ${value}`);
+    }
+    return lines;
+  }
+
+  lines.push("  priority:");
+  lines.push("    source: disabled");
+  lines.push("");
+  lines.push("  # Optional template: project-field priority source.");
+  lines.push("  # priority:");
+  lines.push("  #   source: project-field");
+  lines.push("  #   field: Priority");
+  lines.push("  #   values:");
+  lines.push("  #     Urgent: 0");
+  lines.push("  #     High: 1");
+  lines.push("");
+  lines.push("  # Optional template: labels priority source.");
+  lines.push("  # priority:");
+  lines.push("  #   source: labels");
+  lines.push("  #   labels:");
+  lines.push("  #     P0: 0");
+  lines.push("  #     P1: 1");
+  return lines;
 }
 
 

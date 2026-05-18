@@ -126,6 +126,59 @@ Prompt body.
     });
   });
 
+  it("parses generated priority comments and quoted mapping keys", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  # Priority is explicit. Numbers below are editable policy.
+  priority:
+    source: labels
+    labels:
+      "priority: p0": 0
+      "priority: p1": 1
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        "priority: p0": 0,
+        "priority: p1": 1,
+      },
+    });
+  });
+
+  it("unescapes quoted priority field and mapping names", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  priority:
+    source: project-field
+    field: "Priority \\"dispatch\\" \\\\ team"
+    values:
+      "label \\"p0\\"": 0
+      "path \\\\ p1": 1
+      'single '' quote': 2
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "project-field",
+      field: 'Priority "dispatch" \\ team',
+      values: {
+        'label "p0"': 0,
+        "path \\ p1": 1,
+        "single ' quote": 2,
+      },
+    });
+  });
+
   it("parses disabled priority source without rejecting legacy priority_field", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:

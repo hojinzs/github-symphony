@@ -56,6 +56,12 @@ export type RepositoryLookupResult = LinkedRepository & {
   visibility: "public" | "private" | "internal" | null;
 };
 
+export type RepositoryLabel = {
+  name: string;
+  color: string | null;
+  description: string | null;
+};
+
 export type ProjectTextField = {
   id: string;
   name: string;
@@ -241,6 +247,56 @@ export async function getRepositoryMetadata(
     visibility:
       repo.visibility ?? (repo.private === true ? "private" : "public"),
   };
+}
+
+export async function listRepositoryLabels(
+  client: GitHubClient,
+  owner: string,
+  name: string
+): Promise<RepositoryLabel[]> {
+  const restUrl = client.apiUrl.replace("/graphql", "");
+  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const labels: RepositoryLabel[] = [];
+  let page = 1;
+
+  while (true) {
+    const response = await client.fetchImpl(
+      `${baseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/labels?per_page=100&page=${page}`,
+      {
+        headers: {
+          authorization: `Bearer ${client.token}`,
+          accept: "application/vnd.github+json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new GitHubApiError(
+        `GitHub labels request failed: ${response.status} ${response.statusText}`,
+        response.status
+      );
+    }
+
+    const payload = (await response.json()) as Array<{
+      name: string;
+      color?: string | null;
+      description?: string | null;
+    }>;
+    labels.push(
+      ...payload.map((label) => ({
+        name: label.name,
+        color: label.color ?? null,
+        description: label.description ?? null,
+      }))
+    );
+
+    if (payload.length < 100) {
+      break;
+    }
+    page += 1;
+  }
+
+  return labels;
 }
 
 // ── 2.1: Token validation & scope check ──────────────────────────────────────

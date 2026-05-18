@@ -18,6 +18,8 @@ import {
   buildAutomaticStateMappings,
   planWorkflowArtifacts,
   resolvePriorityField,
+  promptPriorityConfig,
+  collectPriorityLabelNames,
   renderDryRunPreview,
   resolveStatusField,
   writeEcosystem,
@@ -243,9 +245,18 @@ async function runNonInteractive(
     resolvePriorityField(projectDetail, statusField);
   if (ambiguousPriorityFields.length > 0) {
     process.stderr.write(
-      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Skipping tracker.priority_field in non-interactive mode.\n`
+      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Writing disabled priority scaffold in non-interactive mode.\n`
     );
   }
+  const priority = priorityField
+    ? {
+        source: "project-field" as const,
+        field: priorityField.name,
+        values: Object.fromEntries(
+          priorityField.options.map((option, index) => [option.name, index])
+        ),
+      }
+    : { source: "disabled" as const };
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
     process.stderr.write(
@@ -262,6 +273,8 @@ async function runNonInteractive(
     projectDetail,
     statusField,
     priorityField,
+    priority,
+    includePriorityTemplates: !priorityField,
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -274,6 +287,8 @@ async function runNonInteractive(
     projectDetail,
     statusField,
     priorityField,
+    priority,
+    includePriorityTemplates: !priorityField,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -385,8 +400,12 @@ async function runInteractive(
   }
 
   const priorityResolution = resolvePriorityField(projectDetail, statusField);
+  const priorityLabelNames = await collectPriorityLabelNames(
+    client,
+    projectDetail.linkedRepositories
+  );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: priorityResolution.ambiguous.length > 0 ? "Step 2/4" : "Step 2/3",
+    stepLabel: "Step 2/4",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -401,42 +420,17 @@ async function runInteractive(
     p.log.warn(`  ⚠ ${warning}`);
   }
 
-  const priorityField =
-    priorityResolution.ambiguous.length > 0
-      ? await (async () => {
-          const selectedId = await abortIfCancelled(
-            p.select({
-              message:
-                "Step 3/4 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
-              options: [
-                ...priorityResolution.ambiguous.map((field) => ({
-                  value: field.id,
-                  label: field.name,
-                  hint: `${field.options.length} option${field.options.length === 1 ? "" : "s"}`,
-                })),
-                {
-                  value: "__skip_priority_field__",
-                  label: "Skip priority-aware dispatch",
-                  hint: "Leave tracker.priority_field unset",
-                },
-              ],
-            })
-          );
-          if (selectedId === "__skip_priority_field__") {
-            return null;
-          }
-          return (
-            priorityResolution.ambiguous.find((field) => field.id === selectedId) ??
-            null
-          );
-        })()
-      : priorityResolution.field;
+  const { priority, priorityField } = await promptPriorityConfig({
+    priorityResolution,
+    labelNames: priorityLabelNames,
+    stepLabel: "Step 3/4",
+  });
 
   const promptAssignedOnly = await abortIfCancelled(
     p.confirm({
       message:
         `${
-          priorityResolution.ambiguous.length > 0 ? "Step 4/4" : "Step 3/3"
+          "Step 4/4"
         } — Only process issues assigned to the authenticated GitHub user?`,
       initialValue: flags.assignedOnly ?? false,
     })
@@ -450,6 +444,8 @@ async function runInteractive(
     projectDetail,
     statusField,
     priorityField,
+    priority,
+    includePriorityTemplates: priority.source === "disabled",
     mappings,
     runtime: "codex",
     skipSkills: flags.skipSkills,
@@ -488,6 +484,8 @@ async function runInteractive(
       projectDetail,
       statusField,
       priorityField,
+      priority,
+      includePriorityTemplates: priority.source === "disabled",
       runtime: "codex",
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
