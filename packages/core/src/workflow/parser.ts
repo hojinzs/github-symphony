@@ -313,6 +313,10 @@ function parseBlock(
       index += 1;
       continue;
     }
+    if (line.trim().startsWith("#")) {
+      index += 1;
+      continue;
+    }
 
     const lineIndent = countIndent(line);
     if (lineIndent < indent) {
@@ -363,12 +367,17 @@ function parseBlock(
       );
     }
     collectionType = "object";
-    const separatorIndex = trimmed.indexOf(":");
+    const separatorIndex = findMappingSeparator(trimmed);
     if (separatorIndex < 0) {
       throw new Error(`Invalid workflow front matter line "${trimmed}".`);
     }
 
-    const key = trimmed.slice(0, separatorIndex).trim();
+    const rawKey = trimmed.slice(0, separatorIndex).trim();
+    const parsedKey = parseScalar(rawKey);
+    if (typeof parsedKey !== "string") {
+      throw new Error(`Invalid workflow front matter key "${rawKey}".`);
+    }
+    const key = parsedKey;
     const remainder = trimmed.slice(separatorIndex + 1).trim();
     if (remainder === "|" || remainder === "|-") {
       const [multiline, nextIndex] = parseMultilineScalar(
@@ -426,6 +435,31 @@ function countIndent(line: string): number {
   return line.match(/^ */)?.[0].length ?? 0;
 }
 
+function findMappingSeparator(value: string): number {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (quote) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ":") {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function parseScalar(value: string): WorkflowFrontMatterNode {
   if (value === "null") return null;
   if (value === "true") return true;
@@ -434,11 +468,18 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
     return parseInlineArray(value);
   }
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+    } catch {
+      throw new Error(`Invalid quoted workflow front matter scalar "${value}".`);
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
   }
   return value;
 }

@@ -208,6 +208,10 @@ describe("setup command", () => {
     );
 
     expect(workflow).toContain("project_id: PVT_setup_1");
+    expect(workflow).toContain("source: disabled");
+    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain("# Optional template: labels priority source.");
+    expect(workflow).not.toContain("priority_field:");
     expect(contextYaml).toContain("PVT_setup_1");
     expect(project.projectId).toBe("repository");
     expect(project.workspaceDir).toBe(cwd);
@@ -228,7 +232,8 @@ describe("setup command", () => {
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
-      .mockResolvedValueOnce("terminal" as never);
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("disabled" as never);
     vi.mocked(p.confirm)
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never)
@@ -260,7 +265,50 @@ describe("setup command", () => {
     );
   });
 
-  it("warns and skips tracker.priority_field in non-interactive mode when priority fields are ambiguous", async () => {
+  it("lets interactive setup map existing repository labels as the priority source", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-labels-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-labels-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+
+    vi.spyOn(githubClient, "listRepositoryLabels").mockResolvedValue([
+      { name: "priority: p0", color: "ff0000", description: null },
+      { name: "priority: p1", color: "ffaa00", description: null },
+    ]);
+    vi.mocked(p.select)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("active" as never)
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("labels" as never);
+    vi.mocked(p.multiselect).mockResolvedValueOnce([
+      "priority: p0",
+      "priority: p1",
+    ] as never);
+    vi.mocked(p.text)
+      .mockResolvedValueOnce("0" as never)
+      .mockResolvedValueOnce("1" as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never);
+
+    await setupCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+    expect(workflow).toContain("source: labels");
+    expect(workflow).toContain('"priority: p0": 0');
+    expect(workflow).toContain('"priority: p1": 1');
+    expect(workflow).not.toContain("priority_field:");
+  });
+
+  it("warns and writes disabled priority scaffold in non-interactive mode when priority fields are ambiguous", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-priority-cwd-"));
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-non-interactive-priority-config-")
@@ -285,9 +333,12 @@ describe("setup command", () => {
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
 
     expect(stderrWrite).toHaveBeenCalledWith(
-      'Warning: Multiple priority-like single-select fields found ("Priority (Team)", "Priority (Severity)"). Skipping tracker.priority_field in non-interactive mode.\n'
+      'Warning: Multiple priority-like single-select fields found ("Priority (Team)", "Priority (Severity)"). Writing disabled priority scaffold in non-interactive mode.\n'
     );
     expect(workflow).not.toContain("priority_field:");
+    expect(workflow).toContain("source: disabled");
+    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain("# Optional template: labels priority source.");
   });
 
   it("uses --assigned-only as the interactive prompt default and preserves the setting", async () => {
@@ -302,7 +353,8 @@ describe("setup command", () => {
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
-      .mockResolvedValueOnce("terminal" as never);
+      .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("disabled" as never);
     vi.mocked(p.confirm)
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);
@@ -324,7 +376,7 @@ describe("setup command", () => {
     expect(project.tracker.settings?.assignedOnly).toBe(true);
     expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
       message:
-        "Step 3/3 — Only process issues assigned to the authenticated GitHub user?",
+        "Step 4/4 — Only process issues assigned to the authenticated GitHub user?",
       initialValue: true,
     });
   });

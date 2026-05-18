@@ -44,6 +44,7 @@ gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
 gh-symphony doctor --smoke
+gh-symphony doctor --bundle
 ```
 
 Token-only validation works without `gh`:
@@ -335,6 +336,7 @@ Repository commands:
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
+gh-symphony doctor --bundle          # Export a redacted support bundle for bug reports
 gh-symphony repo init                # Bind .runtime/orchestrator to the cwd repository
 gh-symphony repo status              # Show current repository orchestration status
 gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatching
@@ -364,6 +366,20 @@ gh-symphony repo logs --issue org/repo#1 # Filter by issue
 gh-symphony repo logs --run <run-id>     # Read events for a specific run
 gh-symphony repo logs --level <level>    # Filter by log level
 ```
+
+Create a shareable support bundle when reporting setup or orchestration
+failures:
+
+```bash
+gh-symphony doctor --bundle
+gh-symphony doctor --bundle ./tmp/support-bundle
+gh-symphony doctor --bundle --project-id your-project-id
+```
+
+The bundle includes `manifest.json`, `doctor.json`, redacted config and project
+metadata, `WORKFLOW.md`, runtime status files when present, and bounded tails of
+recent run logs/events. Optional missing files are recorded in the manifest
+instead of failing the export.
 
 Dispatch a single issue:
 

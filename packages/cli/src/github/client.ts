@@ -58,6 +58,8 @@ export type RepositoryLookupResult = LinkedRepository & {
 
 export type RepositoryLabel = {
   name: string;
+  color: string | null;
+  description: string | null;
 };
 
 export type ProjectTextField = {
@@ -279,10 +281,22 @@ export async function listRepositoryLabels(
       );
     }
 
-    const pageLabels = (await response.json()) as Array<{ name?: string }>;
+    const pageLabels = (await response.json()) as Array<{
+      name?: string;
+      color?: string | null;
+      description?: string | null;
+    }>;
     labels.push(
       ...pageLabels.flatMap((label) =>
-        typeof label.name === "string" ? [{ name: label.name }] : []
+        typeof label.name === "string"
+          ? [
+              {
+                name: label.name,
+                color: label.color ?? null,
+                description: label.description ?? null,
+              },
+            ]
+          : []
       )
     );
 

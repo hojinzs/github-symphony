@@ -17,7 +17,14 @@ const defaultInput: ReferenceWorkflowInput = {
     { name: "Done", role: "terminal" },
   ],
   projectId: "PVT_abc123",
-  priorityFieldName: "Priority",
+  priority: {
+    source: "project-field",
+    field: "Priority",
+    values: {
+      P0: 0,
+      P1: 1,
+    },
+  },
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm --filter @gh-symphony/cli test",
@@ -159,17 +166,27 @@ describe("generateReferenceWorkflow", () => {
     expect(output).not.toContain("#   teamId:");
   });
 
-  it("includes priority_field in front matter when configured", () => {
+  it("includes explicit project-field priority mapping in front matter when configured", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("priority_field: Priority");
+    expect(output).toContain("priority:");
+    expect(output).toContain("source: project-field");
+    expect(output).toContain('field: "Priority"');
+    expect(output).toContain('"P0": 0');
+    expect(output).not.toContain("priority_field:");
   });
 
-  it("shows priority_field as an optional reference when not configured", () => {
+  it("shows disabled priority and optional explicit templates when not configured", () => {
     const output = generateReferenceWorkflow({
       ...defaultInput,
-      priorityFieldName: null,
+      priority: null,
     });
-    expect(output).toContain("# priority_field: Priority");
+    expect(output).toContain("source: disabled");
+    expect(output).toContain(
+      "# Priority dispatch is disabled until an operator chooses one explicit source."
+    );
+    expect(output).toContain("# Optional template: project-field priority source.");
+    expect(output).toContain("# Optional template: labels priority source.");
+    expect(output).not.toContain("priority_field:");
   });
 
   it("does not include allowed_repositories in front matter", () => {
