@@ -468,11 +468,18 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
     return parseInlineArray(value);
   }
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+    } catch {
+      throw new Error(`Invalid quoted workflow front matter scalar "${value}".`);
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
   }
   return value;
 }

@@ -95,9 +95,15 @@ function buildPriorityFrontMatter(
     return lines;
   }
 
-  lines.push(
-    "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
-  );
+  if (input.priority.source === "disabled") {
+    lines.push(
+      "  # Priority dispatch is disabled until an operator chooses one explicit source."
+    );
+  } else {
+    lines.push(
+      "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
+    );
+  }
   lines.push(
     "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
   );

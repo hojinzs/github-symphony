@@ -591,9 +591,7 @@ async function promptProjectFieldPriorityValues(
         message: `Priority value for option "${option.name}"`,
         placeholder: String(index),
         initialValue: String(index),
-        validate(value) {
-          return Number.isFinite(Number(value)) ? undefined : "Enter a number.";
-        },
+        validate: validatePriorityInteger,
       })
     );
     values[option.name] = Number(rawValue);
@@ -666,9 +664,7 @@ export async function promptPriorityConfig(input: {
           message: `Priority value for label "${label}"`,
           placeholder: String(index),
           initialValue: String(index),
-          validate(value) {
-            return Number.isFinite(Number(value)) ? undefined : "Enter a number.";
-          },
+          validate: validatePriorityInteger,
         })
       );
       labels[label] = Number(rawValue);
@@ -695,6 +691,13 @@ export async function promptPriorityConfig(input: {
     },
     priorityField,
   };
+}
+
+function validatePriorityInteger(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed !== "" && Number.isInteger(Number(trimmed))
+    ? undefined
+    : "Enter an integer.";
 }
 
 export async function promptStateMappings(

@@ -181,6 +181,9 @@ describe("generateReferenceWorkflow", () => {
       priority: null,
     });
     expect(output).toContain("source: disabled");
+    expect(output).toContain(
+      "# Priority dispatch is disabled until an operator chooses one explicit source."
+    );
     expect(output).toContain("# Optional template: project-field priority source.");
     expect(output).toContain("# Optional template: labels priority source.");
     expect(output).not.toContain("priority_field:");

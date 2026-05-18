@@ -388,9 +388,15 @@ function buildReferencePriorityLines(
   priority: WorkflowPriorityConfig | null
 ): string[] {
   const lines: string[] = [];
-  lines.push(
-    "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
-  );
+  if (priority?.source === "project-field" || priority?.source === "labels") {
+    lines.push(
+      "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
+    );
+  } else {
+    lines.push(
+      "  # Priority dispatch is disabled until an operator chooses one explicit source."
+    );
+  }
   lines.push(
     "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
   );

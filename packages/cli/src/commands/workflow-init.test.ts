@@ -45,6 +45,7 @@ import {
   generateProjectId,
   planWorkflowArtifacts,
   planEcosystem,
+  promptPriorityConfig,
   renderDryRunPreview,
   writeConfig,
   writeEcosystem,
@@ -490,6 +491,52 @@ describe("init priority field detection", () => {
         ],
       ])
     );
+  });
+
+  it("validates interactive priority mapping values as non-empty integers", async () => {
+    vi.mocked(p.select).mockResolvedValueOnce("project-field" as never);
+    vi.mocked(p.text).mockResolvedValue("2" as never);
+
+    const projectFieldResult = await promptPriorityConfig({
+      priorityResolution: { field: MOCK_PRIORITY_FIELD, ambiguous: [] },
+      labelNames: [],
+    });
+
+    expect(projectFieldResult.priority).toEqual({
+      source: "project-field",
+      field: "Priority",
+      values: {
+        P0: 2,
+        P1: 2,
+      },
+    });
+    const projectFieldValidate = vi.mocked(p.text).mock.calls[0]?.[0].validate;
+    expect(projectFieldValidate?.("")).toBe("Enter an integer.");
+    expect(projectFieldValidate?.("2.5")).toBe("Enter an integer.");
+    expect(projectFieldValidate?.("-2")).toBeUndefined();
+
+    vi.mocked(p.select).mockReset();
+    vi.mocked(p.multiselect).mockReset();
+    vi.mocked(p.text).mockReset();
+    vi.mocked(p.select).mockResolvedValueOnce("labels" as never);
+    vi.mocked(p.multiselect).mockResolvedValueOnce(["priority: p0"] as never);
+    vi.mocked(p.text).mockResolvedValue("3" as never);
+
+    const labelResult = await promptPriorityConfig({
+      priorityResolution: { field: null, ambiguous: [] },
+      labelNames: ["priority: p0"],
+    });
+
+    expect(labelResult.priority).toEqual({
+      source: "labels",
+      labels: {
+        "priority: p0": 3,
+      },
+    });
+    const labelValidate = vi.mocked(p.text).mock.calls[0]?.[0].validate;
+    expect(labelValidate?.(" ")).toBe("Enter an integer.");
+    expect(labelValidate?.("1.5")).toBe("Enter an integer.");
+    expect(labelValidate?.("0")).toBeUndefined();
   });
 });
 

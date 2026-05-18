@@ -84,6 +84,9 @@ describe("generateWorkflowMarkdown", () => {
 
     expect(markdown).not.toContain("priority_field:");
     expect(markdown).toContain("source: disabled");
+    expect(markdown).toContain(
+      "# Priority dispatch is disabled until an operator chooses one explicit source."
+    );
     expect(markdown).toContain("# Optional template: project-field priority source.");
     expect(markdown).toContain("# Optional template: labels priority source.");
     expect(parsed.tracker.priority).toEqual({ source: "disabled" });
@@ -113,6 +116,25 @@ describe("generateWorkflowMarkdown", () => {
         "priority: p1": 1,
       },
     });
+  });
+
+  it("round-trips escaped priority field and label names", () => {
+    const priority = {
+      source: "labels" as const,
+      labels: {
+        'priority "p0"': 0,
+        "path \\ p1": 1,
+      },
+    };
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priority,
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain('"priority \\"p0\\"": 0');
+    expect(markdown).toContain('"path \\\\ p1": 1');
+    expect(parsed.tracker.priority).toEqual(priority);
   });
 
   it("includes a Status Map section in the prompt body", () => {
