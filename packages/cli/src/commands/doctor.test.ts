@@ -21,6 +21,7 @@ import doctorCommand, {
   runDoctorCommand,
   runDoctorDiagnostics,
 } from "./doctor.js";
+import { SUPPORT_BUNDLE_LIMITS } from "../support/bundle.js";
 
 const DOCTOR_TEST_NODE_VERSION = "v24.0.0";
 
@@ -308,6 +309,13 @@ async function prepareBundleRuntimeFixture(input: {
         at: "2026-05-18T00:00:00.000Z",
         event: "worker",
         message: "Authorization: Bearer abc123",
+      }),
+      JSON.stringify({
+        at: "2026-05-18T00:00:01.000Z",
+        event: "worker",
+        token: "json_token_value",
+        secret: "json_secret_value",
+        apiKey: "json_api_key_value",
       }),
       "OPENAI_API_KEY=sk-xxx",
     ].join("\n") + "\n",
@@ -1631,9 +1639,73 @@ describe("doctor command handler", () => {
     );
 
     const bundleContent = await readBundleFiles(outputPath);
-    for (const secret of ["abc123", "ghp_xxx", "lin_xxx", "sk-xxx"]) {
+    for (const secret of [
+      "abc123",
+      "ghp_xxx",
+      "lin_xxx",
+      "sk-xxx",
+      "json_token_value",
+      "json_secret_value",
+      "json_api_key_value",
+    ]) {
       expect(bundleContent).not.toContain(secret);
     }
+  });
+
+  it("preserves bounded tails for oversized single-line logs", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-tail-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({ configDir, workspaceDir });
+    await writeFile(
+      join(configDir, "runs", "run-1", "worker.log"),
+      "x".repeat(SUPPORT_BUNDLE_LIMITS.maxLogBytes + 1024) + "tail-marker",
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-single-line-tail");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const tail = await readFile(
+      join(outputPath, "runs", "run-1", "worker.log.tail"),
+      "utf8"
+    );
+    expect(tail).toContain("tail-marker");
+    expect(tail.length).toBeGreaterThan(0);
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { truncations: Array<{ path: string; reason: string }> };
+    expect(manifest.truncations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "runs/run-1/worker.log.tail",
+          reason: expect.stringContaining("partialLine"),
+        }),
+      ])
+    );
   });
 
   it("creates a timestamped support bundle by default and records missing optional artifacts", async () => {
@@ -1692,6 +1764,57 @@ describe("doctor command handler", () => {
         "runtime/issues.json",
         "runtime/orchestrator.log.tail",
         "runs",
+      ])
+    );
+  });
+
+  it("records malformed optional JSON artifacts as missing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-bad-json-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await mkdir(join(configDir, "projects", "tenant-a"), { recursive: true });
+    await writeFile(join(configDir, "config.json"), "{ bad json", "utf8");
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "project.json"),
+      "{ also bad json",
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-bad-json");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as { missingCount: number };
+    expect(summary.missingCount).toBeGreaterThanOrEqual(2);
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { missing: Array<{ path: string; reason: string }> };
+    expect(manifest.missing).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "config/config.json" }),
+        expect.objectContaining({ path: "config/project.json" }),
       ])
     );
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  redactObservabilityDiagnosticsWithStats,
   redactObservabilitySecrets,
   redactObservabilitySecretsWithStats,
   redactObservabilityTextWithStats,
@@ -57,8 +58,20 @@ describe("redactObservabilitySecrets", () => {
     expect(JSON.stringify(redacted)).not.toContain("lin_secret");
   });
 
+  it("keeps shared structured redaction key-focused", () => {
+    const redacted = redactObservabilitySecrets({
+      event: "worker",
+      message: "token: ordinary-diagnostic-text",
+    });
+
+    expect(redacted).toEqual({
+      event: "worker",
+      message: "token: ordinary-diagnostic-text",
+    });
+  });
+
   it("redacts structured and raw support diagnostics secrets with class counts", () => {
-    const structured = redactObservabilitySecretsWithStats({
+    const structured = redactObservabilityDiagnosticsWithStats({
       token: "ghp_xxx",
       secret: "top-secret",
       apiKey: "sk-xxx",
@@ -78,11 +91,21 @@ describe("redactObservabilitySecrets", () => {
         "token: xxx",
         "secret: xxx",
         "apiKey: xxx",
+        '{"token":"json_token_value","secret":"json_secret_value","apiKey":"json_api_key_value"}',
       ].join("\n")
     );
     const output = JSON.stringify(structured.value) + raw.value;
 
-    for (const secret of ["abc123", "ghp_xxx", "lin_xxx", "sk-xxx", "xxx"]) {
+    for (const secret of [
+      "abc123",
+      "ghp_xxx",
+      "lin_xxx",
+      "sk-xxx",
+      "xxx",
+      "json_token_value",
+      "json_secret_value",
+      "json_api_key_value",
+    ]) {
       expect(output).not.toContain(secret);
     }
     expect([...structured.redactions, ...raw.redactions]).toEqual(
@@ -93,5 +116,18 @@ describe("redactObservabilitySecrets", () => {
         expect.objectContaining({ class: "secret_key" }),
       ])
     );
+  });
+
+  it("reports key-only structured redaction stats without scanning strings", () => {
+    const structured = redactObservabilitySecretsWithStats({
+      token: "ghp_xxx",
+      message: "Authorization: Bearer abc123",
+    });
+
+    expect(structured.value).toEqual({
+      token: "[REDACTED]",
+      message: "Authorization: Bearer abc123",
+    });
+    expect(structured.redactions).toEqual([{ class: "env_token", count: 1 }]);
   });
 });

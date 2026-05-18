@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import {
-  redactObservabilitySecretsWithStats,
+  redactObservabilityDiagnosticsWithStats,
   redactObservabilityTextWithStats,
   type RedactionSummary,
 } from "@gh-symphony/core";
@@ -51,6 +51,11 @@ export type SupportBundleManifest = {
   redactions: RedactionSummary[];
   truncations: SupportBundleTruncation[];
   limits: typeof SUPPORT_BUNDLE_LIMITS;
+  bundleBytes: {
+    written: number;
+    softMax: number;
+    exceeded: boolean;
+  };
 };
 
 export type SupportBundleSummary = {
@@ -76,6 +81,7 @@ type SupportBundleInput = {
 type BundleState = {
   root: string;
   manifest: SupportBundleManifest;
+  writtenBytes: number;
 };
 
 type RecentRun = {
@@ -95,6 +101,7 @@ export async function createSupportBundle(
 
   const state: BundleState = {
     root,
+    writtenBytes: 0,
     manifest: {
       version: 1,
       createdAt,
@@ -105,6 +112,11 @@ export async function createSupportBundle(
       redactions: [],
       truncations: [],
       limits: SUPPORT_BUNDLE_LIMITS,
+      bundleBytes: {
+        written: 0,
+        softMax: SUPPORT_BUNDLE_LIMITS.maxBundleBytes,
+        exceeded: false,
+      },
     },
   };
 
@@ -213,7 +225,7 @@ async function writeJsonArtifact(
   relativePath: string,
   value: unknown
 ): Promise<void> {
-  const redacted = redactObservabilitySecretsWithStats(value);
+  const redacted = redactObservabilityDiagnosticsWithStats(value);
   addRedactions(state, redacted.redactions);
   await writeBundleFile(
     state,
@@ -236,8 +248,13 @@ async function copyJsonArtifact(
   }
 
   try {
-    await writeJsonArtifact(state, destinationPath, JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    await writeJsonArtifact(state, destinationPath, parsed);
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      recordMissing(state, destinationPath, sourcePath, error);
+      return;
+    }
     throw new Error(
       `Failed to redact/write JSON artifact ${sourcePath}: ${formatError(error)}`
     );
@@ -299,7 +316,11 @@ async function readBoundedTail(sourcePath: string): Promise<CapturedText> {
     if (start > 0) {
       reasons.push("maxLogBytes");
       const firstNewline = text.indexOf("\n");
-      text = firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
+      if (firstNewline >= 0) {
+        text = text.slice(firstNewline + 1);
+      } else {
+        reasons.push("partialLine");
+      }
     }
 
     const lines = text.split(/\r?\n/);
@@ -328,6 +349,7 @@ async function writeBundleFile(
   const target = resolveBundlePath(state.root, relativePath);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content, "utf8");
+  state.writtenBytes += Buffer.byteLength(content, "utf8");
   state.manifest.included.push(relativePath);
 }
 
@@ -335,6 +357,11 @@ async function writeManifest(state: BundleState): Promise<void> {
   if (!state.manifest.included.includes("manifest.json")) {
     state.manifest.included.push("manifest.json");
   }
+  state.manifest.bundleBytes = {
+    written: state.writtenBytes,
+    softMax: SUPPORT_BUNDLE_LIMITS.maxBundleBytes,
+    exceeded: state.writtenBytes > SUPPORT_BUNDLE_LIMITS.maxBundleBytes,
+  };
   const target = resolveBundlePath(state.root, "manifest.json");
   await writeFile(
     target,

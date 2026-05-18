@@ -31,7 +31,19 @@ export function redactObservabilitySecretsWithStats<T>(
   value: T
 ): RedactionResult<T> {
   const counts = createRedactionCounts();
-  const redacted = redactValue(value, counts) as T;
+  const redacted = redactValue(value, counts, {
+    redactStringValues: false,
+  }) as T;
+  return { value: redacted, redactions: summarizeRedactionCounts(counts) };
+}
+
+export function redactObservabilityDiagnosticsWithStats<T>(
+  value: T
+): RedactionResult<T> {
+  const counts = createRedactionCounts();
+  const redacted = redactValue(value, counts, {
+    redactStringValues: true,
+  }) as T;
   return { value: redacted, redactions: summarizeRedactionCounts(counts) };
 }
 
@@ -51,13 +63,14 @@ export function redactObservabilityTextWithStats(
 
 function redactValue(
   value: unknown,
-  counts: Map<RedactionClass, number>
+  counts: Map<RedactionClass, number>,
+  options: { redactStringValues: boolean }
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, counts));
+    return value.map((item) => redactValue(item, counts, options));
   }
 
-  if (typeof value === "string") {
+  if (typeof value === "string" && options.redactStringValues) {
     return redactTextValue(value, counts);
   }
 
@@ -73,7 +86,7 @@ function redactValue(
         return [key, REDACTED];
       }
 
-      return [key, redactValue(nested, counts)];
+      return [key, redactValue(nested, counts, options)];
     })
   );
 }
@@ -151,24 +164,24 @@ function redactTextValue(
   );
   redacted = replaceAndCount(
     redacted,
-    /\b(token\s*:\s*)([^\s,}\]]+)/gi,
+    /((?:"token"|'token'|token)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/gi,
     "env_token",
     counts,
-    "$1[REDACTED]"
+    '$1"[REDACTED]"'
   );
   redacted = replaceAndCount(
     redacted,
-    /\b(secret\s*:\s*)([^\s,}\]]+)/gi,
+    /((?:"secret"|'secret'|secret)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/gi,
     "secret_key",
     counts,
-    "$1[REDACTED]"
+    '$1"[REDACTED]"'
   );
   redacted = replaceAndCount(
     redacted,
-    /\b(apiKey\s*:\s*)([^\s,}\]]+)/g,
+    /((?:"apiKey"|'apiKey'|apiKey)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/g,
     "api_key",
     counts,
-    "$1[REDACTED]"
+    '$1"[REDACTED]"'
   );
   redacted = replaceAndCount(
     redacted,
