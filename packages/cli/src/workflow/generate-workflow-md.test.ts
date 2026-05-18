@@ -13,7 +13,14 @@ describe("generateWorkflowMarkdown", () => {
   const defaultInput = {
     projectId: "PVT_abc123",
     stateFieldName: "Stage",
-    priorityFieldName: "Priority",
+    priority: {
+      source: "project-field" as const,
+      field: "Priority",
+      values: {
+        P0: 0,
+        P1: 1,
+      },
+    },
     mappings: {
       Queued: { role: "active" as const, goal: "Triage and plan the issue" },
       Doing: { role: "active" as const, goal: "Implement the solution" },
@@ -54,23 +61,58 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.lifecycle.blockerCheckStates).toEqual(["Queued"]);
   });
 
-  it("emits tracker.priority_field when configured", () => {
+  it("emits explicit project-field priority mapping when configured", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
     const parsed = parseWorkflowMarkdown(markdown, {});
 
-    expect(markdown).toContain("priority_field: Priority");
-    expect(parsed.tracker.priorityFieldName).toBe("Priority");
+    expect(markdown).toContain("priority:");
+    expect(markdown).toContain("source: project-field");
+    expect(markdown).toContain('field: "Priority"');
+    expect(markdown).toContain('"P0": 0');
+    expect(markdown).not.toContain("priority_field:");
+    expect(parsed.tracker.priority).toEqual(defaultInput.priority);
+    expect(parsed.tracker.priorityFieldName).toBeNull();
   });
 
-  it("omits tracker.priority_field when not configured", () => {
+  it("emits disabled priority scaffold with templates when no field is configured", () => {
     const markdown = generateWorkflowMarkdown({
       ...defaultInput,
-      priorityFieldName: null,
+      priority: { source: "disabled" as const },
+      includePriorityTemplates: true,
     });
     const parsed = parseWorkflowMarkdown(markdown, {});
 
     expect(markdown).not.toContain("priority_field:");
+    expect(markdown).toContain("source: disabled");
+    expect(markdown).toContain("# Optional template: project-field priority source.");
+    expect(markdown).toContain("# Optional template: labels priority source.");
+    expect(parsed.tracker.priority).toEqual({ source: "disabled" });
     expect(parsed.tracker.priorityFieldName).toBeNull();
+  });
+
+  it("emits explicit labels priority mapping when configured", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priority: {
+        source: "labels" as const,
+        labels: {
+          "priority: p0": 0,
+          "priority: p1": 1,
+        },
+      },
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("source: labels");
+    expect(markdown).toContain('"priority: p0": 0');
+    expect(markdown).not.toContain("priority_field:");
+    expect(parsed.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        "priority: p0": 0,
+        "priority: p1": 1,
+      },
+    });
   });
 
   it("includes a Status Map section in the prompt body", () => {

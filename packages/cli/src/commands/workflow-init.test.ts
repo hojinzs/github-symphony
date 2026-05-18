@@ -279,7 +279,7 @@ describe("init priority field detection", () => {
     process.exitCode = undefined;
   });
 
-  it("adds tracker.priority_field during non-interactive dry-run when Priority exists", async () => {
+  it("adds explicit project-field priority mapping during non-interactive dry-run when Priority exists", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-priority-nonint-"));
     const stdout = vi
       .spyOn(process.stdout, "write")
@@ -322,8 +322,15 @@ describe("init priority field detection", () => {
 
     const payload = JSON.parse(
       stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
-    ) as { priorityFieldName: string | null };
-    expect(payload.priorityFieldName).toBe("Priority");
+    ) as { priority: { source: string; field?: string; values?: Record<string, number> } };
+    expect(payload.priority).toEqual({
+      source: "project-field",
+      field: "Priority",
+      values: {
+        P0: 0,
+        P1: 1,
+      },
+    });
   });
 
   it("allows Claude preflight for init --runtime claude-code with local auth", async () => {
@@ -444,7 +451,11 @@ describe("init priority field detection", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never)
+      .mockResolvedValueOnce("project-field" as never)
       .mockResolvedValueOnce("priority-severity" as never);
+    vi.mocked(p.text)
+      .mockResolvedValueOnce("0" as never)
+      .mockResolvedValueOnce("1" as never);
 
     await initCommand(["--dry-run", "--output", join(configDir, "WORKFLOW.md")], {
       configDir,
@@ -454,13 +465,27 @@ describe("init priority field detection", () => {
     });
 
     const rendered = stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
-    expect(rendered).toContain("Priority field   Priority (Severity)");
+    expect(rendered).toContain("Priority source   project-field");
+    expect(rendered).toContain("Priority mapping  Priority (Severity): P0=0, P1=1");
     expect(vi.mocked(p.select).mock.calls).toEqual(
       expect.arrayContaining([
         [
           expect.objectContaining({
-            message:
-              "Step 4/4 — Multiple GitHub Project priority fields look plausible. Select the one Symphony should use:",
+            message: "Step 4/4 — Choose one priority source:",
+          }),
+        ],
+      ])
+    );
+    expect(vi.mocked(p.text).mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            message: 'Priority value for option "P0"',
+          }),
+        ],
+        [
+          expect.objectContaining({
+            message: 'Priority value for option "P1"',
           }),
         ],
       ])
@@ -571,7 +596,8 @@ describe("init ecosystem generation", () => {
     expect(preview).toContain("create");
     expect(preview).toContain(DEFAULT_AFTER_CREATE_HOOK_PATH);
     expect(preview).toContain(".gh-symphony/context.yaml");
-    expect(preview).toContain("Priority field   Priority");
+    expect(preview).toContain("Priority source   project-field");
+    expect(preview).toContain("Priority mapping  Priority: P0=0, P1=1");
     expect(preview).toContain("Detected environment inputs");
     expect(preview).toContain("Dry run only. No files were written.");
   });
@@ -603,7 +629,14 @@ describe("init ecosystem generation", () => {
 
     expect(result.dryRun).toBe(true);
     expect(result.output).toBe(join(cwd, "WORKFLOW.md"));
-    expect(result.priorityFieldName).toBe("Priority");
+    expect(result.priority).toEqual({
+      source: "project-field",
+      field: "Priority",
+      values: {
+        P0: 0,
+        P1: 1,
+      },
+    });
     expect(result.files[0]).toMatchObject({
       label: "WORKFLOW.md",
       status: "create",
@@ -741,7 +774,9 @@ describe("init ecosystem generation", () => {
     });
 
     expect(plan.workflowMd).toContain("### Repository Validation Guidance");
-    expect(plan.workflowMd).toContain("priority_field: Priority");
+    expect(plan.workflowMd).toContain("source: project-field");
+    expect(plan.workflowMd).toContain('field: "Priority"');
+    expect(plan.workflowMd).not.toContain("priority_field:");
     expect(plan.workflowMd).toContain("Detected repository validation commands:");
     expect(plan.workflowMd).toContain("`npm test`");
     expect(plan.workflowMd).toContain("`npm run lint`");

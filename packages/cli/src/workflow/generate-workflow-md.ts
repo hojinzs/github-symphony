@@ -1,4 +1,7 @@
-import type { WorkflowLifecycleConfig } from "@gh-symphony/core";
+import type {
+  WorkflowLifecycleConfig,
+  WorkflowPriorityConfig,
+} from "@gh-symphony/core";
 import type { StateMapping } from "../config.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import { CLAUDE_RUNTIME_PROMPT_PREAMBLE } from "../prompts/runtime-claude-constraints.js";
@@ -12,7 +15,8 @@ import {
 export type GenerateWorkflowInput = {
   projectId: string;
   stateFieldName: string;
-  priorityFieldName: string | null;
+  priority: WorkflowPriorityConfig | null;
+  includePriorityTemplates?: boolean;
   mappings: Record<string, StateMapping>;
   lifecycle: WorkflowLifecycleConfig;
   runtime: string;
@@ -41,9 +45,7 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push("  kind: github-project");
   lines.push(`  project_id: ${input.projectId}`);
   lines.push(`  state_field: ${input.stateFieldName}`);
-  if (input.priorityFieldName) {
-    lines.push(`  priority_field: ${input.priorityFieldName}`);
-  }
+  lines.push(...buildPriorityFrontMatter(input));
 
   if (input.lifecycle.activeStates.length > 0) {
     lines.push("  active_states:");
@@ -83,6 +85,70 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push(...buildRuntimeFrontMatter(input.runtime));
 
   return lines.join("\n") + "\n";
+}
+
+function buildPriorityFrontMatter(
+  input: Pick<GenerateWorkflowInput, "priority" | "includePriorityTemplates">
+): string[] {
+  const lines: string[] = [];
+  if (!input.priority) {
+    return lines;
+  }
+
+  lines.push(
+    "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
+  );
+  lines.push(
+    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+  );
+  lines.push("  priority:");
+
+  if (input.priority.source === "project-field") {
+    lines.push("    source: project-field");
+    lines.push(`    field: ${formatYamlScalar(input.priority.field)}`);
+    lines.push("    values:");
+    for (const [name, value] of Object.entries(input.priority.values)) {
+      lines.push(`      ${formatYamlKey(name)}: ${value}`);
+    }
+    return lines;
+  }
+
+  if (input.priority.source === "labels") {
+    lines.push("    source: labels");
+    lines.push("    labels:");
+    for (const [name, value] of Object.entries(input.priority.labels)) {
+      lines.push(`      ${formatYamlKey(name)}: ${value}`);
+    }
+    return lines;
+  }
+
+  lines.push("    source: disabled");
+  if (input.includePriorityTemplates) {
+    lines.push("");
+    lines.push("  # Optional template: project-field priority source.");
+    lines.push("  # priority:");
+    lines.push("  #   source: project-field");
+    lines.push("  #   field: Priority");
+    lines.push("  #   values:");
+    lines.push("  #     Urgent: 0");
+    lines.push("  #     High: 1");
+    lines.push("");
+    lines.push("  # Optional template: labels priority source.");
+    lines.push("  # priority:");
+    lines.push("  #   source: labels");
+    lines.push("  #   labels:");
+    lines.push("  #     P0: 0");
+    lines.push("  #     P1: 1");
+  }
+  return lines;
+}
+
+function formatYamlScalar(value: string): string {
+  return JSON.stringify(value);
+}
+
+function formatYamlKey(value: string): string {
+  return JSON.stringify(value);
 }
 
 function buildPromptBody(input: GenerateWorkflowInput): string {

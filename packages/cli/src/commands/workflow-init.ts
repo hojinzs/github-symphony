@@ -4,6 +4,7 @@ import {
   resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
+import type { WorkflowPriorityConfig } from "@gh-symphony/core";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -15,6 +16,7 @@ import {
   checkRequiredScopes,
   discoverUserProjects,
   listUserProjects,
+  listRepositoryLabels,
   getProjectDetail,
   GitHubScopeError,
   type GitHubClient,
@@ -310,6 +312,8 @@ type EcosystemOptions = {
   projectDetail: ProjectDetail;
   statusField: ProjectStatusField;
   priorityField: ProjectStatusField | null;
+  priority?: WorkflowPriorityConfig;
+  includePriorityTemplates?: boolean;
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -320,7 +324,7 @@ export type EcosystemResult = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
-  priorityFieldName: string | null;
+  priority: WorkflowPriorityConfig;
   skillsDir: string | null;
   skipSkills: boolean;
   afterCreateHookWritten: boolean;
@@ -346,7 +350,7 @@ export type EcosystemPlan = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
-  priorityFieldName: string | null;
+  priority: WorkflowPriorityConfig;
   skillsDir: string | null;
   skipSkills: boolean;
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
@@ -359,7 +363,7 @@ export type DryRunJsonResult = {
   projectId: string;
   githubProjectTitle: string;
   runtime: string;
-  priorityFieldName: string | null;
+  priority: WorkflowPriorityConfig;
   files: Array<{
     path: string;
     label: string;
@@ -375,6 +379,8 @@ export type WorkflowArtifactsOptions = {
   projectDetail: ProjectDetail;
   statusField: ProjectStatusField;
   priorityField: ProjectStatusField | null;
+  priority?: WorkflowPriorityConfig;
+  includePriorityTemplates?: boolean;
   mappings: Record<string, StateMapping>;
   runtime: string;
   skipSkills: boolean;
@@ -499,6 +505,45 @@ export function resolvePriorityField(
   return { field: null, ambiguous: [] };
 }
 
+function buildProjectFieldPriority(
+  field: ProjectStatusField
+): WorkflowPriorityConfig {
+  return {
+    source: "project-field",
+    field: field.name,
+    values: Object.fromEntries(
+      field.options.map((option, index) => [option.name, index])
+    ),
+  };
+}
+
+function buildDisabledPriority(): WorkflowPriorityConfig {
+  return { source: "disabled" };
+}
+
+export async function collectPriorityLabelNames(
+  client: GitHubClient,
+  repositories: LinkedRepository[]
+): Promise<string[]> {
+  const labels = new Set<string>();
+  for (const repository of repositories) {
+    try {
+      const repoLabels = await listRepositoryLabels(
+        client,
+        repository.owner,
+        repository.name
+      );
+      for (const label of repoLabels) {
+        labels.add(label.name);
+      }
+    } catch {
+      // Label priority is optional setup data. If labels cannot be listed,
+      // the operator can still choose project-field or disabled.
+    }
+  }
+  return [...labels].sort((a, b) => a.localeCompare(b));
+}
+
 async function promptPriorityField(
   priorityCandidates: ProjectStatusField[],
   options?: {
@@ -521,7 +566,7 @@ async function promptPriorityField(
         {
           value: "__skip_priority_field__",
           label: "Skip priority-aware dispatch",
-          hint: "Leave tracker.priority_field unset",
+          hint: "Write source: disabled",
         },
       ],
     })
@@ -534,6 +579,122 @@ async function promptPriorityField(
   return (
     priorityCandidates.find((field) => field.id === selectedFieldId) ?? null
   );
+}
+
+async function promptProjectFieldPriorityValues(
+  field: ProjectStatusField
+): Promise<Record<string, number>> {
+  const values: Record<string, number> = {};
+  for (const [index, option] of field.options.entries()) {
+    const rawValue = await abortIfCancelled(
+      p.text({
+        message: `Priority value for option "${option.name}"`,
+        placeholder: String(index),
+        initialValue: String(index),
+        validate(value) {
+          return Number.isFinite(Number(value)) ? undefined : "Enter a number.";
+        },
+      })
+    );
+    values[option.name] = Number(rawValue);
+  }
+  return values;
+}
+
+export async function promptPriorityConfig(input: {
+  priorityResolution: ReturnType<typeof resolvePriorityField>;
+  labelNames: string[];
+  stepLabel?: string;
+}): Promise<{
+  priority: WorkflowPriorityConfig;
+  priorityField: ProjectStatusField | null;
+}> {
+  const hasProjectField =
+    Boolean(input.priorityResolution.field) ||
+    input.priorityResolution.ambiguous.length > 0;
+  const hasLabels = input.labelNames.length > 0;
+  const selectedSource = await abortIfCancelled(
+    p.select({
+      message: `${input.stepLabel ?? "Priority"} — Choose one priority source:`,
+      options: [
+        ...(hasProjectField
+          ? [
+              {
+                value: "project-field",
+                label: "GitHub Project field",
+                hint: "Map single-select options to explicit numbers",
+              },
+            ]
+          : []),
+        ...(hasLabels
+          ? [
+              {
+                value: "labels",
+                label: "GitHub labels",
+                hint: "Map existing repository labels to explicit numbers",
+              },
+            ]
+          : []),
+        {
+          value: "disabled",
+          label: "Disabled",
+          hint: "Write source: disabled",
+        },
+      ],
+    })
+  );
+
+  if (selectedSource === "disabled") {
+    return { priority: buildDisabledPriority(), priorityField: null };
+  }
+
+  if (selectedSource === "labels") {
+    const selectedLabels = await abortIfCancelled(
+      p.multiselect({
+        message: "Select priority labels to map:",
+        options: input.labelNames.map((label) => ({
+          value: label,
+          label,
+        })),
+        required: true,
+      })
+    );
+    const labels: Record<string, number> = {};
+    for (const [index, label] of selectedLabels.entries()) {
+      const rawValue = await abortIfCancelled(
+        p.text({
+          message: `Priority value for label "${label}"`,
+          placeholder: String(index),
+          initialValue: String(index),
+          validate(value) {
+            return Number.isFinite(Number(value)) ? undefined : "Enter a number.";
+          },
+        })
+      );
+      labels[label] = Number(rawValue);
+    }
+    return { priority: { source: "labels", labels }, priorityField: null };
+  }
+
+  const priorityField =
+    input.priorityResolution.ambiguous.length > 0
+      ? await promptPriorityField(input.priorityResolution.ambiguous, {
+          stepLabel: "Priority field",
+        })
+      : input.priorityResolution.field;
+
+  if (!priorityField) {
+    return { priority: buildDisabledPriority(), priorityField: null };
+  }
+
+  return {
+    priority: {
+      source: "project-field",
+      field: priorityField.name,
+      values: await promptProjectFieldPriorityValues(priorityField),
+    },
+    priorityField,
+  };
 }
 
 export async function promptStateMappings(
@@ -579,10 +740,17 @@ export async function planWorkflowArtifacts(
   opts: WorkflowArtifactsOptions
 ): Promise<WorkflowArtifactsPlan> {
   const environment = opts.environment ?? (await detectEnvironment(opts.cwd));
+  const priority =
+    opts.priority ??
+    (opts.priorityField
+      ? buildProjectFieldPriority(opts.priorityField)
+      : buildDisabledPriority());
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
     stateFieldName: opts.statusField.name,
-    priorityFieldName: opts.priorityField?.name ?? null,
+    priority,
+    includePriorityTemplates:
+      opts.includePriorityTemplates ?? priority.source === "disabled",
     mappings: opts.mappings,
     lifecycle: toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings),
     runtime: opts.runtime,
@@ -600,6 +768,9 @@ export async function planWorkflowArtifacts(
     projectDetail: opts.projectDetail,
     statusField: opts.statusField,
     priorityField: opts.priorityField,
+    priority,
+    includePriorityTemplates:
+      opts.includePriorityTemplates ?? priority.source === "disabled",
     runtime: opts.runtime,
     skipSkills: opts.skipSkills,
     skipContext: opts.skipContext,
@@ -644,6 +815,11 @@ export async function planEcosystem(
     skipSkills,
     skipContext,
   } = opts;
+  const priority =
+    opts.priority ??
+    (priorityField
+      ? buildProjectFieldPriority(priorityField)
+      : buildDisabledPriority());
   const ghSymphonyDir = join(cwd, ".gh-symphony");
   const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
@@ -685,7 +861,7 @@ export async function planEcosystem(
       role: null as "active" | "wait" | "terminal" | null,
     })),
     projectId: projectDetail.id,
-    priorityFieldName: priorityField?.name ?? null,
+    priority,
     detectedEnvironment: environment,
   });
   files.push(
@@ -739,7 +915,7 @@ export async function planEcosystem(
     projectId: projectDetail.id,
     githubProjectTitle: projectDetail.title,
     runtime,
-    priorityFieldName: priorityField?.name ?? null,
+    priority,
     skillsDir,
     skipSkills,
     environment,
@@ -794,7 +970,7 @@ export async function writeEcosystem(
     projectId: plan.projectId,
     githubProjectTitle: plan.githubProjectTitle,
     runtime: plan.runtime,
-    priorityFieldName: plan.priorityFieldName,
+    priority: plan.priority,
     skillsDir: plan.skillsDir,
     skipSkills: plan.skipSkills,
     afterCreateHookWritten,
@@ -806,6 +982,30 @@ export async function writeEcosystem(
 }
 
 // ── Ecosystem summary output ─────────────────────────────────────────────────
+
+function formatPrioritySummaryLines(priority: WorkflowPriorityConfig): string[] {
+  if (priority.source === "disabled") {
+    return ["Priority source   disabled"];
+  }
+
+  if (priority.source === "project-field") {
+    const mapping = Object.entries(priority.values)
+      .map(([name, value]) => `${name}=${value}`)
+      .join(", ");
+    return [
+      "Priority source   project-field",
+      `Priority mapping  ${priority.field}: ${mapping || "none"}`,
+    ];
+  }
+
+  const mapping = Object.entries(priority.labels)
+    .map(([name, value]) => `${name}=${value}`)
+    .join(", ");
+  return [
+    "Priority source   labels",
+    `Priority mapping  ${mapping || "none"}`,
+  ];
+}
 
 function printEcosystemSummary(
   result: EcosystemResult,
@@ -820,9 +1020,7 @@ function printEcosystemSummary(
     `GitHub Project   ${result.githubProjectTitle}  (${result.projectId})`
   );
   lines.push(`Runtime   ${result.runtime}`);
-  if (result.priorityFieldName) {
-    lines.push(`Priority field   ${result.priorityFieldName}`);
-  }
+  lines.push(...formatPrioritySummaryLines(result.priority));
   lines.push("");
   lines.push("Generated files");
   lines.push(`  ✓ WORKFLOW.md                          ${relWorkflow}`);
@@ -884,9 +1082,7 @@ export function renderDryRunPreview(
     `GitHub Project   ${ecosystemPlan.githubProjectTitle}  (${ecosystemPlan.projectId})`
   );
   lines.push(`Runtime   ${ecosystemPlan.runtime}`);
-  if (ecosystemPlan.priorityFieldName) {
-    lines.push(`Priority field   ${ecosystemPlan.priorityFieldName}`);
-  }
+  lines.push(...formatPrioritySummaryLines(ecosystemPlan.priority));
   lines.push("");
   lines.push("Planned file changes");
   lines.push(
@@ -920,7 +1116,7 @@ export function buildDryRunJsonResult(
     projectId: ecosystemPlan.projectId,
     githubProjectTitle: ecosystemPlan.githubProjectTitle,
     runtime: ecosystemPlan.runtime,
-    priorityFieldName: ecosystemPlan.priorityFieldName,
+    priority: ecosystemPlan.priority,
     files: [workflowPlan, ...ecosystemPlan.files].map((file) => ({
       path: file.path,
       label: file.label,
@@ -1028,9 +1224,12 @@ async function runNonInteractive(
     resolvePriorityField(githubProject, statusField);
   if (ambiguousPriorityFields.length > 0) {
     process.stderr.write(
-      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Skipping tracker.priority_field in non-interactive mode.\n`
+      `Warning: Multiple priority-like single-select fields found (${ambiguousPriorityFields.map((field) => `"${field.name}"`).join(", ")}). Writing disabled priority scaffold in non-interactive mode.\n`
     );
   }
+  const priority = autoPriorityField
+    ? buildProjectFieldPriority(autoPriorityField)
+    : buildDisabledPriority();
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -1048,6 +1247,8 @@ async function runNonInteractive(
     projectDetail: githubProject,
     statusField,
     priorityField: autoPriorityField,
+    priority,
+    includePriorityTemplates: !autoPriorityField,
     mappings,
     runtime,
     skipSkills: flags.skipSkills,
@@ -1074,6 +1275,8 @@ async function runNonInteractive(
     projectDetail: githubProject,
     statusField,
     priorityField: autoPriorityField,
+    priority,
+    includePriorityTemplates: !autoPriorityField,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -1206,16 +1409,18 @@ async function runInteractiveStandalone(
   }
 
   const priorityResolution = resolvePriorityField(projectDetail, statusField);
+  const priorityLabelNames = await collectPriorityLabelNames(
+    client,
+    projectDetail.linkedRepositories
+  );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel:
-      priorityResolution.ambiguous.length > 0 ? "Step 3/4" : "Step 3/3",
+    stepLabel: "Step 3/4",
   });
-  let priorityField = priorityResolution.field;
-  if (priorityResolution.ambiguous.length > 0) {
-    priorityField = await promptPriorityField(priorityResolution.ambiguous, {
-      stepLabel: "Step 4/4",
-    });
-  }
+  const { priority, priorityField } = await promptPriorityConfig({
+    priorityResolution,
+    labelNames: priorityLabelNames,
+    stepLabel: "Step 4/4",
+  });
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -1237,6 +1442,8 @@ async function runInteractiveStandalone(
     projectDetail,
     statusField,
     priorityField,
+    priority,
+    includePriorityTemplates: priority.source === "disabled",
     mappings,
     runtime,
     skipSkills: flags.skipSkills,
@@ -1255,6 +1462,8 @@ async function runInteractiveStandalone(
     projectDetail,
     statusField,
     priorityField,
+    priority,
+    includePriorityTemplates: priority.source === "disabled",
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
