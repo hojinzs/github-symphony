@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type TrackedIssue,
+  type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
 
@@ -19,6 +20,7 @@ export type GitHubTrackerConfig = {
   pageSize?: number;
   assignedOnly?: boolean;
   timeoutMs?: number;
+  priority?: WorkflowPriorityConfig | null;
   priorityFieldName?: string;
 };
 
@@ -272,6 +274,23 @@ type GraphQLResponse<TData> = {
 
 type PriorityMap = Record<string, number>;
 
+type PriorityResolutionConfig = {
+  explicit?: WorkflowPriorityConfig | null;
+  legacy?: {
+    fieldName?: string;
+    optionIds?: PriorityMap;
+  };
+};
+
+type LegacyPriorityResolutionConfig = {
+  fieldName?: string;
+  optionIds?: PriorityMap;
+};
+
+type PriorityResolutionInput =
+  | PriorityResolutionConfig
+  | LegacyPriorityResolutionConfig;
+
 export class GitHubTrackerError extends Error {}
 
 export class GitHubTrackerHttpError extends GitHubTrackerError {
@@ -305,10 +324,7 @@ export function normalizeProjectItem(
   projectId: string,
   item: GraphQLProjectItem,
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
-  priority: {
-    fieldName?: string;
-    optionIds?: PriorityMap;
-  } = {},
+  priority: PriorityResolutionInput = {},
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
   if (
@@ -398,10 +414,7 @@ function normalizePullRequestProjectItem(
   content: GraphQLPullRequestNode,
   fieldValues: Record<string, string>,
   state: string,
-  priority: {
-    fieldName?: string;
-    optionIds?: PriorityMap;
-  },
+  priority: PriorityResolutionInput,
   rateLimits: Record<string, unknown> | null
 ): GitHubTrackedIssue {
   const pullRequest = normalizePullRequestNode(content);
@@ -451,7 +464,7 @@ export async function fetchProjectIssues(
   // state, so callers must fetch the project items and filter in memory.
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
-  const priorityOptionIds = config.priorityFieldName
+  const priorityOptionIds = !config.priority && config.priorityFieldName
     ? await fetchPriorityOptionOrder(
         config,
         config.priorityFieldName,
@@ -478,8 +491,11 @@ export async function fetchProjectIssues(
         item,
         config.lifecycle,
         {
-          fieldName: config.priorityFieldName,
-          optionIds: priorityOptionIds,
+          explicit: config.priority,
+          legacy: {
+            fieldName: config.priorityFieldName,
+            optionIds: priorityOptionIds,
+          },
         },
         latestRateLimits
       );
@@ -586,7 +602,7 @@ export async function fetchProjectIssueByRepositoryAndNumber(
   issueNumber: number,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue | null> {
-  const priorityOptionIds = config.priorityFieldName
+  const priorityOptionIds = !config.priority && config.priorityFieldName
     ? await fetchPriorityOptionOrder(
         config,
         config.priorityFieldName,
@@ -626,8 +642,11 @@ export async function fetchProjectIssueByRepositoryAndNumber(
     projectItem,
     config.lifecycle,
     {
-      fieldName: config.priorityFieldName,
-      optionIds: priorityOptionIds,
+      explicit: config.priority,
+      legacy: {
+        fieldName: config.priorityFieldName,
+        optionIds: priorityOptionIds,
+      },
     },
     result.rateLimits
   );
@@ -917,10 +936,7 @@ function normalizeRepositoryIssueLookup(
   issue: GraphQLRepositoryIssueLookupNode | null,
   projectItem: GraphQLIssueProjectItemNode | null,
   lifecycle: WorkflowLifecycleConfig = DEFAULT_WORKFLOW_LIFECYCLE,
-  priority: {
-    fieldName?: string;
-    optionIds?: PriorityMap;
-  } = {},
+  priority: PriorityResolutionInput = {},
   rateLimits: Record<string, unknown> | null = null
 ): GitHubTrackedIssue | null {
   if (!issue || !projectItem) {
@@ -1103,26 +1119,184 @@ function findProjectItemByProjectId(
 
 function resolvePriority(
   item: GraphQLProjectItem,
-  priority: {
-    fieldName?: string;
-    optionIds?: PriorityMap;
-  }
+  priority: PriorityResolutionInput
 ): number | null {
-  if (!priority.fieldName || !priority.optionIds) {
+  const normalizedPriority = normalizePriorityResolutionConfig(priority);
+
+  if (normalizedPriority.explicit) {
+    return resolveExplicitPriority(item, normalizedPriority.explicit);
+  }
+
+  if (
+    !normalizedPriority.legacy?.fieldName ||
+    !normalizedPriority.legacy.optionIds
+  ) {
     return null;
   }
 
   for (const node of item.fieldValues?.nodes ?? []) {
     if (
       node?.__typename === "ProjectV2ItemFieldSingleSelectValue" &&
-      node.field?.name === priority.fieldName &&
+      node.field?.name === normalizedPriority.legacy.fieldName &&
       node.optionId
     ) {
-      return priority.optionIds[node.optionId] ?? null;
+      return normalizedPriority.legacy.optionIds[node.optionId] ?? null;
     }
   }
 
   return null;
+}
+
+function normalizePriorityResolutionConfig(
+  priority: PriorityResolutionInput
+): PriorityResolutionConfig {
+  if ("explicit" in priority || "legacy" in priority) {
+    return priority;
+  }
+
+  return {
+    legacy: priority as LegacyPriorityResolutionConfig,
+  };
+}
+
+function resolveExplicitPriority(
+  item: GraphQLProjectItem,
+  priority: WorkflowPriorityConfig
+): number | null {
+  if (priority.source === "disabled") {
+    return null;
+  }
+
+  if (priority.source === "project-field") {
+    return resolveProjectFieldPriority(item, priority);
+  }
+
+  return resolveLabelPriority(item, priority);
+}
+
+function resolveProjectFieldPriority(
+  item: GraphQLProjectItem,
+  priority: Extract<WorkflowPriorityConfig, { source: "project-field" }>
+): number | null {
+  for (const node of item.fieldValues?.nodes ?? []) {
+    if (
+      node?.__typename === "ProjectV2ItemFieldSingleSelectValue" &&
+      node.field?.name === priority.field &&
+      node.name
+    ) {
+      const resolved = priority.values[node.name] ?? null;
+      if (resolved === null) {
+        emitPriorityUnmapped(item, "project-field", [node.name]);
+      }
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+function resolveLabelPriority(
+  item: GraphQLProjectItem,
+  priority: Extract<WorkflowPriorityConfig, { source: "labels" }>
+): number | null {
+  if (
+    item.content?.__typename !== "Issue" &&
+    item.content?.__typename !== "PullRequest"
+  ) {
+    return null;
+  }
+
+  const labels = rawLabelNames(item.content.labels?.nodes ?? []);
+  const matches = labels.flatMap((label) => {
+    const value = priority.labels[label];
+    return typeof value === "number" ? [{ label, value }] : [];
+  });
+
+  if (matches.length === 0) {
+    if (labels.length > 0) {
+      emitPriorityUnmapped(item, "labels", labels);
+    }
+    return null;
+  }
+
+  const chosenValue = Math.min(...matches.map((match) => match.value));
+  if (matches.length > 1) {
+    const chosenLabels = matches
+      .filter((match) => match.value === chosenValue)
+      .map((match) => match.label);
+    emitPriorityLabelConflictResolved(item, matches, chosenValue, chosenLabels);
+  }
+
+  return chosenValue;
+}
+
+function rawLabelNames(
+  nodes: Array<{ name: string | null } | null>
+): string[] {
+  return nodes.flatMap((label) => (label?.name ? [label.name] : []));
+}
+
+function emitPriorityLabelConflictResolved(
+  item: GraphQLProjectItem,
+  matched: Array<{ label: string; value: number }>,
+  chosenValue: number,
+  chosenLabels: string[]
+): void {
+  const issue = issueEventMetadata(item);
+  if (!issue) {
+    return;
+  }
+
+  console.info(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event: "priority.label_conflict_resolved",
+      issue,
+      matched,
+      chosenValue,
+      chosenLabels,
+    })
+  );
+}
+
+function emitPriorityUnmapped(
+  item: GraphQLProjectItem,
+  source: "project-field" | "labels",
+  rawValues: string[]
+): void {
+  const issue = issueEventMetadata(item);
+  if (!issue) {
+    return;
+  }
+
+  console.info(
+    JSON.stringify({
+      at: new Date().toISOString(),
+      event: "priority.unmapped",
+      issue,
+      source,
+      rawValues,
+    })
+  );
+}
+
+function issueEventMetadata(item: GraphQLProjectItem):
+  | {
+      identifier: string;
+      id: string;
+    }
+  | null {
+  if (
+    item.content?.__typename !== "Issue" &&
+    item.content?.__typename !== "PullRequest"
+  ) {
+    return null;
+  }
+
+  return {
+    identifier: `${item.content.repository.owner.login}/${item.content.repository.name}#${item.content.number}`,
+    id: item.content.id,
+  };
 }
 
 function extractPriorityOptionOrder(

@@ -193,6 +193,53 @@ describe("repo init runtime migration", () => {
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
   });
 
+  it("persists explicit priority mapping from WORKFLOW.md into tracker settings", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_project_123
+  state_field: Status
+  priority_field: Legacy Priority
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const projectConfig = await readRepoProjectConfig(repoDir);
+    expect(projectConfig.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        P0: 0,
+        P1: 1,
+      },
+    });
+    expect(projectConfig.tracker.settings?.priorityFieldName).toBe(
+      "Legacy Priority"
+    );
+  });
+
   it("initializes a Linear tracker runtime from WORKFLOW.md", async () => {
     const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);

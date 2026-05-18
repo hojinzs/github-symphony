@@ -93,6 +93,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   if (flags.assignedOnly) {
     trackerSettings.assignedOnly = true;
   }
+  if (workflow.tracker.priorityFieldName) {
+    trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
+  }
   if (trackerAdapter === "file") {
     if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
       throw new Error(
@@ -115,6 +118,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       ...(workflow.tracker.endpoint
         ? { apiUrl: workflow.tracker.endpoint }
         : {}),
+      priority: workflow.tracker.priority,
       settings: trackerSettings,
     },
   };

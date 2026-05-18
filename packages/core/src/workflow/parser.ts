@@ -15,6 +15,7 @@ import {
   DEFAULT_WORKFLOW_DEFINITION,
   DEFAULT_WORKFLOW_TRACKER,
   type ParsedWorkflow,
+  type WorkflowPriorityConfig,
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
@@ -121,6 +122,7 @@ export function parseWorkflowMarkdown(
       stateFieldName:
         readOptionalString(tracker, "state_field", env) ??
         DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+      priority: readPriorityConfig(tracker, env),
       priorityFieldName: readOptionalString(tracker, "priority_field", env),
       blockerCheckStates,
     },
@@ -206,6 +208,66 @@ function validateTrackerConfig(
     if (!endpoint || endpoint.trim().length === 0) {
       throw new Error(
         'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+      );
+    }
+  }
+}
+
+function readPriorityConfig(
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  env: NodeJS.ProcessEnv
+): WorkflowPriorityConfig | null {
+  if (tracker.priority === undefined || tracker.priority === null) {
+    return null;
+  }
+
+  const priority = readObject(tracker, "priority", "tracker.priority");
+  const source = readRequiredString(priority, "source", env);
+  const keys = new Set(Object.keys(priority));
+
+  if (source === "project-field") {
+    rejectPriorityKeys(keys, ["source", "field", "values"], source);
+    const field = readRequiredString(priority, "field", env);
+    const values = readNumberMap(priority, "values", "tracker.priority.values");
+    if (Object.keys(values).length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.priority.values" must be a non-empty object for tracker.priority.source "project-field".'
+      );
+    }
+    return { source, field, values };
+  }
+
+  if (source === "labels") {
+    rejectPriorityKeys(keys, ["source", "labels"], source);
+    const labels = readNumberMap(priority, "labels", "tracker.priority.labels");
+    if (Object.keys(labels).length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.priority.labels" must be a non-empty object for tracker.priority.source "labels".'
+      );
+    }
+    return { source, labels };
+  }
+
+  if (source === "disabled") {
+    rejectPriorityKeys(keys, ["source"], source);
+    return { source };
+  }
+
+  throw new Error(
+    `Unsupported workflow tracker.priority.source "${source}". Supported values: project-field, labels, disabled.`
+  );
+}
+
+function rejectPriorityKeys(
+  keys: Set<string>,
+  allowedKeys: string[],
+  source: string
+): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of keys) {
+    if (!allowed.has(key)) {
+      throw new Error(
+        `Workflow front matter field "tracker.priority.${key}" is not supported for tracker.priority.source "${source}".`
       );
     }
   }
@@ -670,14 +732,15 @@ function readOptionalIntegerLike(
 
 function readNumberMap(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): Record<string, number> {
   const value = input[key];
   if (value === undefined || value === null) {
     return {};
   }
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Workflow front matter field "${key}" must be an object.`);
+    throw new Error(`Workflow front matter field "${path}" must be an object.`);
   }
 
   const result: Record<string, number> = {};
@@ -686,12 +749,12 @@ function readNumberMap(
       result[entryKey] = entryValue;
       continue;
     }
-    if (typeof entryValue === "string" && /^\d+$/.test(entryValue)) {
+    if (typeof entryValue === "string" && /^-?\d+$/.test(entryValue)) {
       result[entryKey] = Number.parseInt(entryValue, 10);
       continue;
     }
     throw new Error(
-      `Workflow front matter field "${key}.${entryKey}" must be an integer.`
+      `Workflow front matter field "${path}.${entryKey}" must be an integer.`
     );
   }
   return result;

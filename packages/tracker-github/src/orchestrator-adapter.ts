@@ -152,6 +152,7 @@ function resolveGitHubTrackerConfig(
     token,
     apiUrl: project.tracker.apiUrl,
     assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
+    priority: project.tracker.priority ?? null,
     priorityFieldName: readOptionalStringTrackerSetting(
       project.tracker,
       "priorityFieldName"
@@ -168,6 +169,7 @@ function buildProjectItemsCacheKey(
     adapter: "github-project",
     apiUrl: config.apiUrl,
     assignedOnly: config.assignedOnly ?? false,
+    priority: config.priority ?? null,
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
     timeoutMs: config.timeoutMs,

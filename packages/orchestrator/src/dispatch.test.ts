@@ -144,6 +144,22 @@ describe("sortCandidatesForDispatch", () => {
     ]);
   });
 
+  it("orders explicit tracker priority values before null priorities", () => {
+    const sorted = sortCandidatesForDispatch([
+      makeIssue({ identifier: "acme/repo#null", priority: null }),
+      makeIssue({ identifier: "acme/repo#high", priority: 1 }),
+      makeIssue({ identifier: "acme/repo#urgent", priority: 0 }),
+      makeIssue({ identifier: "acme/repo#low", priority: 3 }),
+    ]);
+
+    expect(sorted.map((issue) => issue.identifier)).toEqual([
+      "acme/repo#urgent",
+      "acme/repo#high",
+      "acme/repo#low",
+      "acme/repo#null",
+    ]);
+  });
+
   it("breaks ties by createdAt oldest first", () => {
     const sorted = sortCandidatesForDispatch([
       makeIssue({
