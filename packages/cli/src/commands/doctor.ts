@@ -42,6 +42,10 @@ import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 import {
+  createSupportBundle,
+  type SupportBundleSummary,
+} from "../support/bundle.js";
+import {
   parseIssueReference,
   readGitHubProjectBinding,
   renderIssueWorkflowPreview,
@@ -122,6 +126,8 @@ type ParsedDoctorArgs = {
   projectId?: string;
   fix: boolean;
   smoke: boolean;
+  bundle: boolean;
+  bundlePath?: string;
   issue?: string;
   error?: string;
 };
@@ -217,7 +223,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 const DOCTOR_USAGE =
-  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>]";
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>] [--bundle [path]]";
 
 type GitInstallationState =
   | {
@@ -230,7 +236,7 @@ type GitInstallationState =
     };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
-  const parsed: ParsedDoctorArgs = { fix: false, smoke: false };
+  const parsed: ParsedDoctorArgs = { fix: false, smoke: false, bundle: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -255,6 +261,16 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       continue;
     }
 
+    if (arg === "--bundle") {
+      parsed.bundle = true;
+      const value = args[i + 1];
+      if (value && !value.startsWith("-")) {
+        parsed.bundlePath = value;
+        i += 1;
+      }
+      continue;
+    }
+
     if (arg === "--issue") {
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
@@ -270,10 +286,16 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       parsed.error = `Unknown option '${arg}'`;
       return parsed;
     }
+
+    parsed.error = `Unexpected argument '${arg}'`;
+    return parsed;
   }
 
   if (parsed.issue && !parsed.smoke) {
     parsed.error = "Option '--issue' requires '--smoke'";
+  }
+  if (parsed.bundle && parsed.fix) {
+    parsed.error = "Option '--fix' cannot be used with '--bundle'";
   }
 
   return parsed;
@@ -760,7 +782,13 @@ async function buildHookChecks(
         "Workflow hook paths",
         `Unresolved WORKFLOW.md hook path${unresolved.length === 1 ? "" : "s"}: ${unresolved.map((entry) => `${entry.hook}=${entry.command}`).join(", ")}.`,
         "Create the referenced hook script(s), fix the hook path(s), or replace them with inline commands.",
-        { configured: configured.length, pathsChecked: checked.length, inline, unresolved, checked }
+        {
+          configured: configured.length,
+          pathsChecked: checked.length,
+          inline,
+          unresolved,
+          checked,
+        }
       ),
     ];
   }
@@ -779,7 +807,12 @@ async function buildHookChecks(
       "workflow_hooks",
       "Workflow hook paths",
       `${pathSummary}${inlineSummary}`,
-      { configured: configured.length, pathsChecked: checked.length, inline, checked }
+      {
+        configured: configured.length,
+        pathsChecked: checked.length,
+        inline,
+        checked,
+      }
     ),
   ];
 }
@@ -2067,6 +2100,25 @@ function renderTextReport(report: DoctorReport): string {
   return lines.join("\n");
 }
 
+function renderBundleSummary(summary: SupportBundleSummary): string {
+  const redactionClasses =
+    summary.redactionClasses.length === 0
+      ? "none"
+      : summary.redactionClasses
+          .map((entry) => `${entry.class}:${entry.count}`)
+          .join(", ");
+  return [
+    "gh-symphony doctor support bundle",
+    `Output path: ${summary.outputPath}`,
+    `Project: ${summary.projectId}`,
+    `Included artifacts: ${summary.includedCount}`,
+    `Missing artifacts: ${summary.missingCount}`,
+    `Redactions: ${summary.redactionCount} (${redactionClasses})`,
+    `Truncations: ${summary.truncationCount}`,
+    `Manifest: ${summary.manifestPath}`,
+  ].join("\n");
+}
+
 export async function runDoctorCommand(
   args: string[],
   options: GlobalOptions,
@@ -2080,6 +2132,28 @@ export async function runDoctorCommand(
     }
 
     const initialReport = await runDoctorDiagnostics(options, args, deps);
+    if (parsedArgs.bundle) {
+      if (!initialReport.projectId) {
+        throw new Error(
+          "Cannot create a support bundle because no managed project was resolved."
+        );
+      }
+      const summary = await createSupportBundle({
+        configDir: options.configDir,
+        projectId: initialReport.projectId,
+        repoRoot: process.cwd(),
+        outputPath: parsedArgs.bundlePath,
+        doctorReport: initialReport,
+      });
+      if (options.json) {
+        process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+      } else {
+        process.stdout.write(renderBundleSummary(summary) + "\n");
+      }
+      process.exitCode = initialReport.ok ? 0 : 1;
+      return;
+    }
+
     if (parsedArgs.fix) {
       const remediation = {
         attempted: true,

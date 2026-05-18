@@ -1,4 +1,12 @@
-import { access, chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,6 +15,7 @@ import type { TrackedIssue } from "@gh-symphony/core";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import { orchestratorLogPath } from "../config.js";
 import doctorCommand, {
   type DoctorDependencies,
   runDoctorCommand,
@@ -214,6 +223,128 @@ async function prepareDoctorPaths(
   if (workspaceDir) {
     await mkdir(workspaceDir, { recursive: true });
   }
+}
+
+async function prepareBundleRuntimeFixture(input: {
+  configDir: string;
+  workspaceDir: string;
+  projectId?: string;
+}): Promise<void> {
+  const projectId = input.projectId ?? "tenant-a";
+  await mkdir(join(input.configDir, "projects", projectId), {
+    recursive: true,
+  });
+  await writeFile(
+    join(input.configDir, "config.json"),
+    JSON.stringify(
+      {
+        activeProject: projectId,
+        projects: [projectId],
+        GITHUB_TOKEN: "ghp_xxx",
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "projects", projectId, "project.json"),
+    JSON.stringify(
+      {
+        ...createProjectConfig(input.workspaceDir),
+        projectId,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "PVT_test",
+          settings: {
+            GITHUB_GRAPHQL_TOKEN: "ghp_xxx",
+            LINEAR_API_KEY: "lin_xxx",
+          },
+        },
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "status.json"),
+    JSON.stringify(
+      {
+        health: "running",
+        token: "xxx",
+        repository: { owner: "acme", name: "widgets" },
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "issues.json"),
+    JSON.stringify([{ id: "issue-1", secret: "xxx" }], null, 2),
+    "utf8"
+  );
+  await mkdir(join(input.configDir, "runs", "run-1"), { recursive: true });
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "run.json"),
+    JSON.stringify(
+      {
+        runId: "run-1",
+        status: "running",
+        startedAt: "2026-05-18T00:00:00.000Z",
+        updatedAt: "2026-05-18T00:01:00.000Z",
+        apiKey: "xxx",
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "events.ndjson"),
+    [
+      JSON.stringify({
+        at: "2026-05-18T00:00:00.000Z",
+        event: "worker",
+        message: "Authorization: Bearer abc123",
+      }),
+      "OPENAI_API_KEY=sk-xxx",
+    ].join("\n") + "\n",
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "worker.log"),
+    Array.from({ length: 650 }, (_, index) =>
+      index === 649 ? "X-API-Key: xxx" : `worker line ${index}`
+    ).join("\n"),
+    "utf8"
+  );
+  await mkdir(join(input.configDir, "projects", projectId), {
+    recursive: true,
+  });
+  await writeFile(
+    orchestratorLogPath(input.configDir, projectId),
+    "GITHUB_TOKEN=ghp_xxx\norchestrator ready\n",
+    "utf8"
+  );
+}
+
+async function readBundleFiles(root: string): Promise<string> {
+  const chunks: string[] = [];
+  async function visit(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path);
+      } else {
+        chunks.push(await readFile(path, "utf8"));
+      }
+    }
+  }
+  await visit(root);
+  return chunks.join("\n");
 }
 
 afterEach(() => {
@@ -1282,7 +1413,8 @@ describe("doctor command handler", () => {
               projectId: "tenant-a",
               projectConfig: createProjectConfig(workspaceDir),
             }),
-            getProjectDetail: (async () => createProjectDetail() as never) as never,
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
             pathEnv: binDir,
           }
         )
@@ -1411,6 +1543,224 @@ describe("doctor command handler", () => {
     );
   });
 
+  it("creates a redacted support bundle at an explicit path", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({ configDir, workspaceDir });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nAuthorization: Bearer abc123\n",
+      "utf8"
+    );
+    const outputPath = join(repoDir, "tmp", "support-bundle");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async (input) => ({
+              kind: "resolved",
+              projectId: input.requestedProjectId ?? "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as {
+      outputPath: string;
+      includedCount: number;
+      missingCount: number;
+      redactionCount: number;
+      redactionClasses: Array<{ class: string; count: number }>;
+      truncationCount: number;
+    };
+    expect(summary.outputPath).toBe(outputPath);
+    expect(summary.includedCount).toBeGreaterThanOrEqual(9);
+    expect(summary.missingCount).toBe(0);
+    expect(summary.redactionCount).toBeGreaterThan(0);
+    expect(summary.redactionClasses.map((entry) => entry.class)).toEqual(
+      expect.arrayContaining([
+        "authorization_header",
+        "env_token",
+        "api_key",
+        "secret_key",
+      ])
+    );
+    expect(summary.truncationCount).toBeGreaterThanOrEqual(1);
+
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as {
+      projectId: string;
+      included: string[];
+      truncations: Array<{ path: string }>;
+    };
+    expect(manifest.projectId).toBe("tenant-a");
+    expect(manifest.included).toEqual(
+      expect.arrayContaining([
+        "doctor.json",
+        "config/config.json",
+        "config/project.json",
+        "repo/WORKFLOW.md",
+        "runtime/status.json",
+        "runtime/issues.json",
+        "runtime/orchestrator.log.tail",
+        "runs/run-1/run.json",
+        "runs/run-1/events.ndjson.tail",
+        "runs/run-1/worker.log.tail",
+      ])
+    );
+    expect(manifest.truncations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "runs/run-1/worker.log.tail" }),
+      ])
+    );
+
+    const bundleContent = await readBundleFiles(outputPath);
+    for (const secret of ["abc123", "ghp_xxx", "lin_xxx", "sk-xxx"]) {
+      expect(bundleContent).not.toContain(secret);
+    }
+  });
+
+  it("creates a timestamped support bundle by default and records missing optional artifacts", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-default-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await mkdir(join(configDir, "projects", "tenant-a"), { recursive: true });
+    await writeFile(
+      join(configDir, "config.json"),
+      JSON.stringify({ activeProject: "tenant-a", projects: ["tenant-a"] }),
+      "utf8"
+    );
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "project.json"),
+      JSON.stringify(createProjectConfig(workspaceDir)),
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as {
+      outputPath: string;
+      missingCount: number;
+    };
+    expect(summary.outputPath).toContain("gh-symphony-support-bundle-");
+    expect(summary.missingCount).toBeGreaterThan(0);
+    const manifest = JSON.parse(
+      await readFile(join(summary.outputPath, "manifest.json"), "utf8")
+    ) as { missing: Array<{ path: string }> };
+    expect(manifest.missing.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([
+        "runtime/status.json",
+        "runtime/issues.json",
+        "runtime/orchestrator.log.tail",
+        "runs",
+      ])
+    );
+  });
+
+  it("honors explicit project selection for support bundles", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-project-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({
+      configDir,
+      workspaceDir,
+      projectId: "project-b",
+    });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-project-b");
+    const requestedProjectIds: Array<string | undefined> = [];
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath, "--project-id", "project-b"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async (input) => {
+              requestedProjectIds.push(input.requestedProjectId);
+              return {
+                kind: "resolved",
+                projectId: input.requestedProjectId ?? "tenant-a",
+                projectConfig: createProjectConfig(workspaceDir),
+              };
+            },
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as { projectId: string };
+    expect(summary.projectId).toBe("project-b");
+    expect(requestedProjectIds).toContain("project-b");
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { projectId: string };
+    expect(manifest.projectId).toBe("project-b");
+  });
+
+  it("rejects --fix with support bundle export", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-fix-"));
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await doctorCommand(["--bundle", "--fix"], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Option '--fix' cannot be used with '--bundle'"
+    );
+  });
+
   it("reports no managed project for smoke checks", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const { repoDir, pathEnv } = await createWorkflowFixture();
@@ -1536,23 +1886,28 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), ["--smoke", "--issue", "garbage"], {
-        ...authDependencies(),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
-            {
-              owner: "acme",
-              name: "widgets",
-              url: "https://github.com/acme/widgets",
-              cloneUrl: "https://github.com/acme/widgets.git",
-            },
-          ]),
-        }),
-        getProjectDetail: (async () => createProjectDetail() as never) as never,
-        pathEnv,
-      })
+      runDoctorDiagnostics(
+        baseOptions(configDir),
+        ["--smoke", "--issue", "garbage"],
+        {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+              {
+                owner: "acme",
+                name: "widgets",
+                url: "https://github.com/acme/widgets",
+                cloneUrl: "https://github.com/acme/widgets.git",
+              },
+            ]),
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          pathEnv,
+        }
+      )
     );
 
     expect(report.ok).toBe(false);
