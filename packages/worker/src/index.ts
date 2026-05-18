@@ -1627,6 +1627,36 @@ async function runCodexClientProtocol(
         previousTurnProgressSnapshot,
         currentTurnProgressSnapshot
       );
+      const progressLogContext = {
+        reason: turnProgress.reason,
+        nonProductive: turnProgress.nonProductive,
+        repeatedPattern: turnProgress.repeatedPattern,
+        headChanged: turnProgress.headChanged,
+        fingerprintUnchanged: turnProgress.fingerprintUnchanged,
+        previous: {
+          fingerprint:
+            previousTurnProgressSnapshot.fingerprint === null
+              ? null
+              : previousTurnProgressSnapshot.fingerprint.length > 0
+                ? previousTurnProgressSnapshot.fingerprint
+                : "<clean>",
+          changedFilesCount: previousTurnProgressSnapshot.changedFiles.length,
+          headSha: previousTurnProgressSnapshot.headSha,
+        },
+        current: {
+          fingerprint:
+            currentTurnProgressSnapshot.fingerprint === null
+              ? null
+              : currentTurnProgressSnapshot.fingerprint.length > 0
+                ? currentTurnProgressSnapshot.fingerprint
+                : "<clean>",
+          changedFilesCount: currentTurnProgressSnapshot.changedFiles.length,
+          headSha: currentTurnProgressSnapshot.headSha,
+        },
+      };
+      process.stderr.write(
+        `[worker] turn progress evaluation ${JSON.stringify(progressLogContext)}\n`
+      );
       previousTurnProgressSnapshot = currentTurnProgressSnapshot;
 
       if (turnProgress.nonProductive) {
