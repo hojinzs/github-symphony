@@ -1969,4 +1969,65 @@ describe("doctor command handler", () => {
       ])
     );
   });
+
+  it("does not report stale label drift when repository labels cannot be read", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => {
+          throw new Error("labels unavailable");
+        }) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["P0", "P1", "P2"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    const priorityChecks = report.checks.filter(
+      (check) => check.id === "priority_mapping"
+    );
+    expect(report.ok).toBe(true);
+    expect(priorityChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Priority label drift",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with multiple priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority labels",
+        }),
+      ])
+    );
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Missing configured priority labels" }),
+        expect.objectContaining({ title: "Stale priority label mappings" }),
+      ])
+    );
+  });
 });

@@ -55,7 +55,7 @@ export function buildPriorityConfigDiagnostics(
 export function buildPriorityDriftDiagnostics(input: {
   workflow: ParsedWorkflow;
   projectDetail: ProjectDetail;
-  repositoryLabels: RepositoryLabelSnapshot[];
+  repositoryLabels: RepositoryLabelSnapshot[] | null;
   activeIssues: TrackedIssue[];
 }): PriorityDiagnostic[] {
   const priority = input.workflow.tracker.priority;
@@ -156,44 +156,46 @@ function buildProjectFieldDriftDiagnostics(input: {
 
 function buildLabelDriftDiagnostics(input: {
   priority: Extract<WorkflowPriorityConfig, { source: "labels" }>;
-  repositoryLabels: RepositoryLabelSnapshot[];
+  repositoryLabels: RepositoryLabelSnapshot[] | null;
   activeIssues: TrackedIssue[];
 }): PriorityDiagnostic[] {
   const diagnostics: PriorityDiagnostic[] = [];
   const configuredLabels = Object.keys(input.priority.labels);
-  const missingByRepository = input.repositoryLabels.flatMap((snapshot) => {
-    const live = new Set(snapshot.labels);
-    const missing = configuredLabels.filter((label) => !live.has(label));
-    return missing.length > 0
-      ? [{ repository: snapshot.repository, missing }]
-      : [];
-  });
-
-  if (missingByRepository.length > 0) {
-    diagnostics.push({
-      title: "Missing configured priority labels",
-      summary:
-        "One or more configured tracker.priority.labels entries are absent from linked repositories.",
-      remediation:
-        "Create the labels in each linked repository, rename the mapping keys to exact live labels, or remove stale mappings.",
-      details: { missingByRepository },
+  if (input.repositoryLabels) {
+    const missingByRepository = input.repositoryLabels.flatMap((snapshot) => {
+      const live = new Set(snapshot.labels);
+      const missing = configuredLabels.filter((label) => !live.has(label));
+      return missing.length > 0
+        ? [{ repository: snapshot.repository, missing }]
+        : [];
     });
-  }
 
-  const liveLabels = new Set(
-    input.repositoryLabels.flatMap((snapshot) => snapshot.labels)
-  );
-  const missingEverywhere = configuredLabels.filter(
-    (label) => !liveLabels.has(label)
-  );
-  if (missingEverywhere.length > 0) {
-    diagnostics.push({
-      title: "Stale priority label mappings",
-      summary: `tracker.priority.labels references label(s) that do not exist in any linked repository: ${missingEverywhere.join(", ")}.`,
-      remediation:
-        "Rename the mapping keys to exact live labels, create those labels, or remove stale mappings.",
-      details: { missingEverywhere },
-    });
+    if (missingByRepository.length > 0) {
+      diagnostics.push({
+        title: "Missing configured priority labels",
+        summary:
+          "One or more configured tracker.priority.labels entries are absent from linked repositories.",
+        remediation:
+          "Create the labels in each linked repository, rename the mapping keys to exact live labels, or remove stale mappings.",
+        details: { missingByRepository },
+      });
+    }
+
+    const liveLabels = new Set(
+      input.repositoryLabels.flatMap((snapshot) => snapshot.labels)
+    );
+    const missingEverywhere = configuredLabels.filter(
+      (label) => !liveLabels.has(label)
+    );
+    if (missingEverywhere.length > 0) {
+      diagnostics.push({
+        title: "Stale priority label mappings",
+        summary: `tracker.priority.labels references label(s) that do not exist in any linked repository: ${missingEverywhere.join(", ")}.`,
+        remediation:
+          "Rename the mapping keys to exact live labels, create those labels, or remove stale mappings.",
+        details: { missingEverywhere },
+      });
+    }
   }
 
   const configuredLabelSet = new Set(configuredLabels);

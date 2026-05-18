@@ -742,7 +742,8 @@ async function buildPriorityMappingChecks(input: {
   const client = input.deps.createClient(input.auth.token, {
     apiUrl: input.selection.projectConfig.tracker.apiUrl,
   });
-  let repositoryLabels: Array<{ repository: string; labels: string[] }> = [];
+  let repositoryLabels: Array<{ repository: string; labels: string[] }> | null =
+    priority.source === "labels" ? [] : null;
   if (priority.source === "labels") {
     try {
       repositoryLabels = await Promise.all(
@@ -767,6 +768,7 @@ async function buildPriorityMappingChecks(input: {
           { error: formatSmokeError(error) }
         )
       );
+      repositoryLabels = null;
     }
   }
 
