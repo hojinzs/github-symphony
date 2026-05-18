@@ -19,7 +19,7 @@
 
 Today the only GitHub priority source is the flat front-matter key `tracker.priority_field: <name>`:
 
-- Parsed in `packages/core/src/workflow/parser.ts` into `WorkflowLifecycleConfig.priorityFieldName` and `GitHubTrackerConfig.priorityFieldName`.
+- Parsed in `packages/core/src/workflow/parser.ts` into `parsed.tracker.priorityFieldName` / `WorkflowConfig.tracker.priorityFieldName`, then forwarded into the GitHub tracker adapter config.
 - Resolved in `packages/tracker-github/src/adapter.ts`: `extractPriorityOptionOrder` assigns numeric priority **implicitly from the display order of the Project V2 single-select options** (0, 1, 2, …); `resolvePriority` maps the issue's selected option to that derived number; anything unmatched yields `null`.
 
 This is an **implicit heuristic**: the numeric mapping is never written down, it silently changes if a maintainer reorders Project field options, and there is no label-based path at all (`docs/spec-gap-analysis.md` line 19 records priority as effectively always `null` on GitHub).
@@ -28,7 +28,7 @@ Issue #236 originated as a request for **label-based priority fallback**. The pr
 
 ## 2. Goals
 
-- **G1** — Priority behavior is **explicit** and fully declared in `WORKFLOW.md`. No order-derived or otherwise inferred numeric mappings at runtime.
+- **G1** — Priority behavior on the new `tracker.priority` path is **explicit** and fully declared in `WORKFLOW.md`. No order-derived or otherwise inferred numeric mappings at runtime for explicit mappings; the deprecated `tracker.priority_field` path retains legacy behavior per §10.
 - **G2** — Priority source is **singular**: exactly one of `project-field`, `labels`, or disabled/omitted. No fallback or merging between sources.
 - **G3** — Unknown / unmapped labels or field values resolve to `priority = null`. The runtime never guesses renamed labels, fields, or option values.
 - **G4** — When multiple configured labels match one issue, the **lowest numeric value (highest priority)** wins, and the collapse is **observable**.
@@ -190,7 +190,7 @@ Event names above are proposed; the schema/runtime child issue finalizes exact n
 When run non-interactively (`--non-interactive` / CI):
 
 - If a single-select field plausibly serving as priority is detected → emit `source: project-field` with `values` derived from current option display names (explicit, written out). This preserves today's effective ordering while making it explicit.
-- If no such field is detected → emit a **commented-out scaffold** for both `project-field` and `labels` plus `source: disabled` active, so runtime `priority = null` and the operator has a copy-paste template. Setup never guesses label names.
+- If no such field is detected → emit an active, uncommented `source: disabled` block plus commented-out templates for both `project-field` and `labels`, so runtime `priority = null` and the operator has a copy-paste template. Setup never guesses label names.
 - Non-interactive runs never fail solely due to absent priority configuration.
 
 ### 9.3 Generated example (non-interactive, field detected)
@@ -210,6 +210,33 @@ tracker:
       High: 1
       Medium: 2
       Low: 3
+```
+
+### 9.4 Generated example (non-interactive, no field detected)
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  # Priority dispatch is disabled until an operator chooses one explicit source.
+  priority:
+    source: disabled
+
+  # Optional template: project-field priority source.
+  # priority:
+  #   source: project-field
+  #   field: Priority
+  #   values:
+  #     Urgent: 0
+  #     High: 1
+
+  # Optional template: labels priority source.
+  # priority:
+  #   source: labels
+  #   labels:
+  #     P0: 0
+  #     P1: 1
 ```
 
 ## 10. Backward Compatibility for `priority_field`
