@@ -308,6 +308,7 @@ describe("Commander CLI entrypoint", () => {
     const output = stdout.output() + stderr.output();
     expect(output).toContain("--fix");
     expect(output).toContain("--smoke");
+    expect(output).toContain("--bundle");
     expect(output).toContain("--issue");
     expect(output).toContain("remediation");
   });

@@ -37,6 +37,7 @@ gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
 gh-symphony doctor --smoke
+gh-symphony doctor --bundle
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
@@ -303,6 +304,22 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 - launches `gh-symphony setup` when repository runtime setup or GitHub Project binding must be repaired
 - prints concrete runtime install guidance when the configured command is missing on `PATH`
 
+`gh-symphony doctor --bundle` creates a redacted support bundle for bug reports:
+
+```bash
+gh-symphony doctor --bundle
+gh-symphony doctor --bundle ./tmp/support-bundle
+gh-symphony doctor --bundle --project-id your-project-id
+gh-symphony doctor --bundle --json
+```
+
+The bundle writes a deterministic directory containing `manifest.json`,
+`doctor.json`, redacted CLI/project config, `WORKFLOW.md`, runtime
+`status.json`/`issues.json` when available, and bounded recent run
+`events.ndjson`, `worker.log`, and `orchestrator.log` tails. Missing optional
+artifacts are listed in `manifest.missing`; redaction and truncation counts are
+reported in the command summary.
+
 The diagnostic checks cover:
 
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes
@@ -321,6 +338,7 @@ Use JSON output for scripts and CI smoke checks. `--fix --json` includes a remed
 gh-symphony doctor --json
 gh-symphony doctor --fix --json
 gh-symphony doctor --smoke --json
+gh-symphony doctor --bundle --json
 gh-symphony repo start --once
 ```
 
