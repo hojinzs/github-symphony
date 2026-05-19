@@ -911,6 +911,26 @@ function summarizeRuntimeStderr(stderr: string): string | null {
   return lines.slice(-3).join(" | ").slice(0, 1000);
 }
 
+function formatTurnProgressFingerprint(fingerprint: string | null): {
+  state: "unavailable" | "clean" | "dirty";
+  length: number | null;
+  preview: string | null;
+} {
+  if (fingerprint === null) {
+    return { state: "unavailable", length: null, preview: null };
+  }
+
+  if (fingerprint.length === 0) {
+    return { state: "clean", length: 0, preview: "<clean>" };
+  }
+
+  return {
+    state: "dirty",
+    length: fingerprint.length,
+    preview: fingerprint.slice(0, 500),
+  };
+}
+
 async function exitWorkerStartupFailure(message: string): Promise<void> {
   runtimeState.status = "failed";
   runtimeState.runPhase = "failed";
@@ -1634,22 +1654,16 @@ async function runCodexClientProtocol(
         headChanged: turnProgress.headChanged,
         fingerprintUnchanged: turnProgress.fingerprintUnchanged,
         previous: {
-          fingerprint:
-            previousTurnProgressSnapshot.fingerprint === null
-              ? null
-              : previousTurnProgressSnapshot.fingerprint.length > 0
-                ? previousTurnProgressSnapshot.fingerprint
-                : "<clean>",
+          fingerprint: formatTurnProgressFingerprint(
+            previousTurnProgressSnapshot.fingerprint
+          ),
           changedFilesCount: previousTurnProgressSnapshot.changedFiles.length,
           headSha: previousTurnProgressSnapshot.headSha,
         },
         current: {
-          fingerprint:
-            currentTurnProgressSnapshot.fingerprint === null
-              ? null
-              : currentTurnProgressSnapshot.fingerprint.length > 0
-                ? currentTurnProgressSnapshot.fingerprint
-                : "<clean>",
+          fingerprint: formatTurnProgressFingerprint(
+            currentTurnProgressSnapshot.fingerprint
+          ),
           changedFilesCount: currentTurnProgressSnapshot.changedFiles.length,
           headSha: currentTurnProgressSnapshot.headSha,
         },

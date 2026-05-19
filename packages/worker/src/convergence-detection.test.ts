@@ -67,7 +67,7 @@ describe("convergence detection helpers", () => {
       stdio: "ignore",
     });
     execSync(
-      'git -c user.name="Test User" -c user.email="test@example.com" commit -m "initial"',
+      'git -c user.name="Test User" -c user.email="test@example.com" -c commit.gpgsign=false commit -m "initial"',
       {
         cwd: repoRoot,
         stdio: "ignore",
@@ -123,6 +123,31 @@ describe("convergence detection helpers", () => {
           fingerprint: "",
           changedFiles: [],
           headSha: "2222222222222222222222222222222222222222",
+          lastError: null,
+        }
+      )
+    ).toEqual({
+      nonProductive: false,
+      repeatedPattern: false,
+      reason: null,
+      headChanged: true,
+      fingerprintUnchanged: true,
+    });
+  });
+
+  it("treats clean snapshots with newly available HEAD as productive", () => {
+    expect(
+      evaluateTurnProgress(
+        {
+          fingerprint: "",
+          changedFiles: [],
+          headSha: null,
+          lastError: null,
+        },
+        {
+          fingerprint: "",
+          changedFiles: [],
+          headSha: "1111111111111111111111111111111111111111",
           lastError: null,
         }
       )

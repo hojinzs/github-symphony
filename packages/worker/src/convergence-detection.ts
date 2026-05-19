@@ -69,8 +69,7 @@ export function evaluateTurnProgress(
   current: TurnProgressSnapshot
 ): TurnProgressEvaluation {
   const headChanged =
-    previous.headSha !== null &&
-    current.headSha !== null &&
+    (previous.headSha !== null || current.headSha !== null) &&
     previous.headSha !== current.headSha;
   const fingerprintUnchanged =
     previous.fingerprint !== null &&
