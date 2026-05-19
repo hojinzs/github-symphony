@@ -911,6 +911,26 @@ function summarizeRuntimeStderr(stderr: string): string | null {
   return lines.slice(-3).join(" | ").slice(0, 1000);
 }
 
+function formatTurnProgressFingerprint(fingerprint: string | null): {
+  state: "unavailable" | "clean" | "dirty";
+  length: number | null;
+  preview: string | null;
+} {
+  if (fingerprint === null) {
+    return { state: "unavailable", length: null, preview: null };
+  }
+
+  if (fingerprint.length === 0) {
+    return { state: "clean", length: 0, preview: "<clean>" };
+  }
+
+  return {
+    state: "dirty",
+    length: fingerprint.length,
+    preview: fingerprint.slice(0, 500),
+  };
+}
+
 async function exitWorkerStartupFailure(message: string): Promise<void> {
   runtimeState.status = "failed";
   runtimeState.runPhase = "failed";
@@ -1626,6 +1646,30 @@ async function runCodexClientProtocol(
       const turnProgress = evaluateTurnProgress(
         previousTurnProgressSnapshot,
         currentTurnProgressSnapshot
+      );
+      const progressLogContext = {
+        reason: turnProgress.reason,
+        nonProductive: turnProgress.nonProductive,
+        repeatedPattern: turnProgress.repeatedPattern,
+        headChanged: turnProgress.headChanged,
+        fingerprintUnchanged: turnProgress.fingerprintUnchanged,
+        previous: {
+          fingerprint: formatTurnProgressFingerprint(
+            previousTurnProgressSnapshot.fingerprint
+          ),
+          changedFilesCount: previousTurnProgressSnapshot.changedFiles.length,
+          headSha: previousTurnProgressSnapshot.headSha,
+        },
+        current: {
+          fingerprint: formatTurnProgressFingerprint(
+            currentTurnProgressSnapshot.fingerprint
+          ),
+          changedFilesCount: currentTurnProgressSnapshot.changedFiles.length,
+          headSha: currentTurnProgressSnapshot.headSha,
+        },
+      };
+      process.stderr.write(
+        `[worker] turn progress evaluation ${JSON.stringify(progressLogContext)}\n`
       );
       previousTurnProgressSnapshot = currentTurnProgressSnapshot;
 

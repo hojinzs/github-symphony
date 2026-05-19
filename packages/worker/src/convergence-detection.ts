@@ -5,6 +5,7 @@ const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 export type TurnWorkspaceSnapshot = {
   fingerprint: string | null;
   changedFiles: string[];
+  headSha: string | null;
 };
 
 export type TurnProgressSnapshot = TurnWorkspaceSnapshot & {
@@ -15,6 +16,8 @@ export type TurnProgressEvaluation = {
   nonProductive: boolean;
   repeatedPattern: boolean;
   reason: string | null;
+  headChanged: boolean;
+  fingerprintUnchanged: boolean;
 };
 
 export function resolveMaxNonProductiveTurns(
@@ -30,6 +33,7 @@ export function resolveMaxNonProductiveTurns(
 export function captureTurnWorkspaceSnapshot(
   cwd: string
 ): TurnWorkspaceSnapshot {
+  const headSha = captureGitHeadSha(cwd);
   const result = spawnSync(
     "git",
     ["status", "--porcelain=v1", "--untracked-files=all"],
@@ -43,6 +47,7 @@ export function captureTurnWorkspaceSnapshot(
     return {
       fingerprint: null,
       changedFiles: [],
+      headSha,
     };
   }
 
@@ -55,6 +60,7 @@ export function captureTurnWorkspaceSnapshot(
   return {
     fingerprint: changedFiles.join("\n"),
     changedFiles,
+    headSha,
   };
 }
 
@@ -62,6 +68,13 @@ export function evaluateTurnProgress(
   previous: TurnProgressSnapshot,
   current: TurnProgressSnapshot
 ): TurnProgressEvaluation {
+  const headChanged =
+    (previous.headSha !== null || current.headSha !== null) &&
+    previous.headSha !== current.headSha;
+  const fingerprintUnchanged =
+    previous.fingerprint !== null &&
+    current.fingerprint !== null &&
+    previous.fingerprint === current.fingerprint;
   const normalizedPreviousError = normalizeError(previous.lastError);
   const normalizedCurrentError = normalizeError(current.lastError);
   const repeatedError =
@@ -69,20 +82,27 @@ export function evaluateTurnProgress(
     normalizedCurrentError !== null &&
     normalizedPreviousError === normalizedCurrentError;
 
+  if (headChanged) {
+    return {
+      nonProductive: false,
+      repeatedPattern: false,
+      reason: null,
+      headChanged,
+      fingerprintUnchanged,
+    };
+  }
+
   if (repeatedError) {
     return {
       nonProductive: true,
       repeatedPattern: true,
       reason: `repeated error: ${normalizedCurrentError}`,
+      headChanged,
+      fingerprintUnchanged,
     };
   }
 
-  const unchangedWorkspace =
-    previous.fingerprint !== null &&
-    current.fingerprint !== null &&
-    previous.fingerprint === current.fingerprint;
-
-  if (unchangedWorkspace) {
+  if (fingerprintUnchanged) {
     return {
       nonProductive: true,
       repeatedPattern: true,
@@ -90,6 +110,8 @@ export function evaluateTurnProgress(
         current.changedFiles.length > 0
           ? `workspace diff unchanged (${current.changedFiles.length} tracked change${current.changedFiles.length === 1 ? "" : "s"})`
           : "workspace unchanged",
+      headChanged,
+      fingerprintUnchanged,
     };
   }
 
@@ -97,7 +119,23 @@ export function evaluateTurnProgress(
     nonProductive: false,
     repeatedPattern: false,
     reason: null,
+    headChanged,
+    fingerprintUnchanged,
   };
+}
+
+function captureGitHeadSha(cwd: string): string | null {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const headSha = result.stdout.trim();
+  return headSha.length > 0 ? headSha : null;
 }
 
 function normalizeError(value: string | null): string | null {
