@@ -198,9 +198,16 @@ function buildLabelDriftDiagnostics(input: {
     }
   }
 
-  const configuredLabelSet = new Set(configuredLabels);
+  const configuredLabelByNormalized = new Map(
+    configuredLabels.map((label) => [normalizeLabelForComparison(label), label])
+  );
   const activeConflicts = input.activeIssues.flatMap((issue) => {
-    const matches = issue.labels.filter((label) => configuredLabelSet.has(label));
+    const matches = issue.labels.flatMap((label) => {
+      const configuredLabel = configuredLabelByNormalized.get(
+        normalizeLabelForComparison(label)
+      );
+      return configuredLabel ? [configuredLabel] : [];
+    });
     return matches.length > 1 ? [{ issue: issue.identifier, labels: matches }] : [];
   });
   if (activeConflicts.length > 0) {
@@ -216,7 +223,9 @@ function buildLabelDriftDiagnostics(input: {
 
   const activeUnmapped = input.activeIssues.flatMap((issue) => {
     const labels = issue.labels.filter(
-      (label) => isPriorityLikeLabel(label) && !configuredLabelSet.has(label)
+      (label) =>
+        isPriorityLikeLabel(label) &&
+        !configuredLabelByNormalized.has(normalizeLabelForComparison(label))
     );
     return labels.length > 0 ? [{ issue: issue.identifier, labels }] : [];
   });
@@ -236,4 +245,8 @@ function buildLabelDriftDiagnostics(input: {
 
 function isPriorityLikeLabel(label: string): boolean {
   return /^(p\d+|priority[:/\s_-].+|prio[:/\s_-].+)$/i.test(label.trim());
+}
+
+function normalizeLabelForComparison(label: string): string {
+  return label.trim().toLowerCase();
 }
