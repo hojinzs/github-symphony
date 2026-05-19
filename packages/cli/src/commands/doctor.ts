@@ -23,6 +23,7 @@ import {
   findLinkedRepository,
   getProjectDetail,
   GitHubApiError,
+  listRepositoryLabels,
   type ProjectDetail,
 } from "../github/client.js";
 import {
@@ -40,6 +41,10 @@ import {
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import {
+  buildPriorityConfigDiagnostics,
+  buildPriorityDriftDiagnostics,
+} from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 import {
   createSupportBundle,
@@ -71,6 +76,7 @@ type DoctorCheckId =
   | "smoke_issue"
   | "workflow_prompt_render"
   | "workflow_hooks"
+  | "priority_mapping"
   | "claude_binary"
   | "anthropic_api_key"
   | "claude_mcp_config";
@@ -166,6 +172,7 @@ export type DoctorDependencies = {
   inspectManagedProjectSelection: typeof inspectManagedProjectSelection;
   createClient: typeof createClient;
   getProjectDetail: typeof getProjectDetail;
+  listRepositoryLabels: typeof listRepositoryLabels;
   fetchProjectIssues: typeof fetchGithubProjectIssues;
   fetchProjectIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
   readFile: typeof readFile;
@@ -198,6 +205,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   inspectManagedProjectSelection,
   createClient,
   getProjectDetail,
+  listRepositoryLabels,
   fetchProjectIssues: fetchGithubProjectIssues,
   fetchProjectIssue: fetchGithubProjectIssueByRepositoryAndNumber,
   readFile,
@@ -667,6 +675,7 @@ function buildGithubTrackerConfig(input: {
     apiUrl: input.projectConfig.projectConfig.tracker.apiUrl,
     lifecycle: input.workflow.lifecycle,
     assignedOnly: settings?.assignedOnly === true,
+    priority: input.workflow.tracker.priority,
     priorityFieldName:
       typeof settings?.priorityFieldName === "string"
         ? settings.priorityFieldName
@@ -674,6 +683,170 @@ function buildGithubTrackerConfig(input: {
     timeoutMs:
       typeof settings?.timeoutMs === "number" ? settings.timeoutMs : undefined,
   };
+}
+
+async function buildPriorityMappingChecks(input: {
+  auth: ResolvedGitHubAuth | null;
+  selection: Awaited<ReturnType<typeof inspectManagedProjectSelection>> | null;
+  workflow: WorkflowCheckState;
+  projectDetail: ProjectDetail | null;
+  projectBindingId: string | null;
+  deps: DoctorDependencies;
+}): Promise<DoctorCheckResult[]> {
+  if (input.workflow.status !== "pass") {
+    return [];
+  }
+
+  const configDiagnostics = buildPriorityConfigDiagnostics(
+    input.workflow.workflow
+  );
+  const checks = configDiagnostics.map((diagnostic) =>
+    warnCheck(
+      "priority_mapping",
+      diagnostic.title,
+      diagnostic.summary,
+      diagnostic.remediation,
+      diagnostic.details
+    )
+  );
+
+  const priority = input.workflow.workflow.tracker.priority;
+  const parsedWorkflow = input.workflow.workflow;
+  if (
+    input.workflow.workflow.tracker.kind !== "github-project" ||
+    !priority ||
+    priority.source === "disabled"
+  ) {
+    if (checks.length === 0) {
+      checks.push(
+        passCheck(
+          "priority_mapping",
+          "Priority mapping",
+          priority?.source === "disabled"
+            ? "Explicit priority mapping is disabled; dispatch priority resolves to null."
+            : "No explicit priority mapping drift checks are required.",
+          { source: priority?.source ?? null }
+        )
+      );
+    }
+    return checks;
+  }
+
+  if (
+    !input.auth ||
+    !input.selection ||
+    input.selection.kind !== "resolved" ||
+    !input.projectDetail ||
+    !input.projectBindingId
+  ) {
+    checks.push(
+      warnCheck(
+        "priority_mapping",
+        "Priority mapping drift",
+        "Live priority mapping drift checks could not run because GitHub authentication, managed project selection, or project resolution is unavailable.",
+        "Fix the prerequisite doctor checks, then re-run 'gh-symphony doctor'.",
+        {
+          blockedBy: [
+            ...(!input.auth ? ["gh_authentication"] : []),
+            ...(!input.selection || input.selection.kind !== "resolved"
+              ? ["managed_project"]
+              : []),
+            ...(!input.projectDetail || !input.projectBindingId
+              ? ["github_project_resolution"]
+              : []),
+          ],
+        }
+      )
+    );
+    return checks;
+  }
+
+  const client = input.deps.createClient(input.auth.token, {
+    apiUrl: input.selection.projectConfig.tracker.apiUrl,
+  });
+  let repositoryLabels: Array<{ repository: string; labels: string[] }> | null =
+    priority.source === "labels" ? [] : null;
+  if (priority.source === "labels") {
+    try {
+      repositoryLabels = await Promise.all(
+        input.projectDetail.linkedRepositories.map(async (repository) => ({
+          repository: `${repository.owner}/${repository.name}`,
+          labels: (
+            await input.deps.listRepositoryLabels(
+              client,
+              repository.owner,
+              repository.name
+            )
+          ).map((label) => label.name),
+        }))
+      );
+    } catch (error) {
+      checks.push(
+        warnCheck(
+          "priority_mapping",
+          "Priority label drift",
+          "Live repository labels could not be read for priority mapping drift checks.",
+          "Confirm GitHub token repository access and re-run 'gh-symphony doctor'.",
+          { error: formatSmokeError(error) }
+        )
+      );
+      repositoryLabels = null;
+    }
+  }
+
+  let activeIssues: TrackedIssue[] = [];
+  try {
+    const trackerConfig = buildGithubTrackerConfig({
+      projectConfig: input.selection,
+      bindingId: input.projectBindingId,
+      token: input.auth.token,
+      workflow: input.workflow.workflow,
+    });
+    activeIssues = (await input.deps.fetchProjectIssues(trackerConfig)).filter(
+      (issue) => isActiveSmokeIssue(issue, parsedWorkflow)
+    );
+  } catch (error) {
+    checks.push(
+      warnCheck(
+        "priority_mapping",
+        "Active priority drift",
+        "Active issues could not be read for priority mapping drift checks.",
+        "Confirm GitHub token scopes, project visibility, and network access, then re-run 'gh-symphony doctor'.",
+        { error: formatSmokeError(error) }
+      )
+    );
+  }
+
+  const driftDiagnostics = buildPriorityDriftDiagnostics({
+    workflow: parsedWorkflow,
+    projectDetail: input.projectDetail,
+    repositoryLabels,
+    activeIssues,
+  });
+  checks.push(
+    ...driftDiagnostics.map((diagnostic) =>
+      warnCheck(
+        "priority_mapping",
+        diagnostic.title,
+        diagnostic.summary,
+        diagnostic.remediation,
+        diagnostic.details
+      )
+    )
+  );
+
+  if (checks.length === 0) {
+    checks.push(
+      passCheck(
+        "priority_mapping",
+        "Priority mapping",
+        "Explicit priority mapping matches the live Project/repository state inspected by doctor.",
+        { source: priority.source }
+      )
+    );
+  }
+
+  return checks;
 }
 
 function isActiveSmokeIssue(
@@ -1597,6 +1770,17 @@ export async function runDoctorDiagnostics(
       )
     );
   }
+
+  checks.push(
+    ...(await buildPriorityMappingChecks({
+      auth,
+      selection: resolvedProjectConfig,
+      workflow,
+      projectDetail: resolvedGithubProjectDetail,
+      projectBindingId: resolvedGithubProjectBindingId,
+      deps,
+    }))
+  );
 
   if (parsedArgs.smoke) {
     checks.push(

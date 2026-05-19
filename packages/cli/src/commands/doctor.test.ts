@@ -2204,4 +2204,365 @@ describe("doctor command handler", () => {
       }),
     });
   });
+
+  it("warns for legacy-only priority_field without failing doctor", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Legacy priority mapping"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("deprecated"),
+    });
+  });
+
+  it("warns that explicit priority wins over legacy priority_field", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\n  priority:\n    source: disabled\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Priority mapping precedence"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("explicit tracker.priority wins"),
+    });
+  });
+
+  it("warns for project-field priority drift without failing doctor", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\n      Missing: 2\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            ...createProjectDetail(),
+            statusFields: [
+              {
+                id: "priority",
+                name: "Priority",
+                options: [
+                  { id: "p0", name: "High", description: null, color: null },
+                  { id: "p1", name: "Low", description: null, color: null },
+                ],
+              },
+            ],
+          }) as never) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            priority: null,
+            metadata: { Priority: "Low" },
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.filter((check) => check.id === "priority_mapping")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Unmapped priority Project options",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Missing priority Project options",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority values",
+        }),
+      ])
+    );
+  });
+
+  it("warns when the configured priority Project field is missing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            ...createProjectDetail(),
+            statusFields: [
+              {
+                id: "severity",
+                name: "Severity",
+                options: [],
+              },
+            ],
+          }) as never) as never,
+        fetchProjectIssues: (async () => []) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Priority Project field drift"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("was not found"),
+    });
+  });
+
+  it("warns for label priority drift and active label conflicts", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\n      P9: 9\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0", "p1", "p2"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.filter((check) => check.id === "priority_mapping")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Missing configured priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Stale priority label mappings",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with multiple priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority labels",
+          details: {
+            activeUnmapped: [{ issue: "acme/widgets#1", labels: ["p2"] }],
+          },
+        }),
+      ])
+    );
+  });
+
+  it("does not report stale label drift when repository labels cannot be read", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => {
+          throw new Error("labels unavailable");
+        }) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0", "p1", "p2"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    const priorityChecks = report.checks.filter(
+      (check) => check.id === "priority_mapping"
+    );
+    expect(report.ok).toBe(true);
+    expect(priorityChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Priority label drift",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with multiple priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority labels",
+          details: {
+            activeUnmapped: [{ issue: "acme/widgets#1", labels: ["p2"] }],
+          },
+        }),
+      ])
+    );
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Missing configured priority labels" }),
+        expect.objectContaining({ title: "Stale priority label mappings" }),
+      ])
+    );
+  });
+
+  it("does not report mapped priority labels as unmapped when active issue labels are normalized", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    const priorityChecks = report.checks.filter(
+      (check) => check.id === "priority_mapping"
+    );
+    expect(report.ok).toBe(true);
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Active issues with unmapped priority labels",
+        }),
+      ])
+    );
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Active issues with multiple priority labels",
+        }),
+      ])
+    );
+  });
 });

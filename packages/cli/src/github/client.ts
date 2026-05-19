@@ -271,26 +271,36 @@ export async function listRepositoryLabels(
     );
 
     if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        message?: string;
+      } | null;
+      const message = payload?.message?.trim() || response.statusText;
       throw new GitHubApiError(
-        `GitHub labels request failed: ${response.status} ${response.statusText}`,
+        `GitHub label lookup failed for ${owner}/${name}: ${response.status} ${message}`.trim(),
         response.status
       );
     }
 
-    const payload = (await response.json()) as Array<{
-      name: string;
+    const pageLabels = (await response.json()) as Array<{
+      name?: string;
       color?: string | null;
       description?: string | null;
     }>;
     labels.push(
-      ...payload.map((label) => ({
-        name: label.name,
-        color: label.color ?? null,
-        description: label.description ?? null,
-      }))
+      ...pageLabels.flatMap((label) =>
+        typeof label.name === "string"
+          ? [
+              {
+                name: label.name,
+                color: label.color ?? null,
+                description: label.description ?? null,
+              },
+            ]
+          : []
+      )
     );
 
-    if (payload.length < 100) {
+    if (pageLabels.length < 100) {
       break;
     }
     page += 1;

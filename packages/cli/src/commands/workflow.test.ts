@@ -97,6 +97,87 @@ describe("workflow command handler", () => {
     expect(stdout.output()).toContain("active_states=Ready, In progress");
   });
 
+  it("prints a validation warning when legacy priority_field is configured", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-priority-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  priority_field: Priority
+codex:
+  command: codex app-server
+---
+Prompt {{ issue.identifier }}
+`,
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Warnings");
+    expect(stdout.output()).toContain("Legacy priority mapping");
+  });
+
+  it("includes priority precedence warnings in JSON validation output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-validate-json-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  priority_field: Priority
+  priority:
+    source: disabled
+codex:
+  command: codex app-server
+---
+Prompt {{ issue.identifier }}
+`,
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      warnings: Array<{ title: string; summary: string }>;
+    };
+    expect(report.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Priority mapping precedence",
+          summary: expect.stringContaining("explicit tracker.priority wins"),
+        }),
+      ])
+    );
+  });
+
   it("previews a workflow with the built-in sample issue", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-preview-"));
     const workflowPath = join(root, "WORKFLOW.md");

@@ -108,6 +108,56 @@ You can further customize the agent's behavior by editing `WORKFLOW.md` — this
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
+### Explicit Priority Mapping
+
+GitHub Project V2 does not have a native issue priority. For GitHub Project workflows, dispatch priority is controlled only by the explicit `tracker.priority` policy in `WORKFLOW.md`; there is no fallback from Project fields to labels and no guessed label naming convention. Unmapped values resolve to `priority = null`, so dispatch falls back to created time and identifier.
+
+Project field source:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Medium: 2
+      Low: 3
+```
+
+Label source:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+      P2: 2
+      P3: 3
+```
+
+Disabled:
+
+```yaml
+tracker:
+  kind: github-project
+  priority:
+    source: disabled
+```
+
+Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Migrate by copying the field name into `tracker.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.priority` wins and `gh-symphony doctor` reports a warning.
+
+Run `gh-symphony workflow validate` for local schema errors and `gh-symphony doctor` for live drift warnings such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`.
+
 ### Linear Tracker Repositories
 
 For Linear, configure the tracker in `WORKFLOW.md` and initialize the repository runtime from the target GitHub repository:
