@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- [#344](https://github.com/hojinzs/github-symphony/pull/344) [`3d4fecc`](https://github.com/hojinzs/github-symphony/commit/3d4fecc8b446b44dc386e3584839c7ac6767e086) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix worker convergence detection so clean workspaces after successful commits are treated as productive when Git HEAD advances, preventing false `convergence_detected: workspace unchanged` failures for issue [#343](https://github.com/hojinzs/github-symphony/issues/343).
+
 ## 0.2.0
 
 ### Minor Changes
