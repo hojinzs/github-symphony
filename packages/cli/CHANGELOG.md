@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- [#346](https://github.com/hojinzs/github-symphony/pull/346) [`f6f6b40`](https://github.com/hojinzs/github-symphony/commit/f6f6b40a3a8d69c5be31b9d5f174ff6dee01a8b1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add explicit dispatch priority mappings for GitHub Project V2 workflows from issue [#236](https://github.com/hojinzs/github-symphony/issues/236), including `tracker.priority` configuration, generated setup/init mappings, drift diagnostics, and no-fallback runtime behavior while preserving legacy `tracker.priority_field` compatibility.
+
 ## 0.2.1
 
 ### Patch Changes
