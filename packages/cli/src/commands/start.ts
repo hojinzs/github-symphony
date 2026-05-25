@@ -102,12 +102,11 @@ async function resolveRepoStartGitHubAuth(input: {
       throw error;
     }
 
+    displayGhAuthError(error);
+
     const remediation = formatGhAuthRemediation(error, {
       retryCommand: REPO_START_COMMAND,
     });
-    process.stderr.write(`${remediation.title}: ${remediation.message}\n`);
-    process.stderr.write(`${remediation.hint}\n`);
-
     const canRemediate =
       input.allowInteractiveRemediation &&
       isInteractiveTerminal() &&

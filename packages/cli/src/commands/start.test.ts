@@ -349,6 +349,73 @@ describe("start command foreground locking", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("runs interactive gh scope remediation and starts with the refreshed token", async () => {
+    const restoreTty = forceTty(true);
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    ghAuthMocks.resolveGitHubAuth
+      .mockRejectedValueOnce(
+        new ghAuth.GhAuthError(
+          "missing_scopes",
+          "Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: project",
+          {
+            missingScopes: ["project"],
+            currentScopes: ["repo", "read:org"],
+            source: "gh",
+          }
+        )
+      )
+      .mockResolvedValueOnce({
+        source: "gh",
+        token: "refreshed-token",
+        login: "octocat",
+        scopes: ["repo", "read:org", "project"],
+      });
+    ghAuthMocks.runGhAuthRefresh.mockReturnValue({
+      status: "applied",
+      summary: "GitHub auth scopes refreshed.",
+    });
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async () => {
+      process.emit("SIGINT");
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+      restoreTty();
+    }
+
+    expect(promptMocks.confirm).toHaveBeenCalledWith({
+      message: "Run 'gh auth refresh --scopes project' now?",
+      initialValue: true,
+    });
+    expect(ghAuthMocks.runGhAuthRefresh).toHaveBeenCalledWith({
+      interactive: true,
+    });
+    expect(ghAuthMocks.runGhAuthLogin).not.toHaveBeenCalled();
+    expect(stderr.output()).toContain("GitHub auth scopes refreshed.");
+    expect(process.env.GITHUB_GRAPHQL_TOKEN).toBe("refreshed-token");
+    expect(acquireProjectLock).toHaveBeenCalled();
+    expect(run).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
   it("fails fast for Linear projects when LINEAR_API_KEY is missing", async () => {
     const linearProject = createProject("tenant-a", "acme", "platform");
     linearProject.tracker = {

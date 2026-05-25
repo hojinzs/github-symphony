@@ -149,6 +149,10 @@ export function formatGhAuthRemediation(
         hint: `Run '${command}' to re-authenticate, then re-run '${retryCommand}'.`,
       };
     }
+    default: {
+      const exhaustive: never = error.code;
+      throw new Error(`Unhandled GhAuthError code: ${exhaustive}`);
+    }
   }
 }
 
