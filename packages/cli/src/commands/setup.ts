@@ -134,7 +134,7 @@ async function selectProjectSummary(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/5 — Select a GitHub Project board:",
+      message: "Step 1/4 — Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -415,15 +415,7 @@ async function runInteractive(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/5",
-  });
-  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
-  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
-    stepLabel: "Step 3/5",
-  });
-  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
-    blockerCheckStates,
-    planningStates: blockerCheckStates,
+    stepLabel: "Step 2/4",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -438,10 +430,19 @@ async function runInteractive(
     p.log.warn(`  ⚠ ${warning}`);
   }
 
+  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
+    stepLabel: "Step 3/4",
+  });
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates,
+    planningStates: blockerCheckStates,
+  });
+
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 4/5",
+    stepLabel: "Step 4/4",
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");

@@ -287,6 +287,33 @@ describe("setup command", () => {
     );
   });
 
+  it("validates state mappings before prompting for blocker checks", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-invalid-mapping-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-invalid-mapping-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+
+    vi.mocked(p.select)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never);
+
+    await setupCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.error).toHaveBeenCalledWith("Mapping validation failed:");
+    expect(p.confirm).not.toHaveBeenCalled();
+    expect(p.multiselect).not.toHaveBeenCalled();
+  });
+
   it("lets interactive setup map existing repository labels as the priority source", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-labels-cwd-"));
     const configDir = await mkdtemp(

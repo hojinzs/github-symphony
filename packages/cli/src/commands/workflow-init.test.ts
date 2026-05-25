@@ -571,6 +571,58 @@ describe("init priority field detection", () => {
     );
   });
 
+  it("validates state mappings before prompting for blocker checks", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-invalid-map-"));
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "project-1",
+          title: "Roadmap",
+          shortDescription: "",
+          url: "https://github.com/users/tester/projects/1",
+          openItemCount: 3,
+          owner: { login: "tester", type: "User" },
+        },
+      ],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [MOCK_STATUS_FIELD],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
+      .mockResolvedValueOnce("project-1" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never);
+
+    await initCommand(
+      ["--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.error).toHaveBeenCalledWith("Mapping validation failed:");
+    expect(p.confirm).not.toHaveBeenCalled();
+    expect(p.multiselect).not.toHaveBeenCalled();
+  });
+
   it("validates interactive priority mapping values as non-empty integers", async () => {
     vi.mocked(p.select).mockResolvedValueOnce("project-field" as never);
     vi.mocked(p.text).mockResolvedValue("2" as never);

@@ -1573,14 +1573,6 @@ async function runInteractiveStandalone(
   const mappings = await promptStateMappings(statusField, {
     stepLabel: "Step 3/5",
   });
-  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
-  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
-    stepLabel: "Step 4/5",
-  });
-  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
-    blockerCheckStates,
-    planningStates: blockerCheckStates,
-  });
 
   const validation = validateStateMapping(mappings);
   if (!validation.valid) {
@@ -1594,6 +1586,15 @@ async function runInteractiveStandalone(
   for (const warn of validation.warnings) {
     p.log.warn(`  ⚠ ${warn}`);
   }
+
+  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
+    stepLabel: "Step 4/5",
+  });
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates,
+    planningStates: blockerCheckStates,
+  });
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
