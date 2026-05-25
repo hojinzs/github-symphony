@@ -32,6 +32,7 @@ describe("generateWorkflowMarkdown", () => {
       activeStates: ["Queued", "Doing"],
       terminalStates: ["Done"],
       blockerCheckStates: ["Queued"],
+      planningStates: ["Queued"],
     },
     runtime: "codex-app-server",
     detectedEnvironment: {
@@ -59,6 +60,24 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.lifecycle.activeStates).toEqual(["Queued", "Doing"]);
     expect(parsed.lifecycle.terminalStates).toEqual(["Done"]);
     expect(parsed.lifecycle.blockerCheckStates).toEqual(["Queued"]);
+    expect(parsed.lifecycle.planningStates).toEqual(["Queued"]);
+  });
+
+  it("emits empty blocker and planning state lists explicitly", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      lifecycle: {
+        ...defaultInput.lifecycle,
+        blockerCheckStates: [],
+        planningStates: [],
+      },
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain("blocker_check_states: []");
+    expect(markdown).toContain("planning_states: []");
+    expect(parsed.lifecycle.blockerCheckStates).toEqual([]);
+    expect(parsed.lifecycle.planningStates).toEqual([]);
   });
 
   it("emits explicit project-field priority mapping when configured", () => {
@@ -87,7 +106,9 @@ describe("generateWorkflowMarkdown", () => {
     expect(markdown).toContain(
       "# Priority dispatch is disabled until an operator chooses one explicit source."
     );
-    expect(markdown).toContain("# Optional template: project-field priority source.");
+    expect(markdown).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(markdown).toContain("# Optional template: labels priority source.");
     expect(parsed.tracker.priority).toEqual({ source: "disabled" });
     expect(parsed.tracker.priorityFieldName).toBeNull();
@@ -279,9 +300,7 @@ describe("generateWorkflowMarkdown", () => {
       expect(markdown).toContain(`command: ${runtime}`);
       expect(parsed.promptTemplate.startsWith("## Status Map")).toBe(true);
       expect(parsed.promptTemplate).not.toContain("## Runtime Constraints");
-      expect(parsed.promptTemplate).not.toContain(
-        "Runtime trade-off note:"
-      );
+      expect(parsed.promptTemplate).not.toContain("Runtime trade-off note:");
     }
   });
 

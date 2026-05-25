@@ -69,9 +69,54 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.tracker.kind).toBe("github-project");
     expect(workflow.tracker.priority).toBeNull();
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
+    expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
+    expect(workflow.lifecycle.planningStates).toEqual([]);
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.agent.maxFailureRetries).toBe(6);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
+  });
+
+  it("falls planning states back to explicit blocker check states", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
+    expect(workflow.lifecycle.planningStates).toEqual(["Todo"]);
+  });
+
+  it("parses independent planning states", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Done
+  blocker_check_states: []
+  planning_states:
+    - Todo
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
+    expect(workflow.lifecycle.planningStates).toEqual(["Todo"]);
   });
 
   it("parses explicit project-field priority mapping", () => {

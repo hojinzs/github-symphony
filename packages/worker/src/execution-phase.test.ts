@@ -6,11 +6,11 @@ import {
 } from "./execution-phase.js";
 
 describe("execution phase helpers", () => {
-  it("maps blocker-check states to planning", () => {
+  it("maps planning states to planning", () => {
     expect(
       resolveInitialExecutionPhase({
         issueState: "Todo",
-        blockerCheckStates: ["Todo"],
+        planningStates: ["Todo"],
         activeStates: ["Todo", "In Progress"],
       })
     ).toBe("planning");
@@ -20,7 +20,7 @@ describe("execution phase helpers", () => {
     expect(
       resolveInitialExecutionPhase({
         issueState: "In Progress",
-        blockerCheckStates: ["Todo"],
+        planningStates: ["Todo"],
         activeStates: ["Todo", "In Progress"],
       })
     ).toBe("implementation");

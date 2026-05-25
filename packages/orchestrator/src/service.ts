@@ -1221,6 +1221,7 @@ export class OrchestratorService {
         activeStates: ["Todo", "In Progress"],
         terminalStates: ["Done"],
         blockerCheckStates: ["Todo"],
+        planningStates: ["Todo"],
       },
     };
   }

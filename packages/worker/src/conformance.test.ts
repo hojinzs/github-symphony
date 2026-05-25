@@ -45,7 +45,11 @@ describe("Symphony core conformance", () => {
       continuationGuidance: "Resume using {{lastTurnSummary}}",
       agentCommand: "codex app-server",
       hookPath: "hooks/after_create.sh",
-      lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
+      lifecycle: {
+        ...DEFAULT_WORKFLOW_LIFECYCLE,
+        blockerCheckStates: ["Todo"],
+        planningStates: ["Todo"],
+      },
     });
   });
 

@@ -30,8 +30,12 @@ import {
   writeEcosystem,
   writeWorkflowPlan,
   promptStateMappings,
+  promptBlockerCheck,
 } from "./workflow-init.js";
-import { validateStateMapping } from "../mapping/smart-defaults.js";
+import {
+  toWorkflowLifecycleConfig,
+  validateStateMapping,
+} from "../mapping/smart-defaults.js";
 import { initRepoRuntime } from "../repo-runtime.js";
 
 type SetupFlags = {
@@ -130,7 +134,7 @@ async function selectProjectSummary(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/3 — Select a GitHub Project board:",
+      message: "Step 1/5 — Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -411,7 +415,15 @@ async function runInteractive(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/3",
+    stepLabel: "Step 2/5",
+  });
+  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
+    stepLabel: "Step 3/5",
+  });
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates,
+    planningStates: blockerCheckStates,
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -429,7 +441,7 @@ async function runInteractive(
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 3/3",
+    stepLabel: "Step 4/5",
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
@@ -442,6 +454,7 @@ async function runInteractive(
     priority,
     includePriorityTemplates: priority.source === "disabled",
     mappings,
+    lifecycle,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -479,6 +492,7 @@ async function runInteractive(
       statusField,
       priorityField,
       priority,
+      lifecycle,
       includePriorityTemplates: priority.source === "disabled",
       runtime: "codex",
       skipSkills: flags.skipSkills,

@@ -100,20 +100,33 @@ const MOCK_PROJECT_DETAIL_WITH_AMBIGUOUS_PRIORITY = {
       id: "priority-team",
       name: "Priority (Team)",
       options: [
-        { id: "p1", name: "P1", description: null, color: "RED" as string | null },
+        {
+          id: "p1",
+          name: "P1",
+          description: null,
+          color: "RED" as string | null,
+        },
       ],
     },
     {
       id: "priority-severity",
       name: "Priority (Severity)",
       options: [
-        { id: "high", name: "High", description: null, color: "ORANGE" as string | null },
+        {
+          id: "high",
+          name: "High",
+          description: null,
+          color: "ORANGE" as string | null,
+        },
       ],
     },
   ],
 };
 
-function initializeGitRemote(cwd: string, remote = "https://github.com/acme/repo-a.git"): void {
+function initializeGitRemote(
+  cwd: string,
+  remote = "https://github.com/acme/repo-a.git"
+): void {
   execFileSync("git", ["init"], { cwd, stdio: "ignore" });
   execFileSync("git", ["remote", "add", "origin", remote], {
     cwd,
@@ -187,7 +200,9 @@ describe("setup command", () => {
 
   it("writes workflow files and managed-project config in non-interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-cwd-"));
-    const configDir = await mkdtemp(join(tmpdir(), "setup-non-interactive-config-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-config-")
+    );
     initializeGitRemote(cwd);
     process.chdir(cwd);
 
@@ -204,12 +219,17 @@ describe("setup command", () => {
       "utf8"
     );
     const project = JSON.parse(
-      await readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+      await readFile(
+        join(cwd, ".runtime", "orchestrator", "project.json"),
+        "utf8"
+      )
     );
 
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(workflow).toContain("source: disabled");
-    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(workflow).toContain("# Optional template: labels priority source.");
     expect(workflow).not.toContain("priority_field:");
     expect(contextYaml).toContain("PVT_setup_1");
@@ -224,7 +244,9 @@ describe("setup command", () => {
 
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-cwd-"));
-    const configDir = await mkdtemp(join(tmpdir(), "setup-interactive-config-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-config-")
+    );
     initializeGitRemote(cwd, "https://github.com/acme/repo-b.git");
     process.chdir(cwd);
 
@@ -290,7 +312,9 @@ describe("setup command", () => {
     vi.mocked(p.text)
       .mockResolvedValueOnce("0" as never)
       .mockResolvedValueOnce("1" as never);
-    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
 
     await setupCommand([], {
       configDir,
@@ -307,7 +331,9 @@ describe("setup command", () => {
   });
 
   it("warns and writes disabled priority scaffold in non-interactive mode when priority fields are ambiguous", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-priority-cwd-"));
+    const cwd = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-priority-cwd-")
+    );
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-non-interactive-priority-config-")
     );
@@ -335,7 +361,9 @@ describe("setup command", () => {
     );
     expect(workflow).not.toContain("priority_field:");
     expect(workflow).toContain("source: disabled");
-    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(workflow).toContain("# Optional template: labels priority source.");
   });
 
@@ -358,7 +386,9 @@ describe("setup command", () => {
   });
 
   it("does not prompt for or persist assigned-only during interactive setup", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-assigned-cwd-"));
+    const cwd = await mkdtemp(
+      join(tmpdir(), "setup-interactive-assigned-cwd-")
+    );
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-interactive-assigned-config-")
     );
@@ -371,7 +401,9 @@ describe("setup command", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never)
       .mockResolvedValueOnce("disabled" as never);
-    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
+    vi.mocked(p.confirm)
+      .mockResolvedValueOnce(true as never)
+      .mockResolvedValueOnce(true as never);
 
     await setupCommand([], {
       configDir,
@@ -388,8 +420,8 @@ describe("setup command", () => {
     );
 
     expect(project.tracker.settings?.assignedOnly).toBeUndefined();
-    expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
+    expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(p.confirm).mock.calls[1]?.[0]).toMatchObject({
       message: "Write files and register this managed project?",
     });
   });

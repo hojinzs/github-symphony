@@ -1,4 +1,7 @@
-import type { WorkflowPriorityConfig } from "@gh-symphony/core";
+import type {
+  WorkflowLifecycleConfig,
+  WorkflowPriorityConfig,
+} from "@gh-symphony/core";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import {
   DEFAULT_AFTER_CREATE_HOOK_COMMENT,
@@ -15,9 +18,14 @@ export type ReferenceWorkflowInput = {
   }>;
   projectId: string;
   priority: WorkflowPriorityConfig | null;
+  lifecycle?: WorkflowLifecycleConfig;
   detectedEnvironment: Pick<
     DetectedEnvironment,
-    "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
+    | "packageManager"
+    | "testCommand"
+    | "lintCommand"
+    | "buildCommand"
+    | "monorepo"
   >;
 };
 
@@ -54,7 +62,10 @@ export function generateReferenceWorkflow(
   const terminalColumns = input.statusColumns.filter(
     (c) => c.role === "terminal"
   );
-  const firstActive = activeColumns[0];
+  const blockerCheckStates =
+    input.lifecycle?.blockerCheckStates ??
+    (activeColumns[0] ? [activeColumns[0].name] : []);
+  const planningStates = input.lifecycle?.planningStates ?? blockerCheckStates;
 
   if (activeColumns.length > 0) {
     lines.push("  active_states:");
@@ -74,12 +85,10 @@ export function generateReferenceWorkflow(
     lines.push("  terminal_states: [{terminal column names}]");
   }
 
-  if (firstActive) {
-    lines.push("  blocker_check_states:");
-    lines.push(`    - ${firstActive.name}`);
-  } else {
-    lines.push("  blocker_check_states: [{first active state}]");
-  }
+  lines.push(
+    ...buildReferenceStringList("blocker_check_states", blockerCheckStates)
+  );
+  lines.push(...buildReferenceStringList("planning_states", planningStates));
 
   lines.push("");
   lines.push("# Linear tracker example:");
@@ -95,7 +104,9 @@ export function generateReferenceWorkflow(
   lines.push("#     - Done");
   lines.push("#     - Canceled");
   lines.push("#     - Duplicate");
-  lines.push("# Linear uses repository-local polling; gh-symphony does not provide");
+  lines.push(
+    "# Linear uses repository-local polling; gh-symphony does not provide"
+  );
   lines.push("# a Linear webhook setup command.");
   lines.push("");
 
@@ -384,6 +395,14 @@ export function generateReferenceWorkflow(
   return lines.join("\n");
 }
 
+function buildReferenceStringList(key: string, values: string[]): string[] {
+  if (values.length === 0) {
+    return [`  ${key}: []`];
+  }
+
+  return [`  ${key}:`, ...values.map((value) => `    - ${value}`)];
+}
+
 function buildReferencePriorityLines(
   priority: WorkflowPriorityConfig | null
 ): string[] {
@@ -440,7 +459,6 @@ function buildReferencePriorityLines(
   lines.push("  #     P1: 1");
   return lines;
 }
-
 
 function resolveRoleAction(
   role: "active" | "wait" | "terminal" | null

@@ -4,7 +4,10 @@ import {
   resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
-import type { WorkflowPriorityConfig } from "@gh-symphony/core";
+import type {
+  WorkflowLifecycleConfig,
+  WorkflowPriorityConfig,
+} from "@gh-symphony/core";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -241,7 +244,7 @@ function validateInitRuntime(runtime: string): string | null {
 async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
   return abortIfCancelled(
     p.select({
-      message: "Step 1/3 — Select the agent runtime:",
+      message: "Step 1/5 — Select the agent runtime:",
       options: [
         {
           value: "codex-app-server",
@@ -318,6 +321,7 @@ type EcosystemOptions = {
   skipSkills: boolean;
   skipContext: boolean;
   environment?: DetectedEnvironment;
+  lifecycle?: WorkflowLifecycleConfig;
 };
 
 export type EcosystemResult = {
@@ -325,6 +329,8 @@ export type EcosystemResult = {
   githubProjectTitle: string;
   runtime: string;
   priority: WorkflowPriorityConfig;
+  lifecycle: WorkflowLifecycleConfig;
+  waitStates: string[];
   skillsDir: string | null;
   skipSkills: boolean;
   afterCreateHookWritten: boolean;
@@ -351,6 +357,8 @@ export type EcosystemPlan = {
   githubProjectTitle: string;
   runtime: string;
   priority: WorkflowPriorityConfig;
+  lifecycle: WorkflowLifecycleConfig;
+  waitStates: string[];
   skillsDir: string | null;
   skipSkills: boolean;
   environment: Awaited<ReturnType<typeof detectEnvironment>>;
@@ -382,6 +390,7 @@ export type WorkflowArtifactsOptions = {
   priority?: WorkflowPriorityConfig;
   includePriorityTemplates?: boolean;
   mappings: Record<string, StateMapping>;
+  lifecycle?: WorkflowLifecycleConfig;
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -739,6 +748,68 @@ export async function promptStateMappings(
   return mappings;
 }
 
+export function getDefaultBlockerCheckStates(
+  lifecycle: Pick<WorkflowLifecycleConfig, "activeStates">
+): string[] {
+  const firstActive = lifecycle.activeStates[0];
+  return firstActive ? [firstActive] : [];
+}
+
+export async function promptBlockerCheck(
+  lifecycle: Pick<WorkflowLifecycleConfig, "activeStates">,
+  options?: {
+    stepLabel?: string;
+  }
+): Promise<string[]> {
+  const stepLabel = options?.stepLabel ?? "Step 3/5";
+  const activeStates = lifecycle.activeStates;
+  const defaultStates = getDefaultBlockerCheckStates(lifecycle);
+
+  if (activeStates.length === 0) {
+    p.log.warn("No active states; blocker check cannot be enabled.");
+    p.log.info("Blocker check: disabled");
+    return [];
+  }
+
+  const activeStateSummary =
+    activeStates.length === 1
+      ? `"${activeStates[0]}"`
+      : "selected active states";
+
+  const enabled = await abortIfCancelled(
+    p.confirm({
+      message: `${stepLabel} — Enable blocker check? Issues with unresolved "blocked by" dependencies will be held back from dispatch on ${activeStateSummary}.`,
+      initialValue: true,
+    })
+  );
+
+  if (!enabled) {
+    p.log.info("Blocker check: disabled");
+    return [];
+  }
+
+  if (activeStates.length === 1) {
+    p.log.info(`Blocker check applies to: ${activeStates[0]}`);
+    return [activeStates[0]!];
+  }
+
+  const selectedStates = await abortIfCancelled(
+    p.multiselect({
+      message: `${stepLabel} — Which active states should be blocker-checked?`,
+      options: activeStates.map((state) => ({
+        value: state,
+        label: state,
+        hint: defaultStates.includes(state) ? "default" : undefined,
+      })),
+      initialValues: defaultStates,
+      required: true,
+    })
+  );
+
+  p.log.info(`Blocker check applies to: ${selectedStates.join(", ")}`);
+  return [...selectedStates];
+}
+
 export async function planWorkflowArtifacts(
   opts: WorkflowArtifactsOptions
 ): Promise<WorkflowArtifactsPlan> {
@@ -748,6 +819,18 @@ export async function planWorkflowArtifacts(
     (opts.priorityField
       ? buildProjectFieldPriority(opts.priorityField)
       : buildDisabledPriority());
+  const defaultLifecycle = toWorkflowLifecycleConfig(
+    opts.statusField.name,
+    opts.mappings
+  );
+  const defaultBlockerCheckStates =
+    getDefaultBlockerCheckStates(defaultLifecycle);
+  const lifecycle =
+    opts.lifecycle ??
+    toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings, {
+      blockerCheckStates: defaultBlockerCheckStates,
+      planningStates: defaultBlockerCheckStates,
+    });
   const workflowMd = generateWorkflowMarkdown({
     projectId: opts.projectDetail.id,
     stateFieldName: opts.statusField.name,
@@ -755,7 +838,7 @@ export async function planWorkflowArtifacts(
     includePriorityTemplates:
       opts.includePriorityTemplates ?? priority.source === "disabled",
     mappings: opts.mappings,
-    lifecycle: toWorkflowLifecycleConfig(opts.statusField.name, opts.mappings),
+    lifecycle,
     runtime: opts.runtime,
     detectedEnvironment: environment,
   });
@@ -772,6 +855,7 @@ export async function planWorkflowArtifacts(
     statusField: opts.statusField,
     priorityField: opts.priorityField,
     priority,
+    lifecycle,
     includePriorityTemplates:
       opts.includePriorityTemplates ?? priority.source === "disabled",
     runtime: opts.runtime,
@@ -806,6 +890,17 @@ function summarizeEnvironment(
   ];
 }
 
+function deriveWaitStates(
+  statusField: ProjectStatusField,
+  lifecycle: WorkflowLifecycleConfig
+): string[] {
+  const active = new Set(lifecycle.activeStates);
+  const terminal = new Set(lifecycle.terminalStates);
+  return statusField.options
+    .map((option) => option.name)
+    .filter((state) => !active.has(state) && !terminal.has(state));
+}
+
 export async function planEcosystem(
   opts: EcosystemOptions
 ): Promise<EcosystemPlan> {
@@ -823,6 +918,22 @@ export async function planEcosystem(
     (priorityField
       ? buildProjectFieldPriority(priorityField)
       : buildDisabledPriority());
+  const automaticLifecycle = toWorkflowLifecycleConfig(
+    statusField.name,
+    buildAutomaticStateMappings(statusField)
+  );
+  const defaultBlockerCheckStates =
+    getDefaultBlockerCheckStates(automaticLifecycle);
+  const lifecycle =
+    opts.lifecycle ??
+    toWorkflowLifecycleConfig(
+      statusField.name,
+      buildAutomaticStateMappings(statusField),
+      {
+        blockerCheckStates: defaultBlockerCheckStates,
+        planningStates: defaultBlockerCheckStates,
+      }
+    );
   const ghSymphonyDir = join(cwd, ".gh-symphony");
   const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
@@ -865,6 +976,7 @@ export async function planEcosystem(
     })),
     projectId: projectDetail.id,
     priority,
+    lifecycle,
     detectedEnvironment: environment,
   });
   files.push(
@@ -919,6 +1031,8 @@ export async function planEcosystem(
     githubProjectTitle: projectDetail.title,
     runtime,
     priority,
+    lifecycle,
+    waitStates: deriveWaitStates(statusField, lifecycle),
     skillsDir,
     skipSkills,
     environment,
@@ -974,6 +1088,8 @@ export async function writeEcosystem(
     githubProjectTitle: plan.githubProjectTitle,
     runtime: plan.runtime,
     priority: plan.priority,
+    lifecycle: plan.lifecycle,
+    waitStates: plan.waitStates,
     skillsDir: plan.skillsDir,
     skipSkills: plan.skipSkills,
     afterCreateHookWritten,
@@ -986,7 +1102,9 @@ export async function writeEcosystem(
 
 // ── Ecosystem summary output ─────────────────────────────────────────────────
 
-function formatPrioritySummaryLines(priority: WorkflowPriorityConfig): string[] {
+function formatPrioritySummaryLines(
+  priority: WorkflowPriorityConfig
+): string[] {
   if (priority.source === "disabled") {
     return ["Priority source   disabled"];
   }
@@ -1004,9 +1122,25 @@ function formatPrioritySummaryLines(priority: WorkflowPriorityConfig): string[] 
   const mapping = Object.entries(priority.labels)
     .map(([name, value]) => `${name}=${value}`)
     .join(", ");
+  return ["Priority source   labels", `Priority mapping  ${mapping || "none"}`];
+}
+
+function formatLifecycleValue(states: string[]): string {
+  return states.length > 0 ? states.join(", ") : "disabled";
+}
+
+function formatLifecycleSummaryLines(
+  lifecycle: WorkflowLifecycleConfig,
+  waitStates: string[]
+): string[] {
   return [
-    "Priority source   labels",
-    `Priority mapping  ${mapping || "none"}`,
+    "Lifecycle",
+    `  Status field   ${lifecycle.stateFieldName}`,
+    `  Active         ${lifecycle.activeStates.join(", ") || "(none)"}`,
+    `  Wait           ${waitStates.join(", ") || "(none)"}`,
+    `  Terminal       ${lifecycle.terminalStates.join(", ") || "(none)"}`,
+    `  Blocker check  ${formatLifecycleValue(lifecycle.blockerCheckStates)}`,
+    `  Planning       ${formatLifecycleValue(lifecycle.planningStates)}`,
   ];
 }
 
@@ -1024,6 +1158,10 @@ function printEcosystemSummary(
   );
   lines.push(`Runtime   ${result.runtime}`);
   lines.push(...formatPrioritySummaryLines(result.priority));
+  lines.push("");
+  lines.push(
+    ...formatLifecycleSummaryLines(result.lifecycle, result.waitStates)
+  );
   lines.push("");
   lines.push("Generated files");
   lines.push(`  ✓ WORKFLOW.md                          ${relWorkflow}`);
@@ -1086,6 +1224,13 @@ export function renderDryRunPreview(
   );
   lines.push(`Runtime   ${ecosystemPlan.runtime}`);
   lines.push(...formatPrioritySummaryLines(ecosystemPlan.priority));
+  lines.push("");
+  lines.push(
+    ...formatLifecycleSummaryLines(
+      ecosystemPlan.lifecycle,
+      ecosystemPlan.waitStates
+    )
+  );
   lines.push("");
   lines.push("Planned file changes");
   lines.push(
@@ -1242,6 +1387,13 @@ async function runNonInteractive(
     process.exitCode = 1;
     return;
   }
+  const defaultBlockerCheckStates = getDefaultBlockerCheckStates(
+    toWorkflowLifecycleConfig(statusField.name, mappings)
+  );
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates: defaultBlockerCheckStates,
+    planningStates: defaultBlockerCheckStates,
+  });
 
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
@@ -1253,6 +1405,7 @@ async function runNonInteractive(
     priority,
     includePriorityTemplates: !autoPriorityField,
     mappings,
+    lifecycle,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -1280,6 +1433,7 @@ async function runNonInteractive(
     priorityField: autoPriorityField,
     priority,
     includePriorityTemplates: !autoPriorityField,
+    lifecycle,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -1377,7 +1531,7 @@ async function runInteractiveStandalone(
 
   const selectedGithubProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 2/3 — Select a GitHub Project board:",
+      message: "Step 2/5 — Select a GitHub Project board:",
       options: projects.map((proj) => ({
         value: proj.id,
         label: `${proj.owner.login}/${proj.title}`,
@@ -1417,12 +1571,15 @@ async function runInteractiveStandalone(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 3/4",
+    stepLabel: "Step 3/5",
   });
-  const { priority, priorityField } = await promptPriorityConfig({
-    priorityResolution,
-    labelNames: priorityLabelNames,
-    stepLabel: "Step 4/4",
+  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
+    stepLabel: "Step 4/5",
+  });
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates,
+    planningStates: blockerCheckStates,
   });
 
   const validation = validateStateMapping(mappings);
@@ -1437,6 +1594,11 @@ async function runInteractiveStandalone(
   for (const warn of validation.warnings) {
     p.log.warn(`  ⚠ ${warn}`);
   }
+  const { priority, priorityField } = await promptPriorityConfig({
+    priorityResolution,
+    labelNames: priorityLabelNames,
+    stepLabel: "Step 5/5",
+  });
 
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
@@ -1448,6 +1610,7 @@ async function runInteractiveStandalone(
     priority,
     includePriorityTemplates: priority.source === "disabled",
     mappings,
+    lifecycle,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -1467,6 +1630,7 @@ async function runInteractiveStandalone(
     priorityField,
     priority,
     includePriorityTemplates: priority.source === "disabled",
+    lifecycle,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,

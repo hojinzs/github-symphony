@@ -3,13 +3,15 @@ export type WorkflowLifecycleConfig = {
   activeStates: string[];
   terminalStates: string[];
   blockerCheckStates: string[];
+  planningStates: string[];
 };
 
 export const DEFAULT_WORKFLOW_LIFECYCLE: WorkflowLifecycleConfig = {
   stateFieldName: "Status",
   activeStates: ["Todo", "In Progress"],
   terminalStates: ["Done"],
-  blockerCheckStates: ["Todo"],
+  blockerCheckStates: [],
+  planningStates: [],
 };
 
 export function isStateActive(
@@ -31,7 +33,9 @@ export function matchesWorkflowState(
   candidates: readonly string[]
 ): boolean {
   const normalizedState = normalizeWorkflowState(state);
-  return candidates.some((candidate) => normalizeWorkflowState(candidate) === normalizedState);
+  return candidates.some(
+    (candidate) => normalizeWorkflowState(candidate) === normalizedState
+  );
 }
 
 export function normalizeWorkflowState(state: string): string {
