@@ -72,6 +72,14 @@ type LinearIssuesResponse = {
   issues?: LinearConnection<LinearIssueNode> | null;
 };
 
+type LinearIssueFilter = {
+  project: { slugId: { eq: string } };
+  state?: { name: { in: string[] } };
+  id?: { in: string[] };
+  identifier?: { in: string[] };
+  assignee?: { isMe: { eq: true } };
+};
+
 const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
   nodes {
     id
@@ -112,18 +120,14 @@ const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
 
 const LINEAR_ISSUES_BY_STATES_QUERY = /* GraphQL */ `
   query SymphonyLinearIssues(
-    $projectSlug: String!
-    $stateNames: [String!]!
+    $filter: IssueFilter!
     $first: Int!
     $after: String
   ) {
     issues(
       first: $first
       after: $after
-      filter: {
-        project: { slugId: { eq: $projectSlug } }
-        state: { name: { in: $stateNames } }
-      }
+      filter: $filter
     ) {
       ${LINEAR_ISSUE_FIELDS}
     }
@@ -132,18 +136,14 @@ const LINEAR_ISSUES_BY_STATES_QUERY = /* GraphQL */ `
 
 const LINEAR_ISSUES_BY_IDS_QUERY = /* GraphQL */ `
   query SymphonyLinearIssueStates(
-    $projectSlug: String!
-    $issueIds: [ID!]!
+    $filter: IssueFilter!
     $first: Int!
     $after: String
   ) {
     issues(
       first: $first
       after: $after
-      filter: {
-        project: { slugId: { eq: $projectSlug } }
-        id: { in: $issueIds }
-      }
+      filter: $filter
     ) {
       ${LINEAR_ISSUE_FIELDS}
     }
@@ -152,18 +152,14 @@ const LINEAR_ISSUES_BY_IDS_QUERY = /* GraphQL */ `
 
 const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
   query SymphonyLinearIssueStatesByIdentifier(
-    $projectSlug: String!
-    $issueIdentifiers: [String!]!
+    $filter: IssueFilter!
     $first: Int!
     $after: String
   ) {
     issues(
       first: $first
       after: $after
-      filter: {
-        project: { slugId: { eq: $projectSlug } }
-        identifier: { in: $issueIdentifiers }
-      }
+      filter: $filter
     ) {
       ${LINEAR_ISSUE_FIELDS}
     }
@@ -257,6 +253,7 @@ async function listLinearIssues(
       issueIds && issueIds.every(isLinearIdentifier)
         ? issueIds.map((identifier) => identifier.trim().toUpperCase())
         : undefined,
+    assignedOnly: config.assignedOnly,
     pageSize: config.pageSize,
   });
 
@@ -269,6 +266,14 @@ async function listLinearIssues(
     value: result.rateLimits,
     writable: true,
   });
+
+  if (config.assignedOnly) {
+    emitAssignedOnlyFilterEvent({
+      projectSlug: config.projectSlug,
+      includedCount: issues.length,
+    });
+  }
+
   return issues;
 }
 
@@ -279,6 +284,7 @@ async function fetchPaginatedLinearIssues(
     stateNames?: string[];
     issueIds?: string[];
     issueIdentifiers?: string[];
+    assignedOnly: boolean;
     pageSize: number;
   }
 ): Promise<{
@@ -299,12 +305,7 @@ async function fetchPaginatedLinearIssues(
       data: LinearIssuesResponse;
       rateLimits: LinearRateLimitPayload | null;
     } = await client<LinearIssuesResponse>(query, {
-      projectSlug: input.projectSlug,
-      ...(input.issueIdentifiers
-        ? { issueIdentifiers: input.issueIdentifiers }
-        : input.issueIds
-          ? { issueIds: input.issueIds }
-          : { stateNames: input.stateNames ?? [] }),
+      filter: buildLinearIssueFilter(input),
       first: input.pageSize,
       after,
     });
@@ -320,6 +321,24 @@ async function fetchPaginatedLinearIssues(
   return {
     nodes: issues,
     rateLimits: latestRateLimits,
+  };
+}
+
+function buildLinearIssueFilter(input: {
+  projectSlug: string;
+  stateNames?: string[];
+  issueIds?: string[];
+  issueIdentifiers?: string[];
+  assignedOnly: boolean;
+}): LinearIssueFilter {
+  return {
+    project: { slugId: { eq: input.projectSlug } },
+    ...(input.issueIdentifiers
+      ? { identifier: { in: input.issueIdentifiers } }
+      : input.issueIds
+        ? { id: { in: input.issueIds } }
+        : { state: { name: { in: input.stateNames ?? [] } } }),
+    ...(input.assignedOnly ? { assignee: { isMe: { eq: true } } } : {}),
   };
 }
 
@@ -521,12 +540,37 @@ function resolveLinearTrackerConfig(
 
   return {
     endpoint: resolveLinearEndpoint(project.tracker),
+    assignedOnly: resolveAssignedOnly(project.tracker, dependencies),
     pageSize:
       readPositiveIntegerSetting(project.tracker, "pageSize") ??
       DEFAULT_PAGE_SIZE,
     projectSlug,
     token,
   };
+}
+
+const warnedLegacyAssignedOnlyProjectIds = new Set<string>();
+
+function resolveAssignedOnly(
+  tracker: OrchestratorTrackerConfig,
+  dependencies: OrchestratorTrackerDependencies
+): boolean {
+  if (dependencies.assignedOnly !== undefined) {
+    return dependencies.assignedOnly;
+  }
+
+  const legacyAssignedOnly = readBooleanSetting(tracker, "assignedOnly");
+  if (legacyAssignedOnly) {
+    const warningKey = `${tracker.adapter}:${tracker.bindingId}`;
+    if (!warnedLegacyAssignedOnlyProjectIds.has(warningKey)) {
+      warnedLegacyAssignedOnlyProjectIds.add(warningKey);
+      console.warn(
+        "[gh-symphony] Deprecated tracker.settings.assignedOnly detected. Use 'gh-symphony repo start --assigned-only' instead; persisted assignedOnly support will be removed in the next major release."
+      );
+    }
+  }
+
+  return legacyAssignedOnly;
 }
 
 function resolveLinearEndpoint(tracker: OrchestratorTrackerConfig): string {
@@ -568,6 +612,14 @@ function readPositiveIntegerSetting(
   );
 }
 
+function readBooleanSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): boolean {
+  const value = tracker.settings?.[key];
+  return value === true || value === "true";
+}
+
 function readStringArray(value: unknown): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -582,6 +634,22 @@ function readStringArray(value: unknown): string[] | undefined {
     return undefined;
   }
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function emitAssignedOnlyFilterEvent(input: {
+  projectSlug: string;
+  includedCount: number;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "tracker-assigned-only-filtered",
+      tracker: "linear",
+      projectSlug: input.projectSlug,
+      assigneeFilter: "isMe",
+      includedCount: input.includedCount,
+      excludedCount: null,
+    })
+  );
 }
 
 function requireString(value: unknown, label: string): string {
