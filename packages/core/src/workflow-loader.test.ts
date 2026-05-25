@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkflowConfigStore } from "./workflow/loader.js";
 import { parseWorkflowMarkdown } from "./workflow/parser.js";
+import { isStateActive } from "./workflow/lifecycle.js";
 import {
   resolveWorkflowRuntimeCommand,
   resolveWorkflowRuntimeTimeouts,
@@ -744,6 +745,32 @@ Prompt body.
     expect("session" in (workflow.runtime as Record<string, unknown>)).toBe(
       false
     );
+  });
+
+  it("accepts Land as an active state for the Moncher Stack workflow", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  project_id: PVT_kwHOAPiKdM4BYPVD
+  state_field: Status
+  active_states:
+    - Ready
+    - In progress
+    - Land
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Ready
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.activeStates).toEqual(["Ready", "In progress", "Land"]);
+    expect(workflow.lifecycle.activeStates).toContain("Land");
+    expect(isStateActive("Land", workflow.lifecycle)).toBe(true);
+    expect(isStateActive("In review", workflow.lifecycle)).toBe(false);
   });
 });
 
