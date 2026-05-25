@@ -127,7 +127,7 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
    - Create a new `## Workpad — {{issue.identifier}} — Cycle N` comment using the Workpad Template (see _Workpad Lifecycle_). N is the next cycle number after the most recent workpad on the issue (1 if none).
    - Determine the base branch: `main` by default. If the issue body explicitly references an Epic working branch, use that; otherwise stay on `main`.
    - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
-   - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues\n- Closed #<issue-number>` so GitHub auto-links.
+   - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
    - Record the Draft PR URL and base branch in the workpad.
 5. Post the standalone `🔁 Status: Ready → In progress` comment (cycle N open), append the matching workpad `### Status Transitions` line, then transition via `/gh-project`.
 6. Proceed to Step 2.
@@ -188,7 +188,7 @@ Entered from one of:
 
 This is a human-review wait state. `In review` is **not** in `active_states`, so the dispatcher does not normally wake the worker here. If the worker is invoked at this state (e.g. a PR-card merge event triggers re-dispatch, or a future poll catches a stale in-review issue whose PR was merged outside the normal flow), perform a single defensive check:
 
-1. If the PR has been merged: refresh the merged commit SHA into the workpad, post the standalone `🔁 Status: In review → Done` comment (cycle close), append the matching workpad Status Transitions line, transition the issue to `Done` via `/gh-project`, and exit.
+1. If the PR has been merged: refresh the merged commit SHA into the workpad, transition the issue to `Done` via `/gh-project`, then post the standalone `🔁 Status: In review → Done` comment (cycle close), append the matching workpad Status Transitions line, and exit.
 2. Otherwise: exit immediately. Do **not** process review feedback. Do **not** reply to inline comments. Do **not** transition the issue.
 
 Rework feedback is initiated by a human moving the issue back to `Ready` — the Step 0 _Ready-return rework guard_ then opens the rework cycle (Step 2). PR approval and the actual merge happen when a human moves the issue to `Land` — Step 4 (`/land`) performs the squash merge.
