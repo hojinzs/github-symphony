@@ -36,14 +36,7 @@ Before acting, collect:
 
 If no PR is linked to the issue, record the blocker in the workpad and exit.
 
-**⚠️ Dependencies on sibling skills (status: 2026-05 — may not be ready).**
-
-This skill delegates to `/gh-project` (for the Done transition) and `/pull` (for branch freshness when behind base). At time of writing:
-
-- The `/gh-project` skill at `.codex/skills/gh-project/SKILL.md` may still target the prior project board (`PVT_kwDOBB0_W84BRapW`) rather than the Moncher Stack project (`PVT_kwHOAPiKdM4BYPVD`). If a Done transition fails with "field not found" or "option id not recognized," the project IDs in `/gh-project` need to be updated to point at the Moncher Stack `Status` field (`PVTSSF_lAHOAPiKdM4BYPVDzhTWkPc`) and its `Done` option.
-- The `/pull` skill at `.codex/skills/pull/SKILL.md` may hardcode `origin/main`. If the PR base is **not** `main` (e.g. an Epic working branch), do **not** call `/pull`; instead run `git fetch origin "$base" && git rebase "origin/$base"` directly with the `$base` variable from Pre-flight check 3.
-
-If either dependency limitation is hit, record the specific failure in the workpad and exit with a `⛔ Blocker` comment. Do not silently work around it.
+**Sibling skills.** This skill delegates to `/gh-project` for the Done transition and `/pull` for branch freshness. Both were updated alongside this skill to target the Moncher Stack project and accept the PR's actual base branch — no special workaround is required. If either fails at runtime (e.g. authentication, board re-configuration), record the specific failure in the workpad and exit with a `⛔ Blocker` comment.
 
 ## Pre-flight Checks
 
