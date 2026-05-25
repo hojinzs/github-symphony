@@ -13,7 +13,7 @@ metadata:
 
 Use this skill only when the issue is in the `Land` state. A human has approved the PR and the remaining job is to merge it safely and complete required post-merge bookkeeping.
 
-Work unattended. Do not ask humans for follow-up. Stop only on a genuine blocker (see *Failure Handling*).
+Work unattended. Do not ask humans for follow-up. Stop only on a genuine blocker (see _Failure Handling_).
 
 ## Operating Rules
 
