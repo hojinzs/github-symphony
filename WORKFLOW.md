@@ -104,7 +104,7 @@ When entering `Ready`, before treating it as a fresh pickup, board drift, or res
 1. Find linked/open PRs from the issue/project item, the current workpad, and `gh pr list --search "<issue-number>"`.
 2. For each linked/open PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
 3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, or a human instruction indicating rework, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
-4. For rework return: open a new work cycle (new `## Workpad` comment), post the standalone `🔁 Status:` comment, transition `Ready` → `In progress` via `/gh-project`, then proceed to Step 2 and execute the PR Feedback Sweep (see Step 2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
+4. For rework return: open a new work cycle (new `## Workpad` comment), post the standalone `🔁 Status:` comment, transition `Ready` → `In progress` via `/gh-project`, then proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
 5. Otherwise (no actionable feedback on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
 
 ##### Stalled-handoff safety net
