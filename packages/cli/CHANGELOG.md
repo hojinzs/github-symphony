@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.2.5
+
+### Patch Changes
+
+- [#353](https://github.com/hojinzs/github-symphony/pull/353) [`b983699`](https://github.com/hojinzs/github-symphony/commit/b983699c997295e62e61e847db2b6f23a137ba8b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fail fast during `gh-symphony repo start` when GitHub tracker authentication is missing, invalid, or lacks required scopes, with guided `gh auth` remediation for issue [#350](https://github.com/hojinzs/github-symphony/issues/350). Linear tracker starts now also require `LINEAR_API_KEY` to be present before orchestration begins.
+
 ## 0.2.4
 
 ### Patch Changes
