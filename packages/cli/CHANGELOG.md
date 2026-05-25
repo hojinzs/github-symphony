@@ -1,5 +1,23 @@
 # @gh-symphony/cli
 
+## 0.2.5
+
+### Patch Changes
+
+- [#353](https://github.com/hojinzs/github-symphony/pull/353) [`b983699`](https://github.com/hojinzs/github-symphony/commit/b983699c997295e62e61e847db2b6f23a137ba8b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fail fast during `gh-symphony repo start` when GitHub tracker authentication is missing, invalid, or lacks required scopes, with guided `gh auth` remediation for issue [#350](https://github.com/hojinzs/github-symphony/issues/350). Linear tracker starts now also require `LINEAR_API_KEY` to be present before orchestration begins.
+
+## 0.2.4
+
+### Patch Changes
+
+- [#354](https://github.com/hojinzs/github-symphony/pull/354) [`40bb6ea`](https://github.com/hojinzs/github-symphony/commit/40bb6ea3033e2bd182c2ea8b74a866ea81906e18) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add Linear tracker support for the runtime `--assigned-only` filter so issue polling can be scoped to Linear issues assigned to the API key identity. References [#349](https://github.com/hojinzs/github-symphony/issues/349).
+
+## 0.2.3
+
+### Patch Changes
+
+- [#351](https://github.com/hojinzs/github-symphony/pull/351) [`87a42e6`](https://github.com/hojinzs/github-symphony/commit/87a42e6b6808fff8a88b8c9c9f3147f0ba9de750) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Move the GitHub assignee filter to `gh-symphony repo start --assigned-only`, stop persisting new setup/repo init state for it, and keep legacy `tracker.settings.assignedOnly` configs working with a deprecation warning for [#348](https://github.com/hojinzs/github-symphony/issues/348).
+
 ## 0.2.2
 
 ### Patch Changes

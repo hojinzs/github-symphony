@@ -339,6 +339,7 @@ export class OrchestratorService {
       ) => WorkerLogStreamLike;
       logLevel?: OrchestratorLogLevel;
       onTick?: OrchestratorTickHandler;
+      assignedOnly?: boolean;
     } = {}
   ) {}
 
@@ -1148,6 +1149,7 @@ export class OrchestratorService {
 
   private createTrackerDependencies(): OrchestratorTrackerDependencies {
     return {
+      assignedOnly: this.dependencies.assignedOnly,
       fetchImpl: this.dependencies.fetchImpl,
       projectItemsCache: createProjectItemsCache(),
     };
@@ -1219,6 +1221,7 @@ export class OrchestratorService {
         activeStates: ["Todo", "In Progress"],
         terminalStates: ["Done"],
         blockerCheckStates: ["Todo"],
+        planningStates: ["Todo"],
       },
     };
   }

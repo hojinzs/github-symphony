@@ -307,7 +307,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("setup")
       .description("Run the one-command first-run setup flow")
       .option("--non-interactive", "Run without prompts")
-      .option("--assigned-only", "Limit processing to assigned issues")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
@@ -317,7 +316,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [];
     pushOption(args, "--non-interactive", values.nonInteractive);
-    pushOption(args, "--assigned-only", values.assignedOnly);
     pushOption(args, "--output", values.output);
     pushOption(args, "--skip-skills", values.skipSkills);
     pushOption(args, "--skip-context", values.skipContext);
@@ -496,6 +494,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Start the orchestrator for the current repository")
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
+      .option("--assigned-only", "Limit this run to assigned issues")
       .option(
         "--http [port]",
         "Expose dashboard and refresh endpoints over HTTP"
@@ -513,6 +512,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = ["start", ...this.args];
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
+    pushOption(args, "--assigned-only", values.assignedOnly);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);

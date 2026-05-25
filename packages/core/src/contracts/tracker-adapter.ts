@@ -99,6 +99,7 @@ export type OrchestratorTrackerDependencies = {
   fetchImpl?: typeof fetch;
   token?: string;
   projectItemsCache?: ProjectItemsCache;
+  assignedOnly?: boolean;
 };
 
 export type OrchestratorTrackerAdapter = {

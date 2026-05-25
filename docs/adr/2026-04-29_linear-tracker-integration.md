@@ -174,9 +174,10 @@ Implement the tracker adapter read contract and keep write operations out of orc
 
 ### `listIssues(project, deps)` / candidate polling
 
-- Linear GraphQL query filters by `project: { slugId: { eq: $projectSlug } }` and `state: { name: { in: $stateNames } }`.
+- Linear GraphQL query filters by an `IssueFilter` containing `project: { slugId: { eq: <projectSlug> } }` and `state: { name: { in: <stateNames> } }`.
 - Page size defaults to 50 and cursor pagination is required.
-- Optional `assignedOnly` may query viewer and add `assignee` filtering, matching the Elixir reference behavior.
+- Optional `assignedOnly` adds Linear GraphQL `assignee: { isMe: { eq: true } }` filtering at query time, matching the runtime input shape used by the GitHub tracker.
+- Linear `isMe` resolves to the identity represented by the configured API key. Personal API keys therefore scope polling to issues assigned to that person; service-account keys scope polling to issues assigned to the service account. The adapter should not fail fast for service-account usage unless Linear exposes reliable token identity metadata in the read path.
 - `repository` is injected from the orchestrator instance repo, not from Linear response.
 - Normalize Linear response to `TrackedIssue`.
 

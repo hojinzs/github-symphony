@@ -522,7 +522,7 @@ async function startAssignedRun() {
     }
     runtimeState.executionPhase = resolveInitialExecutionPhase({
       issueState: runtimeState.run?.state,
-      blockerCheckStates: workflow.lifecycle.blockerCheckStates,
+      planningStates: workflow.lifecycle.planningStates,
       activeStates: workflow.lifecycle.activeStates,
     });
     runtimeState.runPhase = "launching_agent";

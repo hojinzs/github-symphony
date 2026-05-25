@@ -12,7 +12,12 @@ import {
   type ProjectDetail,
   type ProjectSummary,
 } from "../github/client.js";
-import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
+import {
+  ensureGhAuth,
+  getGhToken,
+  GhAuthError,
+  REQUIRED_GH_SCOPES,
+} from "../github/gh-auth.js";
 import {
   abortIfCancelled,
   buildAutomaticStateMappings,
@@ -25,15 +30,16 @@ import {
   writeEcosystem,
   writeWorkflowPlan,
   promptStateMappings,
+  promptBlockerCheck,
 } from "./workflow-init.js";
-import { validateStateMapping } from "../mapping/smart-defaults.js";
+import {
+  toWorkflowLifecycleConfig,
+  validateStateMapping,
+} from "../mapping/smart-defaults.js";
 import { initRepoRuntime } from "../repo-runtime.js";
-
-const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
 type SetupFlags = {
   nonInteractive: boolean;
-  assignedOnly?: boolean;
   output?: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -54,9 +60,6 @@ function parseSetupFlags(args: string[]): SetupFlags {
       case "--non-interactive":
         flags.nonInteractive = true;
         break;
-      case "--assigned-only":
-        flags.assignedOnly = true;
-        break;
       case "--output":
         flags.output = next;
         i += 1;
@@ -70,7 +73,7 @@ function parseSetupFlags(args: string[]): SetupFlags {
       default:
         if (arg?.startsWith("-")) {
           throw new Error(
-            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context.`
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --skip-skills, --skip-context.`
           );
         }
     }
@@ -88,7 +91,7 @@ function displayScopeError(
     `Token is missing required scope${plural}: ${error.requiredScopes.join(", ")}`
   );
   const currentSet = new Set(error.currentScopes.map((s) => s.toLowerCase()));
-  const scopesToAdd = KNOWN_REQUIRED_SCOPES.filter((s) => !currentSet.has(s));
+  const scopesToAdd = REQUIRED_GH_SCOPES.filter((s) => !currentSet.has(s));
   const scopeArg =
     scopesToAdd.length > 0
       ? scopesToAdd.join(",")
@@ -99,7 +102,9 @@ function displayScopeError(
   );
 }
 
-async function resolveProjectDetail(client: GitHubClient): Promise<ProjectDetail> {
+async function resolveProjectDetail(
+  client: GitHubClient
+): Promise<ProjectDetail> {
   const projects = await listUserProjects(client);
 
   if (projects.length === 0) {
@@ -129,7 +134,7 @@ async function selectProjectSummary(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/3 — Select a GitHub Project board:",
+      message: "Step 1/4 — Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -297,7 +302,6 @@ async function runNonInteractive(
   const runtime = await initRepoRuntime({
     repoDir: process.cwd(),
     workflowFile: workflowPath,
-    assignedOnly: flags.assignedOnly,
   });
 
   if (options.json) {
@@ -343,11 +347,17 @@ async function runInteractive(
     authSpinner.stop("Authentication failed.");
     if (error instanceof GhAuthError) {
       if (error.code === "not_installed") {
-        p.log.error("gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요.");
+        p.log.error(
+          "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
+        );
       } else if (error.code === "not_authenticated") {
-        p.log.error("gh auth login --scopes repo,read:org,project 를 실행하세요.");
+        p.log.error(
+          "gh auth login --scopes repo,read:org,project 를 실행하세요."
+        );
       } else if (error.code === "missing_scopes") {
-        p.log.error("gh auth refresh --scopes repo,read:org,project 를 실행하세요.");
+        p.log.error(
+          "gh auth refresh --scopes repo,read:org,project 를 실행하세요."
+        );
       } else {
         p.log.error(error.message);
       }
@@ -420,22 +430,20 @@ async function runInteractive(
     p.log.warn(`  ⚠ ${warning}`);
   }
 
+  const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
+  const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
+    stepLabel: "Step 3/4",
+  });
+  const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
+    blockerCheckStates,
+    planningStates: blockerCheckStates,
+  });
+
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 3/4",
+    stepLabel: "Step 4/4",
   });
-
-  const promptAssignedOnly = await abortIfCancelled(
-    p.confirm({
-      message:
-        `${
-          "Step 4/4"
-        } — Only process issues assigned to the authenticated GitHub user?`,
-      initialValue: flags.assignedOnly ?? false,
-    })
-  );
-  const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
@@ -447,6 +455,7 @@ async function runInteractive(
     priority,
     includePriorityTemplates: priority.source === "disabled",
     mappings,
+    lifecycle,
     runtime: "codex",
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
@@ -457,7 +466,6 @@ async function runInteractive(
       `GitHub Project: ${projectDetail.title}`,
       `Authenticated:  ${login}`,
       `Repository:     current working directory`,
-      `Assigned:       ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
       "",
       renderDryRunPreview(workflowPath, workflowPlan, ecosystemPlan).trimEnd(),
     ].join("\n"),
@@ -485,6 +493,7 @@ async function runInteractive(
       statusField,
       priorityField,
       priority,
+      lifecycle,
       includePriorityTemplates: priority.source === "disabled",
       runtime: "codex",
       skipSkills: flags.skipSkills,
@@ -493,9 +502,10 @@ async function runInteractive(
     const runtime = await initRepoRuntime({
       repoDir: process.cwd(),
       workflowFile: workflowPath,
-      assignedOnly,
     });
-    writeSpinner.stop(`Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`);
+    writeSpinner.stop(
+      `Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`
+    );
   } catch (error) {
     writeSpinner.stop("Setup failed.");
     p.log.error(error instanceof Error ? error.message : "Unknown error");

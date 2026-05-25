@@ -100,20 +100,33 @@ const MOCK_PROJECT_DETAIL_WITH_AMBIGUOUS_PRIORITY = {
       id: "priority-team",
       name: "Priority (Team)",
       options: [
-        { id: "p1", name: "P1", description: null, color: "RED" as string | null },
+        {
+          id: "p1",
+          name: "P1",
+          description: null,
+          color: "RED" as string | null,
+        },
       ],
     },
     {
       id: "priority-severity",
       name: "Priority (Severity)",
       options: [
-        { id: "high", name: "High", description: null, color: "ORANGE" as string | null },
+        {
+          id: "high",
+          name: "High",
+          description: null,
+          color: "ORANGE" as string | null,
+        },
       ],
     },
   ],
 };
 
-function initializeGitRemote(cwd: string, remote = "https://github.com/acme/repo-a.git"): void {
+function initializeGitRemote(
+  cwd: string,
+  remote = "https://github.com/acme/repo-a.git"
+): void {
   execFileSync("git", ["init"], { cwd, stdio: "ignore" });
   execFileSync("git", ["remote", "add", "origin", remote], {
     cwd,
@@ -180,14 +193,16 @@ describe("setup command", () => {
     );
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context."
+        "Supported flags: --non-interactive, --output, --skip-skills, --skip-context."
       )
     );
   });
 
   it("writes workflow files and managed-project config in non-interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-cwd-"));
-    const configDir = await mkdtemp(join(tmpdir(), "setup-non-interactive-config-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-config-")
+    );
     initializeGitRemote(cwd);
     process.chdir(cwd);
 
@@ -204,12 +219,17 @@ describe("setup command", () => {
       "utf8"
     );
     const project = JSON.parse(
-      await readFile(join(cwd, ".runtime", "orchestrator", "project.json"), "utf8")
+      await readFile(
+        join(cwd, ".runtime", "orchestrator", "project.json"),
+        "utf8"
+      )
     );
 
     expect(workflow).toContain("project_id: PVT_setup_1");
     expect(workflow).toContain("source: disabled");
-    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(workflow).toContain("# Optional template: labels priority source.");
     expect(workflow).not.toContain("priority_field:");
     expect(contextYaml).toContain("PVT_setup_1");
@@ -224,7 +244,9 @@ describe("setup command", () => {
 
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-cwd-"));
-    const configDir = await mkdtemp(join(tmpdir(), "setup-interactive-config-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-interactive-config-")
+    );
     initializeGitRemote(cwd, "https://github.com/acme/repo-b.git");
     process.chdir(cwd);
 
@@ -265,6 +287,33 @@ describe("setup command", () => {
     );
   });
 
+  it("validates state mappings before prompting for blocker checks", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-invalid-mapping-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-invalid-mapping-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+
+    vi.mocked(p.select)
+      .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never);
+
+    await setupCommand([], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.error).toHaveBeenCalledWith("Mapping validation failed:");
+    expect(p.confirm).not.toHaveBeenCalled();
+    expect(p.multiselect).not.toHaveBeenCalled();
+  });
+
   it("lets interactive setup map existing repository labels as the priority source", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-labels-cwd-"));
     const configDir = await mkdtemp(
@@ -291,7 +340,7 @@ describe("setup command", () => {
       .mockResolvedValueOnce("0" as never)
       .mockResolvedValueOnce("1" as never);
     vi.mocked(p.confirm)
-      .mockResolvedValueOnce(false as never)
+      .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);
 
     await setupCommand([], {
@@ -309,7 +358,9 @@ describe("setup command", () => {
   });
 
   it("warns and writes disabled priority scaffold in non-interactive mode when priority fields are ambiguous", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-priority-cwd-"));
+    const cwd = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-priority-cwd-")
+    );
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-non-interactive-priority-config-")
     );
@@ -337,12 +388,34 @@ describe("setup command", () => {
     );
     expect(workflow).not.toContain("priority_field:");
     expect(workflow).toContain("source: disabled");
-    expect(workflow).toContain("# Optional template: project-field priority source.");
+    expect(workflow).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(workflow).toContain("# Optional template: labels priority source.");
   });
 
-  it("uses --assigned-only as the interactive prompt default and preserves the setting", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-assigned-cwd-"));
+  it("rejects the removed --assigned-only setup flag", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--assigned-only"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(2);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Unknown option '--assigned-only'")
+    );
+  });
+
+  it("does not prompt for or persist assigned-only during interactive setup", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "setup-interactive-assigned-cwd-")
+    );
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-interactive-assigned-config-")
     );
@@ -359,7 +432,7 @@ describe("setup command", () => {
       .mockResolvedValueOnce(true as never)
       .mockResolvedValueOnce(true as never);
 
-    await setupCommand(["--assigned-only"], {
+    await setupCommand([], {
       configDir,
       verbose: false,
       json: false,
@@ -373,11 +446,10 @@ describe("setup command", () => {
       )
     );
 
-    expect(project.tracker.settings?.assignedOnly).toBe(true);
-    expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
-      message:
-        "Step 4/4 — Only process issues assigned to the authenticated GitHub user?",
-      initialValue: true,
+    expect(project.tracker.settings?.assignedOnly).toBeUndefined();
+    expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(p.confirm).mock.calls[1]?.[0]).toMatchObject({
+      message: "Write files and register this managed project?",
     });
   });
 });

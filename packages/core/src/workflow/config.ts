@@ -23,6 +23,7 @@ export type WorkflowTrackerConfig = {
   priority: WorkflowPriorityConfig | null;
   priorityFieldName: string | null;
   blockerCheckStates: string[];
+  planningStates: string[];
 };
 
 export type WorkflowPriorityConfig =
@@ -160,6 +161,7 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
   priority: null,
   priorityFieldName: null,
   blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
+  planningStates: DEFAULT_WORKFLOW_LIFECYCLE.planningStates,
 };
 
 export const DEFAULT_WORKFLOW_WORKSPACE: WorkflowWorkspaceConfig = {

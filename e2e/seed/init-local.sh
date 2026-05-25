@@ -51,6 +51,8 @@ tracker:
     - Cancelled
   blocker_check_states:
     - Ready
+  planning_states:
+    - Ready
 polling:
   interval_ms: 5000
 agent:

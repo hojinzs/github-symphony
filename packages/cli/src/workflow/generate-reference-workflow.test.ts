@@ -207,10 +207,27 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("    - Done");
   });
 
-  it("includes blocker_check_states set to first active column", () => {
+  it("defaults blocker_check_states to an explicit empty list without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("blocker_check_states:");
-    expect(output).toContain("    - Todo");
+    expect(output).toContain("blocker_check_states: []");
+    expect(output).toContain("planning_states: []");
+  });
+
+  it("includes configured blocker and planning states from lifecycle input", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      lifecycle: {
+        stateField: "Status",
+        activeStates: ["Todo", "In Progress"],
+        waitStates: ["In Review"],
+        terminalStates: ["Done"],
+        blockerCheckStates: ["Todo"],
+        planningStates: ["In Progress"],
+      },
+    });
+
+    expect(output).toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("planning_states:\n    - In Progress");
   });
 
   it("handles null role columns in Status Map", () => {

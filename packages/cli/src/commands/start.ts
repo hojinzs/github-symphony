@@ -2,6 +2,7 @@ import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { createServer, type Server, type ServerResponse } from "node:http";
+import * as p from "@clack/prompts";
 import type { GlobalOptions } from "../index.js";
 import {
   daemonPidPath,
@@ -34,7 +35,15 @@ import {
 } from "../project-selection.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
-import { getGhToken } from "../github/gh-auth.js";
+import {
+  formatGhAuthRemediation,
+  GhAuthError,
+  type GitHubAuthSource,
+  resolveGitHubAuth,
+  runGhAuthLogin,
+  runGhAuthRefresh,
+} from "../github/gh-auth.js";
+import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 
 function timestamp(): string {
@@ -47,6 +56,208 @@ function timestamp(): string {
 
 function logLine(icon: string, msg: string): void {
   process.stdout.write(`${timestamp()} ${icon} ${msg}\n`);
+}
+
+const REPO_START_COMMAND = "gh-symphony repo start";
+
+type RepoStartAuthPreflightResult =
+  | { ok: true; githubAuthSource?: GitHubAuthSource }
+  | { ok: false };
+
+function isInteractiveTerminal(): boolean {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+function displayGhAuthError(error: GhAuthError): void {
+  const remediation = formatGhAuthRemediation(error, {
+    retryCommand: REPO_START_COMMAND,
+  });
+  process.stderr.write(`${remediation.title}: ${remediation.message}\n`);
+  process.stderr.write(`${remediation.hint}\n`);
+}
+
+function formatAuthSource(source: "env" | "gh"): string {
+  return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
+}
+
+function displayGitHubAuthSuccess(auth: {
+  source: "env" | "gh";
+  login: string;
+}): void {
+  process.stdout.write(
+    `Authenticated via ${formatAuthSource(auth.source)} as ${auth.login}\n`
+  );
+}
+
+async function resolveRepoStartGitHubAuth(input: {
+  allowInteractiveRemediation: boolean;
+}): Promise<RepoStartAuthPreflightResult> {
+  try {
+    const auth = await resolveGitHubAuth();
+    process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
+    displayGitHubAuthSuccess(auth);
+    return { ok: true, githubAuthSource: auth.source };
+  } catch (error) {
+    if (!(error instanceof GhAuthError)) {
+      throw error;
+    }
+
+    displayGhAuthError(error);
+
+    const remediation = formatGhAuthRemediation(error, {
+      retryCommand: REPO_START_COMMAND,
+    });
+    const canRemediate =
+      input.allowInteractiveRemediation &&
+      isInteractiveTerminal() &&
+      remediation.command !== undefined &&
+      error.details.source !== "env";
+    if (!canRemediate) {
+      process.exitCode = 1;
+      return { ok: false };
+    }
+
+    const shouldRun = await p.confirm({
+      message: `Run '${remediation.command}' now?`,
+      initialValue: true,
+    });
+    if (p.isCancel(shouldRun) || shouldRun !== true) {
+      process.exitCode = 1;
+      return { ok: false };
+    }
+
+    const result =
+      error.code === "missing_scopes"
+        ? runGhAuthRefresh({ interactive: true })
+        : runGhAuthLogin({ interactive: true });
+    process.stderr.write(`${result.summary}\n`);
+    if (result.status !== "applied") {
+      process.exitCode = 1;
+      return { ok: false };
+    }
+
+    try {
+      const auth = await resolveGitHubAuth();
+      process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
+      displayGitHubAuthSuccess(auth);
+      return { ok: true, githubAuthSource: auth.source };
+    } catch (retryError) {
+      if (retryError instanceof GhAuthError) {
+        displayGhAuthError(retryError);
+        process.exitCode = 1;
+        return { ok: false };
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function preflightRepoStartAuth(
+  projectConfig: OrchestratorProjectConfig,
+  input: { daemon: boolean }
+): Promise<RepoStartAuthPreflightResult> {
+  if (projectConfig.tracker.adapter === "github-project") {
+    return resolveRepoStartGitHubAuth({
+      allowInteractiveRemediation: !input.daemon,
+    });
+  }
+
+  if (projectConfig.tracker.adapter === "linear") {
+    if (process.env.LINEAR_API_KEY?.trim()) {
+      return { ok: true };
+    }
+    process.stderr.write(
+      "Linear authentication is required. Set LINEAR_API_KEY in the environment before running 'gh-symphony repo start'.\n"
+    );
+    process.exitCode = 1;
+    return { ok: false };
+  }
+
+  return { ok: true };
+}
+
+function isGitHubAuthRuntimeError(error: unknown): error is Error {
+  if (error instanceof GitHubScopeError) {
+    return true;
+  }
+  if (error instanceof GhAuthError) {
+    return error.code === "missing_scopes" || error.code === "invalid_token";
+  }
+  if (error instanceof GitHubApiError) {
+    return error.status === 401;
+  }
+  if (error instanceof Error) {
+    const maybeStatus = (error as { status?: unknown }).status;
+    if (maybeStatus === 401) {
+      return true;
+    }
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("missing required github scopes") ||
+      message.includes("missing required scopes") ||
+      message.includes("missing required scope") ||
+      message.includes("missing_scopes") ||
+      message.includes("bad credentials") ||
+      message.includes("invalid token") ||
+      message.includes("authentication failed") ||
+      message.includes("status 401") ||
+      message.includes("401 unauthorized")
+    );
+  }
+  return false;
+}
+
+function ghRuntimeErrorToAuthError(
+  error: Error,
+  source?: GitHubAuthSource
+): GhAuthError {
+  if (error instanceof GhAuthError) {
+    return error;
+  }
+  if (error instanceof GitHubScopeError) {
+    return new GhAuthError(
+      "missing_scopes",
+      `GitHub token is missing required scopes: ${error.requiredScopes.join(", ")}`,
+      {
+        missingScopes: [...error.requiredScopes],
+        currentScopes: [...error.currentScopes],
+        source,
+      }
+    );
+  }
+  if (
+    error.message.toLowerCase().includes("missing required github scopes") ||
+    error.message.toLowerCase().includes("missing required scopes") ||
+    error.message.toLowerCase().includes("missing_scopes")
+  ) {
+    return new GhAuthError("missing_scopes", error.message, { source });
+  }
+  return new GhAuthError(
+    "invalid_token",
+    error.message || "GitHub token validation failed.",
+    { source }
+  );
+}
+
+function displayRuntimeAuthShutdown(
+  error: Error,
+  source?: GitHubAuthSource
+): void {
+  const authError = ghRuntimeErrorToAuthError(error, source);
+  displayGhAuthError(authError);
+  process.stderr.write(
+    "Stopping repo start because GitHub authentication can no longer be validated.\n"
+  );
+}
+
+function shouldElevateGitHubAuthRuntimeError(
+  projectConfig: OrchestratorProjectConfig,
+  error: unknown
+): error is Error {
+  return (
+    projectConfig.tracker.adapter === "github-project" &&
+    isGitHubAuthRuntimeError(error)
+  );
 }
 
 type ForegroundShutdownOptions = {
@@ -73,6 +284,7 @@ const HTTP_HOST = "0.0.0.0";
 function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
+  assignedOnly?: boolean;
   httpPort?: number;
   webPort?: number;
   logLevel?: string;
@@ -81,6 +293,7 @@ function parseStartArgs(args: string[]): {
   const parsed: {
     daemon: boolean;
     once: boolean;
+    assignedOnly?: boolean;
     httpPort?: number;
     webPort?: number;
     logLevel?: string;
@@ -98,6 +311,10 @@ function parseStartArgs(args: string[]): {
     }
     if (arg === "--once") {
       parsed.once = true;
+      continue;
+    }
+    if (arg === "--assigned-only") {
+      parsed.assignedOnly = true;
       continue;
     }
     if (arg === "--http") {
@@ -438,7 +655,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony repo start [--daemon] [--once] [--http [port]] [--web [port]]\n"
+      "Usage: gh-symphony repo start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -480,27 +697,27 @@ const handler = async (
     process.exitCode = 2;
     return;
   }
+
+  const authPreflight = await preflightRepoStartAuth(projectConfig, {
+    daemon: parsed.daemon,
+  });
+  if (!authPreflight.ok) {
+    return;
+  }
+
   if (parsed.daemon) {
     await startDaemon(
       options,
       projectId,
       parsed.logLevel,
       parsed.httpPort,
-      parsed.webPort
+      parsed.webPort,
+      parsed.assignedOnly === true
     );
     return;
   }
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
-  if (!process.env.GITHUB_GRAPHQL_TOKEN) {
-    try {
-      process.env.GITHUB_GRAPHQL_TOKEN = getGhToken();
-    } catch {
-      // gh CLI not installed/authenticated — GITHUB_GRAPHQL_TOKEN stays unset
-      // Workers will fail if token is needed but not available
-    }
-  }
-
   let projectLock: ProjectLockHandle | null = null;
   try {
     projectLock = await acquireProjectLock({
@@ -512,10 +729,34 @@ const handler = async (
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
     let isFirst = true;
+    let requestShutdown: (() => void) | null = null;
+    let authShutdownRequested = false;
     const service = new OrchestratorService(store, projectConfig, {
       logLevel,
+      assignedOnly: parsed.assignedOnly,
       onTick: async (snapshot) => {
         try {
+          if (authShutdownRequested) {
+            return;
+          }
+
+          if (
+            projectConfig.tracker.adapter === "github-project" &&
+            snapshot.lastError
+          ) {
+            const runtimeError = new Error(snapshot.lastError);
+            if (isGitHubAuthRuntimeError(runtimeError)) {
+              authShutdownRequested = true;
+              displayRuntimeAuthShutdown(
+                runtimeError,
+                authPreflight.githubAuthSource
+              );
+              process.exitCode = 1;
+              requestShutdown?.();
+              return;
+            }
+          }
+
           logTickResult(snapshot, prevSnapshot, isFirst);
 
           if (!isFirst) {
@@ -537,6 +778,13 @@ const handler = async (
           prevSnapshot = snapshot;
           isFirst = false;
         } catch (error) {
+          if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
+            authShutdownRequested = true;
+            displayRuntimeAuthShutdown(error, authPreflight.githubAuthSource);
+            process.exitCode = 1;
+            requestShutdown?.();
+            return;
+          }
           logLine(
             red("\u2717"),
             red(
@@ -575,6 +823,9 @@ const handler = async (
       void shutdown();
     };
     const handleSigterm = () => {
+      void shutdown();
+    };
+    requestShutdown = () => {
       void shutdown();
     };
     process.on("SIGINT", handleSigint);
@@ -665,6 +916,14 @@ const handler = async (
         } catch (error) {
           if (shuttingDown) {
             break;
+          }
+
+          if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
+            authShutdownRequested = true;
+            displayRuntimeAuthShutdown(error, authPreflight.githubAuthSource);
+            process.exitCode = 1;
+            await shutdown();
+            return;
           }
 
           logLine(
@@ -762,7 +1021,7 @@ export async function shutdownForegroundOrchestrator(
     );
   }
 
-  return (input.exit ?? process.exit)(0);
+  return (input.exit ?? process.exit)(process.exitCode ?? 0);
 }
 
 function hasConfiguredRepository(config: {
@@ -806,7 +1065,8 @@ async function startDaemon(
   projectId: string,
   logLevel?: string,
   httpPort?: number,
-  webPort?: number
+  webPort?: number,
+  assignedOnly = false
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -820,6 +1080,7 @@ async function startDaemon(
       process.argv[1]!,
       "repo",
       "start",
+      ...(assignedOnly ? ["--assigned-only"] : []),
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),

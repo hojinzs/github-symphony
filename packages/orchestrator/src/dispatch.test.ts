@@ -230,6 +230,7 @@ describe("explainIssueDispatch", () => {
     activeStates: ["Todo", "In Progress"],
     terminalStates: ["Done"],
     blockerCheckStates: ["Todo"],
+    planningStates: ["Todo"],
   };
   const projectRepository = {
     owner: "acme",
@@ -1123,11 +1124,7 @@ describe("targeted canonical subject dispatch", () => {
       metadata: {
         contentType: "Issue",
         linkedPullRequests: [
-          makePullRequestContext(
-            alternateRepository,
-            111,
-            "feature/pr-111"
-          ),
+          makePullRequestContext(alternateRepository, 111, "feature/pr-111"),
         ],
       },
     });
@@ -1158,9 +1155,7 @@ describe("targeted canonical subject dispatch", () => {
     ]);
     const upsertIssueComment = vi.fn().mockResolvedValue("created");
     adapter.upsertIssueComment = upsertIssueComment;
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
-      adapter
-    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5410, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {

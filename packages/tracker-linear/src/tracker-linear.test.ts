@@ -123,18 +123,17 @@ describe("linearTrackerAdapter", () => {
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { variables: Record<string, unknown> };
 
-    expect(firstRequest.query).toContain(
-      "project: { slugId: { eq: $projectSlug } }"
-    );
-    expect(firstRequest.query).toContain(
-      "state: { name: { in: $stateNames } }"
-    );
+    expect(firstRequest.query).toContain("$filter: IssueFilter!");
+    expect(firstRequest.query).toContain("filter: $filter");
     expect(firstRequest.variables).toMatchObject({
-      projectSlug: "symphony-0c79b11b75ea",
-      stateNames: ["Todo", "In Progress"],
+      filter: {
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Todo", "In Progress"] } },
+      },
       first: 50,
       after: null,
     });
+    expect(firstRequest.variables.filter).not.toHaveProperty("assignee");
     expect(secondRequest.variables.after).toBe("cursor-1");
     expect(issues).toMatchObject([
       {
@@ -189,7 +188,175 @@ describe("linearTrackerAdapter", () => {
       variables: Record<string, unknown>;
     };
     expect(projectItemsCache.getOrLoad).not.toHaveBeenCalled();
-    expect(request.variables.stateNames).toEqual(["Rework"]);
+    expect(request.variables.filter).toMatchObject({
+      project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+      state: { name: { in: ["Rework"] } },
+    });
+  });
+
+  it("adds an assignee isMe filter when runtime assignedOnly is enabled", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      await linearTrackerAdapter.listIssues(makeProject(), {
+        assignedOnly: true,
+        fetchImpl,
+        token: "linear-token",
+      });
+
+      const request = JSON.parse(
+        String(fetchImpl.mock.calls[0]?.[1]?.body)
+      ) as {
+        variables: Record<string, unknown>;
+      };
+      expect(request.variables.filter).toMatchObject({
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Todo", "In Progress"] } },
+        assignee: { isMe: { eq: true } },
+      });
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("uses runtime assignedOnly before legacy tracker settings", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    await linearTrackerAdapter.listIssues(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          assignedOnly: true,
+        },
+      }),
+      {
+        assignedOnly: false,
+        fetchImpl,
+        token: "linear-token",
+      }
+    );
+
+    const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      variables: Record<string, unknown>;
+    };
+    expect(request.variables.filter).not.toHaveProperty("assignee");
+  });
+
+  it('falls back to legacy string assignedOnly tracker setting with a deprecation warning', async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      await linearTrackerAdapter.listIssues(
+        makeProject({
+          bindingId: "symphony-legacy-string",
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            assignedOnly: "true",
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      const request = JSON.parse(
+        String(fetchImpl.mock.calls[0]?.[1]?.body)
+      ) as {
+        variables: Record<string, unknown>;
+      };
+      expect(request.variables.filter).toMatchObject({
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Todo"] } },
+        assignee: { isMe: { eq: true } },
+      });
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Deprecated tracker.settings.assignedOnly")
+      );
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("emits assignedOnly observability when the Linear filter is active", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: "issue-1",
+                  identifier: "ENG-1",
+                  number: 1,
+                  title: "Assigned issue",
+                  state: { name: "Todo" },
+                  labels: { nodes: [] },
+                  relations: { nodes: [] },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(makeProject(), {
+        assignedOnly: true,
+        fetchImpl,
+        token: "linear-token",
+      });
+
+      expect(issues).toHaveLength(1);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"tracker":"linear"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"includedCount":1')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
   });
 
   it("normalizes Linear rate-limit headers onto listed issues", async () => {
@@ -341,7 +508,10 @@ describe("linearTrackerAdapter", () => {
     const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
       variables: Record<string, unknown>;
     };
-    expect(request.variables.issueIds).toEqual(["issue-1", "issue-2"]);
+    expect(request.variables.filter).toMatchObject({
+      project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+      id: { in: ["issue-1", "issue-2"] },
+    });
   });
 
   it("fetchIssueStatesByIds routes Linear identifiers through an identifier filter", async () => {
@@ -366,10 +536,12 @@ describe("linearTrackerAdapter", () => {
       variables: Record<string, unknown>;
     };
     expect(request.query).toContain(
-      "identifier: { in: $issueIdentifiers }"
+      "query SymphonyLinearIssueStatesByIdentifier"
     );
-    expect(request.variables.issueIdentifiers).toEqual(["ENG-123"]);
-    expect(request.variables).not.toHaveProperty("issueIds");
+    expect(request.variables.filter).toMatchObject({
+      project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+      identifier: { in: ["ENG-123"] },
+    });
   });
 
   it("injects worker environment without requiring team id", () => {
