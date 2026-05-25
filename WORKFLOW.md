@@ -87,60 +87,128 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 #### Step 0: Determine current state and route
 
-1. Read the current issue state before doing any implementation work.
-2. Detect the report language from the issue body before writing any human-facing text.
-3. Route by state:
-   - `Backlog` -> Exit quietly without commenting.
-   - `Ready` -> Proceed to Step 1.
-   - `In progress` -> Proceed to Step 2.
-   - `In review` -> Proceed to Step 3.
-   - `Done` -> Exit immediately without commenting.
-   - Any other state -> Leave a short blocker comment in the report language explaining that the state is unsupported, then exit.
+1. Read `{{issue.state}}` and detect the report language from the issue body before writing any human-facing text.
+2. Route by state:
+   - `Backlog` → Exit quietly without commenting.
+   - `Ready` → run the **Ready-return rework guard** below, then proceed to Step 1 (or to Step 2 if the guard re-classifies as rework).
+   - `In progress` → run the **stalled-handoff safety net** below, then proceed to Step 2.
+   - `In review` → proceed to Step 3.
+   - `Land` → proceed to Step 4.
+   - `Done` → Exit immediately without commenting.
+   - Any other state → leave a short blocker comment in the report language explaining the state is unsupported, then exit.
+
+##### Ready-return rework guard
+
+When entering `Ready`, before treating it as a fresh pickup, board drift, or resume, inspect linked PR state:
+
+1. Find linked/open PRs from the issue/project item, the current workpad, and `gh pr list --search "<issue-number>"`.
+2. For each linked/open PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
+3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, or a human instruction indicating rework, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
+4. For rework return: open a new work cycle (new `## Workpad` comment), post the standalone `🔁 Status:` comment, transition `Ready` → `In progress` via `/gh-project`, then proceed to Step 2 and execute the PR Feedback Sweep (see Step 2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
+5. Otherwise (no actionable feedback on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
+
+##### Stalled-handoff safety net
+
+When entering `In progress`, before continuing implementation, check: if the agent-verifiable Completion Bar (Step 2.6) is already met, the PR is still a **Draft**, and there is no open `⛔ Blocker` comment, then the previous turn missed the handoff. Run Step 2.8 (changeset → PR ready / refresh body → status comment → transition to `In review`) immediately this turn — do not look for more Plan work. This rescues an issue that would otherwise sit stalled on the next polling tick.
 
 #### Step 1: Ready triage
 
+This step is entered only when the Step 0 *Ready-return rework guard* classified the entry as **fresh pickup or resume**. Rework returns are routed directly to Step 2 by the guard.
+
 1. Read the issue body and existing comments to understand the requested work.
-2. Assess whether the issue is actionable before creating or updating a workpad.
-3. If the requirements are unclear, move the issue back to `Backlog`, leave a comment in the report language requesting clearer requirements, and exit.
-4. If the expected implementation is too large in scope, move the issue back to `Backlog`, leave a comment in the report language requesting issue splitting, and exit.
-5. Treat the issue as too large in scope if it would likely require changes to more than 20 files or more than 3 packages.
-6. If the issue is actionable and a PR already exists, inspect the PR review timeline, failing checks, and unresolved comments to identify the major merge blockers before touching the code.
-7. If Step 6 applies, this is a new work cycle — create a new workpad comment in the report language that records the re-entry trigger, the major merge blockers, and the revised implementation plan.
-8. If the issue is actionable and Step 7 did not apply, create or continue the workpad, create a branch if needed, post a comment indicating that triage passed and implementation is starting, and continue to Step 2. If an existing PR is discovered from the issue timeline, prefer checking out and updating that PR head branch instead of creating a duplicate branch.
+2. **Triage actionability:**
+   - **Requirements unclear** → write a triage comment in the report language requesting clarification, post the `🔁 Status: Ready → Backlog` transition log (Posture 5), transition via `/gh-project`, exit.
+   - **Scope too large** (likely >20 files or >3 packages) → write a triage comment requesting issue splitting, post the transition log, transition to `Backlog`, exit. State explicitly whether the reason is unclear requirements, oversized scope, or both.
+3. **Resume check (idempotent).** If a `feat/<issue-number>-…` branch or Draft PR for this issue already exists from a prior cycle (e.g. parked in `Backlog` then moved back), adopt them — do **not** recreate.
+4. **Open the new work cycle:**
+   - Create a new `## Workpad — {{issue.identifier}} — Cycle N` comment using the Workpad Template (see *Workpad Lifecycle*). N is the next cycle number after the most recent workpad on the issue (1 if none).
+   - Determine the base branch: `main` by default. If the issue body explicitly references an Epic working branch, use that; otherwise stay on `main`.
+   - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
+   - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues\n- Closed #<issue-number>` so GitHub auto-links.
+   - Record the Draft PR URL and base branch in the workpad.
+5. Post the standalone `🔁 Status: Ready → In progress` comment (cycle N open), append the matching workpad `### Status Transitions` line, then transition via `/gh-project`.
+6. Proceed to Step 2.
 
-#### Step 2: Execution phase
+#### Step 2: In progress / Execution
 
-1. Check whether the current work cycle's workpad comment already exists on the issue. If it does, update it in place throughout this run. If this is a new work cycle (issue re-entered an active state from `In review` or a wait state) and no workpad has been created for it yet, create a new workpad comment after identifying the latest merge blockers. Never create a second workpad comment within the same work cycle.
-2. Explore the codebase to understand the relevant code structure.
-3. Implement the changes following the project's coding conventions.
-4. Write or update tests to cover the changes.
-5. Verify that all existing tests pass before creating or updating a PR.
-6. **Pre-review validation (mandatory before moving to `In review`):**
-   - Re-read the original issue body and compare it against the implementation to confirm that every requested item has been addressed and nothing was missed or diverged from the goal.
-   - If any requirement is unmet or the implementation deviates from the issue's intent, fix it before proceeding.
-   - Run `pnpm lint && pnpm test && pnpm typecheck && pnpm build` and confirm all pass.
-   - If the change affects integration behavior (orchestrator dispatch, worker lifecycle, tracker adapters, status API, etc.), write a short TC and run a Docker E2E blackbox test following [AGENT_TEST.md](AGENT_TEST.md).
-   - Record the validation results (commands executed and their outcomes) in the workpad comment under the **Validation** section.
-7. **Changeset policy (mandatory immediately before PR creation/update):**
-   - Inspect the issue labels. If the issue has one of `changeset:major`, `changeset:minor`, or `changeset:patch`, create a Changeset before creating or updating the PR.
-   - The release package must be `@gh-symphony/cli` only. Do not add private/internal workspace packages to the Changeset because releases publish only the CLI package.
-   - Use the label as the bump type: `changeset:major` -> major, `changeset:minor` -> minor, `changeset:patch` -> patch. If multiple changeset labels exist, use the highest-impact bump (`major` > `minor` > `patch`) and note the ambiguity in the workpad.
-   - The Changeset summary must describe the user-visible CLI/runtime behavior change and reference the issue identifier when practical.
-   - Record the created Changeset file path in the workpad **Validation** section.
-8. If no PR exists and the completion bar is met, use the `/gh-pr-writeup` skill to run a brief pre-PR validation pass, create a PR with the required linked-issue, evidence, and human validation sections, post a comment summarizing what was implemented, and move the issue to `In review`.
-9. If a PR already exists while the issue is `In progress`, read all PR review activity, failing checks, and unresolved inline comments before changing any code.
-10. Distill the main merge blockers into a short prioritized list, then update the current cycle's workpad comment in the report language to capture those blockers and the revised execution plan. If no workpad exists for this cycle yet, create one.
-11. Reply to each inline review comment in the report language with a concrete resolution summary or rationale once you have addressed or triaged it.
-12. If review feedback requires code changes, implement them, update tests if needed, re-run the pre-review validation in Step 6, push the changes, refresh the PR body with `/gh-pr-writeup` so the linked issue, evidence, and human validation sections stay current, post a comment describing what was addressed, and move the issue back to `In review`.
-13. If the current subject is `PullRequest`, perform all rework on the PR head branch and keep the PR as the primary review surface.
+Entered from one of:
 
-#### Step 3: In review handling
+- **Step 1** (fresh pickup / resume) — first work cycle, Draft PR already exists.
+- **Step 0 *Ready-return rework guard*** (review rework) — new cycle opened by the guard, Draft PR already exists.
+- **Step 0 *stalled-handoff safety net*** — skip directly to Step 2.8 this turn.
 
-1. If a PR exists, inspect review state, review comments, and inline comments.
-2. If the PR is merged, post a comment confirming completion, move the issue to `Done`, and exit.
-3. If there are no change requests and no actionable unresolved inline comments, remain in `In review` and exit.
-4. If review feedback requires code changes, identify the major merge blockers, post a comment listing the required changes, move the issue to `In progress`, and proceed to Step 2 — this starts a new work cycle, so create a new workpad comment before editing code.
-5. If reviewers left inline comments that only need answers, reply to each inline comment in the report language and remain in `In review`.
+1. **Workpad continuity.** The current cycle's workpad was created by Step 1 or the rework guard. Update it in place throughout this cycle. Never create a second workpad for the same cycle.
+
+2. **Rework preamble — only when entered via rework return.** Before any code change:
+   - Read all PR review activity: latest reviews, top-level PR comments, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), failing checks.
+   - Distill the main merge blockers into a prioritized list and record them in the workpad `### Rework / PR Feedback` section with the revised plan.
+   - As you address each inline comment, reply to it in the report language with a concrete resolution summary or rationale. Never leave an inline comment unanswered.
+
+3. **Implementation — one Plan item per turn.** Explore relevant code, implement, write/update tests, commit in logical units (conventional commit format). Push to the branch after each turn — the Draft PR auto-updates.
+
+4. **Turn-end checklist.** Before ending a turn:
+   - workpad Plan item marked `[x]` and a Progress Log entry added.
+   - Any status transition this turn is logged (standalone comment + workpad Status Transitions line).
+   - All changes committed; no broken intermediate state.
+   - **Resting-state rule** — ending a turn in `In progress` is valid only when **(a)** an unchecked, in-scope Plan item remains, or **(b)** a code-blocker was hit, parked to `Backlog` per Posture 2.
+
+5. **Re-verify against the original issue** (coverage, not mechanics). Re-read `{{issue.description}}` requirement-by-requirement and match each one to a file/test that satisfies it. If anything is unmet or partial, add a Plan item and handle it next turn — do not mark the PR ready.
+
+6. **Completion Bar — agent-verifiable.** All must hold before marking the PR ready:
+   - [ ] All in-scope requirements from the issue description are implemented.
+   - [ ] `pnpm lint` passes.
+   - [ ] `pnpm test` passes.
+   - [ ] `pnpm typecheck` passes.
+   - [ ] `pnpm build` passes.
+   - [ ] If the change affects integration behavior (orchestrator dispatch, worker lifecycle, tracker adapters, status API, etc.), a short TC was added and a Docker E2E blackbox run completed per [AGENT_TEST.md](AGENT_TEST.md). Results recorded in the workpad `### Validation` section.
+   - [ ] Tests written for new functionality (or justified N/A and noted).
+   - [ ] Code follows the conventions in [CLAUDE.md](CLAUDE.md) (strict TypeScript, Prettier, conventional commits).
+   - [ ] All inline review comments answered (rework cycles only).
+
+7. **Changeset policy — mandatory immediately before marking the PR ready (or before re-handoff after rework).**
+   - If the issue has one of `changeset:major`, `changeset:minor`, `changeset:patch`, create a Changeset.
+   - The release package must be `@gh-symphony/cli` only. Do not add private/internal workspace packages.
+   - Bump type follows the label; with multiple labels, use the highest impact (`major` > `minor` > `patch`) and note the ambiguity in the workpad.
+   - The Changeset summary describes the user-visible CLI/runtime behavior change and references the issue identifier when practical.
+   - Record the Changeset file path in the workpad `### Validation` section.
+
+8. **Mandatory handoff gate.** The moment Steps 5–7 are satisfied, in **this same turn**:
+   1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
+   2. Mark the Draft PR ready: `gh pr ready <pr-number>`.
+   3. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
+   4. Append the matching workpad Status Transitions line; tick the Completion Bar items; record final Validation results; close the cycle marker.
+   5. Transition the issue to `In review` via `/gh-project`.
+
+   **Never end a turn with the Completion Bar met and the PR still Draft.** That state deadlocks the workflow (Step 3 only fires on merge; the worker won't be re-dispatched). The Step 0 stalled-handoff safety net rescues it on the next polling tick as a backstop, but it should not be needed.
+
+#### Step 3: In review — pure wait
+
+This is a human-review wait state. `In review` is **not** in `active_states`, so the dispatcher does not normally wake the worker here. If the worker is invoked at this state (e.g. a PR-card merge event triggers re-dispatch, or a future poll catches a stale in-review issue whose PR was merged outside the normal flow), perform a single defensive check:
+
+1. If the PR has been merged: refresh the merged commit SHA into the workpad, post the standalone `🔁 Status: In review → Done` comment (cycle close), append the matching workpad Status Transitions line, transition the issue to `Done` via `/gh-project`, and exit.
+2. Otherwise: exit immediately. Do **not** process review feedback. Do **not** reply to inline comments. Do **not** transition the issue.
+
+Rework feedback is initiated by a human moving the issue back to `Ready` — the Step 0 *Ready-return rework guard* then opens the rework cycle (Step 2). PR approval and the actual merge happen when a human moves the issue to `Land` — Step 4 (`/land`) performs the squash merge.
+
+#### Step 4: Land — squash merge and complete
+
+**Trigger:** `{{issue.state}}` = `Land`. A human has approved the PR and moved the issue here.
+
+1. **Open the land cycle.** Create a new `## Workpad — {{issue.identifier}} — Cycle N (Land)` comment (do not reuse the prior `In progress` cycle's workpad — see *Workpad Lifecycle*). Post the standalone `🔁 Status: In review → Land` comment (cycle N open: land), append the matching workpad Status Transitions line.
+
+2. **Invoke the `/land` skill** (defined at `.codex/skills/land/SKILL.md`). The skill is responsible for:
+   - Pre-flight checks (approval, required CI checks, base-branch freshness, changeset presence if labeled — see the skill for the exact list).
+   - Running `/pull` if the branch is behind, then re-running pre-flight from scratch.
+   - Squash merge: `gh pr merge <pr-number> --squash --delete-branch`.
+   - Recording the merged commit SHA and changeset path (if any) in the workpad.
+   - Transitioning the issue to `Done` via `/gh-project` once the merge succeeds.
+   - Posting the standalone `🔁 Status: Land → Done` comment ONLY after the `/gh-project` Done transition returns success.
+
+3. **Close the land cycle.** Once `/land` completes, verify the standalone `🔁 Status: Land → Done` comment was posted and the workpad Status Transitions line was appended (cycle N close: land). If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
+
+4. **On `/land` failure.** The skill records the failure and exits. If the same step fails 3 consecutive times for the same cause, write a `⛔ Blocker` comment, do **not** transition the issue, and exit. A human resolves the cause and either moves the issue back to `In review` (sends Step 4 home as a no-op next time) or re-enters `Land` after fixing the underlying problem.
+
+This step performs no code edits, commits, or pushes itself — only the workpad/comment bookkeeping around the skill call. Any rework code change must come through the `In review` → `Ready` → Step 2 path.
 
 ### Guardrails
 
