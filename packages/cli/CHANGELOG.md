@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.2.3
+
+### Patch Changes
+
+- [#351](https://github.com/hojinzs/github-symphony/pull/351) [`87a42e6`](https://github.com/hojinzs/github-symphony/commit/87a42e6b6808fff8a88b8c9c9f3147f0ba9de750) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Move the GitHub assignee filter to `gh-symphony repo start --assigned-only`, stop persisting new setup/repo init state for it, and keep legacy `tracker.settings.assignedOnly` configs working with a deprecation warning for [#348](https://github.com/hojinzs/github-symphony/issues/348).
+
 ## 0.2.2
 
 ### Patch Changes
