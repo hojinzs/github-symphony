@@ -36,6 +36,15 @@ Before acting, collect:
 
 If no PR is linked to the issue, record the blocker in the workpad and exit.
 
+**⚠️ Dependencies on sibling skills (status: 2026-05 — may not be ready).**
+
+This skill delegates to `/gh-project` (for the Done transition) and `/pull` (for branch freshness when behind base). At time of writing:
+
+- The `/gh-project` skill at `.codex/skills/gh-project/SKILL.md` may still target the prior project board (`PVT_kwDOBB0_W84BRapW`) rather than the Moncher Stack project (`PVT_kwHOAPiKdM4BYPVD`). If a Done transition fails with "field not found" or "option id not recognized," the project IDs in `/gh-project` need to be updated to point at the Moncher Stack `Status` field (`PVTSSF_lAHOAPiKdM4BYPVDzhTWkPc`) and its `Done` option.
+- The `/pull` skill at `.codex/skills/pull/SKILL.md` may hardcode `origin/main`. If the PR base is **not** `main` (e.g. an Epic working branch), do **not** call `/pull`; instead run `git fetch origin "$base" && git rebase "origin/$base"` directly with the `$base` variable from Pre-flight check 3.
+
+If either dependency limitation is hit, record the specific failure in the workpad and exit with a `⛔ Blocker` comment. Do not silently work around it.
+
 ## Pre-flight Checks
 
 All must pass before merging. If any fails, record the failure in the workpad and **do not** merge.
@@ -51,17 +60,16 @@ All must pass before merging. If any fails, record the failure in the workpad an
    If behind: run `/pull`, then **re-run the full pre-flight sequence from step 1** (pushing the rebase invalidates prior CI runs and any prior approval).
 4. **Changeset present if labeled.** If the issue has a `changeset:major|minor|patch` label, confirm at least one `.changeset/*.md` file exists on the head branch (excluding `README.md` / `config.json`). If absent, record the blocker, do not merge.
 5. **PR mergeable.** `gh pr view <pr-number> --json mergeStateStatus --jq .mergeStateStatus` must be `CLEAN` / `HAS_HOOKS` / `UNSTABLE` (the last allowed only when failing checks are all non-required). `BLOCKED` / `DIRTY` / `BEHIND` → not mergeable.
-6. **Land cycle workpad reflects the current Land phase.** It should already have the `🔁 Status: In review → Land` transition recorded by Step 4.
 
 ## Flow
 
-1. Load context and run all Pre-flight Checks.
+1. Load context and run all Pre-flight Checks. While loading context, verify the Land cycle workpad has the `🔁 Status: In review → Land` transition line recorded by Step 4; if the workpad is present but the transition line is missing, append it before running pre-flight (this is a recoverable inconsistency, not a blocker).
 2. If the PR is already merged, skip the merge command; run post-merge steps idempotently.
 3. Otherwise squash-merge with branch deletion: `gh pr merge <pr-number> --squash --delete-branch`.
 4. Capture the merge commit SHA: `gh pr view <pr-number> --json mergeCommit --jq .mergeCommit.oid`.
 5. Update the Land cycle workpad's `### Validation` section: merge commit SHA, changeset path (if any), timestamp.
-6. Post the standalone `🔁 Status: Land → Done` comment (cycle close: land) and append the matching workpad Status Transitions line.
-7. Transition the issue to `Done` via `/gh-project`.
+6. Transition the issue to `Done` via `/gh-project`. Only proceed to step 7 once `/gh-project` returns success.
+7. Post the standalone `🔁 Status: Land → Done` comment (cycle close: land) and append the matching workpad Status Transitions line.
 8. Update the workpad's `### Progress Log` with the final outcome.
 
 ## Failure Handling
