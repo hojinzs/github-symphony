@@ -12,7 +12,12 @@ import {
   type ProjectDetail,
   type ProjectSummary,
 } from "../github/client.js";
-import { ensureGhAuth, getGhToken, GhAuthError } from "../github/gh-auth.js";
+import {
+  ensureGhAuth,
+  getGhToken,
+  GhAuthError,
+  KNOWN_REQUIRED_SCOPES,
+} from "../github/gh-auth.js";
 import {
   abortIfCancelled,
   buildAutomaticStateMappings,
@@ -28,8 +33,6 @@ import {
 } from "./workflow-init.js";
 import { validateStateMapping } from "../mapping/smart-defaults.js";
 import { initRepoRuntime } from "../repo-runtime.js";
-
-const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
 type SetupFlags = {
   nonInteractive: boolean;

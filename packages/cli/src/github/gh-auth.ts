@@ -18,6 +18,7 @@ type ExecError = Error & {
 };
 
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
+export const KNOWN_REQUIRED_SCOPES = REQUIRED_GH_SCOPES;
 export type GitHubAuthSource = "env" | "gh";
 
 export type GhAuthRemediationResult = {
@@ -35,12 +36,23 @@ export class GhAuthError extends Error {
       | "missing_scopes"
       | "token_failed"
       | "invalid_token",
-    message: string
+    message: string,
+    public readonly details: {
+      missingScopes?: string[];
+      currentScopes?: string[];
+    } = {}
   ) {
     super(message);
     this.name = "GhAuthError";
   }
 }
+
+export type GhAuthRemediation = {
+  title: string;
+  message: string;
+  command?: string;
+  hint: string;
+};
 
 export type ResolvedGitHubAuth = {
   source: GitHubAuthSource;
@@ -55,6 +67,76 @@ function ghTokenReadErrorMessage(): string {
 
 function missingGhScopesMessage(missing: string[]): string {
   return `Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: ${missing.join(", ")}`;
+}
+
+function parseMissingScopes(message: string): string[] {
+  const matched = message.match(/Missing scopes:\s*([^.\n]+)/i);
+  if (!matched) {
+    return [];
+  }
+  return matched[1]
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0);
+}
+
+export function formatGhAuthRemediation(
+  error: GhAuthError,
+  opts?: { retryCommand?: string }
+): GhAuthRemediation {
+  const retryCommand = opts?.retryCommand ?? "gh-symphony repo start";
+
+  switch (error.code) {
+    case "not_installed":
+      return {
+        title: "GitHub authentication is not available",
+        message: error.message,
+        hint: "Install gh CLI from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN.",
+      };
+    case "not_authenticated": {
+      const command = `gh auth login --scopes ${KNOWN_REQUIRED_SCOPES.join(",")}`;
+      return {
+        title: "GitHub authentication is required",
+        message: error.message,
+        command,
+        hint: `Run '${command}', then re-run '${retryCommand}'.`,
+      };
+    }
+    case "missing_scopes": {
+      const currentSet = new Set(
+        (error.details.currentScopes ?? []).map((scope) => scope.toLowerCase())
+      );
+      const inferredMissing =
+        currentSet.size > 0
+          ? KNOWN_REQUIRED_SCOPES.filter((scope) => !currentSet.has(scope))
+          : [];
+      const missing =
+        error.details.missingScopes?.length
+          ? error.details.missingScopes
+          : inferredMissing.length > 0
+            ? inferredMissing
+            : parseMissingScopes(error.message);
+      const scopeArg =
+        missing.length > 0 ? missing.join(",") : KNOWN_REQUIRED_SCOPES.join(",");
+      const command = `gh auth refresh --scopes ${scopeArg}`;
+      return {
+        title: "GitHub token is missing required scopes",
+        message: error.message,
+        command,
+        hint: `Run '${command}', then re-run '${retryCommand}'.`,
+      };
+    }
+    case "invalid_token":
+    case "token_failed": {
+      const command = `gh auth login --scopes ${KNOWN_REQUIRED_SCOPES.join(",")}`;
+      return {
+        title: "GitHub token validation failed",
+        message: error.message,
+        command,
+        hint: `Run '${command}' to re-authenticate, then re-run '${retryCommand}'.`,
+      };
+    }
+  }
 }
 
 function classifyTokenValidationError(
@@ -254,13 +336,15 @@ export async function validateGitHubToken(
     if (source === "env") {
       throw new GhAuthError(
         "missing_scopes",
-        `GITHUB_GRAPHQL_TOKEN is missing required scopes: ${scopeCheck.missing.join(", ")}`
+        `GITHUB_GRAPHQL_TOKEN is missing required scopes: ${scopeCheck.missing.join(", ")}`,
+        { missingScopes: [...scopeCheck.missing], currentScopes: viewer.scopes }
       );
     }
 
     throw new GhAuthError(
       "missing_scopes",
-      missingGhScopesMessage(scopeCheck.missing)
+      missingGhScopesMessage(scopeCheck.missing),
+      { missingScopes: [...scopeCheck.missing], currentScopes: viewer.scopes }
     );
   }
 
@@ -335,7 +419,11 @@ export function ensureGhAuth(opts?: {
   if (!scopeCheck.valid) {
     throw new GhAuthError(
       "missing_scopes",
-      missingGhScopesMessage(scopeCheck.missing)
+      missingGhScopesMessage(scopeCheck.missing),
+      {
+        missingScopes: [...scopeCheck.missing],
+        currentScopes: scopeCheck.scopes,
+      }
     );
   }
 
