@@ -133,20 +133,37 @@ describe("toWorkflowLifecycleConfig", () => {
     expect(config.stateFieldName).toBe("Status");
     expect(config.activeStates).toEqual(["Todo", "In Progress"]);
     expect(config.terminalStates).toEqual(["Done"]);
-    expect(config.blockerCheckStates).toEqual(["Todo"]);
+    expect(config.blockerCheckStates).toEqual([]);
+    expect(config.planningStates).toEqual([]);
   });
 
-  it("produces correct config with only active and terminal states", () => {
+  it("uses explicit blocker and planning states when provided", () => {
     const mappings: Record<string, StateMapping> = {
       Todo: { role: "active" },
       "In Progress": { role: "active" },
       Done: { role: "terminal" },
     };
 
-    const config = toWorkflowLifecycleConfig("Status", mappings);
+    const config = toWorkflowLifecycleConfig("Status", mappings, {
+      blockerCheckStates: ["Todo"],
+      planningStates: ["In Progress"],
+    });
     expect(config.activeStates).toEqual(["Todo", "In Progress"]);
     expect(config.terminalStates).toEqual(["Done"]);
     expect(config.blockerCheckStates).toEqual(["Todo"]);
+    expect(config.planningStates).toEqual(["In Progress"]);
+  });
+
+  it("defaults planning states to explicit blocker check states", () => {
+    const mappings: Record<string, StateMapping> = {
+      Todo: { role: "active" },
+      Done: { role: "terminal" },
+    };
+
+    const config = toWorkflowLifecycleConfig("Status", mappings, {
+      blockerCheckStates: ["Todo"],
+    });
+    expect(config.planningStates).toEqual(["Todo"]);
   });
 });
 

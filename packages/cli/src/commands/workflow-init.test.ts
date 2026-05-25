@@ -1,4 +1,11 @@
-import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +52,7 @@ import {
   generateProjectId,
   planWorkflowArtifacts,
   planEcosystem,
+  promptBlockerCheck,
   promptPriorityConfig,
   renderDryRunPreview,
   writeConfig,
@@ -121,7 +129,9 @@ describe("init interactive auth", () => {
   });
 
   it("warns when project discovery hits a safety limit", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-partial-projects-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "cli-init-partial-projects-")
+    );
     vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
       source: "env",
       login: "env-user",
@@ -145,6 +155,55 @@ describe("init interactive auth", () => {
 
     expect(p.log.warn).toHaveBeenCalledWith(
       "Project discovery may be incomplete: the GitHub API request budget reached the safety cap. Showing 0 discovered projects after 40 requests."
+    );
+  });
+});
+
+describe("promptBlockerCheck", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(p.confirm).mockReset();
+    vi.mocked(p.multiselect).mockReset();
+    vi.mocked(p.log.info).mockImplementation(() => undefined);
+    vi.mocked(p.log.warn).mockImplementation(() => undefined);
+  });
+
+  it("returns the single active state when enabled", async () => {
+    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
+
+    await expect(
+      promptBlockerCheck({ activeStates: ["In Progress"] })
+    ).resolves.toEqual(["In Progress"]);
+    expect(p.multiselect).not.toHaveBeenCalled();
+  });
+
+  it("defaults a multi-select to the first active state", async () => {
+    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
+    vi.mocked(p.multiselect).mockResolvedValueOnce(["Todo"] as never);
+
+    await expect(
+      promptBlockerCheck({ activeStates: ["Todo", "진행 중"] })
+    ).resolves.toEqual(["Todo"]);
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: ["Todo"],
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "Todo" }),
+          expect.objectContaining({ value: "진행 중" }),
+        ]),
+      })
+    );
+  });
+
+  it("returns an empty list when disabled or no active states exist", async () => {
+    vi.mocked(p.confirm).mockResolvedValueOnce(false as never);
+
+    await expect(
+      promptBlockerCheck({ activeStates: ["Todo"] })
+    ).resolves.toEqual([]);
+    await expect(promptBlockerCheck({ activeStates: [] })).resolves.toEqual([]);
+    expect(p.log.warn).toHaveBeenCalledWith(
+      "No active states; blocker check cannot be enabled."
     );
   });
 });
@@ -280,7 +339,9 @@ describe("init priority field detection", () => {
   });
 
   it("adds explicit project-field priority mapping during non-interactive dry-run when Priority exists", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-priority-nonint-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "cli-init-priority-nonint-")
+    );
     const stdout = vi
       .spyOn(process.stdout, "write")
       .mockReturnValue(true as never);
@@ -311,7 +372,12 @@ describe("init priority field detection", () => {
     });
 
     await initCommand(
-      ["--non-interactive", "--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      [
+        "--non-interactive",
+        "--dry-run",
+        "--output",
+        join(configDir, "WORKFLOW.md"),
+      ],
       {
         configDir,
         verbose: false,
@@ -322,7 +388,13 @@ describe("init priority field detection", () => {
 
     const payload = JSON.parse(
       stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
-    ) as { priority: { source: string; field?: string; values?: Record<string, number> } };
+    ) as {
+      priority: {
+        source: string;
+        field?: string;
+        values?: Record<string, number>;
+      };
+    };
     expect(payload.priority).toEqual({
       source: "project-field",
       field: "Priority",
@@ -334,13 +406,15 @@ describe("init priority field detection", () => {
   });
 
   it("allows Claude preflight for init --runtime claude-code with local auth", async () => {
-    const configDir = await mkdtemp(join(tmpdir(), "cli-init-claude-preflight-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "cli-init-claude-preflight-")
+    );
     const binDir = join(configDir, "bin");
     await mkdir(binDir, { recursive: true });
     const claude = join(binDir, "claude");
     await writeFile(
       claude,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 1.0.0'; fi\n",
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo \'claude 1.0.0\'; fi\n',
       "utf8"
     );
     await chmod(claude, 0o755);
@@ -457,21 +531,26 @@ describe("init priority field detection", () => {
       .mockResolvedValueOnce("0" as never)
       .mockResolvedValueOnce("1" as never);
 
-    await initCommand(["--dry-run", "--output", join(configDir, "WORKFLOW.md")], {
-      configDir,
-      verbose: false,
-      json: false,
-      noColor: true,
-    });
+    await initCommand(
+      ["--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
 
     const rendered = stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
     expect(rendered).toContain("Priority source   project-field");
-    expect(rendered).toContain("Priority mapping  Priority (Severity): P0=0, P1=1");
+    expect(rendered).toContain(
+      "Priority mapping  Priority (Severity): P0=0, P1=1"
+    );
     expect(vi.mocked(p.select).mock.calls).toEqual(
       expect.arrayContaining([
         [
           expect.objectContaining({
-            message: "Step 4/4 — Choose one priority source:",
+            message: "Step 5/5 — Choose one priority source:",
           }),
         ],
       ])
@@ -490,6 +569,58 @@ describe("init priority field detection", () => {
         ],
       ])
     );
+  });
+
+  it("validates state mappings before prompting for blocker checks", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-invalid-map-"));
+    vi.spyOn(ghAuth, "resolveGitHubAuth").mockResolvedValue({
+      source: "env",
+      login: "env-user",
+      token: "env-token",
+      scopes: ["repo", "read:org", "project"],
+    });
+    vi.spyOn(githubClient, "createClient").mockReturnValue({} as never);
+    vi.spyOn(githubClient, "discoverUserProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "project-1",
+          title: "Roadmap",
+          shortDescription: "",
+          url: "https://github.com/users/tester/projects/1",
+          openItemCount: 3,
+          owner: { login: "tester", type: "User" },
+        },
+      ],
+      partial: false,
+      reason: null,
+      requests: 1,
+    });
+    vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue({
+      ...MOCK_PROJECT_DETAIL,
+      id: "project-1",
+      statusFields: [MOCK_STATUS_FIELD],
+    });
+    vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
+      .mockResolvedValueOnce("project-1" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never)
+      .mockResolvedValueOnce("wait" as never);
+
+    await initCommand(
+      ["--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(p.log.error).toHaveBeenCalledWith("Mapping validation failed:");
+    expect(p.confirm).not.toHaveBeenCalled();
+    expect(p.multiselect).not.toHaveBeenCalled();
   });
 
   it("validates interactive priority mapping values as non-empty integers", async () => {
@@ -689,10 +820,14 @@ describe("init ecosystem generation", () => {
       mode: "overwrite",
     });
     expect(
-      result.files.some((file) => file.path.endsWith(DEFAULT_AFTER_CREATE_HOOK_PATH))
+      result.files.some((file) =>
+        file.path.endsWith(DEFAULT_AFTER_CREATE_HOOK_PATH)
+      )
     ).toBe(true);
     expect(
-      result.files.some((file) => file.path.endsWith(".gh-symphony/context.yaml"))
+      result.files.some((file) =>
+        file.path.endsWith(".gh-symphony/context.yaml")
+      )
     ).toBe(true);
     expect(result.environment.packageManager).toBeDefined();
   });
@@ -772,12 +907,16 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
 
-    expect(referenceWorkflow).toContain("Detected repository validation commands:");
+    expect(referenceWorkflow).toContain(
+      "Detected repository validation commands:"
+    );
     expect(referenceWorkflow).toContain("`pnpm test`");
     expect(referenceWorkflow).toContain(
       "(script: `pnpm --filter fixture test`)"
     );
-    expect(referenceWorkflow).toContain("This repository appears to be a monorepo");
+    expect(referenceWorkflow).toContain(
+      "This repository appears to be a monorepo"
+    );
     expect(skill).toContain("Detected repository validation commands:");
     expect(skill).toContain("`pnpm lint`");
     expect(skill).toContain("(script: `pnpm --filter fixture lint`)");
@@ -823,7 +962,9 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("source: project-field");
     expect(plan.workflowMd).toContain('field: "Priority"');
     expect(plan.workflowMd).not.toContain("priority_field:");
-    expect(plan.workflowMd).toContain("Detected repository validation commands:");
+    expect(plan.workflowMd).toContain(
+      "Detected repository validation commands:"
+    );
     expect(plan.workflowMd).toContain("`npm test`");
     expect(plan.workflowMd).toContain("`npm run lint`");
     expect(plan.workflowMd).toContain("Use `npm` conventions");
@@ -831,7 +972,10 @@ describe("init ecosystem generation", () => {
 
   it("threads non-Node repository commands into generated workflow artifacts", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-non-node-guidance-"));
-    await writeFile(join(cwd, "pyproject.toml"), "[project]\nname = 'fixture'\n");
+    await writeFile(
+      join(cwd, "pyproject.toml"),
+      "[project]\nname = 'fixture'\n"
+    );
     await writeFile(join(cwd, "uv.lock"), "version = 1\n");
     await writeFile(join(cwd, "pytest.ini"), "[pytest]\n");
     await writeFile(
@@ -855,13 +999,17 @@ describe("init ecosystem generation", () => {
       skipContext: false,
     });
 
-    expect(plan.workflowMd).toContain("Detected repository validation commands:");
+    expect(plan.workflowMd).toContain(
+      "Detected repository validation commands:"
+    );
     expect(plan.workflowMd).toContain("`make test`");
     expect(plan.workflowMd).toContain("`make lint`");
     expect(plan.workflowMd).toContain("Use `uv` conventions");
-    expect(plan.ecosystemPlan.files.some((file) => file.path.endsWith("reference-workflow.md"))).toBe(
-      true
-    );
+    expect(
+      plan.ecosystemPlan.files.some((file) =>
+        file.path.endsWith("reference-workflow.md")
+      )
+    ).toBe(true);
   });
 
   it("scaffolds codex-app-server runtime defaults into WORKFLOW.md", async () => {
@@ -933,7 +1081,7 @@ describe("init ecosystem generation", () => {
     const claude = join(binDir, "claude");
     await writeFile(
       claude,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 1.0.0'; fi\n",
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo \'claude 1.0.0\'; fi\n',
       "utf8"
     );
     await chmod(claude, 0o755);
@@ -980,18 +1128,21 @@ describe("init ecosystem generation", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never);
 
-    await initCommand(["--dry-run", "--output", join(configDir, "WORKFLOW.md")], {
-      configDir,
-      verbose: false,
-      json: false,
-      noColor: true,
-    });
+    await initCommand(
+      ["--dry-run", "--output", join(configDir, "WORKFLOW.md")],
+      {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
 
     const rendered = stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
     expect(rendered).toContain("Runtime   claude-print");
     expect(p.select).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: "Step 1/3 — Select the agent runtime:",
+        message: "Step 1/5 — Select the agent runtime:",
       })
     );
     expect(p.log.info).toHaveBeenCalledWith(

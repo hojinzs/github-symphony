@@ -47,11 +47,14 @@ export function inferAllStateRoles(columnNames: string[]): StateRoleMapping[] {
 
 export function toWorkflowLifecycleConfig(
   stateFieldName: string,
-  mappings: Record<string, StateMapping>
+  mappings: Record<string, StateMapping>,
+  options: {
+    blockerCheckStates?: string[];
+    planningStates?: string[];
+  } = {}
 ): WorkflowLifecycleConfig {
   const activeStates: string[] = [];
   const terminalStates: string[] = [];
-  const blockerCheckStates: string[] = [];
 
   for (const [columnName, mapping] of Object.entries(mappings)) {
     switch (mapping.role) {
@@ -67,16 +70,14 @@ export function toWorkflowLifecycleConfig(
     }
   }
 
-  // Default blocker check: first active state (typically "Todo"-like)
-  if (activeStates.length > 0) {
-    blockerCheckStates.push(activeStates[0]!);
-  }
+  const blockerCheckStates = options.blockerCheckStates ?? [];
 
   return {
     stateFieldName,
     activeStates,
     terminalStates,
     blockerCheckStates,
+    planningStates: options.planningStates ?? blockerCheckStates,
   };
 }
 

@@ -74,6 +74,8 @@ export function parseWorkflowMarkdown(
   const blockerCheckStates =
     readStringList(tracker, "blocker_check_states") ??
     DEFAULT_WORKFLOW_TRACKER.blockerCheckStates;
+  const planningStates =
+    readStringList(tracker, "planning_states") ?? blockerCheckStates;
 
   const maxConcurrentAgentsByState = readNumberMap(
     agent,
@@ -125,6 +127,7 @@ export function parseWorkflowMarkdown(
       priority: readPriorityConfig(tracker, env),
       priorityFieldName: readOptionalString(tracker, "priority_field", env),
       blockerCheckStates,
+      planningStates,
     },
     polling: {
       intervalMs:
@@ -168,6 +171,7 @@ export function parseWorkflowMarkdown(
       activeStates,
       terminalStates,
       blockerCheckStates,
+      planningStates,
     },
     format: "front-matter",
     githubProjectId: readOptionalString(tracker, "project_id", env),
@@ -475,7 +479,9 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
         return parsed;
       }
     } catch {
-      throw new Error(`Invalid quoted workflow front matter scalar "${value}".`);
+      throw new Error(
+        `Invalid quoted workflow front matter scalar "${value}".`
+      );
     }
   }
   if (value.startsWith("'") && value.endsWith("'")) {

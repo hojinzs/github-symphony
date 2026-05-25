@@ -548,7 +548,7 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 
 The generated file includes:
 
-- **Lifecycle**: `active_states`, `terminal_states`, `blocker_check_states` derived from the status column mapping
+- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`
@@ -607,7 +607,7 @@ The orchestrator resolves the workflow policy using this fallback chain:
 
 1. **Repository WORKFLOW.md** — if the target repository has a `WORKFLOW.md` at its root, use it.
 2. **Project WORKFLOW.md** — if the repository has no `WORKFLOW.md`, fall back to the project-level `WORKFLOW.md`.
-3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal).
+3. **Hardcoded defaults** — if neither file exists, use built-in defaults (`Todo`, `In Progress` as active; `Done` as terminal; blocker check and planning states disabled).
 
 This means you can:
 

@@ -61,12 +61,18 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     }
   }
 
-  if (input.lifecycle.blockerCheckStates.length > 0) {
-    lines.push("  blocker_check_states:");
-    for (const state of input.lifecycle.blockerCheckStates) {
-      lines.push(`    - ${state}`);
-    }
-  }
+  lines.push(
+    ...buildStringListFrontMatter(
+      "blocker_check_states",
+      input.lifecycle.blockerCheckStates
+    )
+  );
+  lines.push(
+    ...buildStringListFrontMatter(
+      "planning_states",
+      input.lifecycle.planningStates
+    )
+  );
 
   lines.push("polling:");
   lines.push(`  interval_ms: ${input.pollIntervalMs ?? 30000}`);
@@ -85,6 +91,14 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   lines.push(...buildRuntimeFrontMatter(input.runtime));
 
   return lines.join("\n") + "\n";
+}
+
+function buildStringListFrontMatter(key: string, values: string[]): string[] {
+  if (values.length === 0) {
+    return [`  ${key}: []`];
+  }
+
+  return [`  ${key}:`, ...values.map((value) => `    - ${value}`)];
 }
 
 function buildPriorityFrontMatter(

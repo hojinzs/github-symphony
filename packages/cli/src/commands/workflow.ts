@@ -84,6 +84,7 @@ type WorkflowValidationReport = {
     activeStates: string[];
     terminalStates: string[];
     blockerCheckStates: string[];
+    planningStates: string[];
     pollingIntervalMs: number;
     workspaceRoot: string | null;
     agentCommand: string;
@@ -747,8 +748,9 @@ async function loadLinearIssue(
     repository: projectConfig.repository,
     tracker: projectConfig.tracker,
   };
-  const trackerAdapter =
-    workflowCommandDependencies.resolveTrackerAdapter(projectConfig.tracker);
+  const trackerAdapter = workflowCommandDependencies.resolveTrackerAdapter(
+    projectConfig.tracker
+  );
   const [issue] = await trackerAdapter.fetchIssueStatesByIds(
     orchestratorProject,
     [issueIdentifier.trim().toUpperCase()],
@@ -806,6 +808,7 @@ function validateWorkflow(
       activeStates: workflow.lifecycle.activeStates,
       terminalStates: workflow.lifecycle.terminalStates,
       blockerCheckStates: workflow.lifecycle.blockerCheckStates,
+      planningStates: workflow.lifecycle.planningStates,
       pollingIntervalMs: workflow.polling.intervalMs,
       workspaceRoot: workflow.workspace.root,
       agentCommand: workflow.agentCommand,
@@ -846,6 +849,7 @@ Lifecycle
   active_states=${report.summary.activeStates.join(", ") || "(none)"}
   terminal_states=${report.summary.terminalStates.join(", ") || "(none)"}
   blocker_check_states=${report.summary.blockerCheckStates.join(", ") || "(none)"}
+  planning_states=${report.summary.planningStates.join(", ") || "(none)"}
 
 Runtime
   polling.interval_ms=${report.summary.pollingIntervalMs}
@@ -912,7 +916,9 @@ async function runPreview(
   if (
     flags.issue &&
     workflow.tracker.kind !== "github-project" &&
-    !(workflow.tracker.kind === "linear" && isLinearIssueIdentifier(flags.issue))
+    !(
+      workflow.tracker.kind === "linear" && isLinearIssueIdentifier(flags.issue)
+    )
   ) {
     throw new Error(
       "Live issue preview requires 'tracker.kind: github-project' with owner/repo#number or 'tracker.kind: linear' with a Linear identifier such as ENG-123."

@@ -4,14 +4,14 @@ export type WorkerTrackerState = "active" | "non-actionable" | "unknown";
 
 export function resolveInitialExecutionPhase(input: {
   issueState: string | null | undefined;
-  blockerCheckStates: string[];
+  planningStates: string[];
   activeStates: string[];
 }): WorkflowExecutionPhase | null {
-  const { issueState, blockerCheckStates, activeStates } = input;
+  const { issueState, planningStates, activeStates } = input;
   if (!issueState) {
     return null;
   }
-  if (blockerCheckStates.includes(issueState)) {
+  if (planningStates.includes(issueState)) {
     return "planning";
   }
   if (activeStates.includes(issueState)) {
@@ -40,7 +40,5 @@ export function resolveFinalExecutionPhase(input: {
   if (input.userInputRequired || input.trackerState !== "non-actionable") {
     return input.currentPhase;
   }
-  return (
-    resolvePausedExecutionPhase(input.currentPhase) ?? input.currentPhase
-  );
+  return resolvePausedExecutionPhase(input.currentPhase) ?? input.currentPhase;
 }
