@@ -66,7 +66,7 @@ function ghTokenReadErrorMessage(): string {
 }
 
 function missingGhScopesMessage(missing: string[]): string {
-  return `Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: ${missing.join(", ")}`;
+  return `Run 'gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}'. Missing scopes: ${missing.join(", ")}`;
 }
 
 function parseMissingScopes(message: string): string[] {

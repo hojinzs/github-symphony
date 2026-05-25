@@ -38,6 +38,7 @@ import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import {
   formatGhAuthRemediation,
   GhAuthError,
+  type GitHubAuthSource,
   resolveGitHubAuth,
   runGhAuthLogin,
   runGhAuthRefresh,
@@ -58,6 +59,10 @@ function logLine(icon: string, msg: string): void {
 }
 
 const REPO_START_COMMAND = "gh-symphony repo start";
+
+type RepoStartAuthPreflightResult =
+  | { ok: true; githubAuthSource?: GitHubAuthSource }
+  | { ok: false };
 
 function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
@@ -86,38 +91,40 @@ function displayGitHubAuthSuccess(auth: {
 
 async function resolveRepoStartGitHubAuth(input: {
   allowInteractiveRemediation: boolean;
-}): Promise<boolean> {
+}): Promise<RepoStartAuthPreflightResult> {
   try {
     const auth = await resolveGitHubAuth();
     process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
     displayGitHubAuthSuccess(auth);
-    return true;
+    return { ok: true, githubAuthSource: auth.source };
   } catch (error) {
     if (!(error instanceof GhAuthError)) {
       throw error;
     }
 
-    displayGhAuthError(error);
+    const remediation = formatGhAuthRemediation(error, {
+      retryCommand: REPO_START_COMMAND,
+    });
+    process.stderr.write(`${remediation.title}: ${remediation.message}\n`);
+    process.stderr.write(`${remediation.hint}\n`);
 
     const canRemediate =
       input.allowInteractiveRemediation &&
       isInteractiveTerminal() &&
-      error.code !== "not_installed";
+      remediation.command !== undefined &&
+      error.details.source !== "env";
     if (!canRemediate) {
       process.exitCode = 1;
-      return false;
+      return { ok: false };
     }
 
-    const remediation = formatGhAuthRemediation(error, {
-      retryCommand: REPO_START_COMMAND,
-    });
     const shouldRun = await p.confirm({
       message: `Run '${remediation.command}' now?`,
       initialValue: true,
     });
     if (p.isCancel(shouldRun) || shouldRun !== true) {
       process.exitCode = 1;
-      return false;
+      return { ok: false };
     }
 
     const result =
@@ -127,19 +134,19 @@ async function resolveRepoStartGitHubAuth(input: {
     process.stderr.write(`${result.summary}\n`);
     if (result.status !== "applied") {
       process.exitCode = 1;
-      return false;
+      return { ok: false };
     }
 
     try {
       const auth = await resolveGitHubAuth();
       process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
       displayGitHubAuthSuccess(auth);
-      return true;
+      return { ok: true, githubAuthSource: auth.source };
     } catch (retryError) {
       if (retryError instanceof GhAuthError) {
         displayGhAuthError(retryError);
         process.exitCode = 1;
-        return false;
+        return { ok: false };
       }
       throw retryError;
     }
@@ -149,7 +156,7 @@ async function resolveRepoStartGitHubAuth(input: {
 async function preflightRepoStartAuth(
   projectConfig: OrchestratorProjectConfig,
   input: { daemon: boolean }
-): Promise<boolean> {
+): Promise<RepoStartAuthPreflightResult> {
   if (projectConfig.tracker.adapter === "github-project") {
     return resolveRepoStartGitHubAuth({
       allowInteractiveRemediation: !input.daemon,
@@ -158,16 +165,16 @@ async function preflightRepoStartAuth(
 
   if (projectConfig.tracker.adapter === "linear") {
     if (process.env.LINEAR_API_KEY?.trim()) {
-      return true;
+      return { ok: true };
     }
     process.stderr.write(
       "Linear authentication is required. Set LINEAR_API_KEY in the environment before running 'gh-symphony repo start'.\n"
     );
     process.exitCode = 1;
-    return false;
+    return { ok: false };
   }
 
-  return true;
+  return { ok: true };
 }
 
 function isGitHubAuthRuntimeError(error: unknown): error is Error {
@@ -201,7 +208,10 @@ function isGitHubAuthRuntimeError(error: unknown): error is Error {
   return false;
 }
 
-function ghRuntimeErrorToAuthError(error: Error): GhAuthError {
+function ghRuntimeErrorToAuthError(
+  error: Error,
+  source?: GitHubAuthSource
+): GhAuthError {
   if (error instanceof GhAuthError) {
     return error;
   }
@@ -212,6 +222,7 @@ function ghRuntimeErrorToAuthError(error: Error): GhAuthError {
       {
         missingScopes: [...error.requiredScopes],
         currentScopes: [...error.currentScopes],
+        source,
       }
     );
   }
@@ -220,16 +231,20 @@ function ghRuntimeErrorToAuthError(error: Error): GhAuthError {
     error.message.toLowerCase().includes("missing required scopes") ||
     error.message.toLowerCase().includes("missing_scopes")
   ) {
-    return new GhAuthError("missing_scopes", error.message);
+    return new GhAuthError("missing_scopes", error.message, { source });
   }
   return new GhAuthError(
     "invalid_token",
-    error.message || "GitHub token validation failed."
+    error.message || "GitHub token validation failed.",
+    { source }
   );
 }
 
-function displayRuntimeAuthShutdown(error: Error): void {
-  const authError = ghRuntimeErrorToAuthError(error);
+function displayRuntimeAuthShutdown(
+  error: Error,
+  source?: GitHubAuthSource
+): void {
+  const authError = ghRuntimeErrorToAuthError(error, source);
   displayGhAuthError(authError);
   process.stderr.write(
     "Stopping repo start because GitHub authentication can no longer be validated.\n"
@@ -684,9 +699,10 @@ const handler = async (
     return;
   }
 
-  if (
-    !(await preflightRepoStartAuth(projectConfig, { daemon: parsed.daemon }))
-  ) {
+  const authPreflight = await preflightRepoStartAuth(projectConfig, {
+    daemon: parsed.daemon,
+  });
+  if (!authPreflight.ok) {
     return;
   }
 
@@ -732,7 +748,10 @@ const handler = async (
             const runtimeError = new Error(snapshot.lastError);
             if (isGitHubAuthRuntimeError(runtimeError)) {
               authShutdownRequested = true;
-              displayRuntimeAuthShutdown(runtimeError);
+              displayRuntimeAuthShutdown(
+                runtimeError,
+                authPreflight.githubAuthSource
+              );
               process.exitCode = 1;
               requestShutdown?.();
               return;
@@ -762,7 +781,7 @@ const handler = async (
         } catch (error) {
           if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
             authShutdownRequested = true;
-            displayRuntimeAuthShutdown(error);
+            displayRuntimeAuthShutdown(error, authPreflight.githubAuthSource);
             process.exitCode = 1;
             requestShutdown?.();
             return;
@@ -902,7 +921,7 @@ const handler = async (
 
           if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
             authShutdownRequested = true;
-            displayRuntimeAuthShutdown(error);
+            displayRuntimeAuthShutdown(error, authPreflight.githubAuthSource);
             process.exitCode = 1;
             await shutdown();
             return;
