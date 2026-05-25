@@ -1,11 +1,12 @@
 ---
 tracker:
   kind: github-project
-  project_id: PVT_kwHOAPiKdM4BRs_j
+  project_id: PVT_kwHOAPiKdM4BYPVD   # 🧩 Moncher Stack (hojinzs/projects/14)
   state_field: Status
   active_states:
     - Ready
     - In progress
+    - Land
   terminal_states:
     - Done
   blocker_check_states:
@@ -34,11 +35,14 @@ codex:
 
 ## Status Map
 
-- **Backlog** [wait] _(Do not work. Exit quietly without commenting.)_
-- **Ready** [active] _(Triage scope and clarity first. If the issue returns here with an existing PR, this starts a new work cycle — create a new workpad comment with the rework plan before coding.)_
-- **In progress** [active] _(Continue implementation. If a PR exists and this is a new work cycle, create a new workpad comment with the rework plan. If the current cycle's workpad already exists, update it in place.)_
-- **In review** [wait] _(Wait by default. Reactivate only when review feedback requires code changes.)_
-- **Done** [terminal] _(Completed, agent exits immediately.)_
+| Status | Role | Agent Action |
+| ------ | ---- | ------------ |
+| **Backlog** | wait | Agent ignores. Exit quietly without commenting. Also the parking lane for code-blocked issues — agent moves the issue here with a `⛔ Blocker` comment when a blocker is hit; human resolves and moves back to `Ready`. |
+| **Ready** | active | Triage scope and clarity. If a linked PR exists with unresolved review feedback, treat as a **rework re-entry** (see *Ready-return rework guard* in Step 0) and open a new work cycle before any code change. |
+| **In progress** | active | Implement → test → create or update PR. Each work cycle gets exactly one workpad comment; within the same cycle, update it in place. |
+| **In review** | wait | Pure human-review wait. Agent does **nothing** here except: if the PR has been merged, transition to `Done`; otherwise exit. Review rework is initiated by a human moving the issue back to `Ready` (or by the human approving and moving it to `Land`). |
+| **Land** | active | The human has approved the PR. Run `/land` skill: pre-flight checks (approval, CI, branch freshness) → squash merge → post-merge actions → transition to `Done`. |
+| **Done** | terminal | Completed. Agent exits immediately. |
 
 ## Agent Instructions
 
@@ -56,15 +60,28 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 ### Default Posture
 
 1. This is an unattended orchestration session. Do not ask humans for follow-up actions.
-2. Only abort early if there is a genuine blocker (missing required credentials or secrets).
+2. **Blocker = code-blocking only.** A blocker is something that prevents the *code change itself* from being completed (missing required secret, unrecoverable test-infra failure, contradictory requirements that need a human decision). Review feedback, deploy concerns, and UI polish are **not** blockers. On a code-blocker: post a `⛔ Blocker` issue comment (what · why · how to unblock), transition Status → `Backlog` via `/gh-project`, then exit. Never leave a blocked issue in `In progress` with a draft PR.
 3. In your final message, report only what was completed and any blockers. Do not include "next steps".
-4. Detect the report language from the issue body and use that language for all human-facing reports.
-5. If the issue body language is unclear or mixed, default the report language to English.
-6. Apply the report language consistently to workpad comments, progress comments, blocker comments, and PR review replies.
-7. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
-8. **Whenever you transition the issue to a different state, post a comment on the issue** in the report language explaining the transition: what state it is moving to, why, and what was decided or completed. This is mandatory for every state change — do not transition silently.
-9. If the issue re-enters `Ready` or `In progress` while a PR already exists, treat that as a **new work cycle**: inspect the PR's main merge blockers first, then create a new workpad comment with the revised plan before making code changes. Within the same work cycle, always update the existing workpad comment in place instead of creating additional ones.
-10. Treat Issue cards as the canonical project item for planning and state transitions. If an issue already has an open PR, inspect it from the issue timeline or GitHub links before deciding whether to create a new branch.
+4. **Report language**: detect from the issue body and apply consistently to workpad, progress/blocker/transition comments, and PR review replies. If the language is unclear or mixed, default to English. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
+5. **Log every status transition publicly** in *two* places, before or in the same operation as the board update:
+   - A standalone issue comment (`gh issue comment --body-file`), formatted:
+     ```
+     🔁 Status: `FROM` → `TO`
+
+     Reason: <why now>
+     Cycle: <N> open|close
+     ```
+   - One append-only line in the current workpad's `### Status Transitions` section, newest last:
+     ```
+     - <ISO-8601 UTC ts> · `<FROM>` → `<TO>` · <reason> (cycle <N> open|close)
+     ```
+   Reason = *why this transition now*, not a restatement of the target state ("리뷰 blocking 2건 rework", not "moved to In progress").
+6. Treat Issue cards as the canonical project item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only. If an issue has an open PR, inspect it from the issue timeline before deciding whether to create a new branch.
+7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, treat that as a **new work cycle**: run the relevant guard (Step 0 *Ready-return rework guard* for `Ready`; the `/land` skill's pre-flight for `Land`) and create a **new workpad comment** for the cycle before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
+8. Use the `/gh-project` skill for all project-board status transitions and field updates. Do not call ProjectV2 GraphQL APIs directly when this skill applies.
+9. **Multi-line GitHub comments**: never pass escaped `\n` strings as `--body`. Write the body to a temporary markdown file and post with `gh ... --body-file <file>`. This applies to issue comments, PR comments, and review replies — including the standalone transition comment in Posture 5.
+10. Do not edit the issue body for planning or progress tracking.
+11. If you discover out-of-scope improvements during the work, open a separate issue rather than expanding the current scope.
 
 ### Workflow
 
