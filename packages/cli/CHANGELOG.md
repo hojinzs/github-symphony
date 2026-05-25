@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- [#358](https://github.com/hojinzs/github-symphony/pull/358) [`1e828e1`](https://github.com/hojinzs/github-symphony/commit/1e828e1b4ef61a32798c5386127fdd5ea42b7645) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Make `blocker_check_states` an explicit setup/workflow init choice for [#357](https://github.com/hojinzs/github-symphony/issues/357), always serialize empty blocker selections, add independent `planning_states` for worker phase classification, and default missing blocker config to disabled instead of implicit `Todo`.
+
 ## 0.2.5
 
 ### Patch Changes
