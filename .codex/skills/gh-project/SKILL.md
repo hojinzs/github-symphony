@@ -25,14 +25,14 @@ create workpad comments, and handle follow-up issues.
 **Project:** 🧩 Moncher Stack (`PVT_kwHOAPiKdM4BYPVD`, hojinzs/projects/14)
 **Status Field ID:** `PVTSSF_lAHOAPiKdM4BYPVDzhTWkPc`
 
-| Column Name | Role | Option ID |
-|-------------|------|-----------|
-| Backlog | wait | `ecd228db` |
-| Ready | active | `f043e389` |
-| In progress | active | `b734c33a` |
-| In review | wait | `ffe0efa5` |
-| Land | active | `161b1b30` |
-| Done | terminal | `444fc1b2` |
+| Column Name | Role     | Option ID  |
+| ----------- | -------- | ---------- |
+| Backlog     | wait     | `ecd228db` |
+| Ready       | active   | `f043e389` |
+| In progress | active   | `b734c33a` |
+| In review   | wait     | `ffe0efa5` |
+| Land        | active   | `161b1b30` |
+| Done        | terminal | `444fc1b2` |
 
 ## Operations
 

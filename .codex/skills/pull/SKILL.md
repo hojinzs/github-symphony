@@ -13,6 +13,7 @@ metadata:
 ## Trigger
 
 Use this skill to bring the current branch up to date with its base branch:
+
 - Before creating a PR.
 - Before starting a new work session on an existing branch.
 - When the `/land` skill's pre-flight check 3 (branch up-to-date with PR base) fails.
@@ -20,6 +21,7 @@ Use this skill to bring the current branch up to date with its base branch:
 ## Flow
 
 1. Determine the base branch:
+
    ```bash
    # If a PR exists for the current branch:
    pr_number=$(gh pr view --json number --jq .number 2>/dev/null)
@@ -31,11 +33,13 @@ Use this skill to bring the current branch up to date with its base branch:
    ```
 
 2. Fetch latest:
+
    ```bash
    git fetch origin "$base"
    ```
 
 3. Rebase the current branch onto the base:
+
    ```bash
    git rebase "origin/$base"
    ```
@@ -48,9 +52,11 @@ Use this skill to bring the current branch up to date with its base branch:
    - Re-run tests to confirm the integrated state is clean.
 
 5. After a successful rebase, the local branch has new commit SHAs. If the branch was already pushed (e.g. a Draft PR exists), force-push with lease:
+
    ```bash
    git push --force-with-lease origin <branch-name>
    ```
+
    `--force-with-lease` is safer than `--force`: it refuses to overwrite if the remote moved since your last fetch.
 
 6. Record the pull skill evidence in the workpad `### Validation` section:
