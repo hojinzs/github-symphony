@@ -224,51 +224,123 @@ This step performs no code edits, commits, or pushes itself — only the workpad
 
 ### Workpad Lifecycle
 
-A **work cycle** begins when an issue transitions into an active state (`Ready` or `In progress`) from a non-active state (`Backlog`, `In review`, `Done`), or when the issue is first picked up. Each work cycle gets exactly **one** workpad comment.
+A **work cycle** is one continuous active stretch on an issue. It opens when the issue enters an active state from a wait/terminal state, and closes when it returns to a wait/terminal state. Turns are sub-units inside a cycle.
 
-- **Cycle start:** Create a new `## Workpad` comment on the issue.
-- **Within the same cycle:** Always **edit (update)** the existing workpad comment. Do not create additional workpad comments.
-- **How to identify the current cycle's workpad:** Find the most recent comment on the issue that starts with `## Workpad`. If it belongs to the current cycle, update it. If no workpad exists for the current cycle, create one.
-- **New cycle detection:** A new cycle has started if the issue transitioned from `In review` (or another non-active state) back to `Ready` or `In progress` since the last workpad was created. In that case, create a new workpad comment rather than updating the previous cycle's workpad.
+| Transition | Cycle effect |
+| ---------- | ------------ |
+| (any wait state) → `Ready` → `In progress` | open **cycle N** (fresh pickup or resume) |
+| `In progress` → `In review` | close current cycle (handoff to human) |
+| `In review` → `Ready` → `In progress` (via Ready-return rework guard) | open **next cycle** (rework) |
+| `In progress` → `Backlog` (code-blocker) | close current cycle (parked) |
+| `Backlog` → `Ready` (resume after blocker resolved) | open **next cycle** (resume) |
+| `In review` → `Land` | open a **land cycle** |
+| `Land` → `Done` | close the land cycle (terminal) |
+
+**Rules:**
+
+- Each cycle gets exactly **one** `## Workpad — {{issue.identifier}} — Cycle N` comment.
+- Within a cycle, **edit** the existing workpad in place. Never create a second workpad for the same cycle.
+- When a new cycle opens, create a **new** workpad comment. Prior cycle workpads remain as historical audit records — do not silently rewrite them.
+- The "current" workpad is the newest open cycle comment. Identify it by searching for the most recent comment whose body starts with `## Workpad —`.
+- Cycle number N increments across the whole issue lifetime — including land cycles. (Example: cycle 1 initial work, cycle 2 rework, cycle 3 land.) Cycles open on a transition into `In progress` (Step 1.5 / Step 0 Ready-return guard step 4) or `Land` (Step 4.1); transitions into intermediate active states like `Ready` do not open a cycle.
+- Triage failures (`Ready` → `Backlog` from Step 1.2) do **not** open or close a cycle. The standalone status comment is still posted, but the `Cycle:` line is written as `Cycle: — (triage rejection)`. The next cycle number is unaffected.
+
+### Status Transition Log
+
+(See Posture 5 for the rule.) Every status transition produces two audit records:
+
+1. Standalone issue comment via `gh issue comment --body-file`:
+   ```
+   🔁 Status: `FROM` → `TO`
+
+   Reason: <why now>
+   Cycle: <N> open|close
+   ```
+2. One append-only line in the current workpad's `### Status Transitions` section:
+   ```
+   - <ISO-8601 UTC ts> · `<FROM>` → `<TO>` · <reason> (cycle <N> open|close)
+   ```
+
+`reason` is *why this transition now* — not a restatement of `TO`. "Completion Bar 통과, 핸드오프"·"리뷰 blocking 2건 rework", not "moved to In review".
 
 ### Workpad Template
 
-Create a workpad comment on the issue with the following structure to track progress:
+Used for all cycles. Land-cycle workpads keep Plan/Validation/Progress Log filled and leave Completion Bar / Rework empty.
 
-```md
-## Workpad
+````md
+## Workpad — {{issue.identifier}} — Cycle {N}
 
-### Re-entry Context
+**Type:** {fresh pickup | rework cycle (PR #X) | resume after blocker | land}
+**Branch:** {branch name}
+**Draft PR:** {PR URL or `not yet created`}
+**Cycle opened:** {ISO ts} · **Trigger:** {one-line reason}
 
-- Trigger: initial implementation / resumed after PR feedback
-- PR: URL or `none`
-- Major merge blockers:
-  - blocker 1
-  - blocker 2
+### Status Transitions
+
+<!-- append-only within this cycle; also post each transition as a standalone issue comment -->
+- {ISO ts} · `{FROM}` → `{TO}` · {why now} (cycle {N} open|close)
 
 ### Plan
 
-- [ ] 1. Task item
+<!-- one item per turn (Step 2.3). LAST item is always the handoff.
+     Out-of-scope items go under 위임 below, never here. -->
+- [ ] 1. {task item}
+- [ ] N. 마무리: 원본 이슈 재검증 · Completion Bar 통과 · changeset (필요 시) · PR ready · In review 전이
 
-### Acceptance Criteria
+### Rework / PR Feedback
 
-- [ ] Criterion 1
+<!-- only filled on rework cycles entered via Step 0 Ready-return guard -->
+- Major merge blockers from review:
+  - {blocker 1}
+
+### Completion Bar
+
+<!-- mirror of WORKFLOW.md Step 2.6; in-progress cycles only -->
+- [ ] In-scope requirements implemented
+- [ ] `pnpm lint`
+- [ ] `pnpm test`
+- [ ] `pnpm typecheck`
+- [ ] `pnpm build`
+- [ ] Docker E2E (if integration behavior changed)
+- [ ] Tests for new functionality (or justified N/A)
+- [ ] Code conventions (CLAUDE.md)
+- [ ] Inline review comments answered (rework only)
 
 ### Validation
 
-- [ ] Test: `command`
+<!-- evidence: command, outcome, artifacts -->
+- {command} — {pass/fail}
+- Changeset: `{path or N/A}`
+- Docker E2E evidence: `{path or N/A}`
+- Merge commit (Land cycle only): `{SHA}`
 
-### Notes
+### 위임 (out-of-scope / human / post-merge)
 
-- Progress notes
-- Scope assessment
-```
+<!-- items from {{issue.description}} that the agent does NOT do: deploy,
+     external URL smoke test, manual UX. Mirror into the PR body's
+     머지 후/사람 확인 section. NOT blockers, NOT Plan checkboxes. -->
+- {none | item}
+
+### Progress Log
+
+- {ISO ts}: {action taken}
+
+### Blockers
+
+<!-- code-blockers only (Posture 2). On a code-blocker: write ⛔ here + as a
+     standalone issue comment, then park Status → Backlog. -->
+None
+````
 
 ### Related Skills
 
-- `/gh-project` — interact with GitHub Project v2 board for status transitions and workpad comments
-- `/gh-pr-writeup` — draft or refresh PR bodies with linked issues, validation evidence, and human validation checklists
-- `/commit` — produce clean, logical commits during implementation
-- `/push` — keep remote branch current and publish updates
-- `/pull` — sync branch with latest origin/main before PR handoff
-- `/land` — merge approved PR and transition the issue to `Done`
+All skills referenced by this workflow live under `.codex/skills/<name>/SKILL.md` so the codex-driven worker can discover them.
+
+- **`/gh-project`** — manage GitHub Project v2 status transitions and board placement. All Status field changes go through this skill (Posture 8).
+- **`/gh-pr-writeup`** — scaffold or refresh the PR body. Two modes:
+  - *Initial Draft* (Step 1): create a new Draft PR with TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 placeholders.
+  - *Refresh* (Step 2.8): update the same PR body before `gh pr ready`.
+- **`/commit`** — produce logical-unit commits in conventional commit format.
+- **`/push`** — push the feature branch to origin; updates the Draft PR automatically.
+- **`/pull`** — rebase or merge the PR base branch into the head branch. Used by the `/land` skill's branch-freshness step.
+- **`/land`** — execute the Land workflow: pre-flight checks → squash merge → post-merge bookkeeping → transition to `Done`. Triggered by Step 4.
