@@ -180,7 +180,7 @@ describe("setup command", () => {
     );
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context."
+        "Supported flags: --non-interactive, --output, --skip-skills, --skip-context."
       )
     );
   });
@@ -290,9 +290,7 @@ describe("setup command", () => {
     vi.mocked(p.text)
       .mockResolvedValueOnce("0" as never)
       .mockResolvedValueOnce("1" as never);
-    vi.mocked(p.confirm)
-      .mockResolvedValueOnce(false as never)
-      .mockResolvedValueOnce(true as never);
+    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
 
     await setupCommand([], {
       configDir,
@@ -341,7 +339,25 @@ describe("setup command", () => {
     expect(workflow).toContain("# Optional template: labels priority source.");
   });
 
-  it("uses --assigned-only as the interactive prompt default and preserves the setting", async () => {
+  it("rejects the removed --assigned-only setup flag", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--assigned-only"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(2);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining("Unknown option '--assigned-only'")
+    );
+  });
+
+  it("does not prompt for or persist assigned-only during interactive setup", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-assigned-cwd-"));
     const configDir = await mkdtemp(
       join(tmpdir(), "setup-interactive-assigned-config-")
@@ -355,11 +371,9 @@ describe("setup command", () => {
       .mockResolvedValueOnce("active" as never)
       .mockResolvedValueOnce("terminal" as never)
       .mockResolvedValueOnce("disabled" as never);
-    vi.mocked(p.confirm)
-      .mockResolvedValueOnce(true as never)
-      .mockResolvedValueOnce(true as never);
+    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
 
-    await setupCommand(["--assigned-only"], {
+    await setupCommand([], {
       configDir,
       verbose: false,
       json: false,
@@ -373,11 +387,10 @@ describe("setup command", () => {
       )
     );
 
-    expect(project.tracker.settings?.assignedOnly).toBe(true);
+    expect(project.tracker.settings?.assignedOnly).toBeUndefined();
+    expect(vi.mocked(p.confirm)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
-      message:
-        "Step 4/4 — Only process issues assigned to the authenticated GitHub user?",
-      initialValue: true,
+      message: "Write files and register this managed project?",
     });
   });
 });

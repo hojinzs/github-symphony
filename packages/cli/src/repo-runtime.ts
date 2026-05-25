@@ -24,7 +24,6 @@ import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
 export type RepoInitFlags = {
   repoDir: string;
   workflowFile?: string;
-  assignedOnly?: boolean;
 };
 
 const INTERNAL_PROJECT_ID = "repository";
@@ -90,9 +89,6 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
-  if (flags.assignedOnly) {
-    trackerSettings.assignedOnly = true;
-  }
   if (workflow.tracker.priorityFieldName) {
     trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }

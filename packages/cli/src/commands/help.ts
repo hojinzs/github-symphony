@@ -11,7 +11,7 @@ export type HelpSection = {
   entries: HelpEntry[];
 };
 
-export const DESCRIPTION_COLUMN = 23;
+export const DESCRIPTION_COLUMN = 30;
 export const COMMAND_COLUMN_WIDTH = DESCRIPTION_COLUMN - 2;
 
 export const HELP_SECTIONS: HelpSection[] = [
@@ -66,6 +66,10 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         name: "repo start --daemon",
         description: "Start the orchestrator in the background",
+      },
+      {
+        name: "repo start --assigned-only",
+        description: "Process only issues assigned to the authenticated user",
       },
       {
         name: "repo stop",

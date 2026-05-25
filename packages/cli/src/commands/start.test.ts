@@ -165,6 +165,35 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("passes --assigned-only to the orchestrator as runtime input", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async () => {
+      process.emit("SIGINT");
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+
+    await startModule.default(["--assigned-only"], baseOptions(configDir));
+
+    expect(serviceDependencies.at(-1)).toMatchObject({
+      assignedOnly: true,
+    });
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
   it("rejects the conflicting --daemon --once combination", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",

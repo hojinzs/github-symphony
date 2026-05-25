@@ -146,12 +146,13 @@ function resolveGitHubTrackerConfig(
   }
 
   const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
+  const assignedOnly = resolveAssignedOnly(project.tracker, dependencies);
 
   return {
     projectId: githubProjectId,
     token,
     apiUrl: project.tracker.apiUrl,
-    assignedOnly: readBooleanTrackerSetting(project.tracker, "assignedOnly"),
+    assignedOnly,
     priority: project.tracker.priority ?? null,
     priorityFieldName: readOptionalStringTrackerSetting(
       project.tracker,
@@ -159,6 +160,33 @@ function resolveGitHubTrackerConfig(
     ),
     timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
   };
+}
+
+const warnedLegacyAssignedOnlyProjectIds = new Set<string>();
+
+function resolveAssignedOnly(
+  tracker: OrchestratorTrackerConfig,
+  dependencies: OrchestratorTrackerDependencies
+): boolean {
+  if (dependencies.assignedOnly !== undefined) {
+    return dependencies.assignedOnly;
+  }
+
+  const legacyAssignedOnly = readBooleanTrackerSetting(
+    tracker,
+    "assignedOnly"
+  );
+  if (legacyAssignedOnly) {
+    const warningKey = `${tracker.adapter}:${tracker.bindingId}`;
+    if (!warnedLegacyAssignedOnlyProjectIds.has(warningKey)) {
+      warnedLegacyAssignedOnlyProjectIds.add(warningKey);
+      console.warn(
+        "[gh-symphony] Deprecated tracker.settings.assignedOnly detected. Use 'gh-symphony repo start --assigned-only' instead; persisted assignedOnly support will be removed in the next major release."
+      );
+    }
+  }
+
+  return legacyAssignedOnly;
 }
 
 function buildProjectItemsCacheKey(

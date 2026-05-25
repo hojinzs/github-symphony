@@ -1486,7 +1486,6 @@ type WriteConfigInput = {
   repos: LinkedRepository[];
   workspaceDir: string;
   maxAttempts?: number;
-  assignedOnly?: boolean;
 };
 
 export async function writeConfig(
@@ -1517,7 +1516,6 @@ export async function writeConfig(
         ...(input.repos[0]
           ? { repository: `${repository.owner}/${repository.name}` }
           : {}),
-        ...(input.assignedOnly ? { assignedOnly: true } : {}),
       },
     },
   });
