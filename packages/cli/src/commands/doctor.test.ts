@@ -1,4 +1,12 @@
-import { access, chmod, mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,11 +15,13 @@ import type { TrackedIssue } from "@gh-symphony/core";
 import type { CliProjectConfig } from "../config.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import { orchestratorLogPath } from "../config.js";
 import doctorCommand, {
   type DoctorDependencies,
   runDoctorCommand,
   runDoctorDiagnostics,
 } from "./doctor.js";
+import { SUPPORT_BUNDLE_LIMITS } from "../support/bundle.js";
 
 const DOCTOR_TEST_NODE_VERSION = "v24.0.0";
 
@@ -214,6 +224,135 @@ async function prepareDoctorPaths(
   if (workspaceDir) {
     await mkdir(workspaceDir, { recursive: true });
   }
+}
+
+async function prepareBundleRuntimeFixture(input: {
+  configDir: string;
+  workspaceDir: string;
+  projectId?: string;
+}): Promise<void> {
+  const projectId = input.projectId ?? "tenant-a";
+  await mkdir(join(input.configDir, "projects", projectId), {
+    recursive: true,
+  });
+  await writeFile(
+    join(input.configDir, "config.json"),
+    JSON.stringify(
+      {
+        activeProject: projectId,
+        projects: [projectId],
+        GITHUB_TOKEN: "ghp_xxx",
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "projects", projectId, "project.json"),
+    JSON.stringify(
+      {
+        ...createProjectConfig(input.workspaceDir),
+        projectId,
+        tracker: {
+          adapter: "github-project",
+          bindingId: "PVT_test",
+          settings: {
+            GITHUB_GRAPHQL_TOKEN: "ghp_xxx",
+            LINEAR_API_KEY: "lin_xxx",
+          },
+        },
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "status.json"),
+    JSON.stringify(
+      {
+        health: "running",
+        token: "xxx",
+        repository: { owner: "acme", name: "widgets" },
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "issues.json"),
+    JSON.stringify([{ id: "issue-1", secret: "xxx" }], null, 2),
+    "utf8"
+  );
+  await mkdir(join(input.configDir, "runs", "run-1"), { recursive: true });
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "run.json"),
+    JSON.stringify(
+      {
+        runId: "run-1",
+        status: "running",
+        startedAt: "2026-05-18T00:00:00.000Z",
+        updatedAt: "2026-05-18T00:01:00.000Z",
+        apiKey: "xxx",
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "events.ndjson"),
+    [
+      JSON.stringify({
+        at: "2026-05-18T00:00:00.000Z",
+        event: "worker",
+        message: "Authorization: Bearer abc123",
+      }),
+      JSON.stringify({
+        at: "2026-05-18T00:00:01.000Z",
+        event: "worker",
+        token: "json_token_value",
+        secret: "json_secret_value",
+        apiKey: "json_api_key_value",
+      }),
+      "OPENAI_API_KEY=sk-xxx",
+    ].join("\n") + "\n",
+    "utf8"
+  );
+  await writeFile(
+    join(input.configDir, "runs", "run-1", "worker.log"),
+    Array.from({ length: 650 }, (_, index) =>
+      index === 649 ? "X-API-Key: xxx" : `worker line ${index}`
+    ).join("\n"),
+    "utf8"
+  );
+  await mkdir(join(input.configDir, "projects", projectId), {
+    recursive: true,
+  });
+  await writeFile(
+    orchestratorLogPath(input.configDir, projectId),
+    "GITHUB_TOKEN=ghp_xxx\norchestrator ready\n",
+    "utf8"
+  );
+}
+
+async function readBundleFiles(root: string): Promise<string> {
+  const chunks: string[] = [];
+  async function visit(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path);
+      } else {
+        chunks.push(await readFile(path, "utf8"));
+      }
+    }
+  }
+  await visit(root);
+  return chunks.join("\n");
 }
 
 afterEach(() => {
@@ -1282,7 +1421,8 @@ describe("doctor command handler", () => {
               projectId: "tenant-a",
               projectConfig: createProjectConfig(workspaceDir),
             }),
-            getProjectDetail: (async () => createProjectDetail() as never) as never,
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
             pathEnv: binDir,
           }
         )
@@ -1411,6 +1551,339 @@ describe("doctor command handler", () => {
     );
   });
 
+  it("creates a redacted support bundle at an explicit path", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({ configDir, workspaceDir });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nAuthorization: Bearer abc123\n",
+      "utf8"
+    );
+    const outputPath = join(repoDir, "tmp", "support-bundle");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async (input) => ({
+              kind: "resolved",
+              projectId: input.requestedProjectId ?? "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as {
+      outputPath: string;
+      includedCount: number;
+      missingCount: number;
+      redactionCount: number;
+      redactionClasses: Array<{ class: string; count: number }>;
+      truncationCount: number;
+    };
+    expect(summary.outputPath).toBe(outputPath);
+    expect(summary.includedCount).toBeGreaterThanOrEqual(9);
+    expect(summary.missingCount).toBe(0);
+    expect(summary.redactionCount).toBeGreaterThan(0);
+    expect(summary.redactionClasses.map((entry) => entry.class)).toEqual(
+      expect.arrayContaining([
+        "authorization_header",
+        "env_token",
+        "api_key",
+        "secret_key",
+      ])
+    );
+    expect(summary.truncationCount).toBeGreaterThanOrEqual(1);
+
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as {
+      projectId: string;
+      included: string[];
+      truncations: Array<{ path: string }>;
+    };
+    expect(manifest.projectId).toBe("tenant-a");
+    expect(manifest.included).toEqual(
+      expect.arrayContaining([
+        "doctor.json",
+        "config/config.json",
+        "config/project.json",
+        "repo/WORKFLOW.md",
+        "runtime/status.json",
+        "runtime/issues.json",
+        "runtime/orchestrator.log.tail",
+        "runs/run-1/run.json",
+        "runs/run-1/events.ndjson.tail",
+        "runs/run-1/worker.log.tail",
+      ])
+    );
+    expect(manifest.truncations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "runs/run-1/worker.log.tail" }),
+      ])
+    );
+
+    const bundleContent = await readBundleFiles(outputPath);
+    for (const secret of [
+      "abc123",
+      "ghp_xxx",
+      "lin_xxx",
+      "sk-xxx",
+      "json_token_value",
+      "json_secret_value",
+      "json_api_key_value",
+    ]) {
+      expect(bundleContent).not.toContain(secret);
+    }
+  });
+
+  it("preserves bounded tails for oversized single-line logs", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-tail-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({ configDir, workspaceDir });
+    await writeFile(
+      join(configDir, "runs", "run-1", "worker.log"),
+      "x".repeat(SUPPORT_BUNDLE_LIMITS.maxLogBytes + 1024) + "tail-marker",
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-single-line-tail");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const tail = await readFile(
+      join(outputPath, "runs", "run-1", "worker.log.tail"),
+      "utf8"
+    );
+    expect(tail).toContain("tail-marker");
+    expect(tail.length).toBeGreaterThan(0);
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { truncations: Array<{ path: string; reason: string }> };
+    expect(manifest.truncations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "runs/run-1/worker.log.tail",
+          reason: expect.stringContaining("partialLine"),
+        }),
+      ])
+    );
+  });
+
+  it("creates a timestamped support bundle by default and records missing optional artifacts", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-default-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await mkdir(join(configDir, "projects", "tenant-a"), { recursive: true });
+    await writeFile(
+      join(configDir, "config.json"),
+      JSON.stringify({ activeProject: "tenant-a", projects: ["tenant-a"] }),
+      "utf8"
+    );
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "project.json"),
+      JSON.stringify(createProjectConfig(workspaceDir)),
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as {
+      outputPath: string;
+      missingCount: number;
+    };
+    expect(summary.outputPath).toContain("gh-symphony-support-bundle-");
+    expect(summary.missingCount).toBeGreaterThan(0);
+    const manifest = JSON.parse(
+      await readFile(join(summary.outputPath, "manifest.json"), "utf8")
+    ) as { missing: Array<{ path: string }> };
+    expect(manifest.missing.map((entry) => entry.path)).toEqual(
+      expect.arrayContaining([
+        "runtime/status.json",
+        "runtime/issues.json",
+        "runtime/orchestrator.log.tail",
+        "runs",
+      ])
+    );
+  });
+
+  it("records malformed optional JSON artifacts as missing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-bad-json-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await mkdir(join(configDir, "projects", "tenant-a"), { recursive: true });
+    await writeFile(join(configDir, "config.json"), "{ bad json", "utf8");
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "project.json"),
+      "{ also bad json",
+      "utf8"
+    );
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-bad-json");
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as { missingCount: number };
+    expect(summary.missingCount).toBeGreaterThanOrEqual(2);
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { missing: Array<{ path: string; reason: string }> };
+    expect(manifest.missing).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "config/config.json" }),
+        expect.objectContaining({ path: "config/project.json" }),
+      ])
+    );
+  });
+
+  it("honors explicit project selection for support bundles", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-project-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await prepareBundleRuntimeFixture({
+      configDir,
+      workspaceDir,
+      projectId: "project-b",
+    });
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const outputPath = join(repoDir, "bundle-project-b");
+    const requestedProjectIds: Array<string | undefined> = [];
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--bundle", outputPath, "--project-id", "project-b"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async (input) => {
+              requestedProjectIds.push(input.requestedProjectId);
+              return {
+                kind: "resolved",
+                projectId: input.requestedProjectId ?? "tenant-a",
+                projectConfig: createProjectConfig(workspaceDir),
+              };
+            },
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            execFileSync: (() => "git version 2.43.0") as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const summary = JSON.parse(stdout.output()) as { projectId: string };
+    expect(summary.projectId).toBe("project-b");
+    expect(requestedProjectIds).toContain("project-b");
+    const manifest = JSON.parse(
+      await readFile(join(outputPath, "manifest.json"), "utf8")
+    ) as { projectId: string };
+    expect(manifest.projectId).toBe("project-b");
+  });
+
+  it("rejects --fix with support bundle export", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-bundle-fix-"));
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await doctorCommand(["--bundle", "--fix"], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain(
+      "Option '--fix' cannot be used with '--bundle'"
+    );
+  });
+
   it("reports no managed project for smoke checks", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const { repoDir, pathEnv } = await createWorkflowFixture();
@@ -1536,23 +2009,28 @@ describe("doctor command handler", () => {
     const { repoDir, pathEnv } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
-      runDoctorDiagnostics(baseOptions(configDir), ["--smoke", "--issue", "garbage"], {
-        ...authDependencies(),
-        inspectManagedProjectSelection: async () => ({
-          kind: "resolved",
-          projectId: "tenant-a",
-          projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
-            {
-              owner: "acme",
-              name: "widgets",
-              url: "https://github.com/acme/widgets",
-              cloneUrl: "https://github.com/acme/widgets.git",
-            },
-          ]),
-        }),
-        getProjectDetail: (async () => createProjectDetail() as never) as never,
-        pathEnv,
-      })
+      runDoctorDiagnostics(
+        baseOptions(configDir),
+        ["--smoke", "--issue", "garbage"],
+        {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+              {
+                owner: "acme",
+                name: "widgets",
+                url: "https://github.com/acme/widgets",
+                cloneUrl: "https://github.com/acme/widgets.git",
+              },
+            ]),
+          }),
+          getProjectDetail: (async () =>
+            createProjectDetail() as never) as never,
+          pathEnv,
+        }
+      )
     );
 
     expect(report.ok).toBe(false);
@@ -1725,5 +2203,366 @@ describe("doctor command handler", () => {
         ],
       }),
     });
+  });
+
+  it("warns for legacy-only priority_field without failing doctor", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Legacy priority mapping"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("deprecated"),
+    });
+  });
+
+  it("warns that explicit priority wins over legacy priority_field", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority_field: Priority\n  priority:\n    source: disabled\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Priority mapping precedence"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("explicit tracker.priority wins"),
+    });
+  });
+
+  it("warns for project-field priority drift without failing doctor", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\n      Missing: 2\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            ...createProjectDetail(),
+            statusFields: [
+              {
+                id: "priority",
+                name: "Priority",
+                options: [
+                  { id: "p0", name: "High", description: null, color: null },
+                  { id: "p1", name: "Low", description: null, color: null },
+                ],
+              },
+            ],
+          }) as never) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            priority: null,
+            metadata: { Priority: "Low" },
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.filter((check) => check.id === "priority_mapping")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Unmapped priority Project options",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Missing priority Project options",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority values",
+        }),
+      ])
+    );
+  });
+
+  it("warns when the configured priority Project field is missing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: project-field\n    field: Priority\n    values:\n      High: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () =>
+          ({
+            ...createProjectDetail(),
+            statusFields: [
+              {
+                id: "severity",
+                name: "Severity",
+                options: [],
+              },
+            ],
+          }) as never) as never,
+        fetchProjectIssues: (async () => []) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find(
+        (check) =>
+          check.id === "priority_mapping" &&
+          check.title === "Priority Project field drift"
+      )
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("was not found"),
+    });
+  });
+
+  it("warns for label priority drift and active label conflicts", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\n      P9: 9\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0", "p1", "p2"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.filter((check) => check.id === "priority_mapping")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Missing configured priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Stale priority label mappings",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with multiple priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority labels",
+          details: {
+            activeUnmapped: [{ issue: "acme/widgets#1", labels: ["p2"] }],
+          },
+        }),
+      ])
+    );
+  });
+
+  it("does not report stale label drift when repository labels cannot be read", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => {
+          throw new Error("labels unavailable");
+        }) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0", "p1", "p2"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    const priorityChecks = report.checks.filter(
+      (check) => check.id === "priority_mapping"
+    );
+    expect(report.ok).toBe(true);
+    expect(priorityChecks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "warn",
+          title: "Priority label drift",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with multiple priority labels",
+        }),
+        expect.objectContaining({
+          status: "warn",
+          title: "Active issues with unmapped priority labels",
+          details: {
+            activeUnmapped: [{ issue: "acme/widgets#1", labels: ["p2"] }],
+          },
+        }),
+      ])
+    );
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Missing configured priority labels" }),
+        expect.objectContaining({ title: "Stale priority label mappings" }),
+      ])
+    );
+  });
+
+  it("does not report mapped priority labels as unmapped when active issue labels are normalized", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      "---\ntracker:\n  kind: github-project\n  priority:\n    source: labels\n    labels:\n      P0: 0\n      P1: 1\ncodex:\n  command: fake-agent\n---\nPrompt body\n",
+      "utf8"
+    );
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: createProjectConfig(workspaceDir),
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        fetchProjectIssues: (async () => [
+          createTrackedIssue({
+            state: "In progress",
+            labels: ["p0"],
+          }),
+        ]) as never,
+        pathEnv,
+      })
+    );
+
+    const priorityChecks = report.checks.filter(
+      (check) => check.id === "priority_mapping"
+    );
+    expect(report.ok).toBe(true);
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Active issues with unmapped priority labels",
+        }),
+      ])
+    );
+    expect(priorityChecks).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Active issues with multiple priority labels",
+        }),
+      ])
+    );
   });
 });

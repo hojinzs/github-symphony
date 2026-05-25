@@ -127,8 +127,6 @@ export function buildRuntimeFrontMatter(runtime: string): string[] {
       "  isolation:",
       "    bare: false",
       "    strict_mcp_config: false",
-      "  auth:",
-      "    env: ANTHROPIC_API_KEY",
       "  timeouts:",
       "    read_timeout_ms: 5000",
       "    turn_timeout_ms: 3600000",

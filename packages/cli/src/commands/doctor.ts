@@ -23,6 +23,7 @@ import {
   findLinkedRepository,
   getProjectDetail,
   GitHubApiError,
+  listRepositoryLabels,
   type ProjectDetail,
 } from "../github/client.js";
 import {
@@ -40,7 +41,15 @@ import {
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import {
+  buildPriorityConfigDiagnostics,
+  buildPriorityDriftDiagnostics,
+} from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
+import {
+  createSupportBundle,
+  type SupportBundleSummary,
+} from "../support/bundle.js";
 import {
   parseIssueReference,
   readGitHubProjectBinding,
@@ -67,6 +76,7 @@ type DoctorCheckId =
   | "smoke_issue"
   | "workflow_prompt_render"
   | "workflow_hooks"
+  | "priority_mapping"
   | "claude_binary"
   | "anthropic_api_key"
   | "claude_mcp_config";
@@ -122,6 +132,8 @@ type ParsedDoctorArgs = {
   projectId?: string;
   fix: boolean;
   smoke: boolean;
+  bundle: boolean;
+  bundlePath?: string;
   issue?: string;
   error?: string;
 };
@@ -160,6 +172,7 @@ export type DoctorDependencies = {
   inspectManagedProjectSelection: typeof inspectManagedProjectSelection;
   createClient: typeof createClient;
   getProjectDetail: typeof getProjectDetail;
+  listRepositoryLabels: typeof listRepositoryLabels;
   fetchProjectIssues: typeof fetchGithubProjectIssues;
   fetchProjectIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
   readFile: typeof readFile;
@@ -192,6 +205,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
   inspectManagedProjectSelection,
   createClient,
   getProjectDetail,
+  listRepositoryLabels,
   fetchProjectIssues: fetchGithubProjectIssues,
   fetchProjectIssue: fetchGithubProjectIssueByRepositoryAndNumber,
   readFile,
@@ -217,7 +231,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 const DOCTOR_USAGE =
-  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>]";
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>] [--bundle [path]]";
 
 type GitInstallationState =
   | {
@@ -230,7 +244,7 @@ type GitInstallationState =
     };
 
 function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
-  const parsed: ParsedDoctorArgs = { fix: false, smoke: false };
+  const parsed: ParsedDoctorArgs = { fix: false, smoke: false, bundle: false };
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -255,6 +269,16 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       continue;
     }
 
+    if (arg === "--bundle") {
+      parsed.bundle = true;
+      const value = args[i + 1];
+      if (value && !value.startsWith("-")) {
+        parsed.bundlePath = value;
+        i += 1;
+      }
+      continue;
+    }
+
     if (arg === "--issue") {
       const value = args[i + 1];
       if (!value || value.startsWith("-")) {
@@ -270,10 +294,16 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
       parsed.error = `Unknown option '${arg}'`;
       return parsed;
     }
+
+    parsed.error = `Unexpected argument '${arg}'`;
+    return parsed;
   }
 
   if (parsed.issue && !parsed.smoke) {
     parsed.error = "Option '--issue' requires '--smoke'";
+  }
+  if (parsed.bundle && parsed.fix) {
+    parsed.error = "Option '--fix' cannot be used with '--bundle'";
   }
 
   return parsed;
@@ -645,6 +675,7 @@ function buildGithubTrackerConfig(input: {
     apiUrl: input.projectConfig.projectConfig.tracker.apiUrl,
     lifecycle: input.workflow.lifecycle,
     assignedOnly: settings?.assignedOnly === true,
+    priority: input.workflow.tracker.priority,
     priorityFieldName:
       typeof settings?.priorityFieldName === "string"
         ? settings.priorityFieldName
@@ -652,6 +683,170 @@ function buildGithubTrackerConfig(input: {
     timeoutMs:
       typeof settings?.timeoutMs === "number" ? settings.timeoutMs : undefined,
   };
+}
+
+async function buildPriorityMappingChecks(input: {
+  auth: ResolvedGitHubAuth | null;
+  selection: Awaited<ReturnType<typeof inspectManagedProjectSelection>> | null;
+  workflow: WorkflowCheckState;
+  projectDetail: ProjectDetail | null;
+  projectBindingId: string | null;
+  deps: DoctorDependencies;
+}): Promise<DoctorCheckResult[]> {
+  if (input.workflow.status !== "pass") {
+    return [];
+  }
+
+  const configDiagnostics = buildPriorityConfigDiagnostics(
+    input.workflow.workflow
+  );
+  const checks = configDiagnostics.map((diagnostic) =>
+    warnCheck(
+      "priority_mapping",
+      diagnostic.title,
+      diagnostic.summary,
+      diagnostic.remediation,
+      diagnostic.details
+    )
+  );
+
+  const priority = input.workflow.workflow.tracker.priority;
+  const parsedWorkflow = input.workflow.workflow;
+  if (
+    input.workflow.workflow.tracker.kind !== "github-project" ||
+    !priority ||
+    priority.source === "disabled"
+  ) {
+    if (checks.length === 0) {
+      checks.push(
+        passCheck(
+          "priority_mapping",
+          "Priority mapping",
+          priority?.source === "disabled"
+            ? "Explicit priority mapping is disabled; dispatch priority resolves to null."
+            : "No explicit priority mapping drift checks are required.",
+          { source: priority?.source ?? null }
+        )
+      );
+    }
+    return checks;
+  }
+
+  if (
+    !input.auth ||
+    !input.selection ||
+    input.selection.kind !== "resolved" ||
+    !input.projectDetail ||
+    !input.projectBindingId
+  ) {
+    checks.push(
+      warnCheck(
+        "priority_mapping",
+        "Priority mapping drift",
+        "Live priority mapping drift checks could not run because GitHub authentication, managed project selection, or project resolution is unavailable.",
+        "Fix the prerequisite doctor checks, then re-run 'gh-symphony doctor'.",
+        {
+          blockedBy: [
+            ...(!input.auth ? ["gh_authentication"] : []),
+            ...(!input.selection || input.selection.kind !== "resolved"
+              ? ["managed_project"]
+              : []),
+            ...(!input.projectDetail || !input.projectBindingId
+              ? ["github_project_resolution"]
+              : []),
+          ],
+        }
+      )
+    );
+    return checks;
+  }
+
+  const client = input.deps.createClient(input.auth.token, {
+    apiUrl: input.selection.projectConfig.tracker.apiUrl,
+  });
+  let repositoryLabels: Array<{ repository: string; labels: string[] }> | null =
+    priority.source === "labels" ? [] : null;
+  if (priority.source === "labels") {
+    try {
+      repositoryLabels = await Promise.all(
+        input.projectDetail.linkedRepositories.map(async (repository) => ({
+          repository: `${repository.owner}/${repository.name}`,
+          labels: (
+            await input.deps.listRepositoryLabels(
+              client,
+              repository.owner,
+              repository.name
+            )
+          ).map((label) => label.name),
+        }))
+      );
+    } catch (error) {
+      checks.push(
+        warnCheck(
+          "priority_mapping",
+          "Priority label drift",
+          "Live repository labels could not be read for priority mapping drift checks.",
+          "Confirm GitHub token repository access and re-run 'gh-symphony doctor'.",
+          { error: formatSmokeError(error) }
+        )
+      );
+      repositoryLabels = null;
+    }
+  }
+
+  let activeIssues: TrackedIssue[] = [];
+  try {
+    const trackerConfig = buildGithubTrackerConfig({
+      projectConfig: input.selection,
+      bindingId: input.projectBindingId,
+      token: input.auth.token,
+      workflow: input.workflow.workflow,
+    });
+    activeIssues = (await input.deps.fetchProjectIssues(trackerConfig)).filter(
+      (issue) => isActiveSmokeIssue(issue, parsedWorkflow)
+    );
+  } catch (error) {
+    checks.push(
+      warnCheck(
+        "priority_mapping",
+        "Active priority drift",
+        "Active issues could not be read for priority mapping drift checks.",
+        "Confirm GitHub token scopes, project visibility, and network access, then re-run 'gh-symphony doctor'.",
+        { error: formatSmokeError(error) }
+      )
+    );
+  }
+
+  const driftDiagnostics = buildPriorityDriftDiagnostics({
+    workflow: parsedWorkflow,
+    projectDetail: input.projectDetail,
+    repositoryLabels,
+    activeIssues,
+  });
+  checks.push(
+    ...driftDiagnostics.map((diagnostic) =>
+      warnCheck(
+        "priority_mapping",
+        diagnostic.title,
+        diagnostic.summary,
+        diagnostic.remediation,
+        diagnostic.details
+      )
+    )
+  );
+
+  if (checks.length === 0) {
+    checks.push(
+      passCheck(
+        "priority_mapping",
+        "Priority mapping",
+        "Explicit priority mapping matches the live Project/repository state inspected by doctor.",
+        { source: priority.source }
+      )
+    );
+  }
+
+  return checks;
 }
 
 function isActiveSmokeIssue(
@@ -760,7 +955,13 @@ async function buildHookChecks(
         "Workflow hook paths",
         `Unresolved WORKFLOW.md hook path${unresolved.length === 1 ? "" : "s"}: ${unresolved.map((entry) => `${entry.hook}=${entry.command}`).join(", ")}.`,
         "Create the referenced hook script(s), fix the hook path(s), or replace them with inline commands.",
-        { configured: configured.length, pathsChecked: checked.length, inline, unresolved, checked }
+        {
+          configured: configured.length,
+          pathsChecked: checked.length,
+          inline,
+          unresolved,
+          checked,
+        }
       ),
     ];
   }
@@ -779,7 +980,12 @@ async function buildHookChecks(
       "workflow_hooks",
       "Workflow hook paths",
       `${pathSummary}${inlineSummary}`,
-      { configured: configured.length, pathsChecked: checked.length, inline, checked }
+      {
+        configured: configured.length,
+        pathsChecked: checked.length,
+        inline,
+        checked,
+      }
     ),
   ];
 }
@@ -1565,6 +1771,17 @@ export async function runDoctorDiagnostics(
     );
   }
 
+  checks.push(
+    ...(await buildPriorityMappingChecks({
+      auth,
+      selection: resolvedProjectConfig,
+      workflow,
+      projectDetail: resolvedGithubProjectDetail,
+      projectBindingId: resolvedGithubProjectBindingId,
+      deps,
+    }))
+  );
+
   if (parsedArgs.smoke) {
     checks.push(
       ...(await buildDoctorSmokeChecks({
@@ -2067,6 +2284,25 @@ function renderTextReport(report: DoctorReport): string {
   return lines.join("\n");
 }
 
+function renderBundleSummary(summary: SupportBundleSummary): string {
+  const redactionClasses =
+    summary.redactionClasses.length === 0
+      ? "none"
+      : summary.redactionClasses
+          .map((entry) => `${entry.class}:${entry.count}`)
+          .join(", ");
+  return [
+    "gh-symphony doctor support bundle",
+    `Output path: ${summary.outputPath}`,
+    `Project: ${summary.projectId}`,
+    `Included artifacts: ${summary.includedCount}`,
+    `Missing artifacts: ${summary.missingCount}`,
+    `Redactions: ${summary.redactionCount} (${redactionClasses})`,
+    `Truncations: ${summary.truncationCount}`,
+    `Manifest: ${summary.manifestPath}`,
+  ].join("\n");
+}
+
 export async function runDoctorCommand(
   args: string[],
   options: GlobalOptions,
@@ -2080,6 +2316,28 @@ export async function runDoctorCommand(
     }
 
     const initialReport = await runDoctorDiagnostics(options, args, deps);
+    if (parsedArgs.bundle) {
+      if (!initialReport.projectId) {
+        throw new Error(
+          "Cannot create a support bundle because no managed project was resolved."
+        );
+      }
+      const summary = await createSupportBundle({
+        configDir: options.configDir,
+        projectId: initialReport.projectId,
+        repoRoot: process.cwd(),
+        outputPath: parsedArgs.bundlePath,
+        doctorReport: initialReport,
+      });
+      if (options.json) {
+        process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+      } else {
+        process.stdout.write(renderBundleSummary(summary) + "\n");
+      }
+      process.exitCode = initialReport.ok ? 0 : 1;
+      return;
+    }
+
     if (parsedArgs.fix) {
       const remediation = {
         attempted: true,

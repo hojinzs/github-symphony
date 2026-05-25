@@ -45,6 +45,7 @@
     "@gh-symphony/runtime-claude": "workspace:*",
     "@gh-symphony/runtime-codex": "workspace:*",
     "@gh-symphony/tracker-file": "workspace:*",
-    "@gh-symphony/tracker-github": "workspace:*"
+    "@gh-symphony/tracker-github": "workspace:*",
+    "@gh-symphony/tracker-linear": "workspace:*"
   }
 }

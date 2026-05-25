@@ -2,12 +2,14 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   buildPromptVariables,
+  type OrchestratorProjectConfig,
   parseWorkflowMarkdown,
   renderPrompt,
   type TrackedIssue,
 } from "@gh-symphony/core";
+import { resolveTrackerAdapter } from "@gh-symphony/orchestrator";
 import { fetchGithubProjectIssueByRepositoryAndNumber } from "@gh-symphony/tracker-github";
-import type { CliProjectConfig } from "../config.js";
+import { loadActiveProjectConfig, type CliProjectConfig } from "../config.js";
 import {
   createClient,
   findLinkedRepository,
@@ -20,6 +22,10 @@ import {
   validateGitHubToken,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
+import {
+  buildPriorityConfigDiagnostics,
+  type PriorityDiagnostic,
+} from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
 import initCommand from "./workflow-init.js";
 
@@ -55,7 +61,9 @@ type WorkflowCommandDependencies = {
   fetchLiveIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
   getGitHubProjectDetail: typeof getProjectDetail;
   getGitHubTokenWithSource: typeof getGhTokenWithSource;
+  loadActiveProjectConfig: typeof loadActiveProjectConfig;
   resolveManagedProjectSelection: typeof inspectManagedProjectSelection;
+  resolveTrackerAdapter: typeof resolveTrackerAdapter;
   validateGitHubToken: typeof validateGitHubToken;
 };
 
@@ -68,6 +76,7 @@ type WorkflowValidationReport = {
     promptRetry: "pass";
     continuationGuidance: "pass" | "skip";
   };
+  warnings: PriorityDiagnostic[];
   summary: {
     trackerKind: string | null;
     githubProjectId: string | null;
@@ -146,7 +155,9 @@ const workflowCommandDependencies: WorkflowCommandDependencies = {
   fetchLiveIssue: fetchGithubProjectIssueByRepositoryAndNumber,
   getGitHubProjectDetail: getProjectDetail,
   getGitHubTokenWithSource: getGhTokenWithSource,
+  loadActiveProjectConfig,
   resolveManagedProjectSelection: inspectManagedProjectSelection,
+  resolveTrackerAdapter,
   validateGitHubToken,
 };
 
@@ -162,8 +173,10 @@ export function resetWorkflowCommandDependenciesForTest(): void {
     fetchGithubProjectIssueByRepositoryAndNumber;
   workflowCommandDependencies.getGitHubProjectDetail = getProjectDetail;
   workflowCommandDependencies.getGitHubTokenWithSource = getGhTokenWithSource;
+  workflowCommandDependencies.loadActiveProjectConfig = loadActiveProjectConfig;
   workflowCommandDependencies.resolveManagedProjectSelection =
     inspectManagedProjectSelection;
+  workflowCommandDependencies.resolveTrackerAdapter = resolveTrackerAdapter;
   workflowCommandDependencies.validateGitHubToken = validateGitHubToken;
 }
 
@@ -244,6 +257,9 @@ function parsePreviewFlags(args: string[]): PreviewFlags {
         if (!value || value.startsWith("-")) {
           throw new Error("Option '--issue' argument missing");
         }
+        if (flags.issue) {
+          throw new Error("Only one preview issue identifier can be provided.");
+        }
         flags.issue = value;
         i += 1;
         break;
@@ -266,6 +282,10 @@ function parsePreviewFlags(args: string[]): PreviewFlags {
         if (arg?.startsWith("-")) {
           throw new Error(`Unknown option '${arg}'`);
         }
+        if (flags.issue) {
+          throw new Error("Only one preview issue identifier can be provided.");
+        }
+        flags.issue = arg;
         break;
     }
   }
@@ -294,7 +314,9 @@ Commands:
 Options:
   workflow init [--non-interactive] [--project <id>] [--output <path>] [--skip-skills] [--skip-context] [--dry-run]
   workflow validate [--file <path>]
-  workflow preview [--file <path>] [--issue <owner/repo#number>] [--project-id <projectId>] [--sample <json>] [--attempt <n>]
+  workflow preview [issue] [--file <path>] [--issue <owner/repo#number|ENG-123>] [--project-id <projectId>] [--sample <json>] [--attempt <n>]
+
+Linear workflows use polling through the configured tracker adapter. No Linear webhook setup command is provided.
 `);
 }
 
@@ -568,6 +590,7 @@ function formatAuthError(error: GhAuthError | Error): string {
 async function loadLiveIssue(
   issueReference: string,
   projectId: string | undefined,
+  workflow: ReturnType<typeof parseWorkflowMarkdown>,
   options: GlobalOptions
 ): Promise<{
   issue: TrackedIssue;
@@ -640,6 +663,7 @@ async function loadLiveIssue(
       apiUrl: selection.projectConfig.tracker.apiUrl,
       assignedOnly:
         selection.projectConfig.tracker.settings?.assignedOnly === true,
+      priority: workflow.tracker.priority,
       priorityFieldName:
         typeof selection.projectConfig.tracker.settings?.priorityFieldName ===
         "string"
@@ -666,6 +690,80 @@ async function loadLiveIssue(
   return {
     issue: trackedIssue,
     sampleSource: `live:${trackedIssue.identifier}`,
+  };
+}
+
+const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
+
+function isLinearIssueIdentifier(value: string): boolean {
+  return LINEAR_IDENTIFIER_PATTERN.test(value.trim().toUpperCase());
+}
+
+async function loadLinearIssue(
+  issueIdentifier: string,
+  workflow: ReturnType<typeof parseWorkflowMarkdown>,
+  options: GlobalOptions
+): Promise<{
+  issue: TrackedIssue;
+  sampleSource: string;
+}> {
+  const projectConfig =
+    await workflowCommandDependencies.loadActiveProjectConfig(
+      options.configDir
+    );
+
+  if (!projectConfig?.repository) {
+    throw new Error(
+      "Linear live issue preview requires a repository runtime initialized with 'gh-symphony repo init'."
+    );
+  }
+
+  const workflowProjectSlug = workflow.tracker.projectSlug?.trim();
+  if (!workflowProjectSlug) {
+    throw new Error(
+      'Linear live issue preview requires WORKFLOW.md field "tracker.project_slug".'
+    );
+  }
+
+  if (!workflow.tracker.apiKey?.trim()) {
+    throw new Error(
+      'Linear live issue preview requires WORKFLOW.md field "tracker.api_key" to resolve, for example "$LINEAR_API_KEY".'
+    );
+  }
+
+  if (
+    projectConfig.tracker.adapter !== "linear" ||
+    projectConfig.tracker.bindingId !== workflowProjectSlug
+  ) {
+    throw new Error(
+      `Linear live issue preview requires an active repository runtime initialized for project "${workflowProjectSlug}". Run 'gh-symphony repo init' from this repository, then re-run the preview.`
+    );
+  }
+
+  const orchestratorProject: OrchestratorProjectConfig = {
+    projectId: projectConfig.projectId,
+    slug: projectConfig.slug,
+    workspaceDir: projectConfig.workspaceDir,
+    repository: projectConfig.repository,
+    tracker: projectConfig.tracker,
+  };
+  const trackerAdapter =
+    workflowCommandDependencies.resolveTrackerAdapter(projectConfig.tracker);
+  const [issue] = await trackerAdapter.fetchIssueStatesByIds(
+    orchestratorProject,
+    [issueIdentifier.trim().toUpperCase()],
+    { token: workflow.tracker.apiKey }
+  );
+
+  if (!issue) {
+    throw new Error(
+      `Linear issue ${issueIdentifier} was not found in project "${workflow.tracker.projectSlug}".`
+    );
+  }
+
+  return {
+    issue,
+    sampleSource: `live:${issue.identifier}`,
   };
 }
 
@@ -700,6 +798,7 @@ function validateWorkflow(
       promptRetry: "pass",
       continuationGuidance: continuationGuidanceStatus,
     },
+    warnings: buildPriorityConfigDiagnostics(workflow),
     summary: {
       trackerKind: workflow.tracker.kind,
       githubProjectId: workflow.githubProjectId,
@@ -771,6 +870,15 @@ Hooks
   before_remove=${report.summary.hooks.beforeRemove ?? "unset"}
   hooks.timeout_ms=${report.summary.hooks.timeoutMs}
 `);
+  if (report.warnings.length > 0) {
+    process.stdout.write("\nWarnings\n");
+    for (const warning of report.warnings) {
+      process.stdout.write(`  ${warning.title}: ${warning.summary}\n`);
+      if (warning.remediation) {
+        process.stdout.write(`    Fix: ${warning.remediation}\n`);
+      }
+    }
+  }
 }
 
 async function runValidate(
@@ -801,13 +909,19 @@ async function runPreview(
   }
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const workflow = parseWorkflowMarkdown(markdown);
-  if (flags.issue && workflow.tracker.kind !== "github-project") {
+  if (
+    flags.issue &&
+    workflow.tracker.kind !== "github-project" &&
+    !(workflow.tracker.kind === "linear" && isLinearIssueIdentifier(flags.issue))
+  ) {
     throw new Error(
-      "Live issue preview requires 'tracker.kind: github-project' in WORKFLOW.md."
+      "Live issue preview requires 'tracker.kind: github-project' with owner/repo#number or 'tracker.kind: linear' with a Linear identifier such as ENG-123."
     );
   }
   const { issue, sampleSource } = flags.issue
-    ? await loadLiveIssue(flags.issue, flags.projectId, options)
+    ? workflow.tracker.kind === "linear"
+      ? await loadLinearIssue(flags.issue, workflow, options)
+      : await loadLiveIssue(flags.issue, flags.projectId, workflow, options)
     : await loadSampleIssue(flags.sample);
   const renderedPrompt = renderIssueWorkflowPreview({
     workflow,

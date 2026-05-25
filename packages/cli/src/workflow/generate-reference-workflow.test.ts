@@ -17,7 +17,14 @@ const defaultInput: ReferenceWorkflowInput = {
     { name: "Done", role: "terminal" },
   ],
   projectId: "PVT_abc123",
-  priorityFieldName: "Priority",
+  priority: {
+    source: "project-field",
+    field: "Priority",
+    values: {
+      P0: 0,
+      P1: 1,
+    },
+  },
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm --filter @gh-symphony/cli test",
@@ -45,7 +52,7 @@ describe("generateReferenceWorkflow", () => {
     });
     expect(output).toContain("kind: claude-print");
     expect(output).toContain("command: claude");
-    expect(output).toContain("    env: ANTHROPIC_API_KEY");
+    expect(output).not.toContain("    env: ANTHROPIC_API_KEY");
     expect(output).toContain("    stall_timeout_ms: 900000");
   });
 
@@ -145,17 +152,41 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("project_id: PVT_abc123");
   });
 
-  it("includes priority_field in front matter when configured", () => {
+  it("includes a Linear tracker example without webhook setup", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("priority_field: Priority");
+
+    expect(output).toContain("# Linear tracker example:");
+    expect(output).toContain("#   kind: linear");
+    expect(output).toContain("#   api_key: $LINEAR_API_KEY");
+    expect(output).toContain("#   project_slug: symphony-0c79b11b75ea");
+    expect(output).toContain(
+      "# a Linear webhook setup command."
+    );
+    expect(output).not.toContain("#   project_id:");
+    expect(output).not.toContain("#   teamId:");
   });
 
-  it("shows priority_field as an optional reference when not configured", () => {
+  it("includes explicit project-field priority mapping in front matter when configured", () => {
+    const output = generateReferenceWorkflow(defaultInput);
+    expect(output).toContain("priority:");
+    expect(output).toContain("source: project-field");
+    expect(output).toContain('field: "Priority"');
+    expect(output).toContain('"P0": 0');
+    expect(output).not.toContain("priority_field:");
+  });
+
+  it("shows disabled priority and optional explicit templates when not configured", () => {
     const output = generateReferenceWorkflow({
       ...defaultInput,
-      priorityFieldName: null,
+      priority: null,
     });
-    expect(output).toContain("# priority_field: Priority");
+    expect(output).toContain("source: disabled");
+    expect(output).toContain(
+      "# Priority dispatch is disabled until an operator chooses one explicit source."
+    );
+    expect(output).toContain("# Optional template: project-field priority source.");
+    expect(output).toContain("# Optional template: labels priority source.");
+    expect(output).not.toContain("priority_field:");
   });
 
   it("does not include allowed_repositories in front matter", () => {

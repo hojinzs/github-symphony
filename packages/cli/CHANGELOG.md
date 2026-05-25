@@ -1,5 +1,47 @@
 # @gh-symphony/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- [#346](https://github.com/hojinzs/github-symphony/pull/346) [`f6f6b40`](https://github.com/hojinzs/github-symphony/commit/f6f6b40a3a8d69c5be31b9d5f174ff6dee01a8b1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add explicit dispatch priority mappings for GitHub Project V2 workflows from issue [#236](https://github.com/hojinzs/github-symphony/issues/236), including `tracker.priority` configuration, generated setup/init mappings, drift diagnostics, and no-fallback runtime behavior while preserving legacy `tracker.priority_field` compatibility.
+
+## 0.2.1
+
+### Patch Changes
+
+- [#344](https://github.com/hojinzs/github-symphony/pull/344) [`3d4fecc`](https://github.com/hojinzs/github-symphony/commit/3d4fecc8b446b44dc386e3584839c7ac6767e086) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix worker convergence detection so clean workspaces after successful commits are treated as productive when Git HEAD advances, preventing false `convergence_detected: workspace unchanged` failures for issue [#343](https://github.com/hojinzs/github-symphony/issues/343).
+
+## 0.2.0
+
+### Minor Changes
+
+- [#333](https://github.com/hojinzs/github-symphony/pull/333) [`364e090`](https://github.com/hojinzs/github-symphony/commit/364e09051762bcb5a5da0ba0ac6d222a76d82c54) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add Linear tracker support for issue [#312](https://github.com/hojinzs/github-symphony/issues/312), including WORKFLOW.md validation for `tracker.kind: linear` and `tracker.project_slug`, orchestrator polling through the Linear adapter, and runtime-managed `linear_graphql` worker access.
+
+## 0.1.4
+
+### Patch Changes
+
+- [#330](https://github.com/hojinzs/github-symphony/pull/330) [`330a625`](https://github.com/hojinzs/github-symphony/commit/330a625c6fa7902379c4c3af1de3f9c1cd665e28) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix claude-print worker turns for issue [#329](https://github.com/hojinzs/github-symphony/issues/329) by sending Claude Code 2.1.x-compatible stream-json user messages and surfacing Claude stderr in runtime failure reports.
+
+## 0.1.3
+
+### Patch Changes
+
+- [#326](https://github.com/hojinzs/github-symphony/pull/326) [`66686f4`](https://github.com/hojinzs/github-symphony/commit/66686f4a3b3a2034c551d9218cedaebf5d871f7e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep Symphony-managed Claude MCP config in the issue runtime directory so retries do not fail on a generated workspace `.mcp.json` dirty status. Fixes [#325](https://github.com/hojinzs/github-symphony/issues/325).
+
+## 0.1.2
+
+### Patch Changes
+
+- [#304](https://github.com/hojinzs/github-symphony/pull/304) [`826c6ae`](https://github.com/hojinzs/github-symphony/commit/826c6ae1e9e5e379f9c620595a9e837af2021aaa) Thanks [@hojinzs](https://github.com/hojinzs)! - Expose normalized linked pull request prompt variables, including top-level `issue.linked_pull_requests` entries with missing optional PR fields represented as `null`.
+
+## 0.1.1
+
+### Patch Changes
+
+- [#319](https://github.com/hojinzs/github-symphony/pull/319) [`d82f0da`](https://github.com/hojinzs/github-symphony/commit/d82f0da65dcac3ec136c9f7c4d8c726489415673) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Allow `gh-symphony init` Claude runtime preflight to pass with Claude Code local authentication instead of requiring `ANTHROPIC_API_KEY`.
+
 ## 0.1.0
 
 ### Minor Changes

@@ -20,9 +20,24 @@ export type WorkflowTrackerConfig = {
   terminalStates: string[];
   projectId: string | null;
   stateFieldName: string;
+  priority: WorkflowPriorityConfig | null;
   priorityFieldName: string | null;
   blockerCheckStates: string[];
 };
+
+export type WorkflowPriorityConfig =
+  | {
+      source: "project-field";
+      field: string;
+      values: Record<string, number>;
+    }
+  | {
+      source: "labels";
+      labels: Record<string, number>;
+    }
+  | {
+      source: "disabled";
+    };
 
 export type WorkflowWorkspaceConfig = {
   root: string | null;
@@ -112,6 +127,7 @@ export type ParsedWorkflow = WorkflowDefinition & {
 export const DEFAULT_CODEX_COMMAND = "codex app-server";
 export const DEFAULT_CLAUDE_COMMAND = "claude";
 export const DEFAULT_AGENT_COMMAND = DEFAULT_CODEX_COMMAND;
+export const DEFAULT_LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 export const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const DEFAULT_MAX_RETRY_BACKOFF_MS = 300_000;
@@ -141,6 +157,7 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
   terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
   projectId: null,
   stateFieldName: DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+  priority: null,
   priorityFieldName: null,
   blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
 };

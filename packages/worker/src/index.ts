@@ -24,7 +24,6 @@ import {
 } from "@gh-symphony/runtime-codex";
 import {
   formatClaudePreflightText,
-  isClaudeRuntimeCommand,
   resolveClaudeCommandBinary,
   runClaudePreflight,
 } from "@gh-symphony/runtime-claude";
@@ -48,7 +47,11 @@ import {
   type WorkerNonCodexTurnResult,
 } from "./non-codex-runtime.js";
 import { resolveExitRunPhase } from "./run-phase.js";
-import { resolveWorkerRuntimeRoute } from "./runtime-routing.js";
+import {
+  resolveClaudePreflightAuthMode,
+  shouldExposeLinearGraphQLTool,
+  resolveWorkerRuntimeRoute,
+} from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
@@ -490,10 +493,12 @@ async function startAssignedRun() {
       launcherEnv
     );
     const route = resolveWorkerRuntimeRoute(workflow);
+    const runtimeCommand = resolveWorkflowRuntimeCommand(workflow);
+    const claudeCommand = resolveClaudeCommandBinary(runtimeCommand);
     if (
       route === "runtime-adapter" &&
       workflow.runtime?.kind === "claude-print" &&
-      isClaudeRuntimeCommand(resolveWorkflowRuntimeCommand(workflow))
+      claudeCommand
     ) {
       const hasGitHubGraphqlToken =
         typeof launcherEnv.GITHUB_GRAPHQL_TOKEN === "string" &&
@@ -501,8 +506,8 @@ async function startAssignedRun() {
       const preflight = await runClaudePreflight({
         cwd: launcherEnv.WORKING_DIRECTORY!,
         env: launcherEnv,
-        command:
-          resolveClaudeCommandBinary(workflow.codex.command) ?? undefined,
+        command: claudeCommand,
+        authMode: resolveClaudePreflightAuthMode(workflow),
         includeGhAuth: !hasGitHubGraphqlToken,
       });
       process.stderr.write(
@@ -529,6 +534,13 @@ async function startAssignedRun() {
 
     const config = resolveLocalRuntimeLaunchConfig(launcherEnv);
     config.agentCommand = resolveWorkflowRuntimeCommand(workflow);
+    config.enableLinearGraphqlTool = shouldExposeLinearGraphQLTool(
+      workflow,
+      launcherEnv
+    );
+    config.linearApiKey = launcherEnv.LINEAR_API_KEY;
+    config.linearAuthorization = launcherEnv.LINEAR_AUTHORIZATION;
+    config.linearGraphqlUrl = launcherEnv.LINEAR_GRAPHQL_URL;
     const plan = await prepareCodexRuntimePlan(config);
     childProcess = launchCodexAppServer(plan);
     runtimeState.status = "running";
@@ -754,13 +766,27 @@ async function spawnNonCodexRuntimeTurn(
     return await (
       adapter as {
         spawnTurn(input: {
-          messages: Array<{ type: "user"; text: string }>;
+          messages: Array<{
+            type: "user";
+            message: {
+              role: "user";
+              content: Array<{ type: "text"; text: string }>;
+            };
+          }>;
           cwd?: string;
           env?: NodeJS.ProcessEnv;
         }): Promise<WorkerNonCodexTurnResult>;
       }
     ).spawnTurn({
-      messages: [{ type: "user", text: renderedPrompt }],
+      messages: [
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: renderedPrompt }],
+          },
+        },
+      ],
       cwd: env.WORKING_DIRECTORY,
       env,
     });
@@ -838,10 +864,71 @@ function isNonCodexTurnFailure(result: WorkerNonCodexTurnResult): boolean {
 }
 
 function describeNonCodexTurnFailure(result: WorkerNonCodexTurnResult): string {
+  const stderrSummary = extractRuntimeStderrSummary(result);
+  if (stderrSummary) {
+    return (
+      result.errorMessage ??
+      `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}: ${stderrSummary}`
+    );
+  }
+
   return (
     result.errorMessage ??
     `${result.command} exited with ${result.signal ?? result.exitCode ?? "unknown"}`
   );
+}
+
+function extractRuntimeStderrSummary(
+  result: WorkerNonCodexTurnResult
+): string | null {
+  if ("stderr" in result) {
+    return summarizeRuntimeStderr(result.stderr);
+  }
+
+  if ("records" in result) {
+    return summarizeRuntimeStderr(
+      result.records
+        .filter((record) => record.stream === "stderr")
+        .map((record) => record.line || record.parseError)
+        .filter((line): line is string => Boolean(line))
+        .join("\n")
+    );
+  }
+
+  return null;
+}
+
+function summarizeRuntimeStderr(stderr: string): string | null {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return lines.slice(-3).join(" | ").slice(0, 1000);
+}
+
+function formatTurnProgressFingerprint(fingerprint: string | null): {
+  state: "unavailable" | "clean" | "dirty";
+  length: number | null;
+  preview: string | null;
+} {
+  if (fingerprint === null) {
+    return { state: "unavailable", length: null, preview: null };
+  }
+
+  if (fingerprint.length === 0) {
+    return { state: "clean", length: 0, preview: "<clean>" };
+  }
+
+  return {
+    state: "dirty",
+    length: fingerprint.length,
+    preview: fingerprint.slice(0, 500),
+  };
 }
 
 async function exitWorkerStartupFailure(message: string): Promise<void> {
@@ -1559,6 +1646,30 @@ async function runCodexClientProtocol(
       const turnProgress = evaluateTurnProgress(
         previousTurnProgressSnapshot,
         currentTurnProgressSnapshot
+      );
+      const progressLogContext = {
+        reason: turnProgress.reason,
+        nonProductive: turnProgress.nonProductive,
+        repeatedPattern: turnProgress.repeatedPattern,
+        headChanged: turnProgress.headChanged,
+        fingerprintUnchanged: turnProgress.fingerprintUnchanged,
+        previous: {
+          fingerprint: formatTurnProgressFingerprint(
+            previousTurnProgressSnapshot.fingerprint
+          ),
+          changedFilesCount: previousTurnProgressSnapshot.changedFiles.length,
+          headSha: previousTurnProgressSnapshot.headSha,
+        },
+        current: {
+          fingerprint: formatTurnProgressFingerprint(
+            currentTurnProgressSnapshot.fingerprint
+          ),
+          changedFilesCount: currentTurnProgressSnapshot.changedFiles.length,
+          headSha: currentTurnProgressSnapshot.headSha,
+        },
+      };
+      process.stderr.write(
+        `[worker] turn progress evaluation ${JSON.stringify(progressLogContext)}\n`
       );
       previousTurnProgressSnapshot = currentTurnProgressSnapshot;
 

@@ -2,6 +2,7 @@ import {
   DEFAULT_AGENT_COMMAND,
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_CLAUDE_COMMAND,
+  DEFAULT_LINEAR_GRAPHQL_URL,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_MAX_CONCURRENT_AGENTS,
   DEFAULT_MAX_FAILURE_RETRIES,
@@ -14,6 +15,7 @@ import {
   DEFAULT_WORKFLOW_DEFINITION,
   DEFAULT_WORKFLOW_TRACKER,
   type ParsedWorkflow,
+  type WorkflowPriorityConfig,
   type WorkflowRuntimeConfig,
   type WorkflowRuntimeKind,
   resolveWorkflowRuntimeCommand,
@@ -62,6 +64,7 @@ export function parseWorkflowMarkdown(
     : readRequiredObject(frontMatter, "codex");
 
   const trackerKind = readRequiredString(tracker, "kind", env);
+  validateTrackerConfig(tracker, trackerKind, env);
   const activeStates =
     readStringList(tracker, "active_states") ??
     DEFAULT_WORKFLOW_TRACKER.activeStates;
@@ -108,7 +111,9 @@ export function parseWorkflowMarkdown(
     ),
     tracker: {
       kind: trackerKind,
-      endpoint: readOptionalString(tracker, "endpoint", env),
+      endpoint:
+        readOptionalString(tracker, "endpoint", env) ??
+        (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
       apiKey: readOptionalString(tracker, "api_key", env),
       projectSlug: readOptionalString(tracker, "project_slug", env),
       activeStates,
@@ -117,6 +122,7 @@ export function parseWorkflowMarkdown(
       stateFieldName:
         readOptionalString(tracker, "state_field", env) ??
         DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+      priority: readPriorityConfig(tracker, env),
       priorityFieldName: readOptionalString(tracker, "priority_field", env),
       blockerCheckStates,
     },
@@ -173,6 +179,100 @@ export function parseWorkflowMarkdown(
   return parsed;
 }
 
+function validateTrackerConfig(
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  trackerKind: string,
+  env: NodeJS.ProcessEnv
+): void {
+  if (trackerKind !== "linear") {
+    return;
+  }
+
+  for (const key of ["project_id", "projectId", "teamId", "team_id"]) {
+    if (key in tracker) {
+      throw new Error(
+        `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
+      );
+    }
+  }
+
+  const projectSlug = readOptionalString(tracker, "project_slug", env);
+  if (!projectSlug || projectSlug.trim().length === 0) {
+    throw new Error(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  }
+
+  if ("endpoint" in tracker) {
+    const endpoint = readOptionalString(tracker, "endpoint", env);
+    if (!endpoint || endpoint.trim().length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+      );
+    }
+  }
+}
+
+function readPriorityConfig(
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  env: NodeJS.ProcessEnv
+): WorkflowPriorityConfig | null {
+  if (tracker.priority === undefined || tracker.priority === null) {
+    return null;
+  }
+
+  const priority = readObject(tracker, "priority", "tracker.priority");
+  const source = readRequiredString(priority, "source", env);
+  const keys = new Set(Object.keys(priority));
+
+  if (source === "project-field") {
+    rejectPriorityKeys(keys, ["source", "field", "values"], source);
+    const field = readRequiredString(priority, "field", env);
+    const values = readNumberMap(priority, "values", "tracker.priority.values");
+    if (Object.keys(values).length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.priority.values" must be a non-empty object for tracker.priority.source "project-field".'
+      );
+    }
+    return { source, field, values };
+  }
+
+  if (source === "labels") {
+    rejectPriorityKeys(keys, ["source", "labels"], source);
+    const labels = readNumberMap(priority, "labels", "tracker.priority.labels");
+    if (Object.keys(labels).length === 0) {
+      throw new Error(
+        'Workflow front matter field "tracker.priority.labels" must be a non-empty object for tracker.priority.source "labels".'
+      );
+    }
+    return { source, labels };
+  }
+
+  if (source === "disabled") {
+    rejectPriorityKeys(keys, ["source"], source);
+    return { source };
+  }
+
+  throw new Error(
+    `Unsupported workflow tracker.priority.source "${source}". Supported values: project-field, labels, disabled.`
+  );
+}
+
+function rejectPriorityKeys(
+  keys: Set<string>,
+  allowedKeys: string[],
+  source: string
+): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of keys) {
+    if (!allowed.has(key)) {
+      throw new Error(
+        `Workflow front matter field "tracker.priority.${key}" is not supported for tracker.priority.source "${source}".`
+      );
+    }
+  }
+}
+
 function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
   const promptGuidelines =
     matchOptionalSection(markdown, "Prompt Guidelines") ?? "";
@@ -210,6 +310,10 @@ function parseBlock(
   while (index < lines.length) {
     const line = lines[index] ?? "";
     if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    if (line.trim().startsWith("#")) {
       index += 1;
       continue;
     }
@@ -263,12 +367,17 @@ function parseBlock(
       );
     }
     collectionType = "object";
-    const separatorIndex = trimmed.indexOf(":");
+    const separatorIndex = findMappingSeparator(trimmed);
     if (separatorIndex < 0) {
       throw new Error(`Invalid workflow front matter line "${trimmed}".`);
     }
 
-    const key = trimmed.slice(0, separatorIndex).trim();
+    const rawKey = trimmed.slice(0, separatorIndex).trim();
+    const parsedKey = parseScalar(rawKey);
+    if (typeof parsedKey !== "string") {
+      throw new Error(`Invalid workflow front matter key "${rawKey}".`);
+    }
+    const key = parsedKey;
     const remainder = trimmed.slice(separatorIndex + 1).trim();
     if (remainder === "|" || remainder === "|-") {
       const [multiline, nextIndex] = parseMultilineScalar(
@@ -326,6 +435,31 @@ function countIndent(line: string): number {
   return line.match(/^ */)?.[0].length ?? 0;
 }
 
+function findMappingSeparator(value: string): number {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (quote) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ":") {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function parseScalar(value: string): WorkflowFrontMatterNode {
   if (value === "null") return null;
   if (value === "true") return true;
@@ -334,11 +468,18 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
     return parseInlineArray(value);
   }
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed === "string") {
+        return parsed;
+      }
+    } catch {
+      throw new Error(`Invalid quoted workflow front matter scalar "${value}".`);
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
   }
   return value;
 }
@@ -382,7 +523,9 @@ function splitInlineArrayEntries(inner: string): string[] {
   }
 
   if (quote) {
-    throw new Error("Workflow front matter inline array has an unterminated string.");
+    throw new Error(
+      "Workflow front matter inline array has an unterminated string."
+    );
   }
 
   pushInlineArrayEntry(entries, current, "end");
@@ -397,9 +540,7 @@ function pushInlineArrayEntry(
   const trimmed = entry.trim();
   if (!trimmed) {
     const reason =
-      position === "end"
-        ? "has a trailing comma"
-        : "contains an empty item";
+      position === "end" ? "has a trailing comma" : "contains an empty item";
     throw new Error(`Workflow front matter inline array ${reason}.`);
   }
   entries.push(trimmed);
@@ -632,14 +773,15 @@ function readOptionalIntegerLike(
 
 function readNumberMap(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): Record<string, number> {
   const value = input[key];
   if (value === undefined || value === null) {
     return {};
   }
   if (typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Workflow front matter field "${key}" must be an object.`);
+    throw new Error(`Workflow front matter field "${path}" must be an object.`);
   }
 
   const result: Record<string, number> = {};
@@ -648,12 +790,12 @@ function readNumberMap(
       result[entryKey] = entryValue;
       continue;
     }
-    if (typeof entryValue === "string" && /^\d+$/.test(entryValue)) {
+    if (typeof entryValue === "string" && /^-?\d+$/.test(entryValue)) {
       result[entryKey] = Number.parseInt(entryValue, 10);
       continue;
     }
     throw new Error(
-      `Workflow front matter field "${key}.${entryKey}" must be an integer.`
+      `Workflow front matter field "${path}.${entryKey}" must be an integer.`
     );
   }
   return result;
@@ -669,6 +811,17 @@ function resolveEnvironmentValue(
     if (!resolved) {
       throw new Error(
         `Workflow front matter requires environment variable ${envTokenMatch[1]}.`
+      );
+    }
+    return resolved;
+  }
+
+  const dollarEnvTokenMatch = value.match(/^\$([A-Z0-9_]+)$/);
+  if (dollarEnvTokenMatch) {
+    const resolved = env[dollarEnvTokenMatch[1]];
+    if (!resolved) {
+      throw new Error(
+        `Workflow front matter requires environment variable ${dollarEnvTokenMatch[1]}.`
       );
     }
     return resolved;

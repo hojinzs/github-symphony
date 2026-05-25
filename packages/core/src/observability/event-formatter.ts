@@ -3,6 +3,10 @@ import type { OrchestratorEvent } from "./structured-events.js";
 
 export function formatEventMessage(event: OrchestratorEvent): string | null {
   switch (event.event) {
+    case "tracker.list":
+      return `Tracker list saw ${event.issue.identifier}`;
+    case "tracker.fetchByIds":
+      return `Tracker fetch refreshed ${event.issue.identifier}`;
     case "run-dispatched":
       return event.issueState
         ? `Dispatched from ${event.issueState}`

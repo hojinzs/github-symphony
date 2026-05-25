@@ -7,6 +7,34 @@
  * without coupling consumers to internal implementation details.
  */
 
+export type TrackerEventMetadata = {
+  adapter: string;
+  projectSlug?: string;
+};
+
+export type IssueEventMetadata = {
+  identifier: string;
+  id: string;
+};
+
+export type TrackerListEvent = {
+  at: string;
+  event: "tracker.list";
+  projectId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  rateLimits?: Record<string, unknown> | null;
+};
+
+export type TrackerFetchByIdsEvent = {
+  at: string;
+  event: "tracker.fetchByIds";
+  projectId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  rateLimits?: Record<string, unknown> | null;
+};
+
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
@@ -15,6 +43,8 @@ export type RunDispatchedEvent = {
   issueState?: string;
   issueId?: string;
   sessionId?: string;
+  tracker?: TrackerEventMetadata;
+  issue?: IssueEventMetadata;
 };
 
 export type RunRecoveredEvent = {
@@ -160,10 +190,32 @@ export type SessionInvalidatedEvent = {
   reason: string;
 };
 
+export type PriorityLabelConflictResolvedEvent = {
+  at: string;
+  event: "priority.label_conflict_resolved";
+  issue: IssueEventMetadata;
+  matched: Array<{
+    label: string;
+    value: number;
+  }>;
+  chosenValue: number;
+  chosenLabels: string[];
+};
+
+export type PriorityUnmappedEvent = {
+  at: string;
+  event: "priority.unmapped";
+  issue: IssueEventMetadata;
+  source: "project-field" | "labels";
+  rawValues: string[];
+};
+
 /**
  * Union of all structured orchestration events. Discriminated on `event`.
  */
 export type OrchestratorEvent =
+  | TrackerListEvent
+  | TrackerFetchByIdsEvent
   | RunDispatchedEvent
   | RunRecoveredEvent
   | RunRetriedEvent
@@ -176,4 +228,6 @@ export type OrchestratorEvent =
   | TurnStartedEvent
   | TurnCompletedEvent
   | TurnFailedEvent
-  | SessionInvalidatedEvent;
+  | SessionInvalidatedEvent
+  | PriorityLabelConflictResolvedEvent
+  | PriorityUnmappedEvent;

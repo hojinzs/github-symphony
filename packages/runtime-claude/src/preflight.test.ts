@@ -47,7 +47,7 @@ describe("Claude runtime preflight", () => {
     });
   });
 
-  it("reports missing ANTHROPIC_API_KEY with broker guidance", async () => {
+  it("reports missing ANTHROPIC_API_KEY with broker guidance when API key auth is required", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-key-"));
     const report = await runClaudePreflight(
       { cwd, env: {}, command: "claude" },
@@ -63,6 +63,65 @@ describe("Claude runtime preflight", () => {
       remediation: expect.stringContaining(
         "Set ANTHROPIC_API_KEY or configure"
       ),
+    });
+  });
+
+  it("warns when local Claude Code auth is allowed and no API key or broker is configured", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-preflight-local-"));
+    const report = await runClaudePreflight(
+      {
+        cwd,
+        env: {},
+        command: "claude",
+        authMode: "local-or-api-key",
+      },
+      { execFileSync: vi.fn(execSuccess) as never }
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "warn",
+      title: "Claude authentication",
+      summary: expect.stringContaining("Claude Code local login"),
+      details: { source: "local" },
+    });
+  });
+
+  it("fails clearly when credential broker configuration is incomplete", async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), "claude-preflight-partial-broker-")
+    );
+    const report = await runClaudePreflight(
+      {
+        cwd,
+        env: {
+          AGENT_CREDENTIAL_BROKER_URL: "https://broker.test/agent",
+        },
+        command: "claude",
+        authMode: "local-or-api-key",
+      },
+      { execFileSync: vi.fn(execSuccess) as never }
+    );
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "anthropic_api_key")
+    ).toMatchObject({
+      status: "fail",
+      title: "Claude authentication",
+      summary: expect.stringContaining(
+        "AGENT_CREDENTIAL_BROKER_SECRET is not configured"
+      ),
+      remediation: expect.stringContaining(
+        "Set AGENT_CREDENTIAL_BROKER_SECRET"
+      ),
+      details: {
+        source: "broker",
+        brokerUrl: "https://broker.test/agent",
+        missing: "AGENT_CREDENTIAL_BROKER_SECRET",
+      },
     });
   });
 

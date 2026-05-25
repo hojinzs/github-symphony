@@ -73,6 +73,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
 
   const workflowPath = resolve(repoDir, flags.workflowFile ?? "WORKFLOW.md");
   const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
+  validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);
   const trackerAdapter = workflow.tracker.kind ?? "github-project";
   const trackerBindingId =
@@ -81,10 +82,19 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     ...(workflow.tracker.projectId
       ? { projectId: workflow.tracker.projectId }
       : {}),
+    ...(workflow.tracker.projectSlug
+      ? { projectSlug: workflow.tracker.projectSlug }
+      : {}),
+    ...(trackerAdapter === "linear"
+      ? { activeStates: workflow.tracker.activeStates.join("\n") }
+      : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
   if (flags.assignedOnly) {
     trackerSettings.assignedOnly = true;
+  }
+  if (workflow.tracker.priorityFieldName) {
+    trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }
   if (trackerAdapter === "file") {
     if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
@@ -105,6 +115,10 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     tracker: {
       adapter: trackerAdapter,
       bindingId: trackerBindingId,
+      ...(workflow.tracker.endpoint
+        ? { apiUrl: workflow.tracker.endpoint }
+        : {}),
+      priority: workflow.tracker.priority,
       settings: trackerSettings,
     },
   };
@@ -131,6 +145,20 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     workflowPath,
     repository,
   };
+}
+
+function validateRepoInitWorkflow(
+  workflow: ReturnType<typeof parseWorkflowMarkdown>
+): void {
+  if (workflow.tracker.kind !== "linear") {
+    return;
+  }
+
+  if (!workflow.tracker.apiKey?.trim()) {
+    throw new Error(
+      'Linear tracker repo init requires WORKFLOW.md field "tracker.api_key" to reference a resolvable environment variable such as "$LINEAR_API_KEY".'
+    );
+  }
 }
 
 export async function migrateLegacyRuntime(runtimeRoot: string): Promise<void> {

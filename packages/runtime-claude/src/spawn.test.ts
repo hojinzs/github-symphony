@@ -59,7 +59,15 @@ describe("spawnClaudeTurn", () => {
       {
         cwd: "/workspace",
         args: ["-p"],
-        stdinMessages: [{ type: "user", text: "hello" }],
+        stdinMessages: [
+          {
+            type: "user",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "hello" }],
+            },
+          },
+        ],
       },
       {
         spawnImpl,
@@ -69,7 +77,9 @@ describe("spawnClaudeTurn", () => {
       }
     );
 
-    expect(writtenStdin).toBe('{"type":"user","text":"hello"}\n');
+    expect(writtenStdin).toBe(
+      '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}\n'
+    );
     expect(result.result).toBe("success");
     expect(result.classification.kind).toBe("success");
     expect(events).toEqual(["agent.turnStarted", "agent.turnCompleted"]);
@@ -206,6 +216,71 @@ describe("spawnClaudeTurn", () => {
       reason: "exit_1",
     });
     expect(eventNames).toEqual(["agent.error"]);
+  });
+
+  it("includes stderr in process-exit error events", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+
+    const { EventEmitter } = await import("node:events");
+    const emitter = new EventEmitter();
+
+    const child = {
+      stdin,
+      stdout,
+      stderr,
+      emit(event: string, ...args: unknown[]) {
+        emitter.emit(event, ...args);
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        emitter.once(event, listener);
+        return child;
+      },
+      on(event: string, listener: (...args: unknown[]) => void) {
+        emitter.on(event, listener);
+        return child;
+      },
+      removeListener(event: string, listener: (...args: unknown[]) => void) {
+        emitter.removeListener(event, listener);
+        return child;
+      },
+    } as unknown as ReturnType<SpawnLike>;
+
+    const spawnImpl: SpawnLike = () => {
+      queueMicrotask(() => {
+        stderr.write(
+          'Error parsing streaming input line: {"type":"user","text":"hi"}\n'
+        );
+        stdout.end();
+        stderr.end();
+        child.emit("close", 1, null);
+      });
+
+      return child;
+    };
+    const errors: string[] = [];
+
+    const result = await spawnClaudeTurn(
+      {
+        cwd: "/workspace",
+        args: ["-p"],
+        stdinMessages: [],
+      },
+      {
+        spawnImpl,
+        onEvent: (event) => {
+          if (event.name === "agent.error") {
+            errors.push(event.payload.error);
+          }
+        },
+      }
+    );
+
+    expect(result.result).toBe("process-error");
+    expect(errors).toEqual([
+      'exit_1: Error parsing streaming input line: {"type":"user","text":"hi"}',
+    ]);
   });
 
   it("records stderr JSON without emitting neutral events or mutating stdout state", async () => {
@@ -533,7 +608,15 @@ describe("spawnClaudeTurn", () => {
       {
         cwd: "/workspace",
         args: ["-p"],
-        stdinMessages: [{ type: "user", text: "hello" }],
+        stdinMessages: [
+          {
+            type: "user",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "hello" }],
+            },
+          },
+        ],
       },
       { spawnImpl }
     );

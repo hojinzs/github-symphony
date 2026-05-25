@@ -19,6 +19,7 @@ import {
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
   parseRecentEvents,
+  redactObservabilitySecrets,
   type ProjectStatusSnapshot,
   readJsonFile,
   safeReadDir,
@@ -126,10 +127,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async saveProjectStatus(status: ProjectStatusSnapshot): Promise<void> {
-    await writeJsonFile(
-      join(this.projectDir(), "status.json"),
-      status
-    );
+    await writeJsonFile(join(this.projectDir(), "status.json"), status);
   }
 
   async loadProjectStatus(
@@ -176,14 +174,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   async saveRun(run: OrchestratorRunRecord): Promise<void> {
     await writeJsonFile(
       join(this.runDir(run.runId, run.projectId), "run.json"),
-      run
+      redactObservabilitySecrets(run)
     );
   }
 
   async appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void> {
+    const redactedEvent = redactObservabilitySecrets(event);
     const resolvedProjectId =
-      "projectId" in event && typeof event.projectId === "string"
-        ? event.projectId
+      "projectId" in redactedEvent &&
+      typeof redactedEvent.projectId === "string"
+        ? redactedEvent.projectId
         : undefined;
     const runDirectory =
       resolvedProjectId !== undefined
@@ -197,7 +197,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 
     const path = join(runDirectory, "events.ndjson");
     const resolvedPath = resolve(path);
-    const serializedEvent = JSON.stringify(event) + "\n";
+    const serializedEvent = JSON.stringify(redactedEvent) + "\n";
     await mkdir(dirname(path), { recursive: true });
     await appendFile(path, serializedEvent, {
       encoding: "utf8",

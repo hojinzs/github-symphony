@@ -65,6 +65,7 @@ type CliOptionValues = Partial<
     watch?: boolean;
     sample?: string;
     smoke?: boolean;
+    bundle?: string | boolean;
     attempt?: string;
   }
 >;
@@ -336,6 +337,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "--smoke",
         "Run a safe live issue readiness check without dispatching work"
       )
+      .option(
+        "--bundle [path]",
+        "Export a redacted support bundle for shareable diagnostics"
+      )
       .option("--issue <owner/repo#number>", "Live issue to validate")
       .addOption(new Option("--project <projectId>").hideHelp())
       .allowExcessArguments(false)
@@ -346,6 +351,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--project-id", resolveProjectId(values));
     pushOption(args, "--fix", values.fix);
     pushOption(args, "--smoke", values.smoke);
+    pushOption(args, "--bundle", values.bundle);
     pushOption(args, "--issue", values.issue);
     await invokeHandler("doctor", args, values);
   });
@@ -412,9 +418,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   });
 
   const repo = addGlobalOptions(
-    program
-      .command("repo")
-      .description("Manage the current repository runtime")
+    program.command("repo").description("Manage the current repository runtime")
   );
 
   repo.action(async function (this: Command) {

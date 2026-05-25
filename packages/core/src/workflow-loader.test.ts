@@ -67,10 +67,205 @@ describe("parseWorkflowMarkdown", () => {
       format: "front-matter",
     });
     expect(workflow.tracker.kind).toBe("github-project");
+    expect(workflow.tracker.priority).toBeNull();
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.agent.maxFailureRetries).toBe(6);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
+  });
+
+  it("parses explicit project-field priority mapping", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Later: -1
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "project-field",
+      field: "Priority",
+      values: {
+        Urgent: 0,
+        High: 1,
+        Later: -1,
+      },
+    });
+  });
+
+  it("parses explicit label priority mapping", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        P0: 0,
+        P1: 1,
+      },
+    });
+  });
+
+  it("parses generated priority comments and quoted mapping keys", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  # Priority is explicit. Numbers below are editable policy.
+  priority:
+    source: labels
+    labels:
+      "priority: p0": 0
+      "priority: p1": 1
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        "priority: p0": 0,
+        "priority: p1": 1,
+      },
+    });
+  });
+
+  it("unescapes quoted priority field and mapping names", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  priority:
+    source: project-field
+    field: "Priority \\"dispatch\\" \\\\ team"
+    values:
+      "label \\"p0\\"": 0
+      "path \\\\ p1": 1
+      'single '' quote': 2
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({
+      source: "project-field",
+      field: 'Priority "dispatch" \\ team',
+      values: {
+        'label "p0"': 0,
+        "path \\ p1": 1,
+        "single ' quote": 2,
+      },
+    });
+  });
+
+  it("parses disabled priority source without rejecting legacy priority_field", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  priority_field: Priority
+  priority:
+    source: disabled
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.tracker.priority).toEqual({ source: "disabled" });
+    expect(workflow.tracker.priorityFieldName).toBe("Priority");
+  });
+
+  it.each([
+    [
+      "project-field without field",
+      `priority:
+    source: project-field
+    values:
+      P0: 0`,
+      'Workflow front matter field "field" is required.',
+    ],
+    [
+      "project-field without values",
+      `priority:
+    source: project-field
+    field: Priority`,
+      'Workflow front matter field "tracker.priority.values" must be a non-empty object for tracker.priority.source "project-field".',
+    ],
+    [
+      "labels without labels",
+      `priority:
+    source: labels`,
+      'Workflow front matter field "tracker.priority.labels" must be a non-empty object for tracker.priority.source "labels".',
+    ],
+    [
+      "project-field with labels",
+      `priority:
+    source: project-field
+    field: Priority
+    values:
+      P0: 0
+    labels:
+      P1: 1`,
+      'Workflow front matter field "tracker.priority.labels" is not supported for tracker.priority.source "project-field".',
+    ],
+    [
+      "labels with field",
+      `priority:
+    source: labels
+    field: Priority
+    labels:
+      P0: 0`,
+      'Workflow front matter field "tracker.priority.field" is not supported for tracker.priority.source "labels".',
+    ],
+    [
+      "disabled with values",
+      `priority:
+    source: disabled
+    values:
+      P0: 0`,
+      'Workflow front matter field "tracker.priority.values" is not supported for tracker.priority.source "disabled".',
+    ],
+    [
+      "unknown source",
+      `priority:
+    source: project-labels
+    labels:
+      P0: 0`,
+      'Unsupported workflow tracker.priority.source "project-labels". Supported values: project-field, labels, disabled.',
+    ],
+  ])("rejects invalid priority config: %s", (_name, priorityYaml, message) => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  ${priorityYaml}
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(message);
   });
 
   it("defaults max_failure_retries to 10 when unset", () => {
@@ -84,6 +279,99 @@ Prompt body.
 `);
 
     expect(workflow.agent.maxFailureRetries).toBe(10);
+  });
+
+  it("parses Linear tracker config with default endpoint", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  api_key: $LINEAR_API_KEY
+  active_states:
+    - Todo
+    - In Progress
+codex:
+  command: codex app-server
+---
+Prompt body.
+`,
+      { LINEAR_API_KEY: "lin_api_key" } as NodeJS.ProcessEnv
+    );
+
+    expect(workflow.tracker.kind).toBe("linear");
+    expect(workflow.tracker.projectSlug).toBe("symphony-0c79b11b75ea");
+    expect(workflow.tracker.endpoint).toBe("https://api.linear.app/graphql");
+    expect(workflow.tracker.apiKey).toBe("lin_api_key");
+    expect(workflow.tracker.projectId).toBeNull();
+  });
+
+  it.each(["project_id", "projectId", "teamId", "team_id"])(
+    "rejects Linear tracker alias %s",
+    (key) => {
+      expect(() =>
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  ${key}: forbidden
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+      ).toThrow(
+        `Workflow front matter field "tracker.${key}" is not supported for tracker.kind "linear"; use "tracker.project_slug".`
+      );
+    }
+  );
+
+  it("requires project_slug for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank project_slug for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("rejects blank endpoint for Linear tracker config", () => {
+    expect(() =>
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  endpoint: ""
+codex:
+  command: codex app-server
+---
+Prompt body.
+`)
+    ).toThrow(
+      'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
+    );
   });
 
   it("resolves environment indirection from yaml front matter", () => {
@@ -161,7 +449,9 @@ Prompt body.
 `);
 
     expect(workflow.runtime).toBeNull();
-    expect(workflow.codex.command).toBe("claude -p --output-format stream-json");
+    expect(workflow.codex.command).toBe(
+      "claude -p --output-format stream-json"
+    );
     expect(workflow.agentCommand).toBe("claude -p --output-format stream-json");
   });
 
@@ -289,7 +579,9 @@ runtime:
 ---
 Prompt body.
 `)
-    ).toThrow(/Workflow front matter field "runtime\.isolation" must be an object/);
+    ).toThrow(
+      /Workflow front matter field "runtime\.isolation" must be an object/
+    );
   });
 
   it("reports nested runtime boolean paths clearly", () => {
@@ -404,9 +696,9 @@ Prompt body.
 `);
 
     expect(workflow.runtime?.kind).toBe("claude-print");
-    expect(
-      "session" in (workflow.runtime as Record<string, unknown>)
-    ).toBe(false);
+    expect("session" in (workflow.runtime as Record<string, unknown>)).toBe(
+      false
+    );
   });
 });
 

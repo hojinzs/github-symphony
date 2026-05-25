@@ -38,6 +38,10 @@ export function resolveLocalRuntimeLaunchConfig(
     agentCredentialCachePath: env.AGENT_CREDENTIAL_CACHE_PATH,
     githubProjectId: env.GITHUB_PROJECT_ID,
     githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
+    enableLinearGraphqlTool: env.SYMPHONY_TRACKER_KIND === "linear",
+    linearApiKey: env.LINEAR_API_KEY,
+    linearAuthorization: env.LINEAR_AUTHORIZATION,
+    linearGraphqlUrl: env.LINEAR_GRAPHQL_URL,
     agentCommand: env.SYMPHONY_AGENT_COMMAND,
   };
 }

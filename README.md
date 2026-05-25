@@ -44,6 +44,7 @@ gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
 gh-symphony doctor --smoke
+gh-symphony doctor --bundle
 ```
 
 Token-only validation works without `gh`:
@@ -247,6 +248,57 @@ The generated skill files (under `.codex/skills/` or `.claude/skills/`) define h
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 
+#### Explicit GitHub Priority Mapping
+
+GitHub Project V2 priority is repository policy in `WORKFLOW.md`. The runtime uses exactly one configured source and never falls back or guesses renamed labels, Project fields, or option values. Anything unmapped resolves to `priority = null`.
+
+Use a Project single-select field:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Medium: 2
+      Low: 3
+```
+
+Or use exact repository labels:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+      P2: 2
+```
+
+Or disable priority dispatch explicitly:
+
+```yaml
+tracker:
+  kind: github-project
+  priority:
+    source: disabled
+```
+
+Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
+
+Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
+
+`gh-symphony workflow validate` reports local config errors and legacy priority warnings. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
+
 ### 4. Set Orchestrator Runner (Repository)
 
 From inside the cloned repository that should run orchestration, initialize the workflow and repository runtime:
@@ -284,6 +336,7 @@ Repository commands:
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
+gh-symphony doctor --bundle          # Export a redacted support bundle for bug reports
 gh-symphony repo init                # Bind .runtime/orchestrator to the cwd repository
 gh-symphony repo status              # Show current repository orchestration status
 gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatching
@@ -313,6 +366,20 @@ gh-symphony repo logs --issue org/repo#1 # Filter by issue
 gh-symphony repo logs --run <run-id>     # Read events for a specific run
 gh-symphony repo logs --level <level>    # Filter by log level
 ```
+
+Create a shareable support bundle when reporting setup or orchestration
+failures:
+
+```bash
+gh-symphony doctor --bundle
+gh-symphony doctor --bundle ./tmp/support-bundle
+gh-symphony doctor --bundle --project-id your-project-id
+```
+
+The bundle includes `manifest.json`, `doctor.json`, redacted config and project
+metadata, `WORKFLOW.md`, runtime status files when present, and bounded tails of
+recent run logs/events. Optional missing files are recorded in the manifest
+instead of failing the export.
 
 Dispatch a single issue:
 
@@ -368,6 +435,19 @@ gh-symphony repo recover --dry-run       # Preview what would be recovered
 ### Repository Runtime
 
 `gh-symphony repo init` binds the orchestrator to the cwd repository. It reads `WORKFLOW.md`, infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`.
+
+For Linear tracker repositories, `WORKFLOW.md` remains the source of truth:
+
+```yaml
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+```
+
+`gh-symphony repo init` validates that `tracker.project_slug` is present and that the `tracker.api_key` reference resolves, for example through `LINEAR_API_KEY`. Linear config aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
+
+Linear orchestration is polling-only. There is intentionally no Linear webhook setup command; state transitions, workpad comments, and PR handoff policy belong in `WORKFLOW.md`. See `docs/examples/linear-WORKFLOW.md` for a complete example.
 
 ### Configuration
 
@@ -517,7 +597,7 @@ gh-symphony workflow init --non-interactive --project PVT_xxx --dry-run
 
 `gh-symphony workflow validate` parses the target file, strictly renders the prompt body and continuation guidance with canonical sample variables, and prints a compact runtime/lifecycle summary.
 
-`gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
+`gh-symphony workflow preview --issue owner/repo#123` is the fastest validation step after `workflow init`: it resolves the active managed project (or `--project-id`) and renders the exact worker prompt from the live GitHub Project issue. Linear workflows can preview a single issue with `gh-symphony workflow preview ENG-123`, which routes through the configured Linear tracker adapter and `LINEAR_API_KEY`. Keep `--sample <path-to-json>` for fixture-based debugging, and use `--attempt <n>` to inspect retry prompts before changing policy files.
 
 ### Resolution order
 

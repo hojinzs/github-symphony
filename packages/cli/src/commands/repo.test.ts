@@ -76,7 +76,9 @@ async function createGitRepo(remoteName = "platform"): Promise<string> {
   return repoDir;
 }
 
-async function readRepoProjectConfig(repoDir: string): Promise<CliProjectConfig> {
+async function readRepoProjectConfig(
+  repoDir: string
+): Promise<CliProjectConfig> {
   return JSON.parse(
     await readFile(
       join(
@@ -189,6 +191,213 @@ describe("repo init runtime migration", () => {
 
     expect(process.exitCode).toBeUndefined();
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
+  });
+
+  it("persists explicit priority mapping from WORKFLOW.md into tracker settings", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_project_123
+  state_field: Status
+  priority_field: Legacy Priority
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const projectConfig = await readRepoProjectConfig(repoDir);
+    expect(projectConfig.tracker.priority).toEqual({
+      source: "labels",
+      labels: {
+        P0: 0,
+        P1: 1,
+      },
+    });
+    expect(projectConfig.tracker.settings?.priorityFieldName).toBe(
+      "Legacy Priority"
+    );
+  });
+
+  it("initializes a Linear tracker runtime from WORKFLOW.md", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+  active_states:
+    - Todo
+    - In Progress
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+    process.env.LINEAR_API_KEY = "lin_test_token";
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
+      stdout.restore();
+    }
+
+    const projectConfig = await readRepoProjectConfig(repoDir);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(projectConfig.tracker).toMatchObject({
+      adapter: "linear",
+      bindingId: "symphony-0c79b11b75ea",
+      apiUrl: "https://api.linear.app/graphql",
+      settings: {
+        projectSlug: "symphony-0c79b11b75ea",
+        activeStates: "Todo\nIn Progress",
+        repository: "acme/platform",
+      },
+    });
+  });
+
+  it("fails Linear repo init when tracker.api_key is missing", async () => {
+    const repoDir = await createGitRepo();
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      'Linear tracker repo init requires WORKFLOW.md field "tracker.api_key"'
+    );
+  });
+
+  it("fails Linear repo init when tracker.project_slug is missing", async () => {
+    const repoDir = await createGitRepo();
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  api_key: lin_test_token
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
+    );
+  });
+
+  it("fails Linear repo init when LINEAR_API_KEY reference is unresolved", async () => {
+    const repoDir = await createGitRepo();
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+    const originalLinearApiKey = process.env.LINEAR_API_KEY;
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.
+`,
+      "utf8"
+    );
+    delete process.env.LINEAR_API_KEY;
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      if (originalLinearApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = originalLinearApiKey;
+      }
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(
+      "Workflow front matter requires environment variable LINEAR_API_KEY"
+    );
   });
 
   it("resolves a relative --workflow-file against --repo-dir", async () => {

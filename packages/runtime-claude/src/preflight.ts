@@ -11,6 +11,10 @@ export type ClaudePreflightCheckId =
   | "claude_mcp_config"
   | "gh_authentication";
 
+export type ClaudePreflightAuthMode =
+  | "local-or-api-key"
+  | "api-key-required";
+
 export type ClaudePreflightCheck = {
   id: ClaudePreflightCheckId;
   title: string;
@@ -49,6 +53,16 @@ export type ClaudePreflightOptions = {
    * credentials as sufficient.
    */
   probeCredentialBroker?: boolean;
+  /**
+   * `local-or-api-key` allows Claude Code's local OAuth/keychain login path
+   * and reports entirely missing API-key/broker credentials as a warning.
+   * Partially configured broker credentials still fail because they indicate
+   * an attempted broker setup that cannot work as configured.
+   *
+   * `api-key-required` is for headless/bare runtime paths where local Claude
+   * Code auth is not sufficient.
+   */
+  authMode?: ClaudePreflightAuthMode;
 };
 
 const DEFAULT_DEPENDENCIES: ClaudePreflightDependencies = {
@@ -71,7 +85,7 @@ export async function runClaudePreflight(
   const checks: ClaudePreflightCheck[] = [];
 
   checks.push(checkClaudeBinary(command, options.cwd, deps));
-  checks.push(await checkAnthropicApiKey(env, options, deps));
+  checks.push(await checkClaudeAuthentication(env, options, deps));
   checks.push(await checkWorkspaceMcpConfig(options.cwd, deps));
   if (options.includeGhAuth) {
     checks.push(checkGhAuthentication(options.cwd, deps));
@@ -234,15 +248,16 @@ function checkGhAuthentication(
   }
 }
 
-async function checkAnthropicApiKey(
+async function checkClaudeAuthentication(
   env: NodeJS.ProcessEnv,
-  options: Pick<ClaudePreflightOptions, "probeCredentialBroker">,
+  options: Pick<ClaudePreflightOptions, "authMode" | "probeCredentialBroker">,
   deps: Pick<ClaudePreflightDependencies, "fetchImpl">
 ): Promise<ClaudePreflightCheck> {
+  const authMode = options.authMode ?? "api-key-required";
   if (env.ANTHROPIC_API_KEY?.trim()) {
     return pass(
       "anthropic_api_key",
-      "Anthropic API key",
+      "Claude authentication",
       "ANTHROPIC_API_KEY is configured in the environment.",
       { source: "env" }
     );
@@ -251,9 +266,36 @@ async function checkAnthropicApiKey(
   const brokerUrl = env.AGENT_CREDENTIAL_BROKER_URL?.trim();
   const brokerSecret = env.AGENT_CREDENTIAL_BROKER_SECRET?.trim();
   if (!brokerUrl || !brokerSecret) {
+    if (authMode === "local-or-api-key" && !brokerUrl && !brokerSecret) {
+      return warn(
+        "anthropic_api_key",
+        "Claude authentication",
+        "ANTHROPIC_API_KEY and agent credential broker are not configured; Claude Code local login may be used for this non-bare runtime.",
+        "If this runtime will run headlessly or with runtime.isolation.bare: true, set ANTHROPIC_API_KEY or configure AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
+        { source: "local" }
+      );
+    }
+
+    if (brokerUrl || brokerSecret) {
+      const missingName = brokerUrl
+        ? "AGENT_CREDENTIAL_BROKER_SECRET"
+        : "AGENT_CREDENTIAL_BROKER_URL";
+      return fail(
+        "anthropic_api_key",
+        "Claude authentication",
+        `Agent credential broker configuration is incomplete: ${missingName} is not configured.`,
+        `Set ${missingName} or remove the partial broker configuration and use ANTHROPIC_API_KEY instead.`,
+        {
+          source: "broker",
+          brokerUrl: brokerUrl ?? null,
+          missing: missingName,
+        }
+      );
+    }
+
     return fail(
       "anthropic_api_key",
-      "Anthropic API key",
+      "Claude authentication",
       "Neither ANTHROPIC_API_KEY nor an agent credential broker is configured.",
       "Set ANTHROPIC_API_KEY or configure AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
       { source: "missing" }
@@ -263,7 +305,7 @@ async function checkAnthropicApiKey(
   if (options.probeCredentialBroker === false) {
     return pass(
       "anthropic_api_key",
-      "Anthropic API key",
+      "Claude authentication",
       "Agent credential broker configuration is present.",
       { source: "broker", brokerUrl }
     );
@@ -285,7 +327,7 @@ async function checkAnthropicApiKey(
     if (response.ok && payload.env?.ANTHROPIC_API_KEY?.trim()) {
       return pass(
         "anthropic_api_key",
-        "Anthropic API key",
+        "Claude authentication",
         "Agent credential broker is reachable and returned ANTHROPIC_API_KEY.",
         { source: "broker", brokerUrl }
       );
@@ -293,7 +335,7 @@ async function checkAnthropicApiKey(
 
     return fail(
       "anthropic_api_key",
-      "Anthropic API key",
+      "Claude authentication",
       payload.error
         ? `Agent credential broker did not return ANTHROPIC_API_KEY: ${payload.error}.`
         : "Agent credential broker did not return ANTHROPIC_API_KEY.",
@@ -303,7 +345,7 @@ async function checkAnthropicApiKey(
   } catch (error) {
     return fail(
       "anthropic_api_key",
-      "Anthropic API key",
+      "Claude authentication",
       "Agent credential broker could not be reached.",
       "Set ANTHROPIC_API_KEY or fix AGENT_CREDENTIAL_BROKER_URL and AGENT_CREDENTIAL_BROKER_SECRET.",
       {

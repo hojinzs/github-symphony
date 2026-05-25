@@ -37,6 +37,7 @@ gh-symphony doctor
 gh-symphony doctor --fix
 gh-symphony doctor --json
 gh-symphony doctor --smoke
+gh-symphony doctor --bundle
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
@@ -106,6 +107,75 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
 > Currently supported runtimes: **Codex**, **Claude Code**
+
+### Explicit Priority Mapping
+
+GitHub Project V2 does not have a native issue priority. For GitHub Project workflows, dispatch priority is controlled only by the explicit `tracker.priority` policy in `WORKFLOW.md`; there is no fallback from Project fields to labels and no guessed label naming convention. Unmapped values resolve to `priority = null`, so dispatch falls back to created time and identifier.
+
+Project field source:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Medium: 2
+      Low: 3
+```
+
+Label source:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+      P2: 2
+      P3: 3
+```
+
+Disabled:
+
+```yaml
+tracker:
+  kind: github-project
+  priority:
+    source: disabled
+```
+
+Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Migrate by copying the field name into `tracker.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.priority` wins and `gh-symphony doctor` reports a warning.
+
+Run `gh-symphony workflow validate` for local schema errors and `gh-symphony doctor` for live drift warnings such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`.
+
+### Linear Tracker Repositories
+
+For Linear, configure the tracker in `WORKFLOW.md` and initialize the repository runtime from the target GitHub repository:
+
+```yaml
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+```
+
+`gh-symphony repo init` validates `tracker.project_slug` and resolves `tracker.api_key`, so `LINEAR_API_KEY` must be set before initialization. Linear aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected, and `.gh-symphony/config.json` is not a Linear source of truth.
+
+Linear runs are polling-only. There is no webhook setup command. Put state transition, workpad comment, and PR handoff policy in `WORKFLOW.md`; see `docs/examples/linear-WORKFLOW.md` in the repository for a complete example. Preview a Linear issue prompt with:
+
+```bash
+gh-symphony workflow preview ENG-123
+```
 
 ### Repository `.env` Mapping
 
@@ -284,6 +354,22 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 - launches `gh-symphony setup` when repository runtime setup or GitHub Project binding must be repaired
 - prints concrete runtime install guidance when the configured command is missing on `PATH`
 
+`gh-symphony doctor --bundle` creates a redacted support bundle for bug reports:
+
+```bash
+gh-symphony doctor --bundle
+gh-symphony doctor --bundle ./tmp/support-bundle
+gh-symphony doctor --bundle --project-id your-project-id
+gh-symphony doctor --bundle --json
+```
+
+The bundle writes a deterministic directory containing `manifest.json`,
+`doctor.json`, redacted CLI/project config, `WORKFLOW.md`, runtime
+`status.json`/`issues.json` when available, and bounded recent run
+`events.ndjson`, `worker.log`, and `orchestrator.log` tails. Missing optional
+artifacts are listed in `manifest.missing`; redaction and truncation counts are
+reported in the command summary.
+
 The diagnostic checks cover:
 
 - the active GitHub auth source (`GITHUB_GRAPHQL_TOKEN` first, otherwise `gh`) and required scopes
@@ -302,6 +388,7 @@ Use JSON output for scripts and CI smoke checks. `--fix --json` includes a remed
 gh-symphony doctor --json
 gh-symphony doctor --fix --json
 gh-symphony doctor --smoke --json
+gh-symphony doctor --bundle --json
 gh-symphony repo start --once
 ```
 

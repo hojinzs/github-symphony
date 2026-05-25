@@ -85,7 +85,15 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
 
     await adapter.prepare({ runId: "run-1" });
     const resultPromise = adapter.spawnTurn({
-      messages: [{ type: "user", text: "rendered prompt" }],
+      messages: [
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "rendered prompt" }],
+          },
+        },
+      ],
     });
     fake.stdout.end(
       `${JSON.stringify({ type: "result", subtype: "success", session_id: "session-1" })}\n`
@@ -103,7 +111,13 @@ describe("createWorkerNonCodexRuntimeAdapter", () => {
       })
     );
     expect(fake.stdinText()).toBe(
-      `${JSON.stringify({ type: "user", text: "rendered prompt" })}\n`
+      `${JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "rendered prompt" }],
+        },
+      })}\n`
     );
     expect(result.result).toBe("success");
   });
