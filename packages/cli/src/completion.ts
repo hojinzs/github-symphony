@@ -41,7 +41,6 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   "workflow:preview": ["--file", "--sample", "--attempt", ...GLOBAL_OPTIONS],
   setup: [
     "--non-interactive",
-    "--assigned-only",
     "--output",
     "--skip-skills",
     "--skip-context",
@@ -58,7 +57,7 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   upgrade: [...GLOBAL_OPTIONS],
   repo: ["init", "start", "status", "stop", "run", "recover", "logs", "explain"],
   "repo:init": ["--repo-dir", "--workflow-file", ...GLOBAL_OPTIONS],
-  "repo:start": ["--daemon", "-d", "--once", "--http", "--web", "--log-level", ...GLOBAL_OPTIONS],
+  "repo:start": ["--daemon", "-d", "--once", "--assigned-only", "--http", "--web", "--log-level", ...GLOBAL_OPTIONS],
   "repo:status": ["--watch", "-w", ...GLOBAL_OPTIONS],
   "repo:stop": ["--force", ...GLOBAL_OPTIONS],
   "repo:run": ["--watch", ...GLOBAL_OPTIONS],

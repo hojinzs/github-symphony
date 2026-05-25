@@ -16,6 +16,7 @@ import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
   type OrchestratorProjectConfig,
+  type OrchestratorTrackerDependencies,
   type RepositoryRef,
   type TrackedIssueList,
   type WorkflowResolution,
@@ -35,6 +36,28 @@ describe("OrchestratorService", () => {
     } else {
       process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
     }
+  });
+
+  it("passes runtime assignedOnly into tracker dependencies", () => {
+    const service = new OrchestratorService(
+      {} as never,
+      createProjectConfig("/tmp/orchestrator", {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      {
+        assignedOnly: true,
+      }
+    );
+
+    const dependencies = (
+      service as unknown as {
+        createTrackerDependencies(): OrchestratorTrackerDependencies;
+      }
+    ).createTrackerDependencies();
+
+    expect(dependencies.assignedOnly).toBe(true);
   });
 
   it("dispatches actionable issues and prevents duplicate issue leases", async () => {

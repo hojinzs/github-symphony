@@ -73,6 +73,7 @@ const HTTP_HOST = "0.0.0.0";
 function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
+  assignedOnly?: boolean;
   httpPort?: number;
   webPort?: number;
   logLevel?: string;
@@ -81,6 +82,7 @@ function parseStartArgs(args: string[]): {
   const parsed: {
     daemon: boolean;
     once: boolean;
+    assignedOnly?: boolean;
     httpPort?: number;
     webPort?: number;
     logLevel?: string;
@@ -98,6 +100,10 @@ function parseStartArgs(args: string[]): {
     }
     if (arg === "--once") {
       parsed.once = true;
+      continue;
+    }
+    if (arg === "--assigned-only") {
+      parsed.assignedOnly = true;
       continue;
     }
     if (arg === "--http") {
@@ -438,7 +444,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony repo start [--daemon] [--once] [--http [port]] [--web [port]]\n"
+      "Usage: gh-symphony repo start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]]\n"
     );
     process.exitCode = 2;
     return;
@@ -486,7 +492,8 @@ const handler = async (
       projectId,
       parsed.logLevel,
       parsed.httpPort,
-      parsed.webPort
+      parsed.webPort,
+      parsed.assignedOnly === true
     );
     return;
   }
@@ -514,6 +521,7 @@ const handler = async (
     let isFirst = true;
     const service = new OrchestratorService(store, projectConfig, {
       logLevel,
+      assignedOnly: parsed.assignedOnly,
       onTick: async (snapshot) => {
         try {
           logTickResult(snapshot, prevSnapshot, isFirst);
@@ -806,7 +814,8 @@ async function startDaemon(
   projectId: string,
   logLevel?: string,
   httpPort?: number,
-  webPort?: number
+  webPort?: number,
+  assignedOnly = false
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -820,6 +829,7 @@ async function startDaemon(
       process.argv[1]!,
       "repo",
       "start",
+      ...(assignedOnly ? ["--assigned-only"] : []),
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),

@@ -219,7 +219,7 @@ describe("init command config output", () => {
     ).rejects.toThrow();
   });
 
-  it("writes assignedOnly into project tracker settings when enabled", async () => {
+  it("does not persist assignedOnly into project tracker settings", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-init-assigned-"));
 
     await writeConfig(configDir, {
@@ -241,7 +241,6 @@ describe("init command config output", () => {
         },
       ],
       workspaceDir: join(configDir, "workspaces"),
-      assignedOnly: true,
     });
 
     const project = JSON.parse(
@@ -251,7 +250,7 @@ describe("init command config output", () => {
       )
     ) as CliProjectConfig;
 
-    expect(project.tracker.settings?.assignedOnly).toBe(true);
+    expect(project.tracker.settings?.assignedOnly).toBeUndefined();
     expect(project.tracker.settings?.projectId).toBe("project-123");
   });
 

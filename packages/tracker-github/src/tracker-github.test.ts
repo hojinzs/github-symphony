@@ -1136,8 +1136,9 @@ describe("resolveTrackerAdapter", () => {
     }
   });
 
-  it("filters to issues assigned to the authenticated user when enabled", async () => {
+  it("falls back to legacy assignedOnly tracker setting with a deprecation warning", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     try {
       const adapter = resolveTrackerAdapter({
@@ -1229,9 +1230,92 @@ describe("resolveTrackerAdapter", () => {
       expect(infoSpy).toHaveBeenCalledWith(
         expect.stringContaining('"excludedCount":1')
       );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Deprecated tracker.settings.assignedOnly")
+      );
     } finally {
       infoSpy.mockRestore();
+      warnSpy.mockRestore();
     }
+  });
+
+  it("uses runtime assignedOnly input before legacy tracker settings", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-runtime-assigned",
+      settings: {
+        projectId: "project-runtime-assigned",
+        assignedOnly: true,
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-runtime-assigned",
+          settings: {
+            projectId: "project-runtime-assigned",
+            assignedOnly: true,
+          },
+        },
+      },
+      {
+        assignedOnly: false,
+        token: "dependencies-token",
+        fetchImpl: async (url, _init) => {
+          expect(String(url)).not.toMatch(/\/user$/);
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  fields: {
+                    nodes: [],
+                  },
+                  items: {
+                    nodes: [
+                      makeProjectItem({
+                        itemId: "item-1",
+                        issueId: "issue-1",
+                        number: 1,
+                        title: "Assigned issue",
+                        assignees: ["machine-user"],
+                      }),
+                      makeProjectItem({
+                        itemId: "item-2",
+                        issueId: "issue-2",
+                        number: 2,
+                        title: "Other issue",
+                        assignees: ["someone-else"],
+                      }),
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
+
+    expect(issues).toHaveLength(2);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it("attaches GitHub API rate-limit headers to listed issues", async () => {

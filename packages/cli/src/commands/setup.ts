@@ -33,7 +33,6 @@ const KNOWN_REQUIRED_SCOPES = ["repo", "read:org", "project"] as const;
 
 type SetupFlags = {
   nonInteractive: boolean;
-  assignedOnly?: boolean;
   output?: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -54,9 +53,6 @@ function parseSetupFlags(args: string[]): SetupFlags {
       case "--non-interactive":
         flags.nonInteractive = true;
         break;
-      case "--assigned-only":
-        flags.assignedOnly = true;
-        break;
       case "--output":
         flags.output = next;
         i += 1;
@@ -70,7 +66,7 @@ function parseSetupFlags(args: string[]): SetupFlags {
       default:
         if (arg?.startsWith("-")) {
           throw new Error(
-            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --assigned-only, --output, --skip-skills, --skip-context.`
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --skip-skills, --skip-context.`
           );
         }
     }
@@ -297,7 +293,6 @@ async function runNonInteractive(
   const runtime = await initRepoRuntime({
     repoDir: process.cwd(),
     workflowFile: workflowPath,
-    assignedOnly: flags.assignedOnly,
   });
 
   if (options.json) {
@@ -405,7 +400,7 @@ async function runInteractive(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/4",
+    stepLabel: "Step 2/3",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -423,19 +418,8 @@ async function runInteractive(
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 3/4",
+    stepLabel: "Step 3/3",
   });
-
-  const promptAssignedOnly = await abortIfCancelled(
-    p.confirm({
-      message:
-        `${
-          "Step 4/4"
-        } — Only process issues assigned to the authenticated GitHub user?`,
-      initialValue: flags.assignedOnly ?? false,
-    })
-  );
-  const assignedOnly = flags.assignedOnly || promptAssignedOnly;
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planWorkflowArtifacts({
@@ -457,7 +441,6 @@ async function runInteractive(
       `GitHub Project: ${projectDetail.title}`,
       `Authenticated:  ${login}`,
       `Repository:     current working directory`,
-      `Assigned:       ${assignedOnly ? `Only issues assigned to ${login}` : "All project issues"}`,
       "",
       renderDryRunPreview(workflowPath, workflowPlan, ecosystemPlan).trimEnd(),
     ].join("\n"),
@@ -493,7 +476,6 @@ async function runInteractive(
     const runtime = await initRepoRuntime({
       repoDir: process.cwd(),
       workflowFile: workflowPath,
-      assignedOnly,
     });
     writeSpinner.stop(`Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`);
   } catch (error) {
