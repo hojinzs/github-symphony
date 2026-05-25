@@ -262,6 +262,58 @@ describe("linearTrackerAdapter", () => {
     expect(request.variables.filter).not.toHaveProperty("assignee");
   });
 
+  it('falls back to legacy string assignedOnly tracker setting with a deprecation warning', async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      await linearTrackerAdapter.listIssues(
+        makeProject({
+          bindingId: "symphony-legacy-string",
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            assignedOnly: "true",
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      const request = JSON.parse(
+        String(fetchImpl.mock.calls[0]?.[1]?.body)
+      ) as {
+        variables: Record<string, unknown>;
+      };
+      expect(request.variables.filter).toMatchObject({
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Todo"] } },
+        assignee: { isMe: { eq: true } },
+      });
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Deprecated tracker.settings.assignedOnly")
+      );
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it("emits assignedOnly observability when the Linear filter is active", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {

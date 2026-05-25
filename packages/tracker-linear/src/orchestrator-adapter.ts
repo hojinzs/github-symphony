@@ -617,7 +617,7 @@ function readBooleanSetting(
   key: string
 ): boolean {
   const value = tracker.settings?.[key];
-  return value === true;
+  return value === true || value === "true";
 }
 
 function readStringArray(value: unknown): string[] | undefined {
