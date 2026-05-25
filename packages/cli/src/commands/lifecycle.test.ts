@@ -1,13 +1,16 @@
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 
 const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
+const ghAuthMocks = vi.hoisted(() => ({
+  resolveGitHubAuth: vi.fn(),
+}));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
@@ -37,16 +40,35 @@ vi.mock("node:child_process", async () => {
   };
 });
 
+vi.mock("../github/gh-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../github/gh-auth.js")>();
+  return {
+    ...actual,
+    resolveGitHubAuth: ghAuthMocks.resolveGitHubAuth,
+  };
+});
+
 const runModule = await import("./run.js");
 const startModule = await import("./start.js");
 const recoverModule = await import("./recover.js");
 const stopModule = await import("./stop.js");
+
+beforeEach(() => {
+  ghAuthMocks.resolveGitHubAuth.mockReset();
+  ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
+    source: "gh",
+    token: "validated-token",
+    login: "octocat",
+    scopes: ["repo", "read:org", "project"],
+  });
+});
 
 afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
   selectMock.mockReset();
   cancelMock.mockReset();
+  ghAuthMocks.resolveGitHubAuth.mockReset();
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -211,7 +233,9 @@ describe("lifecycle command integration", () => {
 
     expect(orchestratorRunCli).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith("Cancelled.");
-    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).not.toContain(
+    expect(
+      stderr.mock.calls.map((call) => String(call[0])).join("")
+    ).not.toContain(
       "No repository runtime config found. Run 'gh-symphony repo init' first."
     );
     expect(process.exitCode).toBe(130);
@@ -270,20 +294,24 @@ describe("lifecycle command integration", () => {
       activeProject: "tenant-a",
       projects: [createTenant("tenant-a", "acme", "platform")],
     });
-    await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      "111\n"
+    );
     await writeFile(join(configDir, "projects", "tenant-a", "port"), "41001\n");
 
-    const killSpy = vi
-      .spyOn(process, "kill")
-      .mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
-        if (signal === 0) {
-          return true;
-        }
-        if (pid !== 111 || signal !== "SIGTERM") {
-          throw new Error(`unexpected kill ${pid} ${String(signal)}`);
-        }
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((
+      pid: number,
+      signal?: NodeJS.Signals | 0
+    ) => {
+      if (signal === 0) {
         return true;
-      }) as typeof process.kill);
+      }
+      if (pid !== 111 || signal !== "SIGTERM") {
+        throw new Error(`unexpected kill ${pid} ${String(signal)}`);
+      }
+      return true;
+    }) as typeof process.kill);
 
     await stopModule.default([], baseOptions(configDir));
 
@@ -302,20 +330,24 @@ describe("lifecycle command integration", () => {
         createTenant("tenant-b", "beta", "api"),
       ],
     });
-    await writeFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "111\n");
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      "111\n"
+    );
 
     const killSpy = vi.spyOn(process, "kill");
     const stderr = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
 
-    await stopModule.default(["--proejct-id", "tenant-a"], baseOptions(configDir));
+    await stopModule.default(
+      ["--proejct-id", "tenant-a"],
+      baseOptions(configDir)
+    );
 
     const output = stderr.mock.calls.map((call) => String(call[0])).join("");
     expect(output).toContain("Unknown option '--proejct-id'");
-    expect(output).toContain(
-      "Usage: gh-symphony repo stop [--force]"
-    );
+    expect(output).toContain("Usage: gh-symphony repo stop [--force]");
     expect(killSpy).not.toHaveBeenCalled();
     await expect(
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")

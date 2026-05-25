@@ -15,7 +15,7 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
 
 [33m[1mOrchestration (current repository):[0m[0m
   [36mrepo init[0m                   Initialize gh-symphony for the current repository
-  [36mrepo start[0m                  Start the orchestrator (foreground)
+  [36mrepo start[0m                  Start the orchestrator after validating tracker authentication
   [36mrepo start --daemon[0m         Start the orchestrator in the background
   [36mrepo start --assigned-only[0m  Process only issues assigned to the authenticated user
   [36mrepo stop[0m                   Stop the background orchestrator
@@ -57,7 +57,7 @@ Setup:
 
 Orchestration (current repository):
   repo init                   Initialize gh-symphony for the current repository
-  repo start                  Start the orchestrator (foreground)
+  repo start                  Start the orchestrator after validating tracker authentication
   repo start --daemon         Start the orchestrator in the background
   repo start --assigned-only  Process only issues assigned to the authenticated user
   repo stop                   Stop the background orchestrator

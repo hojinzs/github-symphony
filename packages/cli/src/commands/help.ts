@@ -61,7 +61,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         name: "repo start",
-        description: "Start the orchestrator (foreground)",
+        description:
+          "Start the orchestrator after validating tracker authentication",
       },
       {
         name: "repo start --daemon",
