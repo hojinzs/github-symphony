@@ -771,6 +771,7 @@ Prompt body.
     expect(workflow.lifecycle.activeStates).toContain("Land");
     expect(isStateActive("Land", workflow.lifecycle)).toBe(true);
     expect(isStateActive("In review", workflow.lifecycle)).toBe(false);
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Ready"]);
   });
 });
 
