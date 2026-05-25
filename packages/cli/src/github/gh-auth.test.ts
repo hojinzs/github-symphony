@@ -1,8 +1,6 @@
 import type { execFileSync, spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  GitHubApiError,
-} from "./client.js";
+import { GitHubApiError } from "./client.js";
 import {
   GhAuthError,
   checkGhAuthenticated,
@@ -10,6 +8,7 @@ import {
   checkGhScopes,
   detectGitHubAuthSource,
   ensureGhAuth,
+  formatGhAuthRemediation,
   getEnvGitHubToken,
   getGhToken,
   getGhTokenWithSource,
@@ -139,9 +138,7 @@ describe("getGhTokenWithSource", () => {
   it("returns env token metadata before subprocess lookup", () => {
     const execImpl = vi.fn(() => "should-not-be-used") as ExecMock;
 
-    expect(
-      getGhTokenWithSource({ execImpl, envToken: "env-token" })
-    ).toEqual({
+    expect(getGhTokenWithSource({ execImpl, envToken: "env-token" })).toEqual({
       token: "env-token",
       source: "env",
     });
@@ -152,9 +149,7 @@ describe("getGhTokenWithSource", () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "env-token";
     const execImpl = vi.fn(() => "ghp_test123\n") as ExecMock;
 
-    expect(
-      getGhTokenWithSource({ execImpl, envToken: undefined })
-    ).toEqual({
+    expect(getGhTokenWithSource({ execImpl, envToken: undefined })).toEqual({
       token: "ghp_test123",
       source: "gh",
     });
@@ -206,9 +201,7 @@ describe("validateGitHubToken", () => {
           scopes: ["repo", "read:org"],
         })) as never,
       })
-    ).rejects.toThrowError(
-      expect.objectContaining({ code: "missing_scopes" })
-    );
+    ).rejects.toThrowError(expect.objectContaining({ code: "missing_scopes" }));
   });
 
   it("preserves non-auth GitHub API failures for env-token validation", async () => {
@@ -466,6 +459,38 @@ describe("resolveGitHubAuth", () => {
   });
 });
 
+describe("formatGhAuthRemediation", () => {
+  it("points env-token scope failures at GITHUB_GRAPHQL_TOKEN instead of gh auth refresh", () => {
+    const remediation = formatGhAuthRemediation(
+      new GhAuthError(
+        "missing_scopes",
+        "GITHUB_GRAPHQL_TOKEN is missing required scopes: project",
+        {
+          missingScopes: ["project"],
+          currentScopes: ["repo", "read:org"],
+          source: "env",
+        }
+      )
+    );
+
+    expect(remediation.command).toBeUndefined();
+    expect(remediation.hint).toContain("Update GITHUB_GRAPHQL_TOKEN");
+    expect(remediation.hint).not.toContain("gh auth refresh");
+  });
+
+  it("points env-token validation failures at updating or unsetting the env var", () => {
+    const remediation = formatGhAuthRemediation(
+      new GhAuthError("invalid_token", "GITHUB_GRAPHQL_TOKEN is invalid.", {
+        source: "env",
+      })
+    );
+
+    expect(remediation.command).toBeUndefined();
+    expect(remediation.hint).toContain("Update or unset GITHUB_GRAPHQL_TOKEN");
+    expect(remediation.hint).not.toContain("gh auth login");
+  });
+});
+
 describe("runGhAuthLogin", () => {
   it("returns manual when no interactive terminal is available", () => {
     expect(runGhAuthLogin({ interactive: false })).toEqual({
@@ -482,9 +507,7 @@ describe("runGhAuthRefresh", () => {
   it("runs gh auth refresh in interactive terminals", () => {
     const spawnImpl = vi.fn(() => buildSpawnResult(0)) as SpawnMock;
 
-    expect(
-      runGhAuthRefresh({ spawnImpl, interactive: true })
-    ).toMatchObject({
+    expect(runGhAuthRefresh({ spawnImpl, interactive: true })).toMatchObject({
       mode: "refresh",
       status: "applied",
       command: "gh auth refresh --scopes repo,read:org,project",

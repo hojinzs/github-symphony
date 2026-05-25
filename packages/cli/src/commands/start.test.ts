@@ -57,8 +57,7 @@ vi.mock("@gh-symphony/control-plane", () => ({
 }));
 
 vi.mock("../github/gh-auth.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../github/gh-auth.js")>();
+  const actual = await importOriginal<typeof import("../github/gh-auth.js")>();
   return {
     ...actual,
     resolveGitHubAuth: ghAuthMocks.resolveGitHubAuth,
@@ -235,6 +234,46 @@ describe("start command foreground locking", () => {
     await startModule.default([], baseOptions(configDir));
 
     expect(process.env.GITHUB_GRAPHQL_TOKEN).toBe("validated-token");
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("reports the env token source when GitHub auth resolves from GITHUB_GRAPHQL_TOKEN", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
+      source: "env",
+      token: "env-token",
+      login: "env-user",
+      scopes: ["repo", "read:org", "project"],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async () => {
+      process.emit("SIGINT");
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain(
+      "Authenticated via GITHUB_GRAPHQL_TOKEN as env-user"
+    );
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
@@ -525,7 +564,17 @@ describe("start command foreground locking", () => {
         summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
         activeRuns: [],
         retryQueue: [],
-        lastError: "GitHub GraphQL request failed with status 401",
+        lastError: "Token is missing required GitHub scopes.",
+      });
+      await onTick?.({
+        repository: { owner: "acme", name: "platform" },
+        tracker: { adapter: "github-project", bindingId: "project-1" },
+        health: "degraded",
+        lastTickAt: "2026-03-17T00:02:00.000Z",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: "Token is missing required GitHub scopes.",
       });
     });
     const exitSpy = vi
@@ -545,11 +594,64 @@ describe("start command foreground locking", () => {
       "Stopping repo start because GitHub authentication can no longer be validated."
     );
     expect(stderr.output()).toContain(
-      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate"
+      "Run 'gh auth refresh --scopes repo,read:org,project', then re-run 'gh-symphony repo start'."
     );
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it("does not classify non-GitHub tracker 401 snapshots as GitHub auth failures", async () => {
+    const linearProject = createProject("tenant-a", "acme", "platform");
+    linearProject.tracker = {
+      adapter: "linear",
+      bindingId: "linear-workspace",
+      settings: {},
+    };
+    process.env.LINEAR_API_KEY = "linear-key";
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [linearProject],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async () => {
+      const onTick = serviceDependencies.at(-1)?.onTick as
+        | ((snapshot: Record<string, unknown>) => Promise<void>)
+        | undefined;
+      await onTick?.({
+        repository: { owner: "acme", name: "platform" },
+        tracker: { adapter: "linear", bindingId: "linear-workspace" },
+        health: "degraded",
+        lastTickAt: "2026-03-17T00:01:00.000Z",
+        summary: { dispatched: 0, suppressed: 0, recovered: 0, activeRuns: 0 },
+        activeRuns: [],
+        retryQueue: [],
+        lastError: "Linear API request failed with status 401",
+      });
+      process.emit("SIGINT");
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).not.toContain("gh auth");
+    expect(shutdown).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("shuts down cleanly when service.run throws a GitHub scope error", async () => {

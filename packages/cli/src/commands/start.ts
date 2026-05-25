@@ -71,13 +71,26 @@ function displayGhAuthError(error: GhAuthError): void {
   process.stderr.write(`${remediation.hint}\n`);
 }
 
+function formatAuthSource(source: "env" | "gh"): string {
+  return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
+}
+
+function displayGitHubAuthSuccess(auth: {
+  source: "env" | "gh";
+  login: string;
+}): void {
+  process.stdout.write(
+    `Authenticated via ${formatAuthSource(auth.source)} as ${auth.login}\n`
+  );
+}
+
 async function resolveRepoStartGitHubAuth(input: {
   allowInteractiveRemediation: boolean;
 }): Promise<boolean> {
   try {
     const auth = await resolveGitHubAuth();
     process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
-    process.stdout.write(`Authenticated via gh CLI as ${auth.login}\n`);
+    displayGitHubAuthSuccess(auth);
     return true;
   } catch (error) {
     if (!(error instanceof GhAuthError)) {
@@ -120,7 +133,7 @@ async function resolveRepoStartGitHubAuth(input: {
     try {
       const auth = await resolveGitHubAuth();
       process.env.GITHUB_GRAPHQL_TOKEN = auth.token;
-      process.stdout.write(`Authenticated via gh CLI as ${auth.login}\n`);
+      displayGitHubAuthSuccess(auth);
       return true;
     } catch (retryError) {
       if (retryError instanceof GhAuthError) {
@@ -174,6 +187,8 @@ function isGitHubAuthRuntimeError(error: unknown): error is Error {
     }
     const message = error.message.toLowerCase();
     return (
+      message.includes("missing required github scopes") ||
+      message.includes("missing required scopes") ||
       message.includes("missing required scope") ||
       message.includes("missing_scopes") ||
       message.includes("bad credentials") ||
@@ -200,6 +215,13 @@ function ghRuntimeErrorToAuthError(error: Error): GhAuthError {
       }
     );
   }
+  if (
+    error.message.toLowerCase().includes("missing required github scopes") ||
+    error.message.toLowerCase().includes("missing required scopes") ||
+    error.message.toLowerCase().includes("missing_scopes")
+  ) {
+    return new GhAuthError("missing_scopes", error.message);
+  }
   return new GhAuthError(
     "invalid_token",
     error.message || "GitHub token validation failed."
@@ -209,7 +231,19 @@ function ghRuntimeErrorToAuthError(error: Error): GhAuthError {
 function displayRuntimeAuthShutdown(error: Error): void {
   const authError = ghRuntimeErrorToAuthError(error);
   displayGhAuthError(authError);
-  process.stderr.write("Stopping repo start because GitHub authentication can no longer be validated.\n");
+  process.stderr.write(
+    "Stopping repo start because GitHub authentication can no longer be validated.\n"
+  );
+}
+
+function shouldElevateGitHubAuthRuntimeError(
+  projectConfig: OrchestratorProjectConfig,
+  error: unknown
+): error is Error {
+  return (
+    projectConfig.tracker.adapter === "github-project" &&
+    isGitHubAuthRuntimeError(error)
+  );
 }
 
 type ForegroundShutdownOptions = {
@@ -650,7 +684,9 @@ const handler = async (
     return;
   }
 
-  if (!(await preflightRepoStartAuth(projectConfig, { daemon: parsed.daemon }))) {
+  if (
+    !(await preflightRepoStartAuth(projectConfig, { daemon: parsed.daemon }))
+  ) {
     return;
   }
 
@@ -679,14 +715,23 @@ const handler = async (
     let prevSnapshot: ProjectStatusSnapshot | null = null;
     let isFirst = true;
     let requestShutdown: (() => void) | null = null;
+    let authShutdownRequested = false;
     const service = new OrchestratorService(store, projectConfig, {
       logLevel,
       assignedOnly: parsed.assignedOnly,
       onTick: async (snapshot) => {
         try {
-          if (snapshot.lastError) {
+          if (authShutdownRequested) {
+            return;
+          }
+
+          if (
+            projectConfig.tracker.adapter === "github-project" &&
+            snapshot.lastError
+          ) {
             const runtimeError = new Error(snapshot.lastError);
             if (isGitHubAuthRuntimeError(runtimeError)) {
+              authShutdownRequested = true;
               displayRuntimeAuthShutdown(runtimeError);
               process.exitCode = 1;
               requestShutdown?.();
@@ -715,7 +760,8 @@ const handler = async (
           prevSnapshot = snapshot;
           isFirst = false;
         } catch (error) {
-          if (isGitHubAuthRuntimeError(error)) {
+          if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
+            authShutdownRequested = true;
             displayRuntimeAuthShutdown(error);
             process.exitCode = 1;
             requestShutdown?.();
@@ -854,7 +900,8 @@ const handler = async (
             break;
           }
 
-          if (isGitHubAuthRuntimeError(error)) {
+          if (shouldElevateGitHubAuthRuntimeError(projectConfig, error)) {
+            authShutdownRequested = true;
             displayRuntimeAuthShutdown(error);
             process.exitCode = 1;
             await shutdown();

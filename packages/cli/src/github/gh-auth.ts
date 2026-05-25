@@ -18,7 +18,6 @@ type ExecError = Error & {
 };
 
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
-export const KNOWN_REQUIRED_SCOPES = REQUIRED_GH_SCOPES;
 export type GitHubAuthSource = "env" | "gh";
 
 export type GhAuthRemediationResult = {
@@ -40,6 +39,7 @@ export class GhAuthError extends Error {
     public readonly details: {
       missingScopes?: string[];
       currentScopes?: string[];
+      source?: GitHubAuthSource;
     } = {}
   ) {
     super(message);
@@ -94,7 +94,7 @@ export function formatGhAuthRemediation(
         hint: "Install gh CLI from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN.",
       };
     case "not_authenticated": {
-      const command = `gh auth login --scopes ${KNOWN_REQUIRED_SCOPES.join(",")}`;
+      const command = `gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
       return {
         title: "GitHub authentication is required",
         message: error.message,
@@ -103,21 +103,27 @@ export function formatGhAuthRemediation(
       };
     }
     case "missing_scopes": {
+      if (error.details.source === "env") {
+        return {
+          title: "GitHub token is missing required scopes",
+          message: error.message,
+          hint: `Update GITHUB_GRAPHQL_TOKEN with a token that has ${REQUIRED_GH_SCOPES.join(",")} scopes, or unset it to use gh CLI auth, then re-run '${retryCommand}'.`,
+        };
+      }
       const currentSet = new Set(
         (error.details.currentScopes ?? []).map((scope) => scope.toLowerCase())
       );
       const inferredMissing =
         currentSet.size > 0
-          ? KNOWN_REQUIRED_SCOPES.filter((scope) => !currentSet.has(scope))
+          ? REQUIRED_GH_SCOPES.filter((scope) => !currentSet.has(scope))
           : [];
-      const missing =
-        error.details.missingScopes?.length
-          ? error.details.missingScopes
-          : inferredMissing.length > 0
-            ? inferredMissing
-            : parseMissingScopes(error.message);
+      const missing = error.details.missingScopes?.length
+        ? error.details.missingScopes
+        : inferredMissing.length > 0
+          ? inferredMissing
+          : parseMissingScopes(error.message);
       const scopeArg =
-        missing.length > 0 ? missing.join(",") : KNOWN_REQUIRED_SCOPES.join(",");
+        missing.length > 0 ? missing.join(",") : REQUIRED_GH_SCOPES.join(",");
       const command = `gh auth refresh --scopes ${scopeArg}`;
       return {
         title: "GitHub token is missing required scopes",
@@ -128,7 +134,14 @@ export function formatGhAuthRemediation(
     }
     case "invalid_token":
     case "token_failed": {
-      const command = `gh auth login --scopes ${KNOWN_REQUIRED_SCOPES.join(",")}`;
+      if (error.details.source === "env") {
+        return {
+          title: "GitHub token validation failed",
+          message: error.message,
+          hint: `Update or unset GITHUB_GRAPHQL_TOKEN, then re-run '${retryCommand}'.`,
+        };
+      }
+      const command = `gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
       return {
         title: "GitHub token validation failed",
         message: error.message,
@@ -153,7 +166,8 @@ function classifyTokenValidationError(
         source === "env" ? "invalid_token" : "token_failed",
         source === "env"
           ? "GITHUB_GRAPHQL_TOKEN is invalid or expired."
-          : ghTokenReadErrorMessage()
+          : ghTokenReadErrorMessage(),
+        { source }
       );
     }
 
@@ -161,7 +175,9 @@ function classifyTokenValidationError(
       source === "env"
         ? "GITHUB_GRAPHQL_TOKEN could not be validated"
         : "gh CLI token could not be validated";
-    return new GhAuthError("token_failed", `${prefix}: ${error.message}`);
+    return new GhAuthError("token_failed", `${prefix}: ${error.message}`, {
+      source,
+    });
   }
 
   if (error instanceof Error) {
@@ -169,14 +185,17 @@ function classifyTokenValidationError(
       source === "env"
         ? "GITHUB_GRAPHQL_TOKEN could not be validated"
         : "gh CLI token could not be validated";
-    return new GhAuthError("token_failed", `${prefix}: ${error.message}`);
+    return new GhAuthError("token_failed", `${prefix}: ${error.message}`, {
+      source,
+    });
   }
 
   return new GhAuthError(
     "token_failed",
     source === "env"
       ? "GITHUB_GRAPHQL_TOKEN could not be validated."
-      : "gh CLI token could not be validated."
+      : "gh CLI token could not be validated.",
+    { source }
   );
 }
 
@@ -279,7 +298,7 @@ export function getGhTokenWithSource(opts?: {
     opts !== undefined &&
     Object.prototype.hasOwnProperty.call(opts, "envToken");
   const envToken = hasExplicitEnvToken
-    ? opts.envToken?.trim() ?? null
+    ? (opts.envToken?.trim() ?? null)
     : getEnvGitHubToken();
   if (envToken) {
     return { token: envToken, source: "env" };
@@ -337,14 +356,22 @@ export async function validateGitHubToken(
       throw new GhAuthError(
         "missing_scopes",
         `GITHUB_GRAPHQL_TOKEN is missing required scopes: ${scopeCheck.missing.join(", ")}`,
-        { missingScopes: [...scopeCheck.missing], currentScopes: viewer.scopes }
+        {
+          missingScopes: [...scopeCheck.missing],
+          currentScopes: viewer.scopes,
+          source,
+        }
       );
     }
 
     throw new GhAuthError(
       "missing_scopes",
       missingGhScopesMessage(scopeCheck.missing),
-      { missingScopes: [...scopeCheck.missing], currentScopes: viewer.scopes }
+      {
+        missingScopes: [...scopeCheck.missing],
+        currentScopes: viewer.scopes,
+        source,
+      }
     );
   }
 
@@ -403,7 +430,8 @@ export function ensureGhAuth(opts?: {
   if (!checkGhInstalled({ execImpl })) {
     throw new GhAuthError(
       "not_installed",
-      "gh CLI is not installed. Install it from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN."
+      "gh CLI is not installed. Install it from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN.",
+      { source: "gh" }
     );
   }
 
@@ -411,7 +439,8 @@ export function ensureGhAuth(opts?: {
   if (!auth.authenticated) {
     throw new GhAuthError(
       "not_authenticated",
-      "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN."
+      "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.",
+      { source: "gh" }
     );
   }
 
@@ -423,6 +452,7 @@ export function ensureGhAuth(opts?: {
       {
         missingScopes: [...scopeCheck.missing],
         currentScopes: scopeCheck.scopes,
+        source: "gh",
       }
     );
   }

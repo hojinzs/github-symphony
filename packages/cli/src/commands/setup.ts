@@ -16,7 +16,7 @@ import {
   ensureGhAuth,
   getGhToken,
   GhAuthError,
-  KNOWN_REQUIRED_SCOPES,
+  REQUIRED_GH_SCOPES,
 } from "../github/gh-auth.js";
 import {
   abortIfCancelled,
@@ -87,7 +87,7 @@ function displayScopeError(
     `Token is missing required scope${plural}: ${error.requiredScopes.join(", ")}`
   );
   const currentSet = new Set(error.currentScopes.map((s) => s.toLowerCase()));
-  const scopesToAdd = KNOWN_REQUIRED_SCOPES.filter((s) => !currentSet.has(s));
+  const scopesToAdd = REQUIRED_GH_SCOPES.filter((s) => !currentSet.has(s));
   const scopeArg =
     scopesToAdd.length > 0
       ? scopesToAdd.join(",")
@@ -98,7 +98,9 @@ function displayScopeError(
   );
 }
 
-async function resolveProjectDetail(client: GitHubClient): Promise<ProjectDetail> {
+async function resolveProjectDetail(
+  client: GitHubClient
+): Promise<ProjectDetail> {
   const projects = await listUserProjects(client);
 
   if (projects.length === 0) {
@@ -341,11 +343,17 @@ async function runInteractive(
     authSpinner.stop("Authentication failed.");
     if (error instanceof GhAuthError) {
       if (error.code === "not_installed") {
-        p.log.error("gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요.");
+        p.log.error(
+          "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
+        );
       } else if (error.code === "not_authenticated") {
-        p.log.error("gh auth login --scopes repo,read:org,project 를 실행하세요.");
+        p.log.error(
+          "gh auth login --scopes repo,read:org,project 를 실행하세요."
+        );
       } else if (error.code === "missing_scopes") {
-        p.log.error("gh auth refresh --scopes repo,read:org,project 를 실행하세요.");
+        p.log.error(
+          "gh auth refresh --scopes repo,read:org,project 를 실행하세요."
+        );
       } else {
         p.log.error(error.message);
       }
@@ -480,7 +488,9 @@ async function runInteractive(
       repoDir: process.cwd(),
       workflowFile: workflowPath,
     });
-    writeSpinner.stop(`Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`);
+    writeSpinner.stop(
+      `Setup saved for ${runtime.repository.owner}/${runtime.repository.name}.`
+    );
   } catch (error) {
     writeSpinner.stop("Setup failed.");
     p.log.error(error instanceof Error ? error.message : "Unknown error");
