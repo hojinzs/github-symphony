@@ -906,6 +906,17 @@ describe("init ecosystem generation", () => {
       join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
       "utf8"
     );
+    const implementPosture = await readFile(
+      join(
+        cwd,
+        ".codex",
+        "skills",
+        "gh-symphony",
+        "references",
+        "workflow-posture-implement.md"
+      ),
+      "utf8"
+    );
 
     expect(referenceWorkflow).toContain(
       "Detected repository validation commands:"
@@ -921,6 +932,10 @@ describe("init ecosystem generation", () => {
     expect(skill).toContain("`pnpm lint`");
     expect(skill).toContain("(script: `pnpm --filter fixture lint`)");
     expect(skill).toContain("Use `pnpm` conventions");
+    expect(implementPosture).toContain("`pnpm lint`");
+    expect(implementPosture).toContain(
+      "(script: `pnpm --filter fixture lint`)"
+    );
   });
 
   it("threads detected repository commands into generated WORKFLOW.md", async () => {
@@ -1172,6 +1187,12 @@ describe("init ecosystem generation", () => {
     expect(skill).toContain("name: gh-symphony");
     expect(skill).toContain("description: Design, refine, and validate");
     expect(skill).toContain("gh-symphony");
+    await expect(
+      readFile(
+        join(cwd, ".codex", "skills", "gh-symphony", "references", "README.md"),
+        "utf8"
+      )
+    ).resolves.toContain("# /gh-symphony references");
   });
 
   it("does not double-wrap shell commands in context.yaml", async () => {
@@ -1226,6 +1247,30 @@ describe("init ecosystem generation", () => {
       expect(skill).toContain(`name: ${skillName}`);
       expect(skill).toContain("license: MIT");
       expect(skill).toContain("metadata:");
+    }
+
+    const referenceFiles = [
+      "README.md",
+      "workflow-schema.md",
+      "workflow-posture-implement.md",
+      "workflow-posture-review.md",
+      "workflow-posture-maintain.md",
+    ];
+
+    for (const referenceFile of referenceFiles) {
+      await expect(
+        readFile(
+          join(
+            cwd,
+            ".codex",
+            "skills",
+            "gh-symphony",
+            "references",
+            referenceFile
+          ),
+          "utf8"
+        )
+      ).resolves.toMatch(/gh-symphony|Workflow|workflow/);
     }
   });
 

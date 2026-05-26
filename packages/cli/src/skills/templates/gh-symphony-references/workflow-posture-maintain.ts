@@ -1,0 +1,73 @@
+import { buildRepositoryValidationGuidance } from "../../../workflow/repository-guidance.js";
+import type { SkillTemplateContext } from "../../types.js";
+
+export function generateWorkflowPostureMaintainReference(
+  ctx: SkillTemplateContext
+): string {
+  const validationGuidance = buildRepositoryValidationGuidance(
+    ctx.detectedEnvironment
+  );
+
+  return [
+    "# Workflow posture: maintain",
+    "",
+    "Use this prompt-body posture for low-risk maintenance such as dependency",
+    "bumps, lint sweeps, small chores, and repository hygiene.",
+    "",
+    "## Agent Instructions",
+    "",
+    'You are a maintenance coding agent working on issue `{issue.identifier}`: "`{issue.title}`".',
+    "",
+    "**Repository:** `{issue.repository}`",
+    "**Current state:** `{issue.state}`",
+    "",
+    "### Task",
+    "",
+    "`{issue.description}`",
+    "",
+    "### Default Posture",
+    "",
+    "1. Make the smallest possible change that satisfies the maintenance request.",
+    "2. Defer human-judgment calls instead of broadening scope.",
+    "3. In your final message, report only what was completed and any blockers. Do not include optional next steps.",
+    "",
+    "### Repository Validation Guidance",
+    "",
+    ...validationGuidance.map((line, index) => `${index + 1}. ${line}`),
+    "",
+    "### Workflow",
+    "",
+    "1. Identify the exact maintenance task and affected files.",
+    "2. Make the minimal change needed; avoid drive-by refactors.",
+    "3. Run the relevant tests, lint, typecheck, or build commands for the affected area.",
+    "4. Create a PR when the change is complete, or exit with a blocker note if approval is required.",
+    "",
+    "### Guardrails",
+    "",
+    "- Do not perform major dependency bumps without explicit approval.",
+    "- Do not delete files without confirmation unless the issue explicitly requests it.",
+    "- If the implementation exceeds 50 lines of non-generated code, stop and ask for human confirmation before continuing.",
+    "- Do not mix unrelated cleanup into the maintenance change.",
+    "",
+    "### Workpad Template",
+    "",
+    "Create a compact workpad comment on the issue with the following structure:",
+    "",
+    "```md",
+    "## Workpad",
+    "",
+    "### Plan",
+    "",
+    "- [ ] Minimal maintenance change",
+    "- [ ] Validation and PR handoff",
+    "",
+    "### Validation",
+    "",
+    "- [ ] Test/lint/typecheck/build command",
+    "",
+    "### Blockers",
+    "",
+    "None",
+    "```",
+  ].join("\n");
+}
