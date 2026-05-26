@@ -91,10 +91,8 @@ export function buildProjectSnapshot(
         issueIdentifier: run.issueIdentifier,
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
-    })),
-    recovery:
-      activeRuns.find((run) => run.recovery)?.recovery ??
-      findLatestRecovery(allRuns ?? []),
+      })),
+    recovery: findLatestRecovery([...(allRuns ?? []), ...activeRuns]),
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
@@ -104,13 +102,47 @@ export function buildProjectSnapshot(
 function findLatestRecovery(
   runs: OrchestratorRunRecord[]
 ): ProjectStatusSnapshot["recovery"] {
-  return [...runs]
-    .sort((left, right) => {
-      const leftTime = new Date(left.updatedAt).getTime();
-      const rightTime = new Date(right.updatedAt).getTime();
-      return rightTime - leftTime;
-    })
-    .find((run) => run.recovery)?.recovery ?? null;
+  return (
+    [...runs]
+      .filter((run) => isUnresolvedRecoveryRun(run, runs))
+      .sort((left, right) => {
+        const leftTime = new Date(left.updatedAt).getTime();
+        const rightTime = new Date(right.updatedAt).getTime();
+        return rightTime - leftTime;
+      })
+      .find((run) => run.recovery)?.recovery ?? null
+  );
+}
+
+function isUnresolvedRecoveryRun(
+  run: OrchestratorRunRecord,
+  runs: OrchestratorRunRecord[]
+): boolean {
+  if (!run.recovery) {
+    return false;
+  }
+
+  if (
+    run.status === "suppressed" &&
+    runs.some(
+      (candidate) =>
+        candidate.runId !== run.runId &&
+        candidate.retryKind === "recovery" &&
+        candidate.recovery?.runId === run.recovery?.runId &&
+        new Date(candidate.updatedAt).getTime() >
+          new Date(run.updatedAt).getTime() &&
+        candidate.status !== "running" &&
+        candidate.status !== "retrying"
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    run.status === "suppressed" ||
+    (run.retryKind === "recovery" &&
+      (run.status === "running" || run.status === "retrying"))
+  );
 }
 
 function aggregateTokenUsageByIssue(

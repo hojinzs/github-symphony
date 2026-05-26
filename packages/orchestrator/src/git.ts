@@ -114,18 +114,24 @@ export async function ensureIssueWorkspaceRepository(input: {
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
   allowDirtyExistingWorkspace?: boolean;
 }): Promise<string> {
+  let dirtyExistingWorkspaceAllowed = false;
   const repositoryDirectory = input.existingWorkspace
-    ? await syncExistingIssueWorkspaceRepository({
-        ...input,
-        skipPull: Boolean(input.pullRequestBranch),
-        allowDirty: input.allowDirtyExistingWorkspace,
-      })
+    ? await syncExistingIssueWorkspaceRepository(
+        {
+          ...input,
+          skipPull: Boolean(input.pullRequestBranch),
+          allowDirty: input.allowDirtyExistingWorkspace,
+        },
+        (dirtyAllowed) => {
+          dirtyExistingWorkspaceAllowed = dirtyAllowed;
+        }
+      )
     : await cloneRepositoryForRun({
         repository: input.repository,
         targetDirectory: input.issueWorkspacePath,
       });
 
-  if (input.pullRequestBranch) {
+  if (input.pullRequestBranch && !dirtyExistingWorkspaceAllowed) {
     await checkoutPullRequestBranch(
       repositoryDirectory,
       input.pullRequestBranch
@@ -220,12 +226,15 @@ async function readGitHead(
   }
 }
 
-async function syncExistingIssueWorkspaceRepository(input: {
-  repository: RepositoryRef;
-  issueWorkspacePath: string;
-  skipPull?: boolean;
-  allowDirty?: boolean;
-}): Promise<string> {
+async function syncExistingIssueWorkspaceRepository(
+  input: {
+    repository: RepositoryRef;
+    issueWorkspacePath: string;
+    skipPull?: boolean;
+    allowDirty?: boolean;
+  },
+  onDirtyAllowed?: (dirtyAllowed: boolean) => void
+): Promise<string> {
   await mkdir(input.issueWorkspacePath, { recursive: true });
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
   const lockDirectory = join(input.issueWorkspacePath, "repository.lock");
@@ -246,6 +255,7 @@ async function syncExistingIssueWorkspaceRepository(input: {
       }
 
       if (dirtyStatus.trim() && input.allowDirty) {
+        onDirtyAllowed?.(true);
         return repositoryDirectory;
       }
 

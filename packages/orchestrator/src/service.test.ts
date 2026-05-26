@@ -260,6 +260,14 @@ describe("OrchestratorService", () => {
       "partial turn output\n",
       "utf8"
     );
+    const overflowDirtyFiles = Array.from(
+      { length: 55 },
+      (_, index) => `zz-overflow-${String(index).padStart(2, "0")}.txt`
+    );
+    for (const file of overflowDirtyFiles) {
+      await writeFile(join(repositoryDirectory, file), "overflow\n", "utf8");
+    }
+    const expectedDirtyFiles = ["partial.txt", ...overflowDirtyFiles];
     await store.saveProjectIssueOrchestrations("tenant-1", [
       {
         issueId: "issue-1",
@@ -343,13 +351,14 @@ describe("OrchestratorService", () => {
     expect(suppressedRun?.runtimeSession?.exitClassification).toBe(
       "incomplete-turn-dirty-workspace"
     );
+    expect(suppressedRun?.runtimeSession?.status).toBe("completed");
     expect(suppressedRun?.recovery).toMatchObject({
       kind: "incomplete-turn-dirty-workspace",
       runId: "run-incomplete",
       issueId: "issue-1",
       issueIdentifier: "acme/platform#1",
       workspacePath: repositoryDirectory,
-      dirtyFiles: ["partial.txt"],
+      dirtyFiles: expectedDirtyFiles,
       lastEvent: "heartbeat",
       lastEventAt: "2026-03-08T00:04:30.000Z",
       sessionId: "thread-1-turn-7",
@@ -369,13 +378,17 @@ describe("OrchestratorService", () => {
       retryKind: "recovery",
       recovery: expect.objectContaining({
         kind: "incomplete-turn-dirty-workspace",
-        dirtyFiles: ["partial.txt"],
+        dirtyFiles: expectedDirtyFiles,
       }),
     });
     expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
       "incomplete-turn-dirty-workspace"
     );
-    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).toBe("partial.txt");
+    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).toContain("partial.txt");
+    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).toContain("... and 6 more");
+    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).not.toContain(
+      "zz-overflow-54.txt"
+    );
     expect(spawnEnv?.SYMPHONY_RECOVERY_SUGGESTED_COMMAND).toBe(
       `cd '${repositoryDirectory}' && git status --short && git diff`
     );
@@ -385,6 +398,7 @@ describe("OrchestratorService", () => {
     expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "Last event: heartbeat"
     );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain("- ... and 6 more");
     await expect(
       service.statusForIssue("acme/platform#1")
     ).resolves.toMatchObject({
@@ -396,7 +410,7 @@ describe("OrchestratorService", () => {
         runId: "run-incomplete",
         issueId: "issue-1",
         workspacePath: repositoryDirectory,
-        dirtyFiles: ["partial.txt"],
+        dirtyFiles: expectedDirtyFiles,
         lastEvent: "heartbeat",
         lastEventAt: "2026-03-08T00:04:30.000Z",
         sessionId: "thread-1-turn-7",

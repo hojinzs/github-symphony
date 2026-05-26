@@ -69,6 +69,7 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
+const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
   "gh-symphony:linked-pr-active-while-issue-inactive";
@@ -865,7 +866,7 @@ export class OrchestratorService {
                   activeRun.runtimeSession,
                   recovery.sessionId,
                   recovery.threadId,
-                  activeRun.runtimeSession?.status ?? null,
+                  "completed",
                   activeRun.runtimeSession?.startedAt ??
                     activeRun.startedAt ??
                     now.toISOString(),
@@ -874,10 +875,9 @@ export class OrchestratorService {
                 )
               : activeRun.runtimeSession,
             recovery,
-            lastError:
-              recovery
-                ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-                : "Run suppressed because the tracker issue is no longer tracked.",
+            lastError: recovery
+              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+              : "Run suppressed because the tracker issue is no longer tracked.",
           };
           await this.store.saveRun(suppressedRun);
           this.logVerbose(
@@ -923,7 +923,7 @@ export class OrchestratorService {
                   activeRun.runtimeSession,
                   recovery.sessionId,
                   recovery.threadId,
-                  activeRun.runtimeSession?.status ?? null,
+                  "completed",
                   activeRun.runtimeSession?.startedAt ??
                     activeRun.startedAt ??
                     now.toISOString(),
@@ -1622,8 +1622,9 @@ export class OrchestratorService {
           SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
           SYMPHONY_LAST_TURN_SUMMARY: "",
           SYMPHONY_RECOVERY_KIND: options.recovery?.kind ?? "",
-          SYMPHONY_RECOVERY_DIRTY_FILES:
-            options.recovery?.dirtyFiles.join("\n") ?? "",
+          SYMPHONY_RECOVERY_DIRTY_FILES: options.recovery
+            ? formatRecoveryDirtyFilesForContext(options.recovery.dirtyFiles)
+            : "",
           SYMPHONY_RECOVERY_SUGGESTED_COMMAND:
             options.recovery?.suggestedCommand ?? "",
           SYMPHONY_SESSION_STARTED_AT: "",
@@ -3528,11 +3529,29 @@ function appendIncompleteTurnRecoveryPrompt(
     `Thread id: ${recovery.threadId ?? "unknown"}`,
     "",
     "Dirty files:",
-    ...recovery.dirtyFiles.map((file) => `- ${file}`),
+    ...formatRecoveryDirtyFileLinesForPrompt(recovery.dirtyFiles),
     "",
     "Inspect the dirty diff before editing. If the partial work is correct, validate it, commit it, and push it. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.",
     `Suggested operator command: ${recovery.suggestedCommand}`,
   ].join("\n");
+}
+
+function formatRecoveryDirtyFilesForContext(dirtyFiles: string[]): string {
+  return formatRecoveryDirtyFiles(dirtyFiles).join("\n");
+}
+
+function formatRecoveryDirtyFileLinesForPrompt(dirtyFiles: string[]): string[] {
+  return formatRecoveryDirtyFiles(dirtyFiles).map((file) => `- ${file}`);
+}
+
+function formatRecoveryDirtyFiles(dirtyFiles: string[]): string[] {
+  const visibleFiles = dirtyFiles.slice(0, MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT);
+  const remaining = dirtyFiles.length - visibleFiles.length;
+  if (remaining <= 0) {
+    return visibleFiles;
+  }
+
+  return [...visibleFiles, `... and ${remaining} more`];
 }
 
 function resolvePersistedCumulativeTurnCount(
