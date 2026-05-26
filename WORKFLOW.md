@@ -1,7 +1,8 @@
 ---
 tracker:
   kind: github-project
-  project_id: PVT_kwHOAPiKdM4BYPVD # 🧩 Moncher Stack (hojinzs/projects/14)
+  # 🧩 Moncher Stack (hojinzs/projects/14)
+  project_id: PVT_kwHOAPiKdM4BYPVD
   state_field: Status
   active_states:
     - Ready
