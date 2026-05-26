@@ -413,7 +413,6 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(report.projectId).toBe("tenant-a");
     expect(report.authSource).toBe("gh");
@@ -481,7 +480,6 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find((check) => check.id === "claude_binary")
@@ -616,7 +614,7 @@ describe("runDoctorDiagnostics", () => {
   it("reports an actionable failure for unsupported Node.js versions", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
@@ -658,7 +656,7 @@ describe("runDoctorDiagnostics", () => {
   it("reports an actionable failure when Git is missing from PATH", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture("fake-agent", {
       includeGit: false,
     });
@@ -778,12 +776,13 @@ describe("runDoctorDiagnostics", () => {
   it("accepts env-token auth when gh CLI is unavailable", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
 
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
         checkGhInstalled: () => false,
+        processVersion: DOCTOR_TEST_NODE_VERSION,
         getEnvGitHubToken: () => "env-token",
         validateGitHubToken: (async () =>
           ({
@@ -810,7 +809,6 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find((check) => check.id === "gh_installation")
@@ -829,7 +827,7 @@ describe("runDoctorDiagnostics", () => {
   it("falls back to gh auth without reusing an invalid env token", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
-    await mkdir(workspaceDir, { recursive: true });
+    await prepareDoctorPaths(configDir, workspaceDir);
     const { repoDir, pathEnv } = await createWorkflowFixture();
     const getGhToken = vi.fn(() => "gh-token");
     const validateGitHubToken = vi
@@ -847,6 +845,7 @@ describe("runDoctorDiagnostics", () => {
     const report = await withCwd(repoDir, () =>
       runDoctorDiagnostics(baseOptions(configDir), [], {
         checkGhInstalled: () => true,
+        processVersion: DOCTOR_TEST_NODE_VERSION,
         checkGhAuthenticated: () => ({ authenticated: true, login: "gh-user" }),
         checkGhScopes: () => ({
           valid: true,
@@ -874,7 +873,6 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(getGhToken).toHaveBeenCalledWith({ allowEnv: false });
     expect(validateGitHubToken).toHaveBeenNthCalledWith(
@@ -991,7 +989,6 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(report.authSource).toBe("env");
     expect(report.authLogin).toBe("env-user");
@@ -2133,7 +2130,6 @@ describe("doctor command handler", () => {
         }
       )
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find((check) => check.id === "smoke_issue")
@@ -2228,7 +2224,6 @@ describe("doctor command handler", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find(
@@ -2265,7 +2260,6 @@ describe("doctor command handler", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find(
@@ -2322,7 +2316,6 @@ describe("doctor command handler", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.filter((check) => check.id === "priority_mapping")
@@ -2378,7 +2371,6 @@ describe("doctor command handler", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.find(
@@ -2412,7 +2404,10 @@ describe("doctor command handler", () => {
           projectConfig: createProjectConfig(workspaceDir),
         }),
         getProjectDetail: (async () => createProjectDetail() as never) as never,
-        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        listRepositoryLabels: (async () => [
+          { name: "P0" },
+          { name: "P1" },
+        ]) as never,
         fetchProjectIssues: (async () => [
           createTrackedIssue({
             state: "In progress",
@@ -2422,7 +2417,6 @@ describe("doctor command handler", () => {
         pathEnv,
       })
     );
-
     expect(report.ok).toBe(true);
     expect(
       report.checks.filter((check) => check.id === "priority_mapping")
@@ -2509,7 +2503,9 @@ describe("doctor command handler", () => {
     );
     expect(priorityChecks).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: "Missing configured priority labels" }),
+        expect.objectContaining({
+          title: "Missing configured priority labels",
+        }),
         expect.objectContaining({ title: "Stale priority label mappings" }),
       ])
     );
@@ -2535,7 +2531,10 @@ describe("doctor command handler", () => {
           projectConfig: createProjectConfig(workspaceDir),
         }),
         getProjectDetail: (async () => createProjectDetail() as never) as never,
-        listRepositoryLabels: (async () => [{ name: "P0" }, { name: "P1" }]) as never,
+        listRepositoryLabels: (async () => [
+          { name: "P0" },
+          { name: "P1" },
+        ]) as never,
         fetchProjectIssues: (async () => [
           createTrackedIssue({
             state: "In progress",
