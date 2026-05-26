@@ -63,7 +63,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 2. **Blocker = code-blocking only.** A blocker is something that prevents the _code change itself_ from being completed (missing required secret, unrecoverable test-infra failure, contradictory requirements that need a human decision). Review feedback, deploy concerns, and UI polish are **not** blockers. On a code-blocker: post a `⛔ Blocker` issue comment (what · why · how to unblock), transition Status → `Backlog` via `/gh-project`, then exit. Never leave a blocked issue in `In progress` with a draft PR.
 3. In your final message, report only what was completed and any blockers. Do not include "next steps".
 4. **Report language**: detect from the issue body and apply consistently to workpad, progress/blocker/transition comments, and PR review replies. If the language is unclear or mixed, default to English. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
-5. **Log every status transition publicly** in _two_ places, before or in the same operation as the board update:
+5. **Log every status transition publicly** in _two_ places, **immediately after the `/gh-project` board update returns success** — never before. The board state is the source of truth (Posture 6); logging only after a confirmed transition prevents phantom "Status: X → Y" comments when the board update fails:
    - A standalone issue comment (`gh issue comment --body-file`), formatted:
 
      ```
@@ -107,7 +107,7 @@ When entering `Ready`, before treating it as a fresh pickup, board drift, or res
 1. Find linked/open PRs from the issue/project item, the current workpad, and `gh pr list --search "<issue-number>"`.
 2. For each linked/open PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
 3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, or a human instruction indicating rework, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
-4. For rework return: open a new work cycle (new `## Workpad` comment), post the standalone `🔁 Status:` comment, transition `Ready` → `In progress` via `/gh-project`, then proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
+4. For rework return: open a new work cycle (new `## Workpad` comment), transition `Ready` → `In progress` via `/gh-project`, then post the standalone `🔁 Status: Ready → In progress` comment, and proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
 5. Otherwise (no actionable feedback on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
 
 ##### Stalled-handoff safety net
@@ -120,8 +120,8 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
 
 1. Read the issue body and existing comments to understand the requested work.
 2. **Triage actionability:**
-   - **Requirements unclear** → write a triage comment in the report language requesting clarification, post the `🔁 Status: Ready → Backlog` transition log (Posture 5), transition via `/gh-project`, exit.
-   - **Scope too large** (likely >20 files or >3 packages) → write a triage comment requesting issue splitting, post the transition log, transition to `Backlog`, exit. State explicitly whether the reason is unclear requirements, oversized scope, or both.
+   - **Requirements unclear** → write a triage comment in the report language requesting clarification, transition `Ready` → `Backlog` via `/gh-project`, then post the `🔁 Status: Ready → Backlog` transition log (Posture 5), exit.
+   - **Scope too large** (likely >20 files or >3 packages) → write a triage comment requesting issue splitting, transition `Ready` → `Backlog` via `/gh-project`, then post the transition log, exit. State explicitly whether the reason is unclear requirements, oversized scope, or both.
 3. **Resume check (idempotent).** If a `feat/<issue-number>-…` branch or Draft PR for this issue already exists from a prior cycle (e.g. parked in `Backlog` then moved back), adopt them — do **not** recreate.
 4. **Open the new work cycle:**
    - Create a new `## Workpad — {{issue.identifier}} — Cycle N` comment using the Workpad Template (see _Workpad Lifecycle_). N is the next cycle number after the most recent workpad on the issue (1 if none).
@@ -129,7 +129,7 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
    - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
    - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
    - Record the Draft PR URL and base branch in the workpad.
-5. Post the standalone `🔁 Status: Ready → In progress` comment (cycle N open), append the matching workpad `### Status Transitions` line, then transition via `/gh-project`.
+5. Transition the issue from `Ready` to `In progress` via `/gh-project`. Once the transition returns success, post the standalone `🔁 Status: Ready → In progress` comment (cycle N open) and append the matching workpad `### Status Transitions` line.
 6. Proceed to Step 2.
 
 #### Step 2: In progress / Execution
@@ -178,9 +178,9 @@ Entered from one of:
 8. **Mandatory handoff gate.** The moment Steps 5–7 are satisfied, in **this same turn**:
    1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
    2. Mark the Draft PR ready: `gh pr ready <pr-number>`.
-   3. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
-   4. Append the matching workpad Status Transitions line; tick the Completion Bar items; record final Validation results; close the cycle marker.
-   5. Transition the issue to `In review` via `/gh-project`.
+   3. Transition the issue to `In review` via `/gh-project`. Only proceed after `/gh-project` returns success.
+   4. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
+   5. Append the matching workpad Status Transitions line; tick the Completion Bar items; record final Validation results; close the cycle marker.
 
    **Never end a turn with the Completion Bar met and the PR still Draft.** That state deadlocks the workflow (Step 3 only fires on merge; the worker won't be re-dispatched). The Step 0 stalled-handoff safety net rescues it on the next polling tick as a backstop, but it should not be needed.
 
