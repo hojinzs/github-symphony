@@ -10,7 +10,7 @@
 
 tracker:
   kind: github-project
-  project_id: PVT_kwHOAPiKdM4BRs_j
+  project_id: PVT_REPLACE_WITH_YOUR_PROJECT_ID
   state_field: Status
 
   active_states: [{active column names}]

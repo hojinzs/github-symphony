@@ -4,7 +4,7 @@ description: Manage GitHub Project v2 issue states, workpad comments, and relate
 license: MIT
 metadata:
   author: gh-symphony
-  version: "1.0"
+  version: "2.0"
   generatedBy: "gh-symphony"
 ---
 
@@ -22,15 +22,17 @@ create workpad comments, and handle follow-up issues.
 
 ## Column ID Quick Reference
 
-Status Field ID: `PVTSSF_lADOBB0_W84BRapWzg_QDBk`
+**Project:** 🧩 Moncher Stack (`PVT_kwHOAPiKdM4BYPVD`, hojinzs/projects/14)
+**Status Field ID:** `PVTSSF_lAHOAPiKdM4BYPVDzhTWkPc`
 
-| Column Name | Role | Option ID |
-|-------------|------|-----------|
-| Backlog | unknown | `f75ad846` |
-| Ready | unknown | `61e4505c` |
-| In progress | unknown | `47fc9ee4` |
-| In review | unknown | `df73e18b` |
-| Done | unknown | `98236657` |
+| Column Name | Role     | Option ID  |
+| ----------- | -------- | ---------- |
+| Backlog     | wait     | `ecd228db` |
+| Ready       | active   | `f043e389` |
+| In progress | active   | `b734c33a` |
+| In review   | wait     | `ffe0efa5` |
+| Land        | active   | `161b1b30` |
+| Done        | terminal | `444fc1b2` |
 
 ## Operations
 
@@ -45,9 +47,9 @@ gh project item-list <project-number> --owner <owner> --format json \
 
 # Update the status field
 gh project item-edit \
-  --project-id PVT_kwDOBB0_W84BRapW \
+  --project-id PVT_kwHOAPiKdM4BYPVD \
   --id <item-id> \
-  --field-id PVTSSF_lADOBB0_W84BRapWzg_QDBk \
+  --field-id PVTSSF_lAHOAPiKdM4BYPVDzhTWkPc \
   --single-select-option-id <option-id-from-table-above>
 ```
 
