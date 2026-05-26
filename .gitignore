@@ -8,6 +8,7 @@ coverage
 packages/worker/.env.local
 secrets
 .runtime
+.codex-agent/
 evidence
 .idea
 packages/control-plane/client/src/routeTree.gen.ts
