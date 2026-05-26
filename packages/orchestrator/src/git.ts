@@ -112,11 +112,13 @@ export async function ensureIssueWorkspaceRepository(input: {
   issueWorkspacePath: string;
   existingWorkspace: boolean;
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
+  allowDirtyExistingWorkspace?: boolean;
 }): Promise<string> {
   const repositoryDirectory = input.existingWorkspace
     ? await syncExistingIssueWorkspaceRepository({
         ...input,
         skipPull: Boolean(input.pullRequestBranch),
+        allowDirty: input.allowDirtyExistingWorkspace,
       })
     : await cloneRepositoryForRun({
         repository: input.repository,
@@ -131,6 +133,31 @@ export async function ensureIssueWorkspaceRepository(input: {
   }
 
   return repositoryDirectory;
+}
+
+export type IssueWorkspaceDirtyStatus = {
+  repositoryDirectory: string;
+  dirty: boolean;
+  dirtyFiles: string[];
+  summary: string | null;
+};
+
+export async function inspectIssueWorkspaceDirtyStatus(input: {
+  issueWorkspacePath: string;
+}): Promise<IssueWorkspaceDirtyStatus | null> {
+  const repositoryDirectory = join(input.issueWorkspacePath, "repository");
+  const hasGit = await pathExists(join(repositoryDirectory, ".git"));
+  if (!hasGit) {
+    return null;
+  }
+
+  const status = await readGitStatusPorcelain(repositoryDirectory);
+  return {
+    repositoryDirectory,
+    dirty: status.trim().length > 0,
+    dirtyFiles: parseGitStatusFiles(status),
+    summary: status.trim() ? summarizeGitStatus(status) : null,
+  };
 }
 
 export async function loadRepositoryWorkflow(
@@ -197,6 +224,7 @@ async function syncExistingIssueWorkspaceRepository(input: {
   repository: RepositoryRef;
   issueWorkspacePath: string;
   skipPull?: boolean;
+  allowDirty?: boolean;
 }): Promise<string> {
   await mkdir(input.issueWorkspacePath, { recursive: true });
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
@@ -215,6 +243,10 @@ async function syncExistingIssueWorkspaceRepository(input: {
           repositoryDirectory,
           `could not be inspected: ${formatCommandError(error, "git status --porcelain failed")}`
         );
+      }
+
+      if (dirtyStatus.trim() && input.allowDirty) {
+        return repositoryDirectory;
       }
 
       if (dirtyStatus.trim()) {
@@ -384,6 +416,14 @@ function summarizeGitStatus(status: string): string {
     .filter(Boolean);
   const summary = lines.slice(0, 5).join("; ");
   return lines.length > 5 ? `${summary}; ...` : summary;
+}
+
+function parseGitStatusFiles(status: string): string[] {
+  return status
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
 }
 
 function normalizeWhitespace(value: string): string {

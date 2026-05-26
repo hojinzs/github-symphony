@@ -321,6 +321,7 @@ export async function statusForIssue(
               resolvedRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
           }
         : null,
+    recovery: resolvedRun?.recovery ?? null,
     logs: {
       codex_session_logs:
         resolvedRun === null

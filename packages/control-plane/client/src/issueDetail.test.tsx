@@ -43,6 +43,7 @@ function createDetail(
       },
     },
     retry: null,
+    recovery: null,
     logs: {
       codex_session_logs: [],
     },
@@ -67,11 +68,14 @@ function createDetail(
   };
 }
 
-function renderIssueDetailView(
-  props: Parameters<typeof IssueDetailView>[0]
-) {
+function renderIssueDetailView(props: Parameters<typeof IssueDetailView>[0]) {
   return renderToStaticMarkup(
-    <Theme appearance="dark" accentColor="blue" grayColor="gray" radius="medium">
+    <Theme
+      appearance="dark"
+      accentColor="blue"
+      grayColor="gray"
+      radius="medium"
+    >
       <IssueDetailView {...props} />
     </Theme>
   );

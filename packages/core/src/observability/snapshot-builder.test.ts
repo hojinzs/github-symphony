@@ -330,6 +330,58 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.summary.recovered).toBe(1);
   });
 
+  it("surfaces the latest incomplete-turn dirty-workspace recovery", () => {
+    const olderRun = mockRun({
+      runId: "run-old",
+      status: "suppressed",
+      updatedAt: "2024-01-01T00:05:00Z",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-old",
+        issueId: "issue-001",
+        issueIdentifier: "acme/platform#42",
+        workspacePath: "/tmp/work/old",
+        dirtyFiles: ["old.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:04:00Z",
+        sessionId: "session-old",
+        threadId: "thread-old",
+        suggestedCommand: "cd /tmp/work/old && git status --short && git diff",
+        detectedAt: "2024-01-01T00:05:00Z",
+      },
+    });
+    const latestRun = mockRun({
+      runId: "run-new",
+      status: "suppressed",
+      updatedAt: "2024-01-01T00:07:00Z",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-new",
+        issueId: "issue-002",
+        issueIdentifier: "acme/platform#43",
+        workspacePath: "/tmp/work/new",
+        dirtyFiles: ["new.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:06:30Z",
+        sessionId: "session-new",
+        threadId: "thread-new",
+        suggestedCommand: "cd /tmp/work/new && git status --short && git diff",
+        detectedAt: "2024-01-01T00:07:00Z",
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [olderRun, latestRun],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.recovery).toEqual(latestRun.recovery);
+  });
+
   it("uses allRuns for token aggregation when provided, falls back to activeRuns", () => {
     const activeRun = mockRun({
       runId: "run-001",

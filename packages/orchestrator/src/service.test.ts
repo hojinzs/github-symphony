@@ -212,6 +212,205 @@ describe("OrchestratorService", () => {
     ).toContain("M WORKFLOW.md");
   });
 
+  it("classifies incomplete dirty turns and redispatches with recovery context", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-incomplete-dirty-recovery-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await writeFile(
+      join(repositoryDirectory, "partial.txt"),
+      "partial turn output\n",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-incomplete",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:04:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-incomplete",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In Review",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4410,
+      port: 4601,
+      workingDirectory: repositoryDirectory,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-incomplete", "workspace"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:30.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      threadId: "thread-1",
+      cumulativeTurnCount: 7,
+      turnCount: 7,
+      lastEvent: "heartbeat",
+      lastEventAt: "2026-03-08T00:04:30.000Z",
+      runtimeSession: {
+        sessionId: "thread-1-turn-7",
+        threadId: "thread-1",
+        status: "active",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:04:30.000Z",
+        exitClassification: null,
+      },
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4411,
+      unref: vi.fn(),
+    });
+    let currentTime = new Date("2026-03-08T00:05:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "In Review")
+        )
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "In Review")
+        )
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      spawnImpl: spawnImpl as never,
+      isProcessRunning: (pid) => pid === 4410,
+      sendSignal: vi.fn(),
+      now: () => currentTime,
+    });
+
+    const suppressed = await service.runOnce();
+    const suppressedRun = await store.loadRun("run-incomplete", "tenant-1");
+    expect(suppressed.summary.suppressed).toBe(1);
+    expect(suppressedRun?.status).toBe("suppressed");
+    expect(suppressedRun?.lastError).toBe(
+      "Run suppressed with recoverable incomplete-turn dirty workspace."
+    );
+    expect(suppressedRun?.runtimeSession?.exitClassification).toBe(
+      "incomplete-turn-dirty-workspace"
+    );
+    expect(suppressedRun?.recovery).toMatchObject({
+      kind: "incomplete-turn-dirty-workspace",
+      runId: "run-incomplete",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: repositoryDirectory,
+      dirtyFiles: ["partial.txt"],
+      lastEvent: "heartbeat",
+      lastEventAt: "2026-03-08T00:04:30.000Z",
+      sessionId: "thread-1-turn-7",
+      threadId: "thread-1",
+      suggestedCommand: `cd '${repositoryDirectory}' && git status --short && git diff`,
+    });
+
+    currentTime = new Date("2026-03-08T00:06:00.000Z");
+    const redispatched = await service.runOnce();
+    const runs = await store.loadAllRuns();
+    const recoveryRun = runs.find((run) => run.runId !== "run-incomplete");
+    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+
+    expect(redispatched.summary.dispatched).toBe(1);
+    expect(recoveryRun).toMatchObject({
+      status: "running",
+      retryKind: "recovery",
+      recovery: expect.objectContaining({
+        kind: "incomplete-turn-dirty-workspace",
+        dirtyFiles: ["partial.txt"],
+      }),
+    });
+    expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
+      "incomplete-turn-dirty-workspace"
+    );
+    expect(spawnEnv?.SYMPHONY_RECOVERY_DIRTY_FILES).toBe("partial.txt");
+    expect(spawnEnv?.SYMPHONY_RECOVERY_SUGGESTED_COMMAND).toBe(
+      `cd '${repositoryDirectory}' && git status --short && git diff`
+    );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "## Recovery Context — Incomplete Turn Dirty Workspace"
+    );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "Last event: heartbeat"
+    );
+    await expect(
+      service.statusForIssue("acme/platform#1")
+    ).resolves.toMatchObject({
+      issue_identifier: "acme/platform#1",
+      issue_id: "issue-1",
+      status: "running",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-incomplete",
+        issueId: "issue-1",
+        workspacePath: repositoryDirectory,
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2026-03-08T00:04:30.000Z",
+        sessionId: "thread-1-turn-7",
+        threadId: "thread-1",
+        suggestedCommand: `cd '${repositoryDirectory}' && git status --short && git diff`,
+      },
+    });
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toContain("?? partial.txt");
+  });
+
   it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     process.env.SYMPHONY_GLOBAL_MAX_TURNS = "12";
@@ -2609,6 +2808,7 @@ Prefer focused changes.
         kind: "failure",
         error: "worker failed",
       },
+      recovery: null,
       logs: {
         codex_session_logs: [
           {
@@ -7718,7 +7918,9 @@ Prefer focused changes.
   });
 
   it("records Linear tracker and issue metadata on structured tracker events", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-linear-events-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-linear-events-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
@@ -7742,7 +7944,10 @@ codex:
 ---
 Handle Linear issue.`,
     });
-    await writeFile(join(tempRoot, "worker.js"), "setTimeout(() => {}, 1000);\n");
+    await writeFile(
+      join(tempRoot, "worker.js"),
+      "setTimeout(() => {}, 1000);\n"
+    );
     await chmod(join(tempRoot, "worker.js"), 0o755);
 
     const store = new OrchestratorFsStore(tempRoot);
@@ -7809,11 +8014,16 @@ Handle Linear issue.`,
     await service.runOnce();
 
     const runs = await store.loadAllRuns();
-    const run = runs.find((candidate) => candidate.issueId === "linear-issue-1");
+    const run = runs.find(
+      (candidate) => candidate.issueId === "linear-issue-1"
+    );
     expect(run).toBeDefined();
     const rawEvents = (
       await readFile(
-        join(store.runDir(run?.runId ?? "", projectConfig.projectId), "events.ndjson"),
+        join(
+          store.runDir(run?.runId ?? "", projectConfig.projectId),
+          "events.ndjson"
+        ),
         "utf8"
       )
     )

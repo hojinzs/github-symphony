@@ -62,6 +62,7 @@ export const SESSION_EXIT_CLASSIFICATIONS = [
   "user-input-required",
   "timeout",
   "error",
+  "incomplete-turn-dirty-workspace",
 ] as const;
 
 export type SessionExitClassification =
@@ -132,6 +133,23 @@ export type OrchestratorRunRecord = {
   runPhase?: RunAttemptPhase | null;
   /** Latest rate-limit payload observed from the worker runtime */
   rateLimits?: Record<string, unknown> | null;
+  /** Recoverable dirty workspace left by an incomplete runtime session. */
+  recovery?: IncompleteTurnRecoveryInfo | null;
+};
+
+export type IncompleteTurnRecoveryInfo = {
+  kind: "incomplete-turn-dirty-workspace";
+  runId: string;
+  issueId: string;
+  issueIdentifier: string;
+  workspacePath: string;
+  dirtyFiles: string[];
+  lastEvent: string | null;
+  lastEventAt: string | null;
+  sessionId: string | null;
+  threadId: string | null;
+  suggestedCommand: string;
+  detectedAt: string;
 };
 
 export type RuntimeSessionRow = {
@@ -200,6 +218,7 @@ export type ProjectStatusSnapshot = {
     };
   }>;
   runtimeSession?: RuntimeSessionRow | null;
+  recovery?: IncompleteTurnRecoveryInfo | null;
   retryQueue: Array<{
     runId: string;
     issueIdentifier: string;
@@ -255,6 +274,7 @@ export type IssueStatusSnapshot = {
     kind: RetryKind | null;
     error: string | null;
   } | null;
+  recovery: IncompleteTurnRecoveryInfo | null;
   logs: {
     codex_session_logs: Array<{
       label: string;

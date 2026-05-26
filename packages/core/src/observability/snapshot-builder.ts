@@ -91,11 +91,26 @@ export function buildProjectSnapshot(
         issueIdentifier: run.issueIdentifier,
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
-      })),
+    })),
+    recovery:
+      activeRuns.find((run) => run.recovery)?.recovery ??
+      findLatestRecovery(allRuns ?? []),
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
   };
+}
+
+function findLatestRecovery(
+  runs: OrchestratorRunRecord[]
+): ProjectStatusSnapshot["recovery"] {
+  return [...runs]
+    .sort((left, right) => {
+      const leftTime = new Date(left.updatedAt).getTime();
+      const rightTime = new Date(right.updatedAt).getTime();
+      return rightTime - leftTime;
+    })
+    .find((run) => run.recovery)?.recovery ?? null;
 }
 
 function aggregateTokenUsageByIssue(
