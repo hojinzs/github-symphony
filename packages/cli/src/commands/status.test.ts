@@ -144,6 +144,83 @@ describe("status command", () => {
     expect(stdout.output()).toContain("Tokens: 600 / 1,700 total");
   });
 
+  it("renders incomplete-turn recovery details in text status output", async () => {
+    const configDir = await createConfigFixture();
+    const projectId = "tenant-a";
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify(
+        {
+          projectId,
+          slug: projectId,
+          tracker: { adapter: "github-project", bindingId: "project-1" },
+          lastTickAt: "2026-03-30T11:00:00.000Z",
+          health: "degraded",
+          summary: {
+            dispatched: 2,
+            suppressed: 1,
+            recovered: 0,
+            activeRuns: 0,
+          },
+          activeRuns: [],
+          retryQueue: [],
+          codexTotals: {
+            inputTokens: 1400,
+            outputTokens: 300,
+            totalTokens: 1700,
+            secondsRunning: 60,
+          },
+          lastError: null,
+          recovery: {
+            kind: "incomplete-turn-dirty-workspace",
+            runId: "repository-acme-repo-78-mpmc5cl9",
+            issueId: "issue-78",
+            workspacePath: "/tmp/work/repository",
+            dirtyFiles: [
+              "apps/admin-v1/src/app/router.tsx",
+              "apps/admin-v1/src/widgets/sidebar/Sidebar.tsx",
+            ],
+            lastEvent: "heartbeat",
+            lastEventAt: "2026-05-26T08:20:42.912Z",
+            sessionId: "session-123",
+            threadId: "thread-456",
+            suggestedCommand:
+              "cd /tmp/work/repository && git status --short && git diff",
+          },
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = stdout.output();
+    expect(output).toContain("Recoverable incomplete turn:");
+    expect(output).toContain("Run        repository-acme-repo-78-mpmc5cl9");
+    expect(output).toContain("Issue      issue-78");
+    expect(output).toContain("Workspace  /tmp/work/repository");
+    expect(output).toContain("apps/admin-v1/src/app/router.tsx");
+    expect(output).toContain("Last       heartbeat");
+    expect(output).toContain("At         2026-05-26T08:20:42.912Z");
+    expect(output).toContain("Session    session-123");
+    expect(output).toContain("Thread     thread-456");
+    expect(output).toContain(
+      "Command    cd /tmp/work/repository && git status --short && git diff"
+    );
+  });
+
   it("falls back to the legacy per-project status snapshot path", async () => {
     const configDir = await createConfigFixture("legacy");
     const stdout = captureWrites(process.stdout);
