@@ -12,20 +12,34 @@ import { generateCommitSkill } from "./commit.js";
 import { generatePushSkill } from "./push.js";
 import { generatePullSkill } from "./pull.js";
 import { generateLandSkill } from "./land.js";
+import { GH_SYMPHONY_REFERENCE_FILES } from "./gh-symphony-references/index.js";
 
 export const ALL_SKILL_TEMPLATES: SkillTemplate[] = [
   {
     name: "gh-symphony",
-    fileName: "SKILL.md",
-    generate: generateGhSymphonySkill,
+    files: [
+      { relativePath: "SKILL.md", generate: generateGhSymphonySkill },
+      ...GH_SYMPHONY_REFERENCE_FILES,
+    ],
   },
   {
     name: "gh-project",
-    fileName: "SKILL.md",
-    generate: generateGhProjectSkill,
+    files: [{ relativePath: "SKILL.md", generate: generateGhProjectSkill }],
   },
-  { name: "commit", fileName: "SKILL.md", generate: generateCommitSkill },
-  { name: "push", fileName: "SKILL.md", generate: generatePushSkill },
-  { name: "pull", fileName: "SKILL.md", generate: generatePullSkill },
-  { name: "land", fileName: "SKILL.md", generate: generateLandSkill },
+  {
+    name: "commit",
+    files: [{ relativePath: "SKILL.md", generate: generateCommitSkill }],
+  },
+  {
+    name: "push",
+    files: [{ relativePath: "SKILL.md", generate: generatePushSkill }],
+  },
+  {
+    name: "pull",
+    files: [{ relativePath: "SKILL.md", generate: generatePullSkill }],
+  },
+  {
+    name: "land",
+    files: [{ relativePath: "SKILL.md", generate: generateLandSkill }],
+  },
 ];

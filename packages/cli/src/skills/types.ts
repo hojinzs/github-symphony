@@ -17,12 +17,20 @@ export type SkillTemplateContext = {
   referenceWorkflowPath: string; // relative path
   detectedEnvironment: Pick<
     DetectedEnvironment,
-    "packageManager" | "testCommand" | "lintCommand" | "buildCommand" | "monorepo"
+    | "packageManager"
+    | "testCommand"
+    | "lintCommand"
+    | "buildCommand"
+    | "monorepo"
   >;
+};
+
+export type SkillFile = {
+  relativePath: string; // e.g., "SKILL.md", "references/workflow-posture-implement.md"
+  generate: (context: SkillTemplateContext) => string;
 };
 
 export type SkillTemplate = {
   name: string; // e.g., "gh-symphony"
-  fileName: string; // e.g., "SKILL.md"
-  generate: (context: SkillTemplateContext) => string;
+  files: SkillFile[]; // 1+
 };

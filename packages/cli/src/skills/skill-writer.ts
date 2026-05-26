@@ -1,6 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { isClaudeRuntime, isCodexRuntime } from "../workflow/workflow-runtime.js";
+import { dirname, join } from "node:path";
+import {
+  isClaudeRuntime,
+  isCodexRuntime,
+} from "../workflow/workflow-runtime.js";
 import type { SkillTemplate, SkillTemplateContext } from "./types.js";
 
 export type SkillFilePlan = {
@@ -47,10 +50,12 @@ export function buildSkillFilePlans(
 
   return {
     skillsDir,
-    files: templates.map((template) => ({
-      path: join(skillsDir, template.name, template.fileName),
-      content: template.generate(context),
-    })),
+    files: templates.flatMap((template) =>
+      template.files.map((file) => ({
+        path: join(skillsDir, template.name, file.relativePath),
+        content: file.generate(context),
+      }))
+    ),
   };
 }
 
@@ -58,30 +63,46 @@ export async function writeSkillFile(
   skillsDir: string,
   template: SkillTemplate,
   context: SkillTemplateContext,
-  options?: { overwrite?: boolean; content?: string }
-): Promise<{ written: boolean; path: string }> {
-  const skillDir = join(skillsDir, template.name);
-  const filePath = join(skillDir, template.fileName);
+  options?: {
+    overwrite?: boolean;
+    content?: string;
+    plannedFiles?: SkillFilePlan[];
+  }
+): Promise<{ written: boolean; path: string }[]> {
+  const results: { written: boolean; path: string }[] = [];
+  const plannedFiles =
+    options?.plannedFiles ??
+    template.files.map((file) => ({
+      path: join(skillsDir, template.name, file.relativePath),
+      content: file.generate(context),
+    }));
 
-  if (!options?.overwrite) {
-    try {
-      await readFile(filePath, "utf8");
-      return { written: false, path: filePath };
-    } catch (error) {
-      const err = error as NodeJS.ErrnoException;
-      if (err.code !== "ENOENT") {
-        throw error;
-      }
-    }
+  if (options?.content !== undefined && plannedFiles.length === 1) {
+    plannedFiles[0]!.content = options.content;
   }
 
-  await mkdir(skillDir, { recursive: true });
-  const content = options?.content ?? template.generate(context);
-  const temporaryPath = `${filePath}.tmp`;
-  await writeFile(temporaryPath, content, "utf8");
-  await rename(temporaryPath, filePath);
+  for (const plannedFile of plannedFiles) {
+    if (!options?.overwrite) {
+      try {
+        await readFile(plannedFile.path, "utf8");
+        results.push({ written: false, path: plannedFile.path });
+        continue;
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
 
-  return { written: true, path: filePath };
+    await mkdir(dirname(plannedFile.path), { recursive: true });
+    const temporaryPath = `${plannedFile.path}.tmp`;
+    await writeFile(temporaryPath, plannedFile.content, "utf8");
+    await rename(temporaryPath, plannedFile.path);
+    results.push({ written: true, path: plannedFile.path });
+  }
+
+  return results;
 }
 
 export async function writeAllSkills(
@@ -104,22 +125,23 @@ export async function writeAllSkills(
   const written: string[] = [];
   const skipped: string[] = [];
 
-  for (let index = 0; index < templates.length; index += 1) {
-    const template = templates[index]!;
-    const plannedFile = files[index]!;
-    const result = await writeSkillFile(
-      skillsDir,
-      template,
-      context,
-      {
-        ...options,
-        content: plannedFile.content,
-      }
+  let plannedFileOffset = 0;
+  for (const template of templates) {
+    const plannedFiles = files.slice(
+      plannedFileOffset,
+      plannedFileOffset + template.files.length
     );
-    if (result.written) {
-      written.push(plannedFile.path);
-    } else {
-      skipped.push(plannedFile.path);
+    plannedFileOffset += template.files.length;
+    const results = await writeSkillFile(skillsDir, template, context, {
+      ...options,
+      plannedFiles,
+    });
+    for (const result of results) {
+      if (result.written) {
+        written.push(result.path);
+      } else {
+        skipped.push(result.path);
+      }
     }
   }
 

@@ -177,7 +177,7 @@ The one-command setup flow will:
 | `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
 | `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
 | `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions                                           |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
 
 Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the repository runtime that will be saved under `.runtime/orchestrator/`.
 
@@ -217,7 +217,7 @@ The interactive wizard will:
 | `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
 | `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
 | `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions                                           |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
 
 Project discovery is pagination-aware for larger GitHub accounts, so personal projects, organization pages, and organization-owned projects are fetched across multiple API pages before selection. If the CLI hits a discovery safety cap, it keeps the partial list and prints a warning before you choose a board.
 
@@ -244,7 +244,9 @@ gh-symphony workflow init
 
 #### Customizing Agent Behavior
 
-The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
+The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
+
+You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
 
 > Currently supported runtimes: **Codex**, **Claude Code**
 

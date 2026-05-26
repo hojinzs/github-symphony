@@ -20,8 +20,9 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
     `- \`${ctx.contextYamlPath}\` must exist (contains GitHub Project metadata)`
   );
   lines.push(
-    `- \`${ctx.referenceWorkflowPath}\` must exist (annotated reference template)`
+    `- \`${ctx.referenceWorkflowPath}\` may exist for compatibility with older generated ecosystems`
   );
+  lines.push("- `references/README.md` must exist beside this skill");
   lines.push("- `gh` CLI must be authenticated");
   lines.push("");
   lines.push("## Repository Validation Guidance");
@@ -46,48 +47,69 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("## Design Mode");
   lines.push("");
   lines.push(
-    `1. Read \`${ctx.contextYamlPath}\` to understand the project structure`
+    "1. Read `WORKFLOW.md` if it exists and extract repository conventions:"
   );
+  lines.push("   - test / lint / build commands from the prompt body");
+  lines.push("   - lifecycle states from front matter");
   lines.push(
-    `2. Read \`${ctx.referenceWorkflowPath}\` as the annotated reference`
+    "2. Read `references/README.md` for the available reference files."
   );
-  lines.push("3. Ask the user these key questions:");
+  lines.push('3. Ask the user: "What should this orchestration accomplish?"');
+  lines.push("   - implement (default) — write features / fix bugs");
+  lines.push("   - review — review PRs and leave comments");
+  lines.push("   - maintain — dependency bumps, chores, hygiene");
+  lines.push("   - custom — describe in their own words");
+  lines.push(
+    "4. Pick the matching `references/workflow-posture-*.md` file(s); compose multiple files when the intent spans categories."
+  );
+  lines.push("5. Ask these setup questions:");
   lines.push("   - Which status columns should be **active** (agent works)?");
   lines.push("   - Which should be **wait** (agent pauses for human)?");
   lines.push("   - Which should be **terminal** (agent stops)?");
   lines.push("   - What runtime is being used? (codex / claude-code / custom)");
   lines.push("   - Any custom hooks needed? (after_create, before_run, etc.)");
+  lines.push("6. Generate WORKFLOW.md:");
+  lines.push("   - front matter from `references/workflow-schema.md`");
   lines.push(
-    "4. Generate WORKFLOW.md using the reference as a structural guide"
+    "   - prompt body from the selected posture file(s), adapted to actual repository commands"
   );
-  lines.push("5. Validate the generated file (see Validate Mode)");
+  lines.push("7. Show a diff or preview and confirm with the user.");
+  lines.push("8. Validate via `gh-symphony workflow validate`.");
   lines.push("");
   lines.push("## Refine Mode");
   lines.push("");
   lines.push("1. Read the current `WORKFLOW.md`");
-  lines.push(`2. Read \`${ctx.referenceWorkflowPath}\` for comparison`);
-  lines.push("3. Identify missing or incomplete sections:");
+  lines.push(
+    "2. Read `references/README.md` and select the relevant posture file(s)"
+  );
+  lines.push(
+    "3. Compare the current prompt body against the selected posture references"
+  );
+  lines.push("4. Identify missing or incomplete sections:");
   lines.push("   - Status Map with role annotations");
   lines.push("   - Default Posture / Agent Instructions");
   lines.push("   - Guardrails section");
   lines.push("   - Workpad Template");
   lines.push("   - Step 0 routing logic");
-  lines.push("4. Propose improvements and apply with user confirmation");
-  lines.push("5. Validate the refined file");
+  lines.push("5. Propose improvements and apply with user confirmation");
+  lines.push("6. Validate the refined file");
   lines.push("");
   lines.push("## Validate Mode");
   lines.push("");
   lines.push("Check the WORKFLOW.md for:");
   lines.push("- Front matter is valid YAML");
   lines.push(
-    "- Required fields are present (see Supported Front Matter Fields)"
+    "- Required fields are present (see `references/workflow-schema.md`)"
   );
   lines.push(
-    "- Template variables use only supported names (see Supported Template Variables)"
+    "- Template variables use only supported names (see `references/workflow-schema.md`)"
   );
   lines.push("- Status Map matches the lifecycle configuration");
   lines.push(
     "- No unsupported double-brace variable patterns (only the 8 listed below are valid)"
+  );
+  lines.push(
+    "- Prompt body posture is consistent with the selected `references/workflow-posture-*.md` file(s)"
   );
   lines.push("");
   lines.push("## Supported Front Matter Fields");

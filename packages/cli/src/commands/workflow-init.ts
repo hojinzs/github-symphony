@@ -11,7 +11,7 @@ import type {
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
   createClient,
@@ -450,6 +450,10 @@ async function writePlannedFile(file: PlannedFileChange): Promise<boolean> {
     await chmod(file.path, 0o755);
   }
   return true;
+}
+
+function skillNameForPath(skillsDir: string, filePath: string): string {
+  return relative(skillsDir, filePath).split(/[\\/]/)[0] ?? "";
 }
 
 export function resolveStatusField(
@@ -1015,10 +1019,11 @@ export async function planEcosystem(
     );
 
     for (const plannedSkill of plannedSkills) {
+      const skillName = skillNameForPath(skillsDir, plannedSkill.path);
       files.push(
         await planFileChange({
           path: plannedSkill.path,
-          label: `Skill ${basename(dirname(plannedSkill.path))}`,
+          label: `Skill ${skillName}`,
           content: plannedSkill.content,
           mode: "create-only",
         })
@@ -1074,7 +1079,7 @@ export async function writeEcosystem(
       continue;
     }
     if (file.label.startsWith("Skill ")) {
-      const skillName = basename(dirname(file.path));
+      const skillName = file.label.slice("Skill ".length);
       if (written) {
         skillsWritten.push(skillName);
       } else {
@@ -1095,8 +1100,8 @@ export async function writeEcosystem(
     afterCreateHookWritten,
     contextYamlWritten,
     referenceWorkflowWritten,
-    skillsWritten: skillsWritten.sort(),
-    skillsSkipped: skillsSkipped.sort(),
+    skillsWritten: [...new Set(skillsWritten)].sort(),
+    skillsSkipped: [...new Set(skillsSkipped)].sort(),
   };
 }
 

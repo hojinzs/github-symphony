@@ -17,6 +17,13 @@ const detectedEnvironment = {
   monorepo: false,
 };
 
+function createSkillTemplate(name: string, content: string): SkillTemplate {
+  return {
+    name,
+    files: [{ relativePath: "SKILL.md", generate: () => content }],
+  };
+}
+
 describe("skill-writer", () => {
   describe("resolveSkillsDir", () => {
     it("resolves claude-code runtime to .claude/skills", () => {
@@ -68,8 +75,12 @@ describe("skill-writer", () => {
 
       const template: SkillTemplate = {
         name: "test-skill",
-        fileName: "SKILL.md",
-        generate: () => "# Test Skill\n\nContent here.",
+        files: [
+          {
+            relativePath: "SKILL.md",
+            generate: () => "# Test Skill\n\nContent here.",
+          },
+        ],
       };
 
       const context: SkillTemplateContext = {
@@ -87,12 +98,12 @@ describe("skill-writer", () => {
         detectedEnvironment,
       };
 
-      const result = await writeSkillFile(skillsDir, template, context);
+      const [result] = await writeSkillFile(skillsDir, template, context);
 
-      expect(result.written).toBe(true);
-      expect(result.path).toBe(join(skillsDir, "test-skill", "SKILL.md"));
+      expect(result!.written).toBe(true);
+      expect(result!.path).toBe(join(skillsDir, "test-skill", "SKILL.md"));
 
-      const content = await readFile(result.path, "utf8");
+      const content = await readFile(result!.path, "utf8");
       expect(content).toBe("# Test Skill\n\nContent here.");
     });
 
@@ -102,8 +113,7 @@ describe("skill-writer", () => {
 
       const template: SkillTemplate = {
         name: "test-skill",
-        fileName: "SKILL.md",
-        generate: () => "# New Content",
+        files: [{ relativePath: "SKILL.md", generate: () => "# New Content" }],
       };
 
       const context: SkillTemplateContext = {
@@ -118,16 +128,21 @@ describe("skill-writer", () => {
         detectedEnvironment,
       };
 
-      const firstResult = await writeSkillFile(skillsDir, template, context);
-      expect(firstResult.written).toBe(true);
+      const [firstResult] = await writeSkillFile(skillsDir, template, context);
+      expect(firstResult!.written).toBe(true);
 
-      const secondResult = await writeSkillFile(skillsDir, template, context, {
-        overwrite: false,
-      });
-      expect(secondResult.written).toBe(false);
-      expect(secondResult.path).toBe(firstResult.path);
+      const [secondResult] = await writeSkillFile(
+        skillsDir,
+        template,
+        context,
+        {
+          overwrite: false,
+        }
+      );
+      expect(secondResult!.written).toBe(false);
+      expect(secondResult!.path).toBe(firstResult!.path);
 
-      const content = await readFile(secondResult.path, "utf8");
+      const content = await readFile(secondResult!.path, "utf8");
       expect(content).toBe("# New Content");
     });
 
@@ -137,8 +152,9 @@ describe("skill-writer", () => {
 
       const template: SkillTemplate = {
         name: "test-skill",
-        fileName: "SKILL.md",
-        generate: () => "# Updated Content",
+        files: [
+          { relativePath: "SKILL.md", generate: () => "# Updated Content" },
+        ],
       };
 
       const context: SkillTemplateContext = {
@@ -153,16 +169,62 @@ describe("skill-writer", () => {
         detectedEnvironment,
       };
 
-      const firstResult = await writeSkillFile(skillsDir, template, context);
-      expect(firstResult.written).toBe(true);
+      const [firstResult] = await writeSkillFile(skillsDir, template, context);
+      expect(firstResult!.written).toBe(true);
 
-      const secondResult = await writeSkillFile(skillsDir, template, context, {
-        overwrite: true,
-      });
-      expect(secondResult.written).toBe(true);
+      const [secondResult] = await writeSkillFile(
+        skillsDir,
+        template,
+        context,
+        {
+          overwrite: true,
+        }
+      );
+      expect(secondResult!.written).toBe(true);
 
-      const content = await readFile(secondResult.path, "utf8");
+      const content = await readFile(secondResult!.path, "utf8");
       expect(content).toBe("# Updated Content");
+    });
+
+    it("writes files in skill subdirectories", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
+      const skillsDir = join(tempDir, ".claude", "skills");
+
+      const template: SkillTemplate = {
+        name: "test-skill",
+        files: [
+          { relativePath: "SKILL.md", generate: () => "# Test Skill" },
+          {
+            relativePath: "references/example.md",
+            generate: () => "# Example Reference",
+          },
+        ],
+      };
+
+      const context: SkillTemplateContext = {
+        runtime: "claude-code",
+        projectId: "proj-123",
+        githubProjectTitle: "Test Project",
+        repositories: [],
+        statusColumns: [],
+        statusFieldId: "field-123",
+        contextYamlPath: "context.yaml",
+        referenceWorkflowPath: "WORKFLOW.md",
+        detectedEnvironment,
+      };
+
+      const result = await writeSkillFile(skillsDir, template, context);
+
+      expect(result.map((file) => file.path)).toEqual([
+        join(skillsDir, "test-skill", "SKILL.md"),
+        join(skillsDir, "test-skill", "references", "example.md"),
+      ]);
+      await expect(
+        readFile(
+          join(skillsDir, "test-skill", "references", "example.md"),
+          "utf8"
+        )
+      ).resolves.toBe("# Example Reference");
     });
   });
 
@@ -171,16 +233,8 @@ describe("skill-writer", () => {
       const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
 
       const templates: SkillTemplate[] = [
-        {
-          name: "skill-1",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 1",
-        },
-        {
-          name: "skill-2",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 2",
-        },
+        createSkillTemplate("skill-1", "# Skill 1"),
+        createSkillTemplate("skill-2", "# Skill 2"),
       ];
 
       const context: SkillTemplateContext = {
@@ -212,11 +266,7 @@ describe("skill-writer", () => {
       const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
 
       const templates: SkillTemplate[] = [
-        {
-          name: "skill-1",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 1",
-        },
+        createSkillTemplate("skill-1", "# Skill 1"),
       ];
 
       const context: SkillTemplateContext = {
@@ -241,11 +291,7 @@ describe("skill-writer", () => {
       const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
 
       const templates: SkillTemplate[] = [
-        {
-          name: "skill-1",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 1",
-        },
+        createSkillTemplate("skill-1", "# Skill 1"),
       ];
 
       const context: SkillTemplateContext = {
@@ -275,16 +321,8 @@ describe("skill-writer", () => {
       const tempDir = await mkdtemp(join(tmpdir(), "skill-test-"));
 
       const templates: SkillTemplate[] = [
-        {
-          name: "skill-1",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 1",
-        },
-        {
-          name: "skill-2",
-          fileName: "SKILL.md",
-          generate: () => "# Skill 2",
-        },
+        createSkillTemplate("skill-1", "# Skill 1"),
+        createSkillTemplate("skill-2", "# Skill 2"),
       ];
 
       const context: SkillTemplateContext = {
@@ -329,9 +367,7 @@ describe("skill-writer", () => {
         [
           {
             name: "sample",
-            description: "sample skill",
-            fileName: "SKILL.md",
-            generate,
+            files: [{ relativePath: "SKILL.md", generate }],
           },
         ],
         {
@@ -350,7 +386,10 @@ describe("skill-writer", () => {
       expect(result.written).toHaveLength(1);
       expect(generate).toHaveBeenCalledTimes(1);
       await expect(
-        readFile(join(tempDir, ".codex", "skills", "sample", "SKILL.md"), "utf8")
+        readFile(
+          join(tempDir, ".codex", "skills", "sample", "SKILL.md"),
+          "utf8"
+        )
       ).resolves.toContain("name: sample");
     });
   });
