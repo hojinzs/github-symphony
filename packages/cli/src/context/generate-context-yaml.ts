@@ -5,6 +5,10 @@ import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import { inferStateRole } from "../mapping/smart-defaults.js";
 import type { ContextYaml } from "./context-types.js";
 
+/**
+ * @deprecated Repo-local `.gh-symphony/context.yaml` is no longer generated.
+ * This module remains for one compatibility release for any direct importers.
+ */
 export type BuildContextYamlParams = {
   projectDetail: ProjectDetail;
   statusField: ProjectStatusField;

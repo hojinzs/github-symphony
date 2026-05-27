@@ -93,8 +93,6 @@ describe("skill-writer", () => {
           { id: "col-2", name: "Done", role: "terminal" },
         ],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -123,8 +121,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -164,8 +160,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -208,8 +202,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -244,8 +236,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -276,8 +266,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -301,8 +289,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -332,8 +318,6 @@ describe("skill-writer", () => {
         repositories: [],
         statusColumns: [],
         statusFieldId: "field-123",
-        contextYamlPath: "context.yaml",
-        referenceWorkflowPath: "WORKFLOW.md",
         detectedEnvironment,
       };
 
@@ -377,8 +361,6 @@ describe("skill-writer", () => {
           repositories: [],
           statusColumns: [],
           statusFieldId: "field-123",
-          contextYamlPath: "context.yaml",
-          referenceWorkflowPath: "WORKFLOW.md",
           detectedEnvironment,
         }
       );

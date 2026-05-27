@@ -9,8 +9,6 @@ const mockCtx: SkillTemplateContext = {
   repositories: [{ owner: "acme", name: "platform" }],
   statusColumns: [{ id: "opt_todo", name: "Todo", role: "active" }],
   statusFieldId: "PVTF_field",
-  contextYamlPath: ".gh-symphony/context.yaml",
-  referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm test",

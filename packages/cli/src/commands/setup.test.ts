@@ -193,7 +193,7 @@ describe("setup command", () => {
     );
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Supported flags: --non-interactive, --output, --skip-skills, --skip-context."
+        "Supported flags: --non-interactive, --output, --skip-skills. Deprecated no-op: --skip-context."
       )
     );
   });
@@ -214,10 +214,6 @@ describe("setup command", () => {
     });
 
     const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
-    const contextYaml = await readFile(
-      join(cwd, ".gh-symphony", "context.yaml"),
-      "utf8"
-    );
     const project = JSON.parse(
       await readFile(
         join(cwd, ".runtime", "orchestrator", "project.json"),
@@ -232,7 +228,9 @@ describe("setup command", () => {
     );
     expect(workflow).toContain("# Optional template: labels priority source.");
     expect(workflow).not.toContain("priority_field:");
-    expect(contextYaml).toContain("PVT_setup_1");
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
     expect(project.projectId).toBe("repository");
     expect(project.workspaceDir).toBe(process.cwd());
     expect(project.repository).toMatchObject({

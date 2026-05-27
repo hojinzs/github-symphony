@@ -13,8 +13,6 @@ export type SkillTemplateContext = {
     role: "active" | "wait" | "terminal" | null;
   }>;
   statusFieldId: string; // field ID (needed for gh project item-edit --field-id)
-  contextYamlPath: string; // relative path
-  referenceWorkflowPath: string; // relative path
   detectedEnvironment: Pick<
     DetectedEnvironment,
     | "packageManager"

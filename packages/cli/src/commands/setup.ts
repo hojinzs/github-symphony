@@ -31,6 +31,8 @@ import {
   writeWorkflowPlan,
   promptStateMappings,
   promptBlockerCheck,
+  promptLegacyGhSymphonyCleanup,
+  warnDeprecatedSkipContext,
 } from "./workflow-init.js";
 import {
   toWorkflowLifecycleConfig,
@@ -73,7 +75,7 @@ function parseSetupFlags(args: string[]): SetupFlags {
       default:
         if (arg?.startsWith("-")) {
           throw new Error(
-            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --skip-skills, --skip-context.`
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --skip-skills. Deprecated no-op: --skip-context.`
           );
         }
     }
@@ -180,6 +182,9 @@ const handler = async (
     );
     process.exitCode = 2;
     return;
+  }
+  if (flags.skipContext) {
+    warnDeprecatedSkipContext();
   }
 
   if (flags.nonInteractive) {
@@ -481,6 +486,8 @@ async function runInteractive(
     process.exitCode = 130;
     return;
   }
+
+  await promptLegacyGhSymphonyCleanup(process.cwd());
 
   const writeSpinner = p.spinner();
   writeSpinner.start("Writing setup files...");

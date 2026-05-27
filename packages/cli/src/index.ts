@@ -248,7 +248,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "Runtime preset: codex-app-server or claude-print"
       )
       .option("--skip-skills", "Skip runtime skill generation")
-      .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
+      .option("--skip-context", "Deprecated no-op")
       .option("--dry-run", "Preview generated files without writing them")
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
@@ -309,7 +309,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--non-interactive", "Run without prompts")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
       .option("--skip-skills", "Skip runtime skill generation")
-      .option("--skip-context", "Skip .gh-symphony/context.yaml generation")
+      .option("--skip-context", "Deprecated no-op")
       .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();

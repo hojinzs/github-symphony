@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## Unreleased
+
+- The `.gh-symphony/` directory is no longer generated. Existing files are safe
+  to delete; the legacy-directory prompt during `setup` / `workflow init` will
+  offer to clean up for you.
+
 ## 0.4.0
 
 ### Minor Changes
