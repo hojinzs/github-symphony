@@ -234,7 +234,7 @@ describe("setup command", () => {
     expect(workflow).not.toContain("priority_field:");
     expect(contextYaml).toContain("PVT_setup_1");
     expect(project.projectId).toBe("repository");
-    expect(project.workspaceDir).toBe(cwd);
+    expect(project.workspaceDir).toBe(process.cwd());
     expect(project.repository).toMatchObject({
       owner: "acme",
       name: "repo-a",
@@ -275,7 +275,7 @@ describe("setup command", () => {
       )
     );
 
-    expect(project.workspaceDir).toBe(cwd);
+    expect(project.workspaceDir).toBe(process.cwd());
     expect(project.repository?.name).toBe("repo-b");
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),

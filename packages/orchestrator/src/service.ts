@@ -49,6 +49,7 @@ import {
 } from "@gh-symphony/core";
 import {
   ensureIssueWorkspaceRepository,
+  inspectIssueWorkspaceDirtyStatus,
   loadRepositoryWorkflow,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -68,6 +69,7 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
+const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
   "gh-symphony:linked-pr-active-while-issue-inactive";
@@ -87,6 +89,10 @@ type SpawnLike = (
 type WorkerLogStreamLike = Pick<
   ReturnType<typeof createWriteStream>,
   "write" | "end" | "on"
+>;
+
+type IncompleteTurnRecoveryContext = NonNullable<
+  OrchestratorRunRecord["recovery"]
 >;
 
 export type OrchestratorLogLevel = "normal" | "verbose";
@@ -476,6 +482,7 @@ export class OrchestratorService {
                 currentRun?.lastError ?? issueRecord.retryEntry?.error ?? null,
             }
           : null,
+      recovery: currentRun?.recovery ?? null,
       logs: {
         codex_session_logs:
           currentRun === null
@@ -756,6 +763,12 @@ export class OrchestratorService {
           },
           issue.identifier
         );
+        const recoveryContext = await this.resolveIncompleteTurnRecoveryContext(
+          tenant,
+          issue,
+          latestRunsByIssueId.get(issue.id) ?? null,
+          preferredWorkspaceKey
+        );
         issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: issue.id,
           identifier: issue.identifier,
@@ -768,7 +781,9 @@ export class OrchestratorService {
         });
         let run: OrchestratorRunRecord;
         try {
-          run = await this.startRun(tenant, issue);
+          run = await this.startRun(tenant, issue, {
+            recovery: recoveryContext,
+          });
         } catch (error) {
           issueRecords = releaseIssueOrchestration(issueRecords, issue.id, now);
           throw error;
@@ -834,6 +849,11 @@ export class OrchestratorService {
           const activeWorkerPid = activeRun.processId;
           this.sendSignal(activeWorkerPid, "SIGTERM");
           this.retireWorkerPid(activeWorkerPid);
+          const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
+            tenant,
+            activeRun,
+            now
+          );
           const suppressedRun: OrchestratorRunRecord = {
             ...activeRun,
             status: "suppressed",
@@ -841,8 +861,23 @@ export class OrchestratorService {
             completedAt: now.toISOString(),
             updatedAt: now.toISOString(),
             runPhase: "canceled_by_reconciliation",
-            lastError:
-              "Run suppressed because the tracker issue is no longer tracked.",
+            runtimeSession: recovery
+              ? buildRuntimeSession(
+                  activeRun.runtimeSession,
+                  recovery.sessionId,
+                  recovery.threadId,
+                  "completed",
+                  activeRun.runtimeSession?.startedAt ??
+                    activeRun.startedAt ??
+                    now.toISOString(),
+                  now.toISOString(),
+                  "incomplete-turn-dirty-workspace"
+                )
+              : activeRun.runtimeSession,
+            recovery,
+            lastError: recovery
+              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+              : "Run suppressed because the tracker issue is no longer tracked.",
           };
           await this.store.saveRun(suppressedRun);
           this.logVerbose(
@@ -869,6 +904,13 @@ export class OrchestratorService {
         }
         if (activeRun) {
           const terminalState = isStateTerminal(issue.state, lifecycle);
+          const recovery = terminalState
+            ? null
+            : await this.classifyIncompleteTurnDirtyWorkspace(
+                tenant,
+                activeRun,
+                now
+              );
           const suppressedRun: OrchestratorRunRecord = {
             ...activeRun,
             status: "suppressed",
@@ -876,9 +918,25 @@ export class OrchestratorService {
             completedAt: now.toISOString(),
             updatedAt: now.toISOString(),
             runPhase: "canceled_by_reconciliation",
-            lastError: terminalState
-              ? "Run suppressed because the tracker issue moved to a terminal state."
-              : "Run suppressed because the tracker state is no longer actionable.",
+            runtimeSession: recovery
+              ? buildRuntimeSession(
+                  activeRun.runtimeSession,
+                  recovery.sessionId,
+                  recovery.threadId,
+                  "completed",
+                  activeRun.runtimeSession?.startedAt ??
+                    activeRun.startedAt ??
+                    now.toISOString(),
+                  now.toISOString(),
+                  "incomplete-turn-dirty-workspace"
+                )
+              : activeRun.runtimeSession,
+            recovery,
+            lastError: recovery
+              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+              : terminalState
+                ? "Run suppressed because the tracker issue moved to a terminal state."
+                : "Run suppressed because the tracker state is no longer actionable.",
           };
           await this.store.saveRun(suppressedRun);
           this.logVerbose(
@@ -1343,7 +1401,10 @@ export class OrchestratorService {
 
   private async startRun(
     tenant: OrchestratorProjectConfig,
-    issue: TrackedIssue
+    issue: TrackedIssue,
+    options: {
+      recovery?: IncompleteTurnRecoveryContext | null;
+    } = {}
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
       throw new Error(
@@ -1395,6 +1456,8 @@ export class OrchestratorService {
       issueWorkspacePath,
       existingWorkspace: Boolean(existingWorkspaceRecord),
       pullRequestBranch,
+      allowDirtyExistingWorkspace:
+        options.recovery?.kind === "incomplete-turn-dirty-workspace",
     });
 
     if (!existingWorkspaceRecord) {
@@ -1453,9 +1516,10 @@ export class OrchestratorService {
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
     });
-    const renderedPrompt = renderPrompt(
+    const renderedPrompt = appendIncompleteTurnRecoveryPrompt(
       workflow.promptTemplate,
-      promptVariables
+      promptVariables,
+      options.recovery ?? null
     );
 
     // Run before_run hook before spawning the worker
@@ -1557,6 +1621,12 @@ export class OrchestratorService {
           SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
           SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
           SYMPHONY_LAST_TURN_SUMMARY: "",
+          SYMPHONY_RECOVERY_KIND: options.recovery?.kind ?? "",
+          SYMPHONY_RECOVERY_DIRTY_FILES: options.recovery
+            ? formatRecoveryDirtyFilesForContext(options.recovery.dirtyFiles)
+            : "",
+          SYMPHONY_RECOVERY_SUGGESTED_COMMAND:
+            options.recovery?.suggestedCommand ?? "",
           SYMPHONY_SESSION_STARTED_AT: "",
           SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
           SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
@@ -1689,7 +1759,7 @@ export class OrchestratorService {
       issueWorkspaceKey: workspaceKey,
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
-      retryKind: null,
+      retryKind: options.recovery ? "recovery" : null,
       threadId: null,
       cumulativeTurnCount: 0,
       lastTurnSummary: null,
@@ -1701,6 +1771,7 @@ export class OrchestratorService {
       nextRetryAt: null,
       runPhase: "preparing_workspace",
       rateLimits: issue.rateLimits ?? null,
+      recovery: options.recovery ?? null,
     };
   }
 
@@ -2473,6 +2544,94 @@ export class OrchestratorService {
       (candidate) => candidate.identifier === issueIdentifier
     );
     return issue ? { issue, issues } : null;
+  }
+
+  private async classifyIncompleteTurnDirtyWorkspace(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    now: Date
+  ): Promise<IncompleteTurnRecoveryContext | null> {
+    if (
+      run.runtimeSession?.status !== "active" ||
+      run.runtimeSession.exitClassification !== null ||
+      run.lastEvent === "turn_completed"
+    ) {
+      return null;
+    }
+
+    const workspaceKey =
+      run.issueWorkspaceKey ??
+      deriveIssueWorkspaceKey(
+        {
+          adapter: tenant.tracker.adapter,
+          issueSubjectId: run.issueSubjectId,
+        },
+        run.issueIdentifier
+      );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      this.store.projectDir(tenant.projectId),
+      workspaceKey
+    );
+    const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
+      issueWorkspacePath,
+    });
+
+    if (!dirtyStatus?.dirty) {
+      return null;
+    }
+
+    return {
+      kind: "incomplete-turn-dirty-workspace",
+      runId: run.runId,
+      issueId: run.issueId,
+      issueIdentifier: run.issueIdentifier,
+      workspacePath: dirtyStatus.repositoryDirectory,
+      dirtyFiles: dirtyStatus.dirtyFiles,
+      lastEvent: run.lastEvent ?? null,
+      lastEventAt: run.lastEventAt ?? null,
+      sessionId: run.runtimeSession.sessionId ?? null,
+      threadId: run.threadId ?? run.runtimeSession.threadId ?? null,
+      suggestedCommand: `cd ${shellQuote(dirtyStatus.repositoryDirectory)} && git status --short && git diff`,
+      detectedAt: now.toISOString(),
+    };
+  }
+
+  private async resolveIncompleteTurnRecoveryContext(
+    tenant: OrchestratorProjectConfig,
+    issue: TrackedIssue,
+    latestRun: OrchestratorRunRecord | null,
+    preferredWorkspaceKey: string
+  ): Promise<IncompleteTurnRecoveryContext | null> {
+    const recovery = latestRun?.recovery;
+    if (
+      latestRun?.status !== "suppressed" ||
+      recovery?.kind !== "incomplete-turn-dirty-workspace" ||
+      latestRun.runtimeSession?.exitClassification !==
+        "incomplete-turn-dirty-workspace"
+    ) {
+      return null;
+    }
+
+    const workspaceKey = latestRun.issueWorkspaceKey ?? preferredWorkspaceKey;
+    const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
+      issueWorkspacePath: resolveIssueWorkspaceDirectory(
+        this.store.projectDir(tenant.projectId),
+        workspaceKey
+      ),
+    });
+
+    if (!dirtyStatus?.dirty) {
+      return null;
+    }
+
+    return {
+      ...recovery,
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+      workspacePath: dirtyStatus.repositoryDirectory,
+      dirtyFiles: dirtyStatus.dirtyFiles,
+      suggestedCommand: `cd ${shellQuote(dirtyStatus.repositoryDirectory)} && git status --short && git diff`,
+    };
   }
 
   private async fetchWorkerRunInfo(run: OrchestratorRunRecord): Promise<{
@@ -3347,10 +3506,62 @@ function buildRuntimeSession(
   };
 }
 
+function appendIncompleteTurnRecoveryPrompt(
+  promptTemplate: string,
+  promptVariables: ReturnType<typeof buildPromptVariables>,
+  recovery: IncompleteTurnRecoveryContext | null
+): string {
+  const renderedPrompt = renderPrompt(promptTemplate, promptVariables);
+  if (!recovery) {
+    return renderedPrompt;
+  }
+
+  return [
+    renderedPrompt,
+    "",
+    "## Recovery Context — Incomplete Turn Dirty Workspace",
+    "",
+    `Previous run: ${recovery.runId}`,
+    `Workspace: ${recovery.workspacePath}`,
+    `Last event: ${recovery.lastEvent ?? "unknown"}`,
+    `Last event time: ${recovery.lastEventAt ?? "unknown"}`,
+    `Session id: ${recovery.sessionId ?? "unknown"}`,
+    `Thread id: ${recovery.threadId ?? "unknown"}`,
+    "",
+    "Dirty files:",
+    ...formatRecoveryDirtyFileLinesForPrompt(recovery.dirtyFiles),
+    "",
+    "Inspect the dirty diff before editing. If the partial work is correct, validate it, commit it, and push it. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.",
+    `Suggested operator command: ${recovery.suggestedCommand}`,
+  ].join("\n");
+}
+
+function formatRecoveryDirtyFilesForContext(dirtyFiles: string[]): string {
+  return formatRecoveryDirtyFiles(dirtyFiles).join("\n");
+}
+
+function formatRecoveryDirtyFileLinesForPrompt(dirtyFiles: string[]): string[] {
+  return formatRecoveryDirtyFiles(dirtyFiles).map((file) => `- ${file}`);
+}
+
+function formatRecoveryDirtyFiles(dirtyFiles: string[]): string[] {
+  const visibleFiles = dirtyFiles.slice(0, MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT);
+  const remaining = dirtyFiles.length - visibleFiles.length;
+  if (remaining <= 0) {
+    return visibleFiles;
+  }
+
+  return [...visibleFiles, `... and ${remaining} more`];
+}
+
 function resolvePersistedCumulativeTurnCount(
   run: OrchestratorRunRecord
 ): number {
   return run.cumulativeTurnCount ?? run.turnCount ?? 0;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function resolveCumulativeTurnCount(

@@ -243,6 +243,7 @@ describe("DashboardFsReader", () => {
         kind: "failure",
         error: "worker failed",
       },
+      recovery: null,
       logs: {
         codex_session_logs: [
           {

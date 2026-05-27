@@ -437,6 +437,30 @@ function explainRuntimeOwnership(
     }
   }
 
+  if (
+    latestRun?.status === "suppressed" &&
+    latestRun.recovery?.kind === "incomplete-turn-dirty-workspace"
+  ) {
+    return {
+      id: "runtime_ownership",
+      status: "warn",
+      message:
+        "Latest run has a recoverable incomplete-turn dirty workspace; dispatch will start a recovery turn.",
+      details: {
+        runId: latestRun.recovery.runId,
+        issueId: latestRun.recovery.issueId,
+        workspacePath: latestRun.recovery.workspacePath,
+        dirtyFiles: latestRun.recovery.dirtyFiles,
+        lastEvent: latestRun.recovery.lastEvent,
+        lastEventAt: latestRun.recovery.lastEventAt,
+        sessionId: latestRun.recovery.sessionId,
+        threadId: latestRun.recovery.threadId,
+        suggestedCommand: latestRun.recovery.suggestedCommand,
+      },
+      hint: latestRun.recovery.suggestedCommand,
+    };
+  }
+
   return {
     id: "runtime_ownership",
     status: "pass",

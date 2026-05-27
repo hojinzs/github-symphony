@@ -316,7 +316,9 @@ describe("cloneRepositoryForRun", () => {
     );
     execSync(`git -C "${repository.path}" add WORKFLOW.md`);
     execSync(`git -C "${repository.path}" commit -m "Update PR workflow v2"`);
-    execSync(`git -C "${repository.path}" push --force origin feature/pr-branch`);
+    execSync(
+      `git -C "${repository.path}" push --force origin feature/pr-branch`
+    );
 
     await ensureIssueWorkspaceRepository({
       repository,
@@ -330,6 +332,67 @@ describe("cloneRepositoryForRun", () => {
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
     ).toBe("# pull request workflow v2\n");
+  });
+
+  it("skips pull request checkout when dirty recovery preserves an existing workspace", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# pull request workflow v1\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update PR workflow v1"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+    await writeFile(
+      join(repositoryDirectory, "WORKFLOW.md"),
+      "# partial recovery work\n",
+      "utf8"
+    );
+
+    execSync(`git -C "${repository.path}" checkout feature/pr-branch`);
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "# pull request workflow v2\n",
+      "utf8"
+    );
+    execSync(`git -C "${repository.path}" add WORKFLOW.md`);
+    execSync(`git -C "${repository.path}" commit -m "Update PR workflow v2"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+        pullRequestBranch: {
+          headRefName: "feature/pr-branch",
+        },
+        allowDirtyExistingWorkspace: true,
+      })
+    ).resolves.toBe(repositoryDirectory);
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toBe("# partial recovery work\n");
+    expect(
+      execSync(`git -C "${repositoryDirectory}" status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toContain("M WORKFLOW.md");
   });
 
   it("keeps checkout failures actionable when the pull request branch is missing", async () => {

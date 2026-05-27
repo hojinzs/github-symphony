@@ -51,7 +51,7 @@ describe("resolveConfigDir", () => {
     process.chdir(cwd);
     delete process.env.GH_SYMPHONY_CONFIG_DIR;
 
-    expect(resolveConfigDir()).toBe(runtimeDir);
+    expect(resolveConfigDir()).toBe(join(process.cwd(), REPO_RUNTIME_DIR));
   });
 
   it("falls back to the home config when cwd runtime is not initialized", async () => {

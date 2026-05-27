@@ -138,6 +138,23 @@ function renderLegacyStatus(
     lines.push("");
   }
 
+  if (snapshot.recovery) {
+    const recovery = snapshot.recovery;
+    lines.push(apply(yellow("  Recoverable incomplete turn:")));
+    lines.push(`    Run        ${recovery.runId}`);
+    lines.push(`    Issue      ${recovery.issueId}`);
+    lines.push(`    Workspace  ${recovery.workspacePath}`);
+    lines.push(
+      `    Dirty      ${recovery.dirtyFiles.length > 0 ? recovery.dirtyFiles.join(", ") : "none"}`
+    );
+    lines.push(`    Last       ${recovery.lastEvent ?? "unknown"}`);
+    lines.push(`    At         ${recovery.lastEventAt ?? "unknown"}`);
+    lines.push(`    Session    ${recovery.sessionId ?? "unknown"}`);
+    lines.push(`    Thread     ${recovery.threadId ?? "unknown"}`);
+    lines.push(`    Command    ${recovery.suggestedCommand}`);
+    lines.push("");
+  }
+
   // Last error
   if (snapshot.lastError) {
     lines.push(apply(red(`  ✗ ${snapshot.lastError}`)));
