@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- [#364](https://github.com/hojinzs/github-symphony/pull/364) [`3a88c2e`](https://github.com/hojinzs/github-symphony/commit/3a88c2e562871bb19ac4b5f3f5f6d18bbc5a6d9f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add composable `/gh-symphony` workflow reference files for schema and prompt-body postures, and generate multi-file skill directories for issue [#359](https://github.com/hojinzs/github-symphony/issues/359).
+
+### Patch Changes
+
+- [#367](https://github.com/hojinzs/github-symphony/pull/367) [`5b67c78`](https://github.com/hojinzs/github-symphony/commit/5b67c780151f34eee0869d4d008b69158f36c701) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Recover incomplete Codex turns that leave dirty issue workspaces by surfacing recovery diagnostics and redispatching with explicit dirty-workspace recovery context for [#365](https://github.com/hojinzs/github-symphony/issues/365).
+
 ## 0.3.0
 
 ### Minor Changes
