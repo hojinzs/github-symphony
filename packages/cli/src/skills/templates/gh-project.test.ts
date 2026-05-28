@@ -13,8 +13,6 @@ const mockCtx: SkillTemplateContext = {
     { id: "opt_done", name: "Done", role: "terminal" },
   ],
   statusFieldId: "PVTF_field123",
-  contextYamlPath: ".gh-symphony/context.yaml",
-  referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm test",

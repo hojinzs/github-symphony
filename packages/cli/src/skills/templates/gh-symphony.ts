@@ -16,12 +16,7 @@ export function generateGhSymphonySkill(ctx: SkillTemplateContext): string {
   lines.push("");
   lines.push("## Prerequisites");
   lines.push("");
-  lines.push(
-    `- \`${ctx.contextYamlPath}\` must exist (contains GitHub Project metadata)`
-  );
-  lines.push(
-    `- \`${ctx.referenceWorkflowPath}\` may exist for compatibility with older generated ecosystems`
-  );
+  lines.push("- `WORKFLOW.md` is the repository policy and config source");
   lines.push("- `references/README.md` must exist beside this skill");
   lines.push("- `gh` CLI must be authenticated");
   lines.push("");

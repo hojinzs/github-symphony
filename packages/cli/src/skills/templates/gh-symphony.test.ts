@@ -14,8 +14,6 @@ const mockCtx: SkillTemplateContext = {
     { id: "opt_done", name: "Done", role: "terminal" },
   ],
   statusFieldId: "PVTF_field123",
-  contextYamlPath: ".gh-symphony/context.yaml",
-  referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
   detectedEnvironment: {
     packageManager: "pnpm",
     testCommand: "pnpm test",
@@ -46,14 +44,11 @@ describe("generateGhSymphonySkill", () => {
     expect(result).toContain("Refine Mode");
   });
 
-  it("references context.yaml path from ctx", () => {
+  it("uses WORKFLOW.md as the policy and config source", () => {
     const result = generateGhSymphonySkill(mockCtx);
-    expect(result).toContain(".gh-symphony/context.yaml");
-  });
-
-  it("references reference-workflow.md path from ctx", () => {
-    const result = generateGhSymphonySkill(mockCtx);
-    expect(result).toContain(".gh-symphony/reference-workflow.md");
+    expect(result).toContain("WORKFLOW.md");
+    expect(result).not.toContain(".gh-symphony/context.yaml");
+    expect(result).not.toContain(".gh-symphony/reference-workflow.md");
   });
 
   it("references composable workflow reference files", () => {

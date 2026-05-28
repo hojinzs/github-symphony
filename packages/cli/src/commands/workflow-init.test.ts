@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -52,6 +53,7 @@ import {
   generateProjectId,
   planWorkflowArtifacts,
   planEcosystem,
+  promptLegacyGhSymphonyCleanup,
   promptBlockerCheck,
   promptPriorityConfig,
   renderDryRunPreview,
@@ -772,7 +774,8 @@ describe("init ecosystem generation", () => {
     expect(preview).toContain("Init dry-run preview");
     expect(preview).toContain("create");
     expect(preview).toContain(DEFAULT_AFTER_CREATE_HOOK_PATH);
-    expect(preview).toContain(".gh-symphony/context.yaml");
+    expect(preview).not.toContain(".gh-symphony/context.yaml");
+    expect(preview).not.toContain(".gh-symphony/reference-workflow.md");
     expect(preview).toContain("Priority source   project-field");
     expect(preview).toContain("Priority mapping  Priority: P0=0, P1=1");
     expect(preview).toContain("Detected environment inputs");
@@ -825,14 +828,12 @@ describe("init ecosystem generation", () => {
       )
     ).toBe(true);
     expect(
-      result.files.some((file) =>
-        file.path.endsWith(".gh-symphony/context.yaml")
-      )
-    ).toBe(true);
+      result.files.some((file) => file.path.includes(".gh-symphony"))
+    ).toBe(false);
     expect(result.environment.packageManager).toBeDefined();
   });
 
-  it("generates context.yaml and reference-workflow.md", async () => {
+  it("generates hooks and skill-local references without .gh-symphony files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-"));
 
     const result = await writeEcosystem({
@@ -846,19 +847,14 @@ describe("init ecosystem generation", () => {
     });
 
     expect(result.afterCreateHookWritten).toBe(true);
-
-    const contextYaml = await readFile(
-      join(cwd, ".gh-symphony", "context.yaml"),
-      "utf8"
-    );
-    expect(contextYaml).toContain("schema_version: 1");
-    expect(contextYaml).toContain("PVT_eco1");
-
-    const refWorkflow = await readFile(
-      join(cwd, ".gh-symphony", "reference-workflow.md"),
-      "utf8"
-    );
-    expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+    expect(result.contextYamlWritten).toBe(false);
+    expect(result.referenceWorkflowWritten).toBe(false);
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "reference-workflow.md"), "utf8")
+    ).rejects.toThrow();
 
     const hookPath = join(cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
     const hook = await readFile(hookPath, "utf8");
@@ -899,7 +895,14 @@ describe("init ecosystem generation", () => {
     });
 
     const referenceWorkflow = await readFile(
-      join(cwd, ".gh-symphony", "reference-workflow.md"),
+      join(
+        cwd,
+        ".codex",
+        "skills",
+        "gh-symphony",
+        "references",
+        "workflow-schema.md"
+      ),
       "utf8"
     );
     const skill = await readFile(
@@ -1022,7 +1025,7 @@ describe("init ecosystem generation", () => {
     expect(plan.workflowMd).toContain("Use `uv` conventions");
     expect(
       plan.ecosystemPlan.files.some((file) =>
-        file.path.endsWith("reference-workflow.md")
+        file.path.endsWith("references/workflow-schema.md")
       )
     ).toBe(true);
   });
@@ -1195,7 +1198,7 @@ describe("init ecosystem generation", () => {
     ).resolves.toContain("# /gh-symphony references");
   });
 
-  it("does not double-wrap shell commands in context.yaml", async () => {
+  it("does not generate context.yaml for shell command runtimes", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-shell-command-"));
 
     await writeEcosystem({
@@ -1208,12 +1211,9 @@ describe("init ecosystem generation", () => {
       skipContext: false,
     });
 
-    const contextYaml = await readFile(
-      join(cwd, ".gh-symphony", "context.yaml"),
-      "utf8"
-    );
-    expect(contextYaml).toContain("agent_command: bash -lc codex app-server");
-    expect(contextYaml).not.toContain("agent_command: bash -lc bash -lc");
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
   });
 
   it("generates frontmatter for all scaffolded codex skills", async () => {
@@ -1291,15 +1291,13 @@ describe("init ecosystem generation", () => {
       readFile(join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"), "utf8")
     ).rejects.toThrow();
 
-    const contextYaml = await readFile(
-      join(cwd, ".gh-symphony", "context.yaml"),
-      "utf8"
-    );
-    expect(contextYaml).toContain("schema_version: 1");
     expect(result.skillsDir).toBeNull();
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
   });
 
-  it("--skip-context skips context.yaml", async () => {
+  it("--skip-context is a no-op after context generation removal", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-skip-ctx-"));
 
     await writeEcosystem({
@@ -1316,40 +1314,31 @@ describe("init ecosystem generation", () => {
       readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
     ).rejects.toThrow();
 
-    const refWorkflow = await readFile(
-      join(cwd, ".gh-symphony", "reference-workflow.md"),
-      "utf8"
-    );
-    expect(refWorkflow).toContain("# Reference WORKFLOW.md");
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "reference-workflow.md"), "utf8")
+    ).rejects.toThrow();
   });
 
-  it("context.yaml contains statusField.id and option IDs", async () => {
+  it("legacy cleanup removes known .gh-symphony files and empty directory", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cli-eco-ids-"));
-
-    await writeEcosystem({
-      cwd,
-      projectDetail: MOCK_PROJECT_DETAIL,
-      statusField: {
-        id: "PVTSSF_myfield",
-        name: "Status",
-        options: [
-          { id: "opt_abc", name: "Todo", description: null, color: null },
-          { id: "opt_def", name: "Done", description: null, color: null },
-        ],
-      },
-      priorityField: null,
-      runtime: "codex",
-      skipSkills: true,
-      skipContext: false,
-    });
-
-    const contextYaml = await readFile(
-      join(cwd, ".gh-symphony", "context.yaml"),
-      "utf8"
+    await mkdir(join(cwd, ".gh-symphony"), { recursive: true });
+    await writeFile(join(cwd, ".gh-symphony", "context.yaml"), "old\n");
+    await writeFile(
+      join(cwd, ".gh-symphony", "reference-workflow.md"),
+      "old\n"
     );
-    expect(contextYaml).toContain("PVTSSF_myfield");
-    expect(contextYaml).toContain("opt_abc");
-    expect(contextYaml).toContain("opt_def");
+    vi.mocked(p.confirm).mockResolvedValueOnce(true as never);
+
+    const removed = await promptLegacyGhSymphonyCleanup(cwd);
+
+    expect(removed).toEqual([
+      ".gh-symphony/context.yaml",
+      ".gh-symphony/reference-workflow.md",
+    ]);
+    await expect(
+      readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
+    ).rejects.toThrow();
+    await expect(readdir(join(cwd, ".gh-symphony"))).rejects.toThrow();
   });
 
   it("marks existing skill files as unchanged in dry-run plans", async () => {
@@ -1375,20 +1364,14 @@ describe("init ecosystem generation", () => {
       skipContext: false,
     });
 
-    const referenceWorkflow = plan.files.find((file) =>
-      file.path.endsWith(".gh-symphony/reference-workflow.md")
-    );
-    expect(referenceWorkflow?.status).toBe("unchanged");
-
     const hookScaffold = plan.files.find(
       (file) => file.label === DEFAULT_AFTER_CREATE_HOOK_LABEL
     );
     expect(hookScaffold?.status).toBe("unchanged");
 
-    const contextYaml = plan.files.find((file) =>
-      file.path.endsWith(".gh-symphony/context.yaml")
+    expect(plan.files.some((file) => file.path.includes(".gh-symphony"))).toBe(
+      false
     );
-    expect(contextYaml?.status).toBe("update");
 
     const skillStatuses = plan.files
       .filter((file) => file.label.startsWith("Skill "))

@@ -175,8 +175,6 @@ The one-command setup flow will:
 | File                                    | Description                                                       |
 | --------------------------------------- | ----------------------------------------------------------------- |
 | `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
-| `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
-| `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
 
 Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the repository runtime that will be saved under `.runtime/orchestrator/`.
@@ -215,15 +213,13 @@ The interactive wizard will:
 | File                                    | Description                                                       |
 | --------------------------------------- | ----------------------------------------------------------------- |
 | `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
-| `.gh-symphony/context.yaml`             | Project metadata and environment context                          |
-| `.gh-symphony/reference-workflow.md`    | Reference workflow documentation                                  |
 | `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
 
 Project discovery is pagination-aware for larger GitHub accounts, so personal projects, organization pages, and organization-owned projects are fetched across multiple API pages before selection. If the CLI hits a discovery safety cap, it keeps the partial list and prints a warning before you choose a board.
 
 `gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
 
-Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md`, `.gh-symphony/reference-workflow.md`, and the runtime skill templates all include repository-aware validation guidance based on the detected package manager, monorepo shape, and explicit validation entry points when present.
+Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md` and the runtime skill templates include repository-aware validation guidance based on the detected package manager, monorepo shape, and explicit validation entry points when present.
 
 `workflow init` is not limited to Node repositories. The detector now recognizes conservative validation signals for:
 
@@ -586,9 +582,9 @@ gh-symphony workflow validate
 gh-symphony workflow preview --issue owner/repo#123
 ```
 
-`--dry-run` resolves the same generated `WORKFLOW.md`, `.gh-symphony/context.yaml`,
-`.gh-symphony/reference-workflow.md`, and runtime skill files, then prints whether
-each path would be created, updated, or left unchanged without writing anything.
+`--dry-run` resolves the same generated `WORKFLOW.md` and runtime skill files,
+then prints whether each path would be created, updated, or left unchanged
+without writing anything.
 
 When `gh-symphony workflow init` detects repository validation entry points, it bakes that information back into the generated policy files so the out-of-the-box workflow already tells agents which test/lint/build commands to prefer and whether workspace-aware validation is expected. That includes non-Node repositories when the detector can prove a conservative command from `Makefile`, `justfile`, Python tooling, `go.mod`, or `Cargo.toml`.
 

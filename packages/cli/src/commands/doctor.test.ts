@@ -806,6 +806,8 @@ describe("runDoctorDiagnostics", () => {
             textFields: [],
             linkedRepositories: [],
           }) as never) as never,
+        execFileSync: (() => "git version 2.44.0") as never,
+        processVersion: DOCTOR_TEST_NODE_VERSION,
         pathEnv,
       })
     );
@@ -870,6 +872,8 @@ describe("runDoctorDiagnostics", () => {
             textFields: [],
             linkedRepositories: [],
           }) as never) as never,
+        execFileSync: (() => "git version 2.44.0") as never,
+        processVersion: DOCTOR_TEST_NODE_VERSION,
         pathEnv,
       })
     );

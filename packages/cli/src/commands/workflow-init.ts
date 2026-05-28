@@ -10,7 +10,16 @@ import type {
 } from "@gh-symphony/core";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -48,15 +57,10 @@ import { resolveGitHubAuth } from "../github/gh-auth.js";
 import { detectEnvironment } from "../detection/environment-detector.js";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
 import {
-  buildContextYaml,
-  generateContextYamlString,
-} from "../context/generate-context-yaml.js";
-import {
   DEFAULT_AFTER_CREATE_HOOK_CONTENT,
   DEFAULT_AFTER_CREATE_HOOK_LABEL,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
 } from "../workflow/default-hooks.js";
-import { generateReferenceWorkflow } from "../workflow/generate-reference-workflow.js";
 import {
   buildSkillFilePlans,
   resolveSkillsDir,
@@ -66,7 +70,6 @@ import {
   isClaudeRuntime,
   normalizeInitRuntime,
   resolveRuntimeCommand,
-  resolveShellAgentCommand,
   isSupportedInitRuntime,
   type InitRuntimeKind,
 } from "../workflow/workflow-runtime.js";
@@ -140,6 +143,20 @@ type InitFlags = {
   skipContext: boolean;
 };
 
+const SKIP_CONTEXT_DEPRECATION =
+  "--skip-context is deprecated and is now a no-op. Repo-local .gh-symphony/context.yaml is no longer generated.";
+
+const LEGACY_GH_SYMPHONY_FILES = [
+  {
+    relativePath: ".gh-symphony/context.yaml",
+    reason: "replaced by skill-local references/",
+  },
+  {
+    relativePath: ".gh-symphony/reference-workflow.md",
+    reason: null,
+  },
+] as const;
+
 function parseInitFlags(args: string[]): InitFlags {
   const flags: InitFlags = {
     dryRun: false,
@@ -183,6 +200,10 @@ function parseInitFlags(args: string[]): InitFlags {
   return flags;
 }
 
+export function warnDeprecatedSkipContext(): void {
+  p.log.warn(SKIP_CONTEXT_DEPRECATION);
+}
+
 async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
   if (!isClaudeRuntime(runtime)) {
     return true;
@@ -217,6 +238,9 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const flags = parseInitFlags(args);
+  if (flags.skipContext) {
+    warnDeprecatedSkipContext();
+  }
 
   if (flags.nonInteractive) {
     await runNonInteractive(flags, options);
@@ -338,6 +362,7 @@ export type EcosystemResult = {
   referenceWorkflowWritten: boolean;
   skillsWritten: string[];
   skillsSkipped: string[];
+  legacyFilesRemoved: string[];
 };
 
 type PlannedWriteMode = "overwrite" | "create-only";
@@ -403,6 +428,81 @@ export type WorkflowArtifactsPlan = {
   workflowPlan: PlannedFileChange;
   ecosystemPlan: EcosystemPlan;
 };
+
+export async function findLegacyGhSymphonyFiles(
+  cwd: string
+): Promise<string[]> {
+  const found: string[] = [];
+  for (const legacyFile of LEGACY_GH_SYMPHONY_FILES) {
+    try {
+      await readFile(join(cwd, legacyFile.relativePath), "utf8");
+      found.push(legacyFile.relativePath);
+    } catch {
+      // Missing or unreadable legacy files are ignored; generation no longer
+      // depends on them.
+    }
+  }
+  return found;
+}
+
+export async function removeLegacyGhSymphonyFiles(
+  cwd: string,
+  legacyFiles: string[]
+): Promise<string[]> {
+  const removed: string[] = [];
+
+  for (const relativePath of legacyFiles) {
+    await rm(join(cwd, relativePath), { force: true });
+    removed.push(relativePath);
+  }
+
+  const legacyDir = join(cwd, ".gh-symphony");
+  try {
+    const remaining = await readdir(legacyDir);
+    if (remaining.length === 0) {
+      await rmdir(legacyDir);
+    }
+  } catch {
+    // Directory already absent or not readable; cleanup is best-effort.
+  }
+
+  return removed;
+}
+
+export async function promptLegacyGhSymphonyCleanup(
+  cwd: string
+): Promise<string[]> {
+  const legacyFiles = await findLegacyGhSymphonyFiles(cwd);
+  if (legacyFiles.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    "Found legacy .gh-symphony/ directory.",
+    "These files are no longer used:",
+  ];
+  for (const legacyFile of LEGACY_GH_SYMPHONY_FILES) {
+    if (!legacyFiles.includes(legacyFile.relativePath)) {
+      continue;
+    }
+    const suffix = legacyFile.reason ? ` (${legacyFile.reason})` : "";
+    lines.push(`  • ${legacyFile.relativePath}${suffix}`);
+  }
+  lines.push("Safe to delete.");
+  p.log.info(lines.join("\n"));
+
+  const removeFiles = await abortIfCancelled(
+    p.confirm({
+      message: "Remove legacy .gh-symphony/ files?",
+      initialValue: false,
+    })
+  );
+  if (!removeFiles) {
+    return [];
+  }
+
+  return removeLegacyGhSymphonyFiles(cwd, legacyFiles);
+}
 
 async function resolveChangeStatus(
   path: string,
@@ -915,7 +1015,6 @@ export async function planEcosystem(
     priorityField,
     runtime,
     skipSkills,
-    skipContext,
   } = opts;
   const priority =
     opts.priority ??
@@ -938,7 +1037,6 @@ export async function planEcosystem(
         planningStates: defaultBlockerCheckStates,
       }
     );
-  const ghSymphonyDir = join(cwd, ".gh-symphony");
   const environment = opts.environment ?? (await detectEnvironment(cwd));
   const files: PlannedFileChange[] = [];
 
@@ -949,46 +1047,6 @@ export async function planEcosystem(
       content: DEFAULT_AFTER_CREATE_HOOK_CONTENT,
       mode: "create-only",
       executable: true,
-    })
-  );
-
-  if (!skipContext) {
-    const contextYaml = buildContextYaml({
-      projectDetail,
-      statusField,
-      detectedEnvironment: environment,
-      runtime: {
-        agent: runtime,
-        agent_command: resolveShellAgentCommand(runtime),
-      },
-    });
-    files.push(
-      await planFileChange({
-        path: join(ghSymphonyDir, "context.yaml"),
-        label: "Context metadata",
-        content: generateContextYamlString(contextYaml),
-        mode: "overwrite",
-      })
-    );
-  }
-
-  const referenceWorkflow = generateReferenceWorkflow({
-    runtime,
-    statusColumns: statusField.options.map((o) => ({
-      name: o.name,
-      role: null as "active" | "wait" | "terminal" | null,
-    })),
-    projectId: projectDetail.id,
-    priority,
-    lifecycle,
-    detectedEnvironment: environment,
-  });
-  files.push(
-    await planFileChange({
-      path: join(ghSymphonyDir, "reference-workflow.md"),
-      label: "Reference workflow",
-      content: referenceWorkflow,
-      mode: "overwrite",
     })
   );
 
@@ -1012,8 +1070,6 @@ export async function planEcosystem(
           role: null as "active" | "wait" | "terminal" | null,
         })),
         statusFieldId: statusField.id,
-        contextYamlPath: ".gh-symphony/context.yaml",
-        referenceWorkflowPath: ".gh-symphony/reference-workflow.md",
         detectedEnvironment: environment,
       }
     );
@@ -1049,18 +1105,9 @@ export async function writeEcosystem(
   opts: EcosystemOptions
 ): Promise<EcosystemResult> {
   const plan = await planEcosystem(opts);
-  await mkdir(join(opts.cwd, ".gh-symphony"), { recursive: true });
   const afterCreateHookPath = join(opts.cwd, DEFAULT_AFTER_CREATE_HOOK_PATH);
-  const contextYamlPath = join(opts.cwd, ".gh-symphony", "context.yaml");
-  const referenceWorkflowPath = join(
-    opts.cwd,
-    ".gh-symphony",
-    "reference-workflow.md"
-  );
 
   let afterCreateHookWritten = false;
-  let contextYamlWritten = false;
-  let referenceWorkflowWritten = false;
   const skillsWritten: string[] = [];
   const skillsSkipped: string[] = [];
 
@@ -1068,14 +1115,6 @@ export async function writeEcosystem(
     const written = await writePlannedFile(file);
     if (file.path === afterCreateHookPath) {
       afterCreateHookWritten = written;
-      continue;
-    }
-    if (file.path === contextYamlPath) {
-      contextYamlWritten = written;
-      continue;
-    }
-    if (file.path === referenceWorkflowPath) {
-      referenceWorkflowWritten = written;
       continue;
     }
     if (file.label.startsWith("Skill ")) {
@@ -1098,10 +1137,11 @@ export async function writeEcosystem(
     skillsDir: plan.skillsDir,
     skipSkills: plan.skipSkills,
     afterCreateHookWritten,
-    contextYamlWritten,
-    referenceWorkflowWritten,
+    contextYamlWritten: false,
+    referenceWorkflowWritten: false,
     skillsWritten: [...new Set(skillsWritten)].sort(),
     skillsSkipped: [...new Set(skillsSkipped)].sort(),
+    legacyFilesRemoved: [],
   };
 }
 
@@ -1173,16 +1213,6 @@ function printEcosystemSummary(
   if (result.afterCreateHookWritten) {
     lines.push(
       `  ✓ ${DEFAULT_AFTER_CREATE_HOOK_LABEL.padEnd(36)} ${DEFAULT_AFTER_CREATE_HOOK_PATH}`
-    );
-  }
-  if (result.contextYamlWritten) {
-    lines.push(
-      "  ✓ Context metadata                     .gh-symphony/context.yaml"
-    );
-  }
-  if (result.referenceWorkflowWritten) {
-    lines.push(
-      "  ✓ Reference workflow                   .gh-symphony/reference-workflow.md"
     );
   }
 
@@ -1627,6 +1657,7 @@ async function runInteractiveStandalone(
     return;
   }
 
+  await promptLegacyGhSymphonyCleanup(process.cwd());
   await writeWorkflowPlan(workflowPlan);
 
   const ecosystemResult = await writeEcosystem({

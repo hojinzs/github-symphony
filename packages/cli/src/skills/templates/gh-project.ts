@@ -17,7 +17,7 @@ export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
   lines.push("");
   lines.push("- `gh` CLI is authenticated (`gh auth status`)");
   lines.push(
-    `- \`${ctx.contextYamlPath}\` exists with field IDs and option IDs`
+    "- This generated skill contains the status field and option IDs below"
   );
   lines.push("");
   lines.push("## Column ID Quick Reference");
