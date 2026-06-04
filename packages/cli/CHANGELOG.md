@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.4.1
+
+### Patch Changes
+
+- [#368](https://github.com/hojinzs/github-symphony/pull/368) [`b6d7600`](https://github.com/hojinzs/github-symphony/commit/b6d7600ec84b34f005b4626912448a36d5219b0c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stop generating repo-local `.gh-symphony/` ecosystem files for [#360](https://github.com/hojinzs/github-symphony/issues/360), keep
+  `--skip-context` as a deprecated no-op, and offer interactive cleanup for legacy
+  context/reference files.
+
 ## Unreleased
 
 - The `.gh-symphony/` directory is no longer generated. Existing files are safe
