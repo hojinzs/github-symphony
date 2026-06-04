@@ -625,6 +625,70 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
+  it("does not apply pickup label filtering to listIssuesByStates lifecycle lookups", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["no-agent"], {
+                  state: { name: "Done" },
+                }),
+                linearIssueNode("ENG-2", ["frontend"], {
+                  state: { name: "Done" },
+                }),
+                linearIssueNode("ENG-3", ["agent"], {
+                  state: { name: "Done" },
+                }),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssuesByStates(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              include: ["agent", "dev-ready"],
+              exclude: ["no-agent", "needs-spec"],
+            },
+          },
+        }),
+        ["Done", "Canceled"],
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      const request = JSON.parse(
+        String(fetchImpl.mock.calls[0]?.[1]?.body)
+      ) as {
+        variables: Record<string, unknown>;
+      };
+      expect(request.variables.filter).toMatchObject({
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Done", "Canceled"] } },
+      });
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "ENG-1",
+        "ENG-2",
+        "ENG-3",
+      ]);
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-pickup-label-filtered"')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it("normalizes Linear rate-limit headers onto listed issues", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponseWithHeaders(

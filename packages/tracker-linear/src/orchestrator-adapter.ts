@@ -176,7 +176,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return listLinearIssues(
       project,
       project.tracker.settings?.activeStates,
-      dependencies
+      dependencies,
+      undefined,
+      { applyPickupLabels: true }
     );
   },
 
@@ -237,7 +239,8 @@ async function listLinearIssues(
   project: OrchestratorProjectConfig,
   stateNamesInput: unknown,
   dependencies: OrchestratorTrackerDependencies,
-  issueIds?: readonly string[]
+  issueIds?: readonly string[],
+  options: { applyPickupLabels?: boolean } = {}
 ): Promise<TrackedIssueList> {
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
@@ -265,14 +268,14 @@ async function listLinearIssues(
   const fetchedIssues = result.nodes.map((node) =>
     normalizeLinearIssue(project, config.projectSlug, node, result.rateLimits)
   ) as TrackedIssueList;
-  const issues = issueIds
-    ? fetchedIssues
-    : filterIssuesByPickupLabels(
+  const filteredIssues = options.applyPickupLabels
+    ? filterIssuesByPickupLabels(
         fetchedIssues,
         config.pickupLabels,
         config.projectSlug
-      );
-  Object.defineProperty(issues, "rateLimits", {
+      )
+    : fetchedIssues;
+  Object.defineProperty(filteredIssues, "rateLimits", {
     configurable: true,
     enumerable: false,
     value: result.rateLimits,
@@ -282,11 +285,11 @@ async function listLinearIssues(
   if (config.assignedOnly) {
     emitAssignedOnlyFilterEvent({
       projectSlug: config.projectSlug,
-      includedCount: issues.length,
+      includedCount: filteredIssues.length,
     });
   }
 
-  return issues;
+  return filteredIssues;
 }
 
 async function fetchPaginatedLinearIssues(
