@@ -352,6 +352,32 @@ Prompt body.
     expect(workflow.tracker.projectId).toBeNull();
   });
 
+  it("parses Linear pickup label eligibility config", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: linear
+  project_slug: symphony-0c79b11b75ea
+  pickup_labels:
+    include:
+      - agent
+      - dev-ready
+    exclude:
+      - no-agent
+      - needs-spec
+codex:
+  command: codex app-server
+---
+Prompt body.
+`
+    );
+
+    expect(workflow.tracker.pickupLabels).toEqual({
+      include: ["agent", "dev-ready"],
+      exclude: ["no-agent", "needs-spec"],
+    });
+  });
+
   it.each(["project_id", "projectId", "teamId", "team_id"])(
     "rejects Linear tracker alias %s",
     (key) => {
@@ -767,7 +793,11 @@ codex:
 Prompt body.
 `);
 
-    expect(workflow.tracker.activeStates).toEqual(["Ready", "In progress", "Land"]);
+    expect(workflow.tracker.activeStates).toEqual([
+      "Ready",
+      "In progress",
+      "Land",
+    ]);
     expect(workflow.lifecycle.activeStates).toContain("Land");
     expect(isStateActive("Land", workflow.lifecycle)).toBe(true);
     expect(isStateActive("In review", workflow.lifecycle)).toBe(false);

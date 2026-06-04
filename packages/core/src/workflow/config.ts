@@ -16,6 +16,7 @@ export type WorkflowTrackerConfig = {
   endpoint: string | null;
   apiKey: string | null;
   projectSlug: string | null;
+  pickupLabels: WorkflowPickupLabelsConfig;
   activeStates: string[];
   terminalStates: string[];
   projectId: string | null;
@@ -24,6 +25,11 @@ export type WorkflowTrackerConfig = {
   priorityFieldName: string | null;
   blockerCheckStates: string[];
   planningStates: string[];
+};
+
+export type WorkflowPickupLabelsConfig = {
+  include: string[];
+  exclude: string[];
 };
 
 export type WorkflowPriorityConfig =
@@ -154,6 +160,10 @@ export const DEFAULT_WORKFLOW_TRACKER: WorkflowTrackerConfig = {
   endpoint: null,
   apiKey: null,
   projectSlug: null,
+  pickupLabels: {
+    include: [],
+    exclude: [],
+  },
   activeStates: DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
   terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
   projectId: null,

@@ -80,6 +80,11 @@ type LinearIssueFilter = {
   assignee?: { isMe: { eq: true } };
 };
 
+type PickupLabelConfig = {
+  include: string[];
+  exclude: string[];
+};
+
 const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
   nodes {
     id
@@ -257,9 +262,16 @@ async function listLinearIssues(
     pageSize: config.pageSize,
   });
 
-  const issues = result.nodes.map((node) =>
+  const fetchedIssues = result.nodes.map((node) =>
     normalizeLinearIssue(project, config.projectSlug, node, result.rateLimits)
   ) as TrackedIssueList;
+  const issues = issueIds
+    ? fetchedIssues
+    : filterIssuesByPickupLabels(
+        fetchedIssues,
+        config.pickupLabels,
+        config.projectSlug
+      );
   Object.defineProperty(issues, "rateLimits", {
     configurable: true,
     enumerable: false,
@@ -544,6 +556,7 @@ function resolveLinearTrackerConfig(
     pageSize:
       readPositiveIntegerSetting(project.tracker, "pageSize") ??
       DEFAULT_PAGE_SIZE,
+    pickupLabels: resolvePickupLabels(project.tracker),
     projectSlug,
     token,
   };
@@ -620,6 +633,39 @@ function readBooleanSetting(
   return value === true || value === "true";
 }
 
+function resolvePickupLabels(
+  tracker: OrchestratorTrackerConfig
+): PickupLabelConfig {
+  const pickupLabels =
+    readObjectSetting(tracker, "pickupLabels") ??
+    readObjectSetting(tracker, "pickup_labels");
+
+  return {
+    include: normalizeConfiguredLabels(
+      readStringArray(pickupLabels?.include) ?? []
+    ),
+    exclude: normalizeConfiguredLabels(
+      readStringArray(pickupLabels?.exclude) ?? []
+    ),
+  };
+}
+
+function readObjectSetting(
+  tracker: OrchestratorTrackerConfig,
+  key: string
+): Record<string, unknown> | undefined {
+  const value = tracker.settings?.[key];
+  if (
+    value === undefined ||
+    value === null ||
+    Array.isArray(value) ||
+    typeof value !== "object"
+  ) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
 function readStringArray(value: unknown): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -636,6 +682,47 @@ function readStringArray(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function normalizeConfiguredLabels(labels: string[]): string[] {
+  return Array.from(
+    new Set(
+      labels.map((label) => label.trim()).filter((label) => label.length > 0)
+    )
+  );
+}
+
+function filterIssuesByPickupLabels(
+  issues: TrackedIssueList,
+  config: PickupLabelConfig,
+  projectSlug: string
+): TrackedIssueList {
+  if (config.include.length === 0 && config.exclude.length === 0) {
+    return issues;
+  }
+
+  const includeLabels = new Set(config.include);
+  const excludeLabels = new Set(config.exclude);
+  const filtered = issues.filter((issue) => {
+    const issueLabels = new Set(issue.labels);
+    if (config.exclude.some((label) => issueLabels.has(label))) {
+      return false;
+    }
+    return (
+      includeLabels.size === 0 ||
+      config.include.some((label) => issueLabels.has(label))
+    );
+  }) as TrackedIssueList;
+
+  emitPickupLabelFilterEvent({
+    projectSlug,
+    include: [...includeLabels],
+    exclude: [...excludeLabels],
+    includedCount: filtered.length,
+    excludedCount: issues.length - filtered.length,
+  });
+
+  return filtered;
+}
+
 function emitAssignedOnlyFilterEvent(input: {
   projectSlug: string;
   includedCount: number;
@@ -648,6 +735,26 @@ function emitAssignedOnlyFilterEvent(input: {
       assigneeFilter: "isMe",
       includedCount: input.includedCount,
       excludedCount: null,
+    })
+  );
+}
+
+function emitPickupLabelFilterEvent(input: {
+  projectSlug: string;
+  include: string[];
+  exclude: string[];
+  includedCount: number;
+  excludedCount: number;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "tracker-pickup-label-filtered",
+      tracker: "linear",
+      projectSlug: input.projectSlug,
+      include: input.include,
+      exclude: input.exclude,
+      includedCount: input.includedCount,
+      excludedCount: input.excludedCount,
     })
   );
 }

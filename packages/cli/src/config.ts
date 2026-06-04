@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type {
   OrchestratorProjectConfig,
+  OrchestratorTrackerSettingValue,
   RepositoryRef,
 } from "@gh-symphony/core";
 
@@ -21,7 +22,7 @@ export type CliGlobalConfig = {
 
 export type CliProjectTrackerSettings = Record<
   string,
-  string | number | boolean
+  OrchestratorTrackerSettingValue
 > & {
   projectId?: string;
   repository?: string;
@@ -132,7 +133,9 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  return readJsonFile<CliProjectConfig>(projectConfigPath(configDir, projectId));
+  return readJsonFile<CliProjectConfig>(
+    projectConfigPath(configDir, projectId)
+  );
 }
 
 export async function saveProjectConfig(

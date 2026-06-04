@@ -12,6 +12,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import {
   parseWorkflowMarkdown,
   type OrchestratorProjectConfig,
+  type OrchestratorTrackerSettingValue,
   type RepositoryRef,
 } from "@gh-symphony/core";
 import {
@@ -77,7 +78,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   const trackerAdapter = workflow.tracker.kind ?? "github-project";
   const trackerBindingId =
     workflow.tracker.projectId ?? workflow.tracker.projectSlug ?? "";
-  const trackerSettings: Record<string, string | boolean> = {
+  const trackerSettings: Record<string, OrchestratorTrackerSettingValue> = {
     ...(workflow.tracker.projectId
       ? { projectId: workflow.tracker.projectId }
       : {}),
@@ -89,6 +90,13 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
+  if (
+    trackerAdapter === "linear" &&
+    (workflow.tracker.pickupLabels.include.length > 0 ||
+      workflow.tracker.pickupLabels.exclude.length > 0)
+  ) {
+    trackerSettings.pickupLabels = workflow.tracker.pickupLabels;
+  }
   if (workflow.tracker.priorityFieldName) {
     trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }

@@ -48,6 +48,25 @@ function jsonResponseWithHeaders(
   });
 }
 
+function linearIssueNode(
+  identifier: string,
+  labels: string[],
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const number = Number.parseInt(identifier.split("-").at(-1) ?? "0", 10);
+  return {
+    id: `issue-${identifier.toLowerCase()}`,
+    identifier,
+    number,
+    title: `${identifier} title`,
+    priority: null,
+    state: { name: "Todo" },
+    labels: { nodes: labels.map((name) => ({ name })) },
+    relations: { nodes: [] },
+    ...overrides,
+  };
+}
+
 describe("linearTrackerAdapter", () => {
   it("queries Linear by project slug and state names with cursor pagination", async () => {
     const fetchImpl = vi
@@ -262,7 +281,7 @@ describe("linearTrackerAdapter", () => {
     expect(request.variables.filter).not.toHaveProperty("assignee");
   });
 
-  it('falls back to legacy string assignedOnly tracker setting with a deprecation warning', async () => {
+  it("falls back to legacy string assignedOnly tracker setting with a deprecation warning", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
@@ -353,6 +372,253 @@ describe("linearTrackerAdapter", () => {
       );
       expect(infoSpy).toHaveBeenCalledWith(
         expect.stringContaining('"includedCount":1')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("requires one configured include pickup label when include labels are set", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["agent"]),
+                linearIssueNode("ENG-2", ["dev-ready"]),
+                linearIssueNode("ENG-3", ["frontend"]),
+                linearIssueNode("ENG-4", []),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              include: ["agent", "dev-ready"],
+            },
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "ENG-1",
+        "ENG-2",
+      ]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-pickup-label-filtered"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"includedCount":2')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"excludedCount":2')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("skips issues with any configured exclude pickup label", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["frontend"]),
+                linearIssueNode("ENG-2", ["no-agent"]),
+                linearIssueNode("ENG-3", ["needs-spec"]),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              exclude: ["no-agent", "needs-spec"],
+            },
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      expect(issues.map((issue) => issue.identifier)).toEqual(["ENG-1"]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"exclude":["no-agent","needs-spec"]')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("lets exclude pickup labels win over include pickup labels", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["agent"]),
+                linearIssueNode("ENG-2", ["dev-ready"]),
+                linearIssueNode("ENG-3", ["agent", "no-agent"]),
+                linearIssueNode("ENG-4", ["needs-spec"]),
+                linearIssueNode("ENG-5", []),
+                linearIssueNode("ENG-6", ["frontend"]),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              include: ["agent", "dev-ready"],
+              exclude: ["no-agent", "needs-spec"],
+            },
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "ENG-1",
+        "ENG-2",
+      ]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"excludedCount":4')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("treats an empty include pickup label list as no include requirement", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", []),
+                linearIssueNode("ENG-2", ["frontend"]),
+                linearIssueNode("ENG-3", ["no-agent"]),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              include: [],
+              exclude: ["no-agent"],
+            },
+          },
+        }),
+        {
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "ENG-1",
+        "ENG-2",
+      ]);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("composes assignedOnly GraphQL filtering with pickup label filtering", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            issues: {
+              nodes: [
+                linearIssueNode("ENG-1", ["agent"]),
+                linearIssueNode("ENG-2", ["no-agent"]),
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        })
+      );
+
+      const issues = await linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pickupLabels: {
+              include: ["agent"],
+              exclude: ["no-agent"],
+            },
+          },
+        }),
+        {
+          assignedOnly: true,
+          fetchImpl,
+          token: "linear-token",
+        }
+      );
+
+      const request = JSON.parse(
+        String(fetchImpl.mock.calls[0]?.[1]?.body)
+      ) as {
+        variables: Record<string, unknown>;
+      };
+      expect(request.variables.filter).toMatchObject({
+        project: { slugId: { eq: "symphony-0c79b11b75ea" } },
+        state: { name: { in: ["Todo"] } },
+        assignee: { isMe: { eq: true } },
+      });
+      expect(issues.map((issue) => issue.identifier)).toEqual(["ENG-1"]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-assigned-only-filtered"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-pickup-label-filtered"')
       );
     } finally {
       infoSpy.mockRestore();
@@ -526,10 +792,14 @@ describe("linearTrackerAdapter", () => {
       })
     );
 
-    await linearTrackerAdapter.fetchIssueStatesByIds(makeProject(), ["ENG-123"], {
-      fetchImpl,
-      token: "linear-token",
-    });
+    await linearTrackerAdapter.fetchIssueStatesByIds(
+      makeProject(),
+      ["ENG-123"],
+      {
+        fetchImpl,
+        token: "linear-token",
+      }
+    );
 
     const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
       query: string;
