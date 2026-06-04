@@ -255,6 +255,12 @@ tracker:
   active_states:
     - Todo
     - In Progress
+  pickup_labels:
+    include:
+      - agent
+      - dev-ready
+    exclude:
+      - no-agent
 codex:
   command: codex app-server
 ---
@@ -288,6 +294,10 @@ Handle {{issue.identifier}}.
       settings: {
         projectSlug: "symphony-0c79b11b75ea",
         activeStates: "Todo\nIn Progress",
+        pickupLabels: {
+          include: ["agent", "dev-ready"],
+          exclude: ["no-agent"],
+        },
         repository: "acme/platform",
       },
     });

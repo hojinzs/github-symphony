@@ -441,11 +441,20 @@ tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
   project_slug: symphony-0c79b11b75ea
+  pickup_labels:
+    include:
+      - agent
+      - dev-ready
+    exclude:
+      - no-agent
+      - needs-spec
 ```
 
 `gh-symphony repo init` validates that `tracker.project_slug` is present and that the `tracker.api_key` reference resolves, for example through `LINEAR_API_KEY`. Linear config aliases such as `tracker.project_id`, `projectId`, `project_id`, and `teamId` are rejected. The legacy `.gh-symphony/config.json` file is not used as the Linear source of truth.
 
 `gh-symphony repo start --assigned-only` also applies to Linear trackers. Linear pushes the filter into GraphQL as `assignee.isMe = true`, so the result set is scoped to the user represented by the configured API key. With a personal API key this means issues assigned to that person; with a service-account key it means issues assigned to the service account, and Symphony does not fail fast because Linear does not expose enough token metadata in the issue query path to distinguish those cases reliably.
+
+Linear workflows may also configure `tracker.pickup_labels.include` and `tracker.pickup_labels.exclude` as pickup eligibility gates. Excluded labels always win; when include labels are configured, an issue needs at least one include label before a worker starts. Label changes are not an interruption control for already running workers; move the Linear issue state to drive lifecycle and handoff behavior.
 
 Linear orchestration is polling-only. There is intentionally no Linear webhook setup command; state transitions, workpad comments, and PR handoff policy belong in `WORKFLOW.md`. See `docs/examples/linear-WORKFLOW.md` for a complete example.
 

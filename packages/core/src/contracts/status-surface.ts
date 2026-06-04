@@ -8,12 +8,20 @@ import type { TrackerAdapterKind } from "./tracker-adapter.js";
 import type { RunAttemptPhase } from "./run-attempt-phase.js";
 import type { OrchestratorEvent } from "../observability/structured-events.js";
 
+export type OrchestratorTrackerSettingValue =
+  | string
+  | number
+  | boolean
+  | null
+  | OrchestratorTrackerSettingValue[]
+  | { [key: string]: OrchestratorTrackerSettingValue };
+
 export type OrchestratorTrackerConfig = {
   adapter: TrackerAdapterKind;
   bindingId: string;
   apiUrl?: string;
   priority?: WorkflowPriorityConfig | null;
-  settings?: Record<string, string | number | boolean>;
+  settings?: Record<string, OrchestratorTrackerSettingValue>;
 };
 
 export type OrchestratorProjectConfig = {
@@ -184,7 +192,7 @@ export type ProjectStatusSnapshot = {
     adapter: TrackerAdapterKind;
     bindingId: string;
     /** Public, non-secret tracker identifiers safe to expose on status APIs. */
-    settings?: Record<string, string | number | boolean>;
+    settings?: Record<string, OrchestratorTrackerSettingValue>;
   };
   lastTickAt: string;
   health: "idle" | "running" | "degraded";

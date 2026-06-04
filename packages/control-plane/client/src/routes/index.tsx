@@ -329,7 +329,9 @@ export function DataStatus(props: { projectState: ProjectState }) {
       <span>Last tick {formatRelativeTime(props.projectState.lastTickAt)}</span>
       <span>Repository {repository}</span>
       <span>Tracker {props.projectState.tracker.bindingId}</span>
-      {trackerProjectId ? <span>GitHub Project {trackerProjectId}</span> : null}
+      {typeof trackerProjectId === "string" && trackerProjectId.length > 0 ? (
+        <span>GitHub Project {trackerProjectId}</span>
+      ) : null}
       {props.projectState.lastError ? (
         <span className="text-status-failed-text">
           Last error: {props.projectState.lastError}

@@ -118,6 +118,7 @@ export function parseWorkflowMarkdown(
         (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
       apiKey: readOptionalString(tracker, "api_key", env),
       projectSlug: readOptionalString(tracker, "project_slug", env),
+      pickupLabels: readPickupLabelsConfig(tracker),
       activeStates,
       terminalStates,
       projectId: readOptionalString(tracker, "project_id", env),
@@ -215,6 +216,26 @@ function validateTrackerConfig(
       );
     }
   }
+}
+
+function readPickupLabelsConfig(
+  tracker: Record<string, WorkflowFrontMatterNode>
+): ParsedWorkflow["tracker"]["pickupLabels"] {
+  const value = tracker.pickup_labels ?? tracker.pickupLabels;
+  if (value === undefined || value === null) {
+    return DEFAULT_WORKFLOW_TRACKER.pickupLabels;
+  }
+  if (Array.isArray(value) || typeof value !== "object") {
+    throw new Error(
+      'Workflow front matter field "tracker.pickup_labels" must be an object when provided.'
+    );
+  }
+
+  const input = value as Record<string, WorkflowFrontMatterNode>;
+  return {
+    include: readStringList(input, "include") ?? [],
+    exclude: readStringList(input, "exclude") ?? [],
+  };
 }
 
 function readPriorityConfig(
