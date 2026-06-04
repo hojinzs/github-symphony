@@ -197,6 +197,47 @@ Prompt body.
     });
   });
 
+  it("ignores YAML inline comments on unquoted front matter scalars", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  project_id: PVT_kwHOAPiKdM4BYPVD # Moncher Stack (hojinzs/projects/14)
+  state_field: Status # Project single-select field
+  active_states:
+    - Ready # dispatchable
+    - In progress
+codex:
+  command: codex app-server # local runtime
+---
+Prompt body.
+`);
+
+    expect(workflow.githubProjectId).toBe("PVT_kwHOAPiKdM4BYPVD");
+    expect(workflow.tracker.projectId).toBe("PVT_kwHOAPiKdM4BYPVD");
+    expect(workflow.tracker.stateFieldName).toBe("Status");
+    expect(workflow.tracker.activeStates).toEqual(["Ready", "In progress"]);
+    expect(workflow.codex.command).toBe("codex app-server");
+  });
+
+  it("preserves hash characters inside quoted and plain non-comment scalars", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  project_id: "PVT_kwHOAPiKdM4BYPVD # quoted project marker" # trailing comment
+  state_field: Status#not-a-comment
+codex:
+  command: 'codex # app-server'
+---
+Prompt body.
+`);
+
+    expect(workflow.githubProjectId).toBe(
+      "PVT_kwHOAPiKdM4BYPVD # quoted project marker"
+    );
+    expect(workflow.tracker.stateFieldName).toBe("Status#not-a-comment");
+    expect(workflow.codex.command).toBe("codex # app-server");
+  });
+
   it("unescapes quoted priority field and mapping names", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
