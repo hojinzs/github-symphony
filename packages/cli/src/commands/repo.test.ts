@@ -240,6 +240,36 @@ Handle {{issue.identifier}}.
     );
   });
 
+  it("persists a clean GitHub project id when WORKFLOW.md uses an inline comment", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const repoCommand = await loadRepoCommand();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      VALID_WORKFLOW.replace(
+        "project_id: PVT_project_123",
+        "project_id: PVT_kwHOAPiKdM4BYPVD # Moncher Stack (hojinzs/projects/14)"
+      ),
+      "utf8"
+    );
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const projectConfig = await readRepoProjectConfig(repoDir);
+
+    expect(projectConfig.tracker.bindingId).toBe("PVT_kwHOAPiKdM4BYPVD");
+    expect(projectConfig.tracker.settings?.projectId).toBe(
+      "PVT_kwHOAPiKdM4BYPVD"
+    );
+  });
+
   it("initializes a Linear tracker runtime from WORKFLOW.md", async () => {
     const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);

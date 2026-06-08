@@ -361,7 +361,7 @@ function parseBlock(
         );
       }
       collectionType = "array";
-      const itemText = trimmed.slice(2).trim();
+      const itemText = stripYamlInlineComment(trimmed.slice(2)).trim();
 
       if (itemText === "|" || itemText === "|-") {
         const [multiline, nextIndex] = parseMultilineScalar(
@@ -403,7 +403,9 @@ function parseBlock(
       throw new Error(`Invalid workflow front matter key "${rawKey}".`);
     }
     const key = parsedKey;
-    const remainder = trimmed.slice(separatorIndex + 1).trim();
+    const remainder = stripYamlInlineComment(
+      trimmed.slice(separatorIndex + 1)
+    ).trim();
     if (remainder === "|" || remainder === "|-") {
       const [multiline, nextIndex] = parseMultilineScalar(
         lines,
@@ -486,6 +488,7 @@ function findMappingSeparator(value: string): number {
 }
 
 function parseScalar(value: string): WorkflowFrontMatterNode {
+  value = stripYamlInlineComment(value).trim();
   if (value === "null") return null;
   if (value === "true") return true;
   if (value === "false") return false;
@@ -508,6 +511,36 @@ function parseScalar(value: string): WorkflowFrontMatterNode {
   if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1).replace(/''/g, "'");
   }
+  return value;
+}
+
+function stripYamlInlineComment(value: string): string {
+  let quote: '"' | "'" | null = null;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (quote) {
+      if (quote === '"' && char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "#" && (index === 0 || /\s/.test(value[index - 1] ?? ""))) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+
   return value;
 }
 
