@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.2
+
+### Patch Changes
+
+- [#372](https://github.com/hojinzs/github-symphony/pull/372) [`248e1cc`](https://github.com/hojinzs/github-symphony/commit/248e1cc97020f1f1b620d453e5f1ccf15fa908ea) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#363](https://github.com/hojinzs/github-symphony/issues/363) by parsing YAML inline comments out of WORKFLOW frontmatter scalar values before repo init persists GitHub Project bindings.
+
 ## 0.4.1
 
 ### Patch Changes
