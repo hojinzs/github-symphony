@@ -14,6 +14,18 @@ import {
 
 export type GenerateWorkflowInput = {
   projectId: string;
+  tracker?:
+    | { kind: "github-project" }
+    | {
+        kind: "linear";
+        endpoint?: string;
+        apiKey?: string;
+        projectSlug: string;
+        pickupLabels?: {
+          include?: string[];
+          exclude?: string[];
+        };
+      };
   stateFieldName: string;
   priority: WorkflowPriorityConfig | null;
   includePriorityTemplates?: boolean;
@@ -42,10 +54,19 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   const lines: string[] = [];
 
   lines.push("tracker:");
-  lines.push("  kind: github-project");
-  lines.push(`  project_id: ${input.projectId}`);
-  lines.push(`  state_field: ${input.stateFieldName}`);
-  lines.push(...buildPriorityFrontMatter(input));
+  if (input.tracker?.kind === "linear") {
+    lines.push("  kind: linear");
+    lines.push(
+      `  endpoint: ${input.tracker.endpoint ?? "https://api.linear.app/graphql"}`
+    );
+    lines.push(`  api_key: ${input.tracker.apiKey ?? "$LINEAR_API_KEY"}`);
+    lines.push(`  project_slug: ${input.tracker.projectSlug}`);
+  } else {
+    lines.push("  kind: github-project");
+    lines.push(`  project_id: ${input.projectId}`);
+    lines.push(`  state_field: ${input.stateFieldName}`);
+    lines.push(...buildPriorityFrontMatter(input));
+  }
 
   if (input.lifecycle.activeStates.length > 0) {
     lines.push("  active_states:");
@@ -58,6 +79,32 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     lines.push("  terminal_states:");
     for (const state of input.lifecycle.terminalStates) {
       lines.push(`    - ${state}`);
+    }
+  }
+
+  if (input.tracker?.kind === "linear") {
+    const include = input.tracker.pickupLabels?.include ?? [
+      "agent",
+      "dev-ready",
+    ];
+    const exclude = input.tracker.pickupLabels?.exclude ?? [
+      "no-agent",
+      "needs-spec",
+    ];
+    if (include.length > 0 || exclude.length > 0) {
+      lines.push("  pickup_labels:");
+      if (include.length > 0) {
+        lines.push("    include:");
+        for (const label of include) {
+          lines.push(`      - ${label}`);
+        }
+      }
+      if (exclude.length > 0) {
+        lines.push("    exclude:");
+        for (const label of exclude) {
+          lines.push(`      - ${label}`);
+        }
+      }
     }
   }
 

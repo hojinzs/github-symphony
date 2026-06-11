@@ -51,6 +51,7 @@ import initCommand from "./workflow-init.js";
 import {
   buildDryRunJsonResult,
   generateProjectId,
+  planLinearWorkflowArtifacts,
   planWorkflowArtifacts,
   planEcosystem,
   promptLegacyGhSymphonyCleanup,
@@ -231,6 +232,104 @@ describe("init command config output", () => {
     expect(stderr).toHaveBeenCalledWith(
       "Error: Unsupported runtime 'claud-print'. Choose one of: codex-app-server, claude-print.\n"
     );
+  });
+
+  it("generates a Linear workflow in non-interactive dry-run without GitHub auth", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-linear-"));
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true as never);
+    const ghAuthSpy = vi.spyOn(ghAuth, "getGhTokenWithSource");
+    const createClientSpy = vi.spyOn(githubClient, "createClient");
+
+    await initCommand(
+      [
+        "--non-interactive",
+        "--tracker",
+        "linear",
+        "--linear-project-slug",
+        "symphony-0c79b11b75ea",
+        "--runtime",
+        "codex-app-server",
+        "--dry-run",
+        "--output",
+        join(configDir, "WORKFLOW.md"),
+      ],
+      {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      }
+    );
+
+    const payload = JSON.parse(
+      stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
+    ) as {
+      projectId: string;
+      githubProjectTitle: string;
+      files: Array<{ label: string }>;
+    };
+    const workflowFile = payload.files.find(
+      (file) => file.label === "WORKFLOW.md"
+    );
+
+    expect(process.exitCode).toBeUndefined();
+    expect(ghAuthSpy).not.toHaveBeenCalled();
+    expect(createClientSpy).not.toHaveBeenCalled();
+    expect(payload.projectId).toBe("symphony-0c79b11b75ea");
+    expect(payload.githubProjectTitle).toBe(
+      "Linear project symphony-0c79b11b75ea"
+    );
+    expect(workflowFile).toBeDefined();
+    stdout.mockRestore();
+    ghAuthSpy.mockRestore();
+    createClientSpy.mockRestore();
+  });
+
+  it("requires a Linear project slug before GitHub auth lookup", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true as never);
+    const ghAuthSpy = vi.spyOn(ghAuth, "getGhTokenWithSource");
+
+    await initCommand(["--non-interactive", "--tracker", "linear"], {
+      configDir: await mkdtemp(join(tmpdir(), "cli-init-linear-missing-")),
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toHaveBeenCalledWith(
+      "Error: --linear-project-slug is required when --tracker linear is used.\n"
+    );
+    expect(ghAuthSpy).not.toHaveBeenCalled();
+    stderr.mockRestore();
+    ghAuthSpy.mockRestore();
+  });
+
+  it("renders Linear tracker front matter from the Linear artifact planner", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cli-init-linear-plan-"));
+
+    const plan = await planLinearWorkflowArtifacts({
+      cwd,
+      outputPath: join(cwd, "WORKFLOW.md"),
+      projectSlug: "symphony-0c79b11b75ea",
+      runtime: "codex-app-server",
+      skipSkills: true,
+      skipContext: false,
+    });
+
+    expect(plan.workflowMd).toContain("tracker:\n  kind: linear\n");
+    expect(plan.workflowMd).toContain(
+      "  endpoint: https://api.linear.app/graphql\n"
+    );
+    expect(plan.workflowMd).toContain("  api_key: $LINEAR_API_KEY\n");
+    expect(plan.workflowMd).toContain(
+      "  project_slug: symphony-0c79b11b75ea\n"
+    );
+    expect(plan.workflowMd).not.toContain("  project_id:");
   });
 
   it("writes the simplified project config", async () => {
