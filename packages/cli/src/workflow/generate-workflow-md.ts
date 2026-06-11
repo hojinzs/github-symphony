@@ -83,14 +83,8 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
   }
 
   if (input.tracker?.kind === "linear") {
-    const include = input.tracker.pickupLabels?.include ?? [
-      "agent",
-      "dev-ready",
-    ];
-    const exclude = input.tracker.pickupLabels?.exclude ?? [
-      "no-agent",
-      "needs-spec",
-    ];
+    const include = input.tracker.pickupLabels?.include ?? [];
+    const exclude = input.tracker.pickupLabels?.exclude ?? [];
     if (include.length > 0 || exclude.length > 0) {
       lines.push("  pickup_labels:");
       if (include.length > 0) {

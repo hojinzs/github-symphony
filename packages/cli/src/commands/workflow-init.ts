@@ -214,7 +214,10 @@ export function warnDeprecatedSkipContext(): void {
   p.log.warn(SKIP_CONTEXT_DEPRECATION);
 }
 
-async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+async function runInitRuntimePreflight(
+  runtime: string,
+  opts: { includeGhAuth?: boolean } = {}
+): Promise<boolean> {
   if (!isClaudeRuntime(runtime)) {
     return true;
   }
@@ -229,7 +232,7 @@ async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
       resolveClaudeCommandBinary(resolveRuntimeCommand(runtime)) ??
       resolveRuntimeCommand(runtime),
     authMode: "local-or-api-key",
-    includeGhAuth: !hasGitHubGraphqlToken,
+    includeGhAuth: opts.includeGhAuth ?? !hasGitHubGraphqlToken,
   });
   const message = formatClaudePreflightText(report);
   if (report.ok) {
@@ -254,6 +257,26 @@ const handler = async (
 
   if (flags.nonInteractive) {
     await runNonInteractive(flags, options);
+    return;
+  }
+
+  const trackerKind = resolveInitTrackerKind(flags);
+  if (trackerKind instanceof Error) {
+    process.stderr.write(`Error: ${trackerKind.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const trackerFlagError = validateInitTrackerFlags(flags, trackerKind);
+  if (trackerFlagError) {
+    process.stderr.write(`Error: ${trackerFlagError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (trackerKind === "linear") {
+    process.stderr.write(
+      "Error: Linear workflow init currently requires --non-interactive.\n"
+    );
+    process.exitCode = 1;
     return;
   }
 
@@ -1502,14 +1525,25 @@ async function runNonInteractive(
     process.exitCode = 1;
     return;
   }
-  if (!(await runInitRuntimePreflight(runtime))) {
-    process.exitCode = 1;
-    return;
-  }
 
   const trackerKind = resolveInitTrackerKind(flags);
   if (trackerKind instanceof Error) {
     process.stderr.write(`Error: ${trackerKind.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const trackerFlagError = validateInitTrackerFlags(flags, trackerKind);
+  if (trackerFlagError) {
+    process.stderr.write(`Error: ${trackerFlagError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    !(await runInitRuntimePreflight(runtime, {
+      includeGhAuth: trackerKind === "linear" ? false : undefined,
+    }))
+  ) {
     process.exitCode = 1;
     return;
   }
@@ -1675,8 +1709,17 @@ function resolveInitTrackerKind(
     return flags.linearProjectSlug ? "linear" : "github-project";
   }
 
-  if (rawTracker === "github-project" || rawTracker === "linear") {
-    return rawTracker;
+  if (rawTracker === "github-project") {
+    if (flags.linearProjectSlug?.trim()) {
+      return new Error(
+        "--linear-project-slug is only supported for --tracker linear."
+      );
+    }
+    return "github-project";
+  }
+
+  if (rawTracker === "linear") {
+    return "linear";
   }
 
   return new Error(
@@ -1684,27 +1727,28 @@ function resolveInitTrackerKind(
   );
 }
 
+function validateInitTrackerFlags(
+  flags: InitFlags,
+  trackerKind: "github-project" | "linear"
+): string | null {
+  if (trackerKind === "linear") {
+    if (!flags.linearProjectSlug?.trim()) {
+      return "--linear-project-slug is required when --tracker linear is used.";
+    }
+    if (flags.project) {
+      return "--project is only supported for --tracker github-project.";
+    }
+  }
+
+  return null;
+}
+
 async function runLinearNonInteractive(
   flags: InitFlags,
   options: GlobalOptions,
   runtime: string
 ): Promise<void> {
-  const projectSlug = flags.linearProjectSlug?.trim();
-  if (!projectSlug) {
-    process.stderr.write(
-      "Error: --linear-project-slug is required when --tracker linear is used.\n"
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  if (flags.project) {
-    process.stderr.write(
-      "Error: --project is only supported for --tracker github-project.\n"
-    );
-    process.exitCode = 1;
-    return;
-  }
+  const projectSlug = flags.linearProjectSlug!.trim();
 
   const outputPath = resolve(flags.output ?? "WORKFLOW.md");
   const { workflowPlan, ecosystemPlan } = await planLinearWorkflowArtifacts({

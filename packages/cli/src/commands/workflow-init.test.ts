@@ -287,6 +287,64 @@ describe("init command config output", () => {
     createClientSpy.mockRestore();
   });
 
+  it("generates a Linear claude-print workflow without GitHub auth preflight", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-init-linear-claude-"));
+    const binDir = join(configDir, "bin");
+    await mkdir(binDir, { recursive: true });
+    const claude = join(binDir, "claude");
+    await writeFile(
+      claude,
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "claude 1.0.0"; fi\n',
+      "utf8"
+    );
+    await chmod(claude, 0o755);
+    process.env.PATH = binDir;
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-test");
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "");
+    vi.mocked(p.log.info).mockClear();
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockReturnValue(true as never);
+    const ghAuthSpy = vi.spyOn(ghAuth, "getGhTokenWithSource");
+    const createClientSpy = vi.spyOn(githubClient, "createClient");
+
+    await initCommand(
+      [
+        "--non-interactive",
+        "--tracker",
+        "linear",
+        "--linear-project-slug",
+        "symphony-0c79b11b75ea",
+        "--runtime",
+        "claude-print",
+        "--dry-run",
+        "--output",
+        join(configDir, "WORKFLOW.md"),
+      ],
+      {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain(
+      '"projectId":"symphony-0c79b11b75ea"'
+    );
+    expect(p.log.info).toHaveBeenCalledWith(
+      expect.stringContaining("Claude runtime preflight")
+    );
+    expect(ghAuthSpy).not.toHaveBeenCalled();
+    expect(createClientSpy).not.toHaveBeenCalled();
+    stdout.mockRestore();
+    ghAuthSpy.mockRestore();
+    createClientSpy.mockRestore();
+    vi.unstubAllEnvs();
+    process.env.PATH = originalPath;
+  });
+
   it("requires a Linear project slug before GitHub auth lookup", async () => {
     const stderr = vi
       .spyOn(process.stderr, "write")
@@ -303,6 +361,69 @@ describe("init command config output", () => {
     expect(process.exitCode).toBe(1);
     expect(stderr).toHaveBeenCalledWith(
       "Error: --linear-project-slug is required when --tracker linear is used.\n"
+    );
+    expect(ghAuthSpy).not.toHaveBeenCalled();
+    stderr.mockRestore();
+    ghAuthSpy.mockRestore();
+  });
+
+  it("rejects Linear init flags in interactive mode instead of starting GitHub Project setup", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true as never);
+    const authSpy = vi.spyOn(ghAuth, "resolveGitHubAuth");
+    vi.mocked(p.select).mockClear();
+
+    await initCommand(
+      [
+        "--tracker",
+        "linear",
+        "--linear-project-slug",
+        "symphony-0c79b11b75ea",
+      ],
+      {
+        configDir: await mkdtemp(join(tmpdir(), "cli-init-linear-int-")),
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toHaveBeenCalledWith(
+      "Error: Linear workflow init currently requires --non-interactive.\n"
+    );
+    expect(p.select).not.toHaveBeenCalled();
+    expect(authSpy).not.toHaveBeenCalled();
+    stderr.mockRestore();
+    authSpy.mockRestore();
+  });
+
+  it("rejects a Linear project slug with explicit GitHub Project tracker", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockReturnValue(true as never);
+    const ghAuthSpy = vi.spyOn(ghAuth, "getGhTokenWithSource");
+
+    await initCommand(
+      [
+        "--non-interactive",
+        "--tracker",
+        "github-project",
+        "--linear-project-slug",
+        "symphony-0c79b11b75ea",
+      ],
+      {
+        configDir: await mkdtemp(join(tmpdir(), "cli-init-linear-conflict-")),
+        verbose: false,
+        json: false,
+        noColor: true,
+      }
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr).toHaveBeenCalledWith(
+      "Error: --linear-project-slug is only supported for --tracker linear.\n"
     );
     expect(ghAuthSpy).not.toHaveBeenCalled();
     stderr.mockRestore();
@@ -329,6 +450,7 @@ describe("init command config output", () => {
     expect(plan.workflowMd).toContain(
       "  project_slug: symphony-0c79b11b75ea\n"
     );
+    expect(plan.workflowMd).not.toContain("  pickup_labels:");
     expect(plan.workflowMd).not.toContain("  project_id:");
   });
 
