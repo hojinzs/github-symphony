@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.5
+
+### Patch Changes
+
+- [#380](https://github.com/hojinzs/github-symphony/pull/380) [`71180cf`](https://github.com/hojinzs/github-symphony/commit/71180cf7980ba9f5567821c7f00112f202bf1167) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Stop forcing Codex app-server workers for [#378](https://github.com/hojinzs/github-symphony/issues/378) into a staged `.codex-agent` home by default, so local runs consistently use the caller's normal Codex home unless `CODEX_HOME` is explicitly provided.
+
 ## 0.4.4
 
 ### Patch Changes
