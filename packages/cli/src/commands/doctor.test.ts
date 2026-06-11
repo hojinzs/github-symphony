@@ -1223,7 +1223,7 @@ describe("runDoctorDiagnostics", () => {
               {
                 id: "project-1",
                 name: "Symphony",
-                slug: "symphony-0c79b11b75ea",
+                slugId: "symphony-0c79b11b75ea",
               },
             ],
           },
@@ -1247,6 +1247,8 @@ describe("runDoctorDiagnostics", () => {
         pathEnv,
       })
     );
+    const [, fetchInit] = fetchImpl.mock.calls[0] ?? [];
+    const requestBody = JSON.parse(String(fetchInit?.body));
 
     expect(report.ok).toBe(true);
     expect(getProjectDetail).not.toHaveBeenCalled();
@@ -1266,6 +1268,10 @@ describe("runDoctorDiagnostics", () => {
           exclude: ["no-agent"],
         },
       }),
+    });
+    expect(requestBody.query).toContain("slugId");
+    expect(requestBody.variables).toEqual({
+      slug: "symphony-0c79b11b75ea",
     });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://linear.test/graphql",

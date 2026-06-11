@@ -697,9 +697,7 @@ async function checkLinearTrackerResolution(input: {
   deps: DoctorDependencies;
 }): Promise<DoctorCheckResult> {
   const tracker = input.projectConfig.projectConfig.tracker;
-  const projectSlug =
-    readStringSetting(tracker.settings, "projectSlug")?.trim() ||
-    tracker.bindingId.trim();
+  const projectSlug = readStringSetting(tracker.settings, "projectSlug")?.trim();
   const activeStates = readLinearActiveStates(tracker.settings);
   const pickupLabels = readLinearPickupLabels(tracker.settings);
 
@@ -771,10 +769,10 @@ async function checkLinearTrackerResolution(input: {
     return passCheck(
       "linear_tracker_resolution",
       "Linear tracker resolution",
-      `Resolved Linear project "${project.name}" (${project.slug}). ${formatLinearConfigSummary(activeStates, pickupLabels)}`,
+      `Resolved Linear project "${project.name}" (${project.slugId}). ${formatLinearConfigSummary(activeStates, pickupLabels)}`,
       {
         projectId: project.id,
-        projectSlug: project.slug,
+        projectSlug: project.slugId,
         activeStates,
         pickupLabels,
       }
@@ -865,7 +863,7 @@ async function fetchLinearProjectBySlug(input: {
   projectSlug: string;
   token: string;
   fetchImpl: typeof fetch;
-}): Promise<{ id: string; name: string; slug: string } | null> {
+}): Promise<{ id: string; name: string; slugId: string } | null> {
   const response = await input.fetchImpl(input.endpoint, {
     method: "POST",
     headers: {
@@ -874,11 +872,11 @@ async function fetchLinearProjectBySlug(input: {
     },
     body: JSON.stringify({
       query: `query SymphonyLinearDoctorProject($slug: String!) {
-  projects(filter: { slug: { eq: $slug } }, first: 1) {
+  projects(filter: { slugId: { eq: $slug } }, first: 1) {
     nodes {
       id
       name
-      slug
+      slugId
     }
   }
 }`,
@@ -893,7 +891,7 @@ async function fetchLinearProjectBySlug(input: {
   const payload = (await response.json()) as {
     data?: {
       projects?: {
-        nodes?: Array<{ id?: string; name?: string; slug?: string }>;
+        nodes?: Array<{ id?: string; name?: string; slugId?: string }>;
       } | null;
     };
     errors?: Array<{ message?: string }>;
@@ -912,14 +910,14 @@ async function fetchLinearProjectBySlug(input: {
     !project ||
     typeof project.id !== "string" ||
     typeof project.name !== "string" ||
-    typeof project.slug !== "string"
+    typeof project.slugId !== "string"
   ) {
     return null;
   }
   return {
     id: project.id,
     name: project.name,
-    slug: project.slug,
+    slugId: project.slugId,
   };
 }
 
@@ -2472,7 +2470,6 @@ async function runDoctorFixes(
       case "claude_binary":
       case "anthropic_api_key":
       case "claude_mcp_config":
-      case "linear_tracker_resolution":
         steps.push(
           remediationStep(
             `remediate_${check.id}`,
@@ -2480,6 +2477,20 @@ async function runDoctorFixes(
             check.title,
             "manual",
             check.remediation ?? "Fix the Claude runtime readiness check.",
+            undefined,
+            check.details
+          )
+        );
+        break;
+      case "linear_tracker_resolution":
+        steps.push(
+          remediationStep(
+            `remediate_${check.id}`,
+            check.id,
+            check.title,
+            "manual",
+            check.remediation ??
+              "Fix the Linear tracker configuration or credentials.",
             undefined,
             check.details
           )
