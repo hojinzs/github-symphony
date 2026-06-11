@@ -33,6 +33,7 @@ export function resolveLocalRuntimeLaunchConfig(
     githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
     githubTokenCachePath: env.GITHUB_TOKEN_CACHE_PATH,
     agentEnv: readDirectAgentEnvironment(env),
+    extraEnv: env.CODEX_HOME ? { CODEX_HOME: env.CODEX_HOME } : undefined,
     agentCredentialBrokerUrl: env.AGENT_CREDENTIAL_BROKER_URL,
     agentCredentialBrokerSecret: env.AGENT_CREDENTIAL_BROKER_SECRET,
     agentCredentialCachePath: env.AGENT_CREDENTIAL_CACHE_PATH,

@@ -200,7 +200,7 @@ describe("buildCodexRuntimePlan", () => {
 describe("resolvePreparedAgentEnvironment", () => {
   it("filters direct agent env keys without staging CODEX_HOME", () => {
     expect(
-      resolvePreparedAgentEnvironment("/tmp/workspace-123", {
+      resolvePreparedAgentEnvironment({
         OPENAI_API_KEY: "sk-openai",
         OPENAI_BASE_URL: "https://example.test/v1",
         UNRELATED: "ignored",

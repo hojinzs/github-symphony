@@ -410,7 +410,6 @@ export function normalizeCodexRuntimeEvents(
 }
 
 export function resolvePreparedAgentEnvironment(
-  _workingDirectory: string,
   env?: Record<string, string | undefined>
 ): Record<string, string> {
   return Object.fromEntries(
@@ -447,10 +446,7 @@ export function buildCodexRuntimePlan(
     const cmd = config.agentCommand ?? "codex app-server";
     return cmd.startsWith("bash -lc ") ? cmd.slice("bash -lc ".length) : cmd;
   })();
-  const agentEnv = resolvePreparedAgentEnvironment(
-    config.workingDirectory,
-    config.agentEnv
-  );
+  const agentEnv = resolvePreparedAgentEnvironment(config.agentEnv);
   const linearGraphqlEnv = config.enableLinearGraphqlTool
     ? {
         LINEAR_GRAPHQL_TOOL_NAME: "linear_graphql",
@@ -581,10 +577,7 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
   resolveCredentials(
     brokerResponse: CodexRuntimeCredentialBrokerResponse
   ): Record<string, string> {
-    return resolvePreparedAgentEnvironment(
-      this.config.workingDirectory,
-      brokerResponse.env
-    );
+    return resolvePreparedAgentEnvironment(brokerResponse.env);
   }
 
   async shutdown(): Promise<void> {
@@ -696,11 +689,11 @@ export async function resolveAgentRuntimeEnvironment(
   >
 ): Promise<Record<string, string>> {
   if (config.agentEnv) {
-    return resolveRuntimeCredentials(config, { env: config.agentEnv }, adapter);
+    return resolveRuntimeCredentials({ env: config.agentEnv }, adapter);
   }
 
   if (!config.agentCredentialBrokerUrl || !config.agentCredentialBrokerSecret) {
-    return resolvePreparedAgentEnvironment(config.workingDirectory);
+    return resolvePreparedAgentEnvironment();
   }
 
   const now = dependencies.now ?? new Date();
@@ -716,7 +709,7 @@ export async function resolveAgentRuntimeEnvironment(
     cachedCredentials &&
     shouldReuseAgentCredentialCache(cachedCredentials, now)
   ) {
-    return resolveRuntimeCredentials(config, cachedCredentials, adapter);
+    return resolveRuntimeCredentials(cachedCredentials, adapter);
   }
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
@@ -739,7 +732,7 @@ export async function resolveAgentRuntimeEnvironment(
             env: payload.env,
             expires_at: payload.expires_at,
           })
-        : resolvePreparedAgentEnvironment(config.workingDirectory, payload.env)
+        : resolvePreparedAgentEnvironment(payload.env)
       : null;
 
   if (
@@ -768,7 +761,6 @@ export async function resolveAgentRuntimeEnvironment(
 }
 
 function resolveRuntimeCredentials(
-  config: Pick<CodexRuntimeConfig, "workingDirectory">,
   brokerResponse: CodexRuntimeCredentialBrokerResponse,
   adapter?: Pick<
     AgentRuntimeAdapter<
@@ -783,10 +775,7 @@ function resolveRuntimeCredentials(
 ): Record<string, string> {
   return adapter
     ? adapter.resolveCredentials(brokerResponse)
-    : resolvePreparedAgentEnvironment(
-        config.workingDirectory,
-        brokerResponse.env
-      );
+    : resolvePreparedAgentEnvironment(brokerResponse.env);
 }
 
 function hasRunningChild(child: ChildProcess | null): child is ChildProcess {
