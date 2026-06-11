@@ -39,6 +39,22 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     expect(config.projectId).toBe("workspace-fallback");
   });
 
+  it("preserves CODEX_HOME provided through the launcher environment", () => {
+    const config = resolveLocalRuntimeLaunchConfig({
+      PROJECT_ID: "workspace-local",
+      WORKING_DIRECTORY: "/tmp/workspace-local",
+      CODEX_HOME: "/tmp/launcher-codex-home",
+      OPENAI_API_KEY: "sk-direct-runtime",
+    });
+
+    expect(config.extraEnv).toEqual({
+      CODEX_HOME: "/tmp/launcher-codex-home",
+    });
+    expect(config.agentEnv).toEqual({
+      OPENAI_API_KEY: "sk-direct-runtime",
+    });
+  });
+
   it("fails when the working directory is missing", () => {
     expect(() =>
       resolveLocalRuntimeLaunchConfig({
