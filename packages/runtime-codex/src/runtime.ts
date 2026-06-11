@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   buildAgentInputRequiredReason,
@@ -20,7 +18,6 @@ import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-grap
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
 const DEFAULT_GITHUB_GIT_USERNAME = "x-access-token";
-const STAGED_CODEX_HOME_DIRNAME = ".codex-agent";
 const DIRECT_AGENT_ENV_KEYS = [
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
@@ -91,8 +88,6 @@ export type CodexRuntimeEvent = AgentRuntimeEvent;
 export type CodexRuntimeDependencies = {
   fetchImpl?: typeof fetch;
   writeFileImpl?: typeof writeFile;
-  mkdirImpl?: typeof mkdir;
-  copyFileImpl?: typeof copyFile;
   spawnImpl?: SpawnLike;
 };
 
@@ -414,18 +409,11 @@ export function normalizeCodexRuntimeEvents(
   return events;
 }
 
-export function resolveStagedCodexHome(workingDirectory: string): string {
-  return join(workingDirectory, STAGED_CODEX_HOME_DIRNAME);
-}
-
 export function resolvePreparedAgentEnvironment(
-  workingDirectory: string,
+  _workingDirectory: string,
   env?: Record<string, string | undefined>
 ): Record<string, string> {
-  // Point codex to an isolated config dir so personal MCPs (playwright,
-  // chrome-devtools, context7, etc.) from the operator's ~/.codex/config.toml
-  // are not loaded and do not confuse the implementation agent.
-  const preparedEnv = Object.fromEntries(
+  return Object.fromEntries(
     DIRECT_AGENT_ENV_KEYS.flatMap((key) => {
       const value = env?.[key];
       return typeof value === "string" && value.length > 0
@@ -433,16 +421,10 @@ export function resolvePreparedAgentEnvironment(
         : [];
     })
   );
-
-  return {
-    ...preparedEnv,
-    CODEX_HOME: resolveStagedCodexHome(workingDirectory),
-  };
 }
 
 /**
- * Build the `codex app-server` launch plan after `stageCodexHome()` has prepared
- * the staged `CODEX_HOME` directory for the target working directory.
+ * Build the `codex app-server` launch plan for the target working directory.
  */
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
@@ -557,7 +539,6 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter<
       this.dependencies,
       this
     );
-    await stageCodexHome(this.config, this.dependencies);
     this.plan = buildCodexRuntimePlan({
       ...this.config,
       agentEnv,
@@ -806,35 +787,6 @@ function resolveRuntimeCredentials(
         config.workingDirectory,
         brokerResponse.env
       );
-}
-
-async function stageCodexHome(
-  config: Pick<CodexRuntimeConfig, "workingDirectory">,
-  dependencies: Pick<
-    CodexRuntimeDependencies,
-    "mkdirImpl" | "writeFileImpl" | "copyFileImpl"
-  > = {}
-): Promise<void> {
-  const codexHomeDir = resolveStagedCodexHome(config.workingDirectory);
-  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
-  await mkdirImpl(codexHomeDir, { recursive: true });
-  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-  await writeFileImpl(
-    join(codexHomeDir, "config.toml"),
-    "# Isolated agent config \u2014 no personal MCP servers\n",
-    "utf8"
-  );
-
-  const realCodexHome = process.env.CODEX_HOME ?? join(homedir(), ".codex");
-  const copyFileImpl = dependencies.copyFileImpl ?? copyFile;
-  try {
-    await copyFileImpl(
-      join(realCodexHome, "auth.json"),
-      join(codexHomeDir, "auth.json")
-    );
-  } catch {
-    // auth.json may not exist (e.g. when OPENAI_API_KEY is used instead)
-  }
 }
 
 function hasRunningChild(child: ChildProcess | null): child is ChildProcess {

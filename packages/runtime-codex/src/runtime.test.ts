@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -13,8 +13,21 @@ import {
   resolvePreparedAgentEnvironment,
   resolveAgentRuntimeEnvironment,
   launchCodexAppServer,
-  resolveStagedCodexHome,
 } from "./runtime.js";
+
+const originalCodexHome = process.env.CODEX_HOME;
+
+beforeEach(() => {
+  delete process.env.CODEX_HOME;
+});
+
+afterEach(() => {
+  if (originalCodexHome === undefined) {
+    delete process.env.CODEX_HOME;
+  } else {
+    process.env.CODEX_HOME = originalCodexHome;
+  }
+});
 
 describe("createGitHubGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
@@ -84,7 +97,36 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
-    expect(plan.env.CODEX_HOME).toBe("/tmp/workspace-123/.codex-agent");
+    expect(plan.env.CODEX_HOME).toBeUndefined();
+  });
+
+  it("preserves CODEX_HOME when explicitly provided by the environment", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+      extraEnv: {
+        CODEX_HOME: "/tmp/local-codex-home",
+      },
+    });
+
+    expect(plan.env.CODEX_HOME).toBe("/tmp/local-codex-home");
+  });
+
+  it("preserves CODEX_HOME when explicitly provided by process env", () => {
+    process.env.CODEX_HOME = "/tmp/process-codex-home";
+
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+
+    expect(plan.env.CODEX_HOME).toBe("/tmp/process-codex-home");
   });
 
   it("exposes linear_graphql only when enabled for Linear tracker sessions", () => {
@@ -156,7 +198,7 @@ describe("buildCodexRuntimePlan", () => {
 });
 
 describe("resolvePreparedAgentEnvironment", () => {
-  it("filters direct agent env keys and stages CODEX_HOME", () => {
+  it("filters direct agent env keys without staging CODEX_HOME", () => {
     expect(
       resolvePreparedAgentEnvironment("/tmp/workspace-123", {
         OPENAI_API_KEY: "sk-openai",
@@ -166,7 +208,6 @@ describe("resolvePreparedAgentEnvironment", () => {
     ).toEqual({
       OPENAI_API_KEY: "sk-openai",
       OPENAI_BASE_URL: "https://example.test/v1",
-      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
   });
 });
@@ -252,7 +293,6 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-brokered-agent",
-      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(writeFileImpl).toHaveBeenCalledWith(
       "/workspace-runtime/.agent-runtime-auth.json",
@@ -298,7 +338,6 @@ describe("resolveAgentRuntimeEnvironment", () => {
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-cached-agent",
       OPENAI_BASE_URL: "https://openai.example.test/v1",
-      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -342,7 +381,6 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-refreshed-agent",
-      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(writeFileImpl).toHaveBeenCalledOnce();
   });
@@ -373,7 +411,6 @@ describe("resolveAgentRuntimeEnvironment", () => {
 
     expect(env).toEqual({
       OPENAI_API_KEY: "sk-legacy-agent",
-      CODEX_HOME: "/tmp/workspace-123/.codex-agent",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -653,7 +690,7 @@ describe("prepareCodexRuntimePlan", () => {
     );
 
     expect(plan.env.OPENAI_API_KEY).toBe("sk-plan-agent");
-    expect(plan.env.CODEX_HOME).toBe("/tmp/workspace-123/.codex-agent");
+    expect(plan.env.CODEX_HOME).toBeUndefined();
   });
 });
 
@@ -674,9 +711,6 @@ describe("createCodexRuntimeAdapter", () => {
         },
       },
       {
-        mkdirImpl: vi.fn().mockResolvedValue(undefined),
-        writeFileImpl: vi.fn().mockResolvedValue(undefined),
-        copyFileImpl: vi.fn().mockResolvedValue(undefined),
         spawnImpl,
       }
     );
@@ -685,9 +719,7 @@ describe("createCodexRuntimeAdapter", () => {
     const result = await adapter.spawnTurn();
 
     expect(result.plan.env.OPENAI_API_KEY).toBe("sk-direct-runtime");
-    expect(result.plan.env.CODEX_HOME).toBe(
-      resolveStagedCodexHome("/tmp/workspace-123")
-    );
+    expect(result.plan.env.CODEX_HOME).toBeUndefined();
     expect(spawnImpl).toHaveBeenCalledOnce();
 
     await adapter.shutdown();
@@ -711,9 +743,6 @@ describe("createCodexRuntimeAdapter", () => {
         },
       },
       {
-        mkdirImpl: vi.fn().mockResolvedValue(undefined),
-        writeFileImpl: vi.fn().mockResolvedValue(undefined),
-        copyFileImpl: vi.fn().mockResolvedValue(undefined),
         spawnImpl,
       }
     );
