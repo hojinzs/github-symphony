@@ -313,7 +313,7 @@ Commands:
   preview    Render the final worker prompt from a sample or live issue
 
 Options:
-  workflow init [--non-interactive] [--project <id>] [--output <path>] [--skip-skills] [--skip-context (deprecated no-op)] [--dry-run]
+  workflow init [--non-interactive] [--tracker <github-project|linear>] [--project <id>] [--linear-project-slug <slug>] [--output <path>] [--skip-skills] [--skip-context (deprecated no-op)] [--dry-run]
   workflow validate [--file <path>]
   workflow preview [issue] [--file <path>] [--issue <owner/repo#number|ENG-123>] [--project-id <projectId>] [--sample <json>] [--attempt <n>]
 

@@ -137,6 +137,8 @@ type InitFlags = {
   dryRun: boolean;
   nonInteractive: boolean;
   project?: string;
+  tracker?: string;
+  linearProjectSlug?: string;
   output?: string;
   runtime?: string;
   skipSkills: boolean;
@@ -180,6 +182,14 @@ function parseInitFlags(args: string[]): InitFlags {
         flags.project = next;
         i += 1;
         break;
+      case "--tracker":
+        flags.tracker = next;
+        i += 1;
+        break;
+      case "--linear-project-slug":
+        flags.linearProjectSlug = next;
+        i += 1;
+        break;
       case "--output":
         flags.output = next;
         i += 1;
@@ -204,7 +214,10 @@ export function warnDeprecatedSkipContext(): void {
   p.log.warn(SKIP_CONTEXT_DEPRECATION);
 }
 
-async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
+async function runInitRuntimePreflight(
+  runtime: string,
+  opts: { includeGhAuth?: boolean } = {}
+): Promise<boolean> {
   if (!isClaudeRuntime(runtime)) {
     return true;
   }
@@ -219,7 +232,7 @@ async function runInitRuntimePreflight(runtime: string): Promise<boolean> {
       resolveClaudeCommandBinary(resolveRuntimeCommand(runtime)) ??
       resolveRuntimeCommand(runtime),
     authMode: "local-or-api-key",
-    includeGhAuth: !hasGitHubGraphqlToken,
+    includeGhAuth: opts.includeGhAuth ?? !hasGitHubGraphqlToken,
   });
   const message = formatClaudePreflightText(report);
   if (report.ok) {
@@ -244,6 +257,26 @@ const handler = async (
 
   if (flags.nonInteractive) {
     await runNonInteractive(flags, options);
+    return;
+  }
+
+  const trackerKind = resolveInitTrackerKind(flags);
+  if (trackerKind instanceof Error) {
+    process.stderr.write(`Error: ${trackerKind.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const trackerFlagError = validateInitTrackerFlags(flags, trackerKind);
+  if (trackerFlagError) {
+    process.stderr.write(`Error: ${trackerFlagError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (trackerKind === "linear") {
+    process.stderr.write(
+      "Error: Linear workflow init currently requires --non-interactive.\n"
+    );
+    process.exitCode = 1;
     return;
   }
 
@@ -416,6 +449,16 @@ export type WorkflowArtifactsOptions = {
   includePriorityTemplates?: boolean;
   mappings: Record<string, StateMapping>;
   lifecycle?: WorkflowLifecycleConfig;
+  runtime: string;
+  skipSkills: boolean;
+  skipContext: boolean;
+  environment?: DetectedEnvironment;
+};
+
+type LinearWorkflowArtifactsOptions = {
+  cwd: string;
+  outputPath: string;
+  projectSlug: string;
   runtime: string;
   skipSkills: boolean;
   skipContext: boolean;
@@ -976,6 +1019,155 @@ export async function planWorkflowArtifacts(
   };
 }
 
+const LINEAR_DEFAULT_STATUS_FIELD: ProjectStatusField = {
+  id: "linear-state",
+  name: "State",
+  options: [
+    {
+      id: "linear-todo",
+      name: "Todo",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-in-progress",
+      name: "In Progress",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-rework",
+      name: "Rework",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-human-review",
+      name: "Human Review",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-done",
+      name: "Done",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-canceled",
+      name: "Canceled",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-cancelled",
+      name: "Cancelled",
+      description: null,
+      color: null,
+    },
+    {
+      id: "linear-duplicate",
+      name: "Duplicate",
+      description: null,
+      color: null,
+    },
+  ],
+};
+
+const LINEAR_DEFAULT_MAPPINGS: Record<string, StateMapping> = {
+  Todo: { role: "active" },
+  "In Progress": { role: "active" },
+  Rework: { role: "active" },
+  "Human Review": { role: "wait" },
+  Done: { role: "terminal" },
+  Canceled: { role: "terminal" },
+  Cancelled: { role: "terminal" },
+  Duplicate: { role: "terminal" },
+};
+
+function buildLinearProjectDetail(projectSlug: string): ProjectDetail {
+  return {
+    id: projectSlug,
+    title: `Linear project ${projectSlug}`,
+    url: "",
+    statusFields: [LINEAR_DEFAULT_STATUS_FIELD],
+    textFields: [],
+    linkedRepositories: [],
+  };
+}
+
+function buildLinearWorkflowLifecycle(): WorkflowLifecycleConfig {
+  return toWorkflowLifecycleConfig("State", LINEAR_DEFAULT_MAPPINGS, {
+    blockerCheckStates: [],
+    planningStates: [],
+  });
+}
+
+export async function planLinearWorkflowArtifacts(
+  opts: LinearWorkflowArtifactsOptions
+): Promise<WorkflowArtifactsPlan> {
+  const environment = opts.environment ?? (await detectEnvironment(opts.cwd));
+  const projectDetail = buildLinearProjectDetail(opts.projectSlug);
+  const lifecycle = buildLinearWorkflowLifecycle();
+  const workflowMd = generateWorkflowMarkdown({
+    projectId: opts.projectSlug,
+    tracker: {
+      kind: "linear",
+      projectSlug: opts.projectSlug,
+    },
+    stateFieldName: LINEAR_DEFAULT_STATUS_FIELD.name,
+    priority: null,
+    mappings: LINEAR_DEFAULT_MAPPINGS,
+    lifecycle,
+    runtime: opts.runtime,
+    detectedEnvironment: environment,
+  });
+
+  const workflowPlan = await planFileChange({
+    path: opts.outputPath,
+    label: "WORKFLOW.md",
+    content: workflowMd,
+    mode: "overwrite",
+  });
+  const ecosystemPlan = await planEcosystem({
+    cwd: opts.cwd,
+    projectDetail,
+    statusField: LINEAR_DEFAULT_STATUS_FIELD,
+    priorityField: null,
+    priority: buildDisabledPriority(),
+    lifecycle,
+    includePriorityTemplates: false,
+    runtime: opts.runtime,
+    skipSkills: opts.skipSkills,
+    skipContext: opts.skipContext,
+    environment,
+  });
+
+  return {
+    outputPath: opts.outputPath,
+    workflowMd,
+    workflowPlan,
+    ecosystemPlan,
+  };
+}
+
+async function writeLinearEcosystem(
+  opts: Omit<LinearWorkflowArtifactsOptions, "outputPath" | "environment">
+): Promise<EcosystemResult> {
+  return writeEcosystem({
+    cwd: opts.cwd,
+    projectDetail: buildLinearProjectDetail(opts.projectSlug),
+    statusField: LINEAR_DEFAULT_STATUS_FIELD,
+    priorityField: null,
+    priority: buildDisabledPriority(),
+    lifecycle: buildLinearWorkflowLifecycle(),
+    includePriorityTemplates: false,
+    runtime: opts.runtime,
+    skipSkills: opts.skipSkills,
+    skipContext: opts.skipContext,
+  });
+}
+
 export async function writeWorkflowPlan(
   workflowPlan: PlannedFileChange
 ): Promise<boolean> {
@@ -1333,8 +1525,31 @@ async function runNonInteractive(
     process.exitCode = 1;
     return;
   }
-  if (!(await runInitRuntimePreflight(runtime))) {
+
+  const trackerKind = resolveInitTrackerKind(flags);
+  if (trackerKind instanceof Error) {
+    process.stderr.write(`Error: ${trackerKind.message}\n`);
     process.exitCode = 1;
+    return;
+  }
+  const trackerFlagError = validateInitTrackerFlags(flags, trackerKind);
+  if (trackerFlagError) {
+    process.stderr.write(`Error: ${trackerFlagError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    !(await runInitRuntimePreflight(runtime, {
+      includeGhAuth: trackerKind === "linear" ? false : undefined,
+    }))
+  ) {
+    process.exitCode = 1;
+    return;
+  }
+
+  if (trackerKind === "linear") {
+    await runLinearNonInteractive(flags, options, runtime);
     return;
   }
 
@@ -1469,6 +1684,100 @@ async function runNonInteractive(
     priority,
     includePriorityTemplates: !autoPriorityField,
     lifecycle,
+    runtime,
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
+  });
+
+  if (options.json) {
+    process.stdout.write(
+      JSON.stringify({ output: outputPath, status: workflowPlan.status }) + "\n"
+    );
+  } else {
+    printEcosystemSummary(ecosystemResult, outputPath, {
+      interactive: false,
+      nextSteps: "Run 'gh-symphony repo init' from the target repository.",
+    });
+  }
+}
+
+function resolveInitTrackerKind(
+  flags: InitFlags
+): "github-project" | "linear" | Error {
+  const rawTracker = flags.tracker?.trim();
+  if (!rawTracker) {
+    return flags.linearProjectSlug ? "linear" : "github-project";
+  }
+
+  if (rawTracker === "github-project") {
+    if (flags.linearProjectSlug?.trim()) {
+      return new Error(
+        "--linear-project-slug is only supported for --tracker linear."
+      );
+    }
+    return "github-project";
+  }
+
+  if (rawTracker === "linear") {
+    return "linear";
+  }
+
+  return new Error(
+    `Unsupported tracker '${rawTracker}'. Choose one of: github-project, linear.`
+  );
+}
+
+function validateInitTrackerFlags(
+  flags: InitFlags,
+  trackerKind: "github-project" | "linear"
+): string | null {
+  if (trackerKind === "linear") {
+    if (!flags.linearProjectSlug?.trim()) {
+      return "--linear-project-slug is required when --tracker linear is used.";
+    }
+    if (flags.project) {
+      return "--project is only supported for --tracker github-project.";
+    }
+  }
+
+  return null;
+}
+
+async function runLinearNonInteractive(
+  flags: InitFlags,
+  options: GlobalOptions,
+  runtime: string
+): Promise<void> {
+  const projectSlug = flags.linearProjectSlug!.trim();
+
+  const outputPath = resolve(flags.output ?? "WORKFLOW.md");
+  const { workflowPlan, ecosystemPlan } = await planLinearWorkflowArtifacts({
+    cwd: process.cwd(),
+    outputPath,
+    projectSlug,
+    runtime,
+    skipSkills: flags.skipSkills,
+    skipContext: flags.skipContext,
+  });
+
+  if (flags.dryRun) {
+    if (options.json) {
+      process.stdout.write(
+        JSON.stringify(
+          buildDryRunJsonResult(outputPath, workflowPlan, ecosystemPlan)
+        ) + "\n"
+      );
+      return;
+    }
+    printDryRunPreview(outputPath, workflowPlan, ecosystemPlan);
+    return;
+  }
+
+  await writeWorkflowPlan(workflowPlan);
+
+  const ecosystemResult = await writeLinearEcosystem({
+    cwd: process.cwd(),
+    projectSlug,
     runtime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
