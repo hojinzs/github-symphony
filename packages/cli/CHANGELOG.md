@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.4
+
+### Patch Changes
+
+- [#379](https://github.com/hojinzs/github-symphony/pull/379) [`aa1cc8c`](https://github.com/hojinzs/github-symphony/commit/aa1cc8c43ce8652d789360fca9a9fc2f6adb9843) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add `gh-symphony workflow init --tracker linear --linear-project-slug <slug>` so Linear-backed repositories can generate `WORKFLOW.md` without GitHub Project selection or GitHub tracker auth.
+
 ## 0.4.3
 
 ### Patch Changes
