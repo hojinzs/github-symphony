@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.3
+
+### Patch Changes
+
+- [#376](https://github.com/hojinzs/github-symphony/pull/376) [`3d7e87b`](https://github.com/hojinzs/github-symphony/commit/3d7e87bc1e43d58d8eab3894343cab4024f5b578) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix `gh-symphony doctor` so Linear tracker runtime configs validate Linear project access instead of resolving the Linear project slug as a GitHub Project node ID.
+
 ## 0.4.2
 
 ### Patch Changes
