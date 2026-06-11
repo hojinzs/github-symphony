@@ -67,6 +67,7 @@ type DoctorCheckId =
   | "gh_scopes"
   | "managed_project"
   | "github_project_resolution"
+  | "linear_tracker_resolution"
   | "config_directory"
   | "runtime_root"
   | "workspace_root"
@@ -88,6 +89,12 @@ type ProjectResolutionReason =
   | "missing_binding"
   | "api_error"
   | "selection_failed";
+
+type LinearResolutionReason =
+  | "missing_project_slug"
+  | "missing_token"
+  | "api_error"
+  | "missing_active_states";
 
 type ResolvedManagedProjectSelection = Extract<
   Awaited<ReturnType<typeof inspectManagedProjectSelection>>,
@@ -682,6 +689,237 @@ function buildGithubTrackerConfig(input: {
         : undefined,
     timeoutMs:
       typeof settings?.timeoutMs === "number" ? settings.timeoutMs : undefined,
+  };
+}
+
+async function checkLinearTrackerResolution(input: {
+  projectConfig: ResolvedManagedProjectSelection;
+  deps: DoctorDependencies;
+}): Promise<DoctorCheckResult> {
+  const tracker = input.projectConfig.projectConfig.tracker;
+  const projectSlug =
+    readStringSetting(tracker.settings, "projectSlug")?.trim() ||
+    tracker.bindingId.trim();
+  const activeStates = readLinearActiveStates(tracker.settings);
+  const pickupLabels = readLinearPickupLabels(tracker.settings);
+
+  if (!projectSlug) {
+    return failCheck(
+      "linear_tracker_resolution",
+      "Linear tracker resolution",
+      "Linear tracker resolution could not run because the project slug is missing.",
+      "Run 'gh-symphony repo init' with WORKFLOW.md field 'tracker.project_slug' configured, then re-run 'gh-symphony doctor'.",
+      {
+        reason: "missing_project_slug" satisfies LinearResolutionReason,
+        adapter: tracker.adapter,
+      }
+    );
+  }
+
+  if (activeStates.length === 0) {
+    return failCheck(
+      "linear_tracker_resolution",
+      "Linear tracker resolution",
+      "Linear tracker resolution could not run because no active states are configured.",
+      "Add at least one active state to WORKFLOW.md under 'tracker.active_states', run 'gh-symphony repo init' again, then re-run 'gh-symphony doctor'.",
+      {
+        reason: "missing_active_states" satisfies LinearResolutionReason,
+        projectSlug,
+      }
+    );
+  }
+
+  const token = process.env.LINEAR_API_KEY?.trim();
+  if (!token) {
+    return failCheck(
+      "linear_tracker_resolution",
+      "Linear tracker resolution",
+      "Linear tracker resolution could not run because LINEAR_API_KEY is not set.",
+      "Set LINEAR_API_KEY in the environment and re-run 'gh-symphony doctor'.",
+      {
+        reason: "missing_token" satisfies LinearResolutionReason,
+        projectSlug,
+        activeStates,
+        pickupLabels,
+      }
+    );
+  }
+
+  try {
+    const project = await fetchLinearProjectBySlug({
+      endpoint: tracker.apiUrl?.trim() || "https://api.linear.app/graphql",
+      projectSlug,
+      token,
+      fetchImpl: input.deps.fetchImpl,
+    });
+
+    if (!project) {
+      return failCheck(
+        "linear_tracker_resolution",
+        "Linear tracker resolution",
+        `Linear project "${projectSlug}" was not found or is not accessible.`,
+        "Confirm LINEAR_API_KEY can read the configured Linear project, then re-run 'gh-symphony doctor'.",
+        {
+          reason: "api_error" satisfies LinearResolutionReason,
+          projectSlug,
+          activeStates,
+          pickupLabels,
+        }
+      );
+    }
+
+    return passCheck(
+      "linear_tracker_resolution",
+      "Linear tracker resolution",
+      `Resolved Linear project "${project.name}" (${project.slug}). ${formatLinearConfigSummary(activeStates, pickupLabels)}`,
+      {
+        projectId: project.id,
+        projectSlug: project.slug,
+        activeStates,
+        pickupLabels,
+      }
+    );
+  } catch (error) {
+    return failCheck(
+      "linear_tracker_resolution",
+      "Linear tracker resolution",
+      `Failed to resolve configured Linear project "${projectSlug}".`,
+      "Confirm LINEAR_API_KEY, tracker endpoint, project slug, and network access, then re-run 'gh-symphony doctor'.",
+      {
+        reason: "api_error" satisfies LinearResolutionReason,
+        projectSlug,
+        activeStates,
+        pickupLabels,
+        error: formatSmokeError(error),
+      }
+    );
+  }
+}
+
+function readStringSetting(
+  settings: ResolvedManagedProjectSelection["projectConfig"]["tracker"]["settings"],
+  key: string
+): string | null {
+  const value = settings?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function readLinearActiveStates(
+  settings: ResolvedManagedProjectSelection["projectConfig"]["tracker"]["settings"]
+): string[] {
+  const value = settings?.activeStates;
+  if (Array.isArray(value)) {
+    return value.filter(
+      (state): state is string =>
+        typeof state === "string" && state.trim().length > 0
+    );
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n/)
+      .map((state) => state.trim())
+      .filter((state) => state.length > 0);
+  }
+  return [];
+}
+
+function readLinearPickupLabels(
+  settings: ResolvedManagedProjectSelection["projectConfig"]["tracker"]["settings"]
+): { include: string[]; exclude: string[] } {
+  const value = settings?.pickupLabels;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { include: [], exclude: [] };
+  }
+  return {
+    include: readStringArraySetting(value, "include"),
+    exclude: readStringArraySetting(value, "exclude"),
+  };
+}
+
+function readStringArraySetting(
+  value: Record<string, unknown>,
+  key: string
+): string[] {
+  const field = value[key];
+  return Array.isArray(field)
+    ? field.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0
+      )
+    : [];
+}
+
+function formatLinearConfigSummary(
+  activeStates: string[],
+  pickupLabels: { include: string[]; exclude: string[] }
+): string {
+  const labelSummary =
+    pickupLabels.include.length > 0 || pickupLabels.exclude.length > 0
+      ? `Pickup labels include=[${pickupLabels.include.join(", ") || "none"}], exclude=[${pickupLabels.exclude.join(", ") || "none"}].`
+      : "Pickup label filtering is not configured.";
+  return `Active states: ${activeStates.join(", ")}. ${labelSummary}`;
+}
+
+async function fetchLinearProjectBySlug(input: {
+  endpoint: string;
+  projectSlug: string;
+  token: string;
+  fetchImpl: typeof fetch;
+}): Promise<{ id: string; name: string; slug: string } | null> {
+  const response = await input.fetchImpl(input.endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: input.token,
+    },
+    body: JSON.stringify({
+      query: `query SymphonyLinearDoctorProject($slug: String!) {
+  projects(filter: { slug: { eq: $slug } }, first: 1) {
+    nodes {
+      id
+      name
+      slug
+    }
+  }
+}`,
+      variables: { slug: input.projectSlug },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Linear GraphQL request failed with HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: {
+      projects?: {
+        nodes?: Array<{ id?: string; name?: string; slug?: string }>;
+      } | null;
+    };
+    errors?: Array<{ message?: string }>;
+  };
+  if (payload.errors?.length) {
+    const message =
+      payload.errors
+        .map((error) => error.message)
+        .filter(Boolean)
+        .join("; ") || "Unknown Linear GraphQL error";
+    throw new Error(`Linear GraphQL request failed: ${message}`);
+  }
+
+  const project = payload.data?.projects?.nodes?.[0];
+  if (
+    !project ||
+    typeof project.id !== "string" ||
+    typeof project.name !== "string" ||
+    typeof project.slug !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: project.id,
+    name: project.name,
+    slug: project.slug,
   };
 }
 
@@ -1541,7 +1779,17 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  if (resolvedProjectConfig.kind === "resolved" && !auth) {
+  if (
+    resolvedProjectConfig.kind === "resolved" &&
+    resolvedProjectConfig.projectConfig.tracker.adapter === "linear"
+  ) {
+    checks.push(
+      await checkLinearTrackerResolution({
+        projectConfig: resolvedProjectConfig,
+        deps,
+      })
+    );
+  } else if (resolvedProjectConfig.kind === "resolved" && !auth) {
     checks.push(
       failCheck(
         "github_project_resolution",
@@ -2224,6 +2472,7 @@ async function runDoctorFixes(
       case "claude_binary":
       case "anthropic_api_key":
       case "claude_mcp_config":
+      case "linear_tracker_resolution":
         steps.push(
           remediationStep(
             `remediate_${check.id}`,
