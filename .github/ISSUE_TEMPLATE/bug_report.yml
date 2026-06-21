@@ -1,0 +1,105 @@
+name: Bug report
+description: Report a setup, orchestration, CLI, or runtime failure.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a GitHub Symphony bug. Please include the `doctor` output and attach a redacted support bundle when possible.
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: Why this change is needed; include motivation, context, and what you expected to happen.
+      placeholder: I expected ..., but ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Symptoms / Reproduction Steps
+      description: List the commands or UI steps that reproduce the problem.
+      placeholder: |
+        1. Run ...
+        2. Configure ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.5, Ubuntu 24.04, Windows 11, etc."
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      placeholder: "node --version"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - npm
+        - Docker
+        - source checkout
+        - other
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Worker/runtime command
+      description: Share the configured runtime or worker command, redacted as needed.
+      placeholder: "SYMPHONY_WORKER_COMMAND=..."
+
+  - type: textarea
+    id: doctor-json
+    attributes:
+      label: "`gh-symphony doctor --json` output"
+      description: Paste the output after redacting tokens, private URLs, and secrets.
+      render: json
+      placeholder: |
+        {
+          "ok": false
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: support-bundle
+    attributes:
+      label: Support bundle
+      description: Run `gh-symphony doctor --bundle` and attach the generated redacted bundle, or explain why it cannot be shared.
+      placeholder: "Attached support bundle, or reason it cannot be attached."
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-files
+    attributes:
+      label: Affected Files
+      description: List known affected files or components, if you can identify them.
+      placeholder: |
+        | File | Change | Scope |
+        | --- | --- | --- |
+        | packages/cli/src/... | ... | ... |
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link related issues, ADRs, specs, logs, or documentation.
+
