@@ -594,6 +594,48 @@ describe("runDoctorDiagnostics", () => {
     ).toMatchObject({ status: "warn" });
   });
 
+  it("includes official runtime install URLs when runtime commands are missing", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+
+    for (const [command, expectedUrl] of [
+      ["codex", "https://developers.openai.com/codex/cli/"],
+      ["claude", "https://code.claude.com/docs/en/quickstart"],
+    ] as const) {
+      const { repoDir, pathEnv } = await createWorkflowFixture(command);
+
+      const report = await withCwd(repoDir, () =>
+        runDoctorDiagnostics(baseOptions(configDir), [], {
+          ...authDependencies(),
+          inspectManagedProjectSelection: async () => ({
+            kind: "resolved",
+            projectId: "tenant-a",
+            projectConfig: createProjectConfig(workspaceDir),
+          }),
+          getProjectDetail: (async () =>
+            ({
+              id: "PVT_test",
+              title: "Acme Platform",
+              url: "https://github.com/orgs/acme/projects/1",
+              statusFields: [],
+              textFields: [],
+              linkedRepositories: [],
+            }) as never) as never,
+          pathEnv,
+        })
+      );
+
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.find((check) => check.id === "runtime_command")
+      ).toMatchObject({
+        status: "fail",
+        remediation: expect.stringContaining(expectedUrl),
+      });
+    }
+  });
+
   it("uses injected fetch when checking brokered Claude credentials", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

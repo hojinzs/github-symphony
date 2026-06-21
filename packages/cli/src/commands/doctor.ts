@@ -2060,11 +2060,19 @@ function buildRuntimeInstallGuidance(
   platform: NodeJS.Platform
 ): string {
   if (binary === "codex") {
-    return "Install Codex CLI using its official installation instructions and ensure 'codex' is on PATH.";
+    return [
+      "Install Codex CLI from https://developers.openai.com/codex/cli/",
+      "and ensure 'codex' is on PATH.",
+      "Then authenticate with 'codex login'.",
+    ].join(" ");
   }
 
   if (binary === "claude" || binary === "claude-code") {
-    return "Install Claude Code using its official installation instructions and ensure the runtime binary is on PATH.";
+    return [
+      "Install Claude Code from https://code.claude.com/docs/en/quickstart",
+      "and ensure the runtime binary is on PATH.",
+      "Then set ANTHROPIC_API_KEY or complete a local Claude login for non-bare runs.",
+    ].join(" ");
   }
 
   if (platform === "win32" && binary) {

@@ -8,6 +8,9 @@ The following tools must be installed before using the CLI:
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
+- At least one AI agent runtime on `PATH` before `gh-symphony repo start`:
+  - **[Codex CLI](https://developers.openai.com/codex/cli/)** (`codex`) - install from the official Codex CLI guide, then authenticate with `codex login`.
+  - **[Claude Code](https://code.claude.com/docs/en/quickstart)** (`claude`) - install from the official Claude Code quickstart, then authenticate with `ANTHROPIC_API_KEY` or a local Claude login for non-bare runs.
 - One GitHub auth source with required scopes (`repo`, `read:org`, `project`):
   - **[GitHub CLI (`gh`)](https://cli.github.com/)**:
     ```bash
@@ -106,7 +109,7 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
-> Currently supported runtimes: **Codex**, **Claude Code**
+> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 ### Explicit Priority Mapping
 
