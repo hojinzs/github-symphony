@@ -1,0 +1,72 @@
+name: Feature request
+description: Propose a scoped GitHub Symphony improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for scoped product, DX, documentation, and workflow improvements. Large architectural changes should start with an issue or discussion before implementation.
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: Why this change is needed; include motivation and context.
+      placeholder: This would help because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-changes
+    attributes:
+      label: Proposed Changes
+      description: What should change and how.
+      placeholder: |
+        - Add ...
+        - Update ...
+        - Preserve ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-files
+    attributes:
+      label: Affected Files
+      description: Use the project convention table where possible.
+      placeholder: |
+        | File | Change | Scope |
+        | --- | --- | --- |
+        | README.md | Document ... | docs |
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec-reference
+    attributes:
+      label: Spec Reference
+      description: Include relevant Symphony spec sections and quotes for spec conformance issues.
+
+  - type: textarea
+    id: current-vs-spec
+    attributes:
+      label: Current Implementation vs Spec
+      description: Add a side-by-side comparison when proposing a spec conformance change.
+      placeholder: |
+        | Current | Spec / Desired |
+        | --- | --- |
+        | ... | ... |
+
+  - type: textarea
+    id: migration-notes
+    attributes:
+      label: Migration Notes
+      description: Describe any impact on existing data, API compatibility, deployment, or self-hosting.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link related ADRs, specs, issues, pull requests, or external docs.
+
