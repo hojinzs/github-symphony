@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/hojinzs/github-symphony/blob/main/CONTRIBUTING.md
+    about: Read the contribution workflow and pull request expectations.
+  - name: Project management conventions
+    url: https://github.com/hojinzs/github-symphony/blob/main/PROJECT_MANAGE.md
+    about: Review issue structure, priority, size, and estimate conventions.
+
