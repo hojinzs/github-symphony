@@ -154,6 +154,25 @@ jobs:
             "${IMAGE_REF}" \
             sh -lc 'cd /var/lib/gh-symphony/repo && gh-symphony repo init && gh-symphony repo start --once'
 
+          default_container="$(docker run -d \
+            -v "${TMPDIR}/config:/var/lib/gh-symphony" \
+            -e GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/var/lib/gh-symphony/issues.json \
+            -w /var/lib/gh-symphony/repo \
+            "${IMAGE_REF}")"
+          trap 'docker rm -f "${default_container}" >/dev/null 2>&1 || true' EXIT
+          sleep 5
+
+          if [ "$(docker inspect -f '{{.State.Running}}' "${default_container}")" != "true" ]; then
+            docker logs "${default_container}" || true
+            status="$(docker inspect -f '{{.State.ExitCode}}' "${default_container}")"
+            echo "Expected the image default CMD to keep the orchestrator running; got exit ${status}."
+            exit 1
+          fi
+
+          docker stop "${default_container}"
+          docker rm "${default_container}"
+          trap - EXIT
+
       - name: Tag and create GitHub Release
         if: steps.changesets.outputs.published == 'true'
         env:

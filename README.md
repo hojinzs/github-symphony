@@ -102,7 +102,9 @@ docker run --rm -it \
   gh-symphony setup --non-interactive
 ```
 
-Then start the long-running orchestrator:
+Then start the long-running orchestrator from the initialized repository. The image
+default command is `gh-symphony repo start`, so the mounted working directory must
+already contain `WORKFLOW.md` and the repository runtime config created by setup.
 
 ```bash
 docker run -d \
@@ -121,14 +123,15 @@ services:
   gh-symphony:
     image: ghcr.io/hojinzs/github-symphony:latest
     restart: unless-stopped
+    working_dir: /repo
     environment:
       GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
     volumes:
-      - gh-symphony-data:/var/lib/gh-symphony
-
-volumes:
-  gh-symphony-data:
+      - ./:/repo
 ```
+
+Run `gh-symphony setup` once before starting the service so the mounted repository
+has `WORKFLOW.md` and `.runtime/orchestrator/`.
 
 If you prefer a host bind mount in `docker compose`, align the container user with the host directory owner:
 
@@ -136,10 +139,12 @@ If you prefer a host bind mount in `docker compose`, align the container user wi
 services:
   gh-symphony:
     image: ghcr.io/hojinzs/github-symphony:latest
+    working_dir: /repo
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       GITHUB_GRAPHQL_TOKEN: ${GITHUB_GRAPHQL_TOKEN}
     volumes:
+      - ./:/repo
       - ./data:/var/lib/gh-symphony
 ```
 
