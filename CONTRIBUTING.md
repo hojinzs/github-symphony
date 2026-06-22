@@ -4,22 +4,39 @@
 
 - Open an issue or discussion before making large architectural changes.
 - Keep changes scoped. Separate refactors from feature work when possible.
-- Preserve the OpenSpec workflow. Proposal, design, and tasks should stay in sync with implementation.
 - Prefer additive changes over silent behavioral rewrites.
+- Keep design decisions reviewable. Use `docs/adr/` for architecture decision records when a change needs a durable rationale.
 
 ## Development workflow
 
-1. Create or pick an OpenSpec change.
-2. Implement against the active tasks.
-3. Run `pnpm lint`, `pnpm test`, `pnpm typecheck`, and `pnpm build`.
-4. If Prisma schema changes, also run `DATABASE_URL='postgresql://postgres:postgres@localhost:5432/github_symphony' pnpm prisma:validate`.
-5. Document operational or self-hosting impact when it changes deployment behavior.
+1. Create a branch from `main`.
+2. Implement the change against the linked issue or agreed scope.
+3. Run the required checks:
+   ```bash
+   pnpm lint
+   pnpm test
+   pnpm typecheck
+   pnpm build
+   ```
+4. Run the formatting gate:
+   ```bash
+   pnpm format
+   ```
+   Use `pnpm format:write` only when you need Prettier to rewrite files locally.
+5. Add a Changeset for user-visible package changes:
+   ```bash
+   pnpm changeset
+   ```
+   Documentation-only changes usually do not need a Changeset unless they describe released package behavior.
+6. Document operational or self-hosting impact when it changes deployment behavior.
+7. Open a pull request.
 
 ## Pull request expectations
 
 - Explain the user-visible behavior change and any operational impact.
-- Link the related OpenSpec change or issue.
+- Link the related issue. Link an ADR when the change adds or updates a design decision.
 - Include screenshots or terminal output when changing UX or deployment flows.
+- Include a Changeset when the change affects released package behavior.
 - Call out follow-up work explicitly instead of leaving hidden gaps.
 
 ## Code style
