@@ -144,36 +144,27 @@ export function createClient(
   };
 }
 
-export function deriveGitHubRestApiUrl(graphqlApiUrl?: string): string {
-  const apiUrl = graphqlApiUrl?.trim();
-  if (!apiUrl) {
-    return REST_API_URL;
-  }
-
-  let url: URL;
+export function deriveGitHubRestApiUrl(graphqlApiUrl: string): string {
   try {
-    url = new URL(apiUrl);
+    const url = new URL(graphqlApiUrl);
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+    if (url.hostname.toLowerCase() === "api.github.com") {
+      return REST_API_URL;
+    }
+    if (normalizedPath === "/api/graphql") {
+      url.pathname = "/api/v3";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
+    if (normalizedPath.endsWith("/graphql")) {
+      url.pathname = normalizedPath.slice(0, -"/graphql".length) || "/";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
   } catch {
-    return REST_API_URL;
-  }
-
-  const pathname = url.pathname.replace(/\/+$/, "");
-  if (url.hostname.toLowerCase() === "api.github.com") {
-    return REST_API_URL;
-  }
-
-  if (pathname === "/api/graphql") {
-    url.pathname = "/api/v3";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
-  }
-
-  if (pathname.endsWith("/graphql")) {
-    url.pathname = pathname.slice(0, -"/graphql".length) || "/";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
+    // Fall back to the public GitHub REST API for malformed custom URLs.
   }
 
   return REST_API_URL;

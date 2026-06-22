@@ -94,6 +94,31 @@ describe("checkGhAuthenticated", () => {
       authenticated: false,
     });
   });
+
+  it("checks auth status for a configured hostname", () => {
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        "",
+        [
+          "github.example",
+          "  ✓ Logged in to github.example account testuser (/home/test/.config/gh/hosts.yml)",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    expect(
+      checkGhAuthenticated({ spawnImpl, hostname: "github.example" })
+    ).toEqual({
+      authenticated: true,
+      login: "testuser",
+    });
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "status", "--hostname", "github.example"],
+      expect.any(Object)
+    );
+  });
 });
 
 describe("checkGhScopes", () => {
@@ -111,6 +136,30 @@ describe("checkGhScopes", () => {
       missing: ["project"],
       scopes: ["repo", "read:org"],
     });
+  });
+
+  it("checks scopes for a configured hostname", () => {
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(
+        0,
+        "",
+        [
+          "github.example",
+          "  - Token scopes: 'repo', 'read:org', 'project'",
+        ].join("\n")
+      )
+    ) as SpawnMock;
+
+    expect(checkGhScopes({ spawnImpl, hostname: "github.example" })).toEqual({
+      valid: true,
+      missing: [],
+      scopes: ["repo", "read:org", "project"],
+    });
+    expect(spawnImpl).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "status", "--hostname", "github.example"],
+      expect.any(Object)
+    );
   });
 });
 
@@ -156,6 +205,29 @@ describe("getGhTokenWithSource", () => {
     expect(execImpl).toHaveBeenCalledWith(
       "gh",
       ["auth", "token"],
+      expect.objectContaining({
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })
+    );
+  });
+
+  it("reads the gh token for a configured hostname", () => {
+    const execImpl = vi.fn(() => "ghp_enterprise\n") as ExecMock;
+
+    expect(
+      getGhTokenWithSource({
+        execImpl,
+        envToken: undefined,
+        hostname: "github.example",
+      })
+    ).toEqual({
+      token: "ghp_enterprise",
+      source: "gh",
+    });
+    expect(execImpl).toHaveBeenCalledWith(
+      "gh",
+      ["auth", "token", "--hostname", "github.example"],
       expect.objectContaining({
         encoding: "utf8",
         stdio: ["pipe", "pipe", "pipe"],

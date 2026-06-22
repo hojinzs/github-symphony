@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createClient,
+  deriveGitHubRestApiUrl,
   discoverUserProjects,
-  getRepositoryMetadata,
-  validateToken,
 } from "./client.js";
 
 function graphqlResponse(data: unknown): Response {
@@ -12,6 +11,20 @@ function graphqlResponse(data: unknown): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+describe("deriveGitHubRestApiUrl", () => {
+  it("maps public GitHub GraphQL URLs to the public REST API", () => {
+    expect(deriveGitHubRestApiUrl("https://api.github.com/graphql")).toBe(
+      "https://api.github.com"
+    );
+  });
+
+  it("maps GHES /api/graphql endpoints to /api/v3", () => {
+    expect(deriveGitHubRestApiUrl("https://github.example/api/graphql/")).toBe(
+      "https://github.example/api/v3"
+    );
+  });
+});
 
 describe("discoverUserProjects", () => {
   it("paginates viewer projects", async () => {
@@ -292,65 +305,5 @@ describe("discoverUserProjects", () => {
       login: "org-1",
       type: "Organization",
     });
-  });
-});
-
-describe("REST API base derivation", () => {
-  it("maps a GHES GraphQL endpoint to the GHES REST API base", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            login: "octocat",
-            name: "The Octocat",
-          }),
-          {
-            status: 200,
-            headers: { "x-oauth-scopes": "repo, read:org, project" },
-          }
-        )
-    );
-
-    await validateToken(
-      createClient("token", {
-        apiUrl: "https://github.example/api/graphql",
-        fetchImpl: fetchImpl as typeof fetch,
-      })
-    );
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://github.example/api/v3/user",
-      expect.any(Object)
-    );
-  });
-
-  it("uses the GHES REST API base for repository metadata lookups", async () => {
-    const fetchImpl = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            owner: { login: "acme" },
-            name: "widgets",
-            html_url: "https://github.example/acme/widgets",
-            clone_url: "https://github.example/acme/widgets.git",
-            visibility: "private",
-          }),
-          { status: 200 }
-        )
-    );
-
-    await getRepositoryMetadata(
-      createClient("token", {
-        apiUrl: "https://github.example/api/graphql",
-        fetchImpl: fetchImpl as typeof fetch,
-      }),
-      "acme",
-      "widgets"
-    );
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://github.example/api/v3/repos/acme/widgets",
-      expect.any(Object)
-    );
   });
 });

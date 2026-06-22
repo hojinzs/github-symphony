@@ -69,11 +69,6 @@ function missingGhScopesMessage(missing: string[]): string {
   return `Run 'gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}'. Missing scopes: ${missing.join(", ")}`;
 }
 
-function withGhHostname(args: string[], hostname?: string): string[] {
-  const trimmed = hostname?.trim();
-  return trimmed ? [...args, "--hostname", trimmed] : args;
-}
-
 function parseMissingScopes(message: string): string[] {
   const matched = message.match(/Missing scopes:\s*([^.\n]+)/i);
   if (!matched) {
@@ -234,6 +229,11 @@ export function checkGhInstalled(opts?: { execImpl?: ExecImpl }): boolean {
   }
 }
 
+function ghAuthHostArgs(hostname?: string): string[] {
+  const trimmed = hostname?.trim();
+  return trimmed ? ["--hostname", trimmed] : [];
+}
+
 export function checkGhAuthenticated(opts?: {
   spawnImpl?: SpawnImpl;
   hostname?: string;
@@ -244,7 +244,7 @@ export function checkGhAuthenticated(opts?: {
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
   const result = spawnImpl(
     "gh",
-    withGhHostname(["auth", "status"], opts?.hostname),
+    ["auth", "status", ...ghAuthHostArgs(opts?.hostname)],
     {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -270,7 +270,7 @@ export function checkGhScopes(opts?: {
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
   const result = spawnImpl(
     "gh",
-    withGhHostname(["auth", "status"], opts?.hostname),
+    ["auth", "status", ...ghAuthHostArgs(opts?.hostname)],
     {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -335,7 +335,7 @@ export function getGhTokenWithSource(opts?: {
   try {
     const token = execImpl(
       "gh",
-      withGhHostname(["auth", "token"], opts?.hostname),
+      ["auth", "token", ...ghAuthHostArgs(opts?.hostname)],
       {
         encoding: "utf8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -420,6 +420,7 @@ export async function resolveGitHubAuth(opts?: {
   execImpl?: ExecImpl;
   spawnImpl?: SpawnImpl;
   apiUrl?: string;
+  hostname?: string;
   createClientImpl?: typeof createClient;
   validateTokenImpl?: typeof validateToken;
   checkRequiredScopesImpl?: typeof checkRequiredScopes;
@@ -453,6 +454,7 @@ export async function resolveGitHubAuth(opts?: {
 export function ensureGhAuth(opts?: {
   execImpl?: ExecImpl;
   spawnImpl?: SpawnImpl;
+  hostname?: string;
 }): {
   login: string;
   token: string;
@@ -469,7 +471,7 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const auth = checkGhAuthenticated({ spawnImpl });
+  const auth = checkGhAuthenticated({ spawnImpl, hostname: opts?.hostname });
   if (!auth.authenticated) {
     throw new GhAuthError(
       "not_authenticated",
@@ -478,7 +480,7 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const scopeCheck = checkGhScopes({ spawnImpl });
+  const scopeCheck = checkGhScopes({ spawnImpl, hostname: opts?.hostname });
   if (!scopeCheck.valid) {
     throw new GhAuthError(
       "missing_scopes",
@@ -494,6 +496,7 @@ export function ensureGhAuth(opts?: {
   const { token } = getGhTokenWithSource({
     execImpl,
     envToken: undefined,
+    hostname: opts?.hostname,
   });
   return { login: auth.login ?? "unknown", token, source: "gh" };
 }
@@ -560,7 +563,7 @@ export function runGhAuthRefresh(opts?: {
 
 function parseLogin(output: string): string | undefined {
   const matched = output.match(
-    /Logged in to github\.com account\s+\*?\*?([A-Za-z0-9_-]+)\*?\*?/i
+    /Logged in to \S+ account\s+\*?\*?([A-Za-z0-9_-]+)\*?\*?/i
   );
   return matched?.[1];
 }

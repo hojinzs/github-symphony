@@ -367,30 +367,30 @@ function formatAuthSource(source: GitHubAuthSource): string {
   return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
 }
 
-function normalizeGitHubGraphqlEndpoint(endpoint: string): string {
-  const trimmed = endpoint.trim();
+function normalizeGitHubGraphqlEndpoint(value?: string): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
   try {
     const url = new URL(trimmed);
     url.hostname = url.hostname.toLowerCase();
-    url.pathname = url.pathname.replace(/\/+$/, "");
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
     url.search = "";
     url.hash = "";
-    return url.toString();
+    return url.toString().replace(/\/$/, "");
   } catch {
     return trimmed.replace(/\/+$/, "");
   }
 }
 
-function deriveGitHubGraphqlHostname(endpoint?: string): string | undefined {
-  if (!endpoint) {
-    return undefined;
-  }
-
+function deriveGhHostnameFromGraphqlEndpoint(
+  endpoint: string
+): string | undefined {
   try {
-    const url = new URL(endpoint);
-    return url.hostname.toLowerCase() === "api.github.com"
-      ? undefined
-      : url.hostname;
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    return hostname === "api.github.com" ? "github.com" : hostname;
   } catch {
     return undefined;
   }
@@ -405,17 +405,15 @@ function resolveGitHubGraphqlEndpoint(input: {
   trackerApiUrl: string | null;
   envApiUrl: string | null;
   mismatch: boolean;
+  ghHostname: string | undefined;
 } {
-  const trackerApiUrl = input.trackerApiUrl?.trim()
-    ? normalizeGitHubGraphqlEndpoint(input.trackerApiUrl)
-    : null;
-  const envApiUrl = input.envApiUrl?.trim()
-    ? normalizeGitHubGraphqlEndpoint(input.envApiUrl)
-    : null;
+  const trackerApiUrl = normalizeGitHubGraphqlEndpoint(input.trackerApiUrl);
+  const envApiUrl = normalizeGitHubGraphqlEndpoint(input.envApiUrl);
+  const resolvedEndpoint =
+    trackerApiUrl ?? envApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL;
 
   return {
-    resolvedEndpoint:
-      trackerApiUrl ?? envApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
+    resolvedEndpoint,
     source: trackerApiUrl ? "tracker" : envApiUrl ? "env" : "default",
     trackerApiUrl,
     envApiUrl,
@@ -423,6 +421,7 @@ function resolveGitHubGraphqlEndpoint(input: {
       trackerApiUrl !== null &&
       envApiUrl !== null &&
       trackerApiUrl !== envApiUrl,
+    ghHostname: deriveGhHostnameFromGraphqlEndpoint(resolvedEndpoint),
   };
 }
 
@@ -434,6 +433,7 @@ function buildGitHubGraphqlEndpointCheck(
     source: input.source,
     trackerApiUrl: input.trackerApiUrl,
     envApiUrl: input.envApiUrl,
+    ghHostname: input.ghHostname,
   };
 
   if (input.mismatch) {
@@ -1784,20 +1784,17 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  const ghHostname = deriveGitHubGraphqlHostname(
-    githubGraphqlEndpoint?.resolvedEndpoint
-  );
-  const ghOptions = ghHostname ? { hostname: ghHostname } : undefined;
+  const ghHostname = githubGraphqlEndpoint?.ghHostname;
   const ghAuth = ghInstalled
-    ? deps.checkGhAuthenticated(ghOptions)
+    ? deps.checkGhAuthenticated({ hostname: ghHostname })
     : { authenticated: false };
   const ghScopes =
     ghInstalled && ghAuth.authenticated
-      ? deps.checkGhScopes(ghOptions)
+      ? deps.checkGhScopes({ hostname: ghHostname })
       : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
   const ghHostnameArg = ghHostname ? ` --hostname ${ghHostname}` : "";
-  const ghLoginCommand = `gh auth login${ghHostnameArg} --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
-  const ghRefreshCommand = `gh auth refresh${ghHostnameArg} --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
+  const ghLoginCommand = `gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}${ghHostnameArg}`;
+  const ghRefreshCommand = `gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}${ghHostnameArg}`;
 
   if (envToken) {
     try {
@@ -1816,7 +1813,7 @@ export async function runDoctorDiagnostics(
     try {
       const ghToken = deps.getGhToken({
         allowEnv: false,
-        ...(ghHostname ? { hostname: ghHostname } : {}),
+        hostname: ghHostname,
       });
       auth = await deps.validateGitHubToken(ghToken, "gh", {
         apiUrl: githubGraphqlEndpoint?.resolvedEndpoint,
