@@ -157,13 +157,16 @@ gh-symphony repo logs --level <level>    # Filter by log level
 Use `gh-symphony repo start --web` when you want the browser-based
 control-plane dashboard. It starts the orchestrator and serves the React SPA at
 `http://127.0.0.1:4680/` by default. The dashboard includes the project
-overview at `/` and per-issue detail pages at `/issues/<identifier>`, backed by
-the same JSON API used for status snapshots and refresh.
+overview at `/` and per-issue detail pages at `/issues/<encoded-identifier>`,
+where issue identifiers such as `acme/web#42` are URL-encoded as
+`acme%2Fweb%2342`. It is backed by the same JSON API used for status snapshots
+and refresh.
 
 Use `gh-symphony repo start --http` when you only need the JSON status API, for
 example from CI, scripts, or another monitoring process. It exposes
-`/api/v1/state`, `/api/v1/<identifier>`, and refresh endpoints, but `/` is not a
-browser dashboard. Use `repo status --watch` for an interactive terminal view.
+`/api/v1/state`, `/api/v1/<encoded-identifier>`, and
+`POST /api/v1/refresh`, but `/` is not a browser dashboard. Use
+`repo status --watch` for an interactive terminal view.
 
 Dispatch a single issue manually:
 
@@ -794,8 +797,9 @@ The orchestrator runs independently as long as the repository has been initializ
 
 ```bash
 # Via the CLI daemon
-gh-symphony repo start                    # continuous polling + status API on 127.0.0.1:4680
+gh-symphony repo start                    # continuous polling
 gh-symphony repo start --once             # run startup cleanup + one poll/reconcile/dispatch tick
+gh-symphony repo start --http             # continuous polling + JSON status API on 127.0.0.1:4680
 gh-symphony repo start --once --http      # keep the JSON status API available after the one-shot tick until Ctrl+C
 gh-symphony repo start --web              # continuous polling + browser dashboard on 127.0.0.1:4680
 gh-symphony repo run beta/api#42          # dispatch a single issue
