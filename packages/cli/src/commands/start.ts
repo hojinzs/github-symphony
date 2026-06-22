@@ -876,7 +876,7 @@ const handler = async (
           cyan("\u25A1"),
           parsed.webPort !== undefined
             ? `Web dashboard listening on ${httpServer.url}`
-            : `HTTP dashboard listening on ${httpServer.url}`
+            : `HTTP status API listening on ${httpServer.url}`
         );
       }
       logLine(
@@ -900,7 +900,7 @@ const handler = async (
                 cyan("\u25A1"),
                 parsed.webPort !== undefined
                   ? "One-shot tick completed; web dashboard remains available until Ctrl+C"
-                  : "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
+                  : "One-shot tick completed; HTTP status API remains available until Ctrl+C"
               );
               if (shuttingDown) {
                 break;

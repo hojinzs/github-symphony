@@ -137,19 +137,36 @@ gh-symphony repo start                   # Start (foreground)
 gh-symphony repo start --daemon          # Start (background)
 gh-symphony repo stop                    # Stop the daemon
 gh-symphony repo stop --force            # Force stop with SIGKILL
+gh-symphony repo start --web             # Browser control-plane dashboard at http://127.0.0.1:4680/
 ```
 
-Monitor:
+Monitor from the terminal:
 
 ```bash
 gh-symphony repo status                  # Show current status
-gh-symphony repo status --watch          # Live dashboard
+gh-symphony repo status --watch          # Live terminal status
 gh-symphony repo logs                    # View event logs
 gh-symphony repo logs --follow           # Stream logs in real-time
 gh-symphony repo logs --issue org/repo#1 # Filter by issue
 gh-symphony repo logs --run <run-id>     # Read events for a specific run
 gh-symphony repo logs --level <level>    # Filter by log level
 ```
+
+### Observability Surfaces
+
+Use `gh-symphony repo start --web` when you want the browser-based
+control-plane dashboard. It starts the orchestrator and serves the React SPA at
+`http://127.0.0.1:4680/` by default. The dashboard includes the project
+overview at `/` and per-issue detail pages at `/issues/<encoded-identifier>`,
+where issue identifiers such as `acme/web#42` are URL-encoded as
+`acme%2Fweb%2342`. It is backed by the same JSON API used for status snapshots
+and refresh.
+
+Use `gh-symphony repo start --http` when you only need the JSON status API, for
+example from CI, scripts, or another monitoring process. It exposes
+`/api/v1/state`, `/api/v1/<encoded-identifier>`, and
+`POST /api/v1/refresh`, but `/` is not a browser dashboard. Use
+`repo status --watch` for an interactive terminal view.
 
 Dispatch a single issue manually:
 
@@ -780,9 +797,11 @@ The orchestrator runs independently as long as the repository has been initializ
 
 ```bash
 # Via the CLI daemon
-gh-symphony repo start                    # continuous polling + status API on 127.0.0.1:4680
+gh-symphony repo start                    # continuous polling
 gh-symphony repo start --once             # run startup cleanup + one poll/reconcile/dispatch tick
-gh-symphony repo start --once --http      # keep the dashboard/API available after the one-shot tick until Ctrl+C
+gh-symphony repo start --http             # continuous polling + JSON status API on 127.0.0.1:4680
+gh-symphony repo start --once --http      # keep the JSON status API available after the one-shot tick until Ctrl+C
+gh-symphony repo start --web              # continuous polling + browser dashboard on 127.0.0.1:4680
 gh-symphony repo run beta/api#42          # dispatch a single issue
 
 # Via the orchestrator package directly
@@ -805,9 +824,9 @@ Runtime state lives under `.runtime/orchestrator/`:
 | `runs/<run-id>/run.json`      | Run snapshot, retry state, worker assignment |
 | `runs/<run-id>/events.ndjson` | Structured orchestration events              |
 
-Read orchestration state via the status API (`/api/v1/projects/<id>/status`) rather than reading status files directly.
+Read orchestration state via the status API (`/api/v1/state`) rather than reading status files directly.
 
-Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony repo start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--http` when you want the dashboard/API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`.
+Run `gh-symphony doctor --smoke` before the first `start --once` when you want a safe pre-dispatch readiness check. `gh-symphony repo start --once` is the first production-like run: it validates the real GitHub Project binding, repository `WORKFLOW.md`, and dispatch eligibility, then performs one poll/reconcile/dispatch tick instead of starting a long-lived poller. Add `--http` when you want the JSON status API available; with `--once --http`, the one-shot tick still completes, but the HTTP server stays up afterward and the process keeps the project lock until you stop it with `Ctrl+C`. Add `--web` instead when you want the browser dashboard at `/` plus the JSON API.
 
 ## Verification
 
