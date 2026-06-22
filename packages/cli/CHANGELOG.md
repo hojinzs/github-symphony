@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.6
+
+### Patch Changes
+
+- [#404](https://github.com/hojinzs/github-symphony/pull/404) [`2c856dc`](https://github.com/hojinzs/github-symphony/commit/2c856dc64c324fe09ce97035e57156453702f557) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix `gh-symphony repo logs` to show structured event reasons and print scanned run events in chronological order across runs.
+
 ## 0.4.5
 
 ### Patch Changes
