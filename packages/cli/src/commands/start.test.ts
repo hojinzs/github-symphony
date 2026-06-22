@@ -928,7 +928,7 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("serves dashboard routes and refresh over HTTP when --http is enabled", async () => {
+  it("serves status API routes and refresh over HTTP when --http is enabled", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1175,7 +1175,7 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("keeps the HTTP dashboard available after a one-shot tick until interrupted", async () => {
+  it("keeps the HTTP status API available after a one-shot tick until interrupted", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1228,7 +1228,7 @@ describe("start command foreground locking", () => {
         method: "GET",
       });
       expect(stdout.output()).toContain(
-        "One-shot tick completed; HTTP dashboard remains available until Ctrl+C"
+        "One-shot tick completed; HTTP status API remains available until Ctrl+C"
       );
 
       process.emit("SIGINT");
@@ -1494,9 +1494,9 @@ async function waitForHttpUrl(
   while (Date.now() - startedAt < timeoutMs) {
     const match = output()
       .replace(ansiPattern, "")
-      .match(/(HTTP|Web) dashboard listening on .*?(http:\/\/[^\s]+)/);
-    if (match?.[2]) {
-      return match[2];
+      .match(/(?:HTTP status API|Web dashboard) listening on .*?(http:\/\/[^\s]+)/);
+    if (match?.[1]) {
+      return match[1];
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }

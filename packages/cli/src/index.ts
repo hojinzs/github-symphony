@@ -503,7 +503,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--assigned-only", "Limit this run to assigned issues")
       .option(
         "--http [port]",
-        "Expose dashboard and refresh endpoints over HTTP"
+        "Expose the JSON status API and refresh endpoints over HTTP"
       )
       .option(
         "--web [port]",
