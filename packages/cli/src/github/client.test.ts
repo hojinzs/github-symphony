@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClient, discoverUserProjects } from "./client.js";
+import {
+  createClient,
+  discoverUserProjects,
+  getRepositoryMetadata,
+  validateToken,
+} from "./client.js";
 
 function graphqlResponse(data: unknown): Response {
   return new Response(JSON.stringify({ data }), {
@@ -199,12 +204,18 @@ describe("discoverUserProjects", () => {
       reason: null,
       requests: 6,
     });
-    expect(result.projects.map((project) => `${project.owner.login}:${project.title}`))
-      .toEqual(["acme:Acme One", "acme:Acme Two", "beta:Beta One"]);
+    expect(
+      result.projects.map(
+        (project) => `${project.owner.login}:${project.title}`
+      )
+    ).toEqual(["acme:Acme One", "acme:Acme Two", "beta:Beta One"]);
   });
 
   it("returns partial results when the request budget is exhausted", async () => {
-    const orgLogins = Array.from({ length: 40 }, (_, index) => `org-${index + 1}`);
+    const orgLogins = Array.from(
+      { length: 40 },
+      (_, index) => `org-${index + 1}`
+    );
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
         query: string;
@@ -281,5 +292,65 @@ describe("discoverUserProjects", () => {
       login: "org-1",
       type: "Organization",
     });
+  });
+});
+
+describe("REST API base derivation", () => {
+  it("maps a GHES GraphQL endpoint to the GHES REST API base", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            login: "octocat",
+            name: "The Octocat",
+          }),
+          {
+            status: 200,
+            headers: { "x-oauth-scopes": "repo, read:org, project" },
+          }
+        )
+    );
+
+    await validateToken(
+      createClient("token", {
+        apiUrl: "https://github.example/api/graphql",
+        fetchImpl: fetchImpl as typeof fetch,
+      })
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://github.example/api/v3/user",
+      expect.any(Object)
+    );
+  });
+
+  it("uses the GHES REST API base for repository metadata lookups", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            owner: { login: "acme" },
+            name: "widgets",
+            html_url: "https://github.example/acme/widgets",
+            clone_url: "https://github.example/acme/widgets.git",
+            visibility: "private",
+          }),
+          { status: 200 }
+        )
+    );
+
+    await getRepositoryMetadata(
+      createClient("token", {
+        apiUrl: "https://github.example/api/graphql",
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      "acme",
+      "widgets"
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://github.example/api/v3/repos/acme/widgets",
+      expect.any(Object)
+    );
   });
 });

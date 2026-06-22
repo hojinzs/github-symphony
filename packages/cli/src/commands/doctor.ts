@@ -367,6 +367,35 @@ function formatAuthSource(source: GitHubAuthSource): string {
   return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
 }
 
+function normalizeGitHubGraphqlEndpoint(endpoint: string): string {
+  const trimmed = endpoint.trim();
+  try {
+    const url = new URL(trimmed);
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function deriveGitHubGraphqlHostname(endpoint?: string): string | undefined {
+  if (!endpoint) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(endpoint);
+    return url.hostname.toLowerCase() === "api.github.com"
+      ? undefined
+      : url.hostname;
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveGitHubGraphqlEndpoint(input: {
   trackerApiUrl?: string;
   envApiUrl?: string;
@@ -377,8 +406,12 @@ function resolveGitHubGraphqlEndpoint(input: {
   envApiUrl: string | null;
   mismatch: boolean;
 } {
-  const trackerApiUrl = input.trackerApiUrl?.trim() || null;
-  const envApiUrl = input.envApiUrl?.trim() || null;
+  const trackerApiUrl = input.trackerApiUrl?.trim()
+    ? normalizeGitHubGraphqlEndpoint(input.trackerApiUrl)
+    : null;
+  const envApiUrl = input.envApiUrl?.trim()
+    ? normalizeGitHubGraphqlEndpoint(input.envApiUrl)
+    : null;
 
   return {
     resolvedEndpoint:
@@ -1709,14 +1742,6 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  const ghAuth = ghInstalled
-    ? deps.checkGhAuthenticated()
-    : { authenticated: false };
-  const ghScopes =
-    ghInstalled && ghAuth.authenticated
-      ? deps.checkGhScopes()
-      : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
-
   resolvedProjectConfig = await deps.inspectManagedProjectSelection({
     configDir: options.configDir,
     requestedProjectId: parsedArgs.projectId,
@@ -1759,6 +1784,21 @@ export async function runDoctorDiagnostics(
     );
   }
 
+  const ghHostname = deriveGitHubGraphqlHostname(
+    githubGraphqlEndpoint?.resolvedEndpoint
+  );
+  const ghOptions = ghHostname ? { hostname: ghHostname } : undefined;
+  const ghAuth = ghInstalled
+    ? deps.checkGhAuthenticated(ghOptions)
+    : { authenticated: false };
+  const ghScopes =
+    ghInstalled && ghAuth.authenticated
+      ? deps.checkGhScopes(ghOptions)
+      : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
+  const ghHostnameArg = ghHostname ? ` --hostname ${ghHostname}` : "";
+  const ghLoginCommand = `gh auth login${ghHostnameArg} --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
+  const ghRefreshCommand = `gh auth refresh${ghHostnameArg} --scopes ${REQUIRED_GH_SCOPES.join(",")}`;
+
   if (envToken) {
     try {
       auth = await deps.validateGitHubToken(envToken, "env", {
@@ -1774,7 +1814,10 @@ export async function runDoctorDiagnostics(
 
   if (!auth && ghInstalled && ghAuth.authenticated && ghScopes.valid) {
     try {
-      const ghToken = deps.getGhToken({ allowEnv: false });
+      const ghToken = deps.getGhToken({
+        allowEnv: false,
+        ...(ghHostname ? { hostname: ghHostname } : {}),
+      });
       auth = await deps.validateGitHubToken(ghToken, "gh", {
         apiUrl: githubGraphqlEndpoint?.resolvedEndpoint,
       });
@@ -1813,7 +1856,7 @@ export async function runDoctorDiagnostics(
         "gh_authentication",
         "GitHub authentication",
         "gh auth status failed or no GitHub login is configured.",
-        `Run 'gh auth login --scopes ${REQUIRED_GH_SCOPES.join(",")}' and re-run the doctor command.`
+        `Run '${ghLoginCommand}' and re-run the doctor command.`
       )
     );
   }
@@ -1847,7 +1890,7 @@ export async function runDoctorDiagnostics(
         "gh_scopes",
         "GitHub token scopes",
         `Missing required scopes: ${missingScopes.join(", ")}.`,
-        `Run 'gh auth refresh --scopes ${REQUIRED_GH_SCOPES.join(",")}' and confirm 'gh auth status' shows the updated scopes.`,
+        `Run '${ghRefreshCommand}' and confirm 'gh auth status${ghHostnameArg}' shows the updated scopes.`,
         { missing: missingScopes, scopes: ghScopes.scopes }
       )
     );
