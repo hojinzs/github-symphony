@@ -764,6 +764,12 @@ pnpm typecheck
 pnpm build
 ```
 
+## Community and security
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
 ## License
 
 This project is released under the [MIT License](LICENSE).

@@ -6,6 +6,7 @@
 - Keep changes scoped. Separate refactors from feature work when possible.
 - Prefer additive changes over silent behavioral rewrites.
 - Keep design decisions reviewable. Use `docs/adr/` for architecture decision records when a change needs a durable rationale.
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Development workflow
 
@@ -49,3 +50,4 @@
 
 - Never commit real GitHub tokens, private keys, `.env` files, or generated installation tokens.
 - Treat `docker.sock` access as privileged. Self-hosting docs assume a trusted operator.
+- Report suspected vulnerabilities privately through the process in [SECURITY.md](SECURITY.md).
