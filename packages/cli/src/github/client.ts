@@ -144,13 +144,38 @@ export function createClient(
   };
 }
 
+export function deriveGitHubRestApiUrl(graphqlApiUrl: string): string {
+  try {
+    const url = new URL(graphqlApiUrl);
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+    if (url.hostname.toLowerCase() === "api.github.com") {
+      return REST_API_URL;
+    }
+    if (normalizedPath === "/api/graphql") {
+      url.pathname = "/api/v3";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
+    if (normalizedPath.endsWith("/graphql")) {
+      url.pathname = normalizedPath.slice(0, -"/graphql".length) || "/";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Fall back to the public GitHub REST API for malformed custom URLs.
+  }
+
+  return REST_API_URL;
+}
+
 export async function getRepositoryMetadata(
   client: GitHubClient,
   owner: string,
   name: string
 ): Promise<RepositoryLookupResult> {
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
   let response: Response;
@@ -254,8 +279,7 @@ export async function listRepositoryLabels(
   owner: string,
   name: string
 ): Promise<RepositoryLabel[]> {
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const labels: RepositoryLabel[] = [];
   let page = 1;
 
@@ -313,8 +337,7 @@ export async function listRepositoryLabels(
 
 export async function validateToken(client: GitHubClient): Promise<ViewerInfo> {
   // Use REST to get X-OAuth-Scopes header (GraphQL doesn't expose scopes)
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const response = await client.fetchImpl(`${baseUrl}/user`, {
     headers: {
       authorization: `Bearer ${client.token}`,
