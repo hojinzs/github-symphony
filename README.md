@@ -6,6 +6,9 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
 
 - **[Node.js](https://nodejs.org/)** (v24+) with npm
 - **[Git](https://git-scm.com/)**
+- At least one AI agent runtime on `PATH` before `gh-symphony repo start`:
+  - **[Codex CLI](https://developers.openai.com/codex/cli/)** (`codex`) - install from the official Codex CLI guide, then authenticate with `codex login`.
+  - **[Claude Code](https://code.claude.com/docs/en/quickstart)** (`claude`) - install from the official Claude Code quickstart, then authenticate with `ANTHROPIC_API_KEY` or a local Claude login for non-bare runs.
 - One GitHub auth source with required scopes (`repo`, `read:org`, `project`):
   - **[GitHub CLI (`gh`)](https://cli.github.com/)**:
     ```bash
@@ -249,7 +252,7 @@ The generated skill files (under `.codex/skills/` or `.claude/skills/`) define h
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
 
-> Currently supported runtimes: **Codex**, **Claude Code**
+> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 #### Explicit GitHub Priority Mapping
 
