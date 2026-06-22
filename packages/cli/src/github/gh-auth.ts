@@ -229,15 +229,27 @@ export function checkGhInstalled(opts?: { execImpl?: ExecImpl }): boolean {
   }
 }
 
-export function checkGhAuthenticated(opts?: { spawnImpl?: SpawnImpl }): {
+function ghAuthHostArgs(hostname?: string): string[] {
+  const trimmed = hostname?.trim();
+  return trimmed ? ["--hostname", trimmed] : [];
+}
+
+export function checkGhAuthenticated(opts?: {
+  spawnImpl?: SpawnImpl;
+  hostname?: string;
+}): {
   authenticated: boolean;
   login?: string;
 } {
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
-  const result = spawnImpl("gh", ["auth", "status"], {
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const result = spawnImpl(
+    "gh",
+    ["auth", "status", ...ghAuthHostArgs(opts?.hostname)],
+    {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
 
   if ((result.status ?? 1) !== 0) {
     return { authenticated: false };
@@ -247,16 +259,23 @@ export function checkGhAuthenticated(opts?: { spawnImpl?: SpawnImpl }): {
   return { authenticated: true, login };
 }
 
-export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
+export function checkGhScopes(opts?: {
+  spawnImpl?: SpawnImpl;
+  hostname?: string;
+}): {
   valid: boolean;
   missing: string[];
   scopes: string[];
 } {
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
-  const result = spawnImpl("gh", ["auth", "status"], {
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const result = spawnImpl(
+    "gh",
+    ["auth", "status", ...ghAuthHostArgs(opts?.hostname)],
+    {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
 
   const output = (result.stdout ?? "").toString();
 
@@ -279,6 +298,7 @@ export function checkGhScopes(opts?: { spawnImpl?: SpawnImpl }): {
 export function getGhToken(opts?: {
   execImpl?: ExecImpl;
   allowEnv?: boolean;
+  hostname?: string;
 }): string {
   const envToken = opts?.allowEnv === false ? null : getEnvGitHubToken();
   if (envToken) {
@@ -288,12 +308,14 @@ export function getGhToken(opts?: {
   return getGhTokenWithSource({
     execImpl: opts?.execImpl,
     envToken: undefined,
+    hostname: opts?.hostname,
   }).token;
 }
 
 export function getGhTokenWithSource(opts?: {
   execImpl?: ExecImpl;
   envToken?: string | undefined;
+  hostname?: string;
 }): {
   token: string;
   source: GitHubAuthSource;
@@ -311,10 +333,14 @@ export function getGhTokenWithSource(opts?: {
   const execImpl = opts?.execImpl ?? execFileSync;
 
   try {
-    const token = execImpl("gh", ["auth", "token"], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    })
+    const token = execImpl(
+      "gh",
+      ["auth", "token", ...ghAuthHostArgs(opts?.hostname)],
+      {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    )
       .toString()
       .trim();
 
@@ -336,6 +362,7 @@ export async function validateGitHubToken(
   token: string,
   source: GitHubAuthSource,
   opts?: {
+    apiUrl?: string;
     createClientImpl?: typeof createClient;
     validateTokenImpl?: typeof validateToken;
     checkRequiredScopesImpl?: typeof checkRequiredScopes;
@@ -348,7 +375,9 @@ export async function validateGitHubToken(
 
   let viewer: Awaited<ReturnType<typeof validateToken>>;
   try {
-    const client = createClientImpl(token) as GitHubClient;
+    const client = createClientImpl(token, {
+      apiUrl: opts?.apiUrl,
+    }) as GitHubClient;
     viewer = await validateTokenImpl(client);
   } catch (error) {
     throw classifyTokenValidationError(error, source);
@@ -390,6 +419,8 @@ export async function validateGitHubToken(
 export async function resolveGitHubAuth(opts?: {
   execImpl?: ExecImpl;
   spawnImpl?: SpawnImpl;
+  apiUrl?: string;
+  hostname?: string;
   createClientImpl?: typeof createClient;
   validateTokenImpl?: typeof validateToken;
   checkRequiredScopesImpl?: typeof checkRequiredScopes;
@@ -423,6 +454,7 @@ export async function resolveGitHubAuth(opts?: {
 export function ensureGhAuth(opts?: {
   execImpl?: ExecImpl;
   spawnImpl?: SpawnImpl;
+  hostname?: string;
 }): {
   login: string;
   token: string;
@@ -439,7 +471,7 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const auth = checkGhAuthenticated({ spawnImpl });
+  const auth = checkGhAuthenticated({ spawnImpl, hostname: opts?.hostname });
   if (!auth.authenticated) {
     throw new GhAuthError(
       "not_authenticated",
@@ -448,7 +480,7 @@ export function ensureGhAuth(opts?: {
     );
   }
 
-  const scopeCheck = checkGhScopes({ spawnImpl });
+  const scopeCheck = checkGhScopes({ spawnImpl, hostname: opts?.hostname });
   if (!scopeCheck.valid) {
     throw new GhAuthError(
       "missing_scopes",
@@ -464,6 +496,7 @@ export function ensureGhAuth(opts?: {
   const { token } = getGhTokenWithSource({
     execImpl,
     envToken: undefined,
+    hostname: opts?.hostname,
   });
   return { login: auth.login ?? "unknown", token, source: "gh" };
 }
@@ -530,7 +563,7 @@ export function runGhAuthRefresh(opts?: {
 
 function parseLogin(output: string): string | undefined {
   const matched = output.match(
-    /Logged in to github\.com account\s+\*?\*?([A-Za-z0-9_-]+)\*?\*?/i
+    /Logged in to \S+ account\s+\*?\*?([A-Za-z0-9_-]+)\*?\*?/i
   );
   return matched?.[1];
 }

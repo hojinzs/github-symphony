@@ -178,6 +178,7 @@ function authDependencies(
 }
 
 const originalGraphQlToken = process.env.GITHUB_GRAPHQL_TOKEN;
+const originalGraphQlApiUrl = process.env.GITHUB_GRAPHQL_API_URL;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
 const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const originalCredentialBrokerUrl = process.env.AGENT_CREDENTIAL_BROKER_URL;
@@ -401,6 +402,11 @@ afterEach(() => {
   } else {
     process.env.GITHUB_GRAPHQL_TOKEN = originalGraphQlToken;
   }
+  if (originalGraphQlApiUrl === undefined) {
+    delete process.env.GITHUB_GRAPHQL_API_URL;
+  } else {
+    process.env.GITHUB_GRAPHQL_API_URL = originalGraphQlApiUrl;
+  }
   if (originalLinearApiKey === undefined) {
     delete process.env.LINEAR_API_KEY;
   } else {
@@ -426,6 +432,7 @@ afterEach(() => {
 
 beforeEach(() => {
   delete process.env.GITHUB_GRAPHQL_TOKEN;
+  delete process.env.GITHUB_GRAPHQL_API_URL;
   delete process.env.LINEAR_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
 });
@@ -478,6 +485,151 @@ describe("runDoctorDiagnostics", () => {
       status: "pass",
       details: expect.objectContaining({
         version: expect.stringContaining("git version"),
+      }),
+    });
+  });
+
+  it("validates GitHub auth against the configured GraphQL endpoint", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const validateGitHubToken = vi.fn(async (_token: string, source) => ({
+      source,
+      token: "ghp_test",
+      login: "tester",
+      scopes: ["repo", "read:org", "project"],
+    }));
+    const checkGhAuthenticated = vi.fn(() => ({
+      authenticated: true,
+      login: "tester",
+    }));
+    const checkGhScopes = vi.fn(() => ({
+      valid: true,
+      missing: [],
+      scopes: ["repo", "read:org", "project"],
+    }));
+    const getGhToken = vi.fn(() => "ghp_test");
+    const projectConfig = createProjectConfig(workspaceDir);
+    projectConfig.tracker.apiUrl = "https://github.example/api/graphql";
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies({
+          checkGhAuthenticated: checkGhAuthenticated as never,
+          checkGhScopes: checkGhScopes as never,
+          getGhToken: getGhToken as never,
+          validateGitHubToken: validateGitHubToken as never,
+        }),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig,
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(validateGitHubToken).toHaveBeenCalledWith("ghp_test", "gh", {
+      apiUrl: "https://github.example/api/graphql",
+    });
+    expect(checkGhAuthenticated).toHaveBeenCalledWith({
+      hostname: "github.example",
+    });
+    expect(checkGhScopes).toHaveBeenCalledWith({
+      hostname: "github.example",
+    });
+    expect(getGhToken).toHaveBeenCalledWith({
+      allowEnv: false,
+      hostname: "github.example",
+    });
+    expect(
+      report.checks.find((check) => check.id === "github_graphql_endpoint")
+    ).toMatchObject({
+      status: "pass",
+      summary:
+        "Resolved GitHub GraphQL endpoint: https://github.example/api/graphql.",
+      details: expect.objectContaining({
+        resolvedEndpoint: "https://github.example/api/graphql",
+        source: "tracker",
+      }),
+    });
+  });
+
+  it("does not warn for equivalent GitHub GraphQL endpoint spellings", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const projectConfig = createProjectConfig(workspaceDir);
+    projectConfig.tracker.apiUrl = "https://GitHub.Example/api/graphql/";
+    process.env.GITHUB_GRAPHQL_API_URL = "https://github.example/api/graphql";
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig,
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "github_graphql_endpoint")
+    ).toMatchObject({
+      status: "pass",
+      summary:
+        "Resolved GitHub GraphQL endpoint: https://github.example/api/graphql.",
+      details: expect.objectContaining({
+        resolvedEndpoint: "https://github.example/api/graphql",
+        envApiUrl: "https://github.example/api/graphql",
+        trackerApiUrl: "https://github.example/api/graphql",
+      }),
+    });
+  });
+
+  it("warns when configured and environment GitHub GraphQL endpoints differ", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const projectConfig = createProjectConfig(workspaceDir);
+    projectConfig.tracker.apiUrl = "https://github.example/api/graphql";
+    process.env.GITHUB_GRAPHQL_API_URL =
+      "https://other-ghes.example/api/graphql";
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig,
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "github_graphql_endpoint")
+    ).toMatchObject({
+      status: "warn",
+      summary: expect.stringContaining("GITHUB_GRAPHQL_API_URL"),
+      remediation: expect.stringContaining("aligned"),
+      details: expect.objectContaining({
+        resolvedEndpoint: "https://github.example/api/graphql",
+        envApiUrl: "https://other-ghes.example/api/graphql",
+        trackerApiUrl: "https://github.example/api/graphql",
       }),
     });
   });
@@ -965,13 +1117,19 @@ describe("runDoctorDiagnostics", () => {
       })
     );
     expect(report.ok).toBe(true);
-    expect(getGhToken).toHaveBeenCalledWith({ allowEnv: false });
+    expect(getGhToken).toHaveBeenCalledWith({
+      allowEnv: false,
+      hostname: "github.com",
+    });
     expect(validateGitHubToken).toHaveBeenNthCalledWith(
       1,
       "bad-env-token",
-      "env"
+      "env",
+      { apiUrl: "https://api.github.com/graphql" }
     );
-    expect(validateGitHubToken).toHaveBeenNthCalledWith(2, "gh-token", "gh");
+    expect(validateGitHubToken).toHaveBeenNthCalledWith(2, "gh-token", "gh", {
+      apiUrl: "https://api.github.com/graphql",
+    });
     expect(
       report.checks.find((check) => check.id === "gh_authentication")
     ).toMatchObject({

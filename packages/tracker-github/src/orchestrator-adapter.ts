@@ -41,8 +41,11 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   buildWorkerEnvironment(project) {
+    const apiUrl = project.tracker.apiUrl?.trim();
+
     return {
       GITHUB_PROJECT_ID: requireTrackerSetting(project.tracker, "projectId"),
+      ...(apiUrl ? { GITHUB_GRAPHQL_API_URL: apiUrl } : {}),
     };
   },
 
@@ -172,10 +175,7 @@ function resolveAssignedOnly(
     return dependencies.assignedOnly;
   }
 
-  const legacyAssignedOnly = readBooleanTrackerSetting(
-    tracker,
-    "assignedOnly"
-  );
+  const legacyAssignedOnly = readBooleanTrackerSetting(tracker, "assignedOnly");
   if (legacyAssignedOnly) {
     const warningKey = `${tracker.adapter}:${tracker.bindingId}`;
     if (!warnedLegacyAssignedOnlyProjectIds.has(warningKey)) {

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClient, discoverUserProjects } from "./client.js";
+import {
+  createClient,
+  deriveGitHubRestApiUrl,
+  discoverUserProjects,
+} from "./client.js";
 
 function graphqlResponse(data: unknown): Response {
   return new Response(JSON.stringify({ data }), {
@@ -7,6 +11,20 @@ function graphqlResponse(data: unknown): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+describe("deriveGitHubRestApiUrl", () => {
+  it("maps public GitHub GraphQL URLs to the public REST API", () => {
+    expect(deriveGitHubRestApiUrl("https://api.github.com/graphql")).toBe(
+      "https://api.github.com"
+    );
+  });
+
+  it("maps GHES /api/graphql endpoints to /api/v3", () => {
+    expect(deriveGitHubRestApiUrl("https://github.example/api/graphql/")).toBe(
+      "https://github.example/api/v3"
+    );
+  });
+});
 
 describe("discoverUserProjects", () => {
   it("paginates viewer projects", async () => {
@@ -199,12 +217,18 @@ describe("discoverUserProjects", () => {
       reason: null,
       requests: 6,
     });
-    expect(result.projects.map((project) => `${project.owner.login}:${project.title}`))
-      .toEqual(["acme:Acme One", "acme:Acme Two", "beta:Beta One"]);
+    expect(
+      result.projects.map(
+        (project) => `${project.owner.login}:${project.title}`
+      )
+    ).toEqual(["acme:Acme One", "acme:Acme Two", "beta:Beta One"]);
   });
 
   it("returns partial results when the request budget is exhausted", async () => {
-    const orgLogins = Array.from({ length: 40 }, (_, index) => `org-${index + 1}`);
+    const orgLogins = Array.from(
+      { length: 40 },
+      (_, index) => `org-${index + 1}`
+    );
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
         query: string;

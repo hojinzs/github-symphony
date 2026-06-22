@@ -747,6 +747,40 @@ describe("resolveTrackerAdapter", () => {
     expect(adapter.reviveIssue).toBeTypeOf("function");
   });
 
+  it("propagates the configured GitHub GraphQL endpoint into worker env", () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+    });
+
+    expect(
+      adapter.buildWorkerEnvironment(
+        {
+          projectId: "project-a",
+          slug: "project-a",
+          workspaceDir: "/tmp/project-a",
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.example/acme/platform.git",
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "binding-123",
+            apiUrl: " https://github.example/api/graphql ",
+            settings: {
+              projectId: "project-123",
+            },
+          },
+        },
+        makeTrackedIssue()
+      )
+    ).toEqual({
+      GITHUB_PROJECT_ID: "project-123",
+      GITHUB_GRAPHQL_API_URL: "https://github.example/api/graphql",
+    });
+  });
+
   it("finds one GitHub Project issue through the targeted issue lookup", async () => {
     const fetchImpl = vi.fn(async (_url, init) => {
       const body =

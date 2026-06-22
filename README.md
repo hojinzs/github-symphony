@@ -630,6 +630,35 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 
 `GITHUB_GRAPHQL_TOKEN` takes priority over `gh` CLI. Interactive `gh-symphony workflow init` and `gh-symphony setup` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available. `gh-symphony doctor` also reports the resolved auth source as `env` or `gh`.
 
+### GitHub Enterprise Server
+
+For GitHub Enterprise Server, configure the GraphQL endpoint in `WORKFLOW.md`
+so the orchestrator, doctor checks, and dispatched worker all use the same
+host:
+
+```yaml
+tracker:
+  kind: github-project
+  endpoint: https://github.example/api/graphql
+  project_id: PVT_xxx
+```
+
+Then initialize and validate the repository runtime:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_enterprise_token
+gh-symphony repo init
+gh-symphony doctor
+gh-symphony doctor --smoke --issue owner/repo#123
+```
+
+`GITHUB_GRAPHQL_API_URL` remains an optional process-level override. If both
+`tracker.endpoint` and `GITHUB_GRAPHQL_API_URL` are set, keep them identical;
+`doctor` reports the resolved endpoint and warns when they disagree. During
+dispatch, the GitHub tracker injects the configured `tracker.endpoint` into the
+worker as `GITHUB_GRAPHQL_API_URL`, so worker-side `github_graphql` calls do not
+fall back to `https://api.github.com/graphql`.
+
 ## WORKFLOW.md
 
 `WORKFLOW.md` contains YAML front matter for lifecycle configuration and a Markdown body used as the agent prompt template.

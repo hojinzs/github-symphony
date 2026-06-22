@@ -1,4 +1,4 @@
-const DEFAULT_API_URL = "https://api.github.com/graphql";
+export const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const REST_API_URL = "https://api.github.com";
 
 export type GitHubClient = {
@@ -139,9 +139,35 @@ export function createClient(
 ): GitHubClient {
   return {
     token,
-    apiUrl: options?.apiUrl ?? DEFAULT_API_URL,
+    apiUrl: options?.apiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
     fetchImpl: options?.fetchImpl ?? fetch,
   };
+}
+
+export function deriveGitHubRestApiUrl(graphqlApiUrl: string): string {
+  try {
+    const url = new URL(graphqlApiUrl);
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+    if (url.hostname.toLowerCase() === "api.github.com") {
+      return REST_API_URL;
+    }
+    if (normalizedPath === "/api/graphql") {
+      url.pathname = "/api/v3";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
+    if (normalizedPath.endsWith("/graphql")) {
+      url.pathname = normalizedPath.slice(0, -"/graphql".length) || "/";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Fall back to the public GitHub REST API for malformed custom URLs.
+  }
+
+  return REST_API_URL;
 }
 
 export async function getRepositoryMetadata(
@@ -149,8 +175,7 @@ export async function getRepositoryMetadata(
   owner: string,
   name: string
 ): Promise<RepositoryLookupResult> {
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 
   let response: Response;
@@ -254,8 +279,7 @@ export async function listRepositoryLabels(
   owner: string,
   name: string
 ): Promise<RepositoryLabel[]> {
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const labels: RepositoryLabel[] = [];
   let page = 1;
 
@@ -313,8 +337,7 @@ export async function listRepositoryLabels(
 
 export async function validateToken(client: GitHubClient): Promise<ViewerInfo> {
   // Use REST to get X-OAuth-Scopes header (GraphQL doesn't expose scopes)
-  const restUrl = client.apiUrl.replace("/graphql", "");
-  const baseUrl = restUrl === client.apiUrl ? REST_API_URL : restUrl;
+  const baseUrl = deriveGitHubRestApiUrl(client.apiUrl);
   const response = await client.fetchImpl(`${baseUrl}/user`, {
     headers: {
       authorization: `Bearer ${client.token}`,
@@ -415,11 +438,12 @@ export async function discoverUserProjects(
       break;
     }
 
-    const data: ViewerProjectsPageResponse = await graphql<ViewerProjectsPageResponse>(
-      client,
-      VIEWER_PROJECTS_PAGE_QUERY,
-      { cursor: viewerProjectsCursor }
-    );
+    const data: ViewerProjectsPageResponse =
+      await graphql<ViewerProjectsPageResponse>(
+        client,
+        VIEWER_PROJECTS_PAGE_QUERY,
+        { cursor: viewerProjectsCursor }
+      );
 
     viewerLogin = data.viewer.login;
     const projectPage: ViewerProjectsPageResponse["viewer"]["projectsV2"] =
@@ -450,10 +474,10 @@ export async function discoverUserProjects(
 
     const data: ViewerOrganizationsPageResponse =
       await graphql<ViewerOrganizationsPageResponse>(
-      client,
-      VIEWER_ORGANIZATIONS_PAGE_QUERY,
-      { cursor: organizationsCursor }
-    );
+        client,
+        VIEWER_ORGANIZATIONS_PAGE_QUERY,
+        { cursor: organizationsCursor }
+      );
 
     for (const orgNode of data.viewer.organizations?.nodes ?? []) {
       if (!orgNode) continue;
@@ -462,7 +486,8 @@ export async function discoverUserProjects(
 
     hasMoreOrganizations =
       data.viewer.organizations?.pageInfo?.hasNextPage ?? false;
-    organizationsCursor = data.viewer.organizations?.pageInfo?.endCursor ?? null;
+    organizationsCursor =
+      data.viewer.organizations?.pageInfo?.endCursor ?? null;
   }
 
   for (const orgLogin of orgLogins) {
@@ -476,15 +501,14 @@ export async function discoverUserProjects(
 
       const data: OrganizationProjectsPageResponse =
         await graphql<OrganizationProjectsPageResponse>(
-        client,
-        ORGANIZATION_PROJECTS_PAGE_QUERY,
-        { login: orgLogin, cursor: orgProjectsCursor }
-      );
+          client,
+          ORGANIZATION_PROJECTS_PAGE_QUERY,
+          { login: orgLogin, cursor: orgProjectsCursor }
+        );
 
       const projectPage: NonNullable<
         OrganizationProjectsPageResponse["organization"]
-      >["projectsV2"] =
-        data.organization?.projectsV2 ?? null;
+      >["projectsV2"] = data.organization?.projectsV2 ?? null;
       for (const node of projectPage?.nodes ?? []) {
         if (!node) continue;
         if (
