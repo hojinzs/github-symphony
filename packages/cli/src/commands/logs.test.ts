@@ -183,4 +183,114 @@ describe("logs command", () => {
     expect(output).not.toContain("acme/platform#1");
     expect(output).toContain("beta/api#2");
   });
+
+  it("prints formatter messages for run failure, suppression, retry, and session invalidation reasons", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "run-failed",
+        issueIdentifier: "acme/platform#1",
+        projectId: "tenant-a",
+        attempt: 1,
+        lastError: "worker exited with code 1",
+      },
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-suppressed",
+        issueIdentifier: "acme/platform#2",
+        projectId: "tenant-a",
+        reason: "lease already active",
+      },
+      {
+        at: "2026-03-16T00:02:00.000Z",
+        event: "run-retried",
+        issueIdentifier: "acme/platform#3",
+        projectId: "tenant-a",
+        attempt: 2,
+        retryKind: "backoff",
+        nextRetryAt: "2026-03-16T00:05:00.000Z",
+      },
+      {
+        at: "2026-03-16T00:03:00.000Z",
+        event: "session_invalidated",
+        issueIdentifier: "acme/platform#4",
+        projectId: "tenant-a",
+        runId: "run-1",
+        sessionId: "old-session",
+        replacementSessionId: "new-session",
+        reason: "session expired",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await logsCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = stdout.output();
+    expect(output).toContain(
+      "[2026-03-16T00:00:00.000Z] run-failed acme/platform#1 worker exited with code 1"
+    );
+    expect(output).toContain(
+      "[2026-03-16T00:01:00.000Z] run-suppressed acme/platform#2 lease already active"
+    );
+    expect(output).toContain(
+      "[2026-03-16T00:02:00.000Z] run-retried acme/platform#3 Retry 2 scheduled (backoff)"
+    );
+    expect(output).toContain(
+      "[2026-03-16T00:03:00.000Z] session_invalidated acme/platform#4 session expired"
+    );
+  });
+
+  it("sorts scanned events chronologically across project run directories", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-later", [
+      {
+        at: "2026-03-16T00:03:00.000Z",
+        event: "run-started",
+        issueIdentifier: "acme/platform#3",
+        projectId: "tenant-a",
+      },
+    ]);
+    await writeRunEvents(configDir, "tenant-b", "run-earlier", [
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-started",
+        issueIdentifier: "beta/api#1",
+        projectId: "tenant-b",
+      },
+      {
+        at: "2026-03-16T00:02:00.000Z",
+        event: "run-started",
+        issueIdentifier: "beta/api#2",
+        projectId: "tenant-b",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await logsCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output().trim().split("\n")).toEqual([
+      "[2026-03-16T00:01:00.000Z] run-started beta/api#1",
+      "[2026-03-16T00:02:00.000Z] run-started beta/api#2",
+      "[2026-03-16T00:03:00.000Z] run-started acme/platform#3",
+    ]);
+  });
 });
