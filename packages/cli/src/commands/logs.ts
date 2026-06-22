@@ -2,12 +2,15 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
+import { formatEventMessage, type OrchestratorEvent } from "@gh-symphony/core";
 import type { GlobalOptions } from "../index.js";
 import { orchestratorLogPath } from "../config.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+
+type LoggedEvent = Record<string, unknown> & { at?: string };
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -76,10 +79,12 @@ const handler = async (
       const content = await readFile(eventsPath, "utf8");
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
-        const event = JSON.parse(line) as Record<string, unknown>;
-        if (parsed.projectId && event.projectId !== parsed.projectId) continue;
-        if (parsed.level && event.level !== parsed.level) continue;
-        if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
+        const event = JSON.parse(line) as LoggedEvent;
+        if (parsed.projectId && getProjectId(event) !== parsed.projectId)
+          continue;
+        if (parsed.level && getLevel(event) !== parsed.level) continue;
+        if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
+          continue;
         process.stdout.write(formatEvent(event) + "\n");
       }
     } catch {
@@ -142,6 +147,7 @@ const handler = async (
     ? [join(runtimeRoot, "projects", parsed.projectId, "runs")]
     : await listProjectRunRoots(runtimeRoot);
   let foundRuns = false;
+  const events: LoggedEvent[] = [];
 
   try {
     for (const runsDir of runRoots) {
@@ -156,12 +162,13 @@ const handler = async (
           const content = await readFile(eventsPath, "utf8");
           const lines = content.trim().split("\n").filter(Boolean);
           for (const line of lines) {
-            const event = JSON.parse(line) as Record<string, unknown>;
-            if (parsed.projectId && event.projectId !== parsed.projectId)
+            const event = JSON.parse(line) as LoggedEvent;
+            if (parsed.projectId && getProjectId(event) !== parsed.projectId)
               continue;
-            if (parsed.level && event.level !== parsed.level) continue;
-            if (parsed.issue && event.issueIdentifier !== parsed.issue) continue;
-            process.stdout.write(formatEvent(event) + "\n");
+            if (parsed.level && getLevel(event) !== parsed.level) continue;
+            if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
+              continue;
+            events.push(event);
           }
         } catch {
           // Skip runs without events
@@ -174,17 +181,39 @@ const handler = async (
 
   if (!foundRuns) {
     process.stderr.write("No runs found. Start the orchestrator first.\n");
+    return;
+  }
+
+  events.sort((left, right) =>
+    String(left.at ?? "").localeCompare(String(right.at ?? ""))
+  );
+  for (const event of events) {
+    process.stdout.write(formatEvent(event) + "\n");
   }
 };
 
 export default handler;
 
-function formatEvent(event: Record<string, unknown>): string {
+function formatEvent(event: LoggedEvent): string {
   const at = event.at ?? "";
   const eventType = event.event ?? "unknown";
-  const issue = event.issueIdentifier ?? "";
-  const extra = event.error ? ` error=${event.error}` : "";
-  return `[${at}] ${eventType} ${issue}${extra}`;
+  const issue = getIssueIdentifier(event);
+  const message = formatEventMessage(event as OrchestratorEvent);
+  const subject = issue ? ` ${issue}` : "";
+  const extra = message ? ` ${message}` : "";
+  return `[${at}] ${eventType}${subject}${extra}`;
+}
+
+function getProjectId(event: LoggedEvent): string | undefined {
+  return typeof event.projectId === "string" ? event.projectId : undefined;
+}
+
+function getLevel(event: LoggedEvent): string | undefined {
+  return typeof event.level === "string" ? event.level : undefined;
+}
+
+function getIssueIdentifier(event: LoggedEvent): string {
+  return typeof event.issueIdentifier === "string" ? event.issueIdentifier : "";
 }
 
 async function listProjectRunRoots(runtimeRoot: string): Promise<string[]> {
