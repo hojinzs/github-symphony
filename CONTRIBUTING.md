@@ -2,6 +2,7 @@
 
 ## Ground rules
 
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 - Open an issue or discussion before making large architectural changes.
 - Keep changes scoped. Separate refactors from feature work when possible.
 - Prefer additive changes over silent behavioral rewrites.
@@ -49,3 +50,4 @@
 
 - Never commit real GitHub tokens, private keys, `.env` files, or generated installation tokens.
 - Treat `docker.sock` access as privileged. Self-hosting docs assume a trusted operator.
+- Report suspected vulnerabilities privately through the process in [SECURITY.md](SECURITY.md). Do not open a public issue for an unpatched vulnerability.

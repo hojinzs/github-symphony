@@ -764,6 +764,12 @@ pnpm typecheck
 pnpm build
 ```
 
+## Community
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening substantial changes.
+- Follow the [Code of Conduct](CODE_OF_CONDUCT.md) in project spaces.
+- Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
+
 ## License
 
 This project is released under the [MIT License](LICENSE).
