@@ -11,6 +11,7 @@ import {
 } from "../project-selection.js";
 
 type LoggedEvent = Record<string, unknown> & { at?: string };
+type LogLevel = "error" | "warn" | "info";
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -78,6 +79,7 @@ const handler = async (
     try {
       const content = await readFile(eventsPath, "utf8");
       const lines = content.trim().split("\n").filter(Boolean);
+      let matchedEvents = 0;
       for (const line of lines) {
         const event = JSON.parse(line) as LoggedEvent;
         if (parsed.projectId && getProjectId(event) !== parsed.projectId)
@@ -86,6 +88,10 @@ const handler = async (
         if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
           continue;
         process.stdout.write(formatEvent(event) + "\n");
+        matchedEvents += 1;
+      }
+      if (parsed.level && matchedEvents === 0) {
+        process.stderr.write(`No events matched --level ${parsed.level}.\n`);
       }
     } catch {
       process.stderr.write(`No events found for run: ${parsed.run}\n`);
@@ -147,6 +153,7 @@ const handler = async (
     ? [join(runtimeRoot, "projects", parsed.projectId, "runs")]
     : await listProjectRunRoots(runtimeRoot);
   let foundRuns = false;
+  let matchedEvents = 0;
   const events: LoggedEvent[] = [];
 
   try {
@@ -169,6 +176,7 @@ const handler = async (
             if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
               continue;
             events.push(event);
+            matchedEvents += 1;
           }
         } catch {
           // Skip runs without events
@@ -181,6 +189,10 @@ const handler = async (
 
   if (!foundRuns) {
     process.stderr.write("No runs found. Start the orchestrator first.\n");
+    return;
+  }
+  if (parsed.level && matchedEvents === 0) {
+    process.stderr.write(`No events matched --level ${parsed.level}.\n`);
     return;
   }
 
@@ -208,8 +220,18 @@ function getProjectId(event: LoggedEvent): string | undefined {
   return typeof event.projectId === "string" ? event.projectId : undefined;
 }
 
-function getLevel(event: LoggedEvent): string | undefined {
-  return typeof event.level === "string" ? event.level : undefined;
+function getLevel(event: LoggedEvent): LogLevel {
+  switch (event.event) {
+    case "run-failed":
+    case "worker-error":
+    case "hook-failed":
+      return "error";
+    case "run-suppressed":
+    case "run-retried":
+      return "warn";
+    default:
+      return "info";
+  }
 }
 
 function getIssueIdentifier(event: LoggedEvent): string {
