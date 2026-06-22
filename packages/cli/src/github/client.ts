@@ -1,4 +1,4 @@
-const DEFAULT_API_URL = "https://api.github.com/graphql";
+export const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const REST_API_URL = "https://api.github.com";
 
 export type GitHubClient = {
@@ -139,7 +139,7 @@ export function createClient(
 ): GitHubClient {
   return {
     token,
-    apiUrl: options?.apiUrl ?? DEFAULT_API_URL,
+    apiUrl: options?.apiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
     fetchImpl: options?.fetchImpl ?? fetch,
   };
 }
@@ -415,11 +415,12 @@ export async function discoverUserProjects(
       break;
     }
 
-    const data: ViewerProjectsPageResponse = await graphql<ViewerProjectsPageResponse>(
-      client,
-      VIEWER_PROJECTS_PAGE_QUERY,
-      { cursor: viewerProjectsCursor }
-    );
+    const data: ViewerProjectsPageResponse =
+      await graphql<ViewerProjectsPageResponse>(
+        client,
+        VIEWER_PROJECTS_PAGE_QUERY,
+        { cursor: viewerProjectsCursor }
+      );
 
     viewerLogin = data.viewer.login;
     const projectPage: ViewerProjectsPageResponse["viewer"]["projectsV2"] =
@@ -450,10 +451,10 @@ export async function discoverUserProjects(
 
     const data: ViewerOrganizationsPageResponse =
       await graphql<ViewerOrganizationsPageResponse>(
-      client,
-      VIEWER_ORGANIZATIONS_PAGE_QUERY,
-      { cursor: organizationsCursor }
-    );
+        client,
+        VIEWER_ORGANIZATIONS_PAGE_QUERY,
+        { cursor: organizationsCursor }
+      );
 
     for (const orgNode of data.viewer.organizations?.nodes ?? []) {
       if (!orgNode) continue;
@@ -462,7 +463,8 @@ export async function discoverUserProjects(
 
     hasMoreOrganizations =
       data.viewer.organizations?.pageInfo?.hasNextPage ?? false;
-    organizationsCursor = data.viewer.organizations?.pageInfo?.endCursor ?? null;
+    organizationsCursor =
+      data.viewer.organizations?.pageInfo?.endCursor ?? null;
   }
 
   for (const orgLogin of orgLogins) {
@@ -476,15 +478,14 @@ export async function discoverUserProjects(
 
       const data: OrganizationProjectsPageResponse =
         await graphql<OrganizationProjectsPageResponse>(
-        client,
-        ORGANIZATION_PROJECTS_PAGE_QUERY,
-        { login: orgLogin, cursor: orgProjectsCursor }
-      );
+          client,
+          ORGANIZATION_PROJECTS_PAGE_QUERY,
+          { login: orgLogin, cursor: orgProjectsCursor }
+        );
 
       const projectPage: NonNullable<
         OrganizationProjectsPageResponse["organization"]
-      >["projectsV2"] =
-        data.organization?.projectsV2 ?? null;
+      >["projectsV2"] = data.organization?.projectsV2 ?? null;
       for (const node of projectPage?.nodes ?? []) {
         if (!node) continue;
         if (

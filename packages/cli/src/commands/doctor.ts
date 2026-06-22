@@ -20,6 +20,7 @@ import {
 } from "@gh-symphony/tracker-github";
 import {
   createClient,
+  DEFAULT_GITHUB_GRAPHQL_API_URL,
   findLinkedRepository,
   getProjectDetail,
   GitHubApiError,
@@ -66,6 +67,7 @@ type DoctorCheckId =
   | "gh_authentication"
   | "gh_scopes"
   | "managed_project"
+  | "github_graphql_endpoint"
   | "github_project_resolution"
   | "linear_tracker_resolution"
   | "config_directory"
@@ -363,6 +365,60 @@ function warnCheck(
 
 function formatAuthSource(source: GitHubAuthSource): string {
   return source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI";
+}
+
+function resolveGitHubGraphqlEndpoint(input: {
+  trackerApiUrl?: string;
+  envApiUrl?: string;
+}): {
+  resolvedEndpoint: string;
+  source: "tracker" | "env" | "default";
+  trackerApiUrl: string | null;
+  envApiUrl: string | null;
+  mismatch: boolean;
+} {
+  const trackerApiUrl = input.trackerApiUrl?.trim() || null;
+  const envApiUrl = input.envApiUrl?.trim() || null;
+
+  return {
+    resolvedEndpoint:
+      trackerApiUrl ?? envApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
+    source: trackerApiUrl ? "tracker" : envApiUrl ? "env" : "default",
+    trackerApiUrl,
+    envApiUrl,
+    mismatch:
+      trackerApiUrl !== null &&
+      envApiUrl !== null &&
+      trackerApiUrl !== envApiUrl,
+  };
+}
+
+function buildGitHubGraphqlEndpointCheck(
+  input: ReturnType<typeof resolveGitHubGraphqlEndpoint>
+): DoctorCheckResult {
+  const details = {
+    resolvedEndpoint: input.resolvedEndpoint,
+    source: input.source,
+    trackerApiUrl: input.trackerApiUrl,
+    envApiUrl: input.envApiUrl,
+  };
+
+  if (input.mismatch) {
+    return warnCheck(
+      "github_graphql_endpoint",
+      "GitHub GraphQL endpoint",
+      `Resolved GitHub GraphQL endpoint is ${input.resolvedEndpoint}, but GITHUB_GRAPHQL_API_URL is ${input.envApiUrl}.`,
+      "Keep WORKFLOW.md tracker.endpoint/tracker.apiUrl and GITHUB_GRAPHQL_API_URL aligned, or unset GITHUB_GRAPHQL_API_URL so the workflow endpoint is authoritative.",
+      details
+    );
+  }
+
+  return passCheck(
+    "github_graphql_endpoint",
+    "GitHub GraphQL endpoint",
+    `Resolved GitHub GraphQL endpoint: ${input.resolvedEndpoint}.`,
+    details
+  );
 }
 
 function remediationStep(
@@ -697,7 +753,10 @@ async function checkLinearTrackerResolution(input: {
   deps: DoctorDependencies;
 }): Promise<DoctorCheckResult> {
   const tracker = input.projectConfig.projectConfig.tracker;
-  const projectSlug = readStringSetting(tracker.settings, "projectSlug")?.trim();
+  const projectSlug = readStringSetting(
+    tracker.settings,
+    "projectSlug"
+  )?.trim();
   const activeStates = readLinearActiveStates(tracker.settings);
   const pickupLabels = readLinearPickupLabels(tracker.settings);
 
@@ -885,7 +944,9 @@ async function fetchLinearProjectBySlug(input: {
   });
 
   if (!response.ok) {
-    throw new Error(`Linear GraphQL request failed with HTTP ${response.status}.`);
+    throw new Error(
+      `Linear GraphQL request failed with HTTP ${response.status}.`
+    );
   }
 
   const payload = (await response.json()) as {
@@ -1561,6 +1622,9 @@ export async function runDoctorDiagnostics(
   > | null = null;
   let resolvedGithubProjectDetail: ProjectDetail | null = null;
   let resolvedGithubProjectBindingId: string | null = null;
+  let githubGraphqlEndpoint: ReturnType<
+    typeof resolveGitHubGraphqlEndpoint
+  > | null = null;
   const envToken = deps.getEnvGitHubToken();
 
   const currentNodeVersion = deps.processVersion;
@@ -1653,9 +1717,53 @@ export async function runDoctorDiagnostics(
       ? deps.checkGhScopes()
       : { valid: false, missing: [...REQUIRED_GH_SCOPES], scopes: [] };
 
+  resolvedProjectConfig = await deps.inspectManagedProjectSelection({
+    configDir: options.configDir,
+    requestedProjectId: parsedArgs.projectId,
+  });
+  if (resolvedProjectConfig.kind === "resolved") {
+    resolvedProjectId = resolvedProjectConfig.projectId;
+    checks.push(
+      passCheck(
+        "managed_project",
+        "Managed project selection",
+        `Resolved managed project "${resolvedProjectConfig.projectId}".`,
+        {
+          projectId: resolvedProjectConfig.projectId,
+          workspaceDir: resolvedProjectConfig.projectConfig.workspaceDir,
+        }
+      )
+    );
+
+    if (resolvedProjectConfig.projectConfig.tracker.adapter !== "linear") {
+      githubGraphqlEndpoint = resolveGitHubGraphqlEndpoint({
+        trackerApiUrl: resolvedProjectConfig.projectConfig.tracker.apiUrl,
+        envApiUrl: process.env.GITHUB_GRAPHQL_API_URL,
+      });
+      checks.push(buildGitHubGraphqlEndpointCheck(githubGraphqlEndpoint));
+    }
+  } else {
+    checks.push(
+      failCheck(
+        "managed_project",
+        "Managed project selection",
+        resolvedProjectConfig.message,
+        "Run 'gh-symphony repo init' from the target repository.",
+        {
+          reason: resolvedProjectConfig.kind,
+          ...(resolvedProjectConfig.projectId
+            ? { projectId: resolvedProjectConfig.projectId }
+            : {}),
+        }
+      )
+    );
+  }
+
   if (envToken) {
     try {
-      auth = await deps.validateGitHubToken(envToken, "env");
+      auth = await deps.validateGitHubToken(envToken, "env", {
+        apiUrl: githubGraphqlEndpoint?.resolvedEndpoint,
+      });
     } catch (error) {
       envTokenError =
         error instanceof Error
@@ -1667,7 +1775,9 @@ export async function runDoctorDiagnostics(
   if (!auth && ghInstalled && ghAuth.authenticated && ghScopes.valid) {
     try {
       const ghToken = deps.getGhToken({ allowEnv: false });
-      auth = await deps.validateGitHubToken(ghToken, "gh");
+      auth = await deps.validateGitHubToken(ghToken, "gh", {
+        apiUrl: githubGraphqlEndpoint?.resolvedEndpoint,
+      });
     } catch (error) {
       tokenError =
         error instanceof Error
@@ -1743,40 +1853,6 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  resolvedProjectConfig = await deps.inspectManagedProjectSelection({
-    configDir: options.configDir,
-    requestedProjectId: parsedArgs.projectId,
-  });
-  if (resolvedProjectConfig.kind === "resolved") {
-    resolvedProjectId = resolvedProjectConfig.projectId;
-    checks.push(
-      passCheck(
-        "managed_project",
-        "Managed project selection",
-        `Resolved managed project "${resolvedProjectConfig.projectId}".`,
-        {
-          projectId: resolvedProjectConfig.projectId,
-          workspaceDir: resolvedProjectConfig.projectConfig.workspaceDir,
-        }
-      )
-    );
-  } else {
-    checks.push(
-      failCheck(
-        "managed_project",
-        "Managed project selection",
-        resolvedProjectConfig.message,
-        "Run 'gh-symphony repo init' from the target repository.",
-        {
-          reason: resolvedProjectConfig.kind,
-          ...(resolvedProjectConfig.projectId
-            ? { projectId: resolvedProjectConfig.projectId }
-            : {}),
-        }
-      )
-    );
-  }
-
   if (
     resolvedProjectConfig.kind === "resolved" &&
     resolvedProjectConfig.projectConfig.tracker.adapter === "linear"
@@ -1839,7 +1915,9 @@ export async function runDoctorDiagnostics(
         throw new Error("Managed project is not bound to a GitHub Project.");
       }
       resolvedGithubProjectBindingId = bindingId;
-      const client = deps.createClient(auth.token);
+      const client = deps.createClient(auth.token, {
+        apiUrl: githubGraphqlEndpoint?.resolvedEndpoint,
+      });
       const detail = await deps.getProjectDetail(client, bindingId);
       resolvedGithubProjectDetail = detail;
       checks.push(

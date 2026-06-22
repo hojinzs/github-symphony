@@ -336,6 +336,7 @@ export async function validateGitHubToken(
   token: string,
   source: GitHubAuthSource,
   opts?: {
+    apiUrl?: string;
     createClientImpl?: typeof createClient;
     validateTokenImpl?: typeof validateToken;
     checkRequiredScopesImpl?: typeof checkRequiredScopes;
@@ -348,7 +349,9 @@ export async function validateGitHubToken(
 
   let viewer: Awaited<ReturnType<typeof validateToken>>;
   try {
-    const client = createClientImpl(token) as GitHubClient;
+    const client = createClientImpl(token, {
+      apiUrl: opts?.apiUrl,
+    }) as GitHubClient;
     viewer = await validateTokenImpl(client);
   } catch (error) {
     throw classifyTokenValidationError(error, source);
@@ -390,6 +393,7 @@ export async function validateGitHubToken(
 export async function resolveGitHubAuth(opts?: {
   execImpl?: ExecImpl;
   spawnImpl?: SpawnImpl;
+  apiUrl?: string;
   createClientImpl?: typeof createClient;
   validateTokenImpl?: typeof validateToken;
   checkRequiredScopesImpl?: typeof checkRequiredScopes;
