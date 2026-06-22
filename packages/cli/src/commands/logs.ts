@@ -12,6 +12,7 @@ import {
 
 type LoggedEvent = Record<string, unknown> & { at?: string };
 type LogLevel = "error" | "warn" | "info";
+const LOG_LEVELS: readonly LogLevel[] = ["error", "warn", "info"];
 
 function parseLogsArgs(args: string[]): {
   follow: boolean;
@@ -57,6 +58,16 @@ const handler = async (
   options: GlobalOptions
 ): Promise<void> => {
   const parsed = parseLogsArgs(args);
+  const level = parseLogLevel(parsed.level);
+  if (parsed.level && !level) {
+    process.stderr.write(
+      `Unknown --level "${parsed.level}". Valid values: ${LOG_LEVELS.join(
+        ", "
+      )}.\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
   const runtimeRoot = resolve(options.configDir);
 
   // If --run is specified, read that run's events
@@ -84,14 +95,14 @@ const handler = async (
         const event = JSON.parse(line) as LoggedEvent;
         if (parsed.projectId && getProjectId(event) !== parsed.projectId)
           continue;
-        if (parsed.level && getLevel(event) !== parsed.level) continue;
+        if (level && getLevel(event) !== level) continue;
         if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
           continue;
         process.stdout.write(formatEvent(event) + "\n");
         matchedEvents += 1;
       }
-      if (parsed.level && matchedEvents === 0) {
-        process.stderr.write(`No events matched --level ${parsed.level}.\n`);
+      if (level && matchedEvents === 0) {
+        process.stderr.write(noMatchedEventsMessage(level));
       }
     } catch {
       process.stderr.write(`No events found for run: ${parsed.run}\n`);
@@ -172,7 +183,7 @@ const handler = async (
             const event = JSON.parse(line) as LoggedEvent;
             if (parsed.projectId && getProjectId(event) !== parsed.projectId)
               continue;
-            if (parsed.level && getLevel(event) !== parsed.level) continue;
+            if (level && getLevel(event) !== level) continue;
             if (parsed.issue && getIssueIdentifier(event) !== parsed.issue)
               continue;
             events.push(event);
@@ -191,8 +202,8 @@ const handler = async (
     process.stderr.write("No runs found. Start the orchestrator first.\n");
     return;
   }
-  if (parsed.level && matchedEvents === 0) {
-    process.stderr.write(`No events matched --level ${parsed.level}.\n`);
+  if (level && matchedEvents === 0) {
+    process.stderr.write(noMatchedEventsMessage(level));
     return;
   }
 
@@ -223,6 +234,7 @@ function getProjectId(event: LoggedEvent): string | undefined {
 function getLevel(event: LoggedEvent): LogLevel {
   switch (event.event) {
     case "run-failed":
+    case "turn_failed":
     case "worker-error":
     case "hook-failed":
       return "error";
@@ -232,6 +244,19 @@ function getLevel(event: LoggedEvent): LogLevel {
     default:
       return "info";
   }
+}
+
+function parseLogLevel(level: string | undefined): LogLevel | undefined {
+  if (!level) {
+    return undefined;
+  }
+  return LOG_LEVELS.includes(level as LogLevel)
+    ? (level as LogLevel)
+    : undefined;
+}
+
+function noMatchedEventsMessage(level: LogLevel): string {
+  return `No events matched the provided filters (--level ${level}).\n`;
 }
 
 function getIssueIdentifier(event: LoggedEvent): string {
