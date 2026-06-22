@@ -52,7 +52,10 @@ async function createConfigFixture(): Promise<string> {
     "utf8"
   );
 
-  for (const project of [createProject("tenant-a"), createProject("tenant-b")]) {
+  for (const project of [
+    createProject("tenant-a"),
+    createProject("tenant-b"),
+  ]) {
     const projectDir = join(configDir, "projects", project.projectId);
     await mkdir(projectDir, { recursive: true });
     await writeFile(
@@ -248,6 +251,190 @@ describe("logs command", () => {
     expect(output).toContain(
       "[2026-03-16T00:03:00.000Z] session_invalidated acme/platform#4 session expired"
     );
+  });
+
+  it("filters scanned events by derived --level values", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "run-started",
+        issueIdentifier: "acme/platform#1",
+        projectId: "tenant-a",
+      },
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-failed",
+        issueIdentifier: "acme/platform#2",
+        projectId: "tenant-a",
+        attempt: 1,
+        lastError: "worker failed",
+      },
+      {
+        at: "2026-03-16T00:02:00.000Z",
+        event: "run-retried",
+        issueIdentifier: "acme/platform#3",
+        projectId: "tenant-a",
+        attempt: 2,
+        retryKind: "backoff",
+        nextRetryAt: "2026-03-16T00:05:00.000Z",
+      },
+      {
+        at: "2026-03-16T00:03:00.000Z",
+        event: "turn_failed",
+        issueIdentifier: "acme/platform#4",
+        projectId: "tenant-a",
+        turnCount: 1,
+        startedAt: "2026-03-16T00:02:30.000Z",
+        durationMs: 30_000,
+        tokenUsage: {
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        },
+        error: "turn failed",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await logsCommand(["--level", "error"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = stdout.output();
+    expect(output).toContain("run-failed acme/platform#2 worker failed");
+    expect(output).toContain("turn_failed acme/platform#4 turn failed");
+    expect(output).not.toContain("run-started");
+    expect(output).not.toContain("run-retried");
+  });
+
+  it("filters a specific run by derived warning level", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "hook-failed",
+        projectId: "tenant-a",
+        hook: "after-create",
+        error: "hook failed",
+      },
+      {
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-suppressed",
+        issueIdentifier: "acme/platform#2",
+        projectId: "tenant-a",
+        reason: "lease already active",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await logsCommand(["--run", "run-1", "--level", "warn"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = stdout.output();
+    expect(output).toContain("run-suppressed acme/platform#2");
+    expect(output).not.toContain("hook-failed");
+  });
+
+  it("prints a notice when --level matches no scanned events", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "run-started",
+        issueIdentifier: "acme/platform#1",
+        projectId: "tenant-a",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await logsCommand(["--level", "error"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(stdout.output()).toBe("");
+    expect(stderr.output()).toBe(
+      "No events matched the provided filters (--level error).\n"
+    );
+  });
+
+  it("prints a notice when --level matches no events for a specific run", async () => {
+    const configDir = await createConfigFixture();
+    await writeRunEvents(configDir, "tenant-a", "run-1", [
+      {
+        at: "2026-03-16T00:00:00.000Z",
+        event: "run-started",
+        issueIdentifier: "acme/platform#1",
+        projectId: "tenant-a",
+      },
+    ]);
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await logsCommand(["--run", "run-1", "--level", "error"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(stdout.output()).toBe("");
+    expect(stderr.output()).toBe(
+      "No events matched the provided filters (--level error).\n"
+    );
+  });
+
+  it("rejects unsupported --level values", async () => {
+    const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await logsCommand(["--level", "debug"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(stdout.output()).toBe("");
+    expect(stderr.output()).toBe(
+      'Unknown --level "debug". Valid values: error, warn, info.\n'
+    );
+    expect(process.exitCode).toBe(1);
   });
 
   it("sorts scanned events chronologically across project run directories", async () => {
