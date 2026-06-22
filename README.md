@@ -19,35 +19,33 @@ GitHub Symphony is a multi-tenant AI coding agent orchestration platform built o
     export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
     ```
 
+## Quickstart
+
+Prerequisites: Node.js 24+, Git, GitHub auth through `gh` or `GITHUB_GRAPHQL_TOKEN`, one authenticated agent runtime such as `codex` or `claude`, and an existing GitHub Project.
+
+```bash
+npm install -g @gh-symphony/cli
+gh-symphony doctor
+cd your-repo
+gh-symphony setup
+gh-symphony repo start --once
+```
+
+If `doctor` reports a fixable local issue, run `gh-symphony doctor --fix`, then repeat the command that failed.
+
 ## Getting Started
 
-### 1. Install Package
+### 1. Install the CLI
 
 ```bash
 npm install -g @gh-symphony/cli
 ```
 
-Or use the official container image:
-
-```bash
-docker pull ghcr.io/hojinzs/github-symphony:latest
-docker run --rm ghcr.io/hojinzs/github-symphony:latest gh-symphony --version
-```
-
-Verify the installation:
+Verify the installation and local prerequisites:
 
 ```bash
 gh-symphony --version
-```
-
-Validate the local prerequisites before setup:
-
-```bash
 gh-symphony doctor
-gh-symphony doctor --fix
-gh-symphony doctor --json
-gh-symphony doctor --smoke
-gh-symphony doctor --bundle
 ```
 
 Token-only validation works without `gh`:
@@ -55,6 +53,181 @@ Token-only validation works without `gh`:
 ```bash
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
+
+### 2. Run Setup
+
+Navigate to the repository you want to orchestrate, then run:
+
+```bash
+cd your-repo
+gh-symphony setup
+```
+
+The one-command setup flow will:
+
+1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
+2. Let you select a **GitHub Project**
+3. Map project status columns to workflow phases (active / wait / terminal)
+4. Configure the repository runtime for the orchestrator
+5. Generate the following files:
+
+| File                                    | Description                                                       |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
+| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
+
+Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the repository runtime that will be saved under `.runtime/orchestrator/`.
+
+Token-only setup is supported when exactly one GitHub Project is visible to the token:
+
+```bash
+export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
+gh-symphony setup
+```
+
+If non-interactive setup needs an explicit GitHub Project selection, run the two commands directly:
+
+```bash
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
+GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony repo init
+```
+
+### 3. Run One Smoke Tick
+
+Run a one-shot orchestration tick before leaving the orchestrator on:
+
+```bash
+gh-symphony doctor --smoke
+gh-symphony repo start --once
+```
+
+`doctor --smoke` validates the live GitHub Project binding, repository access, `WORKFLOW.md`, runtime command, workspace root, and configured hook paths without dispatching a worker. `repo start --once` performs one poll/reconcile/dispatch tick and exits.
+
+Use an explicit issue when you want a deterministic preflight:
+
+```bash
+gh-symphony doctor --smoke --issue owner/repo#123
+gh-symphony repo run owner/repo#123 --watch
+```
+
+### 4. Start the Orchestrator
+
+After the smoke tick succeeds, start continuous orchestration:
+
+```bash
+gh-symphony repo start             # foreground
+gh-symphony repo start --daemon    # background
+gh-symphony repo stop
+```
+
+Monitor:
+
+```bash
+gh-symphony repo status                  # Show current status
+gh-symphony repo status --watch          # Live dashboard
+gh-symphony repo logs                    # View event logs
+gh-symphony repo logs --follow           # Stream logs in real-time
+gh-symphony repo logs --issue org/repo#1 # Filter by issue
+gh-symphony repo logs --run <run-id>     # Read events for a specific run
+gh-symphony repo logs --level <level>    # Filter by log level
+```
+
+## End-to-End Walkthrough
+
+This is the normal happy path for one repository already connected by `gh-symphony setup`.
+
+1. Create or choose a GitHub Project issue in a status that your generated `WORKFLOW.md` maps to an active phase, such as `Ready`.
+2. Run `gh-symphony doctor --smoke --issue owner/repo#123` to verify the issue, project item, status mapping, repository checkout, workflow prompt rendering, and agent runtime.
+3. Run `gh-symphony repo start --once` for a single production-like orchestration tick.
+4. Symphony reads the active issue from the GitHub Project, creates or reuses the issue workspace under `.runtime/orchestrator/`, and dispatches the configured runtime command.
+5. The worker follows `WORKFLOW.md`, updates the issue with workpad/status comments according to your policy, creates a branch, commits changes, pushes it, and opens a PR linked to the issue.
+6. Review the opened PR. When your workflow policy moves the issue into a wait/review state, the orchestrator leaves it for human review instead of starting more work.
+
+For a deterministic single issue run, use:
+
+```bash
+gh-symphony repo run owner/repo#123 --watch
+```
+
+When the PR is open, use `gh-symphony repo logs --issue owner/repo#123` or `gh-symphony repo status --watch` to inspect the run without digging through runtime files.
+
+## Advanced Setup
+
+### Workflow-Only Initialization
+
+Use `workflow init` when you want to generate or preview repository policy files without binding the repository runtime in the same command:
+
+```bash
+gh-symphony workflow init
+gh-symphony workflow init --dry-run
+gh-symphony workflow validate
+gh-symphony workflow preview --issue owner/repo#123
+```
+
+The interactive wizard authenticates through `GITHUB_GRAPHQL_TOKEN` or `gh`, lets you select a GitHub Project, maps project status columns to active / wait / terminal phases, and writes `WORKFLOW.md` plus runtime skill definitions under `.codex/skills/` or `.claude/skills/`.
+
+Project discovery is pagination-aware for larger GitHub accounts, so personal projects, organization pages, and organization-owned projects are fetched across multiple API pages before selection. If the CLI hits a discovery safety cap, it keeps the partial list and prints a warning before you choose a board.
+
+`workflow init` is not limited to Node repositories. The detector recognizes conservative validation signals for JavaScript / TypeScript, Python, Go, Rust, `Makefile`, and `justfile` repositories. When the repository exposes an unambiguous entry point, the generated guidance will prefer commands such as `make test`, `just lint`, `uv run pytest`, `go test ./...`, or `cargo test`. When signals conflict at the same confidence level, the generator falls back to generic validation guidance instead of guessing.
+
+### Customizing Agent Behavior
+
+The generated skill files define how the AI agent handles commits, pushes, pulls, and project status transitions. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
+
+You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
+
+> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
+
+### Explicit GitHub Priority Mapping
+
+GitHub Project V2 priority is repository policy in `WORKFLOW.md`. The runtime uses exactly one configured source and never falls back or guesses renamed labels, Project fields, or option values. Anything unmapped resolves to `priority = null`.
+
+Use a Project single-select field:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: project-field
+    field: Priority
+    values:
+      Urgent: 0
+      High: 1
+      Medium: 2
+      Low: 3
+```
+
+Or use exact repository labels:
+
+```yaml
+tracker:
+  kind: github-project
+  project_id: PVT_kwDOxxxxxx
+  state_field: Status
+  priority:
+    source: labels
+    labels:
+      P0: 0
+      P1: 1
+      P2: 2
+```
+
+Or disable priority dispatch explicitly:
+
+```yaml
+tracker:
+  kind: github-project
+  priority:
+    source: disabled
+```
+
+Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
+
+Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
+
+`gh-symphony workflow validate` reports local config errors and legacy priority warnings. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
 
 ### Official Container Deployment
 
@@ -163,195 +336,21 @@ docker run --rm \
   gh-symphony doctor --smoke --project-id your-project-id
 ```
 
-### 2. Run Setup
+## Orchestration Commands
 
-Navigate to the repository you want to orchestrate, then run:
+The command reference follows the CLI's Setup / Orchestration / Maintenance grouping.
 
-```bash
-cd your-repo
-gh-symphony setup
-```
-
-The one-command setup flow will:
-
-1. Authenticate via `gh` CLI
-2. Let you select a **GitHub Project**
-3. Map project status columns to workflow phases (active / wait / terminal)
-4. Configure the repository runtime for the orchestrator
-5. Generate the following files:
-
-| File                                    | Description                                                       |
-| --------------------------------------- | ----------------------------------------------------------------- |
-| `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
-
-Before writing anything, the interactive wizard shows a final summary that combines the workflow file preview and the repository runtime that will be saved under `.runtime/orchestrator/`.
-
-Non-interactive mode:
-
-```bash
-gh-symphony setup --non-interactive
-```
-
-### 3. Set Repository Only
-
-Navigate to the repository you want to orchestrate, then run:
-
-```bash
-cd your-repo
-gh-symphony workflow init
-```
-
-Preview the generated files without writing anything:
-
-```bash
-gh-symphony workflow init --dry-run
-gh-symphony workflow validate
-gh-symphony workflow preview --issue owner/repo#123
-gh-symphony doctor --smoke --issue owner/repo#123
-```
-
-The interactive wizard will:
-
-1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
-2. Let you select a **GitHub Project** to bind
-3. Map project status columns to workflow phases (active / wait / terminal)
-4. Generate the following files:
-
-| File                                    | Description                                                       |
-| --------------------------------------- | ----------------------------------------------------------------- |
-| `WORKFLOW.md`                           | Workflow policy — the agent prompt template with lifecycle config |
-| `.codex/skills/` (or `.claude/skills/`) | Agent skill definitions, including `/gh-symphony` references      |
-
-Project discovery is pagination-aware for larger GitHub accounts, so personal projects, organization pages, and organization-owned projects are fetched across multiple API pages before selection. If the CLI hits a discovery safety cap, it keeps the partial list and prints a warning before you choose a board.
-
-`gh-symphony workflow init --dry-run` resolves the same generated outputs, shows whether each path would be created, updated, or left unchanged, and prints the detected environment inputs that shaped the preview.
-
-Those detected inputs are also threaded into the generated artifacts themselves: `WORKFLOW.md` and the runtime skill templates include repository-aware validation guidance based on the detected package manager, monorepo shape, and explicit validation entry points when present.
-
-`workflow init` is not limited to Node repositories. The detector now recognizes conservative validation signals for:
-
-- JavaScript / TypeScript lockfiles and `package.json` scripts
-- Python repositories with `uv.lock`, `poetry.lock`, `pyproject.toml`, `pytest.ini`, and `requirements*.txt`
-- Go repositories with `go.mod`
-- Rust repositories with `Cargo.toml`
-- Top-level command runners such as `Makefile` and `justfile`
-
-When the repository exposes an unambiguous entry point, the generated guidance will prefer commands such as `make test`, `just lint`, `uv run pytest`, `go test ./...`, or `cargo test`. When signals conflict at the same confidence level, the generator intentionally falls back to generic validation guidance instead of guessing.
-
-Token-only interactive setup is supported:
-
-```bash
-export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
-gh-symphony workflow init
-```
-
-#### Customizing Agent Behavior
-
-The generated skill files (under `.codex/skills/` or `.claude/skills/`) define how the AI agent handles commits, pushes, pulls, and project status transitions. The `/gh-symphony` skill also includes `references/` files for workflow schema details and prompt-body postures (`implement`, `review`, and `maintain`) that can be composed when designing or refining `WORKFLOW.md`.
-
-You can further customize the agent's behavior by editing `WORKFLOW.md` or by adding repository-specific reference markdown under the `/gh-symphony` skill's `references/` directory. `WORKFLOW.md` remains the policy layer that controls what the agent does at each workflow phase.
-
-> Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
-
-#### Explicit GitHub Priority Mapping
-
-GitHub Project V2 priority is repository policy in `WORKFLOW.md`. The runtime uses exactly one configured source and never falls back or guesses renamed labels, Project fields, or option values. Anything unmapped resolves to `priority = null`.
-
-Use a Project single-select field:
-
-```yaml
-tracker:
-  kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: project-field
-    field: Priority
-    values:
-      Urgent: 0
-      High: 1
-      Medium: 2
-      Low: 3
-```
-
-Or use exact repository labels:
-
-```yaml
-tracker:
-  kind: github-project
-  project_id: PVT_kwDOxxxxxx
-  state_field: Status
-  priority:
-    source: labels
-    labels:
-      P0: 0
-      P1: 1
-      P2: 2
-```
-
-Or disable priority dispatch explicitly:
-
-```yaml
-tracker:
-  kind: github-project
-  priority:
-    source: disabled
-```
-
-Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
-
-Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
-
-`gh-symphony workflow validate` reports local config errors and legacy priority warnings. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
-
-### 4. Set Orchestrator Runner (Repository)
-
-From inside the cloned repository that should run orchestration, initialize the workflow and repository runtime:
-
-```bash
-gh-symphony setup
-```
-
-The interactive wizard will:
-
-1. Authenticate via `GITHUB_GRAPHQL_TOKEN` or fall back to `gh` CLI
-2. Let you select a **GitHub Project**
-3. Optionally limit processing to issues assigned to the authenticated user
-4. Write `WORKFLOW.md`, support files, and `.runtime/orchestrator/` in the repository
-
-Project discovery is pagination-aware here as well, so large personal and organization-backed GitHub accounts can browse across multiple project pages. If discovery stops at a safety limit, the wizard warns that the visible list may be incomplete.
-
-Token-only setup is supported too when exactly one GitHub Project is visible to the token:
-
-```bash
-export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
-gh-symphony setup
-```
-
-If non-interactive setup needs an explicit GitHub Project selection, run the two commands directly:
-
-```bash
-GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony workflow init --non-interactive --project PVT_xxx --output WORKFLOW.md
-GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony repo init
-```
-
-Repository commands:
+Setup:
 
 ```bash
 gh-symphony doctor                   # Validate local prerequisites, auth, config, WORKFLOW.md, and runtime command
 gh-symphony doctor --fix             # Create safe missing paths and print/run remediation follow-ups
+gh-symphony doctor --json            # Print machine-readable diagnostics
 gh-symphony doctor --smoke           # Final preflight: validate a live issue without dispatching work
-gh-symphony doctor --bundle          # Export a redacted support bundle for bug reports
 gh-symphony repo init                # Bind .runtime/orchestrator to the cwd repository
-gh-symphony repo status              # Show current repository orchestration status
-gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatching
-gh-symphony repo start               # Start this repository
-gh-symphony repo start --once        # Run one orchestration tick for this repository
-gh-symphony repo stop                # Stop this repository
 ```
 
-### 5. Run the Orchestrator
+Orchestration:
 
 ```bash
 gh-symphony repo start                   # Start (foreground)
@@ -359,6 +358,8 @@ gh-symphony repo start --once            # First managed-project smoke run, then
 gh-symphony repo start --daemon          # Start (background)
 gh-symphony repo stop                    # Stop the daemon
 gh-symphony repo stop --force            # Force stop with SIGKILL
+gh-symphony repo run org/repo#123        # Dispatch a single issue
+gh-symphony repo run org/repo#123 --watch
 ```
 
 Monitor:
@@ -371,6 +372,15 @@ gh-symphony repo logs --follow           # Stream logs in real-time
 gh-symphony repo logs --issue org/repo#1 # Filter by issue
 gh-symphony repo logs --run <run-id>     # Read events for a specific run
 gh-symphony repo logs --level <level>    # Filter by log level
+```
+
+Maintenance:
+
+```bash
+gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatching
+gh-symphony repo recover                 # Recover stalled runs
+gh-symphony repo recover --dry-run       # Preview what would be recovered
+gh-symphony doctor --bundle              # Export a redacted support bundle for bug reports
 ```
 
 Create a shareable support bundle when reporting setup or orchestration
@@ -386,13 +396,6 @@ The bundle includes `manifest.json`, `doctor.json`, redacted config and project
 metadata, `WORKFLOW.md`, runtime status files when present, and bounded tails of
 recent run logs/events. Optional missing files are recorded in the manifest
 instead of failing the export.
-
-Dispatch a single issue:
-
-```bash
-gh-symphony repo run org/repo#123
-gh-symphony repo run org/repo#123 --watch  # Watch status after dispatch
-```
 
 ### Why Is My Issue Not Running?
 
