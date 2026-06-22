@@ -14,6 +14,8 @@ import { createRemovedCommandHandler } from "./commands/removed-command.js";
 
 export type GlobalOptions = {
   configDir: string;
+  configDirOverride?: boolean;
+  configDirSource?: "cli" | "env" | "default";
   verbose: boolean;
   json: boolean;
   noColor: boolean;
@@ -92,15 +94,25 @@ function addGlobalOptions(command: Command): Command {
     .option("--no-color", "Disable color output");
 }
 
-function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
+export function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
   const configInput =
     typeof values.config === "string"
       ? values.config
       : typeof values.configDir === "string"
         ? values.configDir
         : undefined;
+  const configDirSource =
+    configInput !== undefined
+      ? "cli"
+      : typeof process.env.GH_SYMPHONY_CONFIG_DIR === "string"
+        ? "env"
+        : "default";
+  const hasConfigOverride =
+    configDirSource === "cli" || hasExplicitConfigEnvOverride();
   const options: GlobalOptions = {
     configDir: resolveConfigDir(configInput),
+    configDirOverride: hasConfigOverride,
+    configDirSource,
     verbose: Boolean(values.verbose),
     json: Boolean(values.json),
     noColor: Boolean(values.noColor),
@@ -112,6 +124,14 @@ function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
   setNoColor(options.noColor);
 
   return options;
+}
+
+function hasExplicitConfigEnvOverride(): boolean {
+  const envConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+  if (!envConfigDir) {
+    return false;
+  }
+  return envConfigDir !== "/var/lib/gh-symphony";
 }
 
 function resolveProjectId(values: CliOptionValues): string | undefined {

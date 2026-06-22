@@ -1,4 +1,5 @@
 import type { GlobalOptions } from "../index.js";
+import { existsSync } from "node:fs";
 import logsCommand from "./logs.js";
 import recoverCommand from "./recover.js";
 import repoExplainCommand from "./repo-explain.js";
@@ -6,12 +7,15 @@ import runCommand from "./run.js";
 import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
+import { configFilePath } from "../config.js";
 import {
   initRepoRuntime,
   parseRepoRuntimeFlags,
 } from "../repo-runtime.js";
 import { resolveRepoRuntimeRoot } from "../orchestrator-runtime.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
+
+const DOCKER_DEFAULT_CONFIG_DIR = "/var/lib/gh-symphony";
 
 const handler = async (
   args: string[],
@@ -61,11 +65,33 @@ const handler = async (
 
 export default handler;
 
-function repoOptions(options: GlobalOptions): GlobalOptions {
+export function repoOptions(options: GlobalOptions): GlobalOptions {
+  const repoRuntimeRoot = resolveRepoRuntimeRoot();
   return {
     ...options,
-    configDir: resolveRepoRuntimeRoot(),
+    configDir: shouldUseConfigDirOverride(options, repoRuntimeRoot)
+      ? options.configDir
+      : repoRuntimeRoot,
   };
+}
+
+function shouldUseConfigDirOverride(
+  options: GlobalOptions,
+  repoRuntimeRoot: string
+): boolean {
+  if (!options.configDirOverride) {
+    return false;
+  }
+
+  if (
+    options.configDirSource === "env" &&
+    options.configDir === DOCKER_DEFAULT_CONFIG_DIR &&
+    existsSync(configFilePath(repoRuntimeRoot))
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 async function repoInit(args: string[], options: GlobalOptions): Promise<void> {

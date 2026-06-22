@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCli } from "./index.js";
+import { resolveGlobalOptions, runCli } from "./index.js";
 import {
   saveGlobalConfig,
   saveProjectConfig,
@@ -52,6 +52,46 @@ afterEach(() => {
 });
 
 describe("Commander CLI entrypoint", () => {
+  it("marks explicit config sources as config overrides", () => {
+    const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+
+    try {
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
+      expect(
+        resolveGlobalOptions({ config: "/tmp/from-config" })
+          .configDirOverride
+      ).toBe(true);
+      expect(resolveGlobalOptions({ config: "/tmp/from-config" }))
+        .toMatchObject({
+          configDir: "/tmp/from-config",
+          configDirOverride: true,
+          configDirSource: "cli",
+        });
+      expect(
+        resolveGlobalOptions({ configDir: "/tmp/from-config-dir" })
+          .configDirOverride
+      ).toBe(true);
+      expect(resolveGlobalOptions({}).configDirOverride).toBe(false);
+      expect(resolveGlobalOptions({}).configDirSource).toBe("default");
+
+      process.env.GH_SYMPHONY_CONFIG_DIR = "/tmp/from-env";
+      expect(resolveGlobalOptions({}).configDirOverride).toBe(true);
+      expect(resolveGlobalOptions({}).configDir).toBe("/tmp/from-env");
+      expect(resolveGlobalOptions({}).configDirSource).toBe("env");
+
+      process.env.GH_SYMPHONY_CONFIG_DIR = "/var/lib/gh-symphony";
+      expect(resolveGlobalOptions({}).configDirOverride).toBe(false);
+      expect(resolveGlobalOptions({}).configDir).toBe("/var/lib/gh-symphony");
+      expect(resolveGlobalOptions({}).configDirSource).toBe("env");
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.GH_SYMPHONY_CONFIG_DIR;
+      } else {
+        process.env.GH_SYMPHONY_CONFIG_DIR = originalConfigDir;
+      }
+    }
+  });
+
   it("supports global options after removed repo subcommands", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-index-"));
     const stderr = captureWrites(process.stderr);

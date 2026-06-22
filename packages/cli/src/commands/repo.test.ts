@@ -11,6 +11,11 @@ async function loadRepoCommand() {
   return mod.default;
 }
 
+async function loadRepoModule() {
+  vi.resetModules();
+  return import("./repo.js");
+}
+
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
   restore: () => void;
@@ -100,6 +105,78 @@ afterEach(() => {
 });
 
 describe("repo init runtime migration", () => {
+  it("preserves an explicit global config override for repo subcommands", async () => {
+    const { repoOptions } = await loadRepoModule();
+    const configDir = join(tmpdir(), "captured-runtime");
+
+    expect(
+      repoOptions({
+        ...baseOptions(configDir),
+        configDirOverride: true,
+      }).configDir
+    ).toBe(configDir);
+  });
+
+  it("preserves a non-default environment config override for repo subcommands", async () => {
+    const { repoOptions } = await loadRepoModule();
+    const configDir = join(tmpdir(), "captured-runtime-env");
+
+    expect(
+      repoOptions({
+        ...baseOptions(configDir),
+        configDirOverride: true,
+        configDirSource: "env",
+      }).configDir
+    ).toBe(configDir);
+  });
+
+  it("keeps the cwd repo runtime for the official Docker default env path", async () => {
+    const { repoOptions } = await loadRepoModule();
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-options-docker-"));
+    const repoRuntimeDir = join(repoDir, ".runtime", "orchestrator");
+    const originalCwd = process.cwd();
+
+    await mkdir(repoRuntimeDir, { recursive: true });
+    await writeFile(
+      join(repoRuntimeDir, "config.json"),
+      JSON.stringify({ activeProject: "repository", projects: ["repository"] }),
+      "utf8"
+    );
+
+    try {
+      process.chdir(repoDir);
+      const expectedRepoRuntimeDir = join(
+        process.cwd(),
+        ".runtime",
+        "orchestrator"
+      );
+      expect(
+        repoOptions({
+          ...baseOptions("/var/lib/gh-symphony"),
+          configDirOverride: true,
+          configDirSource: "env",
+        }).configDir
+      ).toBe(expectedRepoRuntimeDir);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("falls back to the cwd repo runtime when no config override was supplied", async () => {
+    const { repoOptions } = await loadRepoModule();
+    const repoDir = await mkdtemp(join(tmpdir(), "repo-options-"));
+    const originalCwd = process.cwd();
+
+    try {
+      process.chdir(repoDir);
+      expect(repoOptions(baseOptions(join(tmpdir(), "global"))).configDir).toBe(
+        join(process.cwd(), ".runtime", "orchestrator")
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
   it("does not advertise removed repo-set commands in fallback usage", async () => {
     const stderr = captureWrites(process.stderr);
     const repoCommand = await loadRepoCommand();
