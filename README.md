@@ -76,6 +76,10 @@ Token-only validation works without `gh`:
 GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token gh-symphony doctor --json
 ```
 
+For the full list of operator knobs, runtime credentials, GHES overrides, and
+auto-injected worker variables, see
+[Configuration: Environment Variables](docs/configuration.md#environment-loading-order).
+
 ### 2. Run Setup
 
 Navigate to the repository you want to orchestrate, then run:
@@ -359,6 +363,11 @@ Supported container environment variables:
 
 - `GITHUB_GRAPHQL_TOKEN`: recommended auth source inside containers; requires `repo`, `read:org`, `project`
 - `GH_SYMPHONY_CONFIG_DIR`: optional override for the runtime config directory; defaults to `/var/lib/gh-symphony`
+
+See
+[Configuration: Environment Variables](docs/configuration.md#auth-and-api-endpoints)
+for GHES endpoints, token brokers, runtime credentials, and tuning knobs used by
+containerized workers.
 
 Supported volume mounts:
 
@@ -733,6 +742,11 @@ This means you can:
 - Override per-repository by committing a `WORKFLOW.md` to the repo root
 
 ### Environment Variables
+
+This section covers the project `.env` file and hook context merge order. For a
+single reference of every environment variable read by the CLI, orchestrator,
+worker, and runtimes, see
+[Configuration: Environment Variables](docs/configuration.md#environment-loading-order).
 
 #### Project `.env` File
 
