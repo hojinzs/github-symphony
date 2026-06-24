@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import { formatErrorForTerminal, hasVerboseFlag } from "@gh-symphony/core";
 import {
   createStore,
   OrchestratorService,
@@ -244,7 +245,7 @@ function parseArgs(args: string[]): {
     const argument = args[index];
     const value = args[index + 1];
 
-    if (!argument?.startsWith("--")) {
+    if (!argument?.startsWith("-")) {
       continue;
     }
 
@@ -276,6 +277,10 @@ function parseArgs(args: string[]): {
         parsed.logLevel = value;
         index += 1;
         break;
+      case "--verbose":
+      case "-v":
+        parsed.logLevel = "verbose";
+        break;
       default:
         throw new Error(`Unknown option: ${argument}`);
     }
@@ -298,8 +303,20 @@ if (
 ) {
   main().catch((error: unknown) => {
     process.stderr.write(
-      `${error instanceof Error ? error.message : "Unknown error"}\n`
+      formatErrorForTerminal(error, {
+        verbose: hasVerboseOrchestratorDiagnostics(process.argv.slice(2)),
+      })
     );
     process.exitCode = 1;
   });
+}
+
+function hasVerboseOrchestratorDiagnostics(argv: readonly string[]): boolean {
+  if (hasVerboseFlag(argv) || process.env.SYMPHONY_LOG_LEVEL === "verbose") {
+    return true;
+  }
+
+  return argv.some(
+    (arg, index) => arg === "--log-level" && argv[index + 1] === "verbose"
+  );
 }

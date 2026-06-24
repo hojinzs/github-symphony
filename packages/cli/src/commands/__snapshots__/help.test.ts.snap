@@ -34,7 +34,7 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
 [33m[1mGlobal Options:[0m[0m
   [36m--config <dir>[0m              Config directory override (advanced; default uses initialized
                               cwd runtime, then ~/.gh-symphony)
-  [36m--verbose, -v[0m               Verbose output
+  [36m--verbose, -v[0m               Verbose output, including top-level error stack traces
   [36m--json[0m                      JSON output
   [36m--no-color[0m                  Disable color output
   [36m--help, -h[0m                  Show help
@@ -76,7 +76,7 @@ Maintenance:
 Global Options:
   --config <dir>              Config directory override (advanced; default uses initialized
                               cwd runtime, then ~/.gh-symphony)
-  --verbose, -v               Verbose output
+  --verbose, -v               Verbose output, including top-level error stack traces
   --json                      JSON output
   --no-color                  Disable color output
   --help, -h                  Show help

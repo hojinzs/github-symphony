@@ -131,7 +131,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         name: "--verbose, -v",
-        description: "Verbose output",
+        description: "Verbose output, including top-level error stack traces",
       },
       {
         name: "--json",
