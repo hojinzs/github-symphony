@@ -198,6 +198,71 @@ describe("setup command", () => {
     );
   });
 
+  it.each([
+    [
+      "not_installed",
+      "gh CLI is not installed.",
+      "Install gh CLI from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN.",
+      false,
+    ],
+    [
+      "not_authenticated",
+      "gh CLI is not authenticated.",
+      "Run 'gh auth login --scopes repo,read:org,project', then re-run 'gh-symphony setup'.",
+      true,
+    ],
+    [
+      "missing_scopes",
+      "Run 'gh auth refresh --scopes repo,read:org,project'. Missing scopes: project",
+      "Run 'gh auth refresh --scopes project', then re-run 'gh-symphony setup'.",
+      true,
+    ],
+    [
+      "invalid_token",
+      "GITHUB_GRAPHQL_TOKEN is invalid or expired.",
+      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony setup'.",
+      true,
+    ],
+    [
+      "token_failed",
+      "gh CLI token could not be validated.",
+      "Run 'gh auth login --scopes repo,read:org,project' to re-authenticate, then re-run 'gh-symphony setup'.",
+      true,
+    ],
+  ] as const)(
+    "reports shared English gh auth remediation for interactive setup %s failures",
+    async (code, message, expectedHint, expectsRetryCommand) => {
+      vi.mocked(ghAuth.ensureGhAuth).mockImplementation(() => {
+        throw new ghAuth.GhAuthError(code, message, {
+          missingScopes: code === "missing_scopes" ? ["project"] : undefined,
+          currentScopes:
+            code === "missing_scopes" ? ["repo", "read:org"] : undefined,
+        });
+      });
+
+      await setupCommand([], {
+        configDir: "/tmp/unused",
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+
+      const errorOutput = vi
+        .mocked(p.log.error)
+        .mock.calls.map(([line]) => line)
+        .join("\n");
+
+      expect(errorOutput).toContain(message);
+      expect(errorOutput).toContain(expectedHint);
+      if (expectsRetryCommand) {
+        expect(errorOutput).toContain("gh-symphony setup");
+      }
+      expect(errorOutput).not.toMatch(/[가-힣]/);
+      expect(githubClient.listUserProjects).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    }
+  );
+
   it("writes workflow files and managed-project config in non-interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-cwd-"));
     const configDir = await mkdtemp(
