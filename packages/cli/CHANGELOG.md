@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.4.7
+
+### Patch Changes
+
+- [#411](https://github.com/hojinzs/github-symphony/pull/411) [`c7c8e2d`](https://github.com/hojinzs/github-symphony/commit/c7c8e2da90765b512851127c4f96921134ce4760) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix issue [#389](https://github.com/hojinzs/github-symphony/issues/389) so `gh-symphony repo` subcommands honor the documented global `--config` / `GH_SYMPHONY_CONFIG_DIR` runtime override instead of silently falling back to the cwd repo runtime.
+
+- [#405](https://github.com/hojinzs/github-symphony/pull/405) [`0c1b0b8`](https://github.com/hojinzs/github-symphony/commit/0c1b0b8ec53e250e5485417b4d22f0733544140e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Propagate configured GitHub Enterprise GraphQL endpoints into worker environments, validate `doctor` against the resolved GHES host, and surface endpoint diagnostics for [#388](https://github.com/hojinzs/github-symphony/issues/388).
+
+- [#407](https://github.com/hojinzs/github-symphony/pull/407) [`b4dda49`](https://github.com/hojinzs/github-symphony/commit/b4dda49ff556f7ec745107525baa4714c1614801) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix `gh-symphony repo logs --level` to derive levels from structured event types, include turn failures in error results, validate unsupported level values, and report empty filtered results clearly for issue [#386](https://github.com/hojinzs/github-symphony/issues/386).
+
 ## 0.4.6
 
 ### Patch Changes
