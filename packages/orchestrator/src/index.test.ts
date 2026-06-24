@@ -78,6 +78,37 @@ describe("orchestrator CLI", () => {
     );
   });
 
+  it("treats -v as verbose log level", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    const createService = vi.fn<
+      (
+        runtimeRoot: string,
+        projectId?: string,
+        options?: {
+          eventsDir?: string;
+          logLevel: OrchestratorLogLevel;
+          stderr: Pick<NodeJS.WriteStream, "write">;
+        }
+      ) => OrchestratorService
+    >(() => service);
+
+    await runCli(
+      ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1", "-v"],
+      {
+        createService,
+      }
+    );
+
+    expect(createService).toHaveBeenCalledWith(
+      runtimeRoot,
+      "tenant-1",
+      expect.objectContaining({
+        logLevel: "verbose",
+      })
+    );
+  });
+
   it("passes --events-dir to service creation", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const service = createMockService();

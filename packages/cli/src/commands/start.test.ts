@@ -23,6 +23,16 @@ const ghAuthMocks = vi.hoisted(() => ({
 const promptMocks = vi.hoisted(() => ({
   confirm: vi.fn(),
 }));
+const childProcessMocks = vi.hoisted(() => ({
+  spawn: vi.fn(() => ({
+    pid: 2468,
+    unref: vi.fn(),
+  })),
+}));
+
+vi.mock("node:child_process", () => ({
+  spawn: childProcessMocks.spawn,
+}));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   acquireProjectLock,
@@ -114,6 +124,11 @@ beforeEach(() => {
   ghAuthMocks.runGhAuthRefresh.mockReset();
   promptMocks.confirm.mockReset();
   promptMocks.confirm.mockResolvedValue(true);
+  childProcessMocks.spawn.mockClear();
+  childProcessMocks.spawn.mockReturnValue({
+    pid: 2468,
+    unref: vi.fn(),
+  });
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   serviceDependencies.length = 0;
@@ -606,6 +621,47 @@ describe("start command foreground locking", () => {
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("maps the global verbose option to orchestrator verbose logs", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    run.mockResolvedValue(undefined);
+
+    await startModule.default([], {
+      ...baseOptions(configDir),
+      verbose: true,
+    });
+
+    expect(serviceDependencies.at(-1)).toMatchObject({
+      logLevel: "verbose",
+    });
+  });
+
+  it("passes global verbose through to daemon child diagnostics", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+
+    await startModule.default(["--daemon"], {
+      ...baseOptions(configDir),
+      verbose: true,
+    });
+
+    expect(childProcessMocks.spawn).toHaveBeenCalledTimes(1);
+    const childArgs = childProcessMocks.spawn.mock.calls[0]?.[1];
+    expect(childArgs).toEqual(
+      expect.arrayContaining([
+        "repo",
+        "start",
+        "--verbose",
+        "--log-level",
+        "verbose",
+      ])
+    );
   });
 
   it("tails completed worker logs from the flat runtime run path", async () => {

@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { formatErrorForTerminal, hasVerboseFlag } from "@gh-symphony/core";
 import {
   Command,
   CommanderError,
@@ -89,7 +90,7 @@ function addGlobalOptions(command: Command): Command {
   return command
     .option("--config <dir>", "Config directory")
     .addOption(new Option("--config-dir <dir>").hideHelp())
-    .option("-v, --verbose", "Enable verbose output")
+    .option("-v, --verbose", "Enable verbose output with stack traces")
     .option("--json", "Output in JSON format")
     .option("--no-color", "Disable color output");
 }
@@ -763,7 +764,9 @@ if (
 ) {
   main().catch((error: unknown) => {
     process.stderr.write(
-      `${error instanceof Error ? error.message : "Unknown error"}\n`
+      formatErrorForTerminal(error, {
+        verbose: hasVerboseFlag(process.argv.slice(2)),
+      })
     );
     process.exitCode = 1;
   });

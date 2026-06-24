@@ -686,10 +686,11 @@ const handler = async (
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
   let logLevel: OrchestratorLogLevel;
+  const requestedLogLevel =
+    parsed.logLevel ??
+    (options.verbose ? "verbose" : process.env.SYMPHONY_LOG_LEVEL);
   try {
-    logLevel = resolveOrchestratorLogLevel(
-      parsed.logLevel ?? process.env.SYMPHONY_LOG_LEVEL
-    );
+    logLevel = resolveOrchestratorLogLevel(requestedLogLevel);
   } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : "Unsupported log level"}\n`
@@ -709,7 +710,7 @@ const handler = async (
     await startDaemon(
       options,
       projectId,
-      parsed.logLevel,
+      parsed.logLevel ?? (options.verbose ? "verbose" : undefined),
       parsed.httpPort,
       parsed.webPort,
       parsed.assignedOnly === true
@@ -1080,6 +1081,7 @@ async function startDaemon(
       process.argv[1]!,
       "repo",
       "start",
+      ...(options.verbose ? ["--verbose"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
