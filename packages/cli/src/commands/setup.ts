@@ -14,6 +14,7 @@ import {
 } from "../github/client.js";
 import {
   ensureGhAuth,
+  formatGhAuthRemediation,
   getGhToken,
   GhAuthError,
   REQUIRED_GH_SCOPES,
@@ -102,6 +103,15 @@ function displayScopeError(
     `gh auth refresh --scopes ${scopeArg}\n\nThen re-run: ${retryCommand}`,
     "Fix missing scope"
   );
+}
+
+function displayGhAuthError(error: GhAuthError): void {
+  const remediation = formatGhAuthRemediation(error, {
+    retryCommand: "gh-symphony setup",
+  });
+
+  p.log.error(`${remediation.title}: ${remediation.message}`);
+  p.log.error(remediation.hint);
 }
 
 async function resolveProjectDetail(
@@ -351,21 +361,7 @@ async function runInteractive(
   } catch (error) {
     authSpinner.stop("Authentication failed.");
     if (error instanceof GhAuthError) {
-      if (error.code === "not_installed") {
-        p.log.error(
-          "gh CLI가 설치되어 있지 않습니다. https://cli.github.com 에서 설치하세요."
-        );
-      } else if (error.code === "not_authenticated") {
-        p.log.error(
-          "gh auth login --scopes repo,read:org,project 를 실행하세요."
-        );
-      } else if (error.code === "missing_scopes") {
-        p.log.error(
-          "gh auth refresh --scopes repo,read:org,project 를 실행하세요."
-        );
-      } else {
-        p.log.error(error.message);
-      }
+      displayGhAuthError(error);
     } else {
       p.log.error(error instanceof Error ? error.message : "Unknown error");
     }
