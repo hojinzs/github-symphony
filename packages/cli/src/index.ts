@@ -87,24 +87,6 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     version: () => import("./commands/version.js"),
   };
 
-const NAMESPACE_COMMANDS: Record<string, readonly string[]> = {
-  workflow: ["init", "validate", "preview"],
-  repo: [
-    "list",
-    "add",
-    "remove",
-    "sync",
-    "init",
-    "start",
-    "status",
-    "stop",
-    "run",
-    "recover",
-    "logs",
-    "explain",
-  ],
-};
-
 function addGlobalOptions(command: Command): Command {
   return command
     .option("--config <dir>", "Config directory")
@@ -199,19 +181,66 @@ function hasVersionFlag(argv: string[]): boolean {
   return argv.some((arg) => arg === "--version" || arg === "-V");
 }
 
-function handleUnknownNamespaceCommand(argv: string[]): boolean {
-  const namespace = argv[0];
-  const subcommand = argv[1];
-  if (
-    !namespace ||
-    !subcommand ||
-    subcommand.startsWith("-") ||
-    !(namespace in NAMESPACE_COMMANDS)
-  ) {
+function extractNamespaceCommand(
+  argv: string[]
+): { namespace?: string; subcommand?: string } {
+  const positionals: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg) {
+      continue;
+    }
+    if (arg === "--config" || arg === "--config-dir") {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--config=") || arg.startsWith("--config-dir=")) {
+      continue;
+    }
+    if (
+      arg === "--json" ||
+      arg === "--no-color" ||
+      arg === "--verbose" ||
+      arg === "-v"
+    ) {
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      continue;
+    }
+    positionals.push(arg);
+    if (positionals.length === 2) {
+      break;
+    }
+  }
+
+  return {
+    namespace: positionals[0],
+    subcommand: positionals[1],
+  };
+}
+
+function getChildCommandNames(command: Command): readonly string[] {
+  return command.commands.map((child) => child.name());
+}
+
+function handleUnknownNamespaceCommand(
+  argv: string[],
+  program: Command
+): boolean {
+  const { namespace, subcommand } = extractNamespaceCommand(argv);
+  if (!namespace || !subcommand) {
     return false;
   }
 
-  if (NAMESPACE_COMMANDS[namespace]!.includes(subcommand)) {
+  const namespaceCommand = program.commands.find(
+    (command) => command.name() === namespace
+  );
+  if (!namespaceCommand || !["repo", "workflow"].includes(namespace)) {
+    return false;
+  }
+
+  if (getChildCommandNames(namespaceCommand).includes(subcommand)) {
     return false;
   }
 
@@ -639,7 +668,8 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("run")
       .description("Dispatch a single issue from the current repository")
-      .argument("<issue>", "Issue identifier (owner/repo#number)")
+      .usage("[options] <issue>")
+      .argument("[issue]", "Issue identifier (owner/repo#number)")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("-w, --watch", "Watch status after dispatch")
       .allowUnknownOption(true)
@@ -648,10 +678,14 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "after",
         "\nExamples:\n  $ gh-symphony repo run owner/repo#123\n"
       )
-  ).action(async function (this: Command, issue: string) {
+  ).action(async function (this: Command, issue: string | undefined) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["run", issue, ...this.args.slice(1)];
+    const args: string[] = ["run"];
+    if (issue) {
+      args.push(issue);
+    }
+    args.push(...this.args.slice(issue ? 1 : 0));
     pushOption(args, "--log-level", values.logLevel);
     pushOption(args, "--watch", values.watch);
     await invokeHandler("repo", args, values);
@@ -697,7 +731,8 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("explain")
       .description("Explain why a repository issue is not dispatching")
-      .argument("<issue>", "Issue identifier (owner/repo#number)")
+      .usage("[options] <issue>")
+      .argument("[issue]", "Issue identifier (owner/repo#number)")
       .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
       .allowUnknownOption(true)
       .allowExcessArguments(true)
@@ -705,10 +740,14 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
         "after",
         "\nExamples:\n  $ gh-symphony repo explain owner/repo#123\n"
       )
-  ).action(async function (this: Command, issue: string) {
+  ).action(async function (this: Command, issue: string | undefined) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["explain", issue, ...this.args.slice(1)];
+    const args: string[] = ["explain"];
+    if (issue) {
+      args.push(issue);
+    }
+    args.push(...this.args.slice(issue ? 1 : 0));
     pushOption(args, "--workflow", values.workflow);
     await invokeHandler("repo", args, values);
   });
@@ -796,7 +835,7 @@ export async function runCli(argv: string[]): Promise<void> {
     return;
   }
 
-  if (handleUnknownNamespaceCommand(argv)) {
+  if (handleUnknownNamespaceCommand(argv, program)) {
     return;
   }
 

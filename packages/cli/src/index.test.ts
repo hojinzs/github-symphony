@@ -350,6 +350,33 @@ describe("Commander CLI entrypoint", () => {
   );
 
   it.each([
+    [
+      ["repo", "run", "--json", "--watch"],
+      "Issue identifier argument missing",
+    ],
+    [["repo", "explain", "--json"], "Issue identifier argument missing"],
+  ])("prints JSON for missing issue in %s", async (argv, message) => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(argv);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toBe("");
+    expect(JSON.parse(stdout.output())).toEqual({
+      error: {
+        code: "invalid_arguments",
+        message,
+      },
+    });
+  });
+
+  it.each([
     [["repo", "badcmd"], "error: unknown command 'badcmd' for 'repo'"],
     [["workflow", "badcmd"], "error: unknown command 'badcmd' for 'workflow'"],
   ])("reports unknown namespace subcommands for %s", async (argv, message) => {
@@ -364,6 +391,46 @@ describe("Commander CLI entrypoint", () => {
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(message);
     expect(stderr.output()).toContain("(run with --help for usage)");
+  });
+
+  it.each([
+    ["--json", "repo", "badcmd"],
+    ["repo", "--json", "badcmd"],
+    ["repo", "badcmd", "--json"],
+  ])("prints JSON for unknown repo subcommands with globals in %s", async (
+    ...argv
+  ) => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(argv);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toBe("");
+    expect(JSON.parse(stdout.output())).toEqual({
+      error: {
+        code: "unknown_command",
+        message: "error: unknown command 'badcmd' for 'repo'",
+      },
+    });
+  });
+
+  it("does not treat inherited property names as namespace commands", async () => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["toString", "foo"]);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("unknown command 'toString'");
   });
 
   it.each([["project"], ["project", "add", "--non-interactive"]])(
