@@ -4,10 +4,12 @@ import {
   loadProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
+import { writeCliError } from "./cli-error.js";
 
 type ResolveProjectSelectionInput = {
   configDir: string;
   requestedProjectId?: string;
+  json?: boolean;
 };
 
 export type ManagedProjectResolution =
@@ -63,7 +65,8 @@ export async function inspectManagedProjectSelection(
   if (!global) {
     return {
       kind: "missing_global_config",
-      message: "No repository runtime config found. Run 'gh-symphony repo init' first.",
+      message:
+        "No repository runtime config found. Run 'gh-symphony repo init' first.",
     };
   }
 
@@ -71,7 +74,8 @@ export async function inspectManagedProjectSelection(
   if (projectIds.length === 0) {
     return {
       kind: "no_projects",
-      message: "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
+      message:
+        "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
     };
   }
 
@@ -146,8 +150,11 @@ export async function resolveManagedProjectConfig(
   }
 
   if (!isInteractiveTerminal()) {
-    process.stderr.write(explicitProjectRequiredMessage());
-    process.exitCode = 1;
+    writeCliError({
+      code: "missing_repository_runtime_config",
+      message: explicitProjectRequiredMessage().trimEnd(),
+      json: input.json,
+    });
     return null;
   }
 
@@ -182,13 +189,19 @@ export async function resolveManagedProjectConfig(
   return loadProjectConfig(input.configDir, selected);
 }
 
-export function handleMissingManagedProjectConfig(): void {
+export function handleMissingManagedProjectConfig(options?: {
+  json?: boolean;
+  message?: string;
+}): void {
   if (process.exitCode) {
     return;
   }
 
-  process.stderr.write(
-    "No repository runtime config found. Run 'gh-symphony repo init' first.\n"
-  );
-  process.exitCode = 1;
+  writeCliError({
+    code: "missing_repository_runtime_config",
+    message:
+      options?.message ??
+      "No repository runtime config found. Run 'gh-symphony repo init' first.",
+    json: options?.json,
+  });
 }

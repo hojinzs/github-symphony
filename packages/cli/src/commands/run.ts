@@ -5,6 +5,7 @@ import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
+import { writeCliError } from "../cli-error.js";
 
 function parseRunArgs(args: string[]): {
   issue?: string;
@@ -60,23 +61,33 @@ const handler = async (
   const parsed = parseRunArgs(args);
 
   if (parsed.error) {
-    process.stderr.write(`${parsed.error}\n`);
-    process.exitCode = 2;
+    writeCliError({
+      code: "invalid_arguments",
+      message: parsed.error,
+      json: options.json,
+      exitCode: 2,
+    });
     return;
   }
 
   if (!parsed.issue) {
-    process.stderr.write("Usage: gh-symphony repo run <owner/repo#number>\n");
-    process.exitCode = 2;
+    writeCliError({
+      code: "invalid_arguments",
+      message: "Issue identifier argument missing",
+      usage: "Usage: gh-symphony repo run <owner/repo#number>",
+      json: options.json,
+      exitCode: 2,
+    });
     return;
   }
 
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
     requestedProjectId: parsed.projectId,
+    json: options.json,
   });
   if (!projectConfig) {
-    handleMissingManagedProjectConfig();
+    handleMissingManagedProjectConfig({ json: options.json });
     return;
   }
 
@@ -85,26 +96,27 @@ const handler = async (
   // Validate the issue identifier belongs to a configured repo
   const [repoSpec] = parsed.issue.split("#");
   const configuredRepos = [projectConfig.repository]
-    .filter(
-      (repository): repository is NonNullable<typeof repository> =>
-        Boolean(repository?.owner && repository.name)
+    .filter((repository): repository is NonNullable<typeof repository> =>
+      Boolean(repository?.owner && repository.name)
     )
     .map((repository) => `${repository.owner}/${repository.name}`);
   const configuredRepoSet = new Set(configuredRepos);
   if (configuredRepoSet.size === 0) {
-    process.stderr.write(
-      "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.\n"
-    );
-    process.exitCode = 1;
+    writeCliError({
+      code: "repository_not_configured",
+      message:
+        "No repository is configured in this project. Run 'gh-symphony repo init' from the target repository first.",
+      json: options.json,
+    });
     return;
   }
 
   if (repoSpec && !configuredRepoSet.has(repoSpec)) {
-    process.stderr.write(
-      `Repository "${repoSpec}" is not configured in this project.\n` +
-        `Configured repo: ${configuredRepos.join(", ")}\n`
-    );
-    process.exitCode = 1;
+    writeCliError({
+      code: "repository_mismatch",
+      message: `Repository "${repoSpec}" is not configured in this project. Configured repo: ${configuredRepos.join(", ")}`,
+      json: options.json,
+    });
     return;
   }
 

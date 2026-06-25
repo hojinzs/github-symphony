@@ -168,6 +168,32 @@ describe("lifecycle command integration", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it("prints JSON when repo run cannot find a runtime config", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "run-missing-config-"));
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await runModule.default(["acme/platform#42"], {
+      ...baseOptions(configDir),
+      json: true,
+    });
+
+    expect(orchestratorRunCli).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(stderr).not.toHaveBeenCalled();
+    expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
+      error: {
+        code: "missing_repository_runtime_config",
+        message:
+          "No repository runtime config found. Run 'gh-symphony repo init' first.",
+      },
+    });
+  });
+
   it("auto-selects the only configured project when start omits --project-id", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",

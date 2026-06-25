@@ -12,6 +12,7 @@ import { resolveConfigDir } from "./config.js";
 import { renderCompletionScript } from "./completion.js";
 import { renderHelp } from "./commands/help.js";
 import { createRemovedCommandHandler } from "./commands/removed-command.js";
+import { writeCliError } from "./cli-error.js";
 
 export type GlobalOptions = {
   configDir: string;
@@ -85,6 +86,24 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     config: () => import("./commands/config-cmd.js"),
     version: () => import("./commands/version.js"),
   };
+
+const NAMESPACE_COMMANDS: Record<string, readonly string[]> = {
+  workflow: ["init", "validate", "preview"],
+  repo: [
+    "list",
+    "add",
+    "remove",
+    "sync",
+    "init",
+    "start",
+    "status",
+    "stop",
+    "run",
+    "recover",
+    "logs",
+    "explain",
+  ],
+};
 
 function addGlobalOptions(command: Command): Command {
   return command
@@ -180,6 +199,32 @@ function hasVersionFlag(argv: string[]): boolean {
   return argv.some((arg) => arg === "--version" || arg === "-V");
 }
 
+function handleUnknownNamespaceCommand(argv: string[]): boolean {
+  const namespace = argv[0];
+  const subcommand = argv[1];
+  if (
+    !namespace ||
+    !subcommand ||
+    subcommand.startsWith("-") ||
+    !(namespace in NAMESPACE_COMMANDS)
+  ) {
+    return false;
+  }
+
+  if (NAMESPACE_COMMANDS[namespace]!.includes(subcommand)) {
+    return false;
+  }
+
+  writeCliError({
+    code: "unknown_command",
+    message: `error: unknown command '${subcommand}' for '${namespace}'`,
+    usage: "(run with --help for usage)",
+    json: argv.includes("--json"),
+    exitCode: 1,
+  });
+  return true;
+}
+
 function resolveVersionOptions(argv: string[]): GlobalOptions {
   const options: GlobalOptions = {
     configDir: resolveConfigDir(),
@@ -247,7 +292,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   );
 
   const workflow = addGlobalOptions(
-    program.command("workflow").description("Manage WORKFLOW.md authoring")
+    program
+      .command("workflow")
+      .description("Manage WORKFLOW.md authoring")
+      .showHelpAfterError("(run with --help for usage)")
   );
 
   workflow.action(async function (this: Command) {
@@ -448,7 +496,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   });
 
   const repo = addGlobalOptions(
-    program.command("repo").description("Manage the current repository runtime")
+    program
+      .command("repo")
+      .description("Manage the current repository runtime")
+      .showHelpAfterError("(run with --help for usage)")
   );
 
   repo.action(async function (this: Command) {
@@ -456,19 +507,19 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     await invokeHandler("repo", [], this.optsWithGlobals<CliOptionValues>());
   });
 
-  addGlobalOptions(repo.command("list").description("Removed")).action(
-    async function (this: Command) {
-      markInvoked();
-      await invokeRemovedCommand(
-        "Removed. Repository identity is shown by 'repo status'.",
-        this.optsWithGlobals<CliOptionValues>()
-      );
-    }
-  );
+  addGlobalOptions(
+    repo.command("list", { hidden: true }).description("Removed")
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeRemovedCommand(
+      "Removed. Repository identity is shown by 'repo status'.",
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
 
   addGlobalOptions(
     repo
-      .command("add")
+      .command("add", { hidden: true })
       .description("Removed")
       .argument("[owner/name]", "Repository spec")
       .allowExcessArguments(false)
@@ -482,7 +533,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
 
   addGlobalOptions(
     repo
-      .command("remove")
+      .command("remove", { hidden: true })
       .description("Removed")
       .argument("[owner/name]", "Repository spec")
       .allowExcessArguments(false)
@@ -495,7 +546,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   });
 
   addGlobalOptions(
-    repo.command("sync").description("Removed").allowExcessArguments(false)
+    repo
+      .command("sync", { hidden: true })
+      .description("Removed")
+      .allowExcessArguments(false)
   ).action(async function (this: Command) {
     markInvoked();
     await invokeRemovedCommand(
@@ -585,15 +639,19 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("run")
       .description("Dispatch a single issue from the current repository")
-      .argument("[args...]", "Issue identifier and passthrough options")
+      .argument("<issue>", "Issue identifier (owner/repo#number)")
       .option("--log-level <level>", "Orchestrator lifecycle log level")
       .option("-w, --watch", "Watch status after dispatch")
       .allowUnknownOption(true)
       .allowExcessArguments(true)
-  ).action(async function (this: Command, passthrough: string[]) {
+      .addHelpText(
+        "after",
+        "\nExamples:\n  $ gh-symphony repo run owner/repo#123\n"
+      )
+  ).action(async function (this: Command, issue: string) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["run", ...passthrough];
+    const args: string[] = ["run", issue, ...this.args.slice(1)];
     pushOption(args, "--log-level", values.logLevel);
     pushOption(args, "--watch", values.watch);
     await invokeHandler("repo", args, values);
@@ -639,14 +697,18 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     repo
       .command("explain")
       .description("Explain why a repository issue is not dispatching")
-      .argument("[args...]", "Issue identifier and passthrough options")
+      .argument("<issue>", "Issue identifier (owner/repo#number)")
       .option("--workflow <path>", "Path to the WORKFLOW.md file to evaluate")
       .allowUnknownOption(true)
       .allowExcessArguments(true)
-  ).action(async function (this: Command, passthrough: string[]) {
+      .addHelpText(
+        "after",
+        "\nExamples:\n  $ gh-symphony repo explain owner/repo#123\n"
+      )
+  ).action(async function (this: Command, issue: string) {
     markInvoked();
     const values = this.optsWithGlobals<CliOptionValues>();
-    const args: string[] = ["explain", ...passthrough];
+    const args: string[] = ["explain", issue, ...this.args.slice(1)];
     pushOption(args, "--workflow", values.workflow);
     await invokeHandler("repo", args, values);
   });
@@ -731,6 +793,10 @@ export async function runCli(argv: string[]): Promise<void> {
   if (hasVersionFlag(argv)) {
     const versionModule = await COMMANDS.version();
     await versionModule.default([], resolveVersionOptions(argv));
+    return;
+  }
+
+  if (handleUnknownNamespaceCommand(argv)) {
     return;
   }
 

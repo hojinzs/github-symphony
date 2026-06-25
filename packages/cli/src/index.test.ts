@@ -58,15 +58,15 @@ describe("Commander CLI entrypoint", () => {
     try {
       delete process.env.GH_SYMPHONY_CONFIG_DIR;
       expect(
-        resolveGlobalOptions({ config: "/tmp/from-config" })
-          .configDirOverride
+        resolveGlobalOptions({ config: "/tmp/from-config" }).configDirOverride
       ).toBe(true);
-      expect(resolveGlobalOptions({ config: "/tmp/from-config" }))
-        .toMatchObject({
-          configDir: "/tmp/from-config",
-          configDirOverride: true,
-          configDirSource: "cli",
-        });
+      expect(
+        resolveGlobalOptions({ config: "/tmp/from-config" })
+      ).toMatchObject({
+        configDir: "/tmp/from-config",
+        configDirOverride: true,
+        configDirSource: "cli",
+      });
       expect(
         resolveGlobalOptions({ configDir: "/tmp/from-config-dir" })
           .configDirOverride
@@ -281,21 +281,22 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--skip-context");
   });
 
-  it("shows repo sync as removed in command help", async () => {
+  it("keeps hidden removed repo commands callable", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
 
     try {
-      await runCli(["repo", "sync", "--help"]);
+      await runCli(["repo", "sync"]);
     } finally {
       stdout.restore();
       stderr.restore();
     }
 
     const output = stdout.output() + stderr.output();
-    expect(output).not.toContain("--dry-run");
-    expect(output).not.toContain("--prune");
-    expect(output).toContain("Removed");
+    expect(output).toContain(
+      "Removed. Single-repo model has no linked-repo set to sync."
+    );
+    expect(process.exitCode).toBe(2);
   });
 
   it("shows repo lifecycle and diagnostic commands in help", async () => {
@@ -314,6 +315,55 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("recover");
     expect(output).toContain("logs");
     expect(output).toContain("explain");
+    expect(output).not.toContain("list");
+    expect(output).not.toContain("add");
+    expect(output).not.toContain("remove");
+    expect(output).not.toContain("sync");
+  });
+
+  it.each([
+    ["repo", "run", "gh-symphony repo run [options] <issue>", "owner/repo#123"],
+    [
+      "repo",
+      "explain",
+      "gh-symphony repo explain [options] <issue>",
+      "owner/repo#123",
+    ],
+  ])(
+    "shows issue format in %s %s help",
+    async (namespace, command, usage, example) => {
+      const stdout = captureWrites(process.stdout);
+      const stderr = captureWrites(process.stderr);
+
+      try {
+        await runCli([namespace, command, "--help"]);
+      } finally {
+        stdout.restore();
+        stderr.restore();
+      }
+
+      const output = stdout.output() + stderr.output();
+      expect(output).toContain(usage);
+      expect(output).toContain("Issue identifier (owner/repo#number)");
+      expect(output).toContain(example);
+    }
+  );
+
+  it.each([
+    [["repo", "badcmd"], "error: unknown command 'badcmd' for 'repo'"],
+    [["workflow", "badcmd"], "error: unknown command 'badcmd' for 'workflow'"],
+  ])("reports unknown namespace subcommands for %s", async (argv, message) => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(argv);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain(message);
+    expect(stderr.output()).toContain("(run with --help for usage)");
   });
 
   it.each([["project"], ["project", "add", "--non-interactive"]])(

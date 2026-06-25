@@ -10,10 +10,12 @@ import stopCommand from "./stop.js";
 import { configFilePath } from "../config.js";
 import {
   initRepoRuntime,
+  MissingWorkflowFileError,
   parseRepoRuntimeFlags,
 } from "../repo-runtime.js";
 import { resolveRepoRuntimeRoot } from "../orchestrator-runtime.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
+import { writeCliError } from "../cli-error.js";
 
 const DOCKER_DEFAULT_CONFIG_DIR = "/var/lib/gh-symphony";
 
@@ -103,13 +105,14 @@ async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
   try {
     flags = parseRepoRuntimeFlags(args);
   } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : "Invalid arguments"}\n`
-    );
-    process.stderr.write(
-      "Usage: gh-symphony repo init [--repo-dir <path>] [--workflow-file <path>]\n"
-    );
-    process.exitCode = 2;
+    writeCliError({
+      code: "invalid_arguments",
+      message: error instanceof Error ? error.message : "Invalid arguments",
+      usage:
+        "Usage: gh-symphony repo init [--repo-dir <path>] [--workflow-file <path>]",
+      json: options.json,
+      exitCode: 2,
+    });
     return;
   }
 
@@ -127,10 +130,17 @@ async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
       ].join("\n") + "\n"
     );
   } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : "Repository initialization failed."}\n`
-    );
-    process.exitCode = 1;
+    writeCliError({
+      code:
+        error instanceof MissingWorkflowFileError
+          ? "missing_workflow_file"
+          : "repository_initialization_failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Repository initialization failed.",
+      json: options.json,
+    });
   }
 }
 
