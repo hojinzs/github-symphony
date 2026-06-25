@@ -603,7 +603,7 @@ function getCommandCandidates(
   return [binary, ...pathExts.map((ext) => `${binary}${ext}`)];
 }
 
-async function commandExistsOnPath(
+export async function commandExistsOnPath(
   binary: string,
   deps: Pick<
     DoctorDependencies,

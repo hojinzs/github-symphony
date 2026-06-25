@@ -42,6 +42,7 @@ const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   setup: [
     "--non-interactive",
     "--output",
+    "--runtime",
     "--skip-skills",
     "--skip-context",
     ...GLOBAL_OPTIONS,

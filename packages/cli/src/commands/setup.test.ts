@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, symlink } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -171,6 +171,7 @@ describe("setup command", () => {
 
   afterEach(() => {
     process.chdir(originalCwd);
+    vi.unstubAllEnvs();
   });
 
   it("reports removed project/workspace setup flags with migration guidance", async () => {
@@ -193,7 +194,7 @@ describe("setup command", () => {
     );
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Supported flags: --non-interactive, --output, --skip-skills. Deprecated no-op: --skip-context."
+        "Supported flags: --non-interactive, --output, --runtime, --skip-skills. Deprecated no-op: --skip-context."
       )
     );
   });
@@ -305,6 +306,65 @@ describe("setup command", () => {
     expect(project).not.toHaveProperty("repositories");
   });
 
+  it("writes Claude runtime config from non-interactive --runtime claude-code", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-claude-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-claude-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    const gitPath = execFileSync("which", ["git"], {
+      encoding: "utf8",
+    }).trim();
+    const binDir = await mkdtemp(join(tmpdir(), "setup-runtime-bin-"));
+    await symlink(gitPath, join(binDir, "git"));
+    vi.stubEnv("PATH", binDir);
+
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--runtime", "claude-code"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+    const stdout = stdoutWrite.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join("");
+
+    expect(workflow).toContain("kind: claude-print");
+    expect(workflow).toContain("command: claude");
+    expect(stdout).toContain("Agent runtime    claude-print");
+    expect(p.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Selected runtime 'claude-print' requires the 'claude' command"
+      )
+    );
+  });
+
+  it("rejects unsupported setup runtime presets", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--runtime", "claud-print"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      "Error: Unsupported runtime 'claud-print'. Choose one of: codex-app-server, claude-print.\n"
+    );
+    expect(githubClient.listUserProjects).not.toHaveBeenCalled();
+  });
+
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-cwd-"));
     const configDir = await mkdtemp(
@@ -314,6 +374,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
@@ -348,6 +409,11 @@ describe("setup command", () => {
       expect.stringContaining("Repository:     current working directory"),
       "Final summary"
     );
+    expect(p.outro).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Repository runtime is ready for codex-app-server."
+      )
+    );
   });
 
   it("validates state mappings before prompting for blocker checks", async () => {
@@ -359,6 +425,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("wait" as never)
@@ -390,6 +457,7 @@ describe("setup command", () => {
       { name: "priority: p1", color: "ffaa00", description: null },
     ]);
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
@@ -486,6 +554,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
