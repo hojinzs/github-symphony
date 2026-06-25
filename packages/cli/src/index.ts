@@ -335,6 +335,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .description("Run the one-command first-run setup flow")
       .option("--non-interactive", "Run without prompts")
       .option("--output <path>", "Write WORKFLOW.md to a custom path")
+      .option(
+        "--runtime <kind>",
+        "Runtime preset: codex-app-server or claude-print"
+      )
       .option("--skip-skills", "Skip runtime skill generation")
       .option("--skip-context", "Deprecated no-op")
       .allowExcessArguments(false)
@@ -344,6 +348,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const args: string[] = [];
     pushOption(args, "--non-interactive", values.nonInteractive);
     pushOption(args, "--output", values.output);
+    pushOption(args, "--runtime", values.runtime);
     pushOption(args, "--skip-skills", values.skipSkills);
     pushOption(args, "--skip-context", values.skipContext);
     await invokeHandler("setup", args, values);

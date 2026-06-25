@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import {
   parseWorkflowMarkdown,
   type ParsedWorkflow,
@@ -56,6 +56,7 @@ import {
   readGitHubProjectBinding,
   renderIssueWorkflowPreview,
 } from "./workflow.js";
+import { commandExistsOnPath } from "../utils/command-exists-on-path.js";
 
 type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorRemediationStatus = "applied" | "skipped" | "manual";
@@ -581,69 +582,6 @@ function formatGhSymphonyCommand(
     quoteCommandArg(arg, deps.platform)
   );
   return `gh-symphony ${commandArgs.join(" ")}`;
-}
-
-function getCommandCandidates(
-  binary: string,
-  deps: Pick<DoctorDependencies, "platform" | "pathExtEnv">
-): string[] {
-  if (deps.platform !== "win32") {
-    return [binary];
-  }
-
-  const pathExts = (deps.pathExtEnv ?? ".COM;.EXE;.BAT;.CMD")
-    .split(";")
-    .map((ext) => ext.trim())
-    .filter(Boolean);
-  const normalizedBinary = binary.toLowerCase();
-  if (pathExts.some((ext) => normalizedBinary.endsWith(ext.toLowerCase()))) {
-    return [binary];
-  }
-
-  return [binary, ...pathExts.map((ext) => `${binary}${ext}`)];
-}
-
-async function commandExistsOnPath(
-  binary: string,
-  deps: Pick<
-    DoctorDependencies,
-    "access" | "pathEnv" | "pathExtEnv" | "platform"
-  >
-): Promise<boolean> {
-  if (!binary) {
-    return false;
-  }
-
-  const candidates = getCommandCandidates(binary, deps);
-  if (isAbsolute(binary) || binary.includes("/") || binary.includes("\\")) {
-    for (const candidate of candidates) {
-      try {
-        await deps.access(resolve(candidate), constants.X_OK);
-        return true;
-      } catch {
-        continue;
-      }
-    }
-
-    return false;
-  }
-
-  for (const segment of (deps.pathEnv ?? "").split(delimiter)) {
-    if (!segment) {
-      continue;
-    }
-    for (const command of candidates) {
-      const candidate = join(segment, command);
-      try {
-        await deps.access(candidate, constants.X_OK);
-        return true;
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  return false;
 }
 
 function toDoctorClaudeCheck(check: ClaudePreflightCheck): DoctorCheckResult {

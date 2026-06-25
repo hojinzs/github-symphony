@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -35,18 +36,28 @@ import {
   promptLegacyGhSymphonyCleanup,
   warnDeprecatedSkipContext,
 } from "./workflow-init.js";
+import { commandExistsOnPath } from "../utils/command-exists-on-path.js";
 import {
   toWorkflowLifecycleConfig,
   validateStateMapping,
 } from "../mapping/smart-defaults.js";
 import { initRepoRuntime } from "../repo-runtime.js";
+import {
+  isSupportedInitRuntime,
+  normalizeInitRuntime,
+  resolveRuntimeCommand,
+  type InitRuntimeKind,
+} from "../workflow/workflow-runtime.js";
 
 type SetupFlags = {
   nonInteractive: boolean;
   output?: string;
+  runtime?: string;
   skipSkills: boolean;
   skipContext: boolean;
 };
+
+const SETUP_RUNTIME_CHOICES = "codex-app-server, claude-print";
 
 function parseSetupFlags(args: string[]): SetupFlags {
   const flags: SetupFlags = {
@@ -64,7 +75,17 @@ function parseSetupFlags(args: string[]): SetupFlags {
         flags.nonInteractive = true;
         break;
       case "--output":
+        if (!next || next.startsWith("-")) {
+          throw new Error("Option '--output' argument missing");
+        }
         flags.output = next;
+        i += 1;
+        break;
+      case "--runtime":
+        if (!next || next.startsWith("-")) {
+          throw new Error("Option '--runtime' argument missing");
+        }
+        flags.runtime = next;
         i += 1;
         break;
       case "--skip-skills":
@@ -76,13 +97,76 @@ function parseSetupFlags(args: string[]): SetupFlags {
       default:
         if (arg?.startsWith("-")) {
           throw new Error(
-            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --skip-skills. Deprecated no-op: --skip-context.`
+            `Unknown option '${arg}'. Removed project/workspace flags are no longer supported; run 'gh-symphony setup' from inside the target repository. Supported flags: --non-interactive, --output, --runtime, --skip-skills. Deprecated no-op: --skip-context.`
           );
         }
     }
   }
 
   return flags;
+}
+
+function resolveSetupRuntime(runtime: string | undefined): string {
+  return normalizeInitRuntime(runtime ?? "codex-app-server");
+}
+
+function validateSetupRuntime(runtime: string): string | null {
+  if (isSupportedInitRuntime(runtime)) {
+    return null;
+  }
+  return `Unsupported runtime '${runtime}'. Choose one of: ${SETUP_RUNTIME_CHOICES}.`;
+}
+
+async function promptRuntimeSelection(): Promise<InitRuntimeKind> {
+  return abortIfCancelled(
+    p.select({
+      message: "Step 1/5 — Select the agent runtime:",
+      options: [
+        {
+          value: "codex-app-server",
+          label: "codex-app-server",
+          hint: "Codex app-server JSON-RPC runtime",
+        },
+        {
+          value: "claude-print",
+          label: "claude-print",
+          hint: "Claude Code non-interactive stream-json runtime",
+        },
+      ],
+    })
+  );
+}
+
+function runtimeInstallHint(runtime: string): string {
+  const command = resolveRuntimeCommand(runtime);
+  if (runtime === "claude-print") {
+    return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Claude Code and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+  }
+  return `Selected runtime '${runtime}' requires the '${command}' command, but it was not found on PATH. Install Codex and confirm '${command} --version' works before running 'gh-symphony repo start'.`;
+}
+
+async function checkRuntimeInstall(runtime: string): Promise<boolean> {
+  const command = resolveRuntimeCommand(runtime);
+  return commandExistsOnPath(command, {
+    access,
+    pathEnv: process.env.PATH,
+    pathExtEnv: process.env.PATHEXT,
+    platform: process.platform,
+  });
+}
+
+async function warnIfRuntimeMissing(
+  runtime: string,
+  options: Pick<GlobalOptions, "json">
+): Promise<void> {
+  if (!(await checkRuntimeInstall(runtime))) {
+    const hint = runtimeInstallHint(runtime);
+    if (options.json) {
+      process.stderr.write(`Warning: ${hint}\n`);
+      return;
+    }
+    p.log.warn(hint);
+  }
 }
 
 function displayScopeError(
@@ -146,7 +230,7 @@ async function selectProjectSummary(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/4 — Select a GitHub Project board:",
+      message: "Step 2/5 — Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -164,6 +248,7 @@ function printNonInteractiveSummary(input: {
   githubProjectId: string;
   workflowPath: string;
   runtimeDir: string;
+  runtime: string;
   repository: string;
 }): void {
   process.stdout.write(
@@ -171,6 +256,7 @@ function printNonInteractiveSummary(input: {
       `GitHub Project   ${input.githubProjectTitle}  (${input.githubProjectId})`,
       `Repository       ${input.repository}`,
       `WORKFLOW.md      ${input.workflowPath}`,
+      `Agent runtime    ${input.runtime}`,
       `Runtime          ${input.runtimeDir}`,
       "Ready. Run 'gh-symphony repo start' to begin orchestration.",
     ]
@@ -211,6 +297,14 @@ async function runNonInteractive(
   flags: SetupFlags,
   options: GlobalOptions
 ): Promise<void> {
+  const selectedRuntime = resolveSetupRuntime(flags.runtime);
+  const runtimeError = validateSetupRuntime(selectedRuntime);
+  if (runtimeError) {
+    process.stderr.write(`Error: ${runtimeError}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   let token: string;
   try {
     token = getGhToken();
@@ -296,7 +390,7 @@ async function runNonInteractive(
     priority,
     includePriorityTemplates: !priorityField,
     mappings,
-    runtime: "codex",
+    runtime: selectedRuntime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -309,7 +403,7 @@ async function runNonInteractive(
     priorityField,
     priority,
     includePriorityTemplates: !priorityField,
-    runtime: "codex",
+    runtime: selectedRuntime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -319,11 +413,13 @@ async function runNonInteractive(
     workflowFile: workflowPath,
   });
 
+  await warnIfRuntimeMissing(selectedRuntime, options);
   if (options.json) {
     process.stdout.write(
       JSON.stringify({
         status: "created",
         output: workflowPath,
+        runtime: selectedRuntime,
         runtimeDir: runtime.configDir,
         repository: `${runtime.repository.owner}/${runtime.repository.name}`,
         githubProjectId: projectDetail.id,
@@ -336,6 +432,7 @@ async function runNonInteractive(
     githubProjectTitle: projectDetail.title,
     githubProjectId: projectDetail.id,
     workflowPath,
+    runtime: selectedRuntime,
     runtimeDir: runtime.configDir,
     repository: `${runtime.repository.owner}/${runtime.repository.name}`,
   });
@@ -343,7 +440,7 @@ async function runNonInteractive(
 
 async function runInteractive(
   flags: SetupFlags,
-  _options: GlobalOptions
+  options: GlobalOptions
 ): Promise<void> {
   p.intro("gh-symphony — One-command Setup");
 
@@ -368,6 +465,8 @@ async function runInteractive(
     process.exitCode = 1;
     return;
   }
+
+  const selectedRuntime = await promptRuntimeSelection();
 
   const projectsSpinner = p.spinner();
   projectsSpinner.start("Loading GitHub Project boards...");
@@ -416,7 +515,7 @@ async function runInteractive(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/4",
+    stepLabel: "Step 3/5",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -433,7 +532,7 @@ async function runInteractive(
 
   const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
   const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
-    stepLabel: "Step 3/4",
+    stepLabel: "Step 4/5",
   });
   const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
     blockerCheckStates,
@@ -443,7 +542,7 @@ async function runInteractive(
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 4/4",
+    stepLabel: "Step 5/5",
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
@@ -457,7 +556,7 @@ async function runInteractive(
     includePriorityTemplates: priority.source === "disabled",
     mappings,
     lifecycle,
-    runtime: "codex",
+    runtime: selectedRuntime,
     skipSkills: flags.skipSkills,
     skipContext: flags.skipContext,
   });
@@ -466,6 +565,7 @@ async function runInteractive(
     [
       `GitHub Project: ${projectDetail.title}`,
       `Authenticated:  ${login}`,
+      `Agent runtime:  ${selectedRuntime}`,
       `Repository:     current working directory`,
       "",
       renderDryRunPreview(workflowPath, workflowPlan, ecosystemPlan).trimEnd(),
@@ -498,7 +598,7 @@ async function runInteractive(
       priority,
       lifecycle,
       includePriorityTemplates: priority.source === "disabled",
-      runtime: "codex",
+      runtime: selectedRuntime,
       skipSkills: flags.skipSkills,
       skipContext: flags.skipContext,
     });
@@ -516,7 +616,8 @@ async function runInteractive(
     return;
   }
 
+  await warnIfRuntimeMissing(selectedRuntime, options);
   p.outro(
-    "Repository runtime is ready.\n  Run 'gh-symphony repo start' to begin orchestration."
+    `Repository runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony repo start' to begin orchestration.`
   );
 }

@@ -36,6 +36,7 @@ import * as p from "@clack/prompts";
 import setupCommand from "./setup.js";
 import * as ghAuth from "../github/gh-auth.js";
 import * as githubClient from "../github/client.js";
+import * as commandExists from "../utils/command-exists-on-path.js";
 
 const MOCK_PROJECT_SUMMARY = {
   id: "PVT_setup_1",
@@ -167,10 +168,12 @@ describe("setup command", () => {
     vi.spyOn(githubClient, "getProjectDetail").mockResolvedValue(
       MOCK_PROJECT_DETAIL
     );
+    vi.spyOn(commandExists, "commandExistsOnPath").mockResolvedValue(true);
   });
 
   afterEach(() => {
     process.chdir(originalCwd);
+    vi.unstubAllEnvs();
   });
 
   it("reports removed project/workspace setup flags with migration guidance", async () => {
@@ -193,7 +196,7 @@ describe("setup command", () => {
     );
     expect(stderrWrite).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Supported flags: --non-interactive, --output, --skip-skills. Deprecated no-op: --skip-context."
+        "Supported flags: --non-interactive, --output, --runtime, --skip-skills. Deprecated no-op: --skip-context."
       )
     );
   });
@@ -258,6 +261,7 @@ describe("setup command", () => {
         expect(errorOutput).toContain("gh-symphony setup");
       }
       expect(errorOutput).not.toMatch(/[가-힣]/);
+      expect(p.select).not.toHaveBeenCalled();
       expect(githubClient.listUserProjects).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(1);
     }
@@ -305,6 +309,99 @@ describe("setup command", () => {
     expect(project).not.toHaveProperty("repositories");
   });
 
+  it("writes Claude runtime config from non-interactive --runtime claude-code", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-non-interactive-claude-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-non-interactive-claude-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    vi.mocked(commandExists.commandExistsOnPath).mockResolvedValueOnce(false);
+
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--runtime", "claude-code"], {
+      configDir,
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    const workflow = await readFile(join(cwd, "WORKFLOW.md"), "utf8");
+    const stdout = stdoutWrite.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join("");
+
+    expect(workflow).toContain("kind: claude-print");
+    expect(workflow).toContain("command: claude");
+    expect(stdout).toContain("Agent runtime    claude-print");
+    expect(p.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Selected runtime 'claude-print' requires the 'claude' command"
+      )
+    );
+  });
+
+  it("keeps non-interactive JSON setup output parseable when the runtime is missing", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "setup-json-runtime-cwd-"));
+    const configDir = await mkdtemp(
+      join(tmpdir(), "setup-json-runtime-config-")
+    );
+    initializeGitRemote(cwd);
+    process.chdir(cwd);
+    vi.mocked(commandExists.commandExistsOnPath).mockResolvedValueOnce(false);
+
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--runtime", "claude-code"], {
+      configDir,
+      verbose: false,
+      json: true,
+      noColor: true,
+    });
+
+    const stdout = stdoutWrite.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join("");
+
+    expect(JSON.parse(stdout)).toMatchObject({
+      status: "created",
+      runtime: "claude-print",
+    });
+    expect(p.log.warn).not.toHaveBeenCalled();
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Warning: Selected runtime 'claude-print' requires the 'claude' command"
+      )
+    );
+  });
+
+  it("rejects unsupported setup runtime presets", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await setupCommand(["--non-interactive", "--runtime", "claud-print"], {
+      configDir: "/tmp/unused",
+      verbose: false,
+      json: false,
+      noColor: true,
+    });
+
+    expect(process.exitCode).toBe(1);
+    expect(stderrWrite).toHaveBeenCalledWith(
+      "Error: Unsupported runtime 'claud-print'. Choose one of: codex-app-server, claude-print.\n"
+    );
+    expect(githubClient.listUserProjects).not.toHaveBeenCalled();
+  });
+
   it("shows a final summary and writes the selected repositories in interactive mode", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "setup-interactive-cwd-"));
     const configDir = await mkdtemp(
@@ -314,6 +411,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
@@ -348,6 +446,25 @@ describe("setup command", () => {
       expect.stringContaining("Repository:     current working directory"),
       "Final summary"
     );
+    expect(p.outro).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Repository runtime is ready for codex-app-server."
+      )
+    );
+    const selectMessages = vi
+      .mocked(p.select)
+      .mock.calls.map(([input]) => input.message);
+    expect(selectMessages).toEqual(
+      expect.arrayContaining([
+        "Step 1/5 — Select the agent runtime:",
+        "Step 2/5 — Select a GitHub Project board:",
+        expect.stringContaining("Step 3/5 — Map column"),
+        expect.stringContaining("Step 5/5 — Choose one priority source:"),
+      ])
+    );
+    expect(vi.mocked(p.confirm).mock.calls[0]?.[0]).toMatchObject({
+      message: expect.stringContaining("Step 4/5 — Enable blocker check?"),
+    });
   });
 
   it("validates state mappings before prompting for blocker checks", async () => {
@@ -359,6 +476,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("wait" as never)
@@ -390,6 +508,7 @@ describe("setup command", () => {
       { name: "priority: p1", color: "ffaa00", description: null },
     ]);
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
@@ -486,6 +605,7 @@ describe("setup command", () => {
     process.chdir(cwd);
 
     vi.mocked(p.select)
+      .mockResolvedValueOnce("codex-app-server" as never)
       .mockResolvedValueOnce(MOCK_PROJECT_SUMMARY.id as never)
       .mockResolvedValueOnce("wait" as never)
       .mockResolvedValueOnce("active" as never)
