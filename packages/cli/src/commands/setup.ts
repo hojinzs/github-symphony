@@ -36,7 +36,7 @@ import {
   promptLegacyGhSymphonyCleanup,
   warnDeprecatedSkipContext,
 } from "./workflow-init.js";
-import { commandExistsOnPath } from "./doctor.js";
+import { commandExistsOnPath } from "../utils/command-exists-on-path.js";
 import {
   toWorkflowLifecycleConfig,
   validateStateMapping,
@@ -155,9 +155,17 @@ async function checkRuntimeInstall(runtime: string): Promise<boolean> {
   });
 }
 
-async function warnIfRuntimeMissing(runtime: string): Promise<void> {
+async function warnIfRuntimeMissing(
+  runtime: string,
+  options: Pick<GlobalOptions, "json">
+): Promise<void> {
   if (!(await checkRuntimeInstall(runtime))) {
-    p.log.warn(runtimeInstallHint(runtime));
+    const hint = runtimeInstallHint(runtime);
+    if (options.json) {
+      process.stderr.write(`Warning: ${hint}\n`);
+      return;
+    }
+    p.log.warn(hint);
   }
 }
 
@@ -222,7 +230,7 @@ async function selectProjectSummary(
 
   const selectedProjectId = await abortIfCancelled(
     p.select({
-      message: "Step 1/4 — Select a GitHub Project board:",
+      message: "Step 2/5 — Select a GitHub Project board:",
       options: projects.map((project) => ({
         value: project.id,
         label: `${project.owner.login}/${project.title}`,
@@ -405,7 +413,7 @@ async function runNonInteractive(
     workflowFile: workflowPath,
   });
 
-  await warnIfRuntimeMissing(selectedRuntime);
+  await warnIfRuntimeMissing(selectedRuntime, options);
   if (options.json) {
     process.stdout.write(
       JSON.stringify({
@@ -432,11 +440,9 @@ async function runNonInteractive(
 
 async function runInteractive(
   flags: SetupFlags,
-  _options: GlobalOptions
+  options: GlobalOptions
 ): Promise<void> {
   p.intro("gh-symphony — One-command Setup");
-
-  const selectedRuntime = await promptRuntimeSelection();
 
   const authSpinner = p.spinner();
   authSpinner.start("Checking gh CLI authentication...");
@@ -459,6 +465,8 @@ async function runInteractive(
     process.exitCode = 1;
     return;
   }
+
+  const selectedRuntime = await promptRuntimeSelection();
 
   const projectsSpinner = p.spinner();
   projectsSpinner.start("Loading GitHub Project boards...");
@@ -507,7 +515,7 @@ async function runInteractive(
     projectDetail.linkedRepositories
   );
   const mappings = await promptStateMappings(statusField, {
-    stepLabel: "Step 2/5",
+    stepLabel: "Step 3/5",
   });
   const workflowValidation = validateStateMapping(mappings);
   if (!workflowValidation.valid) {
@@ -524,7 +532,7 @@ async function runInteractive(
 
   const lifecycleBase = toWorkflowLifecycleConfig(statusField.name, mappings);
   const blockerCheckStates = await promptBlockerCheck(lifecycleBase, {
-    stepLabel: "Step 3/5",
+    stepLabel: "Step 4/5",
   });
   const lifecycle = toWorkflowLifecycleConfig(statusField.name, mappings, {
     blockerCheckStates,
@@ -534,7 +542,7 @@ async function runInteractive(
   const { priority, priorityField } = await promptPriorityConfig({
     priorityResolution,
     labelNames: priorityLabelNames,
-    stepLabel: "Step 4/5",
+    stepLabel: "Step 5/5",
   });
 
   const workflowPath = resolve(flags.output ?? "WORKFLOW.md");
@@ -608,7 +616,7 @@ async function runInteractive(
     return;
   }
 
-  await warnIfRuntimeMissing(selectedRuntime);
+  await warnIfRuntimeMissing(selectedRuntime, options);
   p.outro(
     `Repository runtime is ready for ${selectedRuntime}.\n  Run 'gh-symphony repo start' to begin orchestration.`
   );
