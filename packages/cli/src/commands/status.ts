@@ -8,6 +8,7 @@ import {
   resolveManagedProjectConfig,
 } from "../project-selection.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
+import { writeCliError } from "../cli-error.js";
 import { bold, dim, green, red, yellow, cyan, stripAnsi } from "../ansi.js";
 import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
@@ -225,18 +226,23 @@ const handler = async (
   }
   const parsed = parseStatusArgs(args);
   if (parsed.error) {
-    process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write("Usage: gh-symphony repo status [--watch]\n");
-    process.exitCode = 2;
+    writeCliError({
+      code: "invalid_arguments",
+      message: parsed.error,
+      usage: "Usage: gh-symphony repo status [--watch]",
+      json: options.json,
+      exitCode: 2,
+    });
     return;
   }
 
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
     requestedProjectId: undefined,
+    json: options.json,
   });
   if (!projectConfig) {
-    handleMissingManagedProjectConfig();
+    handleMissingManagedProjectConfig({ json: options.json });
     return;
   }
 
@@ -311,8 +317,11 @@ const handler = async (
       );
     }
   } else {
-    process.stderr.write("Unable to read status snapshot.\n");
-    process.exitCode = 1;
+    writeCliError({
+      code: "status_snapshot_unavailable",
+      message: "Unable to read status snapshot.",
+      json: options.json,
+    });
   }
 };
 

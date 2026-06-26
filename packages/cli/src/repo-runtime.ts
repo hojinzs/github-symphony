@@ -31,6 +31,14 @@ const INTERNAL_PROJECT_ID = "repository";
 
 export class RepoRuntimeMigrationError extends Error {}
 
+export class MissingWorkflowFileError extends Error {
+  constructor(readonly workflowPath: string) {
+    super(
+      `WORKFLOW.md was not found at ${workflowPath}. Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.`
+    );
+  }
+}
+
 export function parseRepoRuntimeFlags(args: readonly string[]): RepoInitFlags {
   const flags: RepoInitFlags = { repoDir: process.cwd() };
 
@@ -72,6 +80,9 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   await migrateLegacyRuntime(runtimeRoot);
 
   const workflowPath = resolve(repoDir, flags.workflowFile ?? "WORKFLOW.md");
+  if (!(await pathExists(workflowPath))) {
+    throw new MissingWorkflowFileError(workflowPath);
+  }
   const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
   validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);

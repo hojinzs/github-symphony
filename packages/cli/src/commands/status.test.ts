@@ -126,6 +126,34 @@ afterEach(() => {
 });
 
 describe("status command", () => {
+  it("prints JSON for missing runtime config when --json is set", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-status-missing-"));
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toBe("");
+    expect(JSON.parse(stdout.output())).toEqual({
+      error: {
+        code: "missing_repository_runtime_config",
+        message:
+          "No repository runtime config found. Run 'gh-symphony repo init' first.",
+      },
+    });
+  });
+
   it("renders project tokens from the flat runtime status snapshot", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);

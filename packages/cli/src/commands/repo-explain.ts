@@ -23,6 +23,7 @@ import {
 import { bold, green, red, stripAnsi, yellow } from "../ansi.js";
 import { loadActiveProjectConfig } from "../config.js";
 import { getGhToken, GhAuthError } from "../github/gh-auth.js";
+import { writeCliError } from "../cli-error.js";
 
 type RepoExplainFlags = {
   identifier?: string;
@@ -71,20 +72,25 @@ const handler = async (
 ): Promise<void> => {
   const parsed = parseRepoExplainFlags(args);
   if (parsed.error) {
-    process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write(
-      "Usage: gh-symphony repo explain <owner/repo#number> [--workflow <path>]\n"
-    );
-    process.exitCode = 2;
+    writeCliError({
+      code: "invalid_arguments",
+      message: parsed.error,
+      usage:
+        "Usage: gh-symphony repo explain <owner/repo#number> [--workflow <path>]",
+      json: options.json,
+      exitCode: 2,
+    });
     return;
   }
 
   const projectConfig = await loadActiveProjectConfig(options.configDir);
   if (!projectConfig) {
-    process.stderr.write(
-      "No repository runtime configured. Run 'gh-symphony repo init' in the target repository.\n"
-    );
-    process.exitCode = 1;
+    writeCliError({
+      code: "missing_repository_runtime_config",
+      message:
+        "No repository runtime configured. Run 'gh-symphony repo init' in the target repository.",
+      json: options.json,
+    });
     return;
   }
 
@@ -102,13 +108,12 @@ const handler = async (
     token = getGhToken();
   } catch (error) {
     if (error instanceof GhAuthError) {
-      process.stderr.write(
-        `Error: GitHub authentication is required for repo explain. ${error.message}\n`
-      );
-      process.stderr.write(
-        "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN, then re-run this command.\n"
-      );
-      process.exitCode = 2;
+      writeCliError({
+        code: "github_auth_required",
+        message: `Error: GitHub authentication is required for repo explain. ${error.message} Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN, then re-run this command.`,
+        json: options.json,
+        exitCode: 2,
+      });
       return;
     }
     throw error;
@@ -165,11 +170,12 @@ const handler = async (
     });
   } catch (error) {
     if (error instanceof RepoExplainWorkflowError) {
-      process.stderr.write(`Error: ${error.message}\n`);
-      process.stderr.write(
-        "Hint: pass --workflow <path-to-WORKFLOW.md> or run 'gh-symphony workflow preview --file <path>' to verify the workflow file.\n"
-      );
-      process.exitCode = 2;
+      writeCliError({
+        code: "workflow_load_failed",
+        message: `Error: ${error.message} Hint: pass --workflow <path-to-WORKFLOW.md> or run 'gh-symphony workflow preview --file <path>' to verify the workflow file.`,
+        json: options.json,
+        exitCode: 2,
+      });
       return;
     }
     throw error;

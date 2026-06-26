@@ -270,6 +270,52 @@ describe("repo init runtime migration", () => {
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
   });
 
+  it("prints a friendly remediation when repo init cannot find WORKFLOW.md", async () => {
+    const repoDir = await createGitRepo();
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    try {
+      await repoCommand(
+        ["init", "--repo-dir", repoDir],
+        baseOptions(join(repoDir, "unused"))
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("WORKFLOW.md was not found");
+    expect(stderr.output()).toContain("gh-symphony workflow init");
+    expect(stderr.output()).not.toContain("ENOENT");
+  });
+
+  it("prints JSON errors for repo init failures when --json is set", async () => {
+    const repoDir = await createGitRepo();
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+    const repoCommand = await loadRepoCommand();
+
+    try {
+      await repoCommand(["init", "--repo-dir", repoDir], {
+        ...baseOptions(join(repoDir, "unused")),
+        json: true,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toBe("");
+    expect(JSON.parse(stdout.output())).toEqual({
+      error: {
+        code: "missing_workflow_file",
+        message: expect.stringContaining("gh-symphony workflow init"),
+      },
+    });
+  });
+
   it("persists explicit priority mapping from WORKFLOW.md into tracker settings", async () => {
     const repoDir = await createGitRepo();
     const stdout = captureWrites(process.stdout);

@@ -56,6 +56,32 @@ describe("repo explain", () => {
     );
   });
 
+  it("prints JSON when repo explain cannot find a runtime config", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-explain-missing-"));
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await repoExplainCommand(["acme/widgets#42"], {
+        ...baseOptions(configDir),
+        json: true,
+      });
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toBe("");
+    expect(JSON.parse(stdout.output())).toEqual({
+      error: {
+        code: "missing_repository_runtime_config",
+        message:
+          "No repository runtime configured. Run 'gh-symphony repo init' in the target repository.",
+      },
+    });
+  });
+
   it("prints a friendly authentication error when gh auth is unavailable", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "repo-explain-auth-"));
     const stderr = captureWrites(process.stderr);
