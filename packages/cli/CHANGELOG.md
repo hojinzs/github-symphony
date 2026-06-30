@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.4.8
+
+### Patch Changes
+
+- [#417](https://github.com/hojinzs/github-symphony/pull/417) [`2e23d6d`](https://github.com/hojinzs/github-symphony/commit/2e23d6d224a9b293ede3c1d8bc50ab97f3bdcd25) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Use the shared English GitHub auth remediation in interactive `gh-symphony setup` failures, covering missing `gh`, unauthenticated, missing-scope, and token validation errors. Fixes [#397](https://github.com/hojinzs/github-symphony/issues/397).
+
+- [#416](https://github.com/hojinzs/github-symphony/pull/416) [`6b1b389`](https://github.com/hojinzs/github-symphony/commit/6b1b389291c6d8dd93e9cd73e5440c9036ed9e0d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix issue [#396](https://github.com/hojinzs/github-symphony/issues/396) so `-v` / `--verbose` surfaces stack traces and error cause chains for top-level CLI and orchestrator failures, including daemon startup diagnostics.
+
 ## 0.4.7
 
 ### Patch Changes
