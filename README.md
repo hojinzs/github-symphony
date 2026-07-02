@@ -1,6 +1,15 @@
 # GitHub Symphony
 
+[![CI](https://github.com/hojinzs/github-symphony/actions/workflows/ci.yml/badge.svg)](https://github.com/hojinzs/github-symphony/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@gh-symphony/cli?logo=npm)](https://www.npmjs.com/package/@gh-symphony/cli)
+[![Node.js 24+](https://img.shields.io/badge/node-24%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Code of Conduct](https://img.shields.io/badge/code%20of%20conduct-active-blueviolet.svg)](CODE_OF_CONDUCT.md)
+
 GitHub Symphony is a multi-tenant AI coding agent orchestration platform built on the [OpenAI Symphony specification](https://github.com/openai/symphony). A CLI-first orchestrator polls GitHub Projects for open issues, dispatches worker runs per repository, and resolves all workflow policy from each repository's `WORKFLOW.md` at runtime.
+
+GitHub Symphony is an MIT-licensed open source project. Contributions are welcome: start with the [contributing guide](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), use the GitHub issue templates for bug reports and feature requests, and report security issues through [SECURITY.md](SECURITY.md). For setup or orchestration failures, include a redacted support bundle from `gh-symphony doctor --bundle` when opening a bug report.
 
 ## Requirements
 
@@ -884,9 +893,10 @@ pnpm build
 
 ## Community and security
 
-- [Contributing guide](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributing guide](CONTRIBUTING.md) — development setup, validation, and pull request expectations.
+- [Security policy](SECURITY.md) — supported reporting path for vulnerabilities and sensitive disclosures.
+- [Code of Conduct](CODE_OF_CONDUCT.md) — community expectations for issues, discussions, and pull requests.
+- [MIT License](LICENSE) — project license terms.
 
 ## License
 
