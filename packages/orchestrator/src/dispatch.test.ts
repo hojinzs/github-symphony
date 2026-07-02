@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
 import { explainIssueDispatch } from "./explain.js";
 import type {
+  IssueWorkspaceRecord,
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
@@ -366,6 +367,71 @@ describe("explainIssueDispatch", () => {
         expect.objectContaining({ id: "runtime_ownership", status: "block" }),
       ])
     );
+  });
+
+  it("does not warn about dirty-workspace recovery for a removed issue workspace", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const run = makeRun({
+      runId: "run-removed-workspace",
+      issueId: issue.id,
+      status: "suppressed",
+      issueWorkspaceKey: "workspace-removed",
+      updatedAt: "2026-03-09T00:05:00.000Z",
+      completedAt: "2026-03-09T00:05:00.000Z",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-removed-workspace",
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        workspacePath: "/tmp/work/repository",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2026-03-09T00:04:00.000Z",
+        sessionId: "session-1",
+        threadId: "thread-1",
+        suggestedCommand:
+          "cd /tmp/work/repository && git status --short && git diff",
+        detectedAt: "2026-03-09T00:05:00.000Z",
+      },
+    });
+    const issueWorkspace: IssueWorkspaceRecord = {
+      workspaceKey: "workspace-removed",
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: issue.id,
+      issueIdentifier: issue.identifier,
+      workspacePath: "/tmp/work",
+      repositoryPath: "/tmp/work/repository",
+      status: "removed",
+      createdAt: "2026-03-09T00:00:00.000Z",
+      updatedAt: "2026-03-09T00:05:00.000Z",
+      lastError: null,
+    };
+
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      issueWorkspaces: [issueWorkspace],
+      runs: [run],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "runtime_ownership", status: "pass" }),
+      ])
+    );
+    expect(
+      report.checks.some((check) =>
+        check.message.includes("dispatch will start a recovery turn")
+      )
+    ).toBe(false);
   });
 
   it("explains project concurrency limits", () => {

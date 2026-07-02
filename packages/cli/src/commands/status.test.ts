@@ -172,6 +172,56 @@ describe("status command", () => {
     expect(stdout.output()).toContain("Tokens: 600 / 1,700 total");
   });
 
+  it("does not render incomplete-turn recovery when snapshot recovery is null", async () => {
+    const configDir = await createConfigFixture();
+    const projectId = "tenant-a";
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify(
+        {
+          projectId,
+          slug: projectId,
+          tracker: { adapter: "github-project", bindingId: "project-1" },
+          lastTickAt: "2026-03-30T11:00:00.000Z",
+          health: "idle",
+          summary: {
+            dispatched: 2,
+            suppressed: 1,
+            recovered: 0,
+            activeRuns: 0,
+          },
+          activeRuns: [],
+          retryQueue: [],
+          codexTotals: {
+            inputTokens: 1400,
+            outputTokens: 300,
+            totalTokens: 1700,
+            secondsRunning: 60,
+          },
+          lastError: null,
+          recovery: null,
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("Recoverable incomplete turn:");
+  });
+
   it("renders incomplete-turn recovery details in text status output", async () => {
     const configDir = await createConfigFixture();
     const projectId = "tenant-a";

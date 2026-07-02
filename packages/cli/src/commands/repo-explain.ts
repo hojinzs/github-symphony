@@ -4,6 +4,7 @@ import type { GlobalOptions } from "../index.js";
 import {
   WorkflowConfigStore,
   type IssueOrchestrationRecord,
+  type IssueWorkspaceRecord,
   type OrchestratorProjectConfig,
   type OrchestratorRunRecord,
   type ProjectItemsCache,
@@ -148,13 +149,17 @@ const handler = async (
                 identifier.trim().toLowerCase()
             ) ?? null
         );
-  const [issues, issue, issueRecords, runs, snapshot] = await Promise.all([
-    issuesPromise,
-    issuePromise,
-    readJsonFile<IssueOrchestrationRecord[]>(join(runtimeRoot, "issues.json")),
-    readRuns(runtimeRoot, projectConfig.projectId),
-    readJsonFile<ProjectStatusSnapshot>(join(runtimeRoot, "status.json")),
-  ]);
+  const [issues, issue, issueRecords, issueWorkspaces, runs, snapshot] =
+    await Promise.all([
+      issuesPromise,
+      issuePromise,
+      readJsonFile<IssueOrchestrationRecord[]>(
+        join(runtimeRoot, "issues.json")
+      ),
+      readIssueWorkspaces(runtimeRoot, projectConfig.projectId),
+      readRuns(runtimeRoot, projectConfig.projectId),
+      readJsonFile<ProjectStatusSnapshot>(join(runtimeRoot, "status.json")),
+    ]);
   const canonicalIssues = resolveCanonicalSubjectIssues(issues);
   const canonicalIssue =
     canonicalIssues.find((candidate) =>
@@ -191,6 +196,7 @@ const handler = async (
     allIssues: canonicalIssues,
     lifecycle: workflow.lifecycle,
     issueRecords: issueRecords ?? [],
+    issueWorkspaces,
     runs,
     activeRunCount,
     maxConcurrentAgents: workflow.maxConcurrentAgents,
@@ -358,6 +364,31 @@ async function readRuns(
   return runs.filter(
     (run): run is OrchestratorRunRecord =>
       run !== null && (!run.projectId || run.projectId === projectId)
+  );
+}
+
+async function readIssueWorkspaces(
+  runtimeRoot: string,
+  projectId: string
+): Promise<IssueWorkspaceRecord[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(runtimeRoot);
+  } catch {
+    return [];
+  }
+
+  const records = await Promise.all(
+    entries.map((entry) =>
+      readJsonFile<IssueWorkspaceRecord>(
+        join(runtimeRoot, entry, "workspace.json")
+      )
+    )
+  );
+
+  return records.filter(
+    (record): record is IssueWorkspaceRecord =>
+      record !== null && (!record.projectId || record.projectId === projectId)
   );
 }
 

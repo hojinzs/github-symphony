@@ -11,6 +11,7 @@ import type {
   OrchestratorProjectConfig,
   ProjectStatusSnapshot,
 } from "../contracts/status-surface.js";
+import type { IssueWorkspaceRecord } from "../domain/issue.js";
 
 export type SnapshotInput = {
   project: OrchestratorProjectConfig;
@@ -24,6 +25,7 @@ export type SnapshotInput = {
   lastTickAt: string;
   lastError: string | null;
   rateLimits?: Record<string, unknown> | null;
+  issueWorkspaces?: readonly IssueWorkspaceRecord[];
 };
 
 /**
@@ -43,6 +45,7 @@ export function buildProjectSnapshot(
     lastTickAt,
     lastError,
     rateLimits,
+    issueWorkspaces,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
@@ -92,7 +95,10 @@ export function buildProjectSnapshot(
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
       })),
-    recovery: findLatestRecovery([...(allRuns ?? []), ...activeRuns]),
+    recovery: findLatestRecovery(
+      [...(allRuns ?? []), ...activeRuns],
+      issueWorkspaces ?? []
+    ),
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
@@ -100,11 +106,12 @@ export function buildProjectSnapshot(
 }
 
 function findLatestRecovery(
-  runs: OrchestratorRunRecord[]
+  runs: OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): ProjectStatusSnapshot["recovery"] {
   return (
     [...runs]
-      .filter((run) => isUnresolvedRecoveryRun(run, runs))
+      .filter((run) => isUnresolvedRecoveryRun(run, runs, issueWorkspaces))
       .sort((left, right) => {
         const leftTime = new Date(left.updatedAt).getTime();
         const rightTime = new Date(right.updatedAt).getTime();
@@ -116,9 +123,14 @@ function findLatestRecovery(
 
 function isUnresolvedRecoveryRun(
   run: OrchestratorRunRecord,
-  runs: OrchestratorRunRecord[]
+  runs: OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): boolean {
   if (!run.recovery) {
+    return false;
+  }
+
+  if (isRecoveryWorkspaceRemoved(run, issueWorkspaces)) {
     return false;
   }
 
@@ -143,6 +155,38 @@ function isUnresolvedRecoveryRun(
     (run.retryKind === "recovery" &&
       (run.status === "running" || run.status === "retrying"))
   );
+}
+
+function isRecoveryWorkspaceRemoved(
+  run: OrchestratorRunRecord,
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
+): boolean {
+  if (run.recovery?.kind !== "incomplete-turn-dirty-workspace") {
+    return false;
+  }
+
+  if (run.issueWorkspaceKey !== null) {
+    const workspace = issueWorkspaces.find(
+      (candidate) => candidate.workspaceKey === run.issueWorkspaceKey
+    );
+    return workspace?.status === "removed";
+  }
+
+  const repositoryWorkspace = issueWorkspaces.find(
+    (candidate) => candidate.repositoryPath === run.recovery?.workspacePath
+  );
+  if (repositoryWorkspace) {
+    return repositoryWorkspace.status === "removed";
+  }
+
+  const workspace = issueWorkspaces.find(
+    (candidate) =>
+      candidate.issueSubjectId === run.issueSubjectId ||
+      candidate.issueSubjectId === run.recovery?.issueId ||
+      candidate.issueIdentifier === run.recovery?.issueIdentifier
+  );
+
+  return workspace?.status === "removed";
 }
 
 function aggregateTokenUsageByIssue(

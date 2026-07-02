@@ -7,6 +7,7 @@ import type {
   OrchestratorProjectConfig,
   OrchestratorRunRecord,
 } from "../contracts/status-surface.js";
+import type { IssueWorkspaceRecord } from "../domain/issue.js";
 
 /**
  * Helper to create a minimal OrchestratorProjectConfig for testing
@@ -65,6 +66,25 @@ function mockRun(
     completedAt: null,
     lastError: null,
     nextRetryAt: null,
+    ...overrides,
+  };
+}
+
+function mockIssueWorkspace(
+  overrides?: Partial<IssueWorkspaceRecord>
+): IssueWorkspaceRecord {
+  return {
+    workspaceKey: "key-001",
+    projectId: "tenant-123",
+    adapter: "github",
+    issueSubjectId: "subject-001",
+    issueIdentifier: "acme/platform#42",
+    workspacePath: "/tmp/workspace",
+    repositoryPath: "/tmp/workspace/repository",
+    status: "active",
+    createdAt: "2024-01-01T00:00:00Z",
+    updatedAt: "2024-01-01T00:00:00Z",
+    lastError: null,
     ...overrides,
   };
 }
@@ -475,6 +495,90 @@ describe("buildProjectSnapshot", () => {
     });
 
     expect(snapshot.recovery).toEqual(latestRetryingRun.recovery);
+  });
+
+  it("does not surface dirty-workspace recovery for a removed issue workspace", () => {
+    const run = mockRun({
+      runId: "run-removed-workspace",
+      status: "suppressed",
+      issueWorkspaceKey: "workspace-removed",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-removed-workspace",
+        issueId: "issue-001",
+        issueIdentifier: "acme/platform#42",
+        workspacePath: "/tmp/workspace/repository",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:04:00Z",
+        sessionId: "session-1",
+        threadId: "thread-1",
+        suggestedCommand:
+          "cd /tmp/workspace/repository && git status --short && git diff",
+        detectedAt: "2024-01-01T00:05:00Z",
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [run],
+      issueWorkspaces: [
+        mockIssueWorkspace({
+          workspaceKey: "workspace-removed",
+          issueSubjectId: "subject-001",
+          repositoryPath: "/tmp/workspace/repository",
+          status: "removed",
+        }),
+      ],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.recovery).toBeNull();
+  });
+
+  it("still surfaces dirty-workspace recovery for an active issue workspace", () => {
+    const run = mockRun({
+      runId: "run-active-workspace",
+      status: "suppressed",
+      issueWorkspaceKey: "workspace-active",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-active-workspace",
+        issueId: "issue-001",
+        issueIdentifier: "acme/platform#42",
+        workspacePath: "/tmp/workspace/repository",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:04:00Z",
+        sessionId: "session-1",
+        threadId: "thread-1",
+        suggestedCommand:
+          "cd /tmp/workspace/repository && git status --short && git diff",
+        detectedAt: "2024-01-01T00:05:00Z",
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [run],
+      issueWorkspaces: [
+        mockIssueWorkspace({
+          workspaceKey: "workspace-active",
+          issueSubjectId: "subject-001",
+          repositoryPath: "/tmp/workspace/repository",
+          status: "active",
+        }),
+      ],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.recovery).toEqual(run.recovery);
   });
 
   it("uses allRuns for token aggregation when provided, falls back to activeRuns", () => {

@@ -1002,6 +1002,9 @@ export class OrchestratorService {
     const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
+    const issueWorkspaces = await this.store.loadIssueWorkspaces(
+      tenant.projectId
+    );
     rateLimits = rateLimits ?? resolveProjectRateLimits(latestRuns, []);
     const status = buildProjectSnapshot({
       project: tenant,
@@ -1011,6 +1014,7 @@ export class OrchestratorService {
       lastTickAt: now.toISOString(),
       lastError,
       rateLimits,
+      issueWorkspaces,
     });
     await this.store.saveProjectStatus(status);
     return status;

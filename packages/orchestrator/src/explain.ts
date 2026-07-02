@@ -3,6 +3,7 @@ import {
   isStateTerminal,
   matchesWorkflowState,
   type IssueOrchestrationRecord,
+  type IssueWorkspaceRecord,
   type OrchestratorRunRecord,
   type RepositoryRef,
   type TrackedIssue,
@@ -52,6 +53,7 @@ export type ExplainDispatchInput = {
   allIssues: readonly TrackedIssue[];
   lifecycle: WorkflowLifecycleConfig;
   issueRecords: readonly IssueOrchestrationRecord[];
+  issueWorkspaces?: readonly IssueWorkspaceRecord[];
   runs: readonly OrchestratorRunRecord[];
   activeRunCount: number;
   maxConcurrentAgents: number;
@@ -99,7 +101,14 @@ export function explainIssueDispatch(
 
   checks.push(explainWorkflowState(issue, input.lifecycle));
   checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
-  checks.push(explainRuntimeOwnership(issue, input.issueRecords, input.runs));
+  checks.push(
+    explainRuntimeOwnership(
+      issue,
+      input.issueRecords,
+      input.issueWorkspaces ?? [],
+      input.runs
+    )
+  );
   checks.push(
     explainDispatchLimits(
       issue,
@@ -345,6 +354,7 @@ function explainBlockers(
 function explainRuntimeOwnership(
   issue: TrackedIssue,
   issueRecords: readonly IssueOrchestrationRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[],
   runs: readonly OrchestratorRunRecord[]
 ): DispatchExplainCheck {
   const record = issueRecords.find(
@@ -439,7 +449,8 @@ function explainRuntimeOwnership(
 
   if (
     latestRun?.status === "suppressed" &&
-    latestRun.recovery?.kind === "incomplete-turn-dirty-workspace"
+    latestRun.recovery?.kind === "incomplete-turn-dirty-workspace" &&
+    !isRecoveryWorkspaceRemoved(latestRun, issueWorkspaces)
   ) {
     return {
       id: "runtime_ownership",
@@ -474,6 +485,39 @@ function explainRuntimeOwnership(
         }
       : undefined,
   };
+}
+
+function isRecoveryWorkspaceRemoved(
+  run: OrchestratorRunRecord,
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
+): boolean {
+  const recovery = run.recovery;
+  if (recovery?.kind !== "incomplete-turn-dirty-workspace") {
+    return false;
+  }
+
+  if (run.issueWorkspaceKey !== null) {
+    const workspace = issueWorkspaces.find(
+      (candidate) => candidate.workspaceKey === run.issueWorkspaceKey
+    );
+    return workspace?.status === "removed";
+  }
+
+  const repositoryWorkspace = issueWorkspaces.find(
+    (candidate) => candidate.repositoryPath === recovery.workspacePath
+  );
+  if (repositoryWorkspace) {
+    return repositoryWorkspace.status === "removed";
+  }
+
+  const workspace = issueWorkspaces.find(
+    (candidate) =>
+      candidate.issueSubjectId === run.issueSubjectId ||
+      candidate.issueSubjectId === recovery.issueId ||
+      candidate.issueIdentifier === recovery.issueIdentifier
+  );
+
+  return workspace?.status === "removed";
 }
 
 function explainDispatchLimits(
