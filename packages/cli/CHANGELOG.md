@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.4.9
+
+### Patch Changes
+
+- [#419](https://github.com/hojinzs/github-symphony/pull/419) [`6f42e48`](https://github.com/hojinzs/github-symphony/commit/6f42e484c1c41a42c68a000a0c8c0c1ca3d9b33f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Improve repository CLI error/help UX for [#399](https://github.com/hojinzs/github-symphony/issues/399): missing `WORKFLOW.md` now points to `workflow init`, repo error paths honor `--json`, repo run/explain help shows the `<issue>` format, unknown repo/workflow subcommands are clearer, and removed repo commands are hidden from help.
+
+- [#420](https://github.com/hojinzs/github-symphony/pull/420) [`022c158`](https://github.com/hojinzs/github-symphony/commit/022c158a357a32a401a835c69dde512534b0a06e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add runtime selection to `gh-symphony setup` so issue [#390](https://github.com/hojinzs/github-symphony/issues/390) users can choose Codex or Claude Code during onboarding, pass `--runtime` in non-interactive setup, and receive a clear install hint when the selected runtime command is missing from `PATH`.
+
 ## 0.4.8
 
 ### Patch Changes
