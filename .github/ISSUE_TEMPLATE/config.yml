@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/hojinzs/github-symphony/blob/main/CONTRIBUTING.md
+    about: Read contribution workflow, validation, changeset, and security expectations.
+  - name: Project management conventions
+    url: https://github.com/hojinzs/github-symphony/blob/main/PROJECT_MANAGE.md
+    about: Review the Background, Proposed Changes, and Affected Files issue structure.
+  - name: Support bundle documentation
+    url: https://github.com/hojinzs/github-symphony/blob/main/README.md#repository-commands
+    about: See doctor commands, including doctor --json and doctor --bundle.
+  - name: Security policy
+    url: https://github.com/hojinzs/github-symphony/blob/main/SECURITY.md
+    about: Report suspected vulnerabilities privately instead of opening a public issue.

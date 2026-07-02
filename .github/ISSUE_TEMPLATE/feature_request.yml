@@ -1,0 +1,80 @@
+name: Feature request
+description: Propose a scoped repository, CLI, runtime, or workflow improvement.
+title: "Feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please follow the project management structure from `PROJECT_MANAGE.md`.
+        Keep tracker-specific behavior layered on top of Symphony core behavior.
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: Why is this change needed? Include motivation, user impact, and current limitations.
+      placeholder: This is needed because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-changes
+    attributes:
+      label: Proposed Changes
+      description: What should change, and how should it behave?
+      placeholder: |
+        - Add ...
+        - Update ...
+        - Preserve ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-files
+    attributes:
+      label: Affected Files
+      description: List likely files or packages and the expected scope.
+      placeholder: |
+        | File | Change | Scope |
+        | --- | --- | --- |
+        | packages/... | ... | ... |
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec-reference
+    attributes:
+      label: Spec Reference
+      description: Relevant Symphony spec sections and quotes, if this touches spec conformance.
+      placeholder: docs/symphony-spec.md section ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: current-vs-spec
+    attributes:
+      label: Current Implementation vs Spec
+      description: Side-by-side comparison if the request is about spec alignment.
+      placeholder: |
+        | Current implementation | Spec expectation | Gap |
+        | --- | --- | --- |
+    validations:
+      required: false
+
+  - type: textarea
+    id: migration-notes
+    attributes:
+      label: Migration Notes
+      description: Note compatibility, data, API, config, deployment, or self-hosting impact.
+    validations:
+      required: false
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link related issues, PRs, ADRs, discussions, docs, or external context.
+    validations:
+      required: false
