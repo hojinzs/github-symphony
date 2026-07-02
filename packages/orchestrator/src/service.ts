@@ -999,11 +999,11 @@ export class OrchestratorService {
     const allTenantRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
-    const latestRuns = allTenantRuns.filter((run) =>
-      isActiveRunRecordStatus(run.status)
-    );
     const issueWorkspaces = await this.store.loadIssueWorkspaces(
       tenant.projectId
+    );
+    const latestRuns = allTenantRuns.filter((run) =>
+      isActiveRunRecordStatus(run.status)
     );
     rateLimits = rateLimits ?? resolveProjectRateLimits(latestRuns, []);
     const status = buildProjectSnapshot({

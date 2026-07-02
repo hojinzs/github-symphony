@@ -7,6 +7,7 @@
  */
 
 import type {
+  IncompleteTurnRecoveryInfo,
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   ProjectStatusSnapshot,
@@ -130,7 +131,7 @@ function isUnresolvedRecoveryRun(
     return false;
   }
 
-  if (isRecoveryWorkspaceRemoved(run, issueWorkspaces)) {
+  if (!isRecoveryWorkspaceActionable(run, run.recovery, issueWorkspaces)) {
     return false;
   }
 
@@ -157,36 +158,59 @@ function isUnresolvedRecoveryRun(
   );
 }
 
-function isRecoveryWorkspaceRemoved(
+export function isRecoveryWorkspaceActionable(
   run: OrchestratorRunRecord,
+  recovery: IncompleteTurnRecoveryInfo,
   issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): boolean {
-  if (run.recovery?.kind !== "incomplete-turn-dirty-workspace") {
-    return false;
-  }
+  const workspaceRecord = findRecoveryWorkspaceRecord(
+    run,
+    recovery,
+    issueWorkspaces
+  );
 
-  if (run.issueWorkspaceKey !== null) {
-    const workspace = issueWorkspaces.find(
-      (candidate) => candidate.workspaceKey === run.issueWorkspaceKey
+  return !workspaceRecord || workspaceRecord.status === "active";
+}
+
+function findRecoveryWorkspaceRecord(
+  run: OrchestratorRunRecord,
+  recovery: IncompleteTurnRecoveryInfo,
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
+): IssueWorkspaceRecord | null {
+  const projectWorkspaces = issueWorkspaces.filter(
+    (workspace) => workspace.projectId === run.projectId
+  );
+
+  if (run.issueWorkspaceKey) {
+    const byKey = projectWorkspaces.find(
+      (workspace) => workspace.workspaceKey === run.issueWorkspaceKey
     );
-    return workspace?.status === "removed";
+    if (byKey) {
+      return byKey;
+    }
   }
 
-  const repositoryWorkspace = issueWorkspaces.find(
-    (candidate) => candidate.repositoryPath === run.recovery?.workspacePath
+  const byPath = projectWorkspaces.find(
+    (workspace) =>
+      workspace.repositoryPath === recovery.workspacePath ||
+      workspace.workspacePath === recovery.workspacePath
   );
-  if (repositoryWorkspace) {
-    return repositoryWorkspace.status === "removed";
+  if (byPath) {
+    return byPath;
   }
 
-  const workspace = issueWorkspaces.find(
-    (candidate) =>
-      candidate.issueSubjectId === run.issueSubjectId ||
-      candidate.issueSubjectId === run.recovery?.issueId ||
-      candidate.issueIdentifier === run.recovery?.issueIdentifier
+  const bySubject = projectWorkspaces.find(
+    (workspace) => workspace.issueSubjectId === run.issueSubjectId
   );
+  if (bySubject) {
+    return bySubject;
+  }
 
-  return workspace?.status === "removed";
+  return (
+    projectWorkspaces.find(
+      (workspace) => workspace.issueIdentifier === recovery.issueIdentifier
+    ) ?? null
+  );
 }
 
 function aggregateTokenUsageByIssue(

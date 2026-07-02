@@ -3,8 +3,8 @@ import { join, resolve } from "node:path";
 import type { GlobalOptions } from "../index.js";
 import {
   WorkflowConfigStore,
-  type IssueOrchestrationRecord,
   type IssueWorkspaceRecord,
+  type IssueOrchestrationRecord,
   type OrchestratorProjectConfig,
   type OrchestratorRunRecord,
   type ProjectItemsCache,
@@ -371,24 +371,23 @@ async function readIssueWorkspaces(
   runtimeRoot: string,
   projectId: string
 ): Promise<IssueWorkspaceRecord[]> {
-  let entries: string[];
+  let workspaceKeys: string[];
   try {
-    entries = await readdir(runtimeRoot);
+    workspaceKeys = await readdir(runtimeRoot);
   } catch {
     return [];
   }
 
   const records = await Promise.all(
-    entries.map((entry) =>
+    workspaceKeys.map((workspaceKey) =>
       readJsonFile<IssueWorkspaceRecord>(
-        join(runtimeRoot, entry, "workspace.json")
+        join(runtimeRoot, workspaceKey, "workspace.json")
       )
     )
   );
-
   return records.filter(
     (record): record is IssueWorkspaceRecord =>
-      record !== null && (!record.projectId || record.projectId === projectId)
+      record !== null && record.projectId === projectId
   );
 }
 

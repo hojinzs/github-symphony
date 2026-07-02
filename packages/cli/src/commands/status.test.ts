@@ -299,6 +299,58 @@ describe("status command", () => {
     );
   });
 
+  it("does not render incomplete-turn recovery details when snapshot recovery is null", async () => {
+    const configDir = await createConfigFixture();
+    const projectId = "tenant-a";
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify(
+        {
+          projectId,
+          slug: projectId,
+          tracker: { adapter: "github-project", bindingId: "project-1" },
+          lastTickAt: "2026-03-30T11:00:00.000Z",
+          health: "idle",
+          summary: {
+            dispatched: 2,
+            suppressed: 1,
+            recovered: 0,
+            activeRuns: 0,
+          },
+          activeRuns: [],
+          retryQueue: [],
+          codexTotals: {
+            inputTokens: 1400,
+            outputTokens: 300,
+            totalTokens: 1700,
+            secondsRunning: 60,
+          },
+          lastError: null,
+          recovery: null,
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const output = stdout.output();
+    expect(output).not.toContain("Recoverable incomplete turn:");
+    expect(output).not.toContain("Workspace  /tmp/work/repository");
+  });
+
   it("falls back to the legacy per-project status snapshot path", async () => {
     const configDir = await createConfigFixture("legacy");
     const stdout = captureWrites(process.stdout);

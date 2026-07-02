@@ -80,7 +80,7 @@ function mockIssueWorkspace(
     issueSubjectId: "subject-001",
     issueIdentifier: "acme/platform#42",
     workspacePath: "/tmp/workspace",
-    repositoryPath: "/tmp/workspace/repository",
+    repositoryPath: "/tmp/work/repository",
     status: "active",
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
@@ -402,6 +402,90 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.recovery).toEqual(latestRun.recovery);
   });
 
+  it("does not surface incomplete-turn recovery for a removed issue workspace", () => {
+    const run = mockRun({
+      runId: "run-removed",
+      status: "suppressed",
+      issueWorkspaceKey: "key-removed",
+      updatedAt: "2024-01-01T00:07:00Z",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-removed",
+        issueId: "issue-001",
+        issueIdentifier: "acme/platform#42",
+        workspacePath: "/tmp/work/removed-repository",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:06:30Z",
+        sessionId: "session-removed",
+        threadId: "thread-removed",
+        suggestedCommand:
+          "cd /tmp/work/removed-repository && git status --short && git diff",
+        detectedAt: "2024-01-01T00:07:00Z",
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [run],
+      issueWorkspaces: [
+        mockIssueWorkspace({
+          workspaceKey: "key-removed",
+          repositoryPath: "/tmp/work/removed-repository",
+          status: "removed",
+        }),
+      ],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.recovery).toBeNull();
+  });
+
+  it("surfaces incomplete-turn recovery for an active issue workspace", () => {
+    const run = mockRun({
+      runId: "run-active",
+      status: "suppressed",
+      issueWorkspaceKey: "key-active",
+      updatedAt: "2024-01-01T00:07:00Z",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-active",
+        issueId: "issue-001",
+        issueIdentifier: "acme/platform#42",
+        workspacePath: "/tmp/work/active-repository",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2024-01-01T00:06:30Z",
+        sessionId: "session-active",
+        threadId: "thread-active",
+        suggestedCommand:
+          "cd /tmp/work/active-repository && git status --short && git diff",
+        detectedAt: "2024-01-01T00:07:00Z",
+      },
+    });
+
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      allRuns: [run],
+      issueWorkspaces: [
+        mockIssueWorkspace({
+          workspaceKey: "key-active",
+          repositoryPath: "/tmp/work/active-repository",
+          status: "active",
+        }),
+      ],
+      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: null,
+    });
+
+    expect(snapshot.recovery).toEqual(run.recovery);
+  });
+
   it("does not surface stale recovery after the recovery run completes", () => {
     const suppressedRun = mockRun({
       runId: "run-suppressed",
@@ -495,90 +579,6 @@ describe("buildProjectSnapshot", () => {
     });
 
     expect(snapshot.recovery).toEqual(latestRetryingRun.recovery);
-  });
-
-  it("does not surface dirty-workspace recovery for a removed issue workspace", () => {
-    const run = mockRun({
-      runId: "run-removed-workspace",
-      status: "suppressed",
-      issueWorkspaceKey: "workspace-removed",
-      recovery: {
-        kind: "incomplete-turn-dirty-workspace",
-        runId: "run-removed-workspace",
-        issueId: "issue-001",
-        issueIdentifier: "acme/platform#42",
-        workspacePath: "/tmp/workspace/repository",
-        dirtyFiles: ["partial.txt"],
-        lastEvent: "heartbeat",
-        lastEventAt: "2024-01-01T00:04:00Z",
-        sessionId: "session-1",
-        threadId: "thread-1",
-        suggestedCommand:
-          "cd /tmp/workspace/repository && git status --short && git diff",
-        detectedAt: "2024-01-01T00:05:00Z",
-      },
-    });
-
-    const snapshot = buildProjectSnapshot({
-      project: mockProject(),
-      activeRuns: [],
-      allRuns: [run],
-      issueWorkspaces: [
-        mockIssueWorkspace({
-          workspaceKey: "workspace-removed",
-          issueSubjectId: "subject-001",
-          repositoryPath: "/tmp/workspace/repository",
-          status: "removed",
-        }),
-      ],
-      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
-      lastTickAt: "2024-01-01T00:10:00Z",
-      lastError: null,
-    });
-
-    expect(snapshot.recovery).toBeNull();
-  });
-
-  it("still surfaces dirty-workspace recovery for an active issue workspace", () => {
-    const run = mockRun({
-      runId: "run-active-workspace",
-      status: "suppressed",
-      issueWorkspaceKey: "workspace-active",
-      recovery: {
-        kind: "incomplete-turn-dirty-workspace",
-        runId: "run-active-workspace",
-        issueId: "issue-001",
-        issueIdentifier: "acme/platform#42",
-        workspacePath: "/tmp/workspace/repository",
-        dirtyFiles: ["partial.txt"],
-        lastEvent: "heartbeat",
-        lastEventAt: "2024-01-01T00:04:00Z",
-        sessionId: "session-1",
-        threadId: "thread-1",
-        suggestedCommand:
-          "cd /tmp/workspace/repository && git status --short && git diff",
-        detectedAt: "2024-01-01T00:05:00Z",
-      },
-    });
-
-    const snapshot = buildProjectSnapshot({
-      project: mockProject(),
-      activeRuns: [],
-      allRuns: [run],
-      issueWorkspaces: [
-        mockIssueWorkspace({
-          workspaceKey: "workspace-active",
-          issueSubjectId: "subject-001",
-          repositoryPath: "/tmp/workspace/repository",
-          status: "active",
-        }),
-      ],
-      summary: { dispatched: 0, suppressed: 1, recovered: 0 },
-      lastTickAt: "2024-01-01T00:10:00Z",
-      lastError: null,
-    });
-
-    expect(snapshot.recovery).toEqual(run.recovery);
   });
 
   it("uses allRuns for token aggregation when provided, falls back to activeRuns", () => {

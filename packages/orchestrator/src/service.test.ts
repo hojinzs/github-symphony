@@ -1318,13 +1318,13 @@ describe("OrchestratorService", () => {
       lastError: null,
     });
     await store.saveRun({
-      runId: "run-stale-recovery",
+      runId: "run-incomplete",
       projectId: "tenant-1",
       projectSlug: "tenant-1",
       issueId: "issue-1",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
-      issueState: "In Review",
+      issueState: "In progress",
       repository,
       status: "suppressed",
       attempt: 1,
@@ -1332,7 +1332,7 @@ describe("OrchestratorService", () => {
       port: null,
       workingDirectory: repositoryPath,
       issueWorkspaceKey: workspaceKey,
-      workspaceRuntimeDir: join(tempRoot, "run-stale-recovery", "workspace"),
+      workspaceRuntimeDir: join(tempRoot, "run-incomplete", "workspace"),
       workflowPath: null,
       retryKind: null,
       createdAt: "2026-03-08T00:00:00.000Z",
@@ -1344,11 +1344,11 @@ describe("OrchestratorService", () => {
       nextRetryAt: null,
       recovery: {
         kind: "incomplete-turn-dirty-workspace",
-        runId: "run-stale-recovery",
+        runId: "run-incomplete",
         issueId: "issue-1",
         issueIdentifier: "acme/platform#1",
         workspacePath: repositoryPath,
-        dirtyFiles: ["partial.txt"],
+        dirtyFiles: ["sentinel.txt"],
         lastEvent: "heartbeat",
         lastEventAt: "2026-03-08T00:00:30.000Z",
         sessionId: "session-1",
@@ -1378,11 +1378,11 @@ describe("OrchestratorService", () => {
       "tenant-1",
       workspaceKey
     );
-    const preservedRun = await store.loadRun("run-stale-recovery", "tenant-1");
-    const status = await store.loadProjectStatus("tenant-1");
+    const preservedRun = await store.loadRun("run-incomplete", "tenant-1");
+    const savedStatus = await store.loadProjectStatus();
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
-    expect(status?.recovery).toBeNull();
+    expect(savedStatus?.recovery).toBeNull();
     expect(preservedRun?.recovery).toMatchObject({
       kind: "incomplete-turn-dirty-workspace",
       workspacePath: repositoryPath,

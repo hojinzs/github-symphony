@@ -1,9 +1,10 @@
 import {
   isStateActive,
   isStateTerminal,
+  isRecoveryWorkspaceActionable,
   matchesWorkflowState,
-  type IssueOrchestrationRecord,
   type IssueWorkspaceRecord,
+  type IssueOrchestrationRecord,
   type OrchestratorRunRecord,
   type RepositoryRef,
   type TrackedIssue,
@@ -105,8 +106,8 @@ export function explainIssueDispatch(
     explainRuntimeOwnership(
       issue,
       input.issueRecords,
-      input.issueWorkspaces ?? [],
-      input.runs
+      input.runs,
+      input.issueWorkspaces ?? []
     )
   );
   checks.push(
@@ -354,8 +355,8 @@ function explainBlockers(
 function explainRuntimeOwnership(
   issue: TrackedIssue,
   issueRecords: readonly IssueOrchestrationRecord[],
-  issueWorkspaces: readonly IssueWorkspaceRecord[],
-  runs: readonly OrchestratorRunRecord[]
+  runs: readonly OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): DispatchExplainCheck {
   const record = issueRecords.find(
     (candidate) =>
@@ -450,7 +451,11 @@ function explainRuntimeOwnership(
   if (
     latestRun?.status === "suppressed" &&
     latestRun.recovery?.kind === "incomplete-turn-dirty-workspace" &&
-    !isRecoveryWorkspaceRemoved(latestRun, issueWorkspaces)
+    isRecoveryWorkspaceActionable(
+      latestRun,
+      latestRun.recovery,
+      issueWorkspaces
+    )
   ) {
     return {
       id: "runtime_ownership",
@@ -485,39 +490,6 @@ function explainRuntimeOwnership(
         }
       : undefined,
   };
-}
-
-function isRecoveryWorkspaceRemoved(
-  run: OrchestratorRunRecord,
-  issueWorkspaces: readonly IssueWorkspaceRecord[]
-): boolean {
-  const recovery = run.recovery;
-  if (recovery?.kind !== "incomplete-turn-dirty-workspace") {
-    return false;
-  }
-
-  if (run.issueWorkspaceKey !== null) {
-    const workspace = issueWorkspaces.find(
-      (candidate) => candidate.workspaceKey === run.issueWorkspaceKey
-    );
-    return workspace?.status === "removed";
-  }
-
-  const repositoryWorkspace = issueWorkspaces.find(
-    (candidate) => candidate.repositoryPath === recovery.workspacePath
-  );
-  if (repositoryWorkspace) {
-    return repositoryWorkspace.status === "removed";
-  }
-
-  const workspace = issueWorkspaces.find(
-    (candidate) =>
-      candidate.issueSubjectId === run.issueSubjectId ||
-      candidate.issueSubjectId === recovery.issueId ||
-      candidate.issueIdentifier === recovery.issueIdentifier
-  );
-
-  return workspace?.status === "removed";
 }
 
 function explainDispatchLimits(
