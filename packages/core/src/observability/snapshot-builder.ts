@@ -7,10 +7,12 @@
  */
 
 import type {
+  IncompleteTurnRecoveryInfo,
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   ProjectStatusSnapshot,
 } from "../contracts/status-surface.js";
+import type { IssueWorkspaceRecord } from "../domain/issue.js";
 
 export type SnapshotInput = {
   project: OrchestratorProjectConfig;
@@ -24,6 +26,7 @@ export type SnapshotInput = {
   lastTickAt: string;
   lastError: string | null;
   rateLimits?: Record<string, unknown> | null;
+  issueWorkspaces?: readonly IssueWorkspaceRecord[];
 };
 
 /**
@@ -43,6 +46,7 @@ export function buildProjectSnapshot(
     lastTickAt,
     lastError,
     rateLimits,
+    issueWorkspaces,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
@@ -92,7 +96,10 @@ export function buildProjectSnapshot(
         retryKind: run.retryKind ?? "failure",
         nextRetryAt: run.nextRetryAt,
       })),
-    recovery: findLatestRecovery([...(allRuns ?? []), ...activeRuns]),
+    recovery: findLatestRecovery(
+      [...(allRuns ?? []), ...activeRuns],
+      issueWorkspaces ?? []
+    ),
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
@@ -100,11 +107,12 @@ export function buildProjectSnapshot(
 }
 
 function findLatestRecovery(
-  runs: OrchestratorRunRecord[]
+  runs: OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): ProjectStatusSnapshot["recovery"] {
   return (
     [...runs]
-      .filter((run) => isUnresolvedRecoveryRun(run, runs))
+      .filter((run) => isUnresolvedRecoveryRun(run, runs, issueWorkspaces))
       .sort((left, right) => {
         const leftTime = new Date(left.updatedAt).getTime();
         const rightTime = new Date(right.updatedAt).getTime();
@@ -116,9 +124,14 @@ function findLatestRecovery(
 
 function isUnresolvedRecoveryRun(
   run: OrchestratorRunRecord,
-  runs: OrchestratorRunRecord[]
+  runs: OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): boolean {
   if (!run.recovery) {
+    return false;
+  }
+
+  if (!isRecoveryWorkspaceActionable(run, run.recovery, issueWorkspaces)) {
     return false;
   }
 
@@ -142,6 +155,61 @@ function isUnresolvedRecoveryRun(
     run.status === "suppressed" ||
     (run.retryKind === "recovery" &&
       (run.status === "running" || run.status === "retrying"))
+  );
+}
+
+export function isRecoveryWorkspaceActionable(
+  run: OrchestratorRunRecord,
+  recovery: IncompleteTurnRecoveryInfo,
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
+): boolean {
+  const workspaceRecord = findRecoveryWorkspaceRecord(
+    run,
+    recovery,
+    issueWorkspaces
+  );
+
+  return !workspaceRecord || workspaceRecord.status === "active";
+}
+
+function findRecoveryWorkspaceRecord(
+  run: OrchestratorRunRecord,
+  recovery: IncompleteTurnRecoveryInfo,
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
+): IssueWorkspaceRecord | null {
+  const projectWorkspaces = issueWorkspaces.filter(
+    (workspace) => workspace.projectId === run.projectId
+  );
+
+  if (run.issueWorkspaceKey) {
+    const byKey = projectWorkspaces.find(
+      (workspace) => workspace.workspaceKey === run.issueWorkspaceKey
+    );
+    if (byKey) {
+      return byKey;
+    }
+  }
+
+  const byPath = projectWorkspaces.find(
+    (workspace) =>
+      workspace.repositoryPath === recovery.workspacePath ||
+      workspace.workspacePath === recovery.workspacePath
+  );
+  if (byPath) {
+    return byPath;
+  }
+
+  const bySubject = projectWorkspaces.find(
+    (workspace) => workspace.issueSubjectId === run.issueSubjectId
+  );
+  if (bySubject) {
+    return bySubject;
+  }
+
+  return (
+    projectWorkspaces.find(
+      (workspace) => workspace.issueIdentifier === recovery.issueIdentifier
+    ) ?? null
   );
 }
 
