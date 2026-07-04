@@ -291,7 +291,14 @@ type PriorityResolutionInput =
   | PriorityResolutionConfig
   | LegacyPriorityResolutionConfig;
 
-export class GitHubTrackerError extends Error {}
+export class GitHubTrackerError extends Error {
+  constructor(
+    message: string,
+    readonly rateLimits: Record<string, unknown> | null = null
+  ) {
+    super(message);
+  }
+}
 
 export class GitHubTrackerHttpError extends GitHubTrackerError {
   constructor(
@@ -1498,12 +1505,12 @@ async function guardGraphQLRateLimit(tokenFingerprint: string): Promise<void> {
 
   const resetAtMs = parseTimestampMs(rateLimit.resetAt);
   if (resetAtMs === null) {
-    throw new GitHubTrackerError("Rate limit near exhaustion");
+    throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
   }
 
   const waitMs = Math.max(0, resetAtMs - Date.now());
   if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
-    throw new GitHubTrackerError("Rate limit near exhaustion");
+    throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
   }
 
   cachedGitHubGraphQLRateLimits.delete(tokenFingerprint);

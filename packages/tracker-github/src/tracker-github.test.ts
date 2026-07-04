@@ -1612,8 +1612,9 @@ describe("resolveTrackerAdapter", () => {
       }
     );
 
-    await expect(
-      adapter.listIssues(
+    let thrown: unknown;
+    try {
+      await adapter.listIssues(
         {
           projectId: "workspace-1",
           slug: "workspace-1",
@@ -1635,8 +1636,22 @@ describe("resolveTrackerAdapter", () => {
           token: "dependencies-token",
           fetchImpl,
         }
-      )
-    ).rejects.toThrow("Rate limit near exhaustion");
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe("Rate limit near exhaustion");
+    expect((thrown as { rateLimits?: unknown }).rateLimits).toEqual({
+      source: "github",
+      limit: 5000,
+      remaining: 100,
+      used: null,
+      reset: 1773892920,
+      resetAt: "2026-03-19T04:02:00.000Z",
+      resource: "graphql",
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 

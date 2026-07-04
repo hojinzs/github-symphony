@@ -666,6 +666,27 @@ describe("buildProjectSnapshot", () => {
     });
   });
 
+  it("handles dispatchSuppressedUntil when provided", () => {
+    const input: SnapshotInput = {
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2024-01-01T00:10:00Z",
+      lastError: "Rate limit near exhaustion",
+      rateLimits: {
+        source: "github",
+        remaining: 100,
+        limit: 5000,
+        resetAt: "2024-01-01T01:00:00Z",
+      },
+      dispatchSuppressedUntil: "2024-01-01T01:00:00Z",
+    };
+
+    const snapshot = buildProjectSnapshot(input);
+
+    expect(snapshot.dispatchSuppressedUntil).toBe("2024-01-01T01:00:00Z");
+  });
+
   it("defaults rateLimits to null when not provided", () => {
     const input: SnapshotInput = {
       project: mockProject(),
@@ -679,6 +700,7 @@ describe("buildProjectSnapshot", () => {
     const snapshot = buildProjectSnapshot(input);
 
     expect(snapshot.rateLimits).toBeNull();
+    expect(snapshot.dispatchSuppressedUntil).toBeNull();
   });
 
   it("maps all activeRun fields correctly", () => {

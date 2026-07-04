@@ -311,6 +311,10 @@ export class OrchestratorService {
     WorkflowResolution
   >();
   private readonly lastReportedWorkflowErrors = new Map<string, string>();
+  private readonly lastTrackerRateLimitsByProject = new Map<
+    string,
+    Record<string, unknown>
+  >();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -638,6 +642,11 @@ export class OrchestratorService {
         currentActiveRuns,
         now
       );
+      trackerRateLimits = resolveTrackerRateLimits(
+        syncedIssuesByIdentifier.values()
+      );
+      this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
+      rateLimits = rateLimits ?? trackerRateLimits;
       const issues = await trackerAdapter.listIssues(
         tenant,
         trackerDependencies
@@ -688,6 +697,7 @@ export class OrchestratorService {
         trackedIssuesByIdentifier.values(),
         getTrackedIssueListRateLimits(issues)
       );
+      this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       const concurrency = await this.getProjectConcurrency(tenant);
       const currentlyActive = issueRecords.filter((record) =>
         isIssueOrchestrationClaimedState(record.state)
@@ -965,7 +975,15 @@ export class OrchestratorService {
     } catch (error) {
       lastError =
         error instanceof Error ? error.message : "Unknown orchestration error";
+      trackerRateLimits =
+        trackerRateLimits ?? extractTrackerRateLimitsFromError(error);
+      rateLimits = rateLimits ?? trackerRateLimits;
     }
+    trackerRateLimits =
+      trackerRateLimits ??
+      this.lastTrackerRateLimitsByProject.get(tenant.projectId) ??
+      null;
+    rateLimits = rateLimits ?? trackerRateLimits;
 
     const effectivePollIntervalMs = resolveAdaptivePollIntervalMs(
       pollIntervalMs,
@@ -1005,7 +1023,11 @@ export class OrchestratorService {
     const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
-    rateLimits = rateLimits ?? resolveProjectRateLimits(latestRuns, []);
+    rateLimits =
+      rateLimits ??
+      trackerRateLimits ??
+      resolveProjectRateLimits(latestRuns, []);
+    const dispatchRateLimits = trackerRateLimits ?? rateLimits;
     const status = buildProjectSnapshot({
       project: tenant,
       activeRuns: latestRuns,
@@ -1014,6 +1036,10 @@ export class OrchestratorService {
       lastTickAt: now.toISOString(),
       lastError,
       rateLimits,
+      dispatchSuppressedUntil: resolveDispatchSuppressedUntil(
+        lastError,
+        dispatchRateLimits
+      ),
       issueWorkspaces,
     });
     await this.store.saveProjectStatus(status);
@@ -2974,6 +3000,15 @@ export class OrchestratorService {
     return Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_CONCURRENCY;
   }
 
+  private rememberTrackerRateLimits(
+    projectId: string,
+    rateLimits: Record<string, unknown> | null
+  ): void {
+    if (isTrackerGraphqlRateLimits(rateLimits)) {
+      this.lastTrackerRateLimitsByProject.set(projectId, rateLimits);
+    }
+  }
+
   private async resolveWorkflowResolution(
     repository: RepositoryRef,
     cacheRoot: string,
@@ -3328,6 +3363,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function extractTrackerRateLimitsFromError(
+  error: unknown
+): Record<string, unknown> | null {
+  if (!isRecord(error)) {
+    return null;
+  }
+
+  const rateLimits = error.rateLimits;
+  if (!isRecord(rateLimits)) {
+    return null;
+  }
+
+  return isTrackerGraphqlRateLimits(rateLimits) ? rateLimits : null;
+}
+
 function getTrackedIssueListRateLimits(
   issues: readonly TrackedIssue[]
 ): Record<string, unknown> | null {
@@ -3476,6 +3526,20 @@ function isLowRateLimit(
 ): boolean {
   const ratio = extractRateLimitRatio(rateLimits);
   return ratio !== null && ratio < threshold;
+}
+
+function resolveDispatchSuppressedUntil(
+  lastError: string | null,
+  rateLimits: Record<string, unknown> | null
+): string | null {
+  if (
+    lastError !== "Rate limit near exhaustion" ||
+    !isTrackerGraphqlRateLimits(rateLimits)
+  ) {
+    return null;
+  }
+
+  return typeof rateLimits.resetAt === "string" ? rateLimits.resetAt : null;
 }
 
 function buildRuntimeSession(

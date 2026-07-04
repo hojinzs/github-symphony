@@ -26,6 +26,7 @@ export type SnapshotInput = {
   lastTickAt: string;
   lastError: string | null;
   rateLimits?: Record<string, unknown> | null;
+  dispatchSuppressedUntil?: string | null;
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
 };
 
@@ -46,6 +47,7 @@ export function buildProjectSnapshot(
     lastTickAt,
     lastError,
     rateLimits,
+    dispatchSuppressedUntil,
     issueWorkspaces,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
@@ -103,6 +105,7 @@ export function buildProjectSnapshot(
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
+    dispatchSuppressedUntil: dispatchSuppressedUntil ?? null,
   };
 }
 

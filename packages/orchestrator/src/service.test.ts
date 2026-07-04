@@ -3115,6 +3115,314 @@ Prefer focused changes.
     );
   });
 
+  it("keeps tracker rate-limit data in degraded snapshots when dispatch is gated", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-gated-rate-limit-snapshot-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: join(tempRoot, "workspace"),
+      issueWorkspaceKey: deriveIssueWorkspaceKey("acme/platform#1"),
+      workspaceRuntimeDir: join(tempRoot, "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const rateLimits = {
+      source: "github",
+      limit: 5000,
+      remaining: 163,
+      used: 4837,
+      reset: 1783094167,
+      resetAt: "2026-07-03T15:56:07.000Z",
+      resource: "graphql",
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Issue 1",
+          description: null,
+          priority: null,
+          state: "Todo",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+          rateLimits,
+        },
+      ]),
+      listIssues: vi
+        .fn()
+        .mockRejectedValue(new Error("Rate limit near exhaustion")),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+      stderr,
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.rateLimits).toEqual(rateLimits);
+    expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(`rateLimits=${JSON.stringify(rateLimits)}`)
+    );
+  });
+
+  it("keeps cached tracker rate-limit data when throttled before discovering active runs", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-cached-rate-limit-snapshot-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const rateLimits = {
+      source: "github",
+      limit: 5000,
+      remaining: 163,
+      used: 4837,
+      reset: 1783094167,
+      resetAt: "2026-07-03T15:56:07.000Z",
+      resource: "graphql",
+    };
+    const listedIssues = [] as TrackedIssueList;
+    listedIssues.rateLimits = rateLimits;
+    const listIssues = vi
+      .fn()
+      .mockResolvedValueOnce(listedIssues)
+      .mockRejectedValueOnce(new Error("Rate limit near exhaustion"));
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+    const snapshot = await service.runOnce();
+
+    expect(listIssues).toHaveBeenCalledTimes(2);
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.rateLimits).toEqual(rateLimits);
+    expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
+    expect(stderr.write).toHaveBeenLastCalledWith(
+      expect.stringContaining(`rateLimits=${JSON.stringify(rateLimits)}`)
+    );
+  });
+
+  it("keeps tracker rate-limit data from cached guard errors without active runs", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-error-rate-limit-snapshot-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const rateLimits = {
+      source: "github",
+      limit: 5000,
+      remaining: 87,
+      used: 4913,
+      reset: 1783094167,
+      resetAt: "2026-07-03T15:56:07.000Z",
+      resource: "graphql",
+    };
+    const error = new Error("Rate limit near exhaustion") as Error & {
+      rateLimits: Record<string, unknown>;
+    };
+    error.rateLimits = rateLimits;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      listIssues: vi.fn().mockRejectedValue(error),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const stderr = {
+      write: vi.fn().mockReturnValue(true),
+    };
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+      stderr,
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.health).toBe("degraded");
+    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.rateLimits).toEqual(rateLimits);
+    expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(`rateLimits=${JSON.stringify(rateLimits)}`)
+    );
+  });
+
+  it("does not derive dispatch suppression from non-tracker rate limits", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-non-tracker-suppression-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: join(tempRoot, "workspace"),
+      issueWorkspaceKey: deriveIssueWorkspaceKey("acme/platform#1"),
+      workspaceRuntimeDir: join(tempRoot, "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      rateLimits: {
+        source: "codex",
+        limit: 100,
+        remaining: 1,
+        resetAt: "2026-07-03T15:56:07.000Z",
+      },
+    });
+
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          number: 1,
+          title: "Issue 1",
+          description: null,
+          priority: null,
+          state: "Todo",
+          branchName: null,
+          url: "https://github.com/acme/platform/issues/1",
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            itemId: "item-1",
+          },
+          metadata: {},
+          rateLimits: null,
+        },
+      ]),
+      listIssues: vi
+        .fn()
+        .mockRejectedValue(new Error("Rate limit near exhaustion")),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+      stderr: {
+        write: vi.fn().mockReturnValue(true),
+      },
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.rateLimits).toEqual({
+      source: "codex",
+      limit: 100,
+      remaining: 1,
+      resetAt: "2026-07-03T15:56:07.000Z",
+    });
+    expect(snapshot.dispatchSuppressedUntil).toBeNull();
+  });
+
   it("ignores non-GitHub rate-limit payloads when computing the poll interval", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
