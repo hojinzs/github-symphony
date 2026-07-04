@@ -240,6 +240,7 @@ export type ProjectStatusSnapshot = {
     secondsRunning: number;
   };
   rateLimits?: Record<string, unknown> | null;
+  dispatchSuppressedUntil?: string | null;
   lastError: string | null;
 };
 
