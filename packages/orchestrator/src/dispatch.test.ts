@@ -11,6 +11,7 @@ import type {
   OrchestratorProjectConfig,
   TrackedIssue,
   TrackedPullRequestContext,
+  IssueWorkspaceRecord,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
@@ -79,6 +80,25 @@ function makeRun(
     completedAt: null,
     lastError: null,
     nextRetryAt: null,
+    ...overrides,
+  };
+}
+
+function makeIssueWorkspace(
+  overrides: Partial<IssueWorkspaceRecord> & { workspaceKey: string }
+): IssueWorkspaceRecord {
+  return {
+    workspaceKey: overrides.workspaceKey,
+    projectId: "tenant-1",
+    adapter: "github-project",
+    issueSubjectId: "issue-1",
+    issueIdentifier: "acme/repo#1",
+    workspacePath: "/tmp/workspace",
+    repositoryPath: "/tmp/work",
+    status: "active",
+    createdAt: "2026-03-09T00:00:00.000Z",
+    updatedAt: "2026-03-09T00:00:00.000Z",
+    lastError: null,
     ...overrides,
   };
 }
@@ -365,6 +385,60 @@ describe("explainIssueDispatch", () => {
       expect.arrayContaining([
         expect.objectContaining({ id: "runtime_ownership", status: "block" }),
       ])
+    );
+  });
+
+  it("does not warn about dirty-workspace recovery for a removed issue workspace", () => {
+    const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
+    const run = makeRun({
+      runId: "run-incomplete",
+      issueId: issue.id,
+      status: "suppressed",
+      updatedAt: "2026-03-09T00:05:00.000Z",
+      completedAt: "2026-03-09T00:05:00.000Z",
+      issueWorkspaceKey: "workspace-1",
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-incomplete",
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        workspacePath: "/tmp/work",
+        dirtyFiles: ["partial.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2026-03-09T00:04:30.000Z",
+        sessionId: "session-1",
+        threadId: "thread-1",
+        suggestedCommand: "cd /tmp/work && git status --short && git diff",
+        detectedAt: "2026-03-09T00:05:00.000Z",
+      },
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      issueWorkspaces: [
+        makeIssueWorkspace({
+          workspaceKey: "workspace-1",
+          repositoryPath: "/tmp/work",
+          status: "removed",
+        }),
+      ],
+      runs: [run],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "runtime_ownership", status: "pass" }),
+      ])
+    );
+    expect(JSON.stringify(report)).not.toContain(
+      "dispatch will start a recovery turn"
     );
   });
 

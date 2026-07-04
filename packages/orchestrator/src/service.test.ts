@@ -1317,6 +1317,46 @@ describe("OrchestratorService", () => {
       updatedAt: "2026-03-08T00:00:00.000Z",
       lastError: null,
     });
+    await store.saveRun({
+      runId: "run-incomplete",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "suppressed",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: repositoryPath,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-incomplete", "workspace"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:01:00.000Z",
+      lastError:
+        "Run suppressed with recoverable incomplete-turn dirty workspace.",
+      nextRetryAt: null,
+      recovery: {
+        kind: "incomplete-turn-dirty-workspace",
+        runId: "run-incomplete",
+        issueId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        workspacePath: repositoryPath,
+        dirtyFiles: ["sentinel.txt"],
+        lastEvent: "heartbeat",
+        lastEventAt: "2026-03-08T00:00:30.000Z",
+        sessionId: "session-1",
+        threadId: "thread-1",
+        suggestedCommand: `cd '${repositoryPath}' && git status --short && git diff`,
+        detectedAt: "2026-03-08T00:01:00.000Z",
+      },
+    });
 
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
@@ -1338,8 +1378,15 @@ describe("OrchestratorService", () => {
       "tenant-1",
       workspaceKey
     );
+    const preservedRun = await store.loadRun("run-incomplete", "tenant-1");
+    const savedStatus = await store.loadProjectStatus();
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
+    expect(savedStatus?.recovery).toBeNull();
+    expect(preservedRun?.recovery).toMatchObject({
+      kind: "incomplete-turn-dirty-workspace",
+      workspacePath: repositoryPath,
+    });
   });
 
   it("logs and ignores before_remove hook failures during startup cleanup", async () => {

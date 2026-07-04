@@ -999,6 +999,9 @@ export class OrchestratorService {
     const allTenantRuns = (await this.store.loadAllRuns()).filter(
       (run) => run.projectId === tenant.projectId
     );
+    const issueWorkspaces = await this.store.loadIssueWorkspaces(
+      tenant.projectId
+    );
     const latestRuns = allTenantRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
@@ -1011,6 +1014,7 @@ export class OrchestratorService {
       lastTickAt: now.toISOString(),
       lastError,
       rateLimits,
+      issueWorkspaces,
     });
     await this.store.saveProjectStatus(status);
     return status;

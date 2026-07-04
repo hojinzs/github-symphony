@@ -1,7 +1,9 @@
 import {
   isStateActive,
   isStateTerminal,
+  isRecoveryWorkspaceActionable,
   matchesWorkflowState,
+  type IssueWorkspaceRecord,
   type IssueOrchestrationRecord,
   type OrchestratorRunRecord,
   type RepositoryRef,
@@ -52,6 +54,7 @@ export type ExplainDispatchInput = {
   allIssues: readonly TrackedIssue[];
   lifecycle: WorkflowLifecycleConfig;
   issueRecords: readonly IssueOrchestrationRecord[];
+  issueWorkspaces?: readonly IssueWorkspaceRecord[];
   runs: readonly OrchestratorRunRecord[];
   activeRunCount: number;
   maxConcurrentAgents: number;
@@ -99,7 +102,14 @@ export function explainIssueDispatch(
 
   checks.push(explainWorkflowState(issue, input.lifecycle));
   checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
-  checks.push(explainRuntimeOwnership(issue, input.issueRecords, input.runs));
+  checks.push(
+    explainRuntimeOwnership(
+      issue,
+      input.issueRecords,
+      input.runs,
+      input.issueWorkspaces ?? []
+    )
+  );
   checks.push(
     explainDispatchLimits(
       issue,
@@ -345,7 +355,8 @@ function explainBlockers(
 function explainRuntimeOwnership(
   issue: TrackedIssue,
   issueRecords: readonly IssueOrchestrationRecord[],
-  runs: readonly OrchestratorRunRecord[]
+  runs: readonly OrchestratorRunRecord[],
+  issueWorkspaces: readonly IssueWorkspaceRecord[]
 ): DispatchExplainCheck {
   const record = issueRecords.find(
     (candidate) =>
@@ -439,7 +450,12 @@ function explainRuntimeOwnership(
 
   if (
     latestRun?.status === "suppressed" &&
-    latestRun.recovery?.kind === "incomplete-turn-dirty-workspace"
+    latestRun.recovery?.kind === "incomplete-turn-dirty-workspace" &&
+    isRecoveryWorkspaceActionable(
+      latestRun,
+      latestRun.recovery,
+      issueWorkspaces
+    )
   ) {
     return {
       id: "runtime_ownership",
