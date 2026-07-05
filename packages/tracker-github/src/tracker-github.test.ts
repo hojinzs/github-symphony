@@ -1429,7 +1429,7 @@ describe("resolveTrackerAdapter", () => {
     });
   });
 
-  it("waits for the cached GraphQL rate limit reset when exhaustion is near", async () => {
+  it("waits for the cached GraphQL rate limit reset when exhausted", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
 
@@ -1461,7 +1461,7 @@ describe("resolveTrackerAdapter", () => {
             headers: {
               "content-type": "application/json",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "100",
+              "x-ratelimit-remaining": "0",
               "x-ratelimit-reset": "1773892830",
               "x-ratelimit-resource": "graphql",
             },
@@ -1550,7 +1550,99 @@ describe("resolveTrackerAdapter", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("skips the GraphQL request when the cached rate limit reset is too far away", async () => {
+  it("uses positive remaining GraphQL budget instead of skipping until reset", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
+
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const createResponse = (remaining: string) =>
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": remaining,
+            "x-ratelimit-reset": "1773892920",
+            "x-ratelimit-resource": "graphql",
+          },
+        }
+      );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(createResponse("100"))
+      .mockResolvedValueOnce(createResponse("99"));
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips the GraphQL request when the exhausted cached rate limit reset is too far away", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
 
@@ -1580,7 +1672,7 @@ describe("resolveTrackerAdapter", () => {
           headers: {
             "content-type": "application/json",
             "x-ratelimit-limit": "5000",
-            "x-ratelimit-remaining": "100",
+            "x-ratelimit-remaining": "0",
             "x-ratelimit-reset": "1773892920",
             "x-ratelimit-resource": "graphql",
           },
@@ -1646,7 +1738,7 @@ describe("resolveTrackerAdapter", () => {
     expect((thrown as { rateLimits?: unknown }).rateLimits).toEqual({
       source: "github",
       limit: 5000,
-      remaining: 100,
+      remaining: 0,
       used: null,
       reset: 1773892920,
       resetAt: "2026-03-19T04:02:00.000Z",

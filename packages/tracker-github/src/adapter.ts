@@ -9,7 +9,6 @@ import {
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
-const RATE_LIMIT_THRESHOLD = 100;
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
 export type GitHubTrackerConfig = {
@@ -1499,7 +1498,7 @@ async function guardGraphQLRateLimit(tokenFingerprint: string): Promise<void> {
   }
 
   const remaining = rateLimit.remaining;
-  if (remaining === null || remaining > RATE_LIMIT_THRESHOLD) {
+  if (remaining === null || remaining > 0) {
     return;
   }
 

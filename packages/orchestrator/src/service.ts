@@ -3476,15 +3476,8 @@ function resolveAdaptivePollIntervalMs(
     return basePollIntervalMs;
   }
 
-  if (ratio >= 0.2) {
-    return basePollIntervalMs * 2;
-  }
-
-  if (ratio >= LOW_RATE_LIMIT_WARNING_THRESHOLD) {
-    return basePollIntervalMs * 4;
-  }
-
-  return basePollIntervalMs * 10;
+  const multiplier = Math.min(10, Math.max(1, 0.5 / ratio));
+  return Math.ceil(basePollIntervalMs * multiplier);
 }
 
 function extractRateLimitRatio(

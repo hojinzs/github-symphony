@@ -648,6 +648,13 @@ export GITHUB_GRAPHQL_TOKEN=ghp_your_classic_token
 
 `GITHUB_GRAPHQL_TOKEN` takes priority over `gh` CLI. Interactive `gh-symphony workflow init` and `gh-symphony setup` will use the env token first when it is present and valid, and only fall back to `gh` when no usable env token is available. `gh-symphony doctor` also reports the resolved auth source as `env` or `gh`.
 
+When multiple repository orchestrators run on the same host, prefer a separate
+`GITHUB_GRAPHQL_TOKEN` per repository or orchestrator instance. GitHub GraphQL
+rate limits are token-scoped, so sharing one token across several polling loops
+combines their usage into one hourly budget. Symphony slows polling as headroom
+drops, but token separation keeps one busy repository from starving dispatch in
+the others.
+
 ### GitHub Enterprise Server
 
 For GitHub Enterprise Server, configure the GraphQL endpoint in `WORKFLOW.md`
