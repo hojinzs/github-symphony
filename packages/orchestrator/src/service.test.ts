@@ -3055,13 +3055,13 @@ Prefer focused changes.
       value: 2000,
     });
     await constrainedService.runOnce();
-    expect(constrainedService.getEffectivePollIntervalMs()).toBe(60_000);
+    expect(constrainedService.getEffectivePollIntervalMs()).toBe(37_500);
 
     const lowService = await createServiceWithRemaining("low", {
       value: 500,
     });
     await lowService.runOnce();
-    expect(lowService.getEffectivePollIntervalMs()).toBe(120_000);
+    expect(lowService.getEffectivePollIntervalMs()).toBe(150_000);
 
     const exhaustedRemaining = { value: 100 };
     const exhaustedService = await createServiceWithRemaining(
