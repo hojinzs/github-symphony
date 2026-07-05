@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.4.10
+
+### Patch Changes
+
+- [#426](https://github.com/hojinzs/github-symphony/pull/426) [`d524bda`](https://github.com/hojinzs/github-symphony/commit/d524bdaefc6ac2acf8f6b8d78739f405a14be070) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Hide stale incomplete-turn recovery from repo status and repo explain after issue workspace cleanup removes the backing workspace for [#421](https://github.com/hojinzs/github-symphony/issues/421).
+
 ## 0.4.9
 
 ### Patch Changes
