@@ -1429,7 +1429,7 @@ describe("resolveTrackerAdapter", () => {
     });
   });
 
-  it("waits for the cached GraphQL rate limit reset when exhaustion is near", async () => {
+  it("waits for the cached GraphQL rate limit reset when exhausted", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
 
@@ -1461,7 +1461,7 @@ describe("resolveTrackerAdapter", () => {
             headers: {
               "content-type": "application/json",
               "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "100",
+              "x-ratelimit-remaining": "0",
               "x-ratelimit-reset": "1773892830",
               "x-ratelimit-resource": "graphql",
             },
@@ -1562,58 +1562,34 @@ describe("resolveTrackerAdapter", () => {
       },
     });
 
+    const createResponse = (remaining: string) =>
+      new Response(
+        JSON.stringify({
+          data: {
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "x-ratelimit-limit": "5000",
+            "x-ratelimit-remaining": remaining,
+            "x-ratelimit-reset": "1773892920",
+            "x-ratelimit-resource": "graphql",
+          },
+        }
+      );
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              node: {
-                __typename: "ProjectV2",
-                items: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
-              },
-            },
-          }),
-          {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "100",
-              "x-ratelimit-reset": "1773892920",
-              "x-ratelimit-resource": "graphql",
-            },
-          }
-        )
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              node: {
-                __typename: "ProjectV2",
-                items: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
-                },
-              },
-            },
-          }),
-          {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "x-ratelimit-limit": "5000",
-              "x-ratelimit-remaining": "99",
-              "x-ratelimit-reset": "1773892920",
-              "x-ratelimit-resource": "graphql",
-            },
-          }
-        )
-      );
+      .mockResolvedValueOnce(createResponse("100"))
+      .mockResolvedValueOnce(createResponse("99"));
 
     await adapter.listIssues(
       {
