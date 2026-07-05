@@ -9,7 +9,8 @@ import {
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
-const RATE_LIMIT_THRESHOLD = 100;
+const RATE_LIMIT_SOFT_THRESHOLD = 100;
+const RATE_LIMIT_HARD_THRESHOLD = 0;
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
 export type GitHubTrackerConfig = {
@@ -471,13 +472,14 @@ export async function fetchProjectIssues(
   // state, so callers must fetch the project items and filter in memory.
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
-  const priorityOptionIds = !config.priority && config.priorityFieldName
-    ? await fetchPriorityOptionOrder(
-        config,
-        config.priorityFieldName,
-        fetchImpl
-      )
-    : undefined;
+  const priorityOptionIds =
+    !config.priority && config.priorityFieldName
+      ? await fetchPriorityOptionOrder(
+          config,
+          config.priorityFieldName,
+          fetchImpl
+        )
+      : undefined;
   const currentUserLogin = config.assignedOnly
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
@@ -609,13 +611,14 @@ export async function fetchProjectIssueByRepositoryAndNumber(
   issueNumber: number,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue | null> {
-  const priorityOptionIds = !config.priority && config.priorityFieldName
-    ? await fetchPriorityOptionOrder(
-        config,
-        config.priorityFieldName,
-        fetchImpl
-      )
-    : undefined;
+  const priorityOptionIds =
+    !config.priority && config.priorityFieldName
+      ? await fetchPriorityOptionOrder(
+          config,
+          config.priorityFieldName,
+          fetchImpl
+        )
+      : undefined;
   const result =
     await executeGraphQLQueryWithMetadata<GraphQLRepositoryIssueLookupResponse>(
       config,
@@ -1237,9 +1240,7 @@ function resolveLabelPriority(
   return chosenValue;
 }
 
-function rawLabelNames(
-  nodes: Array<{ name: string | null } | null>
-): string[] {
+function rawLabelNames(nodes: Array<{ name: string | null } | null>): string[] {
   return nodes.flatMap((label) => (label?.name ? [label.name] : []));
 }
 
@@ -1287,12 +1288,10 @@ function emitPriorityUnmapped(
   );
 }
 
-function issueEventMetadata(item: GraphQLProjectItem):
-  | {
-      identifier: string;
-      id: string;
-    }
-  | null {
+function issueEventMetadata(item: GraphQLProjectItem): {
+  identifier: string;
+  id: string;
+} | null {
   if (
     item.content?.__typename !== "Issue" &&
     item.content?.__typename !== "PullRequest"
@@ -1499,18 +1498,24 @@ async function guardGraphQLRateLimit(tokenFingerprint: string): Promise<void> {
   }
 
   const remaining = rateLimit.remaining;
-  if (remaining === null || remaining > RATE_LIMIT_THRESHOLD) {
+  if (remaining === null || remaining > RATE_LIMIT_SOFT_THRESHOLD) {
     return;
   }
 
   const resetAtMs = parseTimestampMs(rateLimit.resetAt);
   if (resetAtMs === null) {
-    throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
+    if (remaining <= RATE_LIMIT_HARD_THRESHOLD) {
+      throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
+    }
+    return;
   }
 
   const waitMs = Math.max(0, resetAtMs - Date.now());
   if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
-    throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
+    if (remaining <= RATE_LIMIT_HARD_THRESHOLD) {
+      throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
+    }
+    return;
   }
 
   cachedGitHubGraphQLRateLimits.delete(tokenFingerprint);

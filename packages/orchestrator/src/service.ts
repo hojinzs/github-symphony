@@ -69,6 +69,8 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
+const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
+const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
 const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
@@ -3472,19 +3474,19 @@ function resolveAdaptivePollIntervalMs(
   }
 
   const ratio = extractRateLimitRatio(rateLimits);
-  if (ratio === null || ratio > 0.5) {
+  if (ratio === null || ratio > ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO) {
     return basePollIntervalMs;
   }
 
-  if (ratio >= 0.2) {
-    return basePollIntervalMs * 2;
+  if (ratio <= 0) {
+    return basePollIntervalMs * MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER;
   }
 
-  if (ratio >= LOW_RATE_LIMIT_WARNING_THRESHOLD) {
-    return basePollIntervalMs * 4;
-  }
-
-  return basePollIntervalMs * 10;
+  const multiplier = Math.min(
+    MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER,
+    Math.max(1, ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO / ratio)
+  );
+  return Math.ceil(basePollIntervalMs * multiplier);
 }
 
 function extractRateLimitRatio(
