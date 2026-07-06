@@ -1570,6 +1570,51 @@ describe("resolveTrackerAdapter", () => {
     expect(issues.map((issue) => issue.identifier)).toEqual(["acme/web#2"]);
   });
 
+  it("matches repository filters case-insensitively", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-casing",
+      settings: {
+        projectId: "project-repo-casing",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({
+        repository: { owner: "example", name: "other" },
+        trackerSettings: { repository: "Acme/Platform" },
+      }),
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: [],
+                repository: { owner: "acme", name: "platform" },
+              }),
+              makeProjectItem({
+                itemId: "item-web",
+                issueId: "issue-web",
+                number: 2,
+                title: "Web issue",
+                assignees: [],
+                repository: { owner: "acme", name: "web" },
+              }),
+            ])
+          ),
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
   it("excludes assigned issues from other repositories before dispatch", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

@@ -2310,6 +2310,49 @@ describe("doctor command handler", () => {
     });
   });
 
+  it("scopes smoke issue lookup to the configured repository", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const fetchProjectIssues = vi.fn(async () => [
+      createTrackedIssue({ state: "In progress" }),
+    ]);
+    const projectConfig = createProjectConfig(workspaceDir, "PVT_test", {
+      owner: "acme",
+      name: "widgets",
+      url: "https://github.com/acme/widgets",
+      cloneUrl: "https://github.com/acme/widgets.git",
+    });
+
+    projectConfig.tracker.settings = {
+      repository: "acme/widgets",
+    };
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), ["--smoke"], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig,
+        }),
+        getProjectDetail: (async () => createProjectDetail() as never) as never,
+        fetchProjectIssues: fetchProjectIssues as never,
+        pathEnv,
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")
+    ).toMatchObject({ status: "pass" });
+    expect(fetchProjectIssues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositoryFilter: { owner: "acme", name: "widgets" },
+      })
+    );
+  });
+
   it("reports tracker fetch failures as smoke diagnostics", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

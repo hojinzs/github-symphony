@@ -887,10 +887,12 @@ function isIssueInRepository(
   repository: { owner: string; name: string }
 ): boolean {
   const itemRepository = item.content.repository;
-  return (
-    itemRepository.owner.login === repository.owner &&
-    itemRepository.name === repository.name
-  );
+  const itemOwner = itemRepository.owner.login.toLowerCase();
+  const itemName = itemRepository.name.toLowerCase();
+  const filterOwner = repository.owner.toLowerCase();
+  const filterName = repository.name.toLowerCase();
+
+  return itemOwner === filterOwner && itemName === filterName;
 }
 
 function emitAssignedOnlyFilterEvent(input: {

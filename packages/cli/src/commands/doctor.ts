@@ -17,6 +17,7 @@ import {
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
+  type GitHubTrackerConfig,
 } from "@gh-symphony/tracker-github";
 import {
   createClient,
@@ -701,7 +702,7 @@ function buildGithubTrackerConfig(input: {
   bindingId: string;
   token: string;
   workflow: ParsedWorkflow;
-}) {
+}): GitHubTrackerConfig {
   const settings = input.projectConfig.projectConfig.tracker.settings;
   return {
     projectId: input.bindingId,
@@ -709,6 +710,7 @@ function buildGithubTrackerConfig(input: {
     apiUrl: input.projectConfig.projectConfig.tracker.apiUrl,
     lifecycle: input.workflow.lifecycle,
     assignedOnly: settings?.assignedOnly === true,
+    repositoryFilter: resolveDoctorRepositoryFilter(input.projectConfig),
     priority: input.workflow.tracker.priority,
     priorityFieldName:
       typeof settings?.priorityFieldName === "string"
@@ -717,6 +719,38 @@ function buildGithubTrackerConfig(input: {
     timeoutMs:
       typeof settings?.timeoutMs === "number" ? settings.timeoutMs : undefined,
   };
+}
+
+function resolveDoctorRepositoryFilter(
+  selection: ResolvedManagedProjectSelection
+): GitHubTrackerConfig["repositoryFilter"] {
+  const repositorySetting =
+    typeof selection.projectConfig.tracker.settings?.repository === "string"
+      ? selection.projectConfig.tracker.settings.repository.trim()
+      : undefined;
+
+  if (!repositorySetting) {
+    const repository = selection.projectConfig.repository;
+    return repository
+      ? { owner: repository.owner, name: repository.name }
+      : undefined;
+  }
+
+  if (repositorySetting === "*") {
+    return null;
+  }
+
+  const segments = repositorySetting.split("/");
+  const owner = segments[0]?.trim();
+  const name = segments[1]?.trim();
+
+  if (segments.length !== 2 || !owner || !name) {
+    throw new Error(
+      `Tracker adapter "${selection.projectConfig.tracker.adapter}" requires the "repository" setting to be "*" or "owner/name" when provided.`
+    );
+  }
+
+  return { owner, name };
 }
 
 async function checkLinearTrackerResolution(input: {
