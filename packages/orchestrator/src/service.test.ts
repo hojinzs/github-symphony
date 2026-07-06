@@ -107,20 +107,13 @@ describe("OrchestratorService", () => {
     expect(issueRecords[0]?.state).toBe("retry_queued");
     await expect(
       readFile(join(tempRoot, workspaceKey, "workspace.json"), "utf8")
-    ).resolves.toContain(`"workspaceKey": "${workspaceKey}"`);
+    ).rejects.toThrow();
     await expect(
       readFile(
-        join(
-          tempRoot,
-          "projects",
-          "tenant-1",
-          "issues",
-          workspaceKey,
-          "workspace.json"
-        ),
+        join(tempRoot, "projects", "tenant-1", workspaceKey, "workspace.json"),
         "utf8"
       )
-    ).rejects.toThrow();
+    ).resolves.toContain(`"workspaceKey": "${workspaceKey}"`);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
@@ -1379,7 +1372,7 @@ describe("OrchestratorService", () => {
       workspaceKey
     );
     const preservedRun = await store.loadRun("run-incomplete", "tenant-1");
-    const savedStatus = await store.loadProjectStatus();
+    const savedStatus = await store.loadProjectStatus("tenant-1");
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
     expect(savedStatus?.recovery).toBeNull();
@@ -9082,7 +9075,7 @@ Prefer focused changes.
     ).resolves.toBe("from-project-env\n");
   });
 
-  it("applies project .env to inline hooks, with process env override and symphony context precedence", async () => {
+  it("applies project .env to inline hooks, with scoped inheritance and symphony context precedence", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;
     const originalSymphonyRepositoryPath = process.env.SYMPHONY_REPOSITORY_PATH;
@@ -9166,7 +9159,7 @@ Prefer focused changes.
 
       await expect(
         readFile(join(repositoryPath, ".before_run_host"), "utf8")
-      ).resolves.toBe("https://ci.example.com\n");
+      ).resolves.toBe("https://staging.example.com\n");
       await expect(
         readFile(join(repositoryPath, ".before_run_file_only"), "utf8")
       ).resolves.toBe("from-project-env\n");
@@ -9188,7 +9181,7 @@ Prefer focused changes.
     }
   });
 
-  it("includes project .env in worker spawn env and lets process env override it", async () => {
+  it("includes project .env in worker spawn env without inheriting unscoped host secrets", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;
     process.env.STAGING_API_HOST = "https://ci.example.com";
@@ -9224,10 +9217,11 @@ Prefer focused changes.
       await service.runOnce();
 
       const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
-      expect(spawnEnv?.STAGING_API_HOST).toBe("https://ci.example.com");
+      expect(spawnEnv?.STAGING_API_HOST).toBe("https://staging.example.com");
       expect(spawnEnv?.FILE_ONLY).toBe("from-project-env");
       expect(spawnEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
       expect(spawnEnv?.SYMPHONY_ISSUE_WORKSPACE_KEY).toBeTruthy();
+      expect(spawnEnv?.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
     } finally {
       if (originalStagingApiHost === undefined) {
         delete process.env.STAGING_API_HOST;
