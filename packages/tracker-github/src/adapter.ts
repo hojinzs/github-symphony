@@ -20,6 +20,7 @@ export type GitHubTrackerConfig = {
   lifecycle?: WorkflowLifecycleConfig;
   pageSize?: number;
   assignedOnly?: boolean;
+  repositoryFilter?: { owner: string; name: string } | null;
   timeoutMs?: number;
   priority?: WorkflowPriorityConfig | null;
   priorityFieldName?: string;
@@ -484,6 +485,7 @@ export async function fetchProjectIssues(
     ? await fetchCurrentUserLogin(config, fetchImpl)
     : null;
   let excludedCount = 0;
+  let repositoryExcludedCount = 0;
   let latestRateLimits: Record<string, unknown> | null = null;
 
   do {
@@ -492,6 +494,26 @@ export async function fetchProjectIssues(
     latestRateLimits = pageResult.rateLimits ?? latestRateLimits;
     const pageIssues = (page.nodes ?? []).flatMap((item) => {
       if (!item) {
+        return [];
+      }
+
+      if (!isRepositoryFilterableProjectItem(item)) {
+        if (config.repositoryFilter) {
+          repositoryExcludedCount += 1;
+        }
+        return [];
+      }
+
+      if (currentUserLogin && !isIssueAssignedToLogin(item, currentUserLogin)) {
+        excludedCount += 1;
+        return [];
+      }
+
+      if (
+        config.repositoryFilter &&
+        !isIssueInRepository(item, config.repositoryFilter)
+      ) {
+        repositoryExcludedCount += 1;
         return [];
       }
 
@@ -512,11 +534,6 @@ export async function fetchProjectIssues(
         return [];
       }
 
-      if (currentUserLogin && !isIssueAssignedToLogin(item, currentUserLogin)) {
-        excludedCount += 1;
-        return [];
-      }
-
       return [normalized];
     });
 
@@ -530,6 +547,15 @@ export async function fetchProjectIssues(
       currentUserLogin,
       includedCount: issues.length,
       excludedCount,
+    });
+  }
+
+  if (config.repositoryFilter) {
+    emitRepositoryFilterEvent({
+      projectId: config.projectId,
+      repository: `${config.repositoryFilter.owner}/${config.repositoryFilter.name}`,
+      includedCount: issues.length,
+      excludedCount: repositoryExcludedCount,
     });
   }
 
@@ -843,6 +869,32 @@ function isIssueAssignedToLogin(
   );
 }
 
+function isRepositoryFilterableProjectItem(
+  item: GraphQLProjectItem
+): item is GraphQLProjectItem & {
+  content: GraphQLIssueNode | GraphQLPullRequestNode;
+} {
+  return (
+    item.content?.__typename === "Issue" ||
+    item.content?.__typename === "PullRequest"
+  );
+}
+
+function isIssueInRepository(
+  item: GraphQLProjectItem & {
+    content: GraphQLIssueNode | GraphQLPullRequestNode;
+  },
+  repository: { owner: string; name: string }
+): boolean {
+  const itemRepository = item.content.repository;
+  const itemOwner = itemRepository.owner.login.toLowerCase();
+  const itemName = itemRepository.name.toLowerCase();
+  const filterOwner = repository.owner.toLowerCase();
+  const filterName = repository.name.toLowerCase();
+
+  return itemOwner === filterOwner && itemName === filterName;
+}
+
 function emitAssignedOnlyFilterEvent(input: {
   projectId: string;
   currentUserLogin: string;
@@ -854,6 +906,23 @@ function emitAssignedOnlyFilterEvent(input: {
       event: "tracker-assigned-only-filtered",
       projectId: input.projectId,
       currentUserLogin: input.currentUserLogin,
+      includedCount: input.includedCount,
+      excludedCount: input.excludedCount,
+    })
+  );
+}
+
+function emitRepositoryFilterEvent(input: {
+  projectId: string;
+  repository: string;
+  includedCount: number;
+  excludedCount: number;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "tracker-repository-filtered",
+      projectId: input.projectId,
+      repository: input.repository,
       includedCount: input.includedCount,
       excludedCount: input.excludedCount,
     })

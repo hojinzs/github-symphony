@@ -1352,6 +1352,388 @@ describe("resolveTrackerAdapter", () => {
     warnSpy.mockRestore();
   });
 
+  it("automatically scopes Project V2 dispatch to each daemon repository", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-scope",
+      settings: {
+        projectId: "project-repo-scope",
+      },
+    });
+    const payload = makeProjectItemsPayload([
+      makeProjectItem({
+        itemId: "item-platform",
+        issueId: "issue-platform",
+        number: 1,
+        title: "Platform issue",
+        assignees: [],
+        repository: { owner: "acme", name: "platform" },
+      }),
+      makeProjectItem({
+        itemId: "item-web",
+        issueId: "issue-web",
+        number: 2,
+        title: "Web issue",
+        assignees: [],
+        repository: { owner: "acme", name: "web" },
+      }),
+    ]);
+    const fetchImpl = vi.fn(async () => makeJsonResponse(payload));
+    const cacheEntries = new Map<string, Promise<TrackedIssue[]>>();
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        const cached = cacheEntries.get(key);
+        if (cached) {
+          return cached;
+        }
+
+        const pending = load();
+        cacheEntries.set(key, pending);
+        return pending;
+      },
+    };
+
+    try {
+      const platformIssues = await adapter.listIssues(
+        makeProjectConfig({ repository: { owner: "acme", name: "platform" } }),
+        {
+          token: "dependencies-token",
+          fetchImpl,
+          projectItemsCache,
+        }
+      );
+      const webIssues = await adapter.listIssues(
+        makeProjectConfig({ repository: { owner: "acme", name: "web" } }),
+        {
+          token: "dependencies-token",
+          fetchImpl,
+          projectItemsCache,
+        }
+      );
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(platformIssues.map((issue) => issue.identifier)).toEqual([
+        "acme/platform#1",
+      ]);
+      expect(webIssues.map((issue) => issue.identifier)).toEqual([
+        "acme/web#2",
+      ]);
+      const webIssueIds = new Set(webIssues.map((issue) => issue.id));
+      expect(platformIssues.some((issue) => webIssueIds.has(issue.id))).toBe(
+        false
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"event":"tracker-repository-filtered"')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("defaults missing tracker repository settings to the project repository", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-default-repo-scope",
+      settings: {
+        projectId: "project-default-repo-scope",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({ repository: { owner: "acme", name: "platform" } }),
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: [],
+                repository: { owner: "acme", name: "platform" },
+              }),
+              makeProjectItem({
+                itemId: "item-web",
+                issueId: "issue-web",
+                number: 2,
+                title: "Web issue",
+                assignees: [],
+                repository: { owner: "acme", name: "web" },
+              }),
+            ])
+          ),
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
+  it("allows tracker repository '*' to opt out of repository dispatch scoping", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-opt-out",
+      settings: {
+        projectId: "project-repo-opt-out",
+      },
+    });
+
+    try {
+      const issues = await adapter.listIssues(
+        makeProjectConfig({
+          repository: { owner: "acme", name: "platform" },
+          trackerSettings: { repository: "*" },
+        }),
+        {
+          token: "dependencies-token",
+          fetchImpl: async () =>
+            makeJsonResponse(
+              makeProjectItemsPayload([
+                makeProjectItem({
+                  itemId: "item-platform",
+                  issueId: "issue-platform",
+                  number: 1,
+                  title: "Platform issue",
+                  assignees: [],
+                  repository: { owner: "acme", name: "platform" },
+                }),
+                makeProjectItem({
+                  itemId: "item-web",
+                  issueId: "issue-web",
+                  number: 2,
+                  title: "Web issue",
+                  assignees: [],
+                  repository: { owner: "acme", name: "web" },
+                }),
+              ])
+            ),
+        }
+      );
+
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "acme/platform#1",
+        "acme/web#2",
+      ]);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("repository scoping is disabled")
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("uses tracker repository owner/name as an override when it differs from cwd origin", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-override",
+      settings: {
+        projectId: "project-repo-override",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({
+        repository: { owner: "acme", name: "platform" },
+        trackerSettings: { repository: "acme/web" },
+      }),
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: [],
+                repository: { owner: "acme", name: "platform" },
+              }),
+              makeProjectItem({
+                itemId: "item-web",
+                issueId: "issue-web",
+                number: 2,
+                title: "Web issue",
+                assignees: [],
+                repository: { owner: "acme", name: "web" },
+              }),
+            ])
+          ),
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual(["acme/web#2"]);
+  });
+
+  it("matches repository filters case-insensitively", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-casing",
+      settings: {
+        projectId: "project-repo-casing",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({
+        repository: { owner: "example", name: "other" },
+        trackerSettings: { repository: "Acme/Platform" },
+      }),
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: [],
+                repository: { owner: "acme", name: "platform" },
+              }),
+              makeProjectItem({
+                itemId: "item-web",
+                issueId: "issue-web",
+                number: 2,
+                title: "Web issue",
+                assignees: [],
+                repository: { owner: "acme", name: "web" },
+              }),
+            ])
+          ),
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
+  it("excludes assigned issues from other repositories before dispatch", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-assignee-cross",
+      settings: {
+        projectId: "project-repo-assignee-cross",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({ repository: { owner: "acme", name: "platform" } }),
+      {
+        assignedOnly: true,
+        token: "dependencies-token",
+        fetchImpl: async (url) => {
+          if (String(url).endsWith("/user")) {
+            return makeJsonResponse({ login: "machine-user" });
+          }
+
+          return makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: ["machine-user"],
+                repository: { owner: "acme", name: "platform" },
+              }),
+              makeProjectItem({
+                itemId: "item-web",
+                issueId: "issue-web",
+                number: 2,
+                title: "Web issue",
+                assignees: ["machine-user"],
+                repository: { owner: "acme", name: "web" },
+              }),
+            ])
+          );
+        },
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
+  it("excludes Project V2 draft items without repository content when scoped", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-draft",
+      settings: {
+        projectId: "project-repo-draft",
+      },
+    });
+
+    const issues = await adapter.listIssues(
+      makeProjectConfig({ repository: { owner: "acme", name: "platform" } }),
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              {
+                id: "item-draft",
+                updatedAt: "2026-03-14T00:00:00.000Z",
+                fieldValues: { nodes: [] },
+                content: {
+                  __typename: "DraftIssue",
+                  id: "draft-1",
+                  title: "Unsupported draft",
+                },
+              },
+              makeProjectItem({
+                itemId: "item-platform",
+                issueId: "issue-platform",
+                number: 1,
+                title: "Platform issue",
+                assignees: [],
+                repository: { owner: "acme", name: "platform" },
+              }),
+            ])
+          ),
+      }
+    );
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
+  it("rejects malformed tracker repository overrides", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-repo-parse",
+      settings: {
+        projectId: "project-repo-parse",
+      },
+    });
+
+    for (const repository of ["acme", "/platform", "acme/", "acme/web/api"]) {
+      await expect(
+        adapter.listIssues(
+          makeProjectConfig({
+            trackerSettings: { repository },
+          }),
+          {
+            token: "dependencies-token",
+            fetchImpl: async () =>
+              makeJsonResponse(makeProjectItemsPayload([])),
+          }
+        )
+      ).rejects.toThrow(
+        'requires the "repository" setting to be "*" or "owner/name"'
+      );
+    }
+  });
+
   it("attaches GitHub API rate-limit headers to listed issues", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -3603,7 +3985,13 @@ function makeProjectItem(input: {
   labels?: string[];
   priorityName?: string;
   priorityOptionId?: string;
+  repository?: {
+    owner: string;
+    name: string;
+  };
 }) {
+  const repository = input.repository ?? { owner: "acme", name: "platform" };
+
   return {
     id: input.itemId,
     updatedAt: "2026-03-14T00:00:00.000Z",
@@ -3632,7 +4020,7 @@ function makeProjectItem(input: {
       number: input.number,
       title: input.title,
       body: null,
-      url: `https://github.com/acme/platform/issues/${input.number}`,
+      url: `https://github.com/${repository.owner}/${repository.name}/issues/${input.number}`,
       createdAt: "2026-03-14T00:00:00.000Z",
       updatedAt: "2026-03-14T00:00:00.000Z",
       labels: {
@@ -3642,13 +4030,34 @@ function makeProjectItem(input: {
         nodes: input.assignees.map((login) => ({ login })),
       },
       repository: {
-        name: "platform",
-        url: "https://github.com/acme/platform",
-        owner: { login: "acme" },
+        name: repository.name,
+        url: `https://github.com/${repository.owner}/${repository.name}`,
+        owner: { login: repository.owner },
       },
       blockedBy: { nodes: [] },
     },
   };
+}
+
+function makeProjectItemsPayload(nodes: unknown[]) {
+  return {
+    data: {
+      node: {
+        __typename: "ProjectV2",
+        items: {
+          nodes,
+          pageInfo: { endCursor: null, hasNextPage: false },
+        },
+      },
+    },
+  };
+}
+
+function makeJsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function makePullRequestProjectItem(input: {
@@ -3808,21 +4217,32 @@ function makePullRequestStateLookupNode(input: {
   };
 }
 
-function makeProjectConfig() {
+function makeProjectConfig(
+  input: {
+    repository?: {
+      owner: string;
+      name: string;
+    };
+    trackerSettings?: Record<string, string | number | boolean | null>;
+  } = {}
+) {
+  const repository = input.repository ?? { owner: "acme", name: "platform" };
+
   return {
     projectId: "tenant-1",
     slug: "tenant-1",
     workspaceDir: "/tmp/workspaces/tenant-1",
     repository: {
-      owner: "acme",
-      name: "platform",
-      cloneUrl: "https://github.com/acme/platform.git",
+      owner: repository.owner,
+      name: repository.name,
+      cloneUrl: `https://github.com/${repository.owner}/${repository.name}.git`,
     },
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
       settings: {
         projectId: "project-123",
+        ...input.trackerSettings,
       },
     },
   };
