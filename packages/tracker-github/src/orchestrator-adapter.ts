@@ -150,12 +150,14 @@ function resolveGitHubTrackerConfig(
 
   const githubProjectId = requireTrackerSetting(project.tracker, "projectId");
   const assignedOnly = resolveAssignedOnly(project.tracker, dependencies);
+  const repositoryFilter = resolveRepositoryFilter(project);
 
   return {
     projectId: githubProjectId,
     token,
     apiUrl: project.tracker.apiUrl,
     assignedOnly,
+    repositoryFilter,
     priority: project.tracker.priority ?? null,
     priorityFieldName: readOptionalStringTrackerSetting(
       project.tracker,
@@ -189,6 +191,47 @@ function resolveAssignedOnly(
   return legacyAssignedOnly;
 }
 
+const warnedRepositoryScopeDisabledProjectIds = new Set<string>();
+
+function resolveRepositoryFilter(
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0]
+): { owner: string; name: string } | null {
+  const repositorySetting = readOptionalStringTrackerSetting(
+    project.tracker,
+    "repository"
+  )?.trim();
+
+  if (!repositorySetting) {
+    return {
+      owner: project.repository.owner,
+      name: project.repository.name,
+    };
+  }
+
+  if (repositorySetting === "*") {
+    const warningKey = `${project.tracker.adapter}:${project.tracker.bindingId}`;
+    if (!warnedRepositoryScopeDisabledProjectIds.has(warningKey)) {
+      warnedRepositoryScopeDisabledProjectIds.add(warningKey);
+      console.warn(
+        "[gh-symphony] GitHub tracker repository scoping is disabled by tracker.settings.repository='*'. Multiple daemons watching the same Project V2 may dispatch the same issue."
+      );
+    }
+    return null;
+  }
+
+  const segments = repositorySetting.split("/");
+  const owner = segments[0]?.trim();
+  const name = segments[1]?.trim();
+
+  if (segments.length !== 2 || !owner || !name) {
+    throw new Error(
+      `Tracker adapter "${project.tracker.adapter}" requires the "repository" setting to be "*" or "owner/name" when provided.`
+    );
+  }
+
+  return { owner, name };
+}
+
 function buildProjectItemsCacheKey(
   config: ReturnType<typeof resolveGitHubTrackerConfig>,
   _dependencies: OrchestratorTrackerDependencies
@@ -200,6 +243,9 @@ function buildProjectItemsCacheKey(
     priority: config.priority ?? null,
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
+    repositoryFilter: config.repositoryFilter
+      ? `${config.repositoryFilter.owner}/${config.repositoryFilter.name}`
+      : null,
     timeoutMs: config.timeoutMs,
     tokenFingerprint: hashToken(config.token),
   });
