@@ -1,5 +1,14 @@
 # @gh-symphony/cli
 
+## 0.4.11
+
+### Patch Changes
+
+- [#431](https://github.com/hojinzs/github-symphony/pull/431) [`1a6bef4`](https://github.com/hojinzs/github-symphony/commit/1a6bef4c2f5194b11a7bc6d6e04cf405d42482f5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reduce GitHub GraphQL rate-limit dispatch dead zones by allowing positive
+  remaining budget to continue polling while scaling the orchestrator poll
+  interval continuously as token headroom drops. Documents token separation for
+  co-hosted repository orchestrators. Refs [#427](https://github.com/hojinzs/github-symphony/issues/427).
+
 ## 0.4.10
 
 ### Patch Changes
