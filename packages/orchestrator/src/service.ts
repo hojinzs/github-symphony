@@ -2073,22 +2073,33 @@ export class OrchestratorService {
       );
     }
 
+    const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
+      tenant,
+      runWithTokens,
+      now
+    );
+
     // Determine retry kind: continuation (issue still actionable) vs failure
     const retryKind = await this.classifyRetryKind(
       tenant,
       run,
       trackerDependencies
     );
+    const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
-      retryKind === "failure"
+      retryKind === "failure" && !recovery
         ? (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0) + 1
         : (this.resolveFailureRetryCount(issueRecords, run.issueId) ?? 0);
     const maxFailureRetries = await this.loadMaxFailureRetries(
       tenant,
       run.repository
     );
-    if (retryKind === "failure" && failureRetryCount >= maxFailureRetries) {
+    if (
+      retryKind === "failure" &&
+      !recovery &&
+      failureRetryCount >= maxFailureRetries
+    ) {
       const lastError = [
         `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
         `failureRetryCount=${failureRetryCount}.`,
@@ -2141,7 +2152,7 @@ export class OrchestratorService {
     }
 
     let nextRetryAt: string;
-    if (retryKind === "continuation") {
+    if (recovery || retryKind === "continuation") {
       nextRetryAt = new Date(
         now.getTime() + CONTINUATION_RETRY_DELAY_MS
       ).toISOString();
@@ -2164,7 +2175,7 @@ export class OrchestratorService {
       processId: null,
       updatedAt: now.toISOString(),
       nextRetryAt,
-      retryKind,
+      retryKind: persistedRetryKind,
       threadId:
         runWithTokens.threadId ??
         runWithTokens.runtimeSession?.threadId ??
@@ -2177,13 +2188,14 @@ export class OrchestratorService {
         runWithTokens.lastTurnSummary ?? run.lastTurnSummary ?? null,
       runPhase: runWithTokens.runPhase ?? "failed",
       lastError:
-        retryKind === "continuation"
+        recovery || retryKind === "continuation"
           ? null
           : "Worker process exited unexpectedly.",
+      recovery,
     };
     await this.store.saveRun(retryRecord);
     this.logVerbose(
-      `[retry-scheduled] ${retryRecord.runId} kind=${retryKind} attempt=${retryRecord.attempt} nextAt=${nextRetryAt}`
+      `[retry-scheduled] ${retryRecord.runId} kind=${persistedRetryKind} attempt=${retryRecord.attempt} nextAt=${nextRetryAt}`
     );
     this.logVerbose(
       `[run-completed] ${retryRecord.runId} status=${retryRecord.status}`
@@ -2583,11 +2595,7 @@ export class OrchestratorService {
     run: OrchestratorRunRecord,
     now: Date
   ): Promise<IncompleteTurnRecoveryContext | null> {
-    if (
-      run.runtimeSession?.status !== "active" ||
-      run.runtimeSession.exitClassification !== null ||
-      run.lastEvent === "turn_completed"
-    ) {
+    if (run.lastEvent === "turn_completed") {
       return null;
     }
 
@@ -2621,8 +2629,8 @@ export class OrchestratorService {
       dirtyFiles: dirtyStatus.dirtyFiles,
       lastEvent: run.lastEvent ?? null,
       lastEventAt: run.lastEventAt ?? null,
-      sessionId: run.runtimeSession.sessionId ?? null,
-      threadId: run.threadId ?? run.runtimeSession.threadId ?? null,
+      sessionId: run.runtimeSession?.sessionId ?? null,
+      threadId: run.threadId ?? run.runtimeSession?.threadId ?? null,
       suggestedCommand: `cd ${shellQuote(dirtyStatus.repositoryDirectory)} && git status --short && git diff`,
       detectedAt: now.toISOString(),
     };
@@ -2660,6 +2668,43 @@ export class OrchestratorService {
       ...recovery,
       issueId: issue.id,
       issueIdentifier: issue.identifier,
+      workspacePath: dirtyStatus.repositoryDirectory,
+      dirtyFiles: dirtyStatus.dirtyFiles,
+      suggestedCommand: `cd ${shellQuote(dirtyStatus.repositoryDirectory)} && git status --short && git diff`,
+    };
+  }
+
+  private async resolveRetryRunRecoveryContext(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord
+  ): Promise<IncompleteTurnRecoveryContext | null> {
+    const recovery = run.recovery;
+    if (recovery?.kind !== "incomplete-turn-dirty-workspace") {
+      return null;
+    }
+
+    const workspaceKey =
+      run.issueWorkspaceKey ??
+      deriveIssueWorkspaceKey(
+        {
+          adapter: tenant.tracker.adapter,
+          issueSubjectId: run.issueSubjectId,
+        },
+        run.issueIdentifier
+      );
+    const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
+      issueWorkspacePath: resolveIssueWorkspaceDirectory(
+        this.store.projectDir(tenant.projectId),
+        workspaceKey
+      ),
+    });
+
+    if (!dirtyStatus?.dirty) {
+      return null;
+    }
+
+    return {
+      ...recovery,
       workspacePath: dirtyStatus.repositoryDirectory,
       dirtyFiles: dirtyStatus.dirtyFiles,
       suggestedCommand: `cd ${shellQuote(dirtyStatus.repositoryDirectory)} && git status --short && git diff`,
@@ -2840,7 +2885,8 @@ export class OrchestratorService {
       tenant,
       run
     );
-    const restarted = await this.startRun(tenant, issue);
+    const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
+    const restarted = await this.startRun(tenant, issue, { recovery });
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
