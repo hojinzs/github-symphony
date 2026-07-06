@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- [#435](https://github.com/hojinzs/github-symphony/pull/435) [`4499b07`](https://github.com/hojinzs/github-symphony/commit/4499b076f4fe3f828b12b8f76bcc8867bacc779f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#434](https://github.com/hojinzs/github-symphony/issues/434) by scoping GitHub Project V2 dispatch to the daemon repository by default. GitHub tracker projects now use `project.repository` unless `tracker.settings.repository` overrides it with `owner/name`; set `tracker.settings.repository: "*"` to opt out and dispatch across all linked repositories.
+
 ## 0.4.11
 
 ### Patch Changes
