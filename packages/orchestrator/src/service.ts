@@ -83,7 +83,6 @@ const INHERITED_ENV_ALLOWLIST = new Set([
   "PATH",
   "PWD",
   "SHELL",
-  "SSH_AUTH_SOCK",
   "TERM",
   "TMPDIR",
   "USER",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OrchestratorFsStore } from "./fs-store.js";
@@ -19,6 +19,7 @@ export type ProjectLockHandle = {
 
 const LOCK_READ_RETRY_DELAY_MS = 10;
 const LOCK_READ_RETRY_LIMIT = 20;
+const SECURE_DIRECTORY_MODE = 0o700;
 
 export async function acquireProjectLock(input: {
   runtimeRoot: string;
@@ -37,7 +38,7 @@ export async function acquireProjectLock(input: {
 
   for (;;) {
     try {
-      await mkdir(dirname(lockPath), { recursive: true });
+      await ensureSecureDirectory(dirname(lockPath));
       const handle = await open(lockPath, "wx");
       try {
         await handle.writeFile(JSON.stringify(record, null, 2) + "\n", "utf8");
@@ -79,6 +80,11 @@ export async function acquireProjectLock(input: {
 
     await rm(lockPath, { force: true });
   }
+}
+
+async function ensureSecureDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: SECURE_DIRECTORY_MODE });
+  await chmod(path, SECURE_DIRECTORY_MODE);
 }
 
 export async function releaseProjectLock(
@@ -145,16 +151,16 @@ export function assertValidProjectId(projectId: string): void {
   }
 }
 
-function resolveProjectLockPath(runtimeRoot: string, projectId: string): string {
+function resolveProjectLockPath(
+  runtimeRoot: string,
+  projectId: string
+): string {
   const store = new OrchestratorFsStore(runtimeRoot);
   const projectDir = resolve(store.projectDir(projectId));
   const resolvedRuntimeRoot = resolve(runtimeRoot);
   const relativeProjectDir = relative(resolvedRuntimeRoot, projectDir);
 
-  if (
-    relativeProjectDir.startsWith("..") ||
-    isAbsolute(relativeProjectDir)
-  ) {
+  if (relativeProjectDir.startsWith("..") || isAbsolute(relativeProjectDir)) {
     throw new Error(
       `Invalid project ID "${projectId}". Project lock path must stay within "${resolvedRuntimeRoot}".`
     );

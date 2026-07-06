@@ -913,7 +913,9 @@ describe("start command foreground locking", () => {
       startedAt: "2026-03-17T00:00:00.000Z",
     };
     acquireProjectLock.mockResolvedValue(lock);
-    run.mockRejectedValue(new githubClient.GitHubApiError("Bad credentials", 401));
+    run.mockRejectedValue(
+      new githubClient.GitHubApiError("Bad credentials", 401)
+    );
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation(
@@ -1125,7 +1127,7 @@ describe("start command foreground locking", () => {
       expect(startControlPlaneServer).toHaveBeenCalledWith({
         host: "0.0.0.0",
         port: 4680,
-        runtimeRoot: configDir,
+        runtimeRoot: join(configDir, "projects", "tenant-a"),
         onRefreshRequest: expect.any(Function),
       });
 
@@ -1220,7 +1222,7 @@ describe("start command foreground locking", () => {
       expect(startControlPlaneServer).toHaveBeenCalledWith({
         host: "0.0.0.0",
         port: 4900,
-        runtimeRoot: configDir,
+        runtimeRoot: join(configDir, "projects", "tenant-a"),
         onRefreshRequest: expect.any(Function),
       });
     });
@@ -1550,7 +1552,9 @@ async function waitForHttpUrl(
   while (Date.now() - startedAt < timeoutMs) {
     const match = output()
       .replace(ansiPattern, "")
-      .match(/(?:HTTP status API|Web dashboard) listening on .*?(http:\/\/[^\s]+)/);
+      .match(
+        /(?:HTTP status API|Web dashboard) listening on .*?(http:\/\/[^\s]+)/
+      );
     if (match?.[1]) {
       return match[1];
     }

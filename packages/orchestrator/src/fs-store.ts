@@ -127,7 +127,19 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
           status: "active" | "released";
           updatedAt: string;
         }>
-      >(join(this.projectDir(projectId), "leases.json"))) ?? [];
+      >(join(this.projectDir(projectId), "leases.json"))) ??
+      (projectId
+        ? await readJsonFile<
+            Array<{
+              issueId: string;
+              issueIdentifier: string;
+              runId: string;
+              status: "active" | "released";
+              updatedAt: string;
+            }>
+          >(join(this.legacyProjectDir(), "leases.json"))
+        : null) ??
+      [];
 
     if (legacyLeases.length === 0) {
       return [];
@@ -165,10 +177,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   }
 
   async saveProjectStatus(status: ProjectStatusSnapshot): Promise<void> {
-    const projectId =
-      "projectId" in status && typeof status.projectId === "string"
-        ? status.projectId
-        : undefined;
+    const projectId = resolveProjectScopedStatusProjectId(status);
     await this.ensureProjectDirectory(projectId);
     await writeJsonFile(
       join(this.projectDir(projectId), "status.json"),
@@ -360,7 +369,12 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     return (
       (await readJsonFile<IssueWorkspaceRecord>(
         join(this.issueWorkspaceDir(projectId, workspaceKey), "workspace.json")
-      )) ?? null
+      )) ??
+      (projectId
+        ? await readJsonFile<IssueWorkspaceRecord>(
+            join(this.legacyProjectDir(), workspaceKey, "workspace.json")
+          )
+        : null)
     );
   }
 
@@ -480,7 +494,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
             await stat(join(this.runtimeRoot, PROJECTS_DIR, entry))
           ).isDirectory()
         ) {
-          ids.push(entry);
+          ids.push(decodeProjectId(entry));
         }
       } catch {
         // Ignore entries that disappear during concurrent reads.
@@ -517,6 +531,24 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
 
 function encodeProjectId(projectId: string): string {
   return encodeURIComponent(projectId);
+}
+
+function decodeProjectId(encodedProjectId: string): string {
+  try {
+    return decodeURIComponent(encodedProjectId);
+  } catch {
+    return encodedProjectId;
+  }
+}
+
+function resolveProjectScopedStatusProjectId(
+  status: ProjectStatusSnapshot
+): string {
+  if ("projectId" in status && typeof status.projectId === "string") {
+    return status.projectId;
+  }
+
+  throw new Error("Project status writes require a projectId.");
 }
 
 async function pathExists(path: string): Promise<boolean> {

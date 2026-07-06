@@ -94,6 +94,48 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     ]);
   });
 
+  it("falls back to legacy flat workspaces on direct loads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const workspaceKey = "acme_repo_1";
+    await mkdir(join(runtimeRoot, workspaceKey), { recursive: true });
+    await writeFile(
+      join(runtimeRoot, workspaceKey, "workspace.json"),
+      JSON.stringify({
+        workspaceKey,
+        projectId: "project-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/repo#1",
+        workspacePath: join(runtimeRoot, workspaceKey),
+        repositoryPath: join(runtimeRoot, workspaceKey, "repository"),
+        status: "active",
+        createdAt: "2026-03-16T00:00:00.000Z",
+        updatedAt: "2026-03-16T00:00:00.000Z",
+        lastError: null,
+      }),
+      "utf8"
+    );
+
+    await expect(
+      store.loadIssueWorkspace("project-1", workspaceKey)
+    ).resolves.toEqual(
+      expect.objectContaining({
+        workspaceKey,
+        projectId: "project-1",
+      })
+    );
+  });
+
+  it("requires projectId for new project status writes", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await expect(store.saveProjectStatus({} as never)).rejects.toThrow(
+      "Project status writes require a projectId."
+    );
+  });
+
   it("returns the most recent formatted events in order", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
@@ -263,6 +305,55 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     expect(eventsNdjson).not.toContain("lin_secret");
     expect(runJson).toContain("[REDACTED]");
     expect(eventsNdjson).toContain("[REDACTED]");
+  });
+
+  it("discovers project runs when project ids need path encoding", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant:one",
+      issueId: "issue-1",
+      issueIdentifier: "ENG-123",
+      issueTitle: "Linear issue",
+      issueState: "Todo",
+      issueSubjectId: "issue-1",
+      repository: {
+        owner: "acme",
+        name: "repo",
+        cloneUrl: "https://github.com/acme/repo.git",
+        url: "https://github.com/acme/repo",
+      },
+      workspaceKey: "ENG-123",
+      workspacePath: "/tmp/workspace",
+      repositoryPath: "/tmp/workspace/repository",
+      status: "active",
+      attempt: 1,
+      maxAttempts: 1,
+      processId: null,
+      sessionId: null,
+      startedAt: "2026-05-14T00:00:00.000Z",
+      updatedAt: "2026-05-14T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      lastWorkerLog: null,
+      lastTurnSummary: null,
+      tokenUsage: undefined,
+    } as never);
+
+    await expect(store.loadAllRuns()).resolves.toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        projectId: "tenant:one",
+      }),
+    ]);
+    await expect(store.loadRun("run-1")).resolves.toEqual(
+      expect.objectContaining({
+        runId: "run-1",
+        projectId: "tenant:one",
+      })
+    );
   });
 
   it("mirrors events to an external directory when configured", async () => {
@@ -461,5 +552,37 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
         updatedAt: "2026-03-16T00:00:00.000Z",
       },
     ]);
+  });
+
+  it("migrates legacy flat leases when scoped issues are absent", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await writeFile(
+      join(runtimeRoot, "leases.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#1",
+          runId: "run-1",
+          status: "active",
+          updatedAt: "2026-03-16T00:00:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+
+    await expect(
+      store.loadProjectIssueOrchestrations("project-1")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        issueId: "issue-1",
+        identifier: "acme/repo#1",
+        state: "claimed",
+        currentRunId: "run-1",
+      }),
+    ]);
+    await expect(
+      readFile(join(store.projectDir("project-1"), "issues.json"), "utf8")
+    ).resolves.toContain("acme/repo#1");
   });
 });

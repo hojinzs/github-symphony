@@ -9184,7 +9184,9 @@ Prefer focused changes.
   it("includes project .env in worker spawn env without inheriting unscoped host secrets", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;
+    const originalSshAuthSock = process.env.SSH_AUTH_SOCK;
     process.env.STAGING_API_HOST = "https://ci.example.com";
+    process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
 
     try {
       const tempRoot = await mkdtemp(
@@ -9222,11 +9224,17 @@ Prefer focused changes.
       expect(spawnEnv?.SYMPHONY_ISSUE_SUBJECT_ID).toBe("issue-1");
       expect(spawnEnv?.SYMPHONY_ISSUE_WORKSPACE_KEY).toBeTruthy();
       expect(spawnEnv?.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+      expect(spawnEnv?.SSH_AUTH_SOCK).toBeUndefined();
     } finally {
       if (originalStagingApiHost === undefined) {
         delete process.env.STAGING_API_HOST;
       } else {
         process.env.STAGING_API_HOST = originalStagingApiHost;
+      }
+      if (originalSshAuthSock === undefined) {
+        delete process.env.SSH_AUTH_SOCK;
+      } else {
+        process.env.SSH_AUTH_SOCK = originalSshAuthSock;
       }
     }
   });

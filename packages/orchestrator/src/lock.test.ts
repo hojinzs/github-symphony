@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,6 +33,10 @@ describe("project lock", () => {
     expect(contents.pid).toBe(4321);
     expect(contents.startedAt).toBe("2026-03-16T00:00:00.000Z");
     expect(contents.ownerToken).toBe(lock.ownerToken);
+    const projectDirStats = await stat(
+      join(runtimeRoot, "projects", "project-1")
+    );
+    expect(projectDirStats.mode & 0o777).toBe(0o700);
 
     await releaseProjectLock(lock);
   });

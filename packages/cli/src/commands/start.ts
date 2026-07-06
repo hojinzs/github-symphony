@@ -840,7 +840,11 @@ const handler = async (
           ? await startControlPlaneServer({
               host: HTTP_HOST,
               port: parsed.webPort,
-              runtimeRoot,
+              runtimeRoot: join(
+                runtimeRoot,
+                "projects",
+                encodeURIComponent(projectId)
+              ),
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined
