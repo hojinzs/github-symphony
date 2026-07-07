@@ -1,5 +1,20 @@
 # @gh-symphony/cli
 
+## 0.6.0
+
+### Minor Changes
+
+- [#456](https://github.com/hojinzs/github-symphony/pull/456) [`b5492ef`](https://github.com/hojinzs/github-symphony/commit/b5492efb21ca8d3d126bd70977f86e48a8cf54a0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Recover dirty issue workspaces after worker crashes by preserving git-status-based recovery context across retry restarts, fixing [#446](https://github.com/hojinzs/github-symphony/issues/446).
+
+- [#455](https://github.com/hojinzs/github-symphony/pull/455) [`f8e78ef`](https://github.com/hojinzs/github-symphony/commit/f8e78ef4ad6687344c05a99b12707e71141a7a1b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Scope orchestrator runtime state and inherited worker environments per project.
+  Project runtime files now live under project-specific `.runtime` directories
+  with owner-only permissions, and worker/hook processes no longer inherit
+  unscoped host secrets such as `GITHUB_GRAPHQL_TOKEN` by default. Fixes [#439](https://github.com/hojinzs/github-symphony/issues/439).
+
+### Patch Changes
+
+- [#458](https://github.com/hojinzs/github-symphony/pull/458) [`cf7d19f`](https://github.com/hojinzs/github-symphony/commit/cf7d19f47ab6d7a8caf830ca8956a443e91e87ff) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Harden WORKFLOW.md execution for [#437](https://github.com/hojinzs/github-symphony/issues/437): repo hooks now require explicit trust approval, hook environments are allowlisted to strip secrets, and Codex agent commands launch as argv without `bash -lc`.
+
 ## 0.5.0
 
 ### Minor Changes
