@@ -87,6 +87,8 @@ const INHERITED_ENV_ALLOWLIST = new Set([
   "TMPDIR",
   "USER",
 ]);
+const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
+const WORKFLOW_HOOK_ENV_ALLOWLIST_ENV = "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST";
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -2828,6 +2830,10 @@ export class OrchestratorService {
         hooks: workflowResolution.workflow.hooks,
         repositoryPath: repositoryDirectory,
         env: hookEnv,
+        trusted: isWorkflowHookExecutionAllowed(hookEnv),
+        envAllowlist: parseCommaSeparatedEnvList(
+          hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV]
+        ),
         timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
       });
     } catch {
@@ -3413,6 +3419,23 @@ export class OrchestratorService {
 
 function shouldInheritProcessEnvKey(key: string): boolean {
   return INHERITED_ENV_ALLOWLIST.has(key) || key.startsWith("LC_");
+}
+
+function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
+  const value =
+    env[WORKFLOW_HOOK_APPROVAL_ENV] ??
+    process.env[WORKFLOW_HOOK_APPROVAL_ENV];
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+function parseCommaSeparatedEnvList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => /^[A-Z_][A-Z0-9_]*$/.test(entry));
 }
 
 function hasTokenUsage(

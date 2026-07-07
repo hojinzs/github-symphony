@@ -28,6 +28,7 @@ import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
+  const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -35,6 +36,11 @@ describe("OrchestratorService", () => {
       delete process.env.GITHUB_GRAPHQL_TOKEN;
     } else {
       process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
+    }
+    if (originalAllowWorkflowHooks === undefined) {
+      delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+    } else {
+      process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = originalAllowWorkflowHooks;
     }
   });
 
@@ -1537,6 +1543,7 @@ describe("OrchestratorService", () => {
 
   it("logs and ignores before_remove hook failures during startup cleanup", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-startup-before-remove-failure-")
     );
@@ -1591,12 +1598,18 @@ Prefer focused changes.
     const sentinelPath = join(workspacePath, "sentinel.txt");
 
     await mkdir(repositoryPath, { recursive: true });
+    await writeFile(
+      join(repositoryPath, "WORKFLOW.md"),
+      await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
+      "utf8"
+    );
     await mkdir(join(repositoryPath, "hooks"), { recursive: true });
     await writeFile(
       join(repositoryPath, "hooks", "before_remove.sh"),
       "#!/usr/bin/env bash\nset -eu\nprintf 'cleanup hook failed' >&2\nexit 1\n",
       "utf8"
     );
+    await chmod(join(repositoryPath, "hooks", "before_remove.sh"), 0o755);
     await writeFile(sentinelPath, "cleanup me", "utf8");
     await store.saveProjectIssueOrchestrations("tenant-1", [
       {
@@ -1653,6 +1666,7 @@ Prefer focused changes.
       "[orchestrator] before_remove hook failed for acme/platform#1; continuing cleanup: cleanup hook failed"
     );
     warnSpy.mockRestore();
+    delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
   });
 
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {
@@ -9182,6 +9196,7 @@ Prefer focused changes.
       '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > "$SYMPHONY_REPOSITORY_PATH/.after_create_host"\nprintf "%s\\n" "$FILE_ONLY" > "$SYMPHONY_REPOSITORY_PATH/.after_create_file_only"\n',
       "utf8"
     );
+    await chmod(join(repository.path, "scripts", "setup-env.sh"), 0o755);
     execSync(`git -C ${shell(repository.path)} add scripts/setup-env.sh`, {
       stdio: "ignore",
     });
@@ -9194,7 +9209,7 @@ Prefer focused changes.
     await store.saveProjectConfig(projectConfig);
     await writeFile(
       join(store.projectDir(projectConfig.projectId), ".env"),
-      "STAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\n",
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=STAGING_API_HOST,FILE_ONLY\nSTAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\n",
       "utf8"
     );
 
@@ -9228,7 +9243,7 @@ Prefer focused changes.
     ).resolves.toBe("from-project-env\n");
   });
 
-  it("applies project .env to inline hooks, with scoped inheritance and symphony context precedence", async () => {
+  it("applies allowlisted project .env to approved script hooks, with symphony context precedence", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;
     const originalSymphonyRepositoryPath = process.env.SYMPHONY_REPOSITORY_PATH;
@@ -9256,10 +9271,7 @@ tracker:
   blocker_check_states:
     - Todo
 hooks:
-  before_run: |
-    printf "%s\\n" "$STAGING_API_HOST" > .before_run_host
-    printf "%s\\n" "$FILE_ONLY" > .before_run_file_only
-    printf "%s\\n" "$SYMPHONY_REPOSITORY_PATH" > .before_run_repository_path
+  before_run: scripts/before-run.sh
 polling:
   interval_ms: 30000
 workspace:
@@ -9278,12 +9290,25 @@ Prefer focused changes.
 `,
         }
       );
+      await mkdir(join(repository.path, "scripts"), { recursive: true });
+      await writeFile(
+        join(repository.path, "scripts", "before-run.sh"),
+        '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "$STAGING_API_HOST" > .before_run_host\nprintf "%s\\n" "$FILE_ONLY" > .before_run_file_only\nprintf "%s\\n" "$SYMPHONY_REPOSITORY_PATH" > .before_run_repository_path\n',
+        "utf8"
+      );
+      await chmod(join(repository.path, "scripts", "before-run.sh"), 0o755);
+      execSync(`git -C ${shell(repository.path)} add scripts/before-run.sh`, {
+        stdio: "ignore",
+      });
+      execSync(`git -C ${shell(repository.path)} commit -m add-before-run-hook`, {
+        stdio: "ignore",
+      });
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
       await writeFile(
         join(store.projectDir(projectConfig.projectId), ".env"),
-        "STAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\nSYMPHONY_REPOSITORY_PATH=/tmp/from-project-env\n",
+        "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=STAGING_API_HOST,FILE_ONLY\nSTAGING_API_HOST=https://staging.example.com\nFILE_ONLY=from-project-env\nSYMPHONY_REPOSITORY_PATH=/tmp/from-project-env\n",
         "utf8"
       );
 
@@ -9599,7 +9624,7 @@ Prefer focused changes.
     await store.saveProjectConfig(projectConfig);
     await writeFile(
       join(store.projectDir(projectConfig.projectId), ".env"),
-      "STAGING_API_HOST=https://staging.example.com\n",
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\nSYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST=STAGING_API_HOST\nSTAGING_API_HOST=https://staging.example.com\n",
       "utf8"
     );
 
@@ -9630,7 +9655,7 @@ Prefer focused changes.
     ).resolves.toBe("https://staging.example.com\n");
   });
 
-  it("preserves existing behavior when the project .env file is missing", async () => {
+  it("skips WORKFLOW.md hooks by default when explicit approval is missing", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-missing-project-env-")
@@ -9652,8 +9677,7 @@ tracker:
   blocker_check_states:
     - Todo
 hooks:
-  before_run: |
-    printf "%s\\n" "\${FILE_ONLY:-missing}" > .before_run_missing_project_env
+  before_run: scripts/before-run.sh
 polling:
   interval_ms: 30000
 workspace:
@@ -9672,6 +9696,19 @@ Prefer focused changes.
 `,
       }
     );
+    await mkdir(join(repository.path, "scripts"), { recursive: true });
+    await writeFile(
+      join(repository.path, "scripts", "before-run.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s\\n" "${FILE_ONLY:-missing}" > .before_run_missing_project_env\n',
+      "utf8"
+    );
+    await chmod(join(repository.path, "scripts", "before-run.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add scripts/before-run.sh`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repository.path)} commit -m add-missing-env-hook`, {
+      stdio: "ignore",
+    });
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
@@ -9701,7 +9738,7 @@ Prefer focused changes.
 
     await expect(
       readFile(join(repositoryPath, ".before_run_missing_project_env"), "utf8")
-    ).resolves.toBe("missing\n");
+    ).rejects.toThrow();
     expect(spawnImpl.mock.calls[0]?.[2]?.env?.FILE_ONLY).toBeUndefined();
   });
 
@@ -9715,11 +9752,51 @@ Prefer focused changes.
       "acme",
       "platform",
       {
-        includeAfterRunHook: true,
-        afterRunCommand:
-          'printf "%s" "$SYMPHONY_WORKSPACE_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_workspace_path"\nprintf "%s" "$SYMPHONY_REPOSITORY_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_repository_path"',
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+hooks:
+  after_run: hooks/after_run.sh
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
       }
     );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "after_run.sh"),
+      '#!/usr/bin/env bash\nset -eu\nprintf "%s" "$SYMPHONY_WORKSPACE_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_workspace_path"\nprintf "%s" "$SYMPHONY_REPOSITORY_PATH" > "$SYMPHONY_REPOSITORY_PATH/.after_run_repository_path"\n',
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "after_run.sh"), 0o755);
+    execSync(`git -C ${shell(repository.path)} add hooks/after_run.sh`, {
+      stdio: "ignore",
+    });
+    execSync(`git -C ${shell(repository.path)} commit -m add-after-run-hook`, {
+      stdio: "ignore",
+    });
 
     const store = new OrchestratorFsStore(tempRoot);
     const workspaceDir = join(tempRoot, "workspace-runtime-root");
@@ -9729,6 +9806,11 @@ Prefer focused changes.
       workspaceDir
     );
     await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      join(store.projectDir(projectConfig.projectId), ".env"),
+      "SYMPHONY_ALLOW_WORKFLOW_HOOKS=1\n",
+      "utf8"
+    );
 
     const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(

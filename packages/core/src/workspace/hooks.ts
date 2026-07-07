@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { isAbsolute } from "node:path";
 
 /**
  * Hook kinds matching WORKFLOW.md `hooks` configuration keys.
@@ -29,6 +30,7 @@ export type HookExecutionOptions = {
   command: string;
   cwd: string;
   env: Record<string, string>;
+  envAllowlist?: readonly string[];
   timeoutMs: number;
 };
 
@@ -37,17 +39,26 @@ const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
 export async function executeHook(
   options: HookExecutionOptions
 ): Promise<HookResult> {
-  const { kind, command, cwd, env, timeoutMs } = options;
+  const { kind, command, cwd, env, envAllowlist = [], timeoutMs } = options;
   const start = Date.now();
-  const normalizedCommand = normalizeHookCommand(command);
+  const hookCommand = resolveHookCommandSpawn(command);
+  if (!hookCommand.ok) {
+    return {
+      kind,
+      outcome: "failure",
+      exitCode: null,
+      durationMs: Date.now() - start,
+      error: hookCommand.error,
+    };
+  }
 
   return new Promise<HookResult>((resolveResult) => {
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const child = spawn("bash", ["-lc", normalizedCommand], {
+    const child = spawn(hookCommand.command, hookCommand.args, {
       cwd,
-      env: { ...process.env, ...env },
+      env: buildHookExecutionEnv(env, envAllowlist),
       stdio: "pipe",
     });
 
@@ -184,6 +195,8 @@ export async function executeWorkspaceHook(options: {
   };
   repositoryPath: string;
   env: Record<string, string>;
+  trusted?: boolean;
+  envAllowlist?: readonly string[];
   timeoutMs?: number;
 }): Promise<HookResult> {
   const hookCommand = resolveHookCommand(options.hooks, options.kind);
@@ -198,25 +211,78 @@ export async function executeWorkspaceHook(options: {
     };
   }
 
+  if (!options.trusted) {
+    return {
+      kind: options.kind,
+      outcome: "skipped",
+      exitCode: null,
+      durationMs: 0,
+      error: `Workflow hook "${options.kind}" skipped because WORKFLOW.md hooks require explicit trust approval.`,
+    };
+  }
+
   return executeHook({
     kind: options.kind,
     command: hookCommand,
     cwd: options.repositoryPath,
     env: options.env,
+    envAllowlist: options.envAllowlist,
     timeoutMs: options.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
   });
 }
 
-function normalizeHookCommand(command: string): string {
+const DEFAULT_HOOK_ENV_KEYS = new Set([
+  "HOME",
+  "LANG",
+  "LOGNAME",
+  "PATH",
+  "PWD",
+  "SHELL",
+  "TERM",
+  "TMPDIR",
+  "USER",
+]);
+
+const SHELL_METACHARACTER_PATTERN = /[;&|`$<>()[\]{}*?!#~="'\\\n\r]/;
+
+export function buildHookExecutionEnv(
+  env: Record<string, string>,
+  allowlist: readonly string[] = []
+): Record<string, string> {
+  const allowed = new Set([...DEFAULT_HOOK_ENV_KEYS, ...allowlist]);
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => {
+      return (
+        allowed.has(key) ||
+        key.startsWith("SYMPHONY_") ||
+        key.startsWith("LC_")
+      );
+    })
+  );
+}
+
+function resolveHookCommandSpawn(
+  command: string
+): { ok: true; command: string; args: string[] } | { ok: false; error: string } {
   const trimmed = command.trim();
-  if (
-    trimmed.includes("/") &&
-    !trimmed.startsWith("/") &&
-    !trimmed.startsWith("./") &&
-    !trimmed.startsWith("../") &&
-    !/\s/.test(trimmed)
-  ) {
-    return `bash ./${trimmed}`;
+  if (!trimmed) {
+    return { ok: false, error: "Hook command is empty." };
   }
-  return command;
+  if (/\s/.test(trimmed) || SHELL_METACHARACTER_PATTERN.test(trimmed)) {
+    return {
+      ok: false,
+      error:
+        "Workflow hooks must reference a script path without shell syntax or arguments.",
+    };
+  }
+  if (isAbsolute(trimmed)) {
+    return { ok: true, command: trimmed, args: [] };
+  }
+  if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return { ok: true, command: trimmed, args: [] };
+  }
+  if (trimmed.includes("/")) {
+    return { ok: true, command: `./${trimmed}`, args: [] };
+  }
+  return { ok: true, command: `./${trimmed}`, args: [] };
 }

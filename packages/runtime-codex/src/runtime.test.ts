@@ -10,6 +10,7 @@ import {
   getCodexObservabilityEventName,
   normalizeCodexRuntimeEvents,
   prepareCodexRuntimePlan,
+  parseAgentCommand,
   resolvePreparedAgentEnvironment,
   resolveAgentRuntimeEnvironment,
   launchCodexAppServer,
@@ -86,8 +87,8 @@ describe("buildCodexRuntimePlan", () => {
       },
     });
 
-    expect(plan.command).toBe("bash");
-    expect(plan.args).toEqual(["-lc", "codex app-server"]);
+    expect(plan.command).toBe("codex");
+    expect(plan.args).toEqual(["app-server"]);
     expect(plan.cwd).toBe("/tmp/workspace-123");
     expect(plan.tools).toHaveLength(1);
     expect(plan.env.CODEX_PROJECT_ID).toBe("workspace-123");
@@ -127,6 +128,24 @@ describe("buildCodexRuntimePlan", () => {
     });
 
     expect(plan.env.CODEX_HOME).toBe("/tmp/process-codex-home");
+  });
+
+  it("does not inherit unallowlisted process env secrets", () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "ghs_secret";
+
+    try {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: "/tmp/workspace-123",
+        agentEnv: {
+          OPENAI_API_KEY: "sk-ready-runtime",
+        },
+      });
+
+      expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    } finally {
+      delete process.env.GITHUB_GRAPHQL_TOKEN;
+    }
   });
 
   it("exposes linear_graphql only when enabled for Linear tracker sessions", () => {
@@ -212,6 +231,27 @@ describe("resolvePreparedAgentEnvironment", () => {
   });
 });
 
+describe("parseAgentCommand", () => {
+  it("parses codex agentCommand into argv without shell wrapping", () => {
+    expect(parseAgentCommand("codex app-server --model gpt-5")).toEqual({
+      command: "codex",
+      args: ["app-server", "--model", "gpt-5"],
+    });
+  });
+
+  it("rejects shell metacharacters in agentCommand", () => {
+    expect(() => parseAgentCommand("codex; curl attacker")).toThrow(
+      AgentRuntimeResolutionError
+    );
+  });
+
+  it("rejects non-allowlisted agentCommand executables", () => {
+    expect(() => parseAgentCommand("node worker.js")).toThrow(
+      AgentRuntimeResolutionError
+    );
+  });
+});
+
 describe("createGitCredentialHelperEnvironment", () => {
   it("configures git to use a renewable credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
@@ -246,8 +286,8 @@ describe("launchCodexAppServer", () => {
     const child = launchCodexAppServer(plan, spawnImpl);
 
     expect(spawnImpl).toHaveBeenCalledWith(
-      "bash",
-      ["-lc", "codex app-server"],
+      "codex",
+      ["app-server"],
       {
         cwd: "/tmp/workspace-123",
         env: plan.env,
