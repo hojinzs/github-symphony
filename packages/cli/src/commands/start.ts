@@ -560,7 +560,9 @@ async function startHttpServer(input: {
   initialPort: number;
   service: { requestReconcile(): void };
 }): Promise<{ server: Server; port: number; url: string }> {
-  const reader = new DashboardFsReader(input.runtimeRoot);
+  const reader = new DashboardFsReader(
+    join(input.runtimeRoot, "projects", encodeURIComponent(input.projectId))
+  );
 
   for (let port = input.initialPort; port <= 65_535; port += 1) {
     const server = createServer((request, response) => {
@@ -838,7 +840,11 @@ const handler = async (
           ? await startControlPlaneServer({
               host: HTTP_HOST,
               port: parsed.webPort,
-              runtimeRoot,
+              runtimeRoot: join(
+                runtimeRoot,
+                "projects",
+                encodeURIComponent(projectId)
+              ),
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined

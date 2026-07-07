@@ -282,9 +282,11 @@ describe("orchestrator CLI", () => {
           resolveRun = resolve;
         })
     );
-    (service.shutdown as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      resolveRun?.();
-    });
+    (service.shutdown as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        resolveRun?.();
+      }
+    );
 
     const runPromise = runCli(
       ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
@@ -312,7 +314,7 @@ describe("orchestrator CLI", () => {
     expect(service.shutdown).toHaveBeenCalledTimes(1);
     expect(exitProcess).toHaveBeenCalledWith(0);
     await expect(
-      access(join(runtimeRoot, ".lock"))
+      access(join(runtimeRoot, "projects", "tenant-1", ".lock"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -328,16 +330,18 @@ describe("orchestrator CLI", () => {
     );
 
     await expect(
-      access(join(runtimeRoot, ".lock"))
+      access(join(runtimeRoot, "projects", "tenant-1", ".lock"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("fails before running the service when the project lock belongs to a live pid", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const service = createMockService();
-    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(join(runtimeRoot, "projects", "tenant-1"), {
+      recursive: true,
+    });
     await writeFile(
-      join(runtimeRoot, ".lock"),
+      join(runtimeRoot, "projects", "tenant-1", ".lock"),
       JSON.stringify({
         ownerToken: "existing-owner",
         pid: process.pid,
@@ -366,13 +370,7 @@ describe("orchestrator CLI", () => {
 
     await expect(
       runCli(
-        [
-          "run",
-          "--runtime-root",
-          runtimeRoot,
-          "--project-id",
-          "../tenant-1",
-        ],
+        ["run", "--runtime-root", runtimeRoot, "--project-id", "../tenant-1"],
         {
           createService,
         }

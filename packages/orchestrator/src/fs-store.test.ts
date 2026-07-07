@@ -13,29 +13,61 @@ import { describe, expect, it, vi } from "vitest";
 import { OrchestratorFsStore } from "./fs-store.js";
 
 describe("OrchestratorFsStore.loadRecentRunEvents", () => {
-  it("uses the workspaceKey-root runtime layout", async () => {
+  it("uses a project-scoped runtime layout", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
 
-    expect(store.projectDir("project-1")).toBe(runtimeRoot);
+    expect(store.projectDir("project-1")).toBe(
+      join(runtimeRoot, "projects", "project-1")
+    );
     expect(store.runDir("run-1", "project-1")).toBe(
-      join(runtimeRoot, "runs", "run-1")
+      join(runtimeRoot, "projects", "project-1", "runs", "run-1")
     );
     expect(store.issueWorkspaceDir("project-1", "acme_repo_1")).toBe(
-      join(runtimeRoot, "acme_repo_1")
+      join(runtimeRoot, "projects", "project-1", "acme_repo_1")
     );
   });
 
-  it("loads only issue workspace directories from the flat runtime root", async () => {
+  it("creates project directories with owner-only permissions", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
 
-    await mkdir(join(runtimeRoot, "runs"), { recursive: true });
-    await mkdir(join(runtimeRoot, "cache"), { recursive: true });
-    await mkdir(join(runtimeRoot, ".lock"), { recursive: true });
-    await writeFile(join(runtimeRoot, "status.json"), "{}", "utf8");
+    const previousUmask = process.umask(0);
+    try {
+      await store.saveProjectConfig({
+        projectId: "project-1",
+        slug: "project-1",
+        workspaceDir: "/tmp/workspaces/project-1",
+        repository: {
+          owner: "acme",
+          name: "repo",
+          cloneUrl: "https://github.com/acme/repo.git",
+        },
+        tracker: {
+          adapter: "file",
+          bindingId: "file-project-1",
+        },
+      });
+
+      const stats = await stat(store.projectDir("project-1"));
+
+      expect(stats.mode & 0o777).toBe(0o700);
+    } finally {
+      process.umask(previousUmask);
+    }
+  });
+
+  it("loads only issue workspace directories from the project runtime root", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const projectDir = store.projectDir("project-1");
+
+    await mkdir(join(projectDir, "runs"), { recursive: true });
+    await mkdir(join(projectDir, "cache"), { recursive: true });
+    await mkdir(join(projectDir, ".lock"), { recursive: true });
+    await writeFile(join(projectDir, "status.json"), "{}", "utf8");
     await writeFile(
-      join(runtimeRoot, "runs", "workspace.json"),
+      join(projectDir, "runs", "workspace.json"),
       JSON.stringify({
         workspaceKey: "runs",
       }),
@@ -47,8 +79,8 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       adapter: "github-project",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/repo#1",
-      workspacePath: join(runtimeRoot, "acme_repo_1"),
-      repositoryPath: join(runtimeRoot, "acme_repo_1", "repository"),
+      workspacePath: join(projectDir, "acme_repo_1"),
+      repositoryPath: join(projectDir, "acme_repo_1", "repository"),
       status: "active",
       createdAt: "2026-03-16T00:00:00.000Z",
       updatedAt: "2026-03-16T00:00:00.000Z",
@@ -60,6 +92,48 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         workspaceKey: "acme_repo_1",
       }),
     ]);
+  });
+
+  it("falls back to legacy flat workspaces on direct loads", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const workspaceKey = "acme_repo_1";
+    await mkdir(join(runtimeRoot, workspaceKey), { recursive: true });
+    await writeFile(
+      join(runtimeRoot, workspaceKey, "workspace.json"),
+      JSON.stringify({
+        workspaceKey,
+        projectId: "project-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/repo#1",
+        workspacePath: join(runtimeRoot, workspaceKey),
+        repositoryPath: join(runtimeRoot, workspaceKey, "repository"),
+        status: "active",
+        createdAt: "2026-03-16T00:00:00.000Z",
+        updatedAt: "2026-03-16T00:00:00.000Z",
+        lastError: null,
+      }),
+      "utf8"
+    );
+
+    await expect(
+      store.loadIssueWorkspace("project-1", workspaceKey)
+    ).resolves.toEqual(
+      expect.objectContaining({
+        workspaceKey,
+        projectId: "project-1",
+      })
+    );
+  });
+
+  it("requires projectId for new project status writes", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await expect(store.saveProjectStatus({} as never)).rejects.toThrow(
+      "Project status writes require a projectId."
+    );
   });
 
   it("returns the most recent formatted events in order", async () => {
@@ -233,6 +307,55 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     expect(eventsNdjson).toContain("[REDACTED]");
   });
 
+  it("discovers project runs when project ids need path encoding", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant:one",
+      issueId: "issue-1",
+      issueIdentifier: "ENG-123",
+      issueTitle: "Linear issue",
+      issueState: "Todo",
+      issueSubjectId: "issue-1",
+      repository: {
+        owner: "acme",
+        name: "repo",
+        cloneUrl: "https://github.com/acme/repo.git",
+        url: "https://github.com/acme/repo",
+      },
+      workspaceKey: "ENG-123",
+      workspacePath: "/tmp/workspace",
+      repositoryPath: "/tmp/workspace/repository",
+      status: "active",
+      attempt: 1,
+      maxAttempts: 1,
+      processId: null,
+      sessionId: null,
+      startedAt: "2026-05-14T00:00:00.000Z",
+      updatedAt: "2026-05-14T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      lastWorkerLog: null,
+      lastTurnSummary: null,
+      tokenUsage: undefined,
+    } as never);
+
+    await expect(store.loadAllRuns()).resolves.toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        projectId: "tenant:one",
+      }),
+    ]);
+    await expect(store.loadRun("run-1")).resolves.toEqual(
+      expect.objectContaining({
+        runId: "run-1",
+        projectId: "tenant:one",
+      })
+    );
+  });
+
   it("mirrors events to an external directory when configured", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const eventsMirrorRoot = await mkdtemp(
@@ -251,7 +374,17 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     });
 
     await expect(
-      readFile(join(eventsMirrorRoot, "runs", "run-1", "events.ndjson"), "utf8")
+      readFile(
+        join(
+          eventsMirrorRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        ),
+        "utf8"
+      )
     ).resolves.toContain('"event":"hook-failed"');
   });
 
@@ -276,10 +409,24 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       });
 
       const primaryStats = await stat(
-        join(runtimeRoot, "runs", "run-1", "events.ndjson")
+        join(
+          runtimeRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        )
       );
       const mirroredStats = await stat(
-        join(eventsMirrorRoot, "runs", "run-1", "events.ndjson")
+        join(
+          eventsMirrorRoot,
+          "projects",
+          "project-1",
+          "runs",
+          "run-1",
+          "events.ndjson"
+        )
       );
 
       expect(primaryStats.mode & 0o644).toBe(0o644);
@@ -312,7 +459,14 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
 
       await expect(
         readFile(
-          join(eventsMirrorRoot, "runs", "run-1", "events.ndjson"),
+          join(
+            eventsMirrorRoot,
+            "projects",
+            "project-1",
+            "runs",
+            "run-1",
+            "events.ndjson"
+          ),
           "utf8"
         )
       ).resolves.toContain('"event":"hook-failed"');
@@ -343,7 +497,17 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
       ).resolves.toBeUndefined();
 
       await expect(
-        readFile(join(runtimeRoot, "runs", "run-1", "events.ndjson"), "utf8")
+        readFile(
+          join(
+            runtimeRoot,
+            "projects",
+            "project-1",
+            "runs",
+            "run-1",
+            "events.ndjson"
+          ),
+          "utf8"
+        )
       ).resolves.toContain('"event":"hook-failed"');
       expect(warnSpy).toHaveBeenCalledOnce();
     } finally {
@@ -356,9 +520,9 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
   it("defaults completedOnce to false for legacy persisted issue records", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);
-    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(store.projectDir("project-1"), { recursive: true });
     await writeFile(
-      join(runtimeRoot, "issues.json"),
+      join(store.projectDir("project-1"), "issues.json"),
       JSON.stringify([
         {
           issueId: "issue-1",
@@ -388,5 +552,37 @@ describe("OrchestratorFsStore.loadProjectIssueOrchestrations", () => {
         updatedAt: "2026-03-16T00:00:00.000Z",
       },
     ]);
+  });
+
+  it("migrates legacy flat leases when scoped issues are absent", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    await writeFile(
+      join(runtimeRoot, "leases.json"),
+      JSON.stringify([
+        {
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#1",
+          runId: "run-1",
+          status: "active",
+          updatedAt: "2026-03-16T00:00:00.000Z",
+        },
+      ]) + "\n",
+      "utf8"
+    );
+
+    await expect(
+      store.loadProjectIssueOrchestrations("project-1")
+    ).resolves.toEqual([
+      expect.objectContaining({
+        issueId: "issue-1",
+        identifier: "acme/repo#1",
+        state: "claimed",
+        currentRunId: "run-1",
+      }),
+    ]);
+    await expect(
+      readFile(join(store.projectDir("project-1"), "issues.json"), "utf8")
+    ).resolves.toContain("acme/repo#1");
   });
 });

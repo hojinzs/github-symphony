@@ -75,6 +75,18 @@ const MAX_RECOVERY_DIRTY_FILES_IN_CONTEXT = 50;
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
 const LINKED_PR_ACTIVE_ISSUE_INACTIVE_MARKER_PREFIX =
   "gh-symphony:linked-pr-active-while-issue-inactive";
+const INHERITED_ENV_ALLOWLIST = new Set([
+  "CI",
+  "HOME",
+  "LANG",
+  "LOGNAME",
+  "PATH",
+  "PWD",
+  "SHELL",
+  "TERM",
+  "TMPDIR",
+  "USER",
+]);
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -1044,7 +1056,10 @@ export class OrchestratorService {
       ),
       issueWorkspaces,
     });
-    await this.store.saveProjectStatus(status);
+    await this.store.saveProjectStatus({
+      ...status,
+      projectId: tenant.projectId,
+    } as ProjectStatusSnapshot & { projectId: string });
     return status;
   }
 
@@ -1608,7 +1623,6 @@ export class OrchestratorService {
       {
         cwd: process.cwd(),
         env: this.buildProjectExecutionEnv(tenant.projectId, {
-          GITHUB_GRAPHQL_TOKEN: process.env.GITHUB_GRAPHQL_TOKEN ?? "",
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
@@ -2842,7 +2856,8 @@ export class OrchestratorService {
   ): Record<string, string> {
     const inheritedEnv = Object.fromEntries(
       Object.entries(process.env).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string"
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && shouldInheritProcessEnvKey(entry[0])
       )
     );
     const explicitEnv = Object.fromEntries(
@@ -3394,6 +3409,10 @@ export class OrchestratorService {
       return DEFAULT_MAX_FAILURE_RETRIES;
     }
   }
+}
+
+function shouldInheritProcessEnvKey(key: string): boolean {
+  return INHERITED_ENV_ALLOWLIST.has(key) || key.startsWith("LC_");
 }
 
 function hasTokenUsage(
