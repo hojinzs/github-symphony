@@ -91,7 +91,8 @@ describe("createWorkflowRuntimeAdapter", () => {
     await codexAdapter.prepare();
 
     const plan = codexAdapter.getPreparedPlan();
-    expect(plan?.args).toEqual(["-lc", "codex app-server --model gpt-5"]);
+    expect(plan?.command).toBe("codex");
+    expect(plan?.args).toEqual(["app-server", "--model", "gpt-5"]);
   });
 
   it("uses the default codex-app-server command when runtime command is absent", async () => {
@@ -114,7 +115,8 @@ describe("createWorkflowRuntimeAdapter", () => {
     await codexAdapter.prepare();
 
     const plan = codexAdapter.getPreparedPlan();
-    expect(plan?.args).toEqual(["-lc", "codex app-server"]);
+    expect(plan?.command).toBe("codex");
+    expect(plan?.args).toEqual(["app-server"]);
   });
 
   it("creates a claude-print adapter with isolation argv context", async () => {

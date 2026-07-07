@@ -57,7 +57,7 @@ export type CodexRuntimeConfig = {
   linearAuthorization?: string;
   linearGraphqlUrl?: string;
   extraEnv?: NodeJS.ProcessEnv;
-  /** Shell command to launch codex app-server. Leading "bash -lc " is stripped if present, since the runtime always wraps in bash -lc. */
+  /** Command line to launch codex app-server. Parsed into argv and spawned without a shell. */
   agentCommand?: string;
 };
 
@@ -96,6 +96,22 @@ type SpawnLike = (
   args: ReadonlyArray<string>,
   options: SpawnOptions
 ) => ChildProcess;
+
+const SAFE_RUNTIME_ENV_KEYS = new Set([
+  "CI",
+  "CODEX_HOME",
+  "HOME",
+  "LANG",
+  "LOGNAME",
+  "PATH",
+  "PWD",
+  "SHELL",
+  "TERM",
+  "TMPDIR",
+  "USER",
+]);
+
+const ALLOWED_CODEX_AGENT_COMMANDS = new Set(["codex"]);
 
 export const CODEX_PROTOCOL_EVENT_NAMES = {
   turnStarted: "turn/started",
@@ -422,6 +438,84 @@ export function resolvePreparedAgentEnvironment(
   );
 }
 
+export function parseAgentCommand(command: string): {
+  command: string;
+  args: string[];
+} {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  for (const char of command.trim()) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    if (";&|`$<>".includes(char)) {
+      throw new AgentRuntimeResolutionError(
+        `Unsupported shell metacharacter in agentCommand: ${char}`
+      );
+    }
+    current += char;
+  }
+
+  if (escaped || quote) {
+    throw new AgentRuntimeResolutionError("Unterminated agentCommand quoting.");
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  if (tokens.length === 0) {
+    throw new AgentRuntimeResolutionError("agentCommand must not be empty.");
+  }
+  const [binary, ...args] = tokens;
+  if (!ALLOWED_CODEX_AGENT_COMMANDS.has(binary!)) {
+    throw new AgentRuntimeResolutionError(
+      `Unsupported agentCommand executable "${binary}". Allowed executables: ${[
+        ...ALLOWED_CODEX_AGENT_COMMANDS,
+      ].join(", ")}.`
+    );
+  }
+  return { command: binary!, args };
+}
+
+function resolveRuntimeProcessEnv(
+  env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" &&
+        (SAFE_RUNTIME_ENV_KEYS.has(entry[0]) || entry[0].startsWith("LC_"))
+    )
+  );
+}
+
 /**
  * Build the `codex app-server` launch plan for the target working directory.
  */
@@ -442,10 +536,9 @@ export function buildCodexRuntimePlan(
   ];
   const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
 
-  const shellCmd = (() => {
-    const cmd = config.agentCommand ?? "codex app-server";
-    return cmd.startsWith("bash -lc ") ? cmd.slice("bash -lc ".length) : cmd;
-  })();
+  const agentCommand = parseAgentCommand(
+    config.agentCommand ?? "codex app-server"
+  );
   const agentEnv = resolvePreparedAgentEnvironment(config.agentEnv);
   const linearGraphqlEnv = config.enableLinearGraphqlTool
     ? {
@@ -472,10 +565,10 @@ export function buildCodexRuntimePlan(
 
   return {
     cwd: config.workingDirectory,
-    command: "bash",
-    args: ["-lc", shellCmd],
+    command: agentCommand.command,
+    args: agentCommand.args,
     env: {
-      ...process.env,
+      ...resolveRuntimeProcessEnv(),
       ...config.extraEnv,
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,
