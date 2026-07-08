@@ -68,8 +68,7 @@ type YamlQuotedString = {
 
 function buildFrontMatter(input: GenerateWorkflowInput): string {
   const tracker = buildTrackerFrontMatter(input);
-  const frontMatter: Record<string, YamlFrontMatterNode> = {
-    tracker,
+  const restFrontMatter: Record<string, YamlFrontMatterNode> = {
     polling: {
       interval_ms: input.pollIntervalMs ?? 30000,
     },
@@ -87,7 +86,7 @@ function buildFrontMatter(input: GenerateWorkflowInput): string {
     runtime: buildRuntimeFrontMatterConfig(input.runtime),
   };
 
-  return `${stringifyYamlFrontMatter(frontMatter)}${buildStaticFrontMatterComments(input)}`;
+  return `${stringifyYamlFrontMatter({ tracker })}${buildTrackerFrontMatterComments(input)}${stringifyYamlFrontMatter(restFrontMatter)}`;
 }
 
 function buildTrackerFrontMatter(
@@ -217,7 +216,7 @@ function buildPriorityFrontMatter(
   };
 }
 
-function buildStaticFrontMatterComments(
+function buildTrackerFrontMatterComments(
   input: Pick<GenerateWorkflowInput, "priority" | "includePriorityTemplates">
 ): string {
   if (!input.priority) {
@@ -227,32 +226,32 @@ function buildStaticFrontMatterComments(
   const comments =
     input.priority.source === "disabled"
       ? [
-          "# Priority dispatch is disabled until an operator chooses one explicit source.",
+          "  # Priority dispatch is disabled until an operator chooses one explicit source.",
         ]
       : [
-          "# Priority is explicit. Numbers below are editable policy (lower = higher priority).",
+          "  # Priority is explicit. Numbers below are editable policy (lower = higher priority).",
         ];
   comments.push(
-    "# See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
   );
 
   if (input.priority.source === "disabled" && input.includePriorityTemplates) {
     comments.push(
       "",
-      "# Optional template: project-field priority source.",
-      "# priority:",
-      "#   source: project-field",
-      "#   field: Priority",
-      "#   values:",
-      "#     Urgent: 0",
-      "#     High: 1",
+      "  # Optional template: project-field priority source.",
+      "  # priority:",
+      "  #   source: project-field",
+      "  #   field: Priority",
+      "  #   values:",
+      "  #     Urgent: 0",
+      "  #     High: 1",
       "",
-      "# Optional template: labels priority source.",
-      "# priority:",
-      "#   source: labels",
-      "#   labels:",
-      "#     P0: 0",
-      "#     P1: 1"
+      "  # Optional template: labels priority source.",
+      "  # priority:",
+      "  #   source: labels",
+      "  #   labels:",
+      "  #     P0: 0",
+      "  #     P1: 1"
     );
   }
 
@@ -287,7 +286,10 @@ function stringifyYamlObject(
 }
 
 function formatYamlKey(value: string): string {
-  if (/^[a-z_][a-z0-9_]*$/.test(value)) {
+  if (
+    /^[a-z_][a-z0-9_]*$/.test(value) &&
+    !/^(?:true|false|null)$/.test(value)
+  ) {
     return value;
   }
   return JSON.stringify(value);

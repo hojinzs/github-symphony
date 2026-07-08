@@ -158,6 +158,76 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.tracker.priority).toEqual(priority);
   });
 
+  it("quotes reserved YAML scalar priority label keys", () => {
+    const priority = {
+      source: "labels" as const,
+      labels: {
+        true: 0,
+        false: 1,
+        null: 2,
+      },
+    };
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priority,
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain('"true": 0');
+    expect(markdown).toContain('"false": 1');
+    expect(markdown).toContain('"null": 2');
+    expect(parsed.tracker.priority).toEqual(priority);
+  });
+
+  it("quotes reserved YAML scalar priority project option keys", () => {
+    const priority = {
+      source: "project-field" as const,
+      field: "Priority",
+      values: {
+        true: 0,
+        false: 1,
+        null: 2,
+      },
+    };
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priority,
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain('"true": 0');
+    expect(markdown).toContain('"false": 1');
+    expect(markdown).toContain('"null": 2');
+    expect(parsed.tracker.priority).toEqual(priority);
+  });
+
+  it("keeps disabled priority templates nested under tracker when uncommented", () => {
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      priority: { source: "disabled" as const },
+      includePriorityTemplates: true,
+    });
+    const uncommented = markdown
+      .replace("  # priority:", "  priority:")
+      .replace("  #   source: project-field", "    source: project-field")
+      .replace("  #   field: Priority", "    field: Priority")
+      .replace("  #   values:", "    values:")
+      .replace("  #     Urgent: 0", "      Urgent: 0")
+      .replace("  #     High: 1", "      High: 1");
+    const parsed = parseWorkflowMarkdown(uncommented, {});
+
+    expect(markdown).toContain("  # priority:");
+    expect(markdown).not.toContain("\n# priority:");
+    expect(parsed.tracker.priority).toEqual({
+      source: "project-field",
+      field: "Priority",
+      values: {
+        Urgent: 0,
+        High: 1,
+      },
+    });
+  });
+
   it("includes a Status Map section in the prompt body", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 
