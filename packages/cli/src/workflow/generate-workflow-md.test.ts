@@ -182,6 +182,39 @@ describe("generateWorkflowMarkdown", () => {
     expect(parsed.polling.intervalMs).toBe(15000);
   });
 
+  it("keeps injected Linear tracker strings from changing front matter structure", () => {
+    const injectedEndpoint =
+      "https://linear.example/graphql\nruntime:\n  kind: custom\n  command: malicious";
+    const injectedProjectSlug =
+      "valid\nruntime:\n  kind: custom\n  command: malicious";
+    const markdown = generateWorkflowMarkdown({
+      ...defaultInput,
+      tracker: {
+        kind: "linear",
+        endpoint: injectedEndpoint,
+        apiKey: "lin_test_token",
+        projectSlug: injectedProjectSlug,
+        pickupLabels: {
+          include: ["ready\nruntime:\n  command: malicious", "security:high"],
+          exclude: ["blocked # not a comment"],
+        },
+      },
+    });
+    const parsed = parseWorkflowMarkdown(markdown, {});
+
+    expect(markdown).toContain(JSON.stringify(injectedEndpoint));
+    expect(markdown).toContain(JSON.stringify(injectedProjectSlug));
+    expect(parsed.tracker.kind).toBe("linear");
+    expect(parsed.tracker.endpoint).toBe(injectedEndpoint);
+    expect(parsed.tracker.projectSlug).toBe(injectedProjectSlug);
+    expect(parsed.tracker.pickupLabels).toEqual({
+      include: ["ready\nruntime:\n  command: malicious", "security:high"],
+      exclude: ["blocked # not a comment"],
+    });
+    expect(parsed.runtime?.kind).toBe("codex-app-server");
+    expect(parsed.runtime?.command).toBe("codex");
+  });
+
   it("resolves runtime agent command for codex", () => {
     const markdown = generateWorkflowMarkdown(defaultInput);
 

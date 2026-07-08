@@ -8,8 +8,10 @@ import { CLAUDE_RUNTIME_PROMPT_PREAMBLE } from "../prompts/runtime-claude-constr
 import { DEFAULT_AFTER_CREATE_HOOK_PATH } from "./default-hooks.js";
 import { buildRepositoryValidationGuidance } from "./repository-guidance.js";
 import {
-  buildRuntimeFrontMatter,
+  DEFAULT_CLAUDE_PRINT_ARGS,
+  DEFAULT_CODEX_APP_SERVER_ARGS,
   isClaudeRuntime,
+  normalizeInitRuntime,
 } from "./workflow-runtime.js";
 
 export type GenerateWorkflowInput = {
@@ -50,166 +52,334 @@ export function generateWorkflowMarkdown(input: GenerateWorkflowInput): string {
   return `---\n${frontMatter}---\n${promptBody}\n`;
 }
 
-function buildFrontMatter(input: GenerateWorkflowInput): string {
-  const lines: string[] = [];
+type YamlFrontMatterNode =
+  | string
+  | number
+  | boolean
+  | null
+  | YamlQuotedString
+  | YamlFrontMatterNode[]
+  | { [key: string]: YamlFrontMatterNode };
 
-  lines.push("tracker:");
+type YamlQuotedString = {
+  readonly __yamlQuotedString: true;
+  readonly value: string;
+};
+
+function buildFrontMatter(input: GenerateWorkflowInput): string {
+  const tracker = buildTrackerFrontMatter(input);
+  const frontMatter: Record<string, YamlFrontMatterNode> = {
+    tracker,
+    polling: {
+      interval_ms: input.pollIntervalMs ?? 30000,
+    },
+    workspace: {
+      root: ".runtime/symphony-workspaces",
+    },
+    hooks: {
+      after_create: DEFAULT_AFTER_CREATE_HOOK_PATH,
+    },
+    agent: {
+      max_concurrent_agents: 10,
+      max_retry_backoff_ms: 30000,
+      retry_base_delay_ms: 10000,
+    },
+    runtime: buildRuntimeFrontMatterConfig(input.runtime),
+  };
+
+  return `${stringifyYamlFrontMatter(frontMatter)}${buildStaticFrontMatterComments(input)}`;
+}
+
+function buildTrackerFrontMatter(
+  input: GenerateWorkflowInput
+): Record<string, YamlFrontMatterNode> {
+  const tracker: Record<string, YamlFrontMatterNode> = {};
   if (input.tracker?.kind === "linear") {
-    lines.push("  kind: linear");
-    lines.push(
-      `  endpoint: ${input.tracker.endpoint ?? "https://api.linear.app/graphql"}`
-    );
-    lines.push(`  api_key: ${input.tracker.apiKey ?? "$LINEAR_API_KEY"}`);
-    lines.push(`  project_slug: ${input.tracker.projectSlug}`);
+    tracker.kind = "linear";
+    tracker.endpoint =
+      input.tracker.endpoint ?? "https://api.linear.app/graphql";
+    tracker.api_key = input.tracker.apiKey ?? "$LINEAR_API_KEY";
+    tracker.project_slug = input.tracker.projectSlug;
   } else {
-    lines.push("  kind: github-project");
-    lines.push(`  project_id: ${input.projectId}`);
-    lines.push(`  state_field: ${input.stateFieldName}`);
-    lines.push(...buildPriorityFrontMatter(input));
+    tracker.kind = "github-project";
+    tracker.project_id = input.projectId;
+    tracker.state_field = input.stateFieldName;
+    const priority = buildPriorityFrontMatter(input);
+    if (priority) {
+      tracker.priority = priority;
+    }
   }
 
   if (input.lifecycle.activeStates.length > 0) {
-    lines.push("  active_states:");
-    for (const state of input.lifecycle.activeStates) {
-      lines.push(`    - ${state}`);
-    }
+    tracker.active_states = input.lifecycle.activeStates;
   }
 
   if (input.lifecycle.terminalStates.length > 0) {
-    lines.push("  terminal_states:");
-    for (const state of input.lifecycle.terminalStates) {
-      lines.push(`    - ${state}`);
-    }
+    tracker.terminal_states = input.lifecycle.terminalStates;
   }
 
   if (input.tracker?.kind === "linear") {
     const include = input.tracker.pickupLabels?.include ?? [];
     const exclude = input.tracker.pickupLabels?.exclude ?? [];
     if (include.length > 0 || exclude.length > 0) {
-      lines.push("  pickup_labels:");
+      const pickupLabels: Record<string, YamlFrontMatterNode> = {};
       if (include.length > 0) {
-        lines.push("    include:");
-        for (const label of include) {
-          lines.push(`      - ${label}`);
-        }
+        pickupLabels.include = include;
       }
       if (exclude.length > 0) {
-        lines.push("    exclude:");
-        for (const label of exclude) {
-          lines.push(`      - ${label}`);
-        }
+        pickupLabels.exclude = exclude;
       }
+      tracker.pickup_labels = pickupLabels;
     }
   }
 
-  lines.push(
-    ...buildStringListFrontMatter(
-      "blocker_check_states",
-      input.lifecycle.blockerCheckStates
-    )
-  );
-  lines.push(
-    ...buildStringListFrontMatter(
-      "planning_states",
-      input.lifecycle.planningStates
-    )
-  );
+  tracker.blocker_check_states = input.lifecycle.blockerCheckStates;
+  tracker.planning_states = input.lifecycle.planningStates;
 
-  lines.push("polling:");
-  lines.push(`  interval_ms: ${input.pollIntervalMs ?? 30000}`);
-
-  lines.push("workspace:");
-  lines.push("  root: .runtime/symphony-workspaces");
-
-  lines.push("hooks:");
-  lines.push(`  after_create: ${DEFAULT_AFTER_CREATE_HOOK_PATH}`);
-
-  lines.push("agent:");
-  lines.push("  max_concurrent_agents: 10");
-  lines.push("  max_retry_backoff_ms: 30000");
-  lines.push("  retry_base_delay_ms: 10000");
-
-  lines.push(...buildRuntimeFrontMatter(input.runtime));
-
-  return lines.join("\n") + "\n";
+  return tracker;
 }
 
-function buildStringListFrontMatter(key: string, values: string[]): string[] {
-  if (values.length === 0) {
-    return [`  ${key}: []`];
+function buildRuntimeFrontMatterConfig(
+  runtime: string
+): Record<string, YamlFrontMatterNode> {
+  const normalized = normalizeInitRuntime(runtime);
+  const base = {
+    isolation: {
+      bare: false,
+      strict_mcp_config: false,
+    },
+  };
+
+  if (normalized === "codex-app-server") {
+    return {
+      kind: "codex-app-server",
+      command: "codex",
+      args: [...DEFAULT_CODEX_APP_SERVER_ARGS],
+      ...base,
+      timeouts: {
+        read_timeout_ms: 5000,
+        turn_timeout_ms: 3600000,
+        stall_timeout_ms: 300000,
+      },
+    };
   }
 
-  return [`  ${key}:`, ...values.map((value) => `    - ${value}`)];
+  if (normalized === "claude-print") {
+    return {
+      kind: "claude-print",
+      command: "claude",
+      args: [...DEFAULT_CLAUDE_PRINT_ARGS],
+      ...base,
+      timeouts: {
+        read_timeout_ms: 5000,
+        turn_timeout_ms: 3600000,
+        stall_timeout_ms: 900000,
+      },
+    };
+  }
+
+  return {
+    kind: "custom",
+    command: runtime,
+    ...base,
+    timeouts: {
+      read_timeout_ms: 5000,
+      turn_timeout_ms: 3600000,
+      stall_timeout_ms: 300000,
+    },
+  };
 }
 
 function buildPriorityFrontMatter(
   input: Pick<GenerateWorkflowInput, "priority" | "includePriorityTemplates">
-): string[] {
-  const lines: string[] = [];
+): Record<string, YamlFrontMatterNode> | null {
   if (!input.priority) {
-    return lines;
+    return null;
   }
-
-  if (input.priority.source === "disabled") {
-    lines.push(
-      "  # Priority dispatch is disabled until an operator chooses one explicit source."
-    );
-  } else {
-    lines.push(
-      "  # Priority is explicit. Numbers below are editable policy (lower = higher priority)."
-    );
-  }
-  lines.push(
-    "  # See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
-  );
-  lines.push("  priority:");
 
   if (input.priority.source === "project-field") {
-    lines.push("    source: project-field");
-    lines.push(`    field: ${formatYamlScalar(input.priority.field)}`);
-    lines.push("    values:");
-    for (const [name, value] of Object.entries(input.priority.values)) {
-      lines.push(`      ${formatYamlKey(name)}: ${value}`);
-    }
-    return lines;
+    return {
+      source: "project-field",
+      field: yamlQuotedString(input.priority.field),
+      values: input.priority.values,
+    };
   }
 
   if (input.priority.source === "labels") {
-    lines.push("    source: labels");
-    lines.push("    labels:");
-    for (const [name, value] of Object.entries(input.priority.labels)) {
-      lines.push(`      ${formatYamlKey(name)}: ${value}`);
-    }
-    return lines;
+    return {
+      source: "labels",
+      labels: input.priority.labels,
+    };
   }
 
-  lines.push("    source: disabled");
-  if (input.includePriorityTemplates) {
-    lines.push("");
-    lines.push("  # Optional template: project-field priority source.");
-    lines.push("  # priority:");
-    lines.push("  #   source: project-field");
-    lines.push("  #   field: Priority");
-    lines.push("  #   values:");
-    lines.push("  #     Urgent: 0");
-    lines.push("  #     High: 1");
-    lines.push("");
-    lines.push("  # Optional template: labels priority source.");
-    lines.push("  # priority:");
-    lines.push("  #   source: labels");
-    lines.push("  #   labels:");
-    lines.push("  #     P0: 0");
-    lines.push("  #     P1: 1");
+  return {
+    source: "disabled",
+  };
+}
+
+function buildStaticFrontMatterComments(
+  input: Pick<GenerateWorkflowInput, "priority" | "includePriorityTemplates">
+): string {
+  if (!input.priority) {
+    return "";
+  }
+
+  const comments =
+    input.priority.source === "disabled"
+      ? [
+          "# Priority dispatch is disabled until an operator chooses one explicit source.",
+        ]
+      : [
+          "# Priority is explicit. Numbers below are editable policy (lower = higher priority).",
+        ];
+  comments.push(
+    "# See docs/adr/2026-05-18_explicit-dispatch-priority-mappings.md"
+  );
+
+  if (input.priority.source === "disabled" && input.includePriorityTemplates) {
+    comments.push(
+      "",
+      "# Optional template: project-field priority source.",
+      "# priority:",
+      "#   source: project-field",
+      "#   field: Priority",
+      "#   values:",
+      "#     Urgent: 0",
+      "#     High: 1",
+      "",
+      "# Optional template: labels priority source.",
+      "# priority:",
+      "#   source: labels",
+      "#   labels:",
+      "#     P0: 0",
+      "#     P1: 1"
+    );
+  }
+
+  return `${comments.join("\n")}\n`;
+}
+
+function stringifyYamlFrontMatter(
+  input: Record<string, YamlFrontMatterNode>
+): string {
+  return `${stringifyYamlObject(input, 0).join("\n")}\n`;
+}
+
+function stringifyYamlObject(
+  input: Record<string, YamlFrontMatterNode>,
+  indent: number
+): string[] {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    const prefix = " ".repeat(indent);
+    if (isYamlNestedValue(value)) {
+      if (Array.isArray(value) && value.length === 0) {
+        lines.push(`${prefix}${formatYamlKey(key)}: []`);
+        continue;
+      }
+      lines.push(`${prefix}${formatYamlKey(key)}:`);
+      lines.push(...stringifyYamlNode(value, indent + 2));
+      continue;
+    }
+    lines.push(`${prefix}${formatYamlKey(key)}: ${formatYamlScalar(value)}`);
   }
   return lines;
 }
 
-function formatYamlScalar(value: string): string {
+function formatYamlKey(value: string): string {
+  if (/^[a-z_][a-z0-9_]*$/.test(value)) {
+    return value;
+  }
   return JSON.stringify(value);
 }
 
-function formatYamlKey(value: string): string {
-  return JSON.stringify(value);
+function stringifyYamlNode(
+  value: YamlFrontMatterNode,
+  indent: number
+): string[] {
+  const prefix = " ".repeat(indent);
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [`${prefix}[]`];
+    }
+    return value.flatMap((entry) => {
+      if (isYamlNestedValue(entry)) {
+        return [
+          `${prefix}-`,
+          ...stringifyYamlNode(entry, indent + 2),
+        ];
+      }
+      return [`${prefix}- ${formatYamlScalar(entry)}`];
+    });
+  }
+  if (isYamlObject(value)) {
+    return stringifyYamlObject(value, indent);
+  }
+  return [`${prefix}${formatYamlScalar(value)}`];
+}
+
+function isYamlNestedValue(value: YamlFrontMatterNode): boolean {
+  return Array.isArray(value) || isYamlObject(value);
+}
+
+function isYamlObject(
+  value: YamlFrontMatterNode
+): value is Record<string, YamlFrontMatterNode> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !isYamlQuotedString(value)
+  );
+}
+
+function formatYamlScalar(
+  value: YamlFrontMatterNode
+): string {
+  if (isYamlQuotedString(value)) {
+    return JSON.stringify(value.value);
+  }
+  if (typeof value === "string") {
+    return shouldQuoteYamlScalar(value) ? JSON.stringify(value) : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value === null) {
+    return "null";
+  }
+  throw new Error("Nested YAML values must be serialized by the caller.");
+}
+
+function shouldQuoteYamlScalar(value: string): boolean {
+  const firstChar = value[0] ?? "";
+  return (
+    value.length === 0 ||
+    /^\s|\s$/.test(value) ||
+    /[\n\r]/.test(value) ||
+    /(^|\s)#/.test(value) ||
+    /:\s/.test(value) ||
+    /^(?:null|true|false|-?\d+)$/.test(value) ||
+    "[]{},&*!|>'\"%@`".includes(firstChar)
+  );
+}
+
+function yamlQuotedString(value: string): YamlQuotedString {
+  return {
+    __yamlQuotedString: true,
+    value,
+  };
+}
+
+function isYamlQuotedString(
+  value: YamlFrontMatterNode
+): value is YamlQuotedString {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "__yamlQuotedString" in value
+  );
 }
 
 function buildPromptBody(input: GenerateWorkflowInput): string {
