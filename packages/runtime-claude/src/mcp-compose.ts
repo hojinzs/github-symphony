@@ -1,4 +1,5 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
@@ -40,8 +41,8 @@ export async function composeClaudeMcpConfig(
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
   const mergedConfig = mergeSymphonyMcpServers(baseConfig, symphonyTokenEnv);
 
-  await mkdir(dirname(finalPath), { recursive: true, mode: 0o700 });
-  await chmod(dirname(finalPath), 0o700);
+  await ensureSecureConfigParent(dirname(finalPath));
+  await chmodExistingSecretFile(finalPath);
   await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", {
     encoding: "utf8",
     mode: 0o600,
@@ -55,6 +56,41 @@ export async function composeClaudeMcpConfig(
       : ["--mcp-config", finalPath],
     cleanupPath: finalPath,
   };
+}
+
+async function ensureSecureConfigParent(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  if (shouldSecureConfigParent(path)) {
+    await chmod(path, 0o700);
+  }
+}
+
+function shouldSecureConfigParent(path: string): boolean {
+  if (path === ".") {
+    return false;
+  }
+
+  const normalizedPath = resolve(path);
+  const sharedOrRootPaths = new Set([
+    resolve(tmpdir()),
+    resolve("/tmp"),
+    resolve("/private/tmp"),
+    resolve("/"),
+  ]);
+
+  return !sharedOrRootPaths.has(normalizedPath);
+}
+
+async function chmodExistingSecretFile(path: string): Promise<void> {
+  try {
+    await chmod(path, 0o600);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function readBaseMcpConfig(workspaceMcpPath: string): Promise<McpConfig> {

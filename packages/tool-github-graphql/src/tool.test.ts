@@ -31,6 +31,7 @@ describe("resolveGitHubGraphQLToken", () => {
   });
 
   it("reuses a cached broker token when it is still fresh", async () => {
+    const chmodImpl = vi.fn().mockResolvedValue(undefined);
     const fetchImpl = vi.fn();
 
     const token = await resolveGitHubGraphQLToken(
@@ -40,6 +41,7 @@ describe("resolveGitHubGraphQLToken", () => {
         tokenCachePath: "/tmp/github-token-cache.json",
       },
       {
+        chmodImpl: chmodImpl as never,
         fetchImpl: fetchImpl as typeof fetch,
         now: new Date("2026-03-07T10:00:00.000Z"),
         readFileImpl: vi.fn().mockResolvedValue(
@@ -53,6 +55,10 @@ describe("resolveGitHubGraphQLToken", () => {
     );
 
     expect(token).toBe("ghs_cached");
+    expect(chmodImpl).toHaveBeenCalledWith(
+      "/tmp/github-token-cache.json",
+      0o600
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -97,13 +103,22 @@ describe("resolveGitHubGraphQLToken", () => {
       recursive: true,
       mode: 0o700,
     });
-    expect(chmodImpl).toHaveBeenCalledWith(
+    expect(chmodImpl).toHaveBeenNthCalledWith(
+      1,
       "/tmp/github-token-cache.json",
       0o600
     );
+    expect(chmodImpl).toHaveBeenNthCalledWith(
+      2,
+      "/tmp/github-token-cache.json",
+      0o600
+    );
+    expect(chmodImpl.mock.invocationCallOrder[0]).toBeLessThan(
+      writeFileImpl.mock.invocationCallOrder[0] ?? 0
+    );
   });
 
-  it("stores broker token cache with owner-only permissions", async () => {
+  it("corrects a reused broker token cache to owner-only permissions", async () => {
     const cacheDir = await mkdtemp(join(tmpdir(), "github-token-cache-"));
     tempRoots.push(cacheDir);
     const cachePath = join(cacheDir, "token.json");
@@ -111,12 +126,35 @@ describe("resolveGitHubGraphQLToken", () => {
     await writeFile(
       cachePath,
       JSON.stringify({
-        token: "ghs_stale",
-        expiresAt: "2026-03-07T09:00:00.000Z",
+        token: "ghs_cached",
+        expiresAt: "2026-03-07T10:10:00.000Z",
       }),
       "utf8"
     );
     await chmod(cachePath, 0o644);
+
+    await expect(
+      resolveGitHubGraphQLToken(
+        {
+          tokenBrokerUrl: "http://127.0.0.1/runtime-token",
+          tokenBrokerSecret: "runtime-secret",
+          tokenCachePath: cachePath,
+        },
+        {
+          fetchImpl: vi.fn() as never,
+          now: new Date("2026-03-07T10:00:00.000Z"),
+        }
+      )
+    ).resolves.toBe("ghs_cached");
+
+    expect((await stat(cachePath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("stores broker token cache with owner-only permissions in a new parent", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "github-token-cache-"));
+    tempRoots.push(tempRoot);
+    const cacheDir = join(tempRoot, "cache");
+    const cachePath = join(cacheDir, "token.json");
 
     await expect(
       resolveGitHubGraphQLToken(
@@ -142,6 +180,44 @@ describe("resolveGitHubGraphQLToken", () => {
 
     expect((await stat(cacheDir)).mode & 0o777).toBe(0o700);
     expect((await stat(cachePath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("does not chmod caller-owned token cache parents", async () => {
+    const chmodImpl = vi.fn().mockResolvedValue(undefined);
+    const mkdirImpl = vi.fn().mockResolvedValue(undefined);
+    const writeFileImpl = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      resolveGitHubGraphQLToken(
+        {
+          tokenBrokerUrl: "http://127.0.0.1/runtime-token",
+          tokenBrokerSecret: "runtime-secret",
+          tokenCachePath: ".github-token-cache.json",
+        },
+        {
+          chmodImpl: chmodImpl as never,
+          fetchImpl: vi.fn().mockResolvedValue(
+            new Response(
+              JSON.stringify({
+                token: "ghs_brokered",
+                expiresAt: "2026-03-07T10:20:00.000Z",
+              }),
+              { status: 200 }
+            )
+          ) as never,
+          mkdirImpl: mkdirImpl as never,
+          readFileImpl: vi.fn().mockRejectedValue(new Error("missing")) as never,
+          writeFileImpl: writeFileImpl as never,
+        }
+      )
+    ).resolves.toBe("ghs_brokered");
+
+    expect(mkdirImpl).toHaveBeenCalledWith(".", {
+      recursive: true,
+      mode: 0o700,
+    });
+    expect(chmodImpl).not.toHaveBeenCalledWith(".", 0o700);
+    expect(chmodImpl).toHaveBeenCalledWith(".github-token-cache.json", 0o600);
   });
 });
 

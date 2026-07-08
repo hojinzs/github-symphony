@@ -1,6 +1,5 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const TOKEN_REUSE_WINDOW_MS = 60 * 1000;
@@ -82,14 +81,17 @@ export async function resolveGitHubGraphQLToken(
   const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
   const readFileImpl = dependencies.readFileImpl ?? readFile;
   const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-  const cachedToken = config.tokenCachePath
-    ? await readCachedToken(config.tokenCachePath, readFileImpl)
+  const tokenCachePath = config.tokenCachePath;
+  const cachedToken = tokenCachePath
+    ? await readCachedToken(tokenCachePath, readFileImpl)
     : null;
 
   if (
     cachedToken &&
+    tokenCachePath &&
     cachedToken.expiresAt.getTime() - now.getTime() > TOKEN_REUSE_WINDOW_MS
   ) {
+    await chmodExistingSecretFile(tokenCachePath, chmodImpl);
     return cachedToken.token;
   }
 
@@ -114,9 +116,9 @@ export async function resolveGitHubGraphQLToken(
     );
   }
 
-  if (config.tokenCachePath) {
+  if (tokenCachePath) {
     await writeSecretFile(
-      config.tokenCachePath,
+      tokenCachePath,
       JSON.stringify(payload),
       mkdirImpl,
       chmodImpl,
@@ -135,23 +137,31 @@ async function writeSecretFile(
   writeFileImpl: typeof writeFile
 ): Promise<void> {
   const parentDir = dirname(path);
-  await mkdirImpl(parentDir, { recursive: true, mode: 0o700 });
-  if (shouldSecureParentDirectory(parentDir)) {
+  const createdDir = await mkdirImpl(parentDir, {
+    recursive: true,
+    mode: 0o700,
+  });
+  if (createdDir !== undefined) {
     await chmodImpl(parentDir, 0o700);
   }
+  await chmodExistingSecretFile(path, chmodImpl);
   await writeFileImpl(path, data, { encoding: "utf8", mode: 0o600 });
   await chmodImpl(path, 0o600);
 }
 
-function shouldSecureParentDirectory(path: string): boolean {
-  const normalizedPath = resolve(path);
-  const sharedTempRoots = new Set([
-    resolve(tmpdir()),
-    resolve("/tmp"),
-    resolve("/private/tmp"),
-  ]);
+async function chmodExistingSecretFile(
+  path: string,
+  chmodImpl: typeof chmod
+): Promise<void> {
+  try {
+    await chmodImpl(path, 0o600);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
 
-  return !sharedTempRoots.has(normalizedPath);
+    throw error;
+  }
 }
 
 async function readStdin(): Promise<string> {
@@ -208,4 +218,8 @@ async function readCachedToken(
   } catch {
     return null;
   }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
