@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
@@ -40,12 +40,13 @@ export async function composeClaudeMcpConfig(
   const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
   const mergedConfig = mergeSymphonyMcpServers(baseConfig, symphonyTokenEnv);
 
-  await mkdir(dirname(finalPath), { recursive: true });
-  await writeFile(
-    finalPath,
-    JSON.stringify(mergedConfig, null, 2) + "\n",
-    "utf8"
-  );
+  await mkdir(dirname(finalPath), { recursive: true, mode: 0o700 });
+  await chmod(dirname(finalPath), 0o700);
+  await writeFile(finalPath, JSON.stringify(mergedConfig, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await chmod(finalPath, 0o600);
 
   return {
     finalPath,

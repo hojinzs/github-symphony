@@ -1,4 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const TOKEN_REUSE_WINDOW_MS = 60 * 1000;
@@ -58,6 +60,8 @@ export async function resolveGitHubGraphQLToken(
   config: GitHubGraphQLToolConfig,
   dependencies: {
     fetchImpl?: typeof fetch;
+    chmodImpl?: typeof chmod;
+    mkdirImpl?: typeof mkdir;
     readFileImpl?: typeof readFile;
     writeFileImpl?: typeof writeFile;
     now?: Date;
@@ -74,6 +78,8 @@ export async function resolveGitHubGraphQLToken(
   }
 
   const now = dependencies.now ?? new Date();
+  const chmodImpl = dependencies.chmodImpl ?? chmod;
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
   const readFileImpl = dependencies.readFileImpl ?? readFile;
   const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
   const cachedToken = config.tokenCachePath
@@ -109,10 +115,43 @@ export async function resolveGitHubGraphQLToken(
   }
 
   if (config.tokenCachePath) {
-    await writeFileImpl(config.tokenCachePath, JSON.stringify(payload), "utf8");
+    await writeSecretFile(
+      config.tokenCachePath,
+      JSON.stringify(payload),
+      mkdirImpl,
+      chmodImpl,
+      writeFileImpl
+    );
   }
 
   return payload.token;
+}
+
+async function writeSecretFile(
+  path: string,
+  data: string,
+  mkdirImpl: typeof mkdir,
+  chmodImpl: typeof chmod,
+  writeFileImpl: typeof writeFile
+): Promise<void> {
+  const parentDir = dirname(path);
+  await mkdirImpl(parentDir, { recursive: true, mode: 0o700 });
+  if (shouldSecureParentDirectory(parentDir)) {
+    await chmodImpl(parentDir, 0o700);
+  }
+  await writeFileImpl(path, data, { encoding: "utf8", mode: 0o600 });
+  await chmodImpl(path, 0o600);
+}
+
+function shouldSecureParentDirectory(path: string): boolean {
+  const normalizedPath = resolve(path);
+  const sharedTempRoots = new Set([
+    resolve(tmpdir()),
+    resolve("/tmp"),
+    resolve("/private/tmp"),
+  ]);
+
+  return !sharedTempRoots.has(normalizedPath);
 }
 
 async function readStdin(): Promise<string> {

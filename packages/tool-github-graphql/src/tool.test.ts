@@ -1,11 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_GITHUB_GRAPHQL_API_URL,
   createGitHubGraphQLMcpServerEntry,
 } from "./mcp-entry.js";
 import { resolveGitHubGraphQLToken } from "./tool.js";
 
+const tempRoots: string[] = [];
+
 describe("resolveGitHubGraphQLToken", () => {
+  afterEach(async () => {
+    await Promise.all(
+      tempRoots.splice(0).map((root) =>
+        rm(root, {
+          force: true,
+          recursive: true,
+        })
+      )
+    );
+  });
+
   it("returns a static token when provided", async () => {
     await expect(
       resolveGitHubGraphQLToken({
@@ -41,6 +57,8 @@ describe("resolveGitHubGraphQLToken", () => {
   });
 
   it("refreshes through the broker when the cache is missing", async () => {
+    const chmodImpl = vi.fn().mockResolvedValue(undefined);
+    const mkdirImpl = vi.fn().mockResolvedValue(undefined);
     const writeFileImpl = vi.fn().mockResolvedValue(undefined);
 
     const token = await resolveGitHubGraphQLToken(
@@ -50,6 +68,7 @@ describe("resolveGitHubGraphQLToken", () => {
         tokenCachePath: "/tmp/github-token-cache.json",
       },
       {
+        chmodImpl: chmodImpl as never,
         fetchImpl: vi.fn().mockResolvedValue(
           new Response(
             JSON.stringify({
@@ -59,6 +78,7 @@ describe("resolveGitHubGraphQLToken", () => {
             { status: 200 }
           )
         ) as never,
+        mkdirImpl: mkdirImpl as never,
         readFileImpl: vi.fn().mockRejectedValue(new Error("missing")) as never,
         writeFileImpl: writeFileImpl as never,
       }
@@ -71,8 +91,57 @@ describe("resolveGitHubGraphQLToken", () => {
         token: "ghs_brokered",
         expiresAt: "2026-03-07T10:20:00.000Z",
       }),
+      { encoding: "utf8", mode: 0o600 }
+    );
+    expect(mkdirImpl).toHaveBeenCalledWith("/tmp", {
+      recursive: true,
+      mode: 0o700,
+    });
+    expect(chmodImpl).toHaveBeenCalledWith(
+      "/tmp/github-token-cache.json",
+      0o600
+    );
+  });
+
+  it("stores broker token cache with owner-only permissions", async () => {
+    const cacheDir = await mkdtemp(join(tmpdir(), "github-token-cache-"));
+    tempRoots.push(cacheDir);
+    const cachePath = join(cacheDir, "token.json");
+    await chmod(cacheDir, 0o755);
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        token: "ghs_stale",
+        expiresAt: "2026-03-07T09:00:00.000Z",
+      }),
       "utf8"
     );
+    await chmod(cachePath, 0o644);
+
+    await expect(
+      resolveGitHubGraphQLToken(
+        {
+          tokenBrokerUrl: "http://127.0.0.1/runtime-token",
+          tokenBrokerSecret: "runtime-secret",
+          tokenCachePath: cachePath,
+        },
+        {
+          fetchImpl: vi.fn().mockResolvedValue(
+            new Response(
+              JSON.stringify({
+                token: "ghs_brokered",
+                expiresAt: "2026-03-07T10:20:00.000Z",
+              }),
+              { status: 200 }
+            )
+          ) as never,
+          now: new Date("2026-03-07T10:00:00.000Z"),
+        }
+      )
+    ).resolves.toBe("ghs_brokered");
+
+    expect((await stat(cacheDir)).mode & 0o777).toBe(0o700);
+    expect((await stat(cachePath)).mode & 0o777).toBe(0o600);
   });
 });
 
@@ -88,14 +157,16 @@ describe("createGitHubGraphQLMcpServerEntry", () => {
   });
 
   it("includes only provided optional environment values", () => {
-    expect(createGitHubGraphQLMcpServerEntry({
-      githubToken: "ghs_token",
-      githubTokenBrokerUrl: "http://127.0.0.1/runtime-token",
-      githubTokenBrokerSecret: "secret",
-      githubTokenCachePath: "/tmp/github-token-cache.json",
-      githubProjectId: "project-1",
-      githubGraphqlApiUrl: "https://github.example/api/graphql",
-    })).toEqual({
+    expect(
+      createGitHubGraphQLMcpServerEntry({
+        githubToken: "ghs_token",
+        githubTokenBrokerUrl: "http://127.0.0.1/runtime-token",
+        githubTokenBrokerSecret: "secret",
+        githubTokenCachePath: "/tmp/github-token-cache.json",
+        githubProjectId: "project-1",
+        githubGraphqlApiUrl: "https://github.example/api/graphql",
+      })
+    ).toEqual({
       command: "node",
       args: [expect.stringContaining("mcp-server.js")],
       env: {
