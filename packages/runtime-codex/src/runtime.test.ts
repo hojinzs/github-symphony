@@ -34,7 +34,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for brokered GitHub GraphQL access", () => {
     const tool = createGitHubGraphQLToolDefinition({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -46,7 +46,7 @@ describe("createGitHubGraphQLToolDefinition", () => {
     expect(tool.env).toEqual({
       GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
       GITHUB_TOKEN_BROKER_URL:
-        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "runtime-secret",
       GITHUB_TOKEN_CACHE_PATH: "/workspace-runtime/.github-token.json",
       GITHUB_PROJECT_ID: "project-123",
@@ -57,14 +57,14 @@ describe("createGitHubGraphQLToolDefinition", () => {
 describe("createLinearGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for Linear GraphQL access", () => {
     const tool = createLinearGraphQLToolDefinition({
-      linearGraphqlUrl: "https://linear.example/graphql",
+      linearGraphqlUrl: "https://api.linear.app/graphql",
     });
 
     expect(tool.name).toBe("linear_graphql");
     expect(tool.command).toBe("node");
     expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
-      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+      LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
     });
   });
 });
@@ -75,7 +75,7 @@ describe("buildCodexRuntimePlan", () => {
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
       githubProjectId: "project-123",
@@ -169,18 +169,20 @@ describe("buildCodexRuntimePlan", () => {
       workingDirectory: "/tmp/workspace-123",
       linearApiKey: "lin_api_key",
       linearAuthorization: "Bearer lin_api_key",
-      linearGraphqlUrl: "https://linear.example/graphql",
+      linearGraphqlUrl: "https://api.linear.app/graphql",
       extraEnv: {
         LINEAR_API_KEY: "global-lin-api-key",
         LINEAR_AUTHORIZATION: "Bearer global-lin-api-key",
-        LINEAR_GRAPHQL_URL: "https://global-linear.example/graphql",
+        LINEAR_GRAPHQL_URL: "https://preview.linear.app/graphql",
       },
       agentEnv: {
         OPENAI_API_KEY: "sk-ready-runtime",
       },
     });
     expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("");
-    expect(nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_URL).toBeUndefined();
+    expect(
+      nonLinearPlanWithLinearSecret.env.LINEAR_GRAPHQL_URL
+    ).toBeUndefined();
     expect(nonLinearPlanWithLinearSecret.env.LINEAR_API_KEY).toBeUndefined();
     expect(
       nonLinearPlanWithLinearSecret.env.LINEAR_AUTHORIZATION
@@ -191,7 +193,7 @@ describe("buildCodexRuntimePlan", () => {
       workingDirectory: "/tmp/workspace-123",
       enableLinearGraphqlTool: true,
       linearApiKey: "lin_api_key",
-      linearGraphqlUrl: "https://linear.example/graphql",
+      linearGraphqlUrl: "https://api.linear.app/graphql",
       agentEnv: {
         OPENAI_API_KEY: "sk-ready-runtime",
       },
@@ -203,14 +205,14 @@ describe("buildCodexRuntimePlan", () => {
     ]);
     expect(linearPlan.env.LINEAR_GRAPHQL_TOOL_NAME).toBe("linear_graphql");
     expect(linearPlan.env.LINEAR_GRAPHQL_URL).toBe(
-      "https://linear.example/graphql"
+      "https://api.linear.app/graphql"
     );
     expect(linearPlan.env.LINEAR_API_KEY).toBe("lin_api_key");
     const linearTool = linearPlan.tools.find(
       (tool) => tool.name === "linear_graphql"
     );
     expect(linearTool?.env).toEqual({
-      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+      LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
     });
     expect(JSON.stringify(linearTool)).not.toContain("lin_api_key");
   });
@@ -256,7 +258,7 @@ describe("createGitCredentialHelperEnvironment", () => {
   it("configures git to use a renewable credential helper", () => {
     const env = createGitCredentialHelperEnvironment({
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
     });
@@ -266,6 +268,15 @@ describe("createGitCredentialHelperEnvironment", () => {
     expect(env.GIT_CONFIG_KEY_0).toBe("credential.helper");
     expect(env.GIT_CONFIG_VALUE_0).toContain("git-credential-helper.js");
     expect(env.GITHUB_TOKEN_BROKER_URL).toContain("/runtime-credentials");
+  });
+
+  it("rejects non-https broker URLs before exposing them to git", () => {
+    expect(() =>
+      createGitCredentialHelperEnvironment({
+        githubTokenBrokerUrl: "http://broker.example/runtime-credentials",
+        githubTokenBrokerSecret: "runtime-secret",
+      })
+    ).toThrow(/must use https/);
   });
 });
 
@@ -279,21 +290,17 @@ describe("launchCodexAppServer", () => {
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
       githubTokenBrokerUrl:
-        "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+        "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
     });
 
     const child = launchCodexAppServer(plan, spawnImpl);
 
-    expect(spawnImpl).toHaveBeenCalledWith(
-      "codex",
-      ["app-server"],
-      {
-        cwd: "/tmp/workspace-123",
-        env: plan.env,
-        stdio: "pipe",
-      }
-    );
+    expect(spawnImpl).toHaveBeenCalledWith("codex", ["app-server"], {
+      cwd: "/tmp/workspace-123",
+      env: plan.env,
+      stdio: "pipe",
+    });
     expect(child).toEqual({
       pid: 42,
     });
@@ -708,7 +715,7 @@ describe("prepareCodexRuntimePlan", () => {
         projectId: "workspace-123",
         workingDirectory: "/tmp/workspace-123",
         githubTokenBrokerUrl:
-          "http://host.docker.internal:3000/api/workspaces/workspace-123/runtime-credentials",
+          "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
         githubTokenBrokerSecret: "runtime-secret",
         agentCredentialBrokerUrl:
           "http://host.docker.internal:3000/api/workspaces/workspace-123/agent-credentials",

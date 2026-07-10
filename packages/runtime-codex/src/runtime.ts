@@ -13,7 +13,10 @@ import {
   type AgentEvent,
   type AgentRuntimeEvent,
 } from "@gh-symphony/core";
-import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
+import {
+  createGitHubGraphQLMcpServerEntry,
+  validateGitHubTokenBrokerUrl,
+} from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
 
 const DEFAULT_GITHUB_GIT_HOST = "github.com";
@@ -723,6 +726,10 @@ export function createGitCredentialHelperEnvironment(
     | "githubTokenCachePath"
   >
 ): Record<string, string> {
+  const githubTokenBrokerUrl = config.githubTokenBrokerUrl
+    ? validateGitHubTokenBrokerUrl(config.githubTokenBrokerUrl)
+    : undefined;
+
   return {
     GITHUB_GIT_HOST: DEFAULT_GITHUB_GIT_HOST,
     GITHUB_GIT_USERNAME: DEFAULT_GITHUB_GIT_USERNAME,
@@ -737,9 +744,9 @@ export function createGitCredentialHelperEnvironment(
           GITHUB_GRAPHQL_TOKEN: config.githubToken,
         }
       : {}),
-    ...(config.githubTokenBrokerUrl
+    ...(githubTokenBrokerUrl
       ? {
-          GITHUB_TOKEN_BROKER_URL: config.githubTokenBrokerUrl,
+          GITHUB_TOKEN_BROKER_URL: githubTokenBrokerUrl,
         }
       : {}),
     ...(config.githubTokenBrokerSecret

@@ -150,7 +150,7 @@ describe("composeClaudeMcpConfig", () => {
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       SYMPHONY_TRACKER_KIND: "linear",
       LINEAR_API_KEY: "lin_api_key",
-      LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+      LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
     });
 
     expect(await readJson(result.finalPath)).toEqual({
@@ -166,7 +166,7 @@ describe("composeClaudeMcpConfig", () => {
           command: "node",
           args: [expect.stringContaining("mcp-server.js")],
           env: {
-            LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+            LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
           },
         },
       },

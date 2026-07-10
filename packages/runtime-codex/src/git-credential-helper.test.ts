@@ -38,7 +38,7 @@ describe("resolveGitCredential", () => {
         host: "github.com",
       },
       {
-        tokenBrokerUrl: "http://127.0.0.1/runtime-token",
+        tokenBrokerUrl: "https://broker.example/runtime-token",
         tokenBrokerSecret: "runtime-secret",
         tokenCachePath: "/tmp/github-token-cache.json",
       },

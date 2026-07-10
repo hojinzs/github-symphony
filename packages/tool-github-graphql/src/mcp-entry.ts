@@ -1,4 +1,8 @@
 import { resolveGitHubGraphQLMcpServerEntryPoint } from "./mcp-server.js";
+import {
+  validateGitHubGraphQLApiUrl,
+  validateGitHubTokenBrokerUrl,
+} from "./url-policy.js";
 
 export const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 
@@ -20,20 +24,26 @@ export type GitHubGraphQLMcpServerEntry = {
 export function createGitHubGraphQLMcpServerEntry(
   options: GitHubGraphQLMcpServerEntryOptions = {}
 ): GitHubGraphQLMcpServerEntry {
+  const githubGraphqlApiUrl = validateGitHubGraphQLApiUrl(
+    options.githubGraphqlApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL
+  );
+  const githubTokenBrokerUrl = options.githubTokenBrokerUrl
+    ? validateGitHubTokenBrokerUrl(options.githubTokenBrokerUrl)
+    : undefined;
+
   return {
     command: "node",
     args: [resolveGitHubGraphQLMcpServerEntryPoint()],
     env: {
-      GITHUB_GRAPHQL_API_URL:
-        options.githubGraphqlApiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
+      GITHUB_GRAPHQL_API_URL: githubGraphqlApiUrl,
       ...(options.githubToken
         ? {
             GITHUB_GRAPHQL_TOKEN: options.githubToken,
           }
         : {}),
-      ...(options.githubTokenBrokerUrl
+      ...(githubTokenBrokerUrl
         ? {
-            GITHUB_TOKEN_BROKER_URL: options.githubTokenBrokerUrl,
+            GITHUB_TOKEN_BROKER_URL: githubTokenBrokerUrl,
           }
         : {}),
       ...(options.githubTokenBrokerSecret
