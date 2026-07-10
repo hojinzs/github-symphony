@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -59,30 +66,51 @@ describe("composeClaudeMcpConfig", () => {
     });
   });
 
+  it("stores runtime mcp config with owner-only permissions", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    const mcpPath = join(runtimeRoot, "mcp.json");
+    await composeClaudeMcpConfig(workspaceRoot, false, {
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+    });
+    await chmod(runtimeRoot, 0o755);
+    await chmod(mcpPath, 0o644);
+
+    await composeClaudeMcpConfig(workspaceRoot, false, {
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+    });
+
+    expect((await stat(runtimeRoot)).mode & 0o777).toBe(0o700);
+    expect((await stat(mcpPath)).mode & 0o777).toBe(0o600);
+  });
+
   it("preserves user-authored keys and overwrites github_graphql", async () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime");
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
-    const originalConfig = JSON.stringify({
-      customTopLevel: true,
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
-        },
-        github_graphql: {
-          command: "old",
-          env: {
-            GITHUB_GRAPHQL_TOKEN: "old-token",
+    const originalConfig =
+      JSON.stringify(
+        {
+          customTopLevel: true,
+          mcpServers: {
+            user_server: {
+              command: "node",
+              args: ["user-server.js"],
+            },
+            github_graphql: {
+              command: "old",
+              env: {
+                GITHUB_GRAPHQL_TOKEN: "old-token",
+              },
+            },
           },
         },
-      },
-    }, null, 2) + "\n";
-    await writeFile(
-      workspaceMcpPath,
-      originalConfig,
-      "utf8"
-    );
+        null,
+        2
+      ) + "\n";
+    await writeFile(workspaceMcpPath, originalConfig, "utf8");
 
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       GITHUB_GRAPHQL_TOKEN: "token-2",
@@ -267,14 +295,11 @@ describe("composeClaudeMcpConfig", () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = join(workspaceRoot, "runtime");
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
-    const originalConfig = JSON.stringify({
-      mcpServers: null,
-    }) + "\n";
-    await writeFile(
-      workspaceMcpPath,
-      originalConfig,
-      "utf8"
-    );
+    const originalConfig =
+      JSON.stringify({
+        mcpServers: null,
+      }) + "\n";
+    await writeFile(workspaceMcpPath, originalConfig, "utf8");
 
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
@@ -299,14 +324,19 @@ describe("composeClaudeMcpConfig", () => {
     const workspaceRoot = await createTempWorkspace();
     const runtimeRoot = await createTempWorkspace();
     const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
-    const userConfig = JSON.stringify({
-      mcpServers: {
-        user_server: {
-          command: "node",
-          args: ["user-server.js"],
+    const userConfig =
+      JSON.stringify(
+        {
+          mcpServers: {
+            user_server: {
+              command: "node",
+              args: ["user-server.js"],
+            },
+          },
         },
-      },
-    }, null, 2) + "\n";
+        null,
+        2
+      ) + "\n";
     await writeFile(workspaceMcpPath, userConfig, "utf8");
     await execFileAsync("git", ["init"], { cwd: workspaceRoot });
     await execFileAsync("git", ["add", ".mcp.json"], { cwd: workspaceRoot });

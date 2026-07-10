@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const TOKEN_REUSE_WINDOW_MS = 60 * 1000;
@@ -58,6 +59,8 @@ export async function resolveGitHubGraphQLToken(
   config: GitHubGraphQLToolConfig,
   dependencies: {
     fetchImpl?: typeof fetch;
+    chmodImpl?: typeof chmod;
+    mkdirImpl?: typeof mkdir;
     readFileImpl?: typeof readFile;
     writeFileImpl?: typeof writeFile;
     now?: Date;
@@ -74,16 +77,21 @@ export async function resolveGitHubGraphQLToken(
   }
 
   const now = dependencies.now ?? new Date();
+  const chmodImpl = dependencies.chmodImpl ?? chmod;
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
   const readFileImpl = dependencies.readFileImpl ?? readFile;
   const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
-  const cachedToken = config.tokenCachePath
-    ? await readCachedToken(config.tokenCachePath, readFileImpl)
+  const tokenCachePath = config.tokenCachePath;
+  const cachedToken = tokenCachePath
+    ? await readCachedToken(tokenCachePath, readFileImpl)
     : null;
 
   if (
     cachedToken &&
+    tokenCachePath &&
     cachedToken.expiresAt.getTime() - now.getTime() > TOKEN_REUSE_WINDOW_MS
   ) {
+    await chmodExistingSecretFile(tokenCachePath, chmodImpl);
     return cachedToken.token;
   }
 
@@ -108,11 +116,52 @@ export async function resolveGitHubGraphQLToken(
     );
   }
 
-  if (config.tokenCachePath) {
-    await writeFileImpl(config.tokenCachePath, JSON.stringify(payload), "utf8");
+  if (tokenCachePath) {
+    await writeSecretFile(
+      tokenCachePath,
+      JSON.stringify(payload),
+      mkdirImpl,
+      chmodImpl,
+      writeFileImpl
+    );
   }
 
   return payload.token;
+}
+
+async function writeSecretFile(
+  path: string,
+  data: string,
+  mkdirImpl: typeof mkdir,
+  chmodImpl: typeof chmod,
+  writeFileImpl: typeof writeFile
+): Promise<void> {
+  const parentDir = dirname(path);
+  const createdDir = await mkdirImpl(parentDir, {
+    recursive: true,
+    mode: 0o700,
+  });
+  if (createdDir !== undefined) {
+    await chmodImpl(parentDir, 0o700);
+  }
+  await chmodExistingSecretFile(path, chmodImpl);
+  await writeFileImpl(path, data, { encoding: "utf8", mode: 0o600 });
+  await chmodImpl(path, 0o600);
+}
+
+async function chmodExistingSecretFile(
+  path: string,
+  chmodImpl: typeof chmod
+): Promise<void> {
+  try {
+    await chmodImpl(path, 0o600);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function readStdin(): Promise<string> {
@@ -169,4 +218,8 @@ async function readCachedToken(
   } catch {
     return null;
   }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
