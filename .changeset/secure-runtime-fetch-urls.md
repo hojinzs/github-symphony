@@ -2,4 +2,4 @@
 "@gh-symphony/cli": patch
 ---
 
-Reject non-HTTPS, private-network, and non-allowlisted runtime GraphQL URLs before broker or GraphQL fetches for #444.
+Reject non-HTTPS and private-network runtime fetch URLs, and restrict Linear GraphQL hosts, before sending credentials for #444.
