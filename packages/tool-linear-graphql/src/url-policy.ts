@@ -42,7 +42,10 @@ function parseUrl(value: string, label: string): URL {
 }
 
 function normalizeHostname(hostname: string): string {
-  return hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.+$/, "")
+    .toLowerCase();
 }
 
 function isBlockedHostname(hostname: string): boolean {

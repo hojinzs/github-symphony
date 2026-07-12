@@ -162,6 +162,24 @@ describe("executeLinearGraphQL", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("rejects trailing-dot localhost Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "https://localhost./graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/private networks/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects IPv4-mapped private Linear GraphQL URLs before HTTP", async () => {
     const fetchImpl = vi.fn();
 

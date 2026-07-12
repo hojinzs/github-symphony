@@ -1,6 +1,5 @@
 import { isIP } from "node:net";
 
-const GITHUB_GRAPHQL_HOST = "api.github.com";
 const BLOCKED_HOSTS = new Set([
   "localhost",
   "metadata.google.internal",
@@ -9,11 +8,7 @@ const BLOCKED_HOSTS = new Set([
 const BLOCKED_HOST_SUFFIXES = [".localhost", ".local", ".internal"];
 
 export function validateGitHubGraphQLApiUrl(value: string): string {
-  return validateSecureUrl(
-    value,
-    "GitHub GraphQL API URL",
-    (hostname) => hostname === GITHUB_GRAPHQL_HOST
-  );
+  return validateSecureUrl(value, "GitHub GraphQL API URL");
 }
 
 export function validateGitHubTokenBrokerUrl(value: string): string {
@@ -52,7 +47,10 @@ function parseUrl(value: string, label: string): URL {
 }
 
 function normalizeHostname(hostname: string): string {
-  return hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.+$/, "")
+    .toLowerCase();
 }
 
 function isBlockedHostname(hostname: string): boolean {

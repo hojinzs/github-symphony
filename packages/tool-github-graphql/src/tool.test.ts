@@ -272,10 +272,30 @@ describe("resolveGitHubGraphQLToken", () => {
     ).rejects.toThrow(/private networks/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it.each(["localhost.", "metadata.google.internal."])(
+    "rejects trailing-dot private broker host %s before HTTP",
+    async (hostname) => {
+      const fetchImpl = vi.fn();
+
+      await expect(
+        resolveGitHubGraphQLToken(
+          {
+            tokenBrokerUrl: `https://${hostname}/runtime-token`,
+            tokenBrokerSecret: "runtime-secret",
+          },
+          {
+            fetchImpl: fetchImpl as never,
+          }
+        )
+      ).rejects.toThrow(/private networks/);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("executeGitHubGraphQL", () => {
-  it("posts only to the allowlisted GitHub GraphQL API host", async () => {
+  it("posts to the public GitHub GraphQL API host", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
         status: 200,
@@ -303,8 +323,12 @@ describe("executeGitHubGraphQL", () => {
     );
   });
 
-  it("rejects non-allowlisted GitHub GraphQL API URLs before HTTP", async () => {
-    const fetchImpl = vi.fn();
+  it("supports a configured public GHES GraphQL API URL", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { viewer: { login: "octo" } } }), {
+        status: 200,
+      })
+    );
 
     await expect(
       executeGitHubGraphQL(
@@ -317,8 +341,11 @@ describe("executeGitHubGraphQL", () => {
         },
         fetchImpl as typeof fetch
       )
-    ).rejects.toThrow(/host is not allowlisted/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ).resolves.toEqual({ data: { viewer: { login: "octo" } } });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://github.example/api/graphql",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 });
 
