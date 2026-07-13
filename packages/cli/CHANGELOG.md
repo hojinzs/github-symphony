@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.6.1
+
+### Patch Changes
+
+- [#460](https://github.com/hojinzs/github-symphony/pull/460) [`85ec441`](https://github.com/hojinzs/github-symphony/commit/85ec44100c2928822e11b9d1df5269eb50aeabef) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Generate WORKFLOW.md front matter through a YAML-safe serializer path so Linear tracker endpoint, project slug, and label input cannot inject sibling runtime configuration (fixes [#445](https://github.com/hojinzs/github-symphony/issues/445)).
+
+- [#459](https://github.com/hojinzs/github-symphony/pull/459) [`e962d62`](https://github.com/hojinzs/github-symphony/commit/e962d62002b77dc7f9f2823c39e44ff8f9ea679f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Harden token cache and Claude MCP runtime config writes for [#443](https://github.com/hojinzs/github-symphony/issues/443) by forcing secret files to `0600` and dedicated parent directories to `0700`.
+
 ## 0.6.0
 
 ### Minor Changes
