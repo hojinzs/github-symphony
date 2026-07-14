@@ -1,5 +1,9 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import {
+  validateGitHubGraphQLApiUrl,
+  validateGitHubTokenBrokerUrl,
+} from "./url-policy.js";
 
 const DEFAULT_GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
 const TOKEN_REUSE_WINDOW_MS = 60 * 1000;
@@ -26,17 +30,17 @@ export async function executeGitHubGraphQL(
   const token = await resolveGitHubGraphQLToken(config, {
     fetchImpl,
   });
-  const response = await fetchImpl(
-    config.apiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(invocation),
-    }
+  const apiUrl = validateGitHubGraphQLApiUrl(
+    config.apiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL
   );
+  const response = await fetchImpl(apiUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(invocation),
+  });
 
   const payload = (await response.json()) as {
     errors?: Array<{ message: string }>;
@@ -96,7 +100,8 @@ export async function resolveGitHubGraphQLToken(
   }
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
-  const response = await fetchImpl(config.tokenBrokerUrl, {
+  const tokenBrokerUrl = validateGitHubTokenBrokerUrl(config.tokenBrokerUrl);
+  const response = await fetchImpl(tokenBrokerUrl, {
     method: "POST",
     headers: {
       accept: "application/json",

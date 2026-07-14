@@ -1,4 +1,5 @@
 import { parse } from "graphql";
+import { validateLinearGraphQLApiUrl } from "./url-policy.js";
 
 export const DEFAULT_LINEAR_GRAPHQL_API_URL = "https://api.linear.app/graphql";
 
@@ -21,17 +22,17 @@ export async function executeLinearGraphQL(
 ): Promise<unknown> {
   validateLinearGraphQLInvocation(invocation);
   const authorization = resolveLinearAuthorizationHeader(config);
-  const response = await fetchImpl(
-    config.apiUrl ?? DEFAULT_LINEAR_GRAPHQL_API_URL,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization,
-      },
-      body: JSON.stringify(invocation),
-    }
+  const apiUrl = validateLinearGraphQLApiUrl(
+    config.apiUrl ?? DEFAULT_LINEAR_GRAPHQL_API_URL
   );
+  const response = await fetchImpl(apiUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization,
+    },
+    body: JSON.stringify(invocation),
+  });
 
   const payload = (await response.json()) as {
     errors?: Array<{ message: string }>;

@@ -74,14 +74,14 @@ describe("executeLinearGraphQL", () => {
         },
         {
           authorizationHeader: "Bearer runtime-linear-token",
-          apiUrl: "https://linear.example/graphql",
+          apiUrl: "https://api.linear.app/graphql",
         },
         fetchImpl as typeof fetch
       )
     ).resolves.toEqual({ data: { ok: true } });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      "https://linear.example/graphql",
+      "https://api.linear.app/graphql",
       expect.objectContaining({
         method: "POST",
         headers: {
@@ -125,6 +125,96 @@ describe("executeLinearGraphQL", () => {
     ).rejects.toThrow(/exactly one GraphQL operation/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("rejects non-https Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "http://api.linear.app/graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/must use https/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects private Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "https://10.0.0.2/graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/private networks/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects trailing-dot localhost Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "https://localhost./graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/private networks/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects IPv4-mapped private Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "https://[::ffff:127.0.0.1]/graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/private networks/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-allowlisted Linear GraphQL URLs before HTTP", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeLinearGraphQL(
+        {
+          query: "query Viewer { viewer { id } }",
+        },
+        {
+          apiKey: "lin_api_key",
+          apiUrl: "https://linear.example/graphql",
+        },
+        fetchImpl as typeof fetch
+      )
+    ).rejects.toThrow(/host is not allowlisted/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolveLinearAuthorizationHeader", () => {
@@ -158,13 +248,13 @@ describe("createLinearGraphQLMcpServerEntry", () => {
   it("keeps auth out of the MCP server entry environment", () => {
     expect(
       createLinearGraphQLMcpServerEntry({
-        linearGraphqlUrl: "https://linear.example/graphql",
+        linearGraphqlUrl: "https://api.linear.app/graphql",
       })
     ).toEqual({
       command: "node",
       args: [expect.stringContaining("mcp-server.js")],
       env: {
-        LINEAR_GRAPHQL_URL: "https://linear.example/graphql",
+        LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
       },
     });
   });
