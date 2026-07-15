@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
@@ -20,7 +28,8 @@ export const REPO_RUNTIME_DIR = join(".runtime", "orchestrator");
 const CONFIG_LOCK_FILE = ".config.lock";
 const CONFIG_LOCK_TTL_MS = 30_000;
 const CONFIG_LOCK_RETRY_MS = 20;
-const CONFIG_LOCK_RETRY_LIMIT = 250;
+const CONFIG_LOCK_RETRY_LIMIT =
+  Math.ceil(CONFIG_LOCK_TTL_MS / CONFIG_LOCK_RETRY_MS) + 50;
 
 type ConfigLockRecord = {
   ownerToken: string;
@@ -286,13 +295,7 @@ async function withConfigLock<T>(
 
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const handle = await open(lockPath, "wx", 0o600);
-      try {
-        await handle.writeFile(JSON.stringify(record) + "\n", "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
+      await publishConfigLock(lockPath, record);
       break;
     } catch (error) {
       if (!isAlreadyExists(error)) {
@@ -331,17 +334,40 @@ async function withConfigLock<T>(
   }
 }
 
+async function publishConfigLock(
+  lockPath: string,
+  record: ConfigLockRecord
+): Promise<void> {
+  const temporaryPath = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(temporaryPath, "wx", 0o600);
+    try {
+      await handle.writeFile(JSON.stringify(record) + "\n", "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await link(temporaryPath, lockPath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
 async function isStaleConfigLock(path: string): Promise<boolean> {
   try {
-    const record = JSON.parse(
-      await readFile(path, "utf8")
-    ) as Partial<ConfigLockRecord>;
+    const raw = await readFile(path, "utf8");
+    let record: Partial<ConfigLockRecord>;
+    try {
+      record = JSON.parse(raw) as Partial<ConfigLockRecord>;
+    } catch {
+      return isExpiredConfigLockFile(path);
+    }
     if (
       !Number.isInteger(record.pid) ||
       (record.pid ?? 0) <= 0 ||
       typeof record.startedAt !== "string"
     ) {
-      return false;
+      return isExpiredConfigLockFile(path);
     }
     const ageMs = Math.abs(Date.now() - Date.parse(record.startedAt));
     if (!Number.isFinite(ageMs) || ageMs > CONFIG_LOCK_TTL_MS) {
@@ -363,6 +389,18 @@ async function isStaleConfigLock(path: string): Promise<boolean> {
       actualIdentity &&
       record.processIdentity !== actualIdentity
     );
+  } catch (error) {
+    if (isFileMissing(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function isExpiredConfigLockFile(path: string): Promise<boolean> {
+  try {
+    const metadata = await stat(path);
+    return Math.abs(Date.now() - metadata.mtimeMs) > CONFIG_LOCK_TTL_MS;
   } catch (error) {
     if (isFileMissing(error)) {
       return false;

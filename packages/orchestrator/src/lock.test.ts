@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   acquireProjectLock,
   releaseProjectLock,
@@ -175,6 +175,54 @@ describe("project lock", () => {
     await rm(lock.lockPath, { force: true });
     await expect(renewProjectLock(lock)).resolves.toBe(false);
     await releaseProjectLock(lock);
+  });
+
+  it("fails closed when the heartbeat loses lease ownership", async () => {
+    vi.useFakeTimers();
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    let confirmLeaseLost: (() => void) | undefined;
+    const leaseLost = new Promise<void>((resolve) => {
+      confirmLeaseLost = resolve;
+    });
+    const onLeaseLost = vi.fn(() => confirmLeaseLost?.());
+    try {
+      const lock = await acquireProjectLock({
+        runtimeRoot,
+        projectId: "project-1",
+        pid: 4321,
+        isProcessRunning: () => false,
+        getProcessIdentity: () => "same-process",
+        leaseTtlMs: 3_000,
+        onLeaseLost,
+      });
+      await writeFile(
+        lock.lockPath,
+        JSON.stringify({
+          ownerToken: "new-owner",
+          pid: 9999,
+          startedAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+          processIdentity: "new-process",
+        }) + "\n",
+        "utf8"
+      );
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await leaseLost;
+
+      expect(onLeaseLost).toHaveBeenCalledOnce();
+      expect(onLeaseLost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining("Lost ownership"),
+        })
+      );
+      await releaseProjectLock(lock);
+      expect(JSON.parse(await readFile(lock.lockPath, "utf8")).ownerToken).toBe(
+        "new-owner"
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("takes over a stale lock when the recorded pid is no longer running", async () => {

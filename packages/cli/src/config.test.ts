@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -93,6 +100,25 @@ describe("config persistence", () => {
     ).toEqual(config);
     expect(await readdir(configDir)).toEqual(["config.json"]);
   }, 10_000);
+
+  it("recovers an expired partial config lock left by a crash", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
+    const lockPath = join(configDir, ".config.lock");
+    await writeFile(lockPath, '{"ownerToken":"partial"', "utf8");
+    const expired = new Date(Date.now() - 31_000);
+    await utimes(lockPath, expired, expired);
+
+    await saveGlobalConfig(configDir, {
+      activeProject: "project-1",
+      projects: ["project-1"],
+    });
+
+    await expect(loadGlobalConfig(configDir)).resolves.toEqual({
+      activeProject: "project-1",
+      projects: ["project-1"],
+    });
+    expect(await readdir(configDir)).toEqual(["config.json"]);
+  });
 
   it("reads structured and legacy daemon PID records", () => {
     expect(parseDaemonPidRecord("1234\n")).toEqual({

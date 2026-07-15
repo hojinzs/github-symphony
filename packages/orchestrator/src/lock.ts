@@ -30,6 +30,8 @@ export type ProjectLockHandle = {
   processIdentity: string | null;
 };
 
+type LeaseLostHandler = (error: Error) => void | Promise<void>;
+
 const LOCK_READ_RETRY_DELAY_MS = 10;
 const LOCK_READ_RETRY_LIMIT = 20;
 const SECURE_DIRECTORY_MODE = 0o700;
@@ -44,6 +46,7 @@ export async function acquireProjectLock(input: {
   isProcessRunning?: (pid: number) => boolean;
   getProcessIdentity?: (pid: number) => string | null;
   leaseTtlMs?: number;
+  onLeaseLost?: LeaseLostHandler;
 }): Promise<ProjectLockHandle> {
   assertValidProjectId(input.projectId);
   const pid = input.pid ?? process.pid;
@@ -83,7 +86,8 @@ export async function acquireProjectLock(input: {
       };
       startProjectLockHeartbeat(
         lock,
-        input.leaseTtlMs ?? DEFAULT_PROJECT_LOCK_LEASE_TTL_MS
+        input.leaseTtlMs ?? DEFAULT_PROJECT_LOCK_LEASE_TTL_MS,
+        input.onLeaseLost ?? failClosedOnLeaseLoss
       );
       return lock;
     } catch (error) {
@@ -130,20 +134,47 @@ export async function acquireProjectLock(input: {
 
 function startProjectLockHeartbeat(
   lock: ProjectLockHandle,
-  leaseTtlMs: number
+  leaseTtlMs: number,
+  onLeaseLost: LeaseLostHandler
 ): void {
   const intervalMs = Math.max(1_000, Math.floor(leaseTtlMs / 3));
   const timer = setInterval(() => {
-    void renewProjectLock(lock).catch((error) => {
-      console.error(
-        `Failed to renew project lock at "${lock.lockPath}": ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    });
+    void renewProjectLock(lock)
+      .then(async (renewed) => {
+        if (renewed) {
+          return;
+        }
+
+        stopProjectLockHeartbeat(lock);
+        const error = new Error(
+          `Lost ownership of project lock at "${lock.lockPath}".`
+        );
+        console.error(error.message);
+        await onLeaseLost(error);
+      })
+      .catch((error) => {
+        console.error(
+          `Failed to renew project lock at "${lock.lockPath}": ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
   }, intervalMs);
   timer.unref();
   heartbeatTimers.set(lock, timer);
+}
+
+function stopProjectLockHeartbeat(lock: ProjectLockHandle): void {
+  const heartbeatTimer = heartbeatTimers.get(lock);
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimers.delete(lock);
+  }
+}
+
+function failClosedOnLeaseLoss(): void {
+  process.exitCode = 1;
+  process.kill(process.pid, "SIGTERM");
 }
 
 export async function renewProjectLock(
@@ -252,11 +283,7 @@ export async function releaseProjectLock(
     return;
   }
 
-  const heartbeatTimer = heartbeatTimers.get(lock);
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimers.delete(lock);
-  }
+  stopProjectLockHeartbeat(lock);
 
   try {
     const existing = await readProjectLock(lock.lockPath);
