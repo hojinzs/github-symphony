@@ -363,6 +363,45 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.metadata).toEqual({ Status: "Ready" });
   });
 
+  it("fails loudly when a Project item omits the configured state field", () => {
+    const item = makeProjectItem({
+      itemId: "item-missing-state",
+      issueId: "issue-1",
+      number: 1,
+      title: "Missing state metadata",
+      assignees: [],
+    });
+    item.fieldValues = { nodes: [] };
+
+    expect(() =>
+      normalizeGithubProjectItem(
+        "project-123",
+        item,
+        DEFAULT_WORKFLOW_LIFECYCLE
+      )
+    ).toThrow(
+      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status".'
+    );
+  });
+
+  it("fails loudly when lifecycle.stateFieldName is empty", () => {
+    expect(() =>
+      normalizeGithubProjectItem(
+        "project-123",
+        makeProjectItem({
+          itemId: "item-unconfigured-state",
+          issueId: "issue-1",
+          number: 1,
+          title: "Unconfigured state metadata",
+          assignees: [],
+        }),
+        { ...DEFAULT_WORKFLOW_LIFECYCLE, stateFieldName: "" }
+      )
+    ).toThrow(
+      "github_project_state_field_unconfigured: Project item item-unconfigured-state cannot be normalized without lifecycle.stateFieldName."
+    );
+  });
+
   it("normalizes PullRequest Project item content instead of dropping it", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -3500,6 +3539,38 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.branchName).toBe("feature/pr-card");
     expect(issues[0]?.url).toBe("https://github.com/acme/platform/pull/42");
     expect(issues[0]?.tracker.itemId).toBe("item-pr-1");
+  });
+
+  it("fails loudly when refreshed Project metadata omits the state field", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const node = makeIssueStateLookupNode({
+      projectId: "project-123",
+      itemId: "item-missing-state",
+      issueId: "issue-1",
+      number: 1,
+      title: "Missing state metadata",
+      state: "Ready",
+    });
+    node.projectItems.nodes[0]!.fieldValues.nodes = [];
+
+    await expect(
+      adapter.fetchIssueStatesByIds(makeProjectConfig(), ["issue-1"], {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ data: { nodes: [node] } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      })
+    ).rejects.toThrow(
+      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status".'
+    );
   });
 
   it("attaches GitHub API rate-limit headers to fetched issue state lookups", async () => {
