@@ -1,16 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, open, readFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  type FileHandle,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OrchestratorFsStore } from "./fs-store.js";
-import { syncDirectory, writeFileAtomically } from "./durable-file.js";
+import { syncDirectory } from "./durable-file.js";
 
 type ProjectLockRecord = {
   ownerToken: string;
   pid: number;
   startedAt: string;
-  heartbeatAt: string;
+  heartbeatAt: string | null;
   processIdentity: string | null;
 };
 
@@ -143,21 +150,53 @@ export async function renewProjectLock(
   lock: ProjectLockHandle,
   now = new Date()
 ): Promise<boolean> {
-  const existing = await readProjectLock(lock.lockPath);
-  if (
-    existing.status !== "valid" ||
-    existing.record.ownerToken !== lock.ownerToken
-  ) {
-    return false;
+  let handle;
+  try {
+    handle = await open(lock.lockPath, "r+");
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      return false;
+    }
+    throw error;
   }
 
-  const heartbeatAt = now.toISOString();
-  await writeFileAtomically(
-    lock.lockPath,
-    JSON.stringify({ ...existing.record, heartbeatAt }, null, 2) + "\n"
-  );
-  lock.heartbeatAt = heartbeatAt;
-  return true;
+  try {
+    const existing = parseProjectLock(await handle.readFile("utf8"));
+    if (!existing || existing.ownerToken !== lock.ownerToken) {
+      return false;
+    }
+
+    const heartbeatAt = now.toISOString();
+    const contents =
+      JSON.stringify({ ...existing, heartbeatAt }, null, 2) + "\n";
+    await overwriteOpenFile(handle, contents);
+    lock.heartbeatAt = heartbeatAt;
+    return true;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function overwriteOpenFile(
+  handle: FileHandle,
+  contents: string
+): Promise<void> {
+  const data = Buffer.from(contents);
+  let offset = 0;
+  while (offset < data.length) {
+    const { bytesWritten } = await handle.write(
+      data,
+      offset,
+      data.length - offset,
+      offset
+    );
+    if (bytesWritten === 0) {
+      throw new Error("Failed to make progress while renewing project lock.");
+    }
+    offset += bytesWritten;
+  }
+  await handle.truncate(data.length);
+  await handle.sync();
 }
 
 function isActiveLock(
@@ -173,6 +212,22 @@ function isActiveLock(
     return false;
   }
 
+  const actualIdentity = input.getProcessIdentity(record.pid);
+  const identityMatches =
+    record.processIdentity === null ||
+    actualIdentity === null ||
+    record.processIdentity === actualIdentity;
+  if (!identityMatches) {
+    return false;
+  }
+
+  // Locks written before heartbeat leases were introduced must remain active
+  // while their recorded process is still alive. Otherwise a rolling upgrade
+  // could mistake a long-running legacy daemon for an expired lease.
+  if (record.heartbeatAt === null) {
+    return true;
+  }
+
   const heartbeatAtMs = Date.parse(record.heartbeatAt);
   const leaseAgeMs = input.now.getTime() - heartbeatAtMs;
   if (
@@ -182,12 +237,7 @@ function isActiveLock(
     return false;
   }
 
-  const actualIdentity = input.getProcessIdentity(record.pid);
-  return (
-    record.processIdentity === null ||
-    actualIdentity === null ||
-    record.processIdentity === actualIdentity
-  );
+  return true;
 }
 
 async function ensureSecureDirectory(path: string): Promise<void> {
@@ -305,7 +355,7 @@ function parseProjectLock(raw: string): ProjectLockRecord | null {
       ownerToken: parsed.ownerToken,
       pid: parsed.pid,
       startedAt: parsed.startedAt,
-      heartbeatAt: parsed.heartbeatAt ?? parsed.startedAt,
+      heartbeatAt: parsed.heartbeatAt ?? null,
       processIdentity: parsed.processIdentity ?? null,
     };
   } catch {

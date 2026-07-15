@@ -120,6 +120,35 @@ describe("project lock", () => {
     await releaseProjectLock(second);
   });
 
+  it("preserves a live legacy lock without a heartbeat past the lease TTL", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const lockPath = join(runtimeRoot, "projects", "project-1", ".lock");
+    await mkdir(join(runtimeRoot, "projects", "project-1"), {
+      recursive: true,
+    });
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        ownerToken: "legacy-owner",
+        pid: 4321,
+        startedAt: "2026-03-16T00:00:00.000Z",
+        processIdentity: "same-process",
+      }) + "\n",
+      "utf8"
+    );
+
+    await expect(
+      acquireProjectLock({
+        runtimeRoot,
+        projectId: "project-1",
+        pid: 9999,
+        now: new Date("2026-03-16T01:00:00.000Z"),
+        isProcessRunning: (pid) => pid === 4321,
+        getProcessIdentity: () => "same-process",
+      })
+    ).rejects.toThrow('Project "project-1" is already running (PID 4321).');
+  });
+
   it("renews a lease heartbeat only for its current owner", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
     const lock = await acquireProjectLock({
@@ -131,13 +160,17 @@ describe("project lock", () => {
       getProcessIdentity: () => "same-process",
     });
 
+    const inodeBeforeRenewal = await stat(lock.lockPath);
     await expect(
       renewProjectLock(lock, new Date("2026-03-16T00:00:30.000Z"))
     ).resolves.toBe(true);
+    const inodeAfterRenewal = await stat(lock.lockPath);
     const renewed = JSON.parse(await readFile(lock.lockPath, "utf8")) as {
       heartbeatAt: string;
     };
     expect(renewed.heartbeatAt).toBe("2026-03-16T00:00:30.000Z");
+    expect(inodeAfterRenewal.dev).toBe(inodeBeforeRenewal.dev);
+    expect(inodeAfterRenewal.ino).toBe(inodeBeforeRenewal.ino);
 
     await rm(lock.lockPath, { force: true });
     await expect(renewProjectLock(lock)).resolves.toBe(false);
