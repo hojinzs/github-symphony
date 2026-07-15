@@ -36,24 +36,26 @@ export async function refreshTrackerState(
 ): Promise<TrackerRefreshState> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
   const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
+  const apiToken = env.SYMPHONY_ORCHESTRATOR_TOKEN;
 
-  if (!orchestratorUrl) {
+  if (!orchestratorUrl || !issueIdentifier || !apiToken) {
     return "unknown";
   }
 
   try {
-    const response = await fetchImpl(`${orchestratorUrl}/api/v1/state`, {
+    const response = await fetchImpl(`${orchestratorUrl}/api/v1/worker-state`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ issueIdentifier }),
       signal: AbortSignal.timeout(ORCHESTRATOR_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return "unknown";
 
-    const status = (await response.json()) as {
-      activeRuns?: Array<{ issueIdentifier: string }>;
-    };
-    const isActive = status.activeRuns?.some(
-      (run) => run.issueIdentifier === issueIdentifier
-    );
-    return isActive ? "active" : "non-actionable";
+    const status = (await response.json()) as { active?: boolean };
+    return status.active === true ? "active" : "non-actionable";
   } catch {
     return "unknown";
   }
@@ -67,8 +69,9 @@ export async function acquireTurnLease(
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
   const issueId = env.SYMPHONY_ISSUE_ID;
   const runId = env.SYMPHONY_RUN_ID;
+  const apiToken = env.SYMPHONY_ORCHESTRATOR_TOKEN;
 
-  if (!orchestratorUrl || !issueId || !runId) {
+  if (!orchestratorUrl || !issueId || !runId || !apiToken) {
     return {
       status: "unavailable",
       reason: "missing orchestrator URL or worker run identity",
@@ -80,7 +83,10 @@ export async function acquireTurnLease(
       `${orchestratorUrl}/api/v1/worker-turn-lease`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          authorization: `Bearer ${apiToken}`,
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ issueId, runId, turn }),
         signal: AbortSignal.timeout(ORCHESTRATOR_REQUEST_TIMEOUT_MS),
       }

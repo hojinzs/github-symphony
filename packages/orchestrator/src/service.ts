@@ -380,8 +380,9 @@ export class OrchestratorService {
     } = {}
   ) {}
 
-  setWorkerOrchestratorUrl(url: string): void {
+  setWorkerOrchestratorUrl(url: string, apiToken?: string): void {
     this.workerOrchestratorUrl = url;
+    this.workerOrchestratorToken = apiToken ?? null;
   }
 
   setWorkerOrchestratorToken(token: string): void {

@@ -9,6 +9,7 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DashboardFsReader,
+  isAuthorizedApiRequest,
   resolveDashboardResponse,
 } from "@gh-symphony/dashboard";
 
@@ -62,14 +63,16 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 export interface ControlPlaneServerOptions {
-  host: string;
+  host?: string;
   port: number;
   runtimeRoot: string;
+  apiToken: string;
   onRefreshRequest?: () => void;
 }
 
 export interface ControlPlaneHandlerOptions {
   reader: DashboardFsReader;
+  apiToken: string;
   onRefreshRequest?: () => void;
 }
 
@@ -86,6 +89,14 @@ export function createControlPlaneHandler(
     try {
       const method = request.method ?? "GET";
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
+
+      if (
+        url.pathname.startsWith("/api/v1/") &&
+        !isAuthorizedApiRequest(request, options.apiToken)
+      ) {
+        respondJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
 
       if (url.pathname === "/api/v1/refresh") {
         await handleRefreshRequest(method, request, response, options);
@@ -136,6 +147,7 @@ export async function startControlPlaneServer(
   const reader = new DashboardFsReader(options.runtimeRoot);
   const handler = createControlPlaneHandler({
     reader,
+    apiToken: options.apiToken,
     onRefreshRequest: options.onRefreshRequest,
   });
 
@@ -161,7 +173,7 @@ export async function startControlPlaneServer(
 
         server.once("listening", handleListening);
         server.once("error", handleError);
-        server.listen(port, options.host);
+        server.listen(port, options.host ?? "127.0.0.1");
       });
 
       const address = server.address();

@@ -40,6 +40,7 @@ type LoaderKey =
 type CliOptionValues = Partial<
   GlobalOptions & {
     assignedOnly?: boolean;
+    bindAll?: boolean;
     config?: string;
     daemon?: boolean;
     dryRun?: boolean;
@@ -181,9 +182,10 @@ function hasVersionFlag(argv: string[]): boolean {
   return argv.some((arg) => arg === "--version" || arg === "-V");
 }
 
-function extractNamespaceCommand(
-  argv: string[]
-): { namespace?: string; subcommand?: string } {
+function extractNamespaceCommand(argv: string[]): {
+  namespace?: string;
+  subcommand?: string;
+} {
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -611,6 +613,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--once", "Run a single orchestration tick and exit")
       .option("--assigned-only", "Limit this run to assigned issues")
       .option(
+        "--bind-all",
+        "Bind HTTP servers to all interfaces instead of localhost"
+      )
+      .option(
         "--http [port]",
         "Expose the JSON status API and refresh endpoints over HTTP"
       )
@@ -628,6 +634,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--bind-all", values.bindAll);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
     pushOption(args, "--log-level", values.logLevel);
