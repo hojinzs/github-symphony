@@ -1,11 +1,15 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG_DIR,
   REPO_RUNTIME_DIR,
+  loadGlobalConfig,
+  parseDaemonPidRecord,
   resolveConfigDir,
+  saveGlobalConfig,
+  updateGlobalConfig,
 } from "./config.js";
 
 const originalCwd = process.cwd();
@@ -61,5 +65,54 @@ describe("resolveConfigDir", () => {
     delete process.env.GH_SYMPHONY_CONFIG_DIR;
 
     expect(resolveConfigDir()).toBe(DEFAULT_CONFIG_DIR);
+  });
+});
+
+describe("config persistence", () => {
+  it("serializes concurrent load-modify-save updates", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
+    await saveGlobalConfig(configDir, {
+      activeProject: null,
+      projects: [],
+    });
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        updateGlobalConfig(configDir, (config) => ({
+          ...config,
+          projects: [...config.projects, `project-${index}`],
+        }))
+      )
+    );
+
+    const config = await loadGlobalConfig(configDir);
+    expect(config?.projects).toHaveLength(20);
+    expect(new Set(config?.projects).size).toBe(20);
+    expect(
+      JSON.parse(await readFile(join(configDir, "config.json"), "utf8"))
+    ).toEqual(config);
+    expect(await readdir(configDir)).toEqual(["config.json"]);
+  });
+
+  it("reads structured and legacy daemon PID records", () => {
+    expect(parseDaemonPidRecord("1234\n")).toEqual({
+      pid: 1234,
+      startedAt: "",
+      processIdentity: null,
+    });
+    expect(
+      parseDaemonPidRecord(
+        JSON.stringify({
+          pid: 5678,
+          startedAt: "2026-07-15T00:00:00.000Z",
+          processIdentity: "node gh-symphony repo start",
+        })
+      )
+    ).toEqual({
+      pid: 5678,
+      startedAt: "2026-07-15T00:00:00.000Z",
+      processIdentity: "node gh-symphony repo start",
+    });
+    expect(parseDaemonPidRecord("not-a-pid")).toBeNull();
   });
 });

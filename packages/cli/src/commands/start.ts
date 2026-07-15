@@ -1,6 +1,6 @@
-import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
   type IncomingMessage,
@@ -19,6 +19,7 @@ import {
   OrchestratorService,
   acquireProjectLock,
   createStore,
+  getProcessIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
   type OrchestratorLogLevel,
@@ -1156,7 +1157,7 @@ async function startDaemon(
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
 
-  const { openSync } = await import("node:fs");
+  const { closeSync, openSync } = await import("node:fs");
   const logFd = openSync(logPath, "a");
 
   const child = spawn(
@@ -1183,17 +1184,54 @@ async function startDaemon(
   );
 
   const pidPath = daemonPidPath(options.configDir, projectId);
-  await mkdir(dirname(pidPath), { recursive: true });
-  await writeFile(pidPath, String(child.pid), "utf8");
+  try {
+    await waitForChildSpawn(child);
+    if (!child.pid) {
+      throw new Error("Daemon process started without a PID.");
+    }
 
-  child.unref();
-
-  const { closeSync } = await import("node:fs");
-  closeSync(logFd);
+    await writeJsonFile(pidPath, {
+      pid: child.pid,
+      startedAt: new Date().toISOString(),
+      processIdentity: getProcessIdentity(child.pid),
+    });
+    child.unref();
+  } catch (error) {
+    await rm(pidPath, { force: true });
+    if (child.pid) {
+      try {
+        child.kill();
+      } catch {
+        // The child may already have exited after a persistence failure.
+      }
+    }
+    throw error;
+  } finally {
+    closeSync(logFd);
+  }
 
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
       "Stop with: gh-symphony repo stop\n"
   );
+}
+
+async function waitForChildSpawn(child: ChildProcess): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      child.off("spawn", onSpawn);
+      child.off("error", onError);
+    };
+    const onSpawn = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+  });
 }

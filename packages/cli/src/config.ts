@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
+import { getProcessIdentity } from "@gh-symphony/orchestrator";
 import type {
   OrchestratorProjectConfig,
   OrchestratorTrackerSettingValue,
@@ -14,6 +17,23 @@ export const DAEMON_PID_FILE = "daemon.pid";
 export const ORCHESTRATOR_LOG_FILE = "orchestrator.log";
 export const HTTP_STATUS_FILE = "http.json";
 export const REPO_RUNTIME_DIR = join(".runtime", "orchestrator");
+const CONFIG_LOCK_FILE = ".config.lock";
+const CONFIG_LOCK_TTL_MS = 30_000;
+const CONFIG_LOCK_RETRY_MS = 20;
+const CONFIG_LOCK_RETRY_LIMIT = 250;
+
+type ConfigLockRecord = {
+  ownerToken: string;
+  pid: number;
+  startedAt: string;
+  processIdentity: string | null;
+};
+
+export type DaemonPidRecord = {
+  pid: number;
+  startedAt: string;
+  processIdentity: string | null;
+};
 
 export type CliGlobalConfig = {
   activeProject: string | null;
@@ -126,7 +146,26 @@ export async function saveGlobalConfig(
   configDir: string,
   config: CliGlobalConfig
 ): Promise<void> {
-  await writeJsonFile(configFilePath(configDir), config);
+  await withConfigLock(configDir, () =>
+    writeJsonFile(configFilePath(configDir), config)
+  );
+}
+
+export async function updateGlobalConfig(
+  configDir: string,
+  update: (config: CliGlobalConfig) => CliGlobalConfig | null
+): Promise<boolean> {
+  return withConfigLock(configDir, async () => {
+    const current =
+      (await loadGlobalConfig(configDir)) ??
+      ({ activeProject: null, projects: [] } satisfies CliGlobalConfig);
+    const next = update(current);
+    if (!next) {
+      return false;
+    }
+    await writeJsonFile(configFilePath(configDir), next);
+    return true;
+  });
 }
 
 export async function loadProjectConfig(
@@ -143,7 +182,9 @@ export async function saveProjectConfig(
   projectId: string,
   config: CliProjectConfig
 ): Promise<void> {
-  await writeJsonFile(projectConfigPath(configDir, projectId), config);
+  await withConfigLock(configDir, () =>
+    writeJsonFile(projectConfigPath(configDir, projectId), config)
+  );
 }
 
 export async function loadActiveProjectConfig(
@@ -172,11 +213,171 @@ export async function writeJsonFile(
   path: string,
   value: unknown
 ): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.tmp`;
-  await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
-  const { rename } = await import("node:fs/promises");
-  await rename(temporaryPath, path);
+  await writeFileAtomically(path, JSON.stringify(value, null, 2) + "\n");
+}
+
+async function writeFileAtomically(path: string, data: string): Promise<void> {
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true });
+  const temporaryPath = join(
+    directory,
+    `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`
+  );
+  let temporaryExists = false;
+  try {
+    const handle = await open(temporaryPath, "wx", 0o600);
+    temporaryExists = true;
+    try {
+      await handle.writeFile(data, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temporaryPath, path);
+    temporaryExists = false;
+    const directoryHandle = await open(directory, "r");
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  } finally {
+    if (temporaryExists) {
+      await rm(temporaryPath, { force: true });
+    }
+  }
+}
+
+export function parseDaemonPidRecord(raw: string): DaemonPidRecord | null {
+  const legacyPid = Number(raw.trim());
+  if (Number.isInteger(legacyPid) && legacyPid > 0) {
+    return { pid: legacyPid, startedAt: "", processIdentity: null };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<DaemonPidRecord>;
+    if (
+      !Number.isInteger(parsed.pid) ||
+      (parsed.pid ?? 0) <= 0 ||
+      typeof parsed.startedAt !== "string" ||
+      (parsed.processIdentity !== null &&
+        typeof parsed.processIdentity !== "string")
+    ) {
+      return null;
+    }
+    return parsed as DaemonPidRecord;
+  } catch {
+    return null;
+  }
+}
+
+async function withConfigLock<T>(
+  configDir: string,
+  action: () => Promise<T>
+): Promise<T> {
+  await mkdir(configDir, { recursive: true });
+  const lockPath = join(configDir, CONFIG_LOCK_FILE);
+  const record: ConfigLockRecord = {
+    ownerToken: `${process.pid}:${randomUUID()}`,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    processIdentity: getProcessIdentity(process.pid),
+  };
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx", 0o600);
+      try {
+        await handle.writeFile(JSON.stringify(record) + "\n", "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      break;
+    } catch (error) {
+      if (!isAlreadyExists(error)) {
+        throw error;
+      }
+      if (await isStaleConfigLock(lockPath)) {
+        await rm(lockPath, { force: true });
+        continue;
+      }
+      if (attempt >= CONFIG_LOCK_RETRY_LIMIT) {
+        throw new Error(`Timed out waiting for config lock at "${lockPath}".`);
+      }
+      await delay(CONFIG_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await action();
+  } finally {
+    try {
+      const current = JSON.parse(
+        await readFile(lockPath, "utf8")
+      ) as Partial<ConfigLockRecord>;
+      if (current.ownerToken === record.ownerToken) {
+        await rm(lockPath, { force: true });
+      }
+    } catch (error) {
+      if (!isFileMissing(error)) {
+        console.warn(
+          `Failed to release config lock at "${lockPath}": ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
+}
+
+async function isStaleConfigLock(path: string): Promise<boolean> {
+  try {
+    const record = JSON.parse(
+      await readFile(path, "utf8")
+    ) as Partial<ConfigLockRecord>;
+    if (
+      !Number.isInteger(record.pid) ||
+      (record.pid ?? 0) <= 0 ||
+      typeof record.startedAt !== "string"
+    ) {
+      return false;
+    }
+    const ageMs = Math.abs(Date.now() - Date.parse(record.startedAt));
+    if (!Number.isFinite(ageMs) || ageMs > CONFIG_LOCK_TTL_MS) {
+      return true;
+    }
+    try {
+      process.kill(record.pid!, 0);
+    } catch (error) {
+      return Boolean(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ESRCH"
+      );
+    }
+    const actualIdentity = getProcessIdentity(record.pid!);
+    return Boolean(
+      record.processIdentity &&
+      actualIdentity &&
+      record.processIdentity !== actualIdentity
+    );
+  } catch (error) {
+    if (isFileMissing(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "EEXIST"
+  );
 }
 
 function isFileMissing(error: unknown): boolean {

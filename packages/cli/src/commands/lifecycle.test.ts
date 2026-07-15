@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,12 +9,14 @@ const orchestratorRunCli = vi.fn();
 const spawnMock = vi.fn();
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
+const getProcessIdentityMock = vi.fn();
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
 }));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
+  getProcessIdentity: getProcessIdentityMock,
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
 }));
@@ -54,6 +57,10 @@ const recoverModule = await import("./recover.js");
 const stopModule = await import("./stop.js");
 
 beforeEach(() => {
+  getProcessIdentityMock.mockReset();
+  getProcessIdentityMock.mockImplementation(
+    (pid: number) => `node gh-symphony index.js repo start --pid ${pid}`
+  );
   ghAuthMocks.resolveGitHubAuth.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
     source: "gh",
@@ -66,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
+  getProcessIdentityMock.mockReset();
   selectMock.mockReset();
   cancelMock.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockReset();
@@ -200,11 +208,16 @@ describe("lifecycle command integration", () => {
       projects: [createTenant("tenant-a", "acme", "platform")],
     });
 
-    spawnMock.mockReturnValue({
-      pid: 4321,
-      stdout: { pipe: vi.fn() },
-      stderr: { pipe: vi.fn() },
-      unref: vi.fn(),
+    spawnMock.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 4321,
+        stdout: { pipe: vi.fn() },
+        stderr: { pipe: vi.fn() },
+        unref: vi.fn(),
+        kill: vi.fn(),
+      });
+      queueMicrotask(() => child.emit("spawn"));
+      return child;
     });
 
     await startModule.default(["--daemon"], baseOptions(configDir));
@@ -322,7 +335,11 @@ describe("lifecycle command integration", () => {
     });
     await writeFile(
       join(configDir, "projects", "tenant-a", "daemon.pid"),
-      "111\n"
+      JSON.stringify({
+        pid: 111,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        processIdentity: "node gh-symphony index.js repo start --pid 111",
+      }) + "\n"
     );
     await writeFile(join(configDir, "projects", "tenant-a", "port"), "41001\n");
 
@@ -346,6 +363,40 @@ describe("lifecycle command integration", () => {
     await expect(
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("refuses to signal a reused PID with a different process identity", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      JSON.stringify({
+        pid: 111,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        processIdentity: "node gh-symphony index.js repo start --owner old",
+      }) + "\n"
+    );
+    getProcessIdentityMock.mockReturnValue(
+      "node unrelated-service.js --owner new"
+    );
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await stopModule.default([], baseOptions(configDir));
+
+    expect(killSpy).toHaveBeenCalledWith(111, 0);
+    expect(killSpy).not.toHaveBeenCalledWith(111, "SIGTERM");
+    expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
+      "process identity does not match"
+    );
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(process.exitCode).toBe(1);
   });
 
   it("rejects unknown project stop flags before touching daemon state", async () => {

@@ -2,9 +2,8 @@ import { spawn } from "node:child_process";
 import type { GlobalOptions } from "../index.js";
 import {
   loadGlobalConfig,
-  saveGlobalConfig,
+  updateGlobalConfig,
   configFilePath,
-  type CliGlobalConfig,
 } from "../config.js";
 
 const handler = async (
@@ -49,7 +48,9 @@ async function configShow(options: GlobalOptions): Promise<void> {
   }
 
   process.stdout.write(`Config: ${configFilePath(options.configDir)}\n\n`);
-  process.stdout.write(`Active project:    ${config.activeProject ?? "none"}\n`);
+  process.stdout.write(
+    `Active project:    ${config.activeProject ?? "none"}\n`
+  );
   process.stdout.write(
     `Projects:         ${config.projects.join(", ") || "none"}\n`
   );
@@ -82,27 +83,26 @@ async function configSet(
     return;
   }
 
-  const config =
-    (await loadGlobalConfig(options.configDir)) ??
-    ({
-      activeProject: null,
-      projects: [],
-    } satisfies CliGlobalConfig);
-
-  switch (key) {
-    case "active-project":
-      if (!config.projects.includes(value)) {
-        process.stderr.write(
-          `Project "${value}" not found. Available: ${config.projects.join(", ")}\n`
-        );
-        process.exitCode = 1;
-        return;
-      }
-      config.activeProject = value;
-      break;
+  let availableProjects: string[] = [];
+  const updated = await updateGlobalConfig(options.configDir, (config) => {
+    availableProjects = config.projects;
+    switch (key) {
+      case "active-project":
+        if (!config.projects.includes(value)) {
+          return null;
+        }
+        return { ...config, activeProject: value };
+      default:
+        return null;
+    }
+  });
+  if (!updated) {
+    process.stderr.write(
+      `Project "${value}" not found. Available: ${availableProjects.join(", ")}\n`
+    );
+    process.exitCode = 1;
+    return;
   }
-
-  await saveGlobalConfig(options.configDir, config);
   process.stdout.write(`Set ${key} = ${value}\n`);
 }
 
