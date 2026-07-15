@@ -4,7 +4,24 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { DashboardFsReader, statusForIssue } from "./store.js";
+
+const REDACTED = "[REDACTED]";
+const STATE_REDACTED_KEYS = new Set([
+  "currentRunId",
+  "identifier",
+  "issueId",
+  "issueIdentifier",
+  "lastError",
+  "runId",
+  "sessionId",
+  "tokenUsage",
+  "workingDirectory",
+  "workspaceKey",
+  "workspacePath",
+  "workspaceRuntimeDir",
+]);
 
 export async function resolveDashboardResponse(options: {
   pathname: string;
@@ -41,7 +58,7 @@ export async function resolveDashboardResponse(options: {
 
     return {
       status: 200,
-      payload: snapshot,
+      payload: redactDashboardState(snapshot),
     };
   }
 
@@ -101,16 +118,26 @@ export async function resolveDashboardResponse(options: {
   };
 }
 
-export function createDashboardRequestHandler(
-  reader: DashboardFsReader
-): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+export function createDashboardRequestHandler(options: {
+  reader: DashboardFsReader;
+  apiToken: string;
+}): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+  assertApiToken(options.apiToken);
+
   return async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (
+        url.pathname.startsWith("/api/v1/") &&
+        !isAuthorizedApiRequest(request, options.apiToken)
+      ) {
+        respondJson(response, 401, { error: "Unauthorized" });
+        return;
+      }
       const resolved = await resolveDashboardResponse({
         pathname: url.pathname,
         method: request.method ?? "GET",
-        reader,
+        reader: options.reader,
       });
       respondJson(response, resolved.status, resolved.payload);
     } catch (error) {
@@ -127,17 +154,65 @@ export function createDashboardRequestHandler(
 }
 
 export function startDashboardServer(options: {
-  host: string;
+  host?: string;
   port: number;
   reader: DashboardFsReader;
+  apiToken: string;
 }): Server {
-  const handler = createDashboardRequestHandler(options.reader);
+  const handler = createDashboardRequestHandler({
+    reader: options.reader,
+    apiToken: options.apiToken,
+  });
   const server = createServer((request, response) => {
     void handler(request, response);
   });
 
-  server.listen(options.port, options.host);
+  server.listen(options.port, options.host ?? "127.0.0.1");
   return server;
+}
+
+export function isAuthorizedApiRequest(
+  request: Pick<IncomingMessage, "headers">,
+  apiToken: string
+): boolean {
+  const authorization = request.headers.authorization;
+  if (typeof authorization !== "string") {
+    return false;
+  }
+
+  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
+  if (!match?.[1]) {
+    return false;
+  }
+
+  const actual = Buffer.from(match[1]);
+  const expected = Buffer.from(apiToken);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function assertApiToken(apiToken: string): void {
+  if (!apiToken.trim()) {
+    throw new Error("Dashboard API token must not be empty.");
+  }
+}
+
+function redactDashboardState(value: unknown, key?: string): unknown {
+  if (key && STATE_REDACTED_KEYS.has(key)) {
+    return value === null || value === undefined ? value : REDACTED;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactDashboardState(entry));
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      redactDashboardState(entryValue, entryKey),
+    ])
+  );
 }
 
 function respondJson(
