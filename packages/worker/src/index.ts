@@ -54,6 +54,12 @@ import {
 } from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
 import { resolveMaxTurns } from "./turn-limits.js";
+import {
+  acquireTurnLease,
+  refreshTrackerState,
+  resolveRefreshFailureThreshold,
+  updateRefreshFailureCount,
+} from "./turn-lease.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -678,6 +684,18 @@ async function runNonCodexRuntimeAdapterLifecycle(
     await (adapter as AgentRuntimeAdapter<{ runId: string }>).prepare({
       runId,
     });
+    const lease = await acquireTurnLease(env, 1);
+    if (lease.status !== "acquired") {
+      const event =
+        lease.status === "denied"
+          ? "worker_lease_lost"
+          : "orchestrator_unavailable";
+      failWorkerTurnGate(event, lease.reason);
+      throw new Error(`${event}: ${lease.reason}`);
+    }
+    process.stderr.write(
+      `[worker] acquired turn lease 1/1 (expires=${lease.expiresAt})\n`
+    );
     runtimeState.status = "running";
     runtimeState.runPhase = "streaming_turn";
     runtimeState.sessionInfo = {
@@ -1027,6 +1045,7 @@ async function runCodexClientProtocol(
   let turnTerminalFailurePhase: TurnTerminalFailurePhase | null = null;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
   let consecutiveNonProductiveTurns = 0;
+  let consecutiveRefreshFailures = 0;
   let convergenceDetected = false;
 
   function resolvePendingTurnCompletion(): void {
@@ -1546,6 +1565,57 @@ async function runCodexClientProtocol(
       runtimeState.sessionInfo.turnCount = turnCount;
       runtimeState.runPhase = "streaming_turn";
       const isFirstTurn = turn === 0;
+
+      if (!isFirstTurn) {
+        const trackerState = await refreshTrackerState(env);
+        process.stderr.write(
+          `[worker] tracker state refresh: ${trackerState}\n`
+        );
+
+        if (trackerState === "non-actionable") {
+          runtimeState.runPhase = "finishing";
+          runtimeState.executionPhase = resolveFinalExecutionPhase({
+            currentPhase: runtimeState.executionPhase,
+            trackerState,
+            userInputRequired: false,
+          });
+          process.stderr.write(
+            "[worker] issue no longer actionable — exiting multi-turn loop\n"
+          );
+          break;
+        }
+
+        const refreshFailureThreshold = resolveRefreshFailureThreshold(
+          env.SYMPHONY_REFRESH_FAILURE_THRESHOLD
+        );
+        const refreshFailures = updateRefreshFailureCount(
+          trackerState,
+          consecutiveRefreshFailures,
+          refreshFailureThreshold
+        );
+        consecutiveRefreshFailures = refreshFailures.count;
+        if (refreshFailures.failClosed) {
+          failWorkerTurnGate(
+            "orchestrator_unavailable",
+            `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
+          );
+          throw new Error("orchestrator_unavailable");
+        }
+      }
+
+      const lease = await acquireTurnLease(env, turnCount);
+      if (lease.status !== "acquired") {
+        const event =
+          lease.status === "denied"
+            ? "worker_lease_lost"
+            : "orchestrator_unavailable";
+        failWorkerTurnGate(event, lease.reason);
+        throw new Error(`${event}: ${lease.reason}`);
+      }
+      process.stderr.write(
+        `[worker] acquired turn lease ${turnCount}/${maxTurns} (expires=${lease.expiresAt})\n`
+      );
+
       const turnInput = isFirstTurn
         ? renderedPrompt
         : buildContinuationTurnInput({
@@ -1622,23 +1692,6 @@ async function runCodexClientProtocol(
         break;
       }
 
-      // Refresh tracker state to decide whether to continue
-      const trackerState = await refreshTrackerState(env);
-      process.stderr.write(`[worker] tracker state refresh: ${trackerState}\n`);
-
-      if (trackerState === "non-actionable") {
-        runtimeState.runPhase = "finishing";
-        runtimeState.executionPhase = resolveFinalExecutionPhase({
-          currentPhase: runtimeState.executionPhase,
-          trackerState,
-          userInputRequired: false,
-        });
-        process.stderr.write(
-          "[worker] issue no longer actionable — exiting multi-turn loop\n"
-        );
-        break;
-      }
-
       const currentTurnProgressSnapshot = {
         ...captureTurnWorkspaceSnapshot(plan.cwd),
         lastError: runtimeState.run?.lastError ?? null,
@@ -1695,7 +1748,8 @@ async function runCodexClientProtocol(
         break;
       }
 
-      // trackerState is "active" or "unknown" — continue with next turn
+      // The next iteration refreshes state and acquires a fresh lease before
+      // another turn can start.
     }
 
     process.stderr.write(
@@ -1737,7 +1791,14 @@ async function runCodexClientProtocol(
     }
 
     // Map timeout errors to specific categories
-    if (errMsg.startsWith("response_timeout:")) {
+    if (
+      errMsg.startsWith("orchestrator_unavailable") ||
+      errMsg.startsWith("worker_lease_lost")
+    ) {
+      if (runtimeState.run) {
+        runtimeState.run.lastError = errMsg;
+      }
+    } else if (errMsg.startsWith("response_timeout:")) {
       runtimeState.runPhase = "stalled";
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
@@ -1973,35 +2034,15 @@ function parseTokenUsageSnapshot(value: unknown): TokenUsageSnapshot | null {
   };
 }
 
-/**
- * Refresh tracker state by querying the dashboard state API.
- * Returns "active" if the issue run is still tracked, "non-actionable"
- * if the run is no longer listed, or "unknown" on any failure.
- */
-async function refreshTrackerState(
-  env: NodeJS.ProcessEnv
-): Promise<"active" | "non-actionable" | "unknown"> {
-  const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
-
-  if (!orchestratorUrl) {
-    return "unknown";
+function failWorkerTurnGate(event: string, reason: string): void {
+  runtimeState.status = "failed";
+  runtimeState.runPhase = "failed";
+  runtimeState.lastEventAt = new Date().toISOString();
+  if (runtimeState.run) {
+    runtimeState.run.lastError = `${event}: ${reason}`;
   }
-
-  try {
-    const response = await fetch(`${orchestratorUrl}/api/v1/state`);
-    if (!response.ok) return "unknown";
-
-    const status = (await response.json()) as {
-      activeRuns?: Array<{ issueIdentifier: string }>;
-    };
-    const isActive = status.activeRuns?.some(
-      (run) => run.issueIdentifier === issueIdentifier
-    );
-    return isActive ? "active" : "non-actionable";
-  } catch {
-    return "unknown";
-  }
+  process.stderr.write(`[worker] ${event}: ${reason}\n`);
+  emitOrchestratorChannelEvent(event);
 }
 
 /**

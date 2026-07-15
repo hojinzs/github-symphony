@@ -66,6 +66,51 @@ describe("OrchestratorService", () => {
     expect(dependencies.assignedOnly).toBe(true);
   });
 
+  it("grants short-lived turn leases only to the current running worker", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-turn-lease-"));
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    });
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-current",
+        retryEntry: null,
+        updatedAt: "2026-07-15T00:00:00.000Z",
+      },
+    ]);
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-15T00:00:00.000Z"),
+    });
+
+    await expect(
+      service.acquireWorkerTurnLease({
+        issueId: "issue-1",
+        runId: "run-current",
+        turn: 2,
+      })
+    ).resolves.toEqual({
+      acquired: true,
+      expiresAt: "2026-07-15T00:00:15.000Z",
+    });
+    await expect(
+      service.acquireWorkerTurnLease({
+        issueId: "issue-1",
+        runId: "run-superseded",
+        turn: 2,
+      })
+    ).resolves.toEqual({ acquired: false, reason: "run_not_current" });
+  });
+
   it("dispatches actionable issues and prevents duplicate issue leases", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-test-"));
@@ -684,6 +729,7 @@ describe("OrchestratorService", () => {
         spawnImpl: spawnImpl as never,
         now: () => new Date("2026-03-08T00:01:00.000Z"),
       });
+      service.setWorkerOrchestratorUrl("http://localhost:4680");
 
       await service.runOnce();
 
@@ -691,6 +737,9 @@ describe("OrchestratorService", () => {
         | NodeJS.ProcessEnv
         | undefined;
       expect(workerEnv?.SYMPHONY_MAX_NONPRODUCTIVE_TURNS).toBe("7");
+      expect(workerEnv?.SYMPHONY_ORCHESTRATOR_URL).toBe(
+        "http://localhost:4680"
+      );
       expect(workerEnv?.SYMPHONY_GLOBAL_MAX_TURNS).toBe("");
       expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("");
       expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("");
@@ -9336,9 +9385,12 @@ Prefer focused changes.
       execSync(`git -C ${shell(repository.path)} add scripts/before-run.sh`, {
         stdio: "ignore",
       });
-      execSync(`git -C ${shell(repository.path)} commit -m add-before-run-hook`, {
-        stdio: "ignore",
-      });
+      execSync(
+        `git -C ${shell(repository.path)} commit -m add-before-run-hook`,
+        {
+          stdio: "ignore",
+        }
+      );
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
@@ -9742,9 +9794,12 @@ Prefer focused changes.
     execSync(`git -C ${shell(repository.path)} add scripts/before-run.sh`, {
       stdio: "ignore",
     });
-    execSync(`git -C ${shell(repository.path)} commit -m add-missing-env-hook`, {
-      stdio: "ignore",
-    });
+    execSync(
+      `git -C ${shell(repository.path)} commit -m add-missing-env-hook`,
+      {
+        stdio: "ignore",
+      }
+    );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
