@@ -68,9 +68,11 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       ) {
         return [];
       }
-      // Gracefully handle truncated/partial JSON from concurrent writes
       if (err instanceof SyntaxError) {
-        return [];
+        throw new Error(
+          `[tracker-file] Failed to parse issues JSON at ${issuesPath}: ${err.message}`,
+          { cause: err },
+        );
       }
       throw err;
     }

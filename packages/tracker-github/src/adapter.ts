@@ -344,7 +344,7 @@ export function normalizeProjectItem(
   }
 
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
-  const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
+  const state = requireProjectItemState(fieldValues, lifecycle, item.id);
 
   if (item.content.__typename === "PullRequest") {
     return normalizePullRequestProjectItem(
@@ -954,6 +954,31 @@ function extractFieldValues(
   }, {});
 }
 
+function requireProjectItemState(
+  fieldValues: Record<string, string>,
+  lifecycle: WorkflowLifecycleConfig,
+  itemId: string
+): string {
+  const stateFieldName =
+    typeof lifecycle.stateFieldName === "string"
+      ? lifecycle.stateFieldName.trim()
+      : "";
+  if (!stateFieldName) {
+    throw new GitHubTrackerQueryError(
+      `github_project_state_field_unconfigured: Project item ${itemId} cannot be normalized without lifecycle.stateFieldName.`
+    );
+  }
+
+  const state = fieldValues[stateFieldName];
+  if (!state) {
+    throw new GitHubTrackerQueryError(
+      `github_project_state_field_missing: Project item ${itemId} did not include configured state field "${stateFieldName}".`
+    );
+  }
+
+  return state;
+}
+
 function normalizeIssueStateLookupNode(
   projectId: string,
   issue: GraphQLIssueStateLookupNode | null,
@@ -969,7 +994,11 @@ function normalizeIssueStateLookupNode(
   }
 
   const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
-  const state = fieldValues[lifecycle.stateFieldName] ?? "Unknown";
+  const state = requireProjectItemState(
+    fieldValues,
+    lifecycle,
+    projectItem.id
+  );
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
   const url =

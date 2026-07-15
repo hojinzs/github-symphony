@@ -326,7 +326,6 @@ export class OrchestratorService {
     string,
     WorkflowResolution
   >();
-  private readonly lastReportedWorkflowErrors = new Map<string, string>();
   private readonly lastTrackerRateLimitsByProject = new Map<
     string,
     Record<string, unknown>
@@ -1443,8 +1442,7 @@ export class OrchestratorService {
     return this.resolveWorkflowResolution(
       repository,
       cacheRoot,
-      resolution,
-      true
+      resolution
     );
   }
 
@@ -3081,8 +3079,7 @@ export class OrchestratorService {
   private async resolveWorkflowResolution(
     repository: RepositoryRef,
     cacheRoot: string,
-    resolution: WorkflowResolution,
-    changed: boolean
+    resolution: WorkflowResolution
   ): Promise<WorkflowResolution> {
     const cacheKey = this.workflowCacheKey(repository);
 
@@ -3107,20 +3104,15 @@ export class OrchestratorService {
         ...effectiveResolution,
         workflowPath,
       });
-      this.lastReportedWorkflowErrors.delete(cacheKey);
       return effectiveResolution;
     }
 
     const cached = this.lastKnownGoodWorkflows.get(cacheKey);
     const message =
       resolution.validationError ?? "Invalid repository WORKFLOW.md";
-    const previousMessage = this.lastReportedWorkflowErrors.get(cacheKey);
-    if (changed || previousMessage !== message) {
-      process.stderr.write(
-        `[orchestrator] failed to reload WORKFLOW.md for ${repository.owner}/${repository.name}: ${message}\n`
-      );
-      this.lastReportedWorkflowErrors.set(cacheKey, message);
-    }
+    this.writeStderr(
+      `[orchestrator] failed to reload WORKFLOW.md for ${repository.owner}/${repository.name}: ${message}`
+    );
 
     if (!cached) {
       return resolution;

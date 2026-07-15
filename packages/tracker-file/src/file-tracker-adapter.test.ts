@@ -102,14 +102,14 @@ describe("fileTrackerAdapter", () => {
       expect(issues[1].id).toBe("issue-1");
     });
 
-    it("returns empty array when file contains truncated JSON", async () => {
+    it("fails loudly when file contains truncated JSON", async () => {
       const issuesPath = join(testDir, "truncated.json");
       await writeFile(issuesPath, '[{"id":');
 
       const project = makeProject(issuesPath);
-      const issues = await fileTrackerAdapter.listIssues(project);
-
-      expect(issues).toEqual([]);
+      await expect(fileTrackerAdapter.listIssues(project)).rejects.toThrow(
+        `[tracker-file] Failed to parse issues JSON at ${issuesPath}`,
+      );
     });
 
     it("throws when file contains non-array JSON", async () => {
