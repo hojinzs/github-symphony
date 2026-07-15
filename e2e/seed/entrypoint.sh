@@ -23,7 +23,8 @@ fi
 
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
 node /app/packages/cli/dist/index.js repo start \
-  --http 4680 &
+  --http 4680 \
+  --bind-all &
 CLI_PID=$!
 
 forward_signal() {

@@ -9,6 +9,7 @@ set -euo pipefail
 SCENARIO="${1:-happy}"
 TIMEOUT="${2:-30}"
 COMPOSE="docker compose -f docker-compose.e2e.yml"
+HTTP_API_TOKEN="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,7 +19,10 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[e2e]${NC} $*"; }
 warn() { echo -e "${YELLOW}[e2e]${NC} $*"; }
 fail() { echo -e "${RED}[e2e]${NC} $*"; }
-orch_curl() { $COMPOSE exec -T symphony-e2e curl "$@"; }
+orch_curl() {
+  $COMPOSE exec -T symphony-e2e curl \
+    -H "Authorization: Bearer ${HTTP_API_TOKEN}" "$@"
+}
 
 cleanup() {
   log "Cleaning up..."

@@ -67,6 +67,7 @@ pnpm e2e:init       # .runtime/ 구조 생성, stub worker 컴파일, seed repo 
 cp .runtime/e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 
 # 2. 오케스트레이터 시작 (포그라운드, Ctrl+C로 종료)
+export GH_SYMPHONY_HTTP_TOKEN=e2e-http-token
 pnpm e2e:start
 ```
 
@@ -84,10 +85,12 @@ STUB_SCENARIO=slow pnpm e2e:start
 
 ```bash
 # 프로젝트 전체 상태
-curl -s http://localhost:4680/api/v1/state | jq .
+curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  http://localhost:4680/api/v1/state | jq .
 
 # 핵심 필드만
-curl -s http://localhost:4680/api/v1/state | jq '{
+curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  http://localhost:4680/api/v1/state | jq '{
   health,
   activeRuns: .summary.activeRuns,
   runs: [.activeRuns[] | {status, executionPhase, lastEvent, retryKind}],
@@ -96,7 +99,8 @@ curl -s http://localhost:4680/api/v1/state | jq '{
 }'
 
 # Reconciliation 수동 트리거
-curl -X POST http://localhost:4680/api/v1/refresh
+curl -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  -X POST http://localhost:4680/api/v1/refresh
 ```
 
 ### 이벤트 및 로그 확인
@@ -158,7 +162,7 @@ AI Agent
 - **Stub Worker** (`e2e/stub-worker.ts`): Codex AI 없이 Worker 동작을 시뮬레이션
 - **격리**: clone된 work repo와 repo-local orchestrator 상태는 `/e2e/work` tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
 - **이벤트 미러링(선택)**: `docker-compose.e2e.events.yml` override를 함께 쓰면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
-- **골든 패스**: 컨테이너 entrypoint는 `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680` 순서로 단일-리포 런타임을 기동한다.
+- **골든 패스**: 컨테이너 entrypoint는 `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all` 순서로 단일-리포 런타임을 기동한다.
 - **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH`는 이 Docker/로컬 E2E의 `kind: file` 워크플로에서만 mounted fixture를 `repo init` 결과에 연결하기 위한 테스트 전용 환경변수다.
 
 ### Stub Worker 시나리오
@@ -185,6 +189,7 @@ STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 ```bash
 echo "[]" > e2e/fixtures/issues.json
 mkdir -p evidence
+export GH_SYMPHONY_HTTP_TOKEN=e2e-http-token
 docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build
 curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
@@ -229,7 +234,8 @@ EOF
 ### 3. Reconciliation 트리거
 
 ```bash
-curl -X POST http://localhost:4680/api/v1/refresh
+curl -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  -X POST http://localhost:4680/api/v1/refresh
 ```
 
 > 컨테이너의 entrypoint가 이미 `cli start`(지속 폴링)를 실행 중이므로, `docker exec run-once`는 사용하지 않는다. 두 인스턴스가 같은 state 파일을 경합하여 예측 불가능한 동작이 발생한다.
@@ -238,10 +244,12 @@ curl -X POST http://localhost:4680/api/v1/refresh
 
 ```bash
 # 프로젝트 전체 상태
-curl -s http://localhost:4680/api/v1/state | jq .
+curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  http://localhost:4680/api/v1/state | jq .
 
 # 핵심 필드만
-curl -s http://localhost:4680/api/v1/state | jq '{
+curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
+  http://localhost:4680/api/v1/state | jq '{
   health,
   activeRuns: .summary.activeRuns,
   runs: [.activeRuns[] | {status, executionPhase, lastEvent, retryKind}],
