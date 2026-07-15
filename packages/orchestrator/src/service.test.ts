@@ -4189,6 +4189,42 @@ Prefer focused changes.
     );
   });
 
+  it("reports the same invalid WORKFLOW.md on every reconciliation tick", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workflow-invalid-observability-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const stderrWrite = vi.fn(() => true);
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      stderr: { write: stderrWrite },
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    await commitWorkflowFixture(repository.path, {
+      rawWorkflow: "---\ninvalid: [\n---\n",
+    });
+
+    await service.runOnce();
+    await service.runOnce();
+
+    expect(
+      stderrWrite.mock.calls.filter(([message]) =>
+        String(message).includes("failed to reload WORKFLOW.md")
+      )
+    ).toHaveLength(2);
+  });
+
   it("keeps a readable workflow snapshot when WORKFLOW.md is deleted", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
