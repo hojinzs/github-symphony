@@ -12,6 +12,8 @@ const run = vi.fn();
 const status = vi.fn();
 const shutdown = vi.fn();
 const requestReconcile = vi.fn();
+const acquireWorkerTurnLease = vi.fn();
+const setWorkerOrchestratorUrl = vi.fn();
 const resolveDashboardResponse = vi.fn();
 const startControlPlaneServer = vi.fn();
 const serviceDependencies: Array<Record<string, unknown>> = [];
@@ -52,6 +54,8 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     status = status;
     shutdown = shutdown;
     requestReconcile = requestReconcile;
+    acquireWorkerTurnLease = acquireWorkerTurnLease;
+    setWorkerOrchestratorUrl = setWorkerOrchestratorUrl;
   },
 }));
 
@@ -101,6 +105,12 @@ beforeEach(() => {
   shutdown.mockReset();
   shutdown.mockResolvedValue(undefined);
   requestReconcile.mockReset();
+  acquireWorkerTurnLease.mockReset();
+  acquireWorkerTurnLease.mockResolvedValue({
+    acquired: true,
+    expiresAt: "2026-07-15T00:00:15.000Z",
+  });
+  setWorkerOrchestratorUrl.mockReset();
   resolveDashboardResponse.mockReset();
   startControlPlaneServer.mockReset();
   resolveDashboardResponse.mockImplementation(
@@ -1057,6 +1067,23 @@ describe("start command foreground locking", () => {
       expect(refreshResponse.status).toBe(202);
       await expect(refreshResponse.json()).resolves.toEqual({ ok: true });
       expect(requestReconcile).toHaveBeenCalledTimes(1);
+
+      const leaseResponse = await fetch(`${url}/api/v1/worker-turn-lease`, {
+        method: "POST",
+        body: JSON.stringify({ issueId: "issue-1", runId: "run-1", turn: 2 }),
+        headers: { "content-type": "application/json" },
+      });
+      expect(leaseResponse.status).toBe(200);
+      await expect(leaseResponse.json()).resolves.toEqual({
+        acquired: true,
+        expiresAt: "2026-07-15T00:00:15.000Z",
+      });
+      expect(acquireWorkerTurnLease).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        runId: "run-1",
+        turn: 2,
+      });
+      expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
 
       await expect(
         fetch(`${url}/healthz`).then((response) => response.json())

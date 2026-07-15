@@ -68,6 +68,7 @@ const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
+const WORKER_TURN_LEASE_TTL_MS = 15_000;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
@@ -342,6 +343,7 @@ export class OrchestratorService {
   private sleepResolver: (() => void) | null = null;
   private reconcilePromise: Promise<void> = Promise.resolve();
   private reconcileRequested = false;
+  private workerOrchestratorUrl: string | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -368,6 +370,44 @@ export class OrchestratorService {
       assignedOnly?: boolean;
     } = {}
   ) {}
+
+  setWorkerOrchestratorUrl(url: string): void {
+    this.workerOrchestratorUrl = url;
+  }
+
+  async acquireWorkerTurnLease(input: {
+    issueId: string;
+    runId: string;
+    turn: number;
+  }): Promise<
+    { acquired: true; expiresAt: string } | { acquired: false; reason: string }
+  > {
+    return this.runSerialized(async () => {
+      const issueRecords = await this.store.loadProjectIssueOrchestrations(
+        this.projectConfig.projectId
+      );
+      const record = issueRecords.find(
+        (candidate) => candidate.issueId === input.issueId
+      );
+
+      if (!record || record.state !== "running") {
+        return { acquired: false, reason: "issue_not_running" };
+      }
+      if (record.currentRunId !== input.runId) {
+        return { acquired: false, reason: "run_not_current" };
+      }
+      if (!Number.isSafeInteger(input.turn) || input.turn < 1) {
+        return { acquired: false, reason: "invalid_turn" };
+      }
+
+      return {
+        acquired: true,
+        expiresAt: new Date(
+          this.now().getTime() + WORKER_TURN_LEASE_TTL_MS
+        ).toISOString(),
+      };
+    });
+  }
 
   async run(
     options: {
@@ -1655,6 +1695,7 @@ export class OrchestratorService {
           SYMPHONY_TURN_SANDBOX_POLICY:
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
+          SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
           SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
             process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
             String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),

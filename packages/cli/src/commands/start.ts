@@ -1,7 +1,12 @@
 import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
-import { createServer, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import * as p from "@clack/prompts";
 import type { GlobalOptions } from "../index.js";
 import {
@@ -264,6 +269,7 @@ type ForegroundShutdownOptions = {
   configDir: string;
   projectId: string;
   httpServer?: Server;
+  workerHttpServer?: Server;
   projectLock?: ProjectLockHandle | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
@@ -558,7 +564,18 @@ async function startHttpServer(input: {
   runtimeRoot: string;
   projectId: string;
   initialPort: number;
-  service: { requestReconcile(): void };
+  host: string;
+  service: {
+    requestReconcile(): void;
+    acquireWorkerTurnLease(request: {
+      issueId: string;
+      runId: string;
+      turn: number;
+    }): Promise<
+      | { acquired: true; expiresAt: string }
+      | { acquired: false; reason: string }
+    >;
+  };
 }): Promise<{ server: Server; port: number; url: string }> {
   const reader = new DashboardFsReader(
     join(input.runtimeRoot, "projects", encodeURIComponent(input.projectId))
@@ -573,6 +590,29 @@ async function startHttpServer(input: {
             request.resume();
             input.service.requestReconcile();
             respondJson(response, 202, { ok: true });
+            return;
+          }
+
+          if (
+            request.method === "POST" &&
+            url.pathname === "/api/v1/worker-turn-lease"
+          ) {
+            const body = await readJsonRequest(request);
+            if (
+              !body ||
+              typeof body.issueId !== "string" ||
+              typeof body.runId !== "string" ||
+              typeof body.turn !== "number"
+            ) {
+              respondJson(response, 400, { reason: "invalid_request" });
+              return;
+            }
+            const lease = await input.service.acquireWorkerTurnLease({
+              issueId: body.issueId,
+              runId: body.runId,
+              turn: body.turn,
+            });
+            respondJson(response, lease.acquired ? 200 : 409, lease);
             return;
           }
 
@@ -612,7 +652,7 @@ async function startHttpServer(input: {
 
         server.once("listening", handleListening);
         server.once("error", handleError);
-        server.listen(port, HTTP_HOST);
+        server.listen(port, input.host);
       });
 
       return {
@@ -632,6 +672,29 @@ async function startHttpServer(input: {
   throw new Error(
     `Unable to bind HTTP server starting from port ${input.initialPort}`
   );
+}
+
+async function readJsonRequest(
+  request: IncomingMessage
+): Promise<Record<string, unknown> | null> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 16_384) {
+      return null;
+    }
+    chunks.push(buffer);
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -804,6 +867,8 @@ const handler = async (
       | Awaited<ReturnType<typeof startControlPlaneServer>>
       | Awaited<ReturnType<typeof startHttpServer>>
       | null = null;
+    let workerHttpServer: Awaited<ReturnType<typeof startHttpServer>> | null =
+      null;
     const shutdown = async () => {
       if (shuttingDown) {
         return shutdownPromise;
@@ -817,6 +882,7 @@ const handler = async (
         configDir: options.configDir,
         projectId,
         httpServer: httpServer?.server,
+        workerHttpServer: workerHttpServer?.server,
         projectLock: heldLock,
         service,
       });
@@ -835,6 +901,15 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
+      workerHttpServer = await startHttpServer({
+        runtimeRoot,
+        projectId,
+        initialPort: parsed.httpPort ?? 0,
+        host: parsed.httpPort !== undefined ? HTTP_HOST : "127.0.0.1",
+        service,
+      });
+      service.setWorkerOrchestratorUrl(workerHttpServer.url);
+
       httpServer =
         parsed.webPort !== undefined
           ? await startControlPlaneServer({
@@ -848,12 +923,7 @@ const handler = async (
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined
-            ? await startHttpServer({
-                runtimeRoot,
-                projectId,
-                initialPort: parsed.httpPort,
-                service,
-              })
+            ? workerHttpServer
             : null;
       if (httpServer) {
         try {
@@ -943,7 +1013,11 @@ const handler = async (
           );
           if (parsed.once) {
             process.exitCode = 1;
-            await closeHttpServer(httpServer?.server).catch((closeError) => {
+            await Promise.all(
+              [...new Set([httpServer?.server, workerHttpServer?.server])]
+                .filter((server): server is Server => Boolean(server))
+                .map((server) => closeHttpServer(server))
+            ).catch((closeError) => {
               logLine(
                 yellow("\u26A0"),
                 `Failed to stop HTTP server: ${
@@ -1002,7 +1076,11 @@ export async function shutdownForegroundOrchestrator(
   }
 
   try {
-    await closeHttpServer(input.httpServer);
+    await Promise.all(
+      [...new Set([input.httpServer, input.workerHttpServer])]
+        .filter((server): server is Server => Boolean(server))
+        .map((server) => closeHttpServer(server))
+    );
   } catch (error) {
     logLine(
       yellow("\u26A0"),
