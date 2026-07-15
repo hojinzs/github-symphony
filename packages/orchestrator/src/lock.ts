@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { chmod, mkdir, open, readFile, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OrchestratorFsStore } from "./fs-store.js";
+import { syncDirectory, writeFileAtomically } from "./durable-file.js";
 
 type ProjectLockRecord = {
   ownerToken: string;
   pid: number;
   startedAt: string;
+  heartbeatAt: string;
+  processIdentity: string | null;
 };
 
 export type ProjectLockHandle = {
@@ -15,11 +19,15 @@ export type ProjectLockHandle = {
   ownerToken: string;
   pid: number;
   startedAt: string;
+  heartbeatAt: string;
+  processIdentity: string | null;
 };
 
 const LOCK_READ_RETRY_DELAY_MS = 10;
 const LOCK_READ_RETRY_LIMIT = 20;
 const SECURE_DIRECTORY_MODE = 0o700;
+export const DEFAULT_PROJECT_LOCK_LEASE_TTL_MS = 60_000;
+const heartbeatTimers = new WeakMap<ProjectLockHandle, NodeJS.Timeout>();
 
 export async function acquireProjectLock(input: {
   runtimeRoot: string;
@@ -27,13 +35,23 @@ export async function acquireProjectLock(input: {
   pid?: number;
   now?: Date;
   isProcessRunning?: (pid: number) => boolean;
+  getProcessIdentity?: (pid: number) => string | null;
+  leaseTtlMs?: number;
 }): Promise<ProjectLockHandle> {
   assertValidProjectId(input.projectId);
   const pid = input.pid ?? process.pid;
   const startedAt = (input.now ?? new Date()).toISOString();
+  const heartbeatAt = startedAt;
+  const processIdentity = (input.getProcessIdentity ?? getProcessIdentity)(pid);
   const ownerToken = `${pid}:${randomUUID()}`;
   const lockPath = resolveProjectLockPath(input.runtimeRoot, input.projectId);
-  const record: ProjectLockRecord = { ownerToken, pid, startedAt };
+  const record: ProjectLockRecord = {
+    ownerToken,
+    pid,
+    startedAt,
+    heartbeatAt,
+    processIdentity,
+  };
   let invalidReadAttempts = 0;
 
   for (;;) {
@@ -42,11 +60,25 @@ export async function acquireProjectLock(input: {
       const handle = await open(lockPath, "wx");
       try {
         await handle.writeFile(JSON.stringify(record, null, 2) + "\n", "utf8");
+        await handle.sync();
       } finally {
         await handle.close();
       }
+      await syncDirectory(dirname(lockPath));
 
-      return { lockPath, ownerToken, pid, startedAt };
+      const lock = {
+        lockPath,
+        ownerToken,
+        pid,
+        startedAt,
+        heartbeatAt,
+        processIdentity,
+      };
+      startProjectLockHeartbeat(
+        lock,
+        input.leaseTtlMs ?? DEFAULT_PROJECT_LOCK_LEASE_TTL_MS
+      );
+      return lock;
     } catch (error) {
       if (!isAlreadyExistsError(error)) {
         throw error;
@@ -72,7 +104,14 @@ export async function acquireProjectLock(input: {
     }
 
     invalidReadAttempts = 0;
-    if ((input.isProcessRunning ?? isProcessRunning)(existing.record.pid)) {
+    if (
+      isActiveLock(existing.record, {
+        now: input.now ?? new Date(),
+        leaseTtlMs: input.leaseTtlMs ?? DEFAULT_PROJECT_LOCK_LEASE_TTL_MS,
+        isProcessRunning: input.isProcessRunning ?? isProcessRunning,
+        getProcessIdentity: input.getProcessIdentity ?? getProcessIdentity,
+      })
+    ) {
       throw new Error(
         `Project "${input.projectId}" is already running (PID ${existing.record.pid}).`
       );
@@ -80,6 +119,75 @@ export async function acquireProjectLock(input: {
 
     await rm(lockPath, { force: true });
   }
+}
+
+function startProjectLockHeartbeat(
+  lock: ProjectLockHandle,
+  leaseTtlMs: number
+): void {
+  const intervalMs = Math.max(1_000, Math.floor(leaseTtlMs / 3));
+  const timer = setInterval(() => {
+    void renewProjectLock(lock).catch((error) => {
+      console.error(
+        `Failed to renew project lock at "${lock.lockPath}": ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    });
+  }, intervalMs);
+  timer.unref();
+  heartbeatTimers.set(lock, timer);
+}
+
+export async function renewProjectLock(
+  lock: ProjectLockHandle,
+  now = new Date()
+): Promise<boolean> {
+  const existing = await readProjectLock(lock.lockPath);
+  if (
+    existing.status !== "valid" ||
+    existing.record.ownerToken !== lock.ownerToken
+  ) {
+    return false;
+  }
+
+  const heartbeatAt = now.toISOString();
+  await writeFileAtomically(
+    lock.lockPath,
+    JSON.stringify({ ...existing.record, heartbeatAt }, null, 2) + "\n"
+  );
+  lock.heartbeatAt = heartbeatAt;
+  return true;
+}
+
+function isActiveLock(
+  record: ProjectLockRecord,
+  input: {
+    now: Date;
+    leaseTtlMs: number;
+    isProcessRunning: (pid: number) => boolean;
+    getProcessIdentity: (pid: number) => string | null;
+  }
+): boolean {
+  if (!input.isProcessRunning(record.pid)) {
+    return false;
+  }
+
+  const heartbeatAtMs = Date.parse(record.heartbeatAt);
+  const leaseAgeMs = input.now.getTime() - heartbeatAtMs;
+  if (
+    !Number.isFinite(heartbeatAtMs) ||
+    Math.abs(leaseAgeMs) > input.leaseTtlMs
+  ) {
+    return false;
+  }
+
+  const actualIdentity = input.getProcessIdentity(record.pid);
+  return (
+    record.processIdentity === null ||
+    actualIdentity === null ||
+    record.processIdentity === actualIdentity
+  );
 }
 
 async function ensureSecureDirectory(path: string): Promise<void> {
@@ -92,6 +200,12 @@ export async function releaseProjectLock(
 ): Promise<void> {
   if (!lock) {
     return;
+  }
+
+  const heartbeatTimer = heartbeatTimers.get(lock);
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimers.delete(lock);
   }
 
   try {
@@ -177,7 +291,12 @@ function parseProjectLock(raw: string): ProjectLockRecord | null {
       typeof parsed.pid !== "number" ||
       !Number.isInteger(parsed.pid) ||
       parsed.pid <= 0 ||
-      typeof parsed.startedAt !== "string"
+      typeof parsed.startedAt !== "string" ||
+      (parsed.heartbeatAt !== undefined &&
+        typeof parsed.heartbeatAt !== "string") ||
+      (parsed.processIdentity !== undefined &&
+        parsed.processIdentity !== null &&
+        typeof parsed.processIdentity !== "string")
     ) {
       return null;
     }
@@ -186,10 +305,30 @@ function parseProjectLock(raw: string): ProjectLockRecord | null {
       ownerToken: parsed.ownerToken,
       pid: parsed.pid,
       startedAt: parsed.startedAt,
+      heartbeatAt: parsed.heartbeatAt ?? parsed.startedAt,
+      processIdentity: parsed.processIdentity ?? null,
     };
   } catch {
     return null;
   }
+}
+
+export function getProcessIdentity(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+
+  const result = spawnSync(
+    "ps",
+    ["-p", String(pid), "-o", "lstart=", "-o", "command="],
+    { encoding: "utf8" }
+  );
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const identity = result.stdout.trim().replace(/\s+/g, " ");
+  return identity.length > 0 ? identity : null;
 }
 
 function isProcessRunning(pid: number): boolean {

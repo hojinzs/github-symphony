@@ -10,7 +10,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { acquireProjectLock, releaseProjectLock } from "./lock.js";
+import {
+  acquireProjectLock,
+  releaseProjectLock,
+  renewProjectLock,
+} from "./lock.js";
 
 describe("project lock", () => {
   it("creates a project-scoped lock file with pid metadata", async () => {
@@ -22,17 +26,22 @@ describe("project lock", () => {
       pid: 4321,
       now: new Date("2026-03-16T00:00:00.000Z"),
       isProcessRunning: () => false,
+      getProcessIdentity: () => "test-process-4321",
     });
 
     const contents = JSON.parse(await readFile(lock.lockPath, "utf8")) as {
       pid: number;
       startedAt: string;
       ownerToken: string;
+      heartbeatAt: string;
+      processIdentity: string;
     };
 
     expect(contents.pid).toBe(4321);
     expect(contents.startedAt).toBe("2026-03-16T00:00:00.000Z");
     expect(contents.ownerToken).toBe(lock.ownerToken);
+    expect(contents.heartbeatAt).toBe("2026-03-16T00:00:00.000Z");
+    expect(contents.processIdentity).toBe("test-process-4321");
     const projectDirStats = await stat(
       join(runtimeRoot, "projects", "project-1")
     );
@@ -48,6 +57,7 @@ describe("project lock", () => {
       projectId: "project-1",
       pid: 4321,
       isProcessRunning: () => false,
+      getProcessIdentity: () => "same-process",
     });
 
     await expect(
@@ -56,9 +66,81 @@ describe("project lock", () => {
         projectId: "project-1",
         pid: 9999,
         isProcessRunning: (pid) => pid === 4321,
+        getProcessIdentity: () => "same-process",
       })
     ).rejects.toThrow('Project "project-1" is already running (PID 4321).');
 
+    await releaseProjectLock(lock);
+  });
+
+  it("takes over a live reused pid when process identity changed", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const first = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "project-1",
+      pid: 4321,
+      isProcessRunning: () => false,
+      getProcessIdentity: () => "original-process",
+    });
+
+    const second = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "project-1",
+      pid: 9999,
+      isProcessRunning: () => true,
+      getProcessIdentity: (pid) =>
+        pid === 4321 ? "reused-process" : "new-owner",
+    });
+
+    expect(second.ownerToken).not.toBe(first.ownerToken);
+    await releaseProjectLock(second);
+  });
+
+  it("takes over an expired lease even when the pid is live", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const first = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "project-1",
+      pid: 4321,
+      now: new Date("2026-03-16T00:00:00.000Z"),
+      isProcessRunning: () => false,
+      getProcessIdentity: () => "same-process",
+    });
+
+    const second = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "project-1",
+      pid: 9999,
+      now: new Date("2026-03-16T00:01:01.000Z"),
+      isProcessRunning: () => true,
+      getProcessIdentity: () => "same-process",
+    });
+
+    expect(second.ownerToken).not.toBe(first.ownerToken);
+    await releaseProjectLock(second);
+  });
+
+  it("renews a lease heartbeat only for its current owner", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
+    const lock = await acquireProjectLock({
+      runtimeRoot,
+      projectId: "project-1",
+      pid: 4321,
+      now: new Date("2026-03-16T00:00:00.000Z"),
+      isProcessRunning: () => false,
+      getProcessIdentity: () => "same-process",
+    });
+
+    await expect(
+      renewProjectLock(lock, new Date("2026-03-16T00:00:30.000Z"))
+    ).resolves.toBe(true);
+    const renewed = JSON.parse(await readFile(lock.lockPath, "utf8")) as {
+      heartbeatAt: string;
+    };
+    expect(renewed.heartbeatAt).toBe("2026-03-16T00:00:30.000Z");
+
+    await rm(lock.lockPath, { force: true });
+    await expect(renewProjectLock(lock)).resolves.toBe(false);
     await releaseProjectLock(lock);
   });
 

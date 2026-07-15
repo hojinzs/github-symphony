@@ -1,13 +1,4 @@
-import {
-  chmod,
-  mkdir,
-  open,
-  rename,
-  rm,
-  stat,
-  writeFile,
-  appendFile,
-} from "node:fs/promises";
+import { chmod, mkdir, open, rm, stat, appendFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
@@ -25,6 +16,7 @@ import {
   readJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
+import { writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
@@ -519,14 +511,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), {
-    recursive: true,
-    mode: SECURE_DIRECTORY_MODE,
-  });
-  await chmod(dirname(path), SECURE_DIRECTORY_MODE);
-  const temporaryPath = `${path}.tmp`;
-  await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
-  await rename(temporaryPath, path);
+  await writeFileAtomically(path, JSON.stringify(value, null, 2) + "\n");
 }
 
 function encodeProjectId(projectId: string): string {

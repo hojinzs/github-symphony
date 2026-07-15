@@ -9,7 +9,9 @@ import {
 import {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessIdentity,
   releaseProjectLock,
+  renewProjectLock,
   type ProjectLockHandle,
 } from "./lock.js";
 
@@ -25,7 +27,9 @@ export {
 export {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessIdentity,
   releaseProjectLock,
+  renewProjectLock,
   type ProjectLockHandle,
 };
 
