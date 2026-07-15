@@ -6722,10 +6722,19 @@ Prefer focused changes.
         join(store.runDir(initialRun!.runId, "tenant-1"), "events.ndjson"),
         "utf8"
       );
-      const turnEvents = raw
+      const persistedEvents = raw
         .trim()
         .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(persistedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            integrity: expect.stringMatching(/^sha256:/),
+          }),
+        ])
+      );
+      const turnEvents = persistedEvents
+        .map(({ integrity: _integrity, ...event }) => event)
         .filter((event) => String(event.event).startsWith("turn_"));
 
       expect(turnEvents).toEqual([

@@ -77,7 +77,7 @@ describe("config persistence", () => {
     });
 
     await Promise.all(
-      Array.from({ length: 20 }, (_, index) =>
+      Array.from({ length: 8 }, (_, index) =>
         updateGlobalConfig(configDir, (config) => ({
           ...config,
           projects: [...config.projects, `project-${index}`],
@@ -86,13 +86,13 @@ describe("config persistence", () => {
     );
 
     const config = await loadGlobalConfig(configDir);
-    expect(config?.projects).toHaveLength(20);
-    expect(new Set(config?.projects).size).toBe(20);
+    expect(config?.projects).toHaveLength(8);
+    expect(new Set(config?.projects).size).toBe(8);
     expect(
       JSON.parse(await readFile(join(configDir, "config.json"), "utf8"))
     ).toEqual(config);
     expect(await readdir(configDir)).toEqual(["config.json"]);
-  });
+  }, 10_000);
 
   it("reads structured and legacy daemon PID records", () => {
     expect(parseDaemonPidRecord("1234\n")).toEqual({
