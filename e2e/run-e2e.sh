@@ -23,6 +23,9 @@ orch_curl() {
   $COMPOSE exec -T symphony-e2e curl \
     -H "Authorization: Bearer ${HTTP_API_TOKEN}" "$@"
 }
+unauthenticated_orch_curl() {
+  $COMPOSE exec -T symphony-e2e curl "$@"
+}
 
 cleanup() {
   log "Cleaning up..."
@@ -61,6 +64,27 @@ for i in $(seq 1 20); do
   sleep 1
 done
 log "Dashboard ready"
+
+# ── Verify authentication gate ────────────────────────────────
+
+UNAUTHENTICATED_STATE_STATUS=$(
+  unauthenticated_orch_curl -s -o /dev/null -w '%{http_code}' \
+    http://localhost:4680/api/v1/state
+)
+if [ "$UNAUTHENTICATED_STATE_STATUS" != "401" ]; then
+  fail "Expected unauthenticated state endpoint to return 401, got: $UNAUTHENTICATED_STATE_STATUS"
+  exit 1
+fi
+
+UNAUTHENTICATED_REFRESH_STATUS=$(
+  unauthenticated_orch_curl -s -o /dev/null -w '%{http_code}' -X POST \
+    http://localhost:4680/api/v1/refresh
+)
+if [ "$UNAUTHENTICATED_REFRESH_STATUS" != "401" ]; then
+  fail "Expected unauthenticated refresh endpoint to return 401, got: $UNAUTHENTICATED_REFRESH_STATUS"
+  exit 1
+fi
+log "Unauthenticated state and refresh requests rejected (401)"
 
 # ── Verify idle ───────────────────────────────────────────────
 
