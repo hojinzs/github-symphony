@@ -38,6 +38,26 @@ export async function writeFileAtomically(
   }
 }
 
+export async function appendFileDurably(
+  path: string,
+  data: string | Uint8Array,
+  options: { mode?: number } = {}
+): Promise<void> {
+  const directory = dirname(path);
+  await mkdir(directory, { recursive: true, mode: SECURE_DIRECTORY_MODE });
+  await chmod(directory, SECURE_DIRECTORY_MODE);
+
+  const handle = await open(path, "a", options.mode ?? 0o600);
+  try {
+    const buffer = typeof data === "string" ? Buffer.from(data) : data;
+    await handle.write(buffer);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await syncDirectory(directory);
+}
+
 export async function syncDirectory(path: string): Promise<void> {
   const handle = await open(path, "r");
   try {
