@@ -45,10 +45,8 @@ import {
 } from "../mapping/smart-defaults.js";
 import { generateWorkflowMarkdown } from "../workflow/generate-workflow-md.js";
 import {
-  loadGlobalConfig,
-  saveGlobalConfig,
+  updateGlobalConfig,
   saveProjectConfig,
-  type CliGlobalConfig,
   type StateRole,
   type StateMapping,
 } from "../config.js";
@@ -2030,16 +2028,13 @@ export async function writeConfig(
     },
   });
 
-  // Save/update global config
-  const existing = await loadGlobalConfig(configDir);
-  const globalConfig: CliGlobalConfig = {
+  await updateGlobalConfig(configDir, (existing) => ({
     activeProject: input.projectId,
     projects: [
-      ...(existing?.projects ?? []).filter((t) => t !== input.projectId),
+      ...existing.projects.filter((projectId) => projectId !== input.projectId),
       input.projectId,
     ],
-  };
-  await saveGlobalConfig(configDir, globalConfig);
+  }));
 }
 
 export function generateProjectId(

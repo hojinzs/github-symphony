@@ -1,6 +1,7 @@
 import { readFile, rm } from "node:fs/promises";
+import { getProcessIdentity } from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath } from "../config.js";
+import { daemonPidPath, parseDaemonPidRecord } from "../config.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
@@ -67,12 +68,13 @@ const handler = async (
     return;
   }
 
-  const pid = Number.parseInt(pidStr.trim(), 10);
-  if (!Number.isFinite(pid)) {
+  const pidRecord = parseDaemonPidRecord(pidStr);
+  if (!pidRecord) {
     process.stderr.write(`Invalid PID in ${pidPath}: ${pidStr}\n`);
     process.exitCode = 1;
     return;
   }
+  const pid = pidRecord.pid;
 
   try {
     // Check if process is running
@@ -85,8 +87,24 @@ const handler = async (
     return;
   }
 
+  const checkedIdentity = getProcessIdentity(pid);
+  const identityMatches = pidRecord.processIdentity
+    ? checkedIdentity === pidRecord.processIdentity
+    : isLegacyOrchestratorIdentity(checkedIdentity);
+  if (!identityMatches) {
+    process.stderr.write(
+      `Refusing to stop PID ${pid}: process identity does not match the recorded orchestrator daemon. Cleaning up stale PID file.\n`
+    );
+    await rm(pidPath, { force: true });
+    process.exitCode = 1;
+    return;
+  }
+
   const signal = resolvedForce ? "SIGKILL" : "SIGTERM";
   try {
+    if (getProcessIdentity(pid) !== checkedIdentity) {
+      throw new Error("process identity changed before signal delivery");
+    }
     process.kill(pid, signal);
     process.stdout.write(`Sent ${signal} to orchestrator (PID ${pid}).\n`);
   } catch (error) {
@@ -100,5 +118,13 @@ const handler = async (
   await rm(pidPath, { force: true });
   process.stdout.write("Daemon stopped.\n");
 };
+
+function isLegacyOrchestratorIdentity(identity: string | null): boolean {
+  return Boolean(
+    identity &&
+    /(?:gh-symphony|(?:^|\s)(?:dist\/)?index\.js)(?:\s|$)/.test(identity) &&
+    /\brepo\s+start\b/.test(identity)
+  );
+}
 
 export default handler;

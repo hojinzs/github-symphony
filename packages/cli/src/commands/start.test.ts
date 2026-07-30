@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,14 +7,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import * as configModule from "../config.js";
 
-const acquireProjectLock = vi.fn();
-const releaseProjectLock = vi.fn();
-const run = vi.fn();
-const status = vi.fn();
-const shutdown = vi.fn();
-const requestReconcile = vi.fn();
-const acquireWorkerTurnLease = vi.fn();
-const setWorkerOrchestratorUrl = vi.fn();
+const orchestratorMocks = vi.hoisted(() => ({
+  acquireProjectLock: vi.fn(),
+  releaseProjectLock: vi.fn(),
+  run: vi.fn(),
+  status: vi.fn(),
+  shutdown: vi.fn(),
+  requestReconcile: vi.fn(),
+  acquireWorkerTurnLease: vi.fn(),
+  setWorkerOrchestratorUrl: vi.fn(),
+}));
+const {
+  acquireProjectLock,
+  releaseProjectLock,
+  run,
+  status,
+  shutdown,
+  requestReconcile,
+  acquireWorkerTurnLease,
+  setWorkerOrchestratorUrl,
+} = orchestratorMocks;
 const resolveDashboardResponse = vi.fn();
 const startControlPlaneServer = vi.fn();
 const serviceDependencies: Array<Record<string, unknown>> = [];
@@ -26,10 +39,7 @@ const promptMocks = vi.hoisted(() => ({
   confirm: vi.fn(),
 }));
 const childProcessMocks = vi.hoisted(() => ({
-  spawn: vi.fn(() => ({
-    pid: 2468,
-    unref: vi.fn(),
-  })),
+  spawn: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -37,9 +47,10 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
-  acquireProjectLock,
-  releaseProjectLock,
+  acquireProjectLock: orchestratorMocks.acquireProjectLock,
+  releaseProjectLock: orchestratorMocks.releaseProjectLock,
   createStore: vi.fn(() => ({ kind: "store" })),
+  getProcessIdentity: vi.fn((pid: number) => `process-${pid}`),
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
@@ -50,12 +61,12 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     ) {
       serviceDependencies.push(dependencies);
     }
-    run = run;
-    status = status;
-    shutdown = shutdown;
-    requestReconcile = requestReconcile;
-    acquireWorkerTurnLease = acquireWorkerTurnLease;
-    setWorkerOrchestratorUrl = setWorkerOrchestratorUrl;
+    run = orchestratorMocks.run;
+    status = orchestratorMocks.status;
+    shutdown = orchestratorMocks.shutdown;
+    requestReconcile = orchestratorMocks.requestReconcile;
+    acquireWorkerTurnLease = orchestratorMocks.acquireWorkerTurnLease;
+    setWorkerOrchestratorUrl = orchestratorMocks.setWorkerOrchestratorUrl;
   },
 }));
 
@@ -135,14 +146,25 @@ beforeEach(() => {
   promptMocks.confirm.mockReset();
   promptMocks.confirm.mockResolvedValue(true);
   childProcessMocks.spawn.mockClear();
-  childProcessMocks.spawn.mockReturnValue({
-    pid: 2468,
-    unref: vi.fn(),
-  });
+  childProcessMocks.spawn.mockImplementation(() => createSpawnedChild(2468));
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   serviceDependencies.length = 0;
 });
+
+function createSpawnedChild(pid: number): EventEmitter & {
+  pid: number;
+  unref: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn>;
+} {
+  const child = Object.assign(new EventEmitter(), {
+    pid,
+    unref: vi.fn(),
+    kill: vi.fn(),
+  });
+  queueMicrotask(() => child.emit("spawn"));
+  return child;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -672,6 +694,54 @@ describe("start command foreground locking", () => {
         "verbose",
       ])
     );
+    const pidRecord = JSON.parse(
+      await readFile(
+        join(configDir, "projects", "tenant-a", "daemon.pid"),
+        "utf8"
+      )
+    ) as { pid: number; processIdentity: string; startedAt: string };
+    expect(pidRecord).toMatchObject({
+      pid: 2468,
+      processIdentity: "process-2468",
+    });
+    expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
+  });
+
+  it("does not leave a PID file when daemon spawn fails", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-start-spawn-"));
+    await configModule.saveGlobalConfig(configDir, {
+      activeProject: "tenant-a",
+      projects: ["tenant-a"],
+    });
+    await configModule.saveProjectConfig(
+      configDir,
+      "tenant-a",
+      createProject("tenant-a", "acme", "platform")
+    );
+    let child:
+      | (EventEmitter & {
+          pid: undefined;
+          unref: ReturnType<typeof vi.fn>;
+          kill: ReturnType<typeof vi.fn>;
+        })
+      | null = null;
+    childProcessMocks.spawn.mockImplementation(() => {
+      child = Object.assign(new EventEmitter(), {
+        pid: undefined,
+        unref: vi.fn(),
+        kill: vi.fn(),
+      });
+      queueMicrotask(() => child?.emit("error", new Error("spawn failed")));
+      return child;
+    });
+
+    await expect(
+      startModule.default(["--daemon"], baseOptions(configDir))
+    ).rejects.toThrow("spawn failed");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(child?.unref).not.toHaveBeenCalled();
   });
 
   it("tails completed worker logs from the flat runtime run path", async () => {

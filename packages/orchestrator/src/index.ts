@@ -9,7 +9,9 @@ import {
 import {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessIdentity,
   releaseProjectLock,
+  renewProjectLock,
   type ProjectLockHandle,
 } from "./lock.js";
 
@@ -25,7 +27,9 @@ export {
 export {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessIdentity,
   releaseProjectLock,
+  renewProjectLock,
   type ProjectLockHandle,
 };
 
@@ -90,6 +94,23 @@ export async function runCli(
   const stdout = dependencies.stdout ?? process.stdout;
   const exitProcess = dependencies.exitProcess ?? process.exit;
   const signalTarget = dependencies.signalTarget ?? process;
+  const withProjectMutationLock = async <T>(
+    action: () => Promise<T>
+  ): Promise<T> => {
+    if (!parsed.projectId) {
+      return action();
+    }
+
+    const lock = await (dependencies.acquireLock ?? acquireProjectLock)({
+      runtimeRoot,
+      projectId: parsed.projectId,
+    });
+    try {
+      return await action();
+    } finally {
+      await (dependencies.releaseLock ?? releaseProjectLock)(lock);
+    }
+  };
 
   switch (command) {
     case "run": {
@@ -166,9 +187,11 @@ export async function runCli(
     }
     case "run-once":
     case "dispatch": {
-      const result = await service.runOnce({
-        issueIdentifier: parsed.issueIdentifier,
-      });
+      const result = await withProjectMutationLock(() =>
+        service.runOnce({
+          issueIdentifier: parsed.issueIdentifier,
+        })
+      );
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
@@ -177,14 +200,16 @@ export async function runCli(
         throw new Error("run-issue requires --project-id and --issue.");
       }
 
-      const result = await service.runOnce({
-        issueIdentifier: parsed.issueIdentifier,
-      });
+      const result = await withProjectMutationLock(() =>
+        service.runOnce({
+          issueIdentifier: parsed.issueIdentifier,
+        })
+      );
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }
     case "recover": {
-      const result = await service.recover();
+      const result = await withProjectMutationLock(() => service.recover());
       stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;
     }

@@ -334,6 +334,87 @@ describe("orchestrator CLI", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it.each(["run-once", "dispatch", "run-issue", "recover"])(
+    "holds the project lock across the %s mutation",
+    async (command) => {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+      const service = createMockService();
+      const acquireLock = vi.fn().mockResolvedValue({
+        lockPath: join(runtimeRoot, ".lock"),
+        ownerToken: "owner-1",
+        pid: 1234,
+        startedAt: "2026-03-16T00:00:00.000Z",
+        heartbeatAt: "2026-03-16T00:00:00.000Z",
+        processIdentity: "test-process",
+      });
+      const releaseLock = vi.fn().mockResolvedValue(undefined);
+
+      await runCli(
+        [
+          command,
+          "--runtime-root",
+          runtimeRoot,
+          "--project-id",
+          "tenant-1",
+          ...(command === "run-issue" ? ["--issue", "acme/repo#1"] : []),
+        ],
+        {
+          createService: () => service,
+          acquireLock,
+          releaseLock,
+        }
+      );
+
+      expect(acquireLock).toHaveBeenCalledOnce();
+      expect(releaseLock).toHaveBeenCalledOnce();
+      expect(
+        command === "recover" ? service.recover : service.runOnce
+      ).toHaveBeenCalledOnce();
+      expect(acquireLock.mock.invocationCallOrder[0]).toBeLessThan(
+        (command === "recover" ? service.recover : service.runOnce).mock
+          .invocationCallOrder[0]
+      );
+      expect(releaseLock.mock.invocationCallOrder[0]).toBeGreaterThan(
+        (command === "recover" ? service.recover : service.runOnce).mock
+          .invocationCallOrder[0]
+      );
+    }
+  );
+
+  it("rejects a concurrent run-once while another mutation owns the lease", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const firstService = createMockService();
+    let finishFirst: (() => void) | undefined;
+    (firstService.runOnce as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishFirst = () => resolve(createMockService().runOnce());
+        })
+    );
+
+    const first = runCli(
+      ["run-once", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+      { createService: () => firstService }
+    );
+    for (let attempt = 0; attempt < 20 && !finishFirst; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    const secondService = createMockService();
+    await expect(
+      runCli(
+        ["run-once", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+        { createService: () => secondService }
+      )
+    ).rejects.toThrow(
+      `Project "tenant-1" is already running (PID ${process.pid}).`
+    );
+    expect(secondService.runOnce).not.toHaveBeenCalled();
+
+    finishFirst?.();
+    await first;
+  });
+
   it("fails before running the service when the project lock belongs to a live pid", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
     const service = createMockService();
@@ -345,7 +426,7 @@ describe("orchestrator CLI", () => {
       JSON.stringify({
         ownerToken: "existing-owner",
         pid: process.pid,
-        startedAt: "2026-03-16T00:00:00.000Z",
+        startedAt: new Date().toISOString(),
       }) + "\n",
       "utf8"
     );

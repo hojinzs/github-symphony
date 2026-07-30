@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { IssueStatusEvent } from "../contracts/status-surface.js";
 import type { OrchestratorEvent } from "./structured-events.js";
 
@@ -77,7 +78,22 @@ export function parseRecentEvents(
 
 export function parseRunEventLine(line: string): OrchestratorEvent | null {
   try {
-    return JSON.parse(line) as OrchestratorEvent;
+    const parsed = JSON.parse(line) as OrchestratorEvent & {
+      integrity?: unknown;
+    };
+    if (parsed.integrity === undefined) {
+      return parsed;
+    }
+    if (typeof parsed.integrity !== "string") {
+      return null;
+    }
+
+    const integrity = parsed.integrity;
+    delete parsed.integrity;
+    const expected = `sha256:${createHash("sha256")
+      .update(JSON.stringify(parsed))
+      .digest("hex")}`;
+    return integrity === expected ? parsed : null;
   } catch {
     return null;
   }

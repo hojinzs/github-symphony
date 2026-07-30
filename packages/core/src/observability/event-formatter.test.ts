@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   formatEventMessage,
   parseRecentEvents,
@@ -176,5 +177,23 @@ describe("event-formatter", () => {
 
   it("returns null when an NDJSON line cannot be parsed", () => {
     expect(parseRunEventLine('{"bad":')).toBeNull();
+  });
+
+  it("accepts valid checksummed events and rejects modified payloads", () => {
+    const event = {
+      at: "2026-03-16T00:00:00.000Z",
+      event: "run-dispatched",
+      projectId: "project-1",
+      issueIdentifier: "acme/repo#1",
+      issueState: "Todo",
+    };
+    const payload = JSON.stringify(event);
+    const integrity = `sha256:${createHash("sha256")
+      .update(payload)
+      .digest("hex")}`;
+    const line = `${payload.slice(0, -1)},"integrity":"${integrity}"}`;
+
+    expect(parseRunEventLine(line)).toEqual(event);
+    expect(parseRunEventLine(line.replace("Todo", "Ready"))).toBeNull();
   });
 });

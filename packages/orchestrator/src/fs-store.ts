@@ -1,14 +1,6 @@
-import {
-  chmod,
-  mkdir,
-  open,
-  rename,
-  rm,
-  stat,
-  writeFile,
-  appendFile,
-} from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -25,6 +17,7 @@ import {
   readJsonFile,
   safeReadDir,
 } from "@gh-symphony/core";
+import { appendFileDurably, writeFileAtomically } from "./durable-file.js";
 
 const PROJECTS_DIR = "projects";
 const SECURE_DIRECTORY_MODE = 0o700;
@@ -267,17 +260,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 
     const path = join(runDirectory, "events.ndjson");
     const resolvedPath = resolve(path);
-    const serializedEvent = JSON.stringify(redactedEvent) + "\n";
+    const eventPayload = JSON.stringify(redactedEvent);
+    const integrity = `sha256:${createHash("sha256")
+      .update(eventPayload)
+      .digest("hex")}`;
+    const serializedEvent = `${eventPayload.slice(
+      0,
+      -1
+    )},"integrity":"${integrity}"}\n`;
     await this.ensureProjectDirectory(resolvedProjectId);
-    await mkdir(dirname(path), {
-      recursive: true,
-      mode: SECURE_DIRECTORY_MODE,
-    });
-    await chmod(dirname(path), SECURE_DIRECTORY_MODE);
-    await appendFile(path, serializedEvent, {
-      encoding: "utf8",
-      mode: 0o644,
-    });
+    await appendFileDurably(path, serializedEvent, { mode: 0o644 });
 
     const mirrorPath = this.resolveMirroredEventsPath(resolvedPath);
     if (!mirrorPath) {
@@ -285,11 +277,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     }
 
     try {
-      await mkdir(dirname(mirrorPath), { recursive: true });
-      await appendFile(mirrorPath, serializedEvent, {
-        encoding: "utf8",
-        mode: 0o644,
-      });
+      await appendFileDurably(mirrorPath, serializedEvent, { mode: 0o644 });
     } catch (error) {
       console.warn(
         `Failed to mirror orchestrator event log to ${mirrorPath}: ${
@@ -519,14 +507,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), {
-    recursive: true,
-    mode: SECURE_DIRECTORY_MODE,
-  });
-  await chmod(dirname(path), SECURE_DIRECTORY_MODE);
-  const temporaryPath = `${path}.tmp`;
-  await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
-  await rename(temporaryPath, path);
+  await writeFileAtomically(path, JSON.stringify(value, null, 2) + "\n");
 }
 
 function encodeProjectId(projectId: string): string {
