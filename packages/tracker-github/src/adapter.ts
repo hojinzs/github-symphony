@@ -2139,14 +2139,9 @@ const PROJECT_ITEMS_QUERY = `
     node(id: $projectId) {
       __typename
       ... on ProjectV2 {
-        items(
-          first: $pageSize
-          after: $cursor
-          archivedStates: [ARCHIVED, NOT_ARCHIVED]
-        ) {
+        items(first: $pageSize, after: $cursor) {
           nodes {
             id
-            isArchived
             updatedAt
             fieldValues(first: 20) {
               nodes {

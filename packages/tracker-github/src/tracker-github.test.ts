@@ -1457,10 +1457,8 @@ describe("resolveTrackerAdapter", () => {
           expect(body.query).toContain(
             "closedByPullRequestsReferences(first: 20)"
           );
-          expect(body.query).toContain(
-            "archivedStates: [ARCHIVED, NOT_ARCHIVED]"
-          );
-          expect(body.query).toContain("isArchived");
+          expect(body.query).not.toContain("archivedStates:");
+          expect(body.query).not.toContain("isArchived");
           const pullRequestFragment = body.query.match(
             /fragment PullRequestMetadata on PullRequest \{[\s\S]*?\n {2}\}/
           )?.[0];
