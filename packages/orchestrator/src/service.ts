@@ -45,6 +45,8 @@ import {
   type SessionExitClassification,
   type TrackedIssue,
   type TrackedIssueList,
+  type TrackerStateRequest,
+  type TrackerStateResult,
   type WorkflowLifecycleConfig,
   type WorkflowResolution,
 } from "@gh-symphony/core";
@@ -408,6 +410,177 @@ export class OrchestratorService {
           this.now().getTime() + WORKER_TURN_LEASE_TTL_MS
         ).toISOString(),
       };
+    });
+  }
+
+  async requestTrackerState(input: {
+    runId: string;
+    request: TrackerStateRequest;
+  }): Promise<TrackerStateResult> {
+    return this.runSerialized(async () => {
+      const rejected = (error: string): TrackerStateResult => ({
+        ok: false,
+        outcome: "rejected",
+        state: null,
+        expectedState:
+          input.request.type === "transition-request"
+            ? input.request.expectedState
+            : null,
+        targetState:
+          input.request.type === "transition-request"
+            ? input.request.targetState
+            : null,
+        reason:
+          input.request.type === "transition-request"
+            ? input.request.reason
+            : null,
+        rateLimits: null,
+        error,
+      });
+      const run = await this.store.loadRun(
+        input.runId,
+        this.projectConfig.projectId
+      );
+      if (!run) {
+        return rejected("run_not_found");
+      }
+
+      const issueRecords = await this.store.loadProjectIssueOrchestrations(
+        this.projectConfig.projectId
+      );
+      const issueRecord = issueRecords.find(
+        (candidate) => candidate.issueId === run.issueId
+      );
+      if (
+        !issueRecord ||
+        issueRecord.state !== "running" ||
+        issueRecord.currentRunId !== run.runId ||
+        !isActiveRunRecordStatus(run.status)
+      ) {
+        const result = rejected("run_not_current");
+        await this.appendTrackerStateEvent(run, input.request, result);
+        return result;
+      }
+
+      const invalidRequest = validateTrackerStateRequest(input.request);
+      if (invalidRequest) {
+        const result = rejected(invalidRequest);
+        await this.appendTrackerStateEvent(run, input.request, result);
+        return result;
+      }
+
+      const trackerAdapter = resolveTrackerAdapter(this.projectConfig.tracker);
+      if (!trackerAdapter.requestState) {
+        const result = rejected("tracker_state_requests_unsupported");
+        await this.appendTrackerStateEvent(run, input.request, result);
+        return result;
+      }
+
+      let canonicalItemId = run.trackerItemId?.trim() ?? "";
+      try {
+        if (!canonicalItemId) {
+          const refreshed = await trackerAdapter.fetchIssueStatesByIds(
+            this.projectConfig,
+            [run.issueSubjectId],
+            this.createTrackerDependencies()
+          );
+          canonicalItemId =
+            refreshed.find((issue) => issue.id === run.issueSubjectId)?.tracker
+              .itemId ?? "";
+          if (!canonicalItemId) {
+            const result = rejected("canonical_tracker_item_missing");
+            await this.appendTrackerStateEvent(run, input.request, result);
+            return result;
+          }
+        }
+
+        const result = await trackerAdapter.requestState(
+          this.projectConfig,
+          {
+            issueSubjectId: run.issueSubjectId,
+            itemId: canonicalItemId,
+            request: input.request,
+          },
+          this.createTrackerDependencies()
+        );
+        const nowIso = this.now().toISOString();
+        await this.store.saveRun({
+          ...run,
+          trackerItemId: canonicalItemId,
+          issueState: result.state ?? run.issueState,
+          updatedAt: nowIso,
+          lastEvent:
+            input.request.type === "transition-request"
+              ? "tracker-transition"
+              : "tracker-state-read",
+          lastEventAt: nowIso,
+          rateLimits: result.rateLimits ?? run.rateLimits ?? null,
+          lastError: result.ok
+            ? run.lastError
+            : (result.error ?? run.lastError),
+        });
+        await this.appendTrackerStateEvent(
+          { ...run, trackerItemId: canonicalItemId },
+          input.request,
+          result
+        );
+        this.rememberTrackerRateLimits(
+          this.projectConfig.projectId,
+          result.rateLimits
+        );
+        return result;
+      } catch (error) {
+        const rateLimits = extractTrackerRateLimitsFromError(error);
+        const result: TrackerStateResult = {
+          ...rejected(this.formatErrorMessage(error)),
+          outcome: "failed",
+          rateLimits,
+        };
+        const nowIso = this.now().toISOString();
+        await this.store.saveRun({
+          ...run,
+          trackerItemId: canonicalItemId,
+          updatedAt: nowIso,
+          lastEvent: "tracker-transition-failed",
+          lastEventAt: nowIso,
+          rateLimits: rateLimits ?? run.rateLimits ?? null,
+          lastError: result.error,
+        });
+        await this.appendTrackerStateEvent(
+          { ...run, trackerItemId: canonicalItemId },
+          input.request,
+          result
+        );
+        return result;
+      }
+    });
+  }
+
+  private async appendTrackerStateEvent(
+    run: OrchestratorRunRecord,
+    request: TrackerStateRequest,
+    result: TrackerStateResult
+  ): Promise<void> {
+    await this.store.appendRunEvent(run.runId, {
+      at: this.now().toISOString(),
+      event: "tracker.state",
+      projectId: run.projectId,
+      runId: run.runId,
+      tracker: {
+        adapter: this.projectConfig.tracker.adapter,
+      },
+      issue: {
+        identifier: run.issueIdentifier,
+        id: run.issueSubjectId,
+      },
+      requestType: request.type,
+      expectedState: result.expectedState,
+      targetState: result.targetState,
+      confirmedState: result.state,
+      outcome: result.outcome,
+      reason: result.reason,
+      error: result.error,
+      rateLimits: result.rateLimits,
     });
   }
 
@@ -1536,11 +1709,7 @@ export class OrchestratorService {
       repositoryDirectory,
       repository
     );
-    return this.resolveWorkflowResolution(
-      repository,
-      cacheRoot,
-      resolution
-    );
+    return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 
   private async startRun(
@@ -1891,6 +2060,7 @@ export class OrchestratorService {
       projectSlug: tenant.slug,
       issueId: issue.id,
       issueSubjectId,
+      trackerItemId: issue.tracker.itemId,
       issueIdentifier: issue.identifier,
       issueTitle: issue.title,
       issueState: issue.state,
@@ -3526,8 +3696,7 @@ function shouldInheritProcessEnvKey(key: string): boolean {
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
-    env[WORKFLOW_HOOK_APPROVAL_ENV] ??
-    process.env[WORKFLOW_HOOK_APPROVAL_ENV];
+    env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
 }
 
@@ -3554,6 +3723,31 @@ function hasTokenUsage(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateTrackerStateRequest(
+  request: TrackerStateRequest
+): string | null {
+  if (request.type === "state-read") {
+    return null;
+  }
+  if (!request.expectedState.trim()) {
+    return "expected_state_required";
+  }
+  if (!request.targetState.trim()) {
+    return "target_state_required";
+  }
+  if (!request.reason.trim()) {
+    return "transition_reason_required";
+  }
+  if (
+    request.expectedState.length > 200 ||
+    request.targetState.length > 200 ||
+    request.reason.length > 2_000
+  ) {
+    return "tracker_state_request_too_large";
+  }
+  return null;
 }
 
 function extractTrackerRateLimitsFromError(

@@ -28,6 +28,8 @@ import {
 import type {
   OrchestratorProjectConfig,
   ProjectStatusSnapshot,
+  TrackerStateRequest,
+  TrackerStateResult,
 } from "@gh-symphony/core";
 import {
   DashboardFsReader,
@@ -576,6 +578,10 @@ async function startHttpServer(input: {
       | { acquired: true; expiresAt: string }
       | { acquired: false; reason: string }
     >;
+    requestTrackerState(request: {
+      runId: string;
+      request: TrackerStateRequest;
+    }): Promise<TrackerStateResult>;
   };
 }): Promise<{ server: Server; port: number; url: string }> {
   const reader = new DashboardFsReader(
@@ -614,6 +620,41 @@ async function startHttpServer(input: {
               turn: body.turn,
             });
             respondJson(response, lease.acquired ? 200 : 409, lease);
+            return;
+          }
+
+          if (
+            request.method === "POST" &&
+            url.pathname === "/api/v1/tracker-state"
+          ) {
+            const body = await readJsonRequest(request);
+            const runIdHeader = request.headers["x-symphony-run-id"];
+            const runId =
+              typeof runIdHeader === "string" ? runIdHeader.trim() : "";
+            const trackerRequest = parseTrackerStateRequest(body);
+            if (!runId || !trackerRequest) {
+              respondJson(response, 400, {
+                ok: false,
+                outcome: "rejected",
+                error: "invalid_tracker_state_request",
+              });
+              return;
+            }
+            const result = await input.service.requestTrackerState({
+              runId,
+              request: trackerRequest,
+            });
+            respondJson(
+              response,
+              result.ok
+                ? 200
+                : result.outcome === "expected_state_mismatch"
+                  ? 409
+                  : result.outcome === "rejected"
+                    ? 403
+                    : 503,
+              result
+            );
             return;
           }
 
@@ -696,6 +737,28 @@ async function readJsonRequest(
   } catch {
     return null;
   }
+}
+
+function parseTrackerStateRequest(
+  body: Record<string, unknown> | null
+): TrackerStateRequest | null {
+  if (body?.type === "state-read") {
+    return { type: "state-read" };
+  }
+  if (
+    body?.type !== "transition-request" ||
+    typeof body.expected_state !== "string" ||
+    typeof body.target_state !== "string" ||
+    typeof body.reason !== "string"
+  ) {
+    return null;
+  }
+  return {
+    type: "transition-request",
+    expectedState: body.expected_state,
+    targetState: body.target_state,
+    reason: body.reason,
+  };
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────

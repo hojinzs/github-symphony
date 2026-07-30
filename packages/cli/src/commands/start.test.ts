@@ -15,6 +15,7 @@ const orchestratorMocks = vi.hoisted(() => ({
   shutdown: vi.fn(),
   requestReconcile: vi.fn(),
   acquireWorkerTurnLease: vi.fn(),
+  requestTrackerState: vi.fn(),
   setWorkerOrchestratorUrl: vi.fn(),
 }));
 const {
@@ -25,6 +26,7 @@ const {
   shutdown,
   requestReconcile,
   acquireWorkerTurnLease,
+  requestTrackerState,
   setWorkerOrchestratorUrl,
 } = orchestratorMocks;
 const resolveDashboardResponse = vi.fn();
@@ -66,6 +68,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     shutdown = orchestratorMocks.shutdown;
     requestReconcile = orchestratorMocks.requestReconcile;
     acquireWorkerTurnLease = orchestratorMocks.acquireWorkerTurnLease;
+    requestTrackerState = orchestratorMocks.requestTrackerState;
     setWorkerOrchestratorUrl = orchestratorMocks.setWorkerOrchestratorUrl;
   },
 }));
@@ -120,6 +123,17 @@ beforeEach(() => {
   acquireWorkerTurnLease.mockResolvedValue({
     acquired: true,
     expiresAt: "2026-07-15T00:00:15.000Z",
+  });
+  requestTrackerState.mockReset();
+  requestTrackerState.mockResolvedValue({
+    ok: true,
+    outcome: "confirmed",
+    state: "In review",
+    expectedState: "In progress",
+    targetState: "In review",
+    reason: "validation passed",
+    rateLimits: { source: "github", cycleCost: 4 },
+    error: null,
   });
   setWorkerOrchestratorUrl.mockReset();
   resolveDashboardResponse.mockReset();
@@ -1152,6 +1166,35 @@ describe("start command foreground locking", () => {
         issueId: "issue-1",
         runId: "run-1",
         turn: 2,
+      });
+
+      const transitionResponse = await fetch(`${url}/api/v1/tracker-state`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "transition-request",
+          expected_state: "In progress",
+          target_state: "In review",
+          reason: "validation passed",
+        }),
+        headers: {
+          "content-type": "application/json",
+          "x-symphony-run-id": "run-1",
+        },
+      });
+      expect(transitionResponse.status).toBe(200);
+      await expect(transitionResponse.json()).resolves.toMatchObject({
+        ok: true,
+        outcome: "confirmed",
+        state: "In review",
+      });
+      expect(requestTrackerState).toHaveBeenCalledWith({
+        runId: "run-1",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "validation passed",
+        },
       });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
 

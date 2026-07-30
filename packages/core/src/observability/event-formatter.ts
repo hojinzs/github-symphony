@@ -8,6 +8,10 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return `Tracker list saw ${event.issue.identifier}`;
     case "tracker.fetchByIds":
       return `Tracker fetch refreshed ${event.issue.identifier}`;
+    case "tracker.state":
+      return event.error
+        ? `${event.requestType}: ${event.outcome} (${event.error})`
+        : `${event.requestType}: ${event.outcome} (${event.confirmedState ?? "unknown"})`;
     case "run-dispatched":
       return event.issueState
         ? `Dispatched from ${event.issueState}`

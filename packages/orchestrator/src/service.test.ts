@@ -113,6 +113,236 @@ describe("OrchestratorService", () => {
     ).resolves.toEqual({ acquired: false, reason: "run_not_current" });
   });
 
+  it("authorizes tracker transitions against the current run and persists diagnosable results", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-tracker-state-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      trackerItemId: "item-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    const requestState = vi.fn().mockResolvedValue({
+      ok: false,
+      outcome: "expected_state_mismatch",
+      state: "Ready",
+      expectedState: "In progress",
+      targetState: "In review",
+      reason: "handoff",
+      rateLimits: { source: "github", remaining: 3999, cycleCost: 1 },
+      error: "expected_state_mismatch",
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds: vi.fn(),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+      requestState,
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-07-30T13:01:00.000Z"),
+    });
+
+    const result = await service.requestTrackerState({
+      runId: "run-1",
+      request: {
+        type: "transition-request",
+        expectedState: "In progress",
+        targetState: "In review",
+        reason: "handoff",
+      },
+    });
+
+    expect(result.outcome).toBe("expected_state_mismatch");
+    expect(requestState).toHaveBeenCalledWith(
+      projectConfig,
+      {
+        issueSubjectId: "issue-1",
+        itemId: "item-1",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "handoff",
+        },
+      },
+      expect.any(Object)
+    );
+    const persistedRun = await store.loadRun("run-1", projectConfig.projectId);
+    expect(persistedRun).toMatchObject({
+      issueState: "Ready",
+      trackerItemId: "item-1",
+      lastEvent: "tracker-transition",
+      rateLimits: { cycleCost: 1 },
+      lastError: "expected_state_mismatch",
+    });
+    const providerError = Object.assign(new Error("rate limit exhausted"), {
+      rateLimits: {
+        source: "github",
+        remaining: 0,
+        resource: "graphql",
+      },
+    });
+    requestState.mockRejectedValueOnce(providerError);
+    await expect(
+      service.requestTrackerState({
+        runId: "run-1",
+        request: { type: "state-read" },
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      outcome: "failed",
+      error: expect.stringContaining("rate limit exhausted"),
+      rateLimits: expect.objectContaining({ remaining: 0 }),
+    });
+    const events = (
+      await readFile(
+        join(
+          store.runDir("run-1", projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toEqual([
+      expect.objectContaining({
+        event: "tracker.state",
+        runId: "run-1",
+        outcome: "expected_state_mismatch",
+        confirmedState: "Ready",
+        rateLimits: expect.objectContaining({ cycleCost: 1 }),
+      }),
+      expect.objectContaining({
+        event: "tracker.state",
+        runId: "run-1",
+        outcome: "failed",
+        error: expect.stringContaining("rate limit exhausted"),
+        rateLimits: expect.objectContaining({ remaining: 0 }),
+      }),
+    ]);
+  });
+
+  it("rejects a stale run tracker request without calling the provider", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-stale-tracker-state-")
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "issue-1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-new",
+        retryEntry: null,
+        updatedAt: "2026-07-30T13:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-old",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      trackerItemId: "item-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: join(tempRoot, "runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-07-30T13:00:00.000Z",
+      updatedAt: "2026-07-30T13:00:00.000Z",
+      startedAt: "2026-07-30T13:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+    const requestState = vi.fn();
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds: vi.fn(),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+      requestState,
+    });
+    const service = new OrchestratorService(store, projectConfig);
+
+    await expect(
+      service.requestTrackerState({
+        runId: "run-old",
+        request: { type: "state-read" },
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      outcome: "rejected",
+      error: "run_not_current",
+    });
+    expect(requestState).not.toHaveBeenCalled();
+  });
+
   it("dispatches actionable issues and prevents duplicate issue leases", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-test-"));
@@ -168,6 +398,7 @@ describe("OrchestratorService", () => {
       )
     ).resolves.toContain(`"workspaceKey": "${workspaceKey}"`);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect((await store.loadAllRuns())[0]?.trackerItemId).toBe("item-1");
     expect(spawnImpl).toHaveBeenCalledWith(
       "bash",
       ["-lc", expect.stringMatching(/worker/)],

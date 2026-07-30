@@ -115,6 +115,28 @@ export type OrchestratorTrackerDependencies = {
   assignedOnly?: boolean;
 };
 
+export type TrackerStateRequest =
+  | {
+      type: "state-read";
+    }
+  | {
+      type: "transition-request";
+      expectedState: string;
+      targetState: string;
+      reason: string;
+    };
+
+export type TrackerStateResult = {
+  ok: boolean;
+  outcome: "confirmed" | "expected_state_mismatch" | "rejected" | "failed";
+  state: string | null;
+  expectedState: string | null;
+  targetState: string | null;
+  reason: string | null;
+  rateLimits: Record<string, unknown> | null;
+  error: string | null;
+};
+
 export type OrchestratorTrackerAdapter = {
   listIssues(
     project: OrchestratorProjectConfig,
@@ -138,6 +160,15 @@ export type OrchestratorTrackerAdapter = {
     project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
+  requestState?(
+    project: OrchestratorProjectConfig,
+    input: {
+      issueSubjectId: string;
+      itemId: string;
+      request: TrackerStateRequest;
+    },
+    dependencies?: OrchestratorTrackerDependencies
+  ): Promise<TrackerStateResult>;
   upsertIssueComment?(
     project: OrchestratorProjectConfig,
     issue: TrackedIssue,

@@ -9,6 +9,7 @@ import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
+  requestGithubProjectItemState,
   upsertGithubIssueComment,
 } from "./adapter.js";
 
@@ -71,10 +72,19 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "github-project",
         bindingId: project.tracker.bindingId,
-        itemId: run.issueId,
+        itemId: run.trackerItemId ?? run.issueId,
       },
       metadata: {},
     };
+  },
+
+  async requestState(project, input, dependencies = {}) {
+    const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+    return requestGithubProjectItemState(
+      trackerConfig,
+      input,
+      dependencies.fetchImpl
+    );
   },
 
   async upsertIssueComment(project, issue, input, dependencies = {}) {
