@@ -107,9 +107,9 @@ When entering `Ready`, before treating it as a fresh pickup, board drift, or res
 
 1. Find linked/open PRs from the issue/project item, the current workpad, and `gh pr list --search "<issue-number>"`.
 2. For each linked/open PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
-3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, or a human instruction indicating rework, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
+3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, a human instruction indicating rework, or a recent `Land` → `Ready` transition recorded as a **Land-return rework**, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
 4. For rework return: open a new work cycle (new `## Workpad` comment), transition `Ready` → `In progress` via `/gh-project`, then post the standalone `🔁 Status: Ready → In progress` comment, and proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
-5. Otherwise (no actionable feedback on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
+5. Otherwise (no actionable feedback or Land-return rework marker on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
 
 ##### Stalled-handoff safety net
 
@@ -210,9 +210,13 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
 
 3. **Close the land cycle.** Once `/land` completes, verify the standalone `🔁 Status: Land → Done` comment was posted and the workpad Status Transitions line was appended (cycle N close: land). If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
 
-4. **On `/land` failure.** The skill records the failure and exits. If the same step fails 3 consecutive times for the same cause, write a `⛔ Blocker` comment, do **not** transition the issue, and exit. A human resolves the cause and either moves the issue back to `In review` (sends Step 4 home as a no-op next time) or re-enters `Land` after fixing the underlying problem.
+4. **On `/land` failure.** The skill records the failure, classifies it, and exits without merging. It must not leave a non-recoverable failure in active `Land` for repeated polling:
+   - **Approval or wait-only failure** — no human `APPROVED` review, pending required CI, or other condition that only needs human/external review: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment and append the Land workpad transition line. Do **not** write a `⛔ Blocker` comment.
+   - **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition that the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment and append the Land workpad transition line. The Ready-return rework guard opens the next cycle and routes it to `In progress`.
+   - **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and append the Land workpad transition line. State the unblock condition.
+   - **Immediately recoverable branch freshness** — when the branch is behind, run `/pull` and re-run the complete pre-flight sequence. Keep `Land` only for this in-run recovery path; if `/pull` fails, classify the failure using the rules above.
 
-This step performs no code edits, commits, or pushes itself — only the workpad/comment bookkeeping around the skill call. Any rework code change must come through the `In review` → `Ready` → Step 2 path.
+This step performs no code edits, commits, or pushes itself — only the workpad/comment bookkeeping around the skill call. Any rework code change must come through the `Land` → `Ready` → `In progress` path.
 
 ### Guardrails
 
