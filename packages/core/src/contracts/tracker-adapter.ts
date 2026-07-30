@@ -3,6 +3,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
 } from "./status-surface.js";
+import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 
 export type TrackerAdapterKind = "github-project" | (string & {});
 
@@ -113,6 +114,7 @@ export type OrchestratorTrackerDependencies = {
   projectItemsCache?: ProjectItemsCache;
   issueCommentCache?: IssueCommentCache;
   assignedOnly?: boolean;
+  workflowLifecycle?: WorkflowLifecycleConfig;
 };
 
 export type TrackerStateRequest =

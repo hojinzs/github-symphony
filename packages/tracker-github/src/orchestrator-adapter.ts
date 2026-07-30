@@ -23,9 +23,12 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
-    // GitHub Project V2 cannot filter project items by state at query time,
-    // so we reuse the full project fetch and apply state filtering locally.
-    const issues = await listProjectIssues(project, dependencies);
+    // Terminal-state exclusion is only safe for candidate listing. State
+    // lookups (including startup cleanup for Done items) stay unfiltered.
+    const issues = await listProjectIssues(project, {
+      ...dependencies,
+      workflowLifecycle: undefined,
+    });
     const normalizedStates = new Set(
       states.map((state) => state.trim().toLowerCase())
     );
@@ -178,6 +181,7 @@ function resolveGitHubTrackerConfig(
       "priorityFieldName"
     ),
     timeoutMs: readNumberTrackerSetting(project.tracker, "timeoutMs"),
+    lifecycle: dependencies.workflowLifecycle,
   };
 }
 
@@ -257,6 +261,7 @@ function buildProjectItemsCacheKey(
     priority: config.priority ?? null,
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
+    workflowLifecycle: config.lifecycle ?? null,
     repositoryFilter: config.repositoryFilter
       ? `${config.repositoryFilter.owner}/${config.repositoryFilter.name}`
       : null,

@@ -887,9 +887,14 @@ export class OrchestratorService {
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       rateLimits = rateLimits ?? trackerRateLimits;
+      const candidateTrackerDependencies =
+        await this.resolveCandidateTrackerDependencies(
+          tenant,
+          trackerDependencies
+        );
       const issues = await trackerAdapter.listIssues(
         tenant,
-        trackerDependencies
+        candidateTrackerDependencies
       );
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
       const {
@@ -1555,6 +1560,24 @@ export class OrchestratorService {
     );
     this.issueCommentCaches.set(projectId, commentCache);
     return commentCache;
+  }
+
+  private async resolveCandidateTrackerDependencies(
+    tenant: OrchestratorProjectConfig,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<OrchestratorTrackerDependencies> {
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      tenant.repository
+    );
+    if (!isUsableWorkflowResolution(resolution)) {
+      return trackerDependencies;
+    }
+
+    return {
+      ...trackerDependencies,
+      workflowLifecycle: resolution.lifecycle,
+    };
   }
 
   private async findLatestRunForIssue(
