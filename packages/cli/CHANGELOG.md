@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.6.5
+
+### Patch Changes
+
+- [#502](https://github.com/hojinzs/github-symphony/pull/502) [`83ed23f`](https://github.com/hojinzs/github-symphony/commit/83ed23f97a30bf6ae42bcc92b23ba00bb08fc8f0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Route GitHub Project state reads and transitions through a run-scoped orchestrator API with canonical-item readback, shared quota serialization, and transition telemetry ([#501](https://github.com/hojinzs/github-symphony/issues/501)).
+
 ## 0.6.4
 
 ### Patch Changes
