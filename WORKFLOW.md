@@ -64,7 +64,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 2. **Blocker = code-blocking only.** A blocker is something that prevents the _code change itself_ from being completed (missing required secret, unrecoverable test-infra failure, contradictory requirements that need a human decision). Review feedback, deploy concerns, and UI polish are **not** blockers. On a code-blocker: post a `⛔ Blocker` issue comment (what · why · how to unblock), transition Status → `Backlog` via `/gh-project`, then exit. Never leave a blocked issue in `In progress` with a draft PR.
 3. In your final message, report only what was completed and any blockers. Do not include "next steps".
 4. **Report language**: detect from the issue body and apply consistently to workpad, progress/blocker/transition comments, and PR review replies. If the language is unclear or mixed, default to English. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
-5. **Log every status transition publicly** in _two_ places, **immediately after the `/gh-project` board update returns success** — never before. The board state is the source of truth (Posture 6); logging only after a confirmed transition prevents phantom "Status: X → Y" comments when the board update fails:
+5. **Log every status transition publicly** in _two_ places, **immediately after the orchestrator-owned `/gh-project` transition request returns `ok: true`, `outcome: confirmed`, and the requested target state** — never before. The confirmed tracker readback is the source of truth; logging only after confirmation prevents phantom "Status: X → Y" comments when authorization, mutation, quota retry, or readback fails:
    - A standalone issue comment (`gh issue comment --body-file`), formatted:
 
      ```
@@ -82,7 +82,7 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 6. Treat Issue cards as the canonical project item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only. If an issue has an open PR, inspect it from the issue timeline before deciding whether to create a new branch.
 7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, treat that as a **new work cycle**: run the relevant guard (Step 0 _Ready-return rework guard_ for `Ready`; the `/land` skill's pre-flight for `Land`) and create a **new workpad comment** for the cycle before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
-8. Use the `/gh-project` skill for all project-board status transitions and field updates. Do not call ProjectV2 GraphQL APIs directly when this skill applies.
+8. Use the `/gh-project` skill for all tracker status reads and transitions. Workers send intent to the run-scoped orchestrator API and never traverse provider boards or mutate tracker fields directly.
 9. **Multi-line GitHub comments**: never pass escaped `\n` strings as `--body`. Write the body to a temporary markdown file and post with `gh ... --body-file <file>`. This applies to issue comments, PR comments, and review replies — including the standalone transition comment in Posture 5.
 10. Do not edit the issue body for planning or progress tracking.
 11. If you discover out-of-scope improvements during the work, open a separate issue rather than expanding the current scope.
@@ -130,7 +130,7 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
    - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
    - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
    - Record the Draft PR URL and base branch in the workpad.
-5. Transition the issue from `Ready` to `In progress` via `/gh-project`. Once the transition returns success, post the standalone `🔁 Status: Ready → In progress` comment (cycle N open) and append the matching workpad `### Status Transitions` line.
+5. Transition the issue from `Ready` to `In progress` via `/gh-project`. Once the orchestrator returns confirmed readback for `In progress`, post the standalone `🔁 Status: Ready → In progress` comment (cycle N open) and append the matching workpad `### Status Transitions` line.
 6. Proceed to Step 2.
 
 #### Step 2: In progress / Execution
@@ -179,7 +179,7 @@ Entered from one of:
 8. **Mandatory handoff gate.** The moment Steps 5–7 are satisfied, in **this same turn**:
    1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
    2. Mark the Draft PR ready: `gh pr ready <pr-number>`.
-   3. Transition the issue to `In review` via `/gh-project`. Only proceed after `/gh-project` returns success.
+   3. Transition the issue to `In review` via `/gh-project`. Only proceed after the orchestrator confirms exact-item readback for `In review`.
    4. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
    5. Append the matching workpad Status Transitions line; tick the Completion Bar items; record final Validation results; close the cycle marker.
 
@@ -206,7 +206,7 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
    - Squash merge: `gh pr merge <pr-number> --squash --delete-branch`.
    - Recording the merged commit SHA and changeset path (if any) in the workpad.
    - Transitioning the issue to `Done` via `/gh-project` once the merge succeeds.
-   - Posting the standalone `🔁 Status: Land → Done` comment ONLY after the `/gh-project` Done transition returns success.
+   - Posting the standalone `🔁 Status: Land → Done` comment ONLY after the orchestrator confirms exact-item readback for `Done`.
 
 3. **Close the land cycle.** Once `/land` completes, verify the standalone `🔁 Status: Land → Done` comment was posted and the workpad Status Transitions line was appended (cycle N close: land). If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
 
@@ -353,7 +353,7 @@ None
 
 All skills referenced by this workflow live under `.codex/skills/<name>/SKILL.md` so the codex-driven worker can discover them.
 
-- **`/gh-project`** — manage GitHub Project v2 status transitions and board placement. All Status field changes go through this skill (Posture 8).
+- **`/gh-project`** — request run-scoped state reads/transitions from the orchestrator. The orchestrator owns canonical item identity, provider quota, mutation, retry/backoff, and exact-item readback; comments/workpad updates follow confirmed success only (Posture 8).
 - **`/gh-pr-writeup`** — scaffold or refresh the PR body. Two modes:
   - _Initial Draft_ (Step 1): create a new Draft PR with TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 placeholders.
   - _Refresh_ (Step 2.8): update the same PR body before `gh pr ready`.

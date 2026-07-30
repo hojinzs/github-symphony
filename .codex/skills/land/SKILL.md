@@ -17,7 +17,7 @@ Work unattended. Do not ask humans for follow-up. Stop only on a genuine blocker
 
 ## Operating Rules
 
-- Use `/gh-project` for every Status field change. Never call ProjectV2 GraphQL APIs directly.
+- Use `/gh-project` for every tracker state read/transition. Never traverse provider boards or mutate tracker fields directly.
 - Use `/pull` when the head branch is behind its PR base — never `git merge`/`git rebase` by hand inside this skill.
 - All issue/PR comments are in the issue's report language; written via `gh ... --body-file <file>`, never with inline `\n` strings.
 - Never modify the issue body.
@@ -61,7 +61,7 @@ All must pass before merging. If any fails, record the failure in the workpad an
 3. Otherwise squash-merge with branch deletion: `gh pr merge <pr-number> --squash --delete-branch`.
 4. Capture the merge commit SHA: `gh pr view <pr-number> --json mergeCommit --jq .mergeCommit.oid`.
 5. Update the Land cycle workpad's `### Validation` section: merge commit SHA, changeset path (if any), timestamp.
-6. Transition the issue to `Done` via `/gh-project`. Only proceed to step 7 once `/gh-project` returns success.
+6. Transition the issue to `Done` via `/gh-project`. Only proceed to step 7 once the orchestrator returns `ok: true`, `outcome: confirmed`, and exact-item readback state `Done`.
 7. Post the standalone `🔁 Status: Land → Done` comment (cycle close: land) and append the matching workpad Status Transitions line.
 8. Update the workpad's `### Progress Log` with the final outcome.
 
@@ -69,7 +69,7 @@ All must pass before merging. If any fails, record the failure in the workpad an
 
 1. Record the exact failure (command, exit code, output excerpt, timestamp) in the workpad `### Progress Log`.
 2. If immediately recoverable in this run (branch behind → run `/pull`), do so and re-run pre-flight from scratch. If `/pull` fails, classify that failure using step 5.
-3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. Classify it in the same run, close the Land cycle after the board update succeeds, and keep the standalone transition comment and workpad `### Status Transitions` line in sync.
+3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. Classify it in the same run, close the Land cycle after the orchestrator confirms the transition readback, and keep the standalone transition comment and workpad `### Status Transitions` line in sync.
 4. **Approval or wait-only failure** — no human `APPROVED` review, pending required CI, or another condition awaiting human/external review: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment. This is not a `⛔ Blocker`.
 5. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
 6. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and state the unblock condition in the workpad.
@@ -79,6 +79,6 @@ All must pass before merging. If any fails, record the failure in the workpad an
 - Do not merge without ≥1 approval and green required CI.
 - Do not use merge / rebase / auto-merge — only squash with branch deletion.
 - Do not transition the issue to `Done` before the merge succeeds.
-- Do not call ProjectV2 GraphQL APIs directly; use `/gh-project`.
+- Do not traverse provider boards or mutate tracker fields directly; use `/gh-project`.
 - Do not modify the issue body.
 - Do not leave a non-recoverable failure in active `Land`; return it to `In review`, `Ready`, or `Backlog` according to Failure Handling.

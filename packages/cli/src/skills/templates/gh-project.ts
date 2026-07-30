@@ -1,66 +1,85 @@
 import type { SkillTemplateContext } from "../types.js";
 import { renderSkillDocument } from "./document.js";
 
-export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
+export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   const lines: string[] = [];
 
-  lines.push("# /gh-project — GitHub Project v2 Status Management");
+  lines.push("# /gh-project — Orchestrator-owned Tracker State");
   lines.push("");
   lines.push("## Purpose");
   lines.push("");
   lines.push(
-    "Interact with the GitHub Project v2 board to manage issue status,"
+    "Request issue-scoped tracker state reads and transitions from the orchestrator,"
   );
-  lines.push("create workpad comments, and handle follow-up issues.");
+  lines.push("then write lifecycle comments only after confirmed success.");
   lines.push("");
   lines.push("## Prerequisites");
   lines.push("");
-  lines.push("- `gh` CLI is authenticated (`gh auth status`)");
+  lines.push("- `SYMPHONY_ORCHESTRATOR_URL` is set by the current run");
+  lines.push("- `SYMPHONY_RUN_ID` identifies the current run");
   lines.push(
-    "- This generated skill contains the status field and option IDs below"
+    "- `SYMPHONY_ORCHESTRATOR_TOKEN` authenticates the worker without exposing the credential through status APIs"
   );
-  lines.push("");
-  lines.push("## Column ID Quick Reference");
-  lines.push("");
-  lines.push(`Status Field ID: \`${ctx.statusFieldId}\``);
-  lines.push("");
-  lines.push("| Column Name | Role | Option ID |");
-  lines.push("|-------------|------|-----------|");
-  for (const col of ctx.statusColumns) {
-    const role = col.role ?? "unknown";
-    lines.push(`| ${col.name} | ${role} | \`${col.id}\` |`);
-  }
+  lines.push(
+    "- The orchestrator owns the canonical tracker item, provider quota, retry/backoff, mutation, and readback"
+  );
   lines.push("");
   lines.push("## Operations");
   lines.push("");
-  lines.push("### Change Issue Status");
+  lines.push("### Read Current Issue State");
   lines.push("");
   lines.push(
-    "Use `gh project item-edit` with the field ID and option ID from the table above:"
+    "Send an issue-scoped read intent and inspect the confirmed response:"
   );
   lines.push("");
   lines.push("```bash");
-  lines.push("# Get the project item ID for an issue");
+  lines.push("curl --fail-with-body --silent --show-error \\");
+  lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
+  lines.push('  -H "Content-Type: application/json" \\');
+  lines.push('  -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \\');
   lines.push(
-    "gh project item-list <project-number> --owner <owner> --format json \\"
+    '  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \\'
   );
+  lines.push('  --data \'{"type":"state-read"}\'');
+  lines.push("```");
+  lines.push("");
+  lines.push("### Request Issue Status Transition");
+  lines.push("");
   lines.push(
-    "  | jq '.items[] | select(.content.number == <issue-number>) | .id'"
+    "Send only transition intent. Use `jq` so state names and the reason are JSON-encoded safely:"
   );
   lines.push("");
-  lines.push("# Update the status field");
-  lines.push(`gh project item-edit \\`);
-  lines.push(`  --project-id ${ctx.projectId} \\`);
-  lines.push(`  --id <item-id> \\`);
-  lines.push(`  --field-id ${ctx.statusFieldId} \\`);
-  lines.push(`  --single-select-option-id <option-id-from-table-above>`);
+  lines.push("```bash");
+  lines.push('expected_state="In progress"');
+  lines.push('target_state="In review"');
+  lines.push('reason="PR created; validation passed"');
+  lines.push("payload=$(jq -n \\");
+  lines.push('  --arg expected "$expected_state" \\');
+  lines.push('  --arg target "$target_state" \\');
+  lines.push('  --arg reason "$reason" \\');
+  lines.push(
+    "  '{type:\"transition-request\", expected_state:$expected, target_state:$target, reason:$reason}')"
+  );
+  lines.push("response=$(curl --fail-with-body --silent --show-error \\");
+  lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
+  lines.push('  -H "Content-Type: application/json" \\');
+  lines.push('  -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \\');
+  lines.push(
+    '  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \\'
+  );
+  lines.push('  --data "$payload")');
+  lines.push('printf "%s\\n" "$response"');
+  lines.push('jq -e --arg target "$target_state" \\');
+  lines.push(
+    '  \'.ok == true and .outcome == "confirmed" and .state == $target\' <<<"$response"'
+  );
   lines.push("```");
   lines.push("");
   lines.push("### Create Workpad Comment");
   lines.push("");
   lines.push("```bash");
   lines.push(
-    'gh issue comment <issue-number> --repo <owner>/<repo> --body "## Workpad\\n\\n### Plan\\n- [ ] Task 1"'
+    "gh issue comment <issue-number> --repo <owner>/<repo> --body-file <workpad.md>"
   );
   lines.push("```");
   lines.push("");
@@ -70,7 +89,7 @@ export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
   lines.push(
     "gh api -X PATCH /repos/<owner>/<repo>/issues/comments/<comment-id> \\"
   );
-  lines.push('  -f body="## Workpad\\n\\n### Plan\\n- [x] Task 1 (done)"');
+  lines.push("  -F body=@<workpad.md>");
   lines.push("```");
   lines.push("");
   lines.push("### Create Follow-up Issue");
@@ -96,14 +115,20 @@ export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
     "- Always follow the WORKFLOW.md status map flow for state transitions"
   );
   lines.push(
+    "- Never traverse provider boards or mutate tracker fields directly from a worker"
+  );
+  lines.push(
+    "- Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions"
+  );
+  lines.push(
+    '- Post transition comments and update the workpad only after `.ok == true`, `.outcome == "confirmed"`, and the returned state matches the target'
+  );
+  lines.push(
     "- Before transitioning to a terminal state, verify the Completion Bar is satisfied:"
   );
   lines.push("  - All acceptance criteria checked");
   lines.push("  - All tests passing");
   lines.push("  - PR merged (if applicable)");
-  lines.push(
-    "- Use the Column ID Quick Reference table above for all status transitions"
-  );
   lines.push(
     "- Do not transition issues to terminal states without explicit completion verification"
   );
@@ -111,7 +136,7 @@ export function generateGhProjectSkill(ctx: SkillTemplateContext): string {
   return renderSkillDocument({
     name: "gh-project",
     description:
-      "Manage GitHub Project v2 issue states, workpad comments, and related follow-up actions.",
+      "Request run-scoped tracker states and transitions through the orchestrator.",
     bodyLines: lines,
   });
 }

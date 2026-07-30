@@ -112,7 +112,8 @@ not set them manually.
 | `WORKSPACE_RUNTIME_DIR`           | issue runtime directory                   | Worker, Codex runtime, Claude runtime         | Internal/injected | Stores worker runtime artifacts such as token usage and MCP config.                    |
 | `SYMPHONY_RENDERED_PROMPT`        | rendered issue prompt                     | Worker                                        | Internal/injected | Prompt sent to the agent runtime.                                                      |
 | `SYMPHONY_RUN_ID`                 | current run ID                            | Worker, hooks                                 | Internal/injected | Unique run identifier.                                                                 |
-| `SYMPHONY_ORCHESTRATOR_URL`       | unset unless status API is available      | Worker                                        | Internal/injected | Used by workers to refresh tracker state through `/api/v1/state`.                      |
+| `SYMPHONY_ORCHESTRATOR_URL`       | internal worker API URL                   | Worker                                        | Internal/injected | Used for run-scoped turn leases and tracker state reads/transitions.                   |
+| `SYMPHONY_ORCHESTRATOR_TOKEN`     | process-random secret                     | Worker                                        | Internal/injected | Authenticates tracker state requests; never exposed through status APIs.               |
 | `SYMPHONY_CONTINUATION_GUIDANCE`  | workflow continuation guidance            | Worker                                        | Internal/injected | Prompt guidance used on continuation turns.                                            |
 | `SYMPHONY_TRACKER_ADAPTER`        | active tracker adapter                    | Worker                                        | Internal/injected | Tracker adapter name, for example `github-project`, `linear`, or `file`.               |
 | `SYMPHONY_TRACKER_KIND`           | active tracker kind                       | Codex runtime, Claude runtime, worker routing | Internal/injected | Enables Linear tooling when set to `linear`.                                           |
@@ -129,6 +130,12 @@ not set them manually.
 | `TARGET_REPOSITORY_OWNER`         | target repo owner                         | Worker                                        | Internal/injected | Repository owner.                                                                      |
 | `TARGET_REPOSITORY_NAME`          | target repo name                          | Worker                                        | Internal/injected | Repository name.                                                                       |
 | `TARGET_REPOSITORY_URL`           | target repo URL                           | Worker                                        | Internal/injected | Browser URL for the repository.                                                        |
+
+### GitHub tracker transition extension
+
+GitHub Project state writes are a repository extension to upstream Symphony SPEC §11.5. Workers send issue-scoped intent to the internal orchestrator API; the orchestrator authorizes the current `SYMPHONY_RUN_ID`, uses its persisted canonical tracker item, serializes requests against the shared GraphQL budget, and confirms an exact-item readback.
+
+This intentionally differs from the upstream spec's typical agent-tool ownership of tracker writes. The extension is limited to GitHub tracker integration and quota coordination; lifecycle policy remains in `WORKFLOW.md`, and Symphony core does not contain GitHub-specific mutation semantics.
 
 ## Hook Variables
 

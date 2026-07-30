@@ -5,6 +5,8 @@ import {
   type IssueCommentCacheEntry,
   type TrackedIssue,
   type TrackedIssueList,
+  type TrackerStateRequest,
+  type TrackerStateResult,
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
@@ -15,6 +17,9 @@ const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
 const RATE_LIMIT_SOFT_THRESHOLD = 100;
 const RATE_LIMIT_HARD_THRESHOLD = 0;
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+const MAX_TRANSITION_QUEUE_DEPTH = 100;
+const TRANSITION_RETRY_ATTEMPTS = 3;
+const TRANSITION_RETRY_BASE_MS = 25;
 
 export type GitHubTrackerConfig = {
   projectId: string;
@@ -82,6 +87,7 @@ type GraphQLFieldValue =
 type GraphQLProjectFieldConfiguration =
   | {
       __typename: "ProjectV2SingleSelectField";
+      id?: string | null;
       name: string | null;
       options: Array<{
         id: string;
@@ -263,6 +269,24 @@ type GraphQLIssueProjectItemsByIdResponse = {
   node?: GraphQLIssueStateLookupNode | null;
 };
 
+type GraphQLExactProjectItemNode = {
+  __typename: "ProjectV2Item";
+  id: string;
+  project: { id: string } | null;
+  content: { id: string } | null;
+  fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
+};
+
+type GraphQLExactProjectItemResponse = {
+  node?: GraphQLExactProjectItemNode | { __typename: string } | null;
+};
+
+type GraphQLUpdateProjectItemResponse = {
+  updateProjectV2ItemFieldValue?: {
+    projectV2Item?: { id: string } | null;
+  } | null;
+};
+
 type GraphQLRepositoryIssueLookupNode = GraphQLIssueNode & {
   projectItems: GraphQLIssueProjectItemsConnection | null;
 };
@@ -312,9 +336,11 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
   constructor(
     message: string,
     readonly status: number,
-    readonly details: string
+    readonly details: string,
+    rateLimits: Record<string, unknown> | null = null,
+    readonly retryAfterMs: number | null = null
   ) {
-    super(message);
+    super(message, rateLimits);
   }
 }
 
@@ -367,6 +393,8 @@ const cachedGitHubGraphQLRateLimits = new Map<
   GitHubRateLimitPayload | null
 >();
 const ARCHIVED_PROJECT_ITEM_STATE = "Archived";
+const transitionQueueTails = new Map<string, Promise<void>>();
+const transitionQueueDepths = new Map<string, number>();
 
 export function normalizeProjectItem(
   projectId: string,
@@ -684,6 +712,357 @@ export async function fetchIssueStatesByIds(
   (issues as TrackedIssueList).rateLimits = rateLimits;
 
   return issues as GitHubTrackedIssue[] & TrackedIssueList;
+}
+
+export async function requestGithubProjectItemState(
+  config: GitHubTrackerConfig,
+  input: {
+    issueSubjectId: string;
+    itemId: string;
+    request: TrackerStateRequest;
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<TrackerStateResult> {
+  const queueKey = `${fingerprintToken(config.token)}:${config.projectId}`;
+  const depth = transitionQueueDepths.get(queueKey) ?? 0;
+  if (depth >= MAX_TRANSITION_QUEUE_DEPTH) {
+    return {
+      ok: false,
+      outcome: "rejected",
+      state: null,
+      expectedState:
+        input.request.type === "transition-request"
+          ? input.request.expectedState
+          : null,
+      targetState:
+        input.request.type === "transition-request"
+          ? input.request.targetState
+          : null,
+      reason:
+        input.request.type === "transition-request"
+          ? input.request.reason
+          : null,
+      rateLimits:
+        cachedGitHubGraphQLRateLimits.get(fingerprintToken(config.token)) ??
+        null,
+      error: "tracker_transition_queue_full",
+    };
+  }
+
+  transitionQueueDepths.set(queueKey, depth + 1);
+  const previous = transitionQueueTails.get(queueKey) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  transitionQueueTails.set(
+    queueKey,
+    previous.catch(() => undefined).then(() => gate)
+  );
+
+  await previous.catch(() => undefined);
+  try {
+    return await executeGithubProjectItemStateRequest(config, input, fetchImpl);
+  } finally {
+    release();
+    const nextDepth = (transitionQueueDepths.get(queueKey) ?? 1) - 1;
+    if (nextDepth <= 0) {
+      transitionQueueDepths.delete(queueKey);
+      transitionQueueTails.delete(queueKey);
+    } else {
+      transitionQueueDepths.set(queueKey, nextDepth);
+    }
+  }
+}
+
+async function executeGithubProjectItemStateRequest(
+  config: GitHubTrackerConfig,
+  input: {
+    issueSubjectId: string;
+    itemId: string;
+    request: TrackerStateRequest;
+  },
+  fetchImpl: FetchLike
+): Promise<TrackerStateResult> {
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
+  let latestRateLimits: GitHubRateLimitPayload | null = null;
+  const initial = await readExactProjectItemState(
+    cycleConfig,
+    input,
+    fetchImpl
+  );
+  latestRateLimits = initial.rateLimits;
+
+  if (input.request.type === "state-read") {
+    return buildTrackerStateResult({
+      ok: true,
+      outcome: "confirmed",
+      state: initial.state,
+      request: input.request,
+      rateLimits: finalizeGraphQLRateLimitCycle(
+        latestRateLimits,
+        cycleConfig.rateLimitCollector
+      ),
+    });
+  }
+
+  if (!statesEqual(initial.state, input.request.expectedState)) {
+    return buildTrackerStateResult({
+      ok: false,
+      outcome: "expected_state_mismatch",
+      state: initial.state,
+      request: input.request,
+      rateLimits: finalizeGraphQLRateLimitCycle(
+        latestRateLimits,
+        cycleConfig.rateLimitCollector
+      ),
+      error: `expected_state_mismatch: expected "${input.request.expectedState}", confirmed "${initial.state}"`,
+    });
+  }
+
+  const statusField = await resolveStatusFieldConfiguration(
+    cycleConfig,
+    input.request.targetState,
+    fetchImpl
+  );
+  latestRateLimits = statusField.rateLimits ?? latestRateLimits;
+  const mutation = await executeTransitionMutationWithRetry(
+    cycleConfig,
+    {
+      itemId: input.itemId,
+      fieldId: statusField.fieldId,
+      optionId: statusField.optionId,
+    },
+    fetchImpl
+  );
+  latestRateLimits = mutation.rateLimits ?? latestRateLimits;
+
+  const readback = await readExactProjectItemState(
+    cycleConfig,
+    input,
+    fetchImpl
+  );
+  latestRateLimits = readback.rateLimits ?? latestRateLimits;
+  const confirmed = statesEqual(readback.state, input.request.targetState);
+  return buildTrackerStateResult({
+    ok: confirmed,
+    outcome: confirmed ? "confirmed" : "failed",
+    state: readback.state,
+    request: input.request,
+    rateLimits: finalizeGraphQLRateLimitCycle(
+      latestRateLimits,
+      cycleConfig.rateLimitCollector
+    ),
+    error: confirmed
+      ? null
+      : `tracker_readback_mismatch: target "${input.request.targetState}", confirmed "${readback.state}"`,
+  });
+}
+
+function buildTrackerStateResult(input: {
+  ok: boolean;
+  outcome: TrackerStateResult["outcome"];
+  state: string | null;
+  request: TrackerStateRequest;
+  rateLimits: Record<string, unknown> | null;
+  error?: string | null;
+}): TrackerStateResult {
+  return {
+    ok: input.ok,
+    outcome: input.outcome,
+    state: input.state,
+    expectedState:
+      input.request.type === "transition-request"
+        ? input.request.expectedState
+        : null,
+    targetState:
+      input.request.type === "transition-request"
+        ? input.request.targetState
+        : null,
+    reason:
+      input.request.type === "transition-request" ? input.request.reason : null,
+    rateLimits: input.rateLimits,
+    error: input.error ?? null,
+  };
+}
+
+async function readExactProjectItemState(
+  config: GitHubTrackerConfig,
+  input: { issueSubjectId: string; itemId: string },
+  fetchImpl: FetchLike
+): Promise<{
+  state: string;
+  rateLimits: GitHubRateLimitPayload | null;
+}> {
+  const result =
+    await executeGraphQLQueryWithMetadata<GraphQLExactProjectItemResponse>(
+      config,
+      EXACT_PROJECT_ITEM_STATE_QUERY,
+      { itemId: input.itemId },
+      fetchImpl
+    );
+  const node = result.data.node;
+  if (!node || node.__typename !== "ProjectV2Item") {
+    throw new GitHubTrackerQueryError(
+      `tracker_item_not_found: ${input.itemId}`
+    );
+  }
+  const exactNode = node as GraphQLExactProjectItemNode;
+  if (
+    exactNode.id !== input.itemId ||
+    exactNode.project?.id !== config.projectId ||
+    exactNode.content?.id !== input.issueSubjectId
+  ) {
+    throw new GitHubTrackerQueryError(
+      "tracker_item_authorization_mismatch: canonical item does not match the run issue and project"
+    );
+  }
+
+  return {
+    state: requireProjectItemState(
+      extractFieldValues(exactNode.fieldValues?.nodes ?? []),
+      config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE,
+      input.itemId
+    ),
+    rateLimits: result.rateLimits,
+  };
+}
+
+async function resolveStatusFieldConfiguration(
+  config: GitHubTrackerConfig,
+  targetState: string,
+  fetchImpl: FetchLike
+): Promise<{
+  fieldId: string;
+  optionId: string;
+  rateLimits: GitHubRateLimitPayload | null;
+}> {
+  const result =
+    await executeGraphQLQueryWithMetadata<GraphQLProjectFieldsResponse>(
+      config,
+      PROJECT_FIELDS_QUERY,
+      { projectId: config.projectId },
+      fetchImpl
+    );
+  const fieldName =
+    config.lifecycle?.stateFieldName ??
+    DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName;
+  const field = (result.data.node?.fields?.nodes ?? [])
+    .filter(isSingleSelectProjectField)
+    .find((candidate) => candidate.name === fieldName);
+  if (!field || !field.id) {
+    throw new GitHubTrackerQueryError(
+      `tracker_status_field_not_found: ${fieldName}`
+    );
+  }
+  const option = (field.options ?? []).find(
+    (candidate) => candidate && statesEqual(candidate.name, targetState)
+  );
+  if (!option?.id) {
+    throw new GitHubTrackerQueryError(
+      `tracker_target_state_not_found: ${targetState}`
+    );
+  }
+  return {
+    fieldId: field.id,
+    optionId: option.id,
+    rateLimits: result.rateLimits,
+  };
+}
+
+async function executeTransitionMutationWithRetry(
+  config: GitHubTrackerConfig,
+  input: { itemId: string; fieldId: string; optionId: string },
+  fetchImpl: FetchLike
+): Promise<{
+  rateLimits: GitHubRateLimitPayload | null;
+}> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < TRANSITION_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const result =
+        await executeGraphQLQueryWithMetadata<GraphQLUpdateProjectItemResponse>(
+          config,
+          UPDATE_PROJECT_ITEM_STATE_MUTATION,
+          {
+            projectId: config.projectId,
+            itemId: input.itemId,
+            fieldId: input.fieldId,
+            optionId: input.optionId,
+          },
+          fetchImpl
+        );
+      if (
+        result.data.updateProjectV2ItemFieldValue?.projectV2Item?.id !==
+        input.itemId
+      ) {
+        throw new GitHubTrackerQueryError(
+          "tracker_transition_mutation_unconfirmed"
+        );
+      }
+      return { rateLimits: result.rateLimits };
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt + 1 >= TRANSITION_RETRY_ATTEMPTS ||
+        !isRetryableTransitionError(error)
+      ) {
+        throw error;
+      }
+      const delayMs = resolveTransitionRetryDelay(error, attempt);
+      if (delayMs === null) {
+        throw error;
+      }
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
+function resolveTransitionRetryDelay(
+  error: unknown,
+  attempt: number
+): number | null {
+  const fallbackMs = TRANSITION_RETRY_BASE_MS * 2 ** attempt;
+  if (!(error instanceof GitHubTrackerHttpError)) {
+    return fallbackMs;
+  }
+  const resetAtMs =
+    parseTimestampMs(
+      typeof error.rateLimits?.resetAt === "string"
+        ? error.rateLimits.resetAt
+        : null
+    ) ??
+    (typeof error.rateLimits?.reset === "number"
+      ? error.rateLimits.reset * 1_000
+      : null);
+  const resetWaitMs =
+    resetAtMs === null ? null : Math.max(0, resetAtMs - Date.now());
+  const providerWaitMs = Math.max(error.retryAfterMs ?? 0, resetWaitMs ?? 0);
+  if (providerWaitMs > MAX_RATE_LIMIT_WAIT_MS) {
+    return null;
+  }
+  return Math.max(fallbackMs, providerWaitMs);
+}
+
+function isRetryableTransitionError(error: unknown): boolean {
+  if (
+    error instanceof GitHubTrackerHttpError &&
+    (error.status === 429 ||
+      (error.status === 403 &&
+        error.details.toLowerCase().includes("rate limit")) ||
+      error.status >= 500)
+  ) {
+    return true;
+  }
+  return (
+    error instanceof GitHubTrackerError &&
+    error.message.toLowerCase().includes("rate limit")
+  );
+}
+
+function statesEqual(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 export async function fetchProjectIssueByRepositoryAndNumber(
@@ -1891,10 +2270,14 @@ async function executeGraphQLQueryWithMetadata<TData>(
 
   if (!response.ok) {
     const details = await response.text();
+    const rateLimits = extractGitHubRateLimits(response.headers);
+    cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
     throw new GitHubTrackerHttpError(
       `GitHub GraphQL request failed with status ${response.status}`,
       response.status,
-      details
+      details,
+      rateLimits,
+      parseRetryAfterMs(response.headers?.get?.("retry-after") ?? null)
     );
   }
 
@@ -2119,6 +2502,20 @@ function parseTimestampMs(value: string | null): number | null {
   return Number.isFinite(timestampMs) ? timestampMs : null;
 }
 
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1_000;
+  }
+  const retryAtMs = Date.parse(value);
+  return Number.isFinite(retryAtMs)
+    ? Math.max(0, retryAtMs - Date.now())
+    : null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -2127,6 +2524,8 @@ function sleep(ms: number): Promise<void> {
 
 export function resetGitHubRateLimitCacheForTests(): void {
   cachedGitHubGraphQLRateLimits.clear();
+  transitionQueueTails.clear();
+  transitionQueueDepths.clear();
 }
 
 const PROJECT_ITEMS_QUERY = `
@@ -2272,6 +2671,7 @@ const PROJECT_FIELDS_QUERY = `
           nodes {
             __typename
             ... on ProjectV2SingleSelectField {
+              id
               name
               options {
                 id
@@ -2281,6 +2681,82 @@ const PROJECT_FIELDS_QUERY = `
           }
         }
       }
+    }
+  }
+`;
+
+const EXACT_PROJECT_ITEM_STATE_QUERY = `
+  query ExactProjectItemState($itemId: ID!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
+    node(id: $itemId) {
+      __typename
+      ... on ProjectV2Item {
+        id
+        project {
+          id
+        }
+        content {
+          ... on Issue {
+            id
+          }
+          ... on PullRequest {
+            id
+          }
+        }
+        fieldValues(first: 20) {
+          nodes {
+            __typename
+            ... on ProjectV2ItemFieldSingleSelectValue {
+              name
+              optionId
+              field {
+                ... on ProjectV2SingleSelectField {
+                  name
+                }
+              }
+            }
+            ... on ProjectV2ItemFieldTextValue {
+              text
+              field {
+                ... on ProjectV2FieldCommon {
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const UPDATE_PROJECT_ITEM_STATE_MUTATION = `
+  mutation UpdateProjectItemState(
+    $projectId: ID!
+    $itemId: ID!
+    $fieldId: ID!
+    $optionId: String!
+  ) {
+    updateProjectV2ItemFieldValue(
+      input: {
+        projectId: $projectId
+        itemId: $itemId
+        fieldId: $fieldId
+        value: { singleSelectOptionId: $optionId }
+      }
+    ) {
+      projectV2Item {
+        id
+      }
+    }
+    rateLimit {
+      cost
+      remaining
+      resetAt
     }
   }
 `;

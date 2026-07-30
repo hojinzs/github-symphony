@@ -1000,6 +1000,7 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issue.title).toBe("Preserved title");
     expect(issue.state).toBe("Ready");
+    expect(issue.tracker.itemId).toBe("");
   });
 
   it("creates advisory comments when the marker is absent", async () => {

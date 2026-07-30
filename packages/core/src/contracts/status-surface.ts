@@ -91,6 +91,8 @@ export type OrchestratorRunRecord = {
   projectSlug: string;
   issueId: string;
   issueSubjectId: string;
+  /** Canonical tracker placement used for issue-scoped tracker mutations. */
+  trackerItemId?: string;
   issueIdentifier: string;
   issueTitle?: string;
   issueState: string;

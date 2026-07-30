@@ -35,6 +35,23 @@ export type TrackerFetchByIdsEvent = {
   rateLimits?: Record<string, unknown> | null;
 };
 
+export type TrackerStateRequestEvent = {
+  at: string;
+  event: "tracker.state";
+  projectId: string;
+  runId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  requestType: "state-read" | "transition-request";
+  expectedState: string | null;
+  targetState: string | null;
+  confirmedState: string | null;
+  outcome: "confirmed" | "expected_state_mismatch" | "rejected" | "failed";
+  reason: string | null;
+  error: string | null;
+  rateLimits?: Record<string, unknown> | null;
+};
+
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
@@ -216,6 +233,7 @@ export type PriorityUnmappedEvent = {
 export type OrchestratorEvent =
   | TrackerListEvent
   | TrackerFetchByIdsEvent
+  | TrackerStateRequestEvent
   | RunDispatchedEvent
   | RunRecoveredEvent
   | RunRetriedEvent

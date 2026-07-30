@@ -28,32 +28,28 @@ describe("generateGhProjectSkill", () => {
     expect(result.length).toBeGreaterThan(100);
   });
 
-  it("contains gh project item-edit command", () => {
+  it("uses the run-scoped orchestrator tracker API", () => {
     const result = generateGhProjectSkill(mockCtx);
-    expect(result).toContain("gh project item-edit");
+    expect(result).toContain("/api/v1/tracker-state");
+    expect(result).toContain("X-Symphony-Run-Id");
+    expect(result).toContain("X-Symphony-Orchestrator-Token");
+    expect(result).toContain("SYMPHONY_ORCHESTRATOR_TOKEN");
+    expect(result).toContain('"transition-request"');
   });
 
-  it("contains Column ID Quick Reference table", () => {
+  it("does not expose board traversal or direct mutation commands", () => {
     const result = generateGhProjectSkill(mockCtx);
-    expect(result).toContain("Column Name");
-    expect(result).toContain("Option ID");
+    expect(result).not.toContain("gh project item-list");
+    expect(result).not.toContain("gh project item-edit");
+    expect(result).not.toContain("ProjectV2");
+    expect(result).not.toContain("PVT_test123");
+    expect(result).not.toContain("PVTF_field123");
   });
 
-  it("includes all statusColumns in the table", () => {
+  it("requires confirmed readback before lifecycle comments", () => {
     const result = generateGhProjectSkill(mockCtx);
-    expect(result).toContain("opt_todo");
-    expect(result).toContain("opt_review");
-    expect(result).toContain("opt_done");
-  });
-
-  it("includes statusFieldId", () => {
-    const result = generateGhProjectSkill(mockCtx);
-    expect(result).toContain("PVTF_field123");
-  });
-
-  it("includes projectId", () => {
-    const result = generateGhProjectSkill(mockCtx);
-    expect(result).toContain("PVT_test123");
+    expect(result).toContain('.outcome == "confirmed"');
+    expect(result).toContain("only after");
   });
 
   it("does not contain raw double-brace template variables", () => {

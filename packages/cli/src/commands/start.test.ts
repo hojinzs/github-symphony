@@ -15,7 +15,9 @@ const orchestratorMocks = vi.hoisted(() => ({
   shutdown: vi.fn(),
   requestReconcile: vi.fn(),
   acquireWorkerTurnLease: vi.fn(),
+  requestTrackerState: vi.fn(),
   setWorkerOrchestratorUrl: vi.fn(),
+  setWorkerOrchestratorToken: vi.fn(),
 }));
 const {
   acquireProjectLock,
@@ -25,7 +27,9 @@ const {
   shutdown,
   requestReconcile,
   acquireWorkerTurnLease,
+  requestTrackerState,
   setWorkerOrchestratorUrl,
+  setWorkerOrchestratorToken,
 } = orchestratorMocks;
 const resolveDashboardResponse = vi.fn();
 const startControlPlaneServer = vi.fn();
@@ -66,7 +70,9 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     shutdown = orchestratorMocks.shutdown;
     requestReconcile = orchestratorMocks.requestReconcile;
     acquireWorkerTurnLease = orchestratorMocks.acquireWorkerTurnLease;
+    requestTrackerState = orchestratorMocks.requestTrackerState;
     setWorkerOrchestratorUrl = orchestratorMocks.setWorkerOrchestratorUrl;
+    setWorkerOrchestratorToken = orchestratorMocks.setWorkerOrchestratorToken;
   },
 }));
 
@@ -121,7 +127,19 @@ beforeEach(() => {
     acquired: true,
     expiresAt: "2026-07-15T00:00:15.000Z",
   });
+  requestTrackerState.mockReset();
+  requestTrackerState.mockResolvedValue({
+    ok: true,
+    outcome: "confirmed",
+    state: "In review",
+    expectedState: "In progress",
+    targetState: "In review",
+    reason: "validation passed",
+    rateLimits: { source: "github", cycleCost: 4 },
+    error: null,
+  });
   setWorkerOrchestratorUrl.mockReset();
+  setWorkerOrchestratorToken.mockReset();
   resolveDashboardResponse.mockReset();
   startControlPlaneServer.mockReset();
   resolveDashboardResponse.mockImplementation(
@@ -1153,7 +1171,64 @@ describe("start command foreground locking", () => {
         runId: "run-1",
         turn: 2,
       });
+
+      const transitionResponse = await fetch(`${url}/api/v1/tracker-state`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "transition-request",
+          expected_state: "In progress",
+          target_state: "In review",
+          reason: "validation passed",
+        }),
+        headers: {
+          "content-type": "application/json",
+          "x-symphony-run-id": "run-1",
+          "x-symphony-orchestrator-token":
+            setWorkerOrchestratorToken.mock.calls[0]?.[0],
+        },
+      });
+      expect(transitionResponse.status).toBe(200);
+      await expect(transitionResponse.json()).resolves.toMatchObject({
+        ok: true,
+        outcome: "confirmed",
+        state: "In review",
+      });
+      expect(requestTrackerState).toHaveBeenCalledWith({
+        runId: "run-1",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "validation passed",
+        },
+      });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
+      expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(
+        expect.stringMatching(/^[a-f0-9]{64}$/)
+      );
+
+      const unauthenticatedResponse = await fetch(
+        `${url}/api/v1/tracker-state`,
+        {
+          method: "POST",
+          body: JSON.stringify({ type: "state-read" }),
+          headers: {
+            "content-type": "application/json",
+            "x-symphony-run-id": "run-1",
+          },
+        }
+      );
+      expect(unauthenticatedResponse.status).toBe(401);
+      await expect(unauthenticatedResponse.json()).resolves.toEqual({
+        ok: false,
+        outcome: "rejected",
+        state: null,
+        expectedState: null,
+        targetState: null,
+        reason: null,
+        rateLimits: null,
+        error: "tracker_state_authentication_failed",
+      });
 
       await expect(
         fetch(`${url}/healthz`).then((response) => response.json())
