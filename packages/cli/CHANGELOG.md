@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 0.6.2
+
+### Patch Changes
+
+- [#464](https://github.com/hojinzs/github-symphony/pull/464) [`41155b1`](https://github.com/hojinzs/github-symphony/commit/41155b19049a7da54f8b508fc37e6371dc17d6ec) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Surface corrupt file-tracker data, missing GitHub Project state metadata, and repeated invalid WORKFLOW.md reloads as observable errors instead of silent fallbacks for [#441](https://github.com/hojinzs/github-symphony/issues/441).
+
+- [#466](https://github.com/hojinzs/github-symphony/pull/466) [`54709b7`](https://github.com/hojinzs/github-symphony/commit/54709b7f7908f60ddc2a98351d604d9c3bdf0e28) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fence every worker turn with a short-lived orchestrator lease and fail closed when refresh availability is repeatedly lost for [#447](https://github.com/hojinzs/github-symphony/issues/447).
+
+- [#488](https://github.com/hojinzs/github-symphony/pull/488) [`cd9e7ad`](https://github.com/hojinzs/github-symphony/commit/cd9e7ad78bd8b348ed7d5ea2d44f5d3541e66148) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Record GitHub GraphQL cost, remaining points, per-query breakdowns, and per-cycle totals in runtime tracker events for [#472](https://github.com/hojinzs/github-symphony/issues/472).
+
+- [#462](https://github.com/hojinzs/github-symphony/pull/462) [`825c517`](https://github.com/hojinzs/github-symphony/commit/825c517355ce4dca8104580385859437671b84c7) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject non-HTTPS and private-network runtime fetch URLs, and restrict Linear GraphQL hosts, before sending credentials for [#444](https://github.com/hojinzs/github-symphony/issues/444).
+
+- [#465](https://github.com/hojinzs/github-symphony/pull/465) [`d165c2a`](https://github.com/hojinzs/github-symphony/commit/d165c2a58c557d7969b4c181eb9ebe19d7bbcd8a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent duplicate orchestration and state loss with durable atomic writes, process-verified leases, and serialized CLI configuration updates for [#440](https://github.com/hojinzs/github-symphony/issues/440).
+
 ## 0.6.1
 
 ### Patch Changes
