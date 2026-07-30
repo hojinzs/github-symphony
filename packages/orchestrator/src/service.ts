@@ -997,7 +997,9 @@ export class OrchestratorService {
           this.retireWorkerPid(activeRun.processId);
         }
         if (activeRun) {
-          const terminalState = isStateTerminal(issue.state, lifecycle);
+          const terminalState =
+            !isArchivedProjectItem(issue) &&
+            isStateTerminal(issue.state, lifecycle);
           const recovery = terminalState
             ? null
             : await this.classifyIncompleteTurnDirtyWorkspace(
@@ -1047,7 +1049,10 @@ export class OrchestratorService {
 
       const terminalIssuesByIdentifier = new Map<string, TrackedIssue>();
       for (const issue of trackedIssuesByIdentifier.values()) {
-        if (!isStateTerminal(issue.state, lifecycle)) {
+        if (
+          isArchivedProjectItem(issue) ||
+          !isStateTerminal(issue.state, lifecycle)
+        ) {
           continue;
         }
         terminalIssuesByIdentifier.set(issue.identifier, issue);
@@ -1422,6 +1427,10 @@ export class OrchestratorService {
     lifecycle: WorkflowLifecycleConfig,
     issues: readonly TrackedIssue[]
   ): boolean {
+    if (isArchivedProjectItem(issue)) {
+      return false;
+    }
+
     return isIssueCandidateEligibleWithReason(issue, lifecycle, issues)
       .eligible;
   }
@@ -1437,7 +1446,10 @@ export class OrchestratorService {
     }
 
     for (const issue of issues) {
-      if (issue.metadata.contentType === "PullRequest") {
+      if (
+        isArchivedProjectItem(issue) ||
+        issue.metadata.contentType === "PullRequest"
+      ) {
         continue;
       }
 
@@ -3345,6 +3357,10 @@ export class OrchestratorService {
     now: Date,
     workflowResolution?: ProjectWorkflowResolution
   ): Promise<void> {
+    if (isArchivedProjectItem(issue)) {
+      return;
+    }
+
     const issueSubjectId = issue.id;
     const identity: IssueSubjectIdentity = {
       adapter: issue.tracker.adapter,
@@ -4031,4 +4047,8 @@ function releaseIssueOrchestration(
         }
       : record
   );
+}
+
+function isArchivedProjectItem(issue: TrackedIssue): boolean {
+  return issue.metadata.isArchived === true;
 }

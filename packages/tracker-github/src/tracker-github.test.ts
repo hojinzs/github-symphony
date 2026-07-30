@@ -28,6 +28,29 @@ afterEach(() => {
 });
 
 describe("resolveTrackerAdapter", () => {
+  it("normalizes archived project items to an explicit non-terminal state", () => {
+    const projectItem = makeProjectItem({
+      itemId: "item-archived",
+      issueId: "issue-1",
+      number: 1,
+      title: "Archived issue",
+      assignees: [],
+      isArchived: true,
+    });
+    projectItem.fieldValues.nodes = [];
+
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      projectItem,
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.state).toBe("Archived");
+    expect(issue?.metadata).toMatchObject({
+      isArchived: true,
+    });
+  });
+
   it("normalizes blocker refs into the workflow lifecycle state domain", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
@@ -1434,6 +1457,8 @@ describe("resolveTrackerAdapter", () => {
           expect(body.query).toContain(
             "closedByPullRequestsReferences(first: 20)"
           );
+          expect(body.query).not.toContain("archivedStates:");
+          expect(body.query).not.toContain("isArchived");
           const pullRequestFragment = body.query.match(
             /fragment PullRequestMetadata on PullRequest \{[\s\S]*?\n {2}\}/
           )?.[0];
@@ -3743,8 +3768,9 @@ describe("resolveTrackerAdapter", () => {
           );
           expect(body.query).toContain("nodes(ids: $issueIds)");
           expect(body.query).toContain(
-            "projectItems(first: 100, includeArchived: false)"
+            "projectItems(first: 100, includeArchived: true)"
           );
+          expect(body.query).toContain("isArchived");
           expect(body.query).toContain("... on Issue");
           expect(body.query).toContain("... on PullRequest");
           expect(body.query).not.toContain("blockedBy(");
@@ -3790,6 +3816,47 @@ describe("resolveTrackerAdapter", () => {
       "acme/platform#2",
     ]);
     expect(issues.map((issue) => issue.state)).toEqual(["In Progress", "Done"]);
+  });
+
+  it("returns archived issue states explicitly from the by-id lookup", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const node = makeIssueStateLookupNode({
+      projectId: "project-123",
+      itemId: "item-archived",
+      issueId: "issue-1",
+      number: 1,
+      title: "Archived issue",
+      state: "In progress",
+      isArchived: true,
+    });
+    node.projectItems.nodes[0]!.fieldValues.nodes = [];
+
+    const issues = await adapter.fetchIssueStatesByIds(
+      makeProjectConfig(),
+      ["issue-1"],
+      {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ data: { nodes: [node] } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      state: "Archived",
+      metadata: {
+        isArchived: true,
+      },
+    });
   });
 
   it("fetches pull request states by GraphQL pull request ids", async () => {
@@ -4408,6 +4475,7 @@ function makeProjectItem(input: {
   labels?: string[];
   priorityName?: string;
   priorityOptionId?: string;
+  isArchived?: boolean;
   repository?: {
     owner: string;
     name: string;
@@ -4417,6 +4485,7 @@ function makeProjectItem(input: {
 
   return {
     id: input.itemId,
+    isArchived: input.isArchived ?? false,
     updatedAt: "2026-03-14T00:00:00.000Z",
     fieldValues: {
       nodes: [
@@ -4545,6 +4614,7 @@ function makeIssueStateLookupNode(input: {
   number: number;
   title: string;
   state: string;
+  isArchived?: boolean;
   pageInfo?: {
     endCursor: string | null;
     hasNextPage: boolean;
@@ -4564,6 +4634,7 @@ function makeIssueStateLookupNode(input: {
       nodes: [
         {
           id: input.itemId,
+          isArchived: input.isArchived ?? false,
           updatedAt: "2026-03-14T00:00:00.000Z",
           project: { id: input.projectId },
           fieldValues: {
@@ -4591,6 +4662,7 @@ function makePullRequestStateLookupNode(input: {
   pullRequestId: string;
   number: number;
   state: string;
+  isArchived?: boolean;
   headRefName?: string | null;
   pageInfo?: {
     endCursor: string | null;
@@ -4613,6 +4685,7 @@ function makePullRequestStateLookupNode(input: {
       nodes: [
         {
           id: input.itemId,
+          isArchived: input.isArchived ?? false,
           updatedAt: "2026-03-14T00:00:00.000Z",
           project: { id: input.projectId },
           fieldValues: {
