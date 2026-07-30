@@ -605,11 +605,6 @@ export async function fetchProjectIssues(
     latestRateLimits,
     cycleConfig.rateLimitCollector
   );
-  if (latestRateLimits) {
-    for (const issue of issues) {
-      issue.rateLimits = latestRateLimits;
-    }
-  }
   (issues as TrackedIssueList).rateLimits = latestRateLimits;
 
   return issues as GitHubTrackedIssue[] & TrackedIssueList;
@@ -679,9 +674,6 @@ export async function fetchIssueStatesByIds(
     latestRateLimits,
     cycleConfig.rateLimitCollector
   );
-  for (const issue of issues) {
-    issue.rateLimits = rateLimits;
-  }
   (issues as TrackedIssueList).rateLimits = rateLimits;
 
   return issues as GitHubTrackedIssue[] & TrackedIssueList;

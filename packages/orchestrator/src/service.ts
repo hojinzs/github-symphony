@@ -783,6 +783,8 @@ export class OrchestratorService {
 
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
+      const listRateLimits = getTrackedIssueListRateLimits(issues);
+      let listRateLimitsRecorded = false;
 
       // Count active runs by state for per-state concurrency limits
       const activeByState = new Map<string, number>();
@@ -863,12 +865,19 @@ export class OrchestratorService {
           updatedAt: now.toISOString(),
         });
         await this.store.saveRun(run);
+        const eventRateLimits =
+          listRateLimits && !listRateLimitsRecorded
+            ? listRateLimits
+            : listRateLimits
+              ? null
+              : (issue.rateLimits ?? null);
+        listRateLimitsRecorded ||= listRateLimits !== null;
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
           event: "tracker.list",
           projectId: tenant.projectId,
           ...buildStructuredTrackerEventMetadata(tenant, issue),
-          rateLimits: issue.rateLimits ?? null,
+          rateLimits: eventRateLimits,
         });
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
@@ -1892,17 +1901,26 @@ export class OrchestratorService {
     const issueStateByIdentifier = new Map<string, TrackedIssue["state"]>(
       issues.map((issue) => [issue.identifier, issue.state])
     );
+    const fetchRateLimits = getTrackedIssueListRateLimits(issues);
+    let fetchRateLimitsRecorded = false;
 
     const syncedRuns: OrchestratorRunRecord[] = [];
     for (const run of activeRuns) {
       const currentIssue = issuesByIdentifier.get(run.issueIdentifier);
       if (currentIssue) {
+        const eventRateLimits =
+          fetchRateLimits && !fetchRateLimitsRecorded
+            ? fetchRateLimits
+            : fetchRateLimits
+              ? null
+              : (currentIssue.rateLimits ?? null);
+        fetchRateLimitsRecorded ||= fetchRateLimits !== null;
         await this.store.appendRunEvent(run.runId, {
           at: now.toISOString(),
           event: "tracker.fetchByIds",
           projectId: tenant.projectId,
           ...buildStructuredTrackerEventMetadata(tenant, currentIssue),
-          rateLimits: currentIssue.rateLimits ?? null,
+          rateLimits: eventRateLimits,
         });
       }
       const currentTrackerState = issueStateByIdentifier.get(

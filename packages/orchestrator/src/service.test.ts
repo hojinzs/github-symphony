@@ -8757,6 +8757,31 @@ Handle Linear issue.`,
       lastError: null,
       nextRetryAt: null,
     });
+    await store.saveRun({
+      runId: "run-2",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "linear-issue-2",
+      issueSubjectId: "linear-issue-2",
+      issueIdentifier: "ENG-2",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4604,
+      workingDirectory: join(tempRoot, "active-run-2"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run-2", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
 
     const issue = {
       id: "linear-issue-1",
@@ -8788,10 +8813,35 @@ Handle Linear issue.`,
         resource: "graphql",
       },
     };
+    const secondIssue = {
+      ...issue,
+      id: "linear-issue-2",
+      identifier: "ENG-2",
+      number: 2,
+      title: "Second Linear issue",
+      tracker: {
+        ...issue.tracker,
+        itemId: "linear-issue-2",
+      },
+    };
+    const refreshedIssues = [issue, secondIssue] as TrackedIssueList;
+    refreshedIssues.rateLimits = {
+      source: "linear",
+      limit: 1500,
+      remaining: 1497,
+      resource: "graphql",
+      cycleCost: 5,
+      queryCosts: {
+        IssuesByIds: {
+          requestCount: 1,
+          cost: 5,
+        },
+      },
+    };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues: vi.fn().mockResolvedValue([]),
       listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue(refreshedIssues),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         LINEAR_ISSUE_ID: "linear-issue-1",
       }),
@@ -8805,14 +8855,20 @@ Handle Linear issue.`,
     await service.runOnce();
 
     const rawEvents = (
-      await readFile(
-        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
-        "utf8"
+      await Promise.all(
+        ["run-1", "run-2"].map((runId) =>
+          readFile(
+            join(store.runDir(runId, projectConfig.projectId), "events.ndjson"),
+            "utf8"
+          )
+        )
       )
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    ).flatMap((contents) =>
+      contents
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+    );
     expect(rawEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -8825,13 +8881,22 @@ Handle Linear issue.`,
             identifier: "ENG-1",
             id: "linear-issue-1",
           },
-          rateLimits: expect.objectContaining({
-            source: "linear",
-            remaining: 1498,
-          }),
         }),
       ])
     );
+    const fetchEvents = rawEvents.filter(
+      (event) => event.event === "tracker.fetchByIds"
+    );
+    expect(fetchEvents).toHaveLength(2);
+    expect(
+      fetchEvents.filter(
+        (event) =>
+          (event.rateLimits as Record<string, unknown> | null)?.cycleCost === 5
+      )
+    ).toHaveLength(1);
+    expect(
+      fetchEvents.filter((event) => event.rateLimits === null)
+    ).toHaveLength(1);
   });
 
   it("uses empty tracker list rate limits in project snapshots", async () => {

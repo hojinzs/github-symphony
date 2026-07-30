@@ -1854,7 +1854,7 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.rateLimits).toEqual({
+    expect(issues.rateLimits).toEqual({
       source: "github",
       limit: 5000,
       remaining: 4988,
@@ -1885,7 +1885,12 @@ describe("resolveTrackerAdapter", () => {
         resource: "graphql",
       },
     });
-    expect(issues.rateLimits).toEqual(issues[0]?.rateLimits);
+    expect(issues[0]?.rateLimits).toEqual(
+      expect.objectContaining({
+        cost: 11,
+      })
+    );
+    expect(issues[0]?.rateLimits).not.toHaveProperty("cycleCost");
   });
 
   it("waits for the cached GraphQL rate limit reset when exhausted", async () => {
@@ -2434,70 +2439,24 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issues).toHaveLength(2);
+    expect(issues.rateLimits).toEqual(
+      expect.objectContaining({
+        cost: 4,
+        cycleCost: 11,
+        queryCosts: {
+          ProjectItems: {
+            requestCount: 2,
+            cost: 11,
+          },
+        },
+      })
+    );
     expect(issues.map((issue) => issue.rateLimits)).toEqual([
-      {
-        source: "github",
-        limit: 5000,
-        remaining: 4997,
-        used: 3,
-        reset: 1773892860,
-        resetAt: "2026-03-19T04:01:00.000Z",
-        resource: "graphql",
-        cost: 4,
-        cycleCost: 11,
-        queryCosts: {
-          ProjectItems: {
-            requestCount: 2,
-            cost: 11,
-          },
-        },
-        fieldRateLimits: {
-          cost: 4,
-          remaining: 4997,
-          resetAt: "2026-03-19T04:01:00.000Z",
-        },
-        headerRateLimits: {
-          source: "github",
-          limit: 5000,
-          remaining: 4997,
-          used: 3,
-          reset: 1773892860,
-          resetAt: "2026-03-19T04:01:00.000Z",
-          resource: "graphql",
-        },
-      },
-      {
-        source: "github",
-        limit: 5000,
-        remaining: 4997,
-        used: 3,
-        reset: 1773892860,
-        resetAt: "2026-03-19T04:01:00.000Z",
-        resource: "graphql",
-        cost: 4,
-        cycleCost: 11,
-        queryCosts: {
-          ProjectItems: {
-            requestCount: 2,
-            cost: 11,
-          },
-        },
-        fieldRateLimits: {
-          cost: 4,
-          remaining: 4997,
-          resetAt: "2026-03-19T04:01:00.000Z",
-        },
-        headerRateLimits: {
-          source: "github",
-          limit: 5000,
-          remaining: 4997,
-          used: 3,
-          reset: 1773892860,
-          resetAt: "2026-03-19T04:01:00.000Z",
-          resource: "graphql",
-        },
-      },
+      expect.objectContaining({ cost: 7 }),
+      expect.objectContaining({ cost: 4 }),
     ]);
+    expect(issues[0]?.rateLimits).not.toHaveProperty("cycleCost");
+    expect(issues[1]?.rateLimits).not.toHaveProperty("cycleCost");
   });
 
   it("applies the default network timeout to GitHub API requests", async () => {
@@ -2864,7 +2823,7 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0]?.priority).toBe(1);
-    expect(issues[0]?.rateLimits).toEqual(
+    expect(issues.rateLimits).toEqual(
       expect.objectContaining({
         cycleCost: 13,
         queryCosts: {
@@ -3907,7 +3866,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]?.tracker.itemId).toBe("item-1");
     expect(issues[0]?.state).toBe("Done");
-    expect(issues[0]?.rateLimits).toEqual(
+    expect(issues.rateLimits).toEqual(
       expect.objectContaining({
         cycleCost: 5,
         queryCosts: {
