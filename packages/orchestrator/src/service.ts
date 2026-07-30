@@ -899,6 +899,23 @@ export class OrchestratorService {
         );
       }
 
+      if (listRateLimits && !listRateLimitsRecorded) {
+        const activeRun = syncedActiveRuns[0];
+        const activeIssue = activeRun
+          ? trackedIssuesByIdentifier.get(activeRun.issueIdentifier)
+          : null;
+        if (activeRun && activeIssue) {
+          await this.store.appendRunEvent(activeRun.runId, {
+            at: now.toISOString(),
+            event: "tracker.list",
+            projectId: tenant.projectId,
+            ...buildStructuredTrackerEventMetadata(tenant, activeIssue),
+            rateLimits: listRateLimits,
+          });
+          listRateLimitsRecorded = true;
+        }
+      }
+
       for (const issueRecord of issueRecords) {
         if (!isIssueOrchestrationClaimedState(issueRecord.state)) {
           continue;

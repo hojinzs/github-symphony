@@ -8899,6 +8899,142 @@ Handle Linear issue.`,
     ).toHaveLength(1);
   });
 
+  it("records tracker.list cost on an active run when no issue is dispatched", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-no-dispatch-list-cost-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4603,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const issue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Active issue",
+      description: null,
+      priority: null,
+      state: "In progress",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: projectConfig.tracker.bindingId,
+        itemId: "issue-1",
+      },
+      metadata: {},
+      rateLimits: null,
+    };
+    const listedIssues = [issue] as TrackedIssueList;
+    listedIssues.rateLimits = {
+      source: "github",
+      limit: 5000,
+      remaining: 4989,
+      resource: "graphql",
+      cycleCost: 11,
+      queryCosts: {
+        ProjectItems: {
+          requestCount: 1,
+          cost: 11,
+        },
+      },
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(listedIssues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const events = (
+      await readFile(
+        join(
+          store.runDir("run-1", projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const listEvents = events.filter((event) => event.event === "tracker.list");
+
+    expect(snapshot.summary.dispatched).toBe(0);
+    expect(listEvents).toEqual([
+      expect.objectContaining({
+        event: "tracker.list",
+        issue: {
+          identifier: "acme/platform#1",
+          id: "issue-1",
+        },
+        rateLimits: expect.objectContaining({
+          cycleCost: 11,
+          queryCosts: {
+            ProjectItems: {
+              requestCount: 1,
+              cost: 11,
+            },
+          },
+        }),
+      }),
+    ]);
+  });
+
   it("uses empty tracker list rate limits in project snapshots", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

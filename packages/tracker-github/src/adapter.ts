@@ -2261,6 +2261,11 @@ const ISSUE_COMMENTS_BY_ID_QUERY = `
 
 const ADD_ISSUE_COMMENT_MUTATION = `
   mutation AddIssueComment($subjectId: ID!, $body: String!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     addComment(input: { subjectId: $subjectId, body: $body }) {
       commentEdge {
         node {
@@ -2274,6 +2279,11 @@ const ADD_ISSUE_COMMENT_MUTATION = `
 
 const UPDATE_ISSUE_COMMENT_MUTATION = `
   mutation UpdateIssueComment($commentId: ID!, $body: String!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     updateIssueComment(input: { id: $commentId, body: $body }) {
       issueComment {
         id
