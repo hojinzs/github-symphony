@@ -162,6 +162,100 @@ describe("requestGithubProjectItemState", () => {
     });
   });
 
+  it("honors Retry-After before retrying a quota-limited mutation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T14:00:00.000Z"));
+    const states = new Map([["item-1", "In progress"]]);
+    let mutationAttempts = 0;
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (body.query.includes("mutation UpdateProjectItemState")) {
+          mutationAttempts += 1;
+          if (mutationAttempts === 1) {
+            return new Response("rate limit exceeded", {
+              status: 429,
+              headers: {
+                "retry-after": "1",
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": String(Math.floor(Date.now() / 1_000) + 1),
+              },
+            });
+          }
+        }
+        return graphqlResponse(body.query, body.variables, states);
+      }
+    ) as typeof fetch;
+
+    const resultPromise = requestGithubProjectItemState(
+      config,
+      {
+        issueSubjectId: "issue-1",
+        itemId: "item-1",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "handoff",
+        },
+      },
+      fetchImpl
+    );
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mutationAttempts).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: true,
+      outcome: "confirmed",
+      state: "In review",
+    });
+    expect(mutationAttempts).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it("authorizes a PullRequest canonical project item", async () => {
+    let seenQuery = "";
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { query: string };
+        seenQuery = body.query;
+        return jsonResponse({
+          data: {
+            rateLimit: rateLimit(),
+            node: {
+              __typename: "ProjectV2Item",
+              id: "item-1",
+              project: { id: "project-1" },
+              content: { id: "pull-request-1" },
+              fieldValues: { nodes: [statusFieldValue("In progress")] },
+            },
+          },
+        });
+      }
+    ) as typeof fetch;
+
+    await expect(
+      requestGithubProjectItemState(
+        config,
+        {
+          issueSubjectId: "pull-request-1",
+          itemId: "item-1",
+          request: { type: "state-read" },
+        },
+        fetchImpl
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      outcome: "confirmed",
+      state: "In progress",
+    });
+    expect(seenQuery).toContain("... on PullRequest");
+  });
+
   it("rejects an exact item that does not belong to the run issue", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({

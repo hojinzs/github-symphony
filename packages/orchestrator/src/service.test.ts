@@ -240,10 +240,7 @@ describe("OrchestratorService", () => {
     });
     const events = (
       await readFile(
-        join(
-          store.runDir("run-1", projectConfig.projectId),
-          "events.ndjson"
-        ),
+        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
         "utf8"
       )
     )
@@ -963,6 +960,7 @@ describe("OrchestratorService", () => {
         now: () => new Date("2026-03-08T00:01:00.000Z"),
       });
       service.setWorkerOrchestratorUrl("http://localhost:4680");
+      service.setWorkerOrchestratorToken("worker-secret");
 
       await service.runOnce();
 
@@ -973,6 +971,7 @@ describe("OrchestratorService", () => {
       expect(workerEnv?.SYMPHONY_ORCHESTRATOR_URL).toBe(
         "http://localhost:4680"
       );
+      expect(workerEnv?.SYMPHONY_ORCHESTRATOR_TOKEN).toBe("worker-secret");
       expect(workerEnv?.SYMPHONY_GLOBAL_MAX_TURNS).toBe("");
       expect(workerEnv?.SYMPHONY_MAX_TOKENS).toBe("");
       expect(workerEnv?.SYMPHONY_SESSION_TIMEOUT_MS).toBe("");
@@ -9385,10 +9384,7 @@ Handle Linear issue.`,
     const snapshot = await service.runOnce();
     const events = (
       await readFile(
-        join(
-          store.runDir("run-1", projectConfig.projectId),
-          "events.ndjson"
-        ),
+        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
         "utf8"
       )
     )

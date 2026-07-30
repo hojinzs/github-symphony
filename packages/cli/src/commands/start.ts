@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -583,6 +584,7 @@ async function startHttpServer(input: {
       request: TrackerStateRequest;
     }): Promise<TrackerStateResult>;
   };
+  trackerStateToken: string;
 }): Promise<{ server: Server; port: number; url: string }> {
   const reader = new DashboardFsReader(
     join(input.runtimeRoot, "projects", encodeURIComponent(input.projectId))
@@ -631,13 +633,31 @@ async function startHttpServer(input: {
             const runIdHeader = request.headers["x-symphony-run-id"];
             const runId =
               typeof runIdHeader === "string" ? runIdHeader.trim() : "";
+            const tokenHeader =
+              request.headers["x-symphony-orchestrator-token"];
+            const token =
+              typeof tokenHeader === "string" ? tokenHeader.trim() : "";
             const trackerRequest = parseTrackerStateRequest(body);
             if (!runId || !trackerRequest) {
-              respondJson(response, 400, {
-                ok: false,
-                outcome: "rejected",
-                error: "invalid_tracker_state_request",
-              });
+              respondJson(
+                response,
+                400,
+                rejectedTrackerStateResult(
+                  trackerRequest,
+                  "invalid_tracker_state_request"
+                )
+              );
+              return;
+            }
+            if (!secretsEqual(token, input.trackerStateToken)) {
+              respondJson(
+                response,
+                401,
+                rejectedTrackerStateResult(
+                  trackerRequest,
+                  "tracker_state_authentication_failed"
+                )
+              );
               return;
             }
             const result = await input.service.requestTrackerState({
@@ -759,6 +779,33 @@ function parseTrackerStateRequest(
     targetState: body.target_state,
     reason: body.reason,
   };
+}
+
+function rejectedTrackerStateResult(
+  request: TrackerStateRequest | null,
+  error: string
+): TrackerStateResult {
+  return {
+    ok: false,
+    outcome: "rejected",
+    state: null,
+    expectedState:
+      request?.type === "transition-request" ? request.expectedState : null,
+    targetState:
+      request?.type === "transition-request" ? request.targetState : null,
+    reason: request?.type === "transition-request" ? request.reason : null,
+    rateLimits: null,
+    error,
+  };
+}
+
+function secretsEqual(candidate: string, expected: string): boolean {
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    candidateBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(candidateBuffer, expectedBuffer)
+  );
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -965,14 +1012,17 @@ const handler = async (
     process.on("SIGTERM", handleSigterm);
 
     try {
+      const trackerStateToken = randomBytes(32).toString("hex");
       workerHttpServer = await startHttpServer({
         runtimeRoot,
         projectId,
         initialPort: parsed.httpPort ?? 0,
         host: parsed.httpPort !== undefined ? HTTP_HOST : "127.0.0.1",
         service,
+        trackerStateToken,
       });
       service.setWorkerOrchestratorUrl(workerHttpServer.url);
+      service.setWorkerOrchestratorToken(trackerStateToken);
 
       httpServer =
         parsed.webPort !== undefined

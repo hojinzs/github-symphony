@@ -337,7 +337,8 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
     message: string,
     readonly status: number,
     readonly details: string,
-    rateLimits: Record<string, unknown> | null = null
+    rateLimits: Record<string, unknown> | null = null,
+    readonly retryAfterMs: number | null = null
   ) {
     super(message, rateLimits);
   }
@@ -1008,10 +1009,40 @@ async function executeTransitionMutationWithRetry(
       ) {
         throw error;
       }
-      await sleep(TRANSITION_RETRY_BASE_MS * 2 ** attempt);
+      const delayMs = resolveTransitionRetryDelay(error, attempt);
+      if (delayMs === null) {
+        throw error;
+      }
+      await sleep(delayMs);
     }
   }
   throw lastError;
+}
+
+function resolveTransitionRetryDelay(
+  error: unknown,
+  attempt: number
+): number | null {
+  const fallbackMs = TRANSITION_RETRY_BASE_MS * 2 ** attempt;
+  if (!(error instanceof GitHubTrackerHttpError)) {
+    return fallbackMs;
+  }
+  const resetAtMs =
+    parseTimestampMs(
+      typeof error.rateLimits?.resetAt === "string"
+        ? error.rateLimits.resetAt
+        : null
+    ) ??
+    (typeof error.rateLimits?.reset === "number"
+      ? error.rateLimits.reset * 1_000
+      : null);
+  const resetWaitMs =
+    resetAtMs === null ? null : Math.max(0, resetAtMs - Date.now());
+  const providerWaitMs = Math.max(error.retryAfterMs ?? 0, resetWaitMs ?? 0);
+  if (providerWaitMs > MAX_RATE_LIMIT_WAIT_MS) {
+    return null;
+  }
+  return Math.max(fallbackMs, providerWaitMs);
 }
 
 function isRetryableTransitionError(error: unknown): boolean {
@@ -2239,11 +2270,14 @@ async function executeGraphQLQueryWithMetadata<TData>(
 
   if (!response.ok) {
     const details = await response.text();
+    const rateLimits = extractGitHubRateLimits(response.headers);
+    cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
     throw new GitHubTrackerHttpError(
       `GitHub GraphQL request failed with status ${response.status}`,
       response.status,
       details,
-      extractGitHubRateLimits(response.headers)
+      rateLimits,
+      parseRetryAfterMs(response.headers?.get?.("retry-after") ?? null)
     );
   }
 
@@ -2468,6 +2502,20 @@ function parseTimestampMs(value: string | null): number | null {
   return Number.isFinite(timestampMs) ? timestampMs : null;
 }
 
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1_000;
+  }
+  const retryAtMs = Date.parse(value);
+  return Number.isFinite(retryAtMs)
+    ? Math.max(0, retryAtMs - Date.now())
+    : null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -2653,6 +2701,9 @@ const EXACT_PROJECT_ITEM_STATE_QUERY = `
         }
         content {
           ... on Issue {
+            id
+          }
+          ... on PullRequest {
             id
           }
         }

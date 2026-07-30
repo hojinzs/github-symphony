@@ -72,7 +72,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "github-project",
         bindingId: project.tracker.bindingId,
-        itemId: run.trackerItemId ?? run.issueId,
+        itemId: run.trackerItemId ?? "",
       },
       metadata: {},
     };

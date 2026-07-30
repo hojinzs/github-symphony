@@ -32,6 +32,8 @@ describe("generateGhProjectSkill", () => {
     const result = generateGhProjectSkill(mockCtx);
     expect(result).toContain("/api/v1/tracker-state");
     expect(result).toContain("X-Symphony-Run-Id");
+    expect(result).toContain("X-Symphony-Orchestrator-Token");
+    expect(result).toContain("SYMPHONY_ORCHESTRATOR_TOKEN");
     expect(result).toContain('"transition-request"');
   });
 

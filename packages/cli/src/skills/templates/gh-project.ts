@@ -16,7 +16,10 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push("## Prerequisites");
   lines.push("");
   lines.push("- `SYMPHONY_ORCHESTRATOR_URL` is set by the current run");
-  lines.push("- `SYMPHONY_RUN_ID` identifies and authorizes the current run");
+  lines.push("- `SYMPHONY_RUN_ID` identifies the current run");
+  lines.push(
+    "- `SYMPHONY_ORCHESTRATOR_TOKEN` authenticates the worker without exposing the credential through status APIs"
+  );
   lines.push(
     "- The orchestrator owns the canonical tracker item, provider quota, retry/backoff, mutation, and readback"
   );
@@ -34,6 +37,9 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
   lines.push('  -H "Content-Type: application/json" \\');
   lines.push('  -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \\');
+  lines.push(
+    '  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \\'
+  );
   lines.push('  --data \'{"type":"state-read"}\'');
   lines.push("```");
   lines.push("");
@@ -58,6 +64,9 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
   lines.push('  -H "Content-Type: application/json" \\');
   lines.push('  -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \\');
+  lines.push(
+    '  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \\'
+  );
   lines.push('  --data "$payload")');
   lines.push('printf "%s\\n" "$response"');
   lines.push('jq -e --arg target "$target_state" \\');

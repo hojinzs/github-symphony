@@ -348,6 +348,7 @@ export class OrchestratorService {
   private reconcilePromise: Promise<void> = Promise.resolve();
   private reconcileRequested = false;
   private workerOrchestratorUrl: string | null = null;
+  private workerOrchestratorToken: string | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -377,6 +378,10 @@ export class OrchestratorService {
 
   setWorkerOrchestratorUrl(url: string): void {
     this.workerOrchestratorUrl = url;
+  }
+
+  setWorkerOrchestratorToken(token: string): void {
+    this.workerOrchestratorToken = token;
   }
 
   async acquireWorkerTurnLease(input: {
@@ -1920,6 +1925,7 @@ export class OrchestratorService {
             workflow.workflow.codex.turnSandboxPolicy ?? "",
           SYMPHONY_MAX_TURNS: String(workflow.workflow.agent.maxTurns),
           SYMPHONY_ORCHESTRATOR_URL: this.workerOrchestratorUrl ?? "",
+          SYMPHONY_ORCHESTRATOR_TOKEN: this.workerOrchestratorToken ?? "",
           SYMPHONY_MAX_NONPRODUCTIVE_TURNS:
             process.env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS ??
             String(DEFAULT_MAX_NONPRODUCTIVE_TURNS),

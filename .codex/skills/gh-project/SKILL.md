@@ -18,7 +18,8 @@ then write lifecycle comments only after confirmed success.
 ## Prerequisites
 
 - `SYMPHONY_ORCHESTRATOR_URL` is set by the current run
-- `SYMPHONY_RUN_ID` identifies and authorizes the current run
+- `SYMPHONY_RUN_ID` identifies the current run
+- `SYMPHONY_ORCHESTRATOR_TOKEN` authenticates the worker without exposing the credential through status APIs
 - The orchestrator owns the canonical tracker item, provider quota, retry/backoff, mutation, and readback
 
 ## Operations
@@ -30,6 +31,7 @@ curl --fail-with-body --silent --show-error \
   -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \
   -H "Content-Type: application/json" \
   -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \
+  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \
   --data '{"type":"state-read"}'
 ```
 
@@ -48,6 +50,7 @@ response=$(curl --fail-with-body --silent --show-error \
   -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \
   -H "Content-Type: application/json" \
   -H "X-Symphony-Run-Id: $SYMPHONY_RUN_ID" \
+  -H "X-Symphony-Orchestrator-Token: $SYMPHONY_ORCHESTRATOR_TOKEN" \
   --data "$payload")
 printf "%s\n" "$response"
 jq -e --arg target "$target_state" \

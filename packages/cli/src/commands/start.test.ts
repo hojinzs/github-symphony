@@ -17,6 +17,7 @@ const orchestratorMocks = vi.hoisted(() => ({
   acquireWorkerTurnLease: vi.fn(),
   requestTrackerState: vi.fn(),
   setWorkerOrchestratorUrl: vi.fn(),
+  setWorkerOrchestratorToken: vi.fn(),
 }));
 const {
   acquireProjectLock,
@@ -28,6 +29,7 @@ const {
   acquireWorkerTurnLease,
   requestTrackerState,
   setWorkerOrchestratorUrl,
+  setWorkerOrchestratorToken,
 } = orchestratorMocks;
 const resolveDashboardResponse = vi.fn();
 const startControlPlaneServer = vi.fn();
@@ -70,6 +72,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
     acquireWorkerTurnLease = orchestratorMocks.acquireWorkerTurnLease;
     requestTrackerState = orchestratorMocks.requestTrackerState;
     setWorkerOrchestratorUrl = orchestratorMocks.setWorkerOrchestratorUrl;
+    setWorkerOrchestratorToken = orchestratorMocks.setWorkerOrchestratorToken;
   },
 }));
 
@@ -136,6 +139,7 @@ beforeEach(() => {
     error: null,
   });
   setWorkerOrchestratorUrl.mockReset();
+  setWorkerOrchestratorToken.mockReset();
   resolveDashboardResponse.mockReset();
   startControlPlaneServer.mockReset();
   resolveDashboardResponse.mockImplementation(
@@ -1179,6 +1183,8 @@ describe("start command foreground locking", () => {
         headers: {
           "content-type": "application/json",
           "x-symphony-run-id": "run-1",
+          "x-symphony-orchestrator-token":
+            setWorkerOrchestratorToken.mock.calls[0]?.[0],
         },
       });
       expect(transitionResponse.status).toBe(200);
@@ -1197,6 +1203,32 @@ describe("start command foreground locking", () => {
         },
       });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
+      expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(
+        expect.stringMatching(/^[a-f0-9]{64}$/)
+      );
+
+      const unauthenticatedResponse = await fetch(
+        `${url}/api/v1/tracker-state`,
+        {
+          method: "POST",
+          body: JSON.stringify({ type: "state-read" }),
+          headers: {
+            "content-type": "application/json",
+            "x-symphony-run-id": "run-1",
+          },
+        }
+      );
+      expect(unauthenticatedResponse.status).toBe(401);
+      await expect(unauthenticatedResponse.json()).resolves.toEqual({
+        ok: false,
+        outcome: "rejected",
+        state: null,
+        expectedState: null,
+        targetState: null,
+        reason: null,
+        rateLimits: null,
+        error: "tracker_state_authentication_failed",
+      });
 
       await expect(
         fetch(`${url}/healthz`).then((response) => response.json())
