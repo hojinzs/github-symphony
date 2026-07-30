@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.6.4
+
+### Patch Changes
+
+- [#489](https://github.com/hojinzs/github-symphony/pull/489) [`b6e9a6d`](https://github.com/hojinzs/github-symphony/commit/b6e9a6d03ff6fdc33eacd9fe5dc6185fab6f7542) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Persist advisory comment identifiers and ETags for [#476](https://github.com/hojinzs/github-symphony/issues/476) so steady-state GitHub polling uses conditional REST requests instead of repeatedly paging issue comments.
+
 ## 0.6.3
 
 ### Patch Changes
