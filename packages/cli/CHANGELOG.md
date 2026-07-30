@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.6.3
+
+### Patch Changes
+
+- [#493](https://github.com/hojinzs/github-symphony/pull/493) [`5ffa19b`](https://github.com/hojinzs/github-symphony/commit/5ffa19b70d8c8ad89500f3c2b1db5ecad43124cc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reduce GitHub Project polling cost for [#473](https://github.com/hojinzs/github-symphony/issues/473) by omitting unused nested pull request label and assignee connections while retaining linked pull request identity and branch metadata.
+
 ## 0.6.2
 
 ### Patch Changes
