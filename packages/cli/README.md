@@ -157,7 +157,7 @@ tracker:
     source: disabled
 ```
 
-Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. Migrate by copying the field name into `tracker.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.priority` wins and `gh-symphony doctor` reports a warning.
+Legacy `tracker.priority_field: Priority` still works, but it is deprecated because it derives numeric priority from the live Project option order. The option order is cached for the process lifetime, so Project field option changes take effect after the daemon restarts. Migrate by copying the field name into `tracker.priority.field` and writing each option display name under `values` with the intended number. If both keys are present, `tracker.priority` wins and `gh-symphony doctor` reports a warning.
 
 Run `gh-symphony workflow validate` for local schema errors and `gh-symphony doctor` for live drift warnings such as missing Project fields, missing labels, unmapped live options, stale mappings, and active issues whose priority-like value resolves to `priority = null`.
 

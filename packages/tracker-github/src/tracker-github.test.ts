@@ -10,6 +10,7 @@ import {
 import {
   normalizeGithubProjectItem,
   resetGitHubRateLimitCacheForTests,
+  resetPriorityOptionOrderCacheForTests,
 } from "./adapter.js";
 import {
   findGithubProjectIssue,
@@ -25,6 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   resetGitHubRateLimitCacheForTests();
+  resetPriorityOptionOrderCacheForTests();
 });
 
 describe("resolveTrackerAdapter", () => {
@@ -3553,6 +3555,133 @@ describe("resolveTrackerAdapter", () => {
     expect(fieldQueryCount).toBe(1);
     expect(itemsQueryCount).toBe(2);
     expect(issues.map((issue) => issue.priority)).toEqual([0, 1]);
+  });
+
+  it("reuses priority field option order across issue listing cycles", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          priorityFieldName: "Priority",
+        },
+      },
+    };
+    let fieldQueryCount = 0;
+    let itemsQueryCount = 0;
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { query: string };
+
+      if (body.query.includes("query ProjectFields")) {
+        fieldQueryCount += 1;
+        return new Response(
+          JSON.stringify({
+            data: {
+              rateLimit: {
+                cost: 2,
+                remaining: 4998,
+                resetAt: "2026-03-19T04:00:00.000Z",
+              },
+              node: {
+                __typename: "ProjectV2",
+                fields: {
+                  nodes: [
+                    {
+                      __typename: "ProjectV2SingleSelectField",
+                      name: "Priority",
+                      options: [
+                        { id: "priority-p0", name: "P0" },
+                        { id: "priority-p1", name: "P1" },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      itemsQueryCount += 1;
+      return new Response(
+        JSON.stringify({
+          data: {
+            rateLimit: {
+              cost: 11,
+              remaining: 4987 - itemsQueryCount,
+              resetAt: "2026-03-19T04:00:00.000Z",
+            },
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [
+                  makeProjectItem({
+                    itemId: `item-${itemsQueryCount}`,
+                    issueId: `issue-${itemsQueryCount}`,
+                    number: itemsQueryCount,
+                    title: `Prioritized issue ${itemsQueryCount}`,
+                    assignees: [],
+                    priorityOptionId: "priority-p1",
+                  }),
+                ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const firstIssues = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl,
+    });
+    const secondIssues = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl,
+    });
+
+    expect(fieldQueryCount).toBe(1);
+    expect(itemsQueryCount).toBe(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(firstIssues[0]?.priority).toBe(1);
+    expect(secondIssues[0]?.priority).toBe(1);
+    expect(firstIssues.rateLimits?.queryCosts).toEqual(
+      expect.objectContaining({
+        ProjectFields: {
+          requestCount: 1,
+          cost: 2,
+        },
+      })
+    );
+    expect(secondIssues.rateLimits?.queryCosts).not.toHaveProperty(
+      "ProjectFields"
+    );
   });
 
   it("uses explicit project-field mapping during listing without fetching option order", async () => {

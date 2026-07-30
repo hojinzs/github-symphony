@@ -72,6 +72,11 @@ export type GitHubTrackedIssue = TrackedIssue & {
 
 type FetchLike = typeof fetch;
 
+const cachedPriorityOptionOrders = new Map<
+  string,
+  Promise<PriorityMap | undefined>
+>();
+
 type GraphQLFieldValue =
   | {
       __typename: "ProjectV2ItemFieldSingleSelectValue";
@@ -2232,17 +2237,37 @@ async function fetchPriorityOptionOrder(
   priorityFieldName: string,
   fetchImpl: FetchLike
 ): Promise<PriorityMap | undefined> {
-  const data = await executeGraphQLQuery<GraphQLProjectFieldsResponse>(
+  const cacheKey = JSON.stringify({
+    apiUrl: config.apiUrl ?? DEFAULT_API_URL,
+    priorityFieldName,
+    projectId: config.projectId,
+  });
+  const cached = cachedPriorityOptionOrders.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = executeGraphQLQuery<GraphQLProjectFieldsResponse>(
     config,
     PROJECT_FIELDS_QUERY,
     { projectId: config.projectId },
     fetchImpl
+  ).then((data) =>
+    extractPriorityOptionOrder(
+      data.node?.fields?.nodes ?? [],
+      priorityFieldName
+    )
   );
+  cachedPriorityOptionOrders.set(cacheKey, pending);
 
-  return extractPriorityOptionOrder(
-    data.node?.fields?.nodes ?? [],
-    priorityFieldName
-  );
+  try {
+    return await pending;
+  } catch (error) {
+    if (cachedPriorityOptionOrders.get(cacheKey) === pending) {
+      cachedPriorityOptionOrders.delete(cacheKey);
+    }
+    throw error;
+  }
 }
 
 function isSingleSelectProjectField(
@@ -2624,6 +2649,10 @@ export function resetGitHubRateLimitCacheForTests(): void {
   cachedGitHubGraphQLRateLimits.clear();
   transitionQueueTails.clear();
   transitionQueueDepths.clear();
+}
+
+export function resetPriorityOptionOrderCacheForTests(): void {
+  cachedPriorityOptionOrders.clear();
 }
 
 const PROJECT_ITEMS_QUERY = `
