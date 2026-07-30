@@ -37,6 +37,7 @@ import {
   type OrchestratorProjectConfig,
   type OrchestratorTrackerDependencies,
   type OrchestratorTrackerAdapter,
+  type IssueCommentCache,
   type ProjectItemsCache,
   type ProjectStatusSnapshot,
   type RepositoryRef,
@@ -53,6 +54,7 @@ import {
   loadRepositoryWorkflow,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
+import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
   hasConvergenceLockedRunForIssue,
@@ -331,6 +333,7 @@ export class OrchestratorService {
     string,
     Record<string, unknown>
   >();
+  private readonly issueCommentCaches = new Map<string, IssueCommentCache>();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -1324,7 +1327,23 @@ export class OrchestratorService {
       assignedOnly: this.dependencies.assignedOnly,
       fetchImpl: this.dependencies.fetchImpl,
       projectItemsCache: createProjectItemsCache(),
+      issueCommentCache: this.resolveIssueCommentCache(
+        this.projectConfig.projectId
+      ),
     };
+  }
+
+  private resolveIssueCommentCache(projectId: string): IssueCommentCache {
+    const cached = this.issueCommentCaches.get(projectId);
+    if (cached) {
+      return cached;
+    }
+
+    const commentCache = new PersistentIssueCommentCache(
+      this.store.projectDir(projectId)
+    );
+    this.issueCommentCaches.set(projectId, commentCache);
+    return commentCache;
   }
 
   private async findLatestRunForIssue(

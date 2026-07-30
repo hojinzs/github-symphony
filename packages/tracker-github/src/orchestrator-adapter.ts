@@ -81,9 +81,10 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
     return upsertGithubIssueComment(
       trackerConfig,
-      issue.id,
+      issue,
       input,
-      dependencies.fetchImpl
+      dependencies.fetchImpl,
+      dependencies.issueCommentCache
     );
   },
 };

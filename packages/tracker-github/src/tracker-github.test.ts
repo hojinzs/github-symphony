@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
+  type IssueCommentCache,
+  type IssueCommentCacheEntry,
   type ProjectItemsCache,
   type TrackedIssue,
 } from "@gh-symphony/core";
@@ -1146,6 +1148,172 @@ describe("resolveTrackerAdapter", () => {
       /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
     );
     expect(mutationBody.variables.commentId).toBe("comment-1");
+  });
+
+  it("discovers an advisory comment once and reuses its persisted ETag", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const marker =
+      "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-1 pr=pr-2 -->";
+    const body = `${marker}\n\nLinked PR card status alone does not trigger dispatch.`;
+    const entries = new Map<string, IssueCommentCacheEntry>();
+    const cache: IssueCommentCache = {
+      get: vi.fn(async (key) => entries.get(key) ?? null),
+      set: vi.fn(async (key, entry) => {
+        entries.set(key, entry);
+      }),
+      delete: vi.fn(async (key) => {
+        entries.delete(key);
+      }),
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-node-1",
+                      databaseId: 42,
+                      body,
+                    },
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 42, body }), {
+          headers: { etag: '"comment-v1"' },
+        })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 304 }));
+
+    const dependencies = {
+      token: "test-token",
+      fetchImpl,
+      issueCommentCache: cache,
+    };
+    const first = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      { marker, body },
+      dependencies
+    );
+    const second = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      { marker, body },
+      dependencies
+    );
+
+    expect(first).toBe("unchanged");
+    expect(second).toBe("unchanged");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      "https://api.github.com/graphql"
+    );
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+      "https://api.github.com/repos/acme/platform/issues/comments/42"
+    );
+    expect(String(fetchImpl.mock.calls[2]?.[0])).toBe(
+      "https://api.github.com/repos/acme/platform/issues/comments/42"
+    );
+    expect(fetchImpl.mock.calls[2]?.[1]?.headers).toMatchObject({
+      "if-none-match": '"comment-v1"',
+    });
+    expect(cache.set).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        commentId: 42,
+        etag: '"comment-v1"',
+        body,
+      })
+    );
+  });
+
+  it("re-discovers an advisory comment when the cached REST id is stale", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const marker =
+      "<!-- gh-symphony:linked-pr-active-while-issue-inactive issue=issue-1 pr=pr-2 -->";
+    const body = `${marker}\nnew body`;
+    const staleEntry: IssueCommentCacheEntry = {
+      commentId: 41,
+      etag: '"stale"',
+      body,
+    };
+    let entry: IssueCommentCacheEntry | null = staleEntry;
+    const cache: IssueCommentCache = {
+      get: vi.fn(async () => entry),
+      set: vi.fn(async (_key, value) => {
+        entry = value;
+      }),
+      delete: vi.fn(async () => {
+        entry = null;
+      }),
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: [
+                    {
+                      id: "comment-node-2",
+                      databaseId: 42,
+                      body,
+                    },
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 42, body }), {
+          headers: { etag: '"comment-v2"' },
+        })
+      );
+
+    const result = await adapter.upsertIssueComment?.(
+      makeProjectConfig(),
+      makeTrackedIssue(),
+      { marker, body },
+      { token: "test-token", fetchImpl, issueCommentCache: cache }
+    );
+
+    expect(result).toBe("unchanged");
+    expect(cache.delete).toHaveBeenCalledTimes(1);
+    expect(entry).toEqual({
+      commentId: 42,
+      etag: '"comment-v2"',
+      body,
+    });
   });
 
   it("throws for unsupported tracker adapters", () => {
