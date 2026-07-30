@@ -1723,7 +1723,11 @@ export class OrchestratorService {
       repositoryDirectory,
       repository
     );
-    return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
+    return this.resolveWorkflowResolution(
+      repository,
+      cacheRoot,
+      resolution
+    );
   }
 
   private async startRun(
@@ -3759,7 +3763,8 @@ function shouldInheritProcessEnvKey(key: string): boolean {
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
-    env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
+    env[WORKFLOW_HOOK_APPROVAL_ENV] ??
+    process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
 }
 
