@@ -95,10 +95,23 @@ export type ProjectItemsCache = {
   ): Promise<TrackedIssue[]>;
 };
 
+export type IssueCommentCacheEntry = {
+  commentId: number;
+  etag: string | null;
+  body: string;
+};
+
+export type IssueCommentCache = {
+  get(key: string): Promise<IssueCommentCacheEntry | null>;
+  set(key: string, entry: IssueCommentCacheEntry): Promise<void>;
+  delete(key: string): Promise<void>;
+};
+
 export type OrchestratorTrackerDependencies = {
   fetchImpl?: typeof fetch;
   token?: string;
   projectItemsCache?: ProjectItemsCache;
+  issueCommentCache?: IssueCommentCache;
   assignedOnly?: boolean;
 };
 

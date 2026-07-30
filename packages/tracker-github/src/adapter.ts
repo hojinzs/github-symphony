@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
+  type IssueCommentCache,
+  type IssueCommentCacheEntry,
   type TrackedIssue,
   type TrackedIssueList,
   type WorkflowPriorityConfig,
@@ -176,6 +178,7 @@ type GraphQLIssueProjectItemsConnection = {
 
 type GraphQLIssueCommentNode = {
   id: string;
+  databaseId: number;
   body: string;
 };
 
@@ -782,16 +785,21 @@ export const upsertGithubIssueComment = upsertIssueComment;
 
 async function upsertIssueComment(
   config: GitHubTrackerConfig,
-  issueId: string,
+  issue: Pick<TrackedIssue, "id" | "number" | "repository">,
   input: {
     marker: string;
     body: string;
   },
-  fetchImpl: FetchLike = fetch
+  fetchImpl: FetchLike = fetch,
+  cache?: IssueCommentCache
 ): Promise<"created" | "updated" | "unchanged"> {
+  if (cache) {
+    return upsertIssueCommentWithCache(config, issue, input, fetchImpl, cache);
+  }
+
   const existingComment = await findIssueCommentByMarker(
     config,
-    issueId,
+    issue.id,
     input.marker,
     fetchImpl
   );
@@ -801,7 +809,7 @@ async function upsertIssueComment(
       config,
       ADD_ISSUE_COMMENT_MUTATION,
       {
-        subjectId: issueId,
+        subjectId: issue.id,
         body: input.body,
       },
       fetchImpl
@@ -823,6 +831,266 @@ async function upsertIssueComment(
     fetchImpl
   );
   return "updated";
+}
+
+async function upsertIssueCommentWithCache(
+  config: GitHubTrackerConfig,
+  issue: Pick<TrackedIssue, "id" | "number" | "repository">,
+  input: {
+    marker: string;
+    body: string;
+  },
+  fetchImpl: FetchLike,
+  cache: IssueCommentCache
+): Promise<"created" | "updated" | "unchanged"> {
+  const cacheKey = buildIssueCommentCacheKey(issue, input.marker);
+  const cached = await cache.get(cacheKey);
+
+  if (cached) {
+    const current = await fetchRestIssueComment(
+      config,
+      issue,
+      cached.commentId,
+      cached.etag,
+      fetchImpl
+    );
+    if (current.status === "not-modified") {
+      if (cached.body === input.body) {
+        return "unchanged";
+      }
+
+      const updated = await updateRestIssueComment(
+        config,
+        issue,
+        cached.commentId,
+        input.body,
+        fetchImpl
+      );
+      await cache.set(cacheKey, updated);
+      return "updated";
+    }
+    if (current.status === "found") {
+      await cache.set(cacheKey, current.entry);
+      if (current.entry.body === input.body) {
+        return "unchanged";
+      }
+
+      const updated = await updateRestIssueComment(
+        config,
+        issue,
+        current.entry.commentId,
+        input.body,
+        fetchImpl
+      );
+      await cache.set(cacheKey, updated);
+      return "updated";
+    }
+
+    await cache.delete(cacheKey);
+  }
+
+  const discovered = await findIssueCommentByMarker(
+    config,
+    issue.id,
+    input.marker,
+    fetchImpl
+  );
+  if (!discovered) {
+    const created = await createRestIssueComment(
+      config,
+      issue,
+      input.body,
+      fetchImpl
+    );
+    await cache.set(cacheKey, created);
+    return "created";
+  }
+
+  const current = await fetchRestIssueComment(
+    config,
+    issue,
+    discovered.databaseId,
+    null,
+    fetchImpl
+  );
+  if (current.status === "missing") {
+    const created = await createRestIssueComment(
+      config,
+      issue,
+      input.body,
+      fetchImpl
+    );
+    await cache.set(cacheKey, created);
+    return "created";
+  }
+  if (current.status === "not-modified") {
+    throw new GitHubTrackerQueryError(
+      "GitHub returned 304 for an unconditional issue comment request."
+    );
+  }
+
+  await cache.set(cacheKey, current.entry);
+  if (current.entry.body === input.body) {
+    return "unchanged";
+  }
+
+  const updated = await updateRestIssueComment(
+    config,
+    issue,
+    current.entry.commentId,
+    input.body,
+    fetchImpl
+  );
+  await cache.set(cacheKey, updated);
+  return "updated";
+}
+
+function buildIssueCommentCacheKey(
+  issue: Pick<TrackedIssue, "number" | "repository">,
+  marker: string
+): string {
+  const markerHash = createHash("sha256").update(marker).digest("hex");
+  return [
+    "github",
+    issue.repository.owner.toLowerCase(),
+    issue.repository.name.toLowerCase(),
+    `issue-${issue.number}`,
+    markerHash,
+  ].join(":");
+}
+
+async function fetchRestIssueComment(
+  config: GitHubTrackerConfig,
+  issue: Pick<TrackedIssue, "repository">,
+  commentId: number,
+  etag: string | null,
+  fetchImpl: FetchLike
+): Promise<
+  | { status: "not-modified" }
+  | { status: "missing" }
+  | { status: "found"; entry: IssueCommentCacheEntry }
+> {
+  const response = await fetchImpl(
+    resolveRestApiUrl(
+      config.apiUrl,
+      `/repos/${encodeURIComponent(issue.repository.owner)}/${encodeURIComponent(issue.repository.name)}/issues/comments/${commentId}`
+    ),
+    {
+      method: "GET",
+      headers: buildRestHeaders(config, etag),
+      signal: buildRequestSignal(config.timeoutMs),
+    }
+  );
+
+  if (response.status === 304) {
+    return { status: "not-modified" };
+  }
+  if (response.status === 404) {
+    return { status: "missing" };
+  }
+  if (!response.ok) {
+    throw await buildRestHttpError(response);
+  }
+
+  return {
+    status: "found",
+    entry: await parseRestIssueComment(response),
+  };
+}
+
+async function createRestIssueComment(
+  config: GitHubTrackerConfig,
+  issue: Pick<TrackedIssue, "number" | "repository">,
+  body: string,
+  fetchImpl: FetchLike
+): Promise<IssueCommentCacheEntry> {
+  const response = await fetchImpl(
+    resolveRestApiUrl(
+      config.apiUrl,
+      `/repos/${encodeURIComponent(issue.repository.owner)}/${encodeURIComponent(issue.repository.name)}/issues/${issue.number}/comments`
+    ),
+    {
+      method: "POST",
+      headers: buildRestHeaders(config),
+      body: JSON.stringify({ body }),
+      signal: buildRequestSignal(config.timeoutMs),
+    }
+  );
+  if (!response.ok) {
+    throw await buildRestHttpError(response);
+  }
+
+  return parseRestIssueComment(response);
+}
+
+async function updateRestIssueComment(
+  config: GitHubTrackerConfig,
+  issue: Pick<TrackedIssue, "repository">,
+  commentId: number,
+  body: string,
+  fetchImpl: FetchLike
+): Promise<IssueCommentCacheEntry> {
+  const response = await fetchImpl(
+    resolveRestApiUrl(
+      config.apiUrl,
+      `/repos/${encodeURIComponent(issue.repository.owner)}/${encodeURIComponent(issue.repository.name)}/issues/comments/${commentId}`
+    ),
+    {
+      method: "PATCH",
+      headers: buildRestHeaders(config),
+      body: JSON.stringify({ body }),
+      signal: buildRequestSignal(config.timeoutMs),
+    }
+  );
+  if (!response.ok) {
+    throw await buildRestHttpError(response);
+  }
+
+  return parseRestIssueComment(response);
+}
+
+function buildRestHeaders(
+  config: GitHubTrackerConfig,
+  etag?: string | null
+): Record<string, string> {
+  return {
+    authorization: `Bearer ${config.token}`,
+    "user-agent": "gh-symphony",
+    accept: "application/vnd.github+json",
+    "content-type": "application/json",
+    ...(etag ? { "if-none-match": etag } : {}),
+  };
+}
+
+async function parseRestIssueComment(
+  response: Response
+): Promise<IssueCommentCacheEntry> {
+  const payload = (await response.json()) as {
+    id?: number;
+    body?: string;
+  };
+  if (typeof payload.id !== "number" || typeof payload.body !== "string") {
+    throw new GitHubTrackerQueryError(
+      "GitHub REST response did not include a valid issue comment."
+    );
+  }
+
+  return {
+    commentId: payload.id,
+    etag: response.headers.get("etag"),
+    body: payload.body,
+  };
+}
+
+async function buildRestHttpError(
+  response: Response
+): Promise<GitHubTrackerHttpError> {
+  const details = await response.text();
+  return new GitHubTrackerHttpError(
+    `GitHub REST request failed with status ${response.status}`,
+    response.status,
+    details
+  );
 }
 
 async function findIssueCommentByMarker(
@@ -1515,6 +1783,10 @@ function normalizeBlockerState(
 }
 
 function resolveRestUserApiUrl(apiUrl?: string): string {
+  return resolveRestApiUrl(apiUrl, "/user");
+}
+
+function resolveRestApiUrl(apiUrl: string | undefined, path: string): string {
   const parsed = new URL(apiUrl ?? DEFAULT_API_URL);
   const pathSegments = parsed.pathname.split("/").filter(Boolean);
 
@@ -1522,7 +1794,11 @@ function resolveRestUserApiUrl(apiUrl?: string): string {
     pathSegments.pop();
   }
 
-  parsed.pathname = `/${pathSegments.join("/")}/user`.replace(/\/{2,}/g, "/");
+  parsed.pathname =
+    `/${pathSegments.join("/")}/${path.replace(/^\/+/, "")}`.replace(
+      /\/{2,}/g,
+      "/"
+    );
   parsed.search = "";
   parsed.hash = "";
   return parsed.toString();
@@ -2219,6 +2495,7 @@ const ISSUE_COMMENTS_BY_ID_QUERY = `
         comments(first: 100, after: $cursor) {
           nodes {
             id
+            databaseId
             body
           }
           pageInfo {
