@@ -72,9 +72,9 @@ export type GitHubTrackedIssue = TrackedIssue & {
 
 type FetchLike = typeof fetch;
 
-const cachedPriorityOptionOrders = new Map<
+const cachedProjectFields = new Map<
   string,
-  Promise<PriorityMap | undefined>
+  Promise<Array<GraphQLProjectFieldConfiguration | null>>
 >();
 
 type GraphQLFieldValue =
@@ -2239,32 +2239,24 @@ async function fetchPriorityOptionOrder(
 ): Promise<PriorityMap | undefined> {
   const cacheKey = JSON.stringify({
     apiUrl: config.apiUrl ?? DEFAULT_API_URL,
-    priorityFieldName,
     projectId: config.projectId,
   });
-  const cached = cachedPriorityOptionOrders.get(cacheKey);
-  if (cached) {
-    return cached;
+  let pending = cachedProjectFields.get(cacheKey);
+  if (!pending) {
+    pending = executeGraphQLQuery<GraphQLProjectFieldsResponse>(
+      config,
+      PROJECT_FIELDS_QUERY,
+      { projectId: config.projectId },
+      fetchImpl
+    ).then((data) => data.node?.fields?.nodes ?? []);
+    cachedProjectFields.set(cacheKey, pending);
   }
 
-  const pending = executeGraphQLQuery<GraphQLProjectFieldsResponse>(
-    config,
-    PROJECT_FIELDS_QUERY,
-    { projectId: config.projectId },
-    fetchImpl
-  ).then((data) =>
-    extractPriorityOptionOrder(
-      data.node?.fields?.nodes ?? [],
-      priorityFieldName
-    )
-  );
-  cachedPriorityOptionOrders.set(cacheKey, pending);
-
   try {
-    return await pending;
+    return extractPriorityOptionOrder(await pending, priorityFieldName);
   } catch (error) {
-    if (cachedPriorityOptionOrders.get(cacheKey) === pending) {
-      cachedPriorityOptionOrders.delete(cacheKey);
+    if (cachedProjectFields.get(cacheKey) === pending) {
+      cachedProjectFields.delete(cacheKey);
     }
     throw error;
   }
@@ -2652,7 +2644,7 @@ export function resetGitHubRateLimitCacheForTests(): void {
 }
 
 export function resetPriorityOptionOrderCacheForTests(): void {
-  cachedPriorityOptionOrders.clear();
+  cachedProjectFields.clear();
 }
 
 const PROJECT_ITEMS_QUERY = `

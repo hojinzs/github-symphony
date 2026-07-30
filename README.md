@@ -331,7 +331,7 @@ tracker:
 
 Lower numbers dispatch first. If an issue has multiple configured priority labels, Symphony uses the lowest numeric value and emits `priority.label_conflict_resolved`. If an active issue carries an unmapped configured-source value, it resolves to `priority = null` and emits `priority.unmapped`.
 
-Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. The option order is cached for the process lifetime, so Project field option changes take effect after the daemon restarts. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
+Legacy `tracker.priority_field: Priority` remains supported for existing workflows, but it is deprecated because it uses live Project option order. Project field definitions are cached for the process lifetime, so field creation, removal, and option changes take effect after the daemon restarts. To migrate, replace it with `tracker.priority.source: project-field`, copy the exact field name, and write explicit option-name-to-number mappings. If both legacy and explicit config are present, explicit `tracker.priority` wins and diagnostics warn about the conflict.
 
 `gh-symphony workflow validate` reports local config errors and legacy priority warnings. `gh-symphony doctor` additionally checks live Project/repository drift: missing fields, missing labels, unmapped live options, stale configured mappings, and active issues that currently resolve to `priority = null` because their priority-like value is unmapped.
 
