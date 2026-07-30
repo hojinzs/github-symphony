@@ -8542,6 +8542,156 @@ Prefer focused changes.
     expect(snapshot.activeRuns).toHaveLength(0);
   });
 
+  it("suppresses an active run when its project item is archived", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-archived-reconciliation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states:
+    - In Progress
+    - Archived
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - In Progress
+hooks:
+  after_create: ""
+  before_remove: ""
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: node ${join(tempRoot, "worker.js")}
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Handle archived item reconciliation.`,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In Progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4209,
+      port: 4604,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const archivedIssue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Archived issue",
+      description: null,
+      priority: null,
+      state: "Archived",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+      metadata: {
+        isArchived: true,
+      },
+    };
+    const listIssues = vi.fn().mockResolvedValue([archivedIssue]);
+    const fetchIssueStatesByIds = vi
+      .fn()
+      .mockResolvedValue([archivedIssue]);
+    const killImpl = vi.fn();
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createEmptyTrackerResponse()) as never,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      killImpl,
+      isProcessRunning: vi.fn().mockReturnValue(true),
+    });
+
+    const snapshot = await service.runOnce();
+    const updatedRun = await store.loadRun("run-1");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
+    expect(killImpl).toHaveBeenCalledWith(4209, "SIGTERM");
+    expect(updatedRun).toMatchObject({
+      status: "suppressed",
+      issueState: "Archived",
+      processId: null,
+      runPhase: "canceled_by_reconciliation",
+      lastError:
+        "Run suppressed because the tracker state is no longer actionable.",
+    });
+    expect(issueRecords[0]?.state).toBe("released");
+    expect(snapshot.activeRuns).toHaveLength(0);
+  });
+
   it("records Linear tracker and issue metadata on structured tracker events", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-linear-events-")

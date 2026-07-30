@@ -156,6 +156,7 @@ type GraphQLPullRequestNode = {
 
 type GraphQLProjectItem = {
   id: string;
+  isArchived?: boolean;
   updatedAt: string | null;
   fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
   content: GraphQLIssueNode | GraphQLPullRequestNode | null;
@@ -163,6 +164,7 @@ type GraphQLProjectItem = {
 
 type GraphQLIssueProjectItemNode = {
   id: string;
+  isArchived?: boolean;
   updatedAt: string | null;
   project: { id: string } | null;
   fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
@@ -364,6 +366,7 @@ const cachedGitHubGraphQLRateLimits = new Map<
   string,
   GitHubRateLimitPayload | null
 >();
+const ARCHIVED_PROJECT_ITEM_STATE = "Archived";
 
 export function normalizeProjectItem(
   projectId: string,
@@ -380,7 +383,10 @@ export function normalizeProjectItem(
   }
 
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
-  const state = requireProjectItemState(fieldValues, lifecycle, item.id);
+  const isArchived = item.isArchived === true;
+  const state = isArchived
+    ? ARCHIVED_PROJECT_ITEM_STATE
+    : requireProjectItemState(fieldValues, lifecycle, item.id);
 
   if (item.content.__typename === "PullRequest") {
     return normalizePullRequestProjectItem(
@@ -447,7 +453,8 @@ export function normalizeProjectItem(
     metadata: withIssueMetadata(
       fieldValues,
       linkedPullRequests,
-      linkedPullRequestsTruncated
+      linkedPullRequestsTruncated,
+      isArchived
     ),
     rateLimits,
   };
@@ -496,6 +503,7 @@ function normalizePullRequestProjectItem(
       contentType: "PullRequest",
       pullRequest,
       linkedPullRequests: [],
+      isArchived: item.isArchived === true,
     }),
     rateLimits,
   };
@@ -1310,7 +1318,10 @@ function normalizeIssueStateLookupNode(
   }
 
   const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
-  const state = requireProjectItemState(fieldValues, lifecycle, projectItem.id);
+  const isArchived = projectItem.isArchived === true;
+  const state = isArchived
+    ? ARCHIVED_PROJECT_ITEM_STATE
+    : requireProjectItemState(fieldValues, lifecycle, projectItem.id);
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
   const url =
@@ -1345,8 +1356,13 @@ function normalizeIssueStateLookupNode(
     },
     metadata:
       issue.__typename === "PullRequest"
-        ? withGitHubMetadata(fieldValues, { contentType: "PullRequest" })
-        : fieldValues,
+        ? withGitHubMetadata(fieldValues, {
+            contentType: "PullRequest",
+            isArchived,
+          })
+        : withGitHubMetadata(fieldValues, {
+            isArchived,
+          }),
     rateLimits,
   };
 }
@@ -1367,6 +1383,7 @@ function normalizeRepositoryIssueLookup(
     projectId,
     {
       id: projectItem.id,
+      isArchived: projectItem.isArchived,
       updatedAt: projectItem.updatedAt,
       fieldValues: projectItem.fieldValues,
       content: issue,
@@ -1445,15 +1462,21 @@ function withGitHubMetadata(
 function withIssueMetadata(
   fieldValues: Record<string, string>,
   linkedPullRequests: GitHubPullRequestMetadata[],
-  linkedPullRequestsTruncated = false
+  linkedPullRequestsTruncated = false,
+  isArchived = false
 ): TrackedIssue["metadata"] {
-  if (linkedPullRequests.length === 0 && !linkedPullRequestsTruncated) {
+  if (
+    linkedPullRequests.length === 0 &&
+    !linkedPullRequestsTruncated &&
+    !isArchived
+  ) {
     return fieldValues;
   }
 
   return withGitHubMetadata(fieldValues, {
     linkedPullRequests,
     linkedPullRequestsTruncated,
+    isArchived,
   });
 }
 
@@ -2116,9 +2139,14 @@ const PROJECT_ITEMS_QUERY = `
     node(id: $projectId) {
       __typename
       ... on ProjectV2 {
-        items(first: $pageSize, after: $cursor) {
+        items(
+          first: $pageSize
+          after: $cursor
+          archivedStates: [ARCHIVED, NOT_ARCHIVED]
+        ) {
           nodes {
             id
+            isArchived
             updatedAt
             fieldValues(first: 20) {
               nodes {
@@ -2283,9 +2311,10 @@ const ISSUE_STATES_BY_IDS_QUERY = `
             login
           }
         }
-        projectItems(first: 100, includeArchived: false) {
+        projectItems(first: 100, includeArchived: true) {
           nodes {
             id
+            isArchived
             updatedAt
             project {
               id
@@ -2332,9 +2361,10 @@ const ISSUE_STATES_BY_IDS_QUERY = `
             login
           }
         }
-        projectItems(first: 100, includeArchived: false) {
+        projectItems(first: 100, includeArchived: true) {
           nodes {
             id
+            isArchived
             updatedAt
             project {
               id
@@ -2393,9 +2423,10 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
             login
           }
         }
-        projectItems(first: 100, after: $cursor, includeArchived: false) {
+        projectItems(first: 100, after: $cursor, includeArchived: true) {
           nodes {
             id
+            isArchived
             updatedAt
             project {
               id
@@ -2442,9 +2473,10 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
             login
           }
         }
-        projectItems(first: 100, after: $cursor, includeArchived: false) {
+        projectItems(first: 100, after: $cursor, includeArchived: true) {
           nodes {
             id
+            isArchived
             updatedAt
             project {
               id
@@ -2601,9 +2633,10 @@ const REPOSITORY_ISSUE_QUERY = `
             hasNextPage
           }
         }
-        projectItems(first: 20, includeArchived: false) {
+        projectItems(first: 20, includeArchived: true) {
           nodes {
             id
+            isArchived
             updatedAt
             project {
               id
