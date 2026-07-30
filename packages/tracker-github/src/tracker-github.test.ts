@@ -1582,6 +1582,53 @@ describe("resolveTrackerAdapter", () => {
     }
   });
 
+  it("falls back to unfiltered project items for a custom lifecycle state field", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      workflowLifecycle: {
+        stateFieldName: "Stage",
+        activeStates: ["Ready", "In progress"],
+        terminalStates: ["Done"],
+        blockerCheckStates: ["Ready"],
+        planningStates: ["Ready"],
+      },
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          variables: {
+            query: string | null;
+            includeUnfilteredCount: boolean;
+          };
+        };
+        expect(body.variables.query).toBeNull();
+        expect(body.variables.includeUnfilteredCount).toBe(false);
+
+        return makeJsonResponse(
+          makeProjectItemsPayload([
+            makeProjectItem({
+              itemId: "item-ready",
+              issueId: "issue-ready",
+              number: 1,
+              title: "Ready issue with custom state field",
+              assignees: [],
+              state: "Ready",
+              stateFieldName: "Stage",
+            }),
+          ])
+        );
+      },
+    });
+
+    expect(issues.map((issue) => issue.state)).toEqual(["Ready"]);
+  });
+
   it("fails loudly instead of excluding a state configured as active and terminal", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -4641,6 +4688,7 @@ function makeProjectItem(input: {
   title: string;
   assignees: string[];
   state?: string;
+  stateFieldName?: string;
   labels?: string[];
   priorityName?: string;
   priorityOptionId?: string;
@@ -4661,7 +4709,7 @@ function makeProjectItem(input: {
         {
           __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
           name: input.state ?? "Todo",
-          field: { name: "Status" },
+          field: { name: input.stateFieldName ?? "Status" },
         },
         ...(input.priorityOptionId
           ? [

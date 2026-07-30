@@ -1684,6 +1684,10 @@ function buildTerminalStatesQuery(
     return null;
   }
 
+  if (lifecycle.stateFieldName.trim().toLowerCase() !== "status") {
+    return null;
+  }
+
   const activeStates = new Set(
     lifecycle.activeStates.map((state) => state.trim().toLowerCase())
   );
