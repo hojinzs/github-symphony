@@ -424,7 +424,7 @@ describe("resolveTrackerAdapter", () => {
       state: "Ready",
       branchName: "feature/pr-metadata",
       url: "https://github.com/acme/platform/pull/7",
-      labels: ["enhancement", "tracker"],
+      labels: [],
       blockedBy: [],
       repository: {
         owner: "acme",
@@ -461,12 +461,12 @@ describe("resolveTrackerAdapter", () => {
           url: "https://github.com/acme/platform",
           cloneUrl: "https://github.com/acme/platform.git",
         },
-        labels: ["enhancement", "tracker"],
-        assignees: ["octocat"],
         createdAt: "2026-03-13T00:00:00.000Z",
         updatedAt: "2026-03-14T00:00:00.000Z",
       },
     });
+    expect(issue?.metadata.pullRequest).not.toHaveProperty("labels");
+    expect(issue?.metadata.pullRequest).not.toHaveProperty("assignees");
   });
 
   it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
@@ -541,7 +541,9 @@ describe("resolveTrackerAdapter", () => {
 
     const metadata = issue?.metadata as Record<string, unknown> | undefined;
 
-    expect(metadata?.linkedPullRequests).toEqual([
+    const linkedPullRequests = metadata?.linkedPullRequests as unknown[];
+
+    expect(linkedPullRequests).toEqual([
       expect.objectContaining({
         id: "pr-7",
         number: 7,
@@ -557,6 +559,8 @@ describe("resolveTrackerAdapter", () => {
         },
       }),
     ]);
+    expect(linkedPullRequests[0]).not.toHaveProperty("labels");
+    expect(linkedPullRequests[0]).not.toHaveProperty("assignees");
     expect(metadata?.linkedPullRequestsTruncated).toBe(false);
   });
 
@@ -1223,6 +1227,72 @@ describe("resolveTrackerAdapter", () => {
         process.env.GITHUB_GRAPHQL_TOKEN = originalToken;
       }
     }
+  });
+
+  it("omits nested PR labels and assignees from the project items query", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    await adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: {
+            projectId: "project-123",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as { query: string };
+          expect(body.query.match(/labels\(first: 20\)/g)).toHaveLength(1);
+          expect(body.query.match(/assignees\(first: 20\)/g)).toHaveLength(1);
+          expect(body.query).toContain("blockedBy(first: 100)");
+          expect(body.query).toContain(
+            "closedByPullRequestsReferences(first: 20)"
+          );
+          const pullRequestFragment = body.query.match(
+            /fragment PullRequestMetadata on PullRequest \{[\s\S]*?\n {2}\}/
+          )?.[0];
+          expect(pullRequestFragment).toBeDefined();
+          expect(pullRequestFragment).not.toContain("labels(");
+          expect(pullRequestFragment).not.toContain("assignees(");
+
+          return new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "ProjectV2",
+                  items: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        },
+      }
+    );
   });
 
   it("falls back to legacy assignedOnly tracker setting with a deprecation warning", async () => {
@@ -4293,12 +4363,6 @@ function makePullRequestProjectItem(input: {
         name: "platform",
         url: "https://github.com/acme/platform",
         owner: { login: "acme" },
-      },
-      labels: {
-        nodes: [{ name: "tracker" }, { name: "enhancement" }],
-      },
-      assignees: {
-        nodes: [{ login: "octocat" }],
       },
       createdAt: "2026-03-13T00:00:00.000Z",
       updatedAt: "2026-03-14T00:00:00.000Z",

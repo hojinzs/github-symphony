@@ -50,8 +50,6 @@ export type GitHubPullRequestMetadata = {
   baseRefName: string | null;
   headRepository: GitHubRepositoryRef | null;
   repository: GitHubRepositoryRef;
-  labels: string[];
-  assignees: string[];
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -150,8 +148,6 @@ type GraphQLPullRequestNode = {
     url: string;
     owner: { login: string };
   };
-  labels: { nodes: Array<{ name: string | null } | null> | null } | null;
-  assignees: { nodes: Array<{ login: string | null } | null> | null } | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -483,7 +479,7 @@ function normalizePullRequestProjectItem(
     state,
     branchName: content.headRefName,
     url: content.url,
-    labels: pullRequest.labels,
+    labels: [],
     blockedBy: [],
     createdAt: content.createdAt,
     updatedAt: trackedUpdatedAt,
@@ -912,10 +908,7 @@ function isIssueAssignedToLogin(
   item: GraphQLProjectItem,
   login: string
 ): boolean {
-  if (
-    item.content?.__typename !== "Issue" &&
-    item.content?.__typename !== "PullRequest"
-  ) {
+  if (item.content?.__typename !== "Issue") {
     return false;
   }
 
@@ -1145,8 +1138,6 @@ function normalizePullRequestNode(
       ? normalizeRepositoryRef(node.headRepository)
       : null,
     repository,
-    labels: normalizeLabelNames(node.labels?.nodes ?? []),
-    assignees: normalizeAssigneeLogins(node.assignees?.nodes ?? []),
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
   };
@@ -1171,12 +1162,6 @@ function normalizeLabelNames(
   return nodes
     .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
     .sort();
-}
-
-function normalizeAssigneeLogins(
-  nodes: Array<{ login: string | null } | null>
-): string[] {
-  return nodes.flatMap((assignee) => (assignee?.login ? [assignee.login] : []));
 }
 
 function withGitHubMetadata(
@@ -1358,10 +1343,7 @@ function resolveLabelPriority(
   item: GraphQLProjectItem,
   priority: Extract<WorkflowPriorityConfig, { source: "labels" }>
 ): number | null {
-  if (
-    item.content?.__typename !== "Issue" &&
-    item.content?.__typename !== "PullRequest"
-  ) {
+  if (item.content?.__typename !== "Issue") {
     return null;
   }
 
@@ -1969,16 +1951,6 @@ const PROJECT_ITEMS_QUERY = `
       name
       url
       owner {
-        login
-      }
-    }
-    labels(first: 20) {
-      nodes {
-        name
-      }
-    }
-    assignees(first: 20) {
-      nodes {
         login
       }
     }
