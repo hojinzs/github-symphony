@@ -892,23 +892,28 @@ export class OrchestratorService {
         trackerDependencies
       );
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
-      const filteredIssues = issueIdentifier
+      const { candidates: trackedActionableIssues, lifecycle } =
+        await this.resolveActionableCandidates(tenant, canonicalIssues);
+      const actionableCandidates = issueIdentifier
+        ? trackedActionableIssues.filter((issue: TrackedIssue) =>
+            matchesTargetIssueIdentifier(issue, issueIdentifier)
+          )
+        : trackedActionableIssues;
+      const targetedIssues = issueIdentifier
         ? canonicalIssues.filter((issue: TrackedIssue) =>
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : canonicalIssues;
-      const { candidates: actionableCandidates, lifecycle } =
-        await this.resolveActionableCandidates(tenant, filteredIssues);
       await this.publishLinkedPullRequestActiveAdvisories(
         tenant,
         trackerAdapter,
-        filteredIssues,
+        targetedIssues,
         trackerDependencies
       );
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         syncedIssuesByIdentifier
       );
-      for (const issue of filteredIssues) {
+      for (const issue of canonicalIssues) {
         const existing = trackedIssuesByIdentifier.get(issue.identifier);
         trackedIssuesByIdentifier.set(issue.identifier, {
           ...(existing ?? issue),
@@ -1167,7 +1172,7 @@ export class OrchestratorService {
           suppressed += 1;
           continue;
         }
-        const resolvedIssue = actionableCandidates.find(
+        const resolvedIssue = trackedActionableIssues.find(
           (candidate) => candidate.identifier === issue.identifier
         );
         if (resolvedIssue) {

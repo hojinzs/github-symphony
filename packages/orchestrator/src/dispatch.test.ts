@@ -889,6 +889,102 @@ describe("targeted canonical subject dispatch", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not suppress an unrelated active run during targeted reconciliation", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-active-run-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const targetIssue = makeIssue({
+      id: "issue-7",
+      identifier: "acme/platform#7",
+      number: 7,
+      state: "In review",
+      repository,
+    });
+    const activeIssue = makeIssue({
+      id: "issue-8",
+      identifier: "acme/platform#8",
+      number: 8,
+      state: "Todo",
+      repository,
+    });
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: activeIssue.id,
+        identifier: activeIssue.identifier,
+        workspaceKey: "acme-platform-8",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-active-8",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun(
+      makeRun({
+        runId: "run-active-8",
+        issueId: activeIssue.id,
+        issueSubjectId: activeIssue.id,
+        issueIdentifier: activeIssue.identifier,
+        issueState: activeIssue.state,
+        repository,
+        processId: 5400,
+        issueWorkspaceKey: "acme-platform-8",
+      })
+    );
+
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [targetIssue, activeIssue])
+    );
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      killImpl,
+      isProcessRunning: vi.fn().mockReturnValue(true),
+      spawnImpl: vi.fn() as never,
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: targetIssue.identifier,
+    });
+
+    expect(result.summary.suppressed).toBe(0);
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(
+      await store.loadRun("run-active-8", projectConfig.projectId)
+    ).toEqual(
+      expect.objectContaining({
+        status: "running",
+        processId: 5400,
+      })
+    );
+    expect(
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: activeIssue.id,
+          state: "running",
+          currentRunId: "run-active-8",
+        }),
+      ])
+    );
+  });
+
   it("dispatches the canonical Issue when targeting a linked PR identifier", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-targeted-pr-"));
     const repository = await createRepositoryFixture(
