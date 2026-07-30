@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   DEFAULT_WORKFLOW_LIFECYCLE,
   type TrackedIssue,
+  type TrackedIssueList,
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
@@ -24,6 +25,8 @@ export type GitHubTrackerConfig = {
   timeoutMs?: number;
   priority?: WorkflowPriorityConfig | null;
   priorityFieldName?: string;
+  /** @internal Collects per-operation GraphQL cost within one tracker call. */
+  rateLimitCollector?: GitHubRateLimitCollector;
 };
 
 export type GitHubRepositoryRef = {
@@ -270,7 +273,9 @@ type GraphQLRepositoryIssueLookupResponse = {
 };
 
 type GraphQLResponse<TData> = {
-  data?: TData;
+  data?: TData & {
+    rateLimit?: GraphQLRateLimitField | null;
+  };
   errors?: Array<{ message: string }>;
 };
 
@@ -322,6 +327,38 @@ type GitHubRateLimitPayload = {
   reset: number | null;
   resetAt: string | null;
   resource: string | null;
+  cost?: number;
+  cycleCost?: number;
+  queryCosts?: Record<
+    string,
+    {
+      requestCount: number;
+      cost: number;
+    }
+  >;
+  fieldRateLimits?: GraphQLRateLimitField;
+  headerRateLimits?: GitHubRateLimitHeaderPayload | null;
+};
+
+type GitHubRateLimitHeaderPayload = Omit<
+  GitHubRateLimitPayload,
+  "cost" | "cycleCost" | "queryCosts" | "fieldRateLimits" | "headerRateLimits"
+>;
+
+type GraphQLRateLimitField = {
+  cost: number;
+  remaining: number;
+  resetAt: string;
+};
+
+type GitHubRateLimitObservation = {
+  operationName: string;
+  rateLimit: GraphQLRateLimitField;
+  payload: GitHubRateLimitPayload;
+};
+
+type GitHubRateLimitCollector = {
+  observations: GitHubRateLimitObservation[];
 };
 
 const cachedGitHubGraphQLRateLimits = new Map<
@@ -468,7 +505,8 @@ function normalizePullRequestProjectItem(
 export async function fetchProjectIssues(
   config: GitHubTrackerConfig,
   fetchImpl: FetchLike = fetch
-): Promise<GitHubTrackedIssue[]> {
+): Promise<GitHubTrackedIssue[] & TrackedIssueList> {
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
   // GitHub Project V2 does not expose query-time item filtering by workflow
   // state, so callers must fetch the project items and filter in memory.
   const issues: GitHubTrackedIssue[] = [];
@@ -476,7 +514,7 @@ export async function fetchProjectIssues(
   const priorityOptionIds =
     !config.priority && config.priorityFieldName
       ? await fetchPriorityOptionOrder(
-          config,
+          cycleConfig,
           config.priorityFieldName,
           fetchImpl
         )
@@ -486,10 +524,14 @@ export async function fetchProjectIssues(
     : null;
   let excludedCount = 0;
   let repositoryExcludedCount = 0;
-  let latestRateLimits: Record<string, unknown> | null = null;
+  let latestRateLimits: GitHubRateLimitPayload | null = null;
 
   do {
-    const pageResult = await fetchProjectItemsPage(config, cursor, fetchImpl);
+    const pageResult = await fetchProjectItemsPage(
+      cycleConfig,
+      cursor,
+      fetchImpl
+    );
     const page = pageResult.page;
     latestRateLimits = pageResult.rateLimits ?? latestRateLimits;
     const pageIssues = (page.nodes ?? []).flatMap((item) => {
@@ -559,13 +601,18 @@ export async function fetchProjectIssues(
     });
   }
 
+  latestRateLimits = finalizeGraphQLRateLimitCycle(
+    latestRateLimits,
+    cycleConfig.rateLimitCollector
+  );
   if (latestRateLimits) {
     for (const issue of issues) {
       issue.rateLimits = latestRateLimits;
     }
   }
+  (issues as TrackedIssueList).rateLimits = latestRateLimits;
 
-  return issues;
+  return issues as GitHubTrackedIssue[] & TrackedIssueList;
 }
 
 export async function fetchActionableIssues(
@@ -586,17 +633,19 @@ export async function fetchIssueStatesByIds(
   config: GitHubTrackerConfig,
   issueIds: readonly string[],
   fetchImpl: FetchLike = fetch
-): Promise<GitHubTrackedIssue[]> {
+): Promise<GitHubTrackedIssue[] & TrackedIssueList> {
   if (issueIds.length === 0) {
     return [];
   }
 
   const issues: GitHubTrackedIssue[] = [];
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
+  let latestRateLimits: GitHubRateLimitPayload | null = null;
 
   for (const issueIdBatch of chunkValues([...new Set(issueIds)], 100)) {
     const result =
       await executeGraphQLQueryWithMetadata<GraphQLIssueStatesByIdsResponse>(
-        config,
+        cycleConfig,
         ISSUE_STATES_BY_IDS_QUERY,
         {
           issueIds: issueIdBatch,
@@ -605,10 +654,11 @@ export async function fetchIssueStatesByIds(
       );
     const data = result.data;
     const rateLimits = result.rateLimits;
+    latestRateLimits = rateLimits ?? latestRateLimits;
 
     for (const node of data.nodes ?? []) {
       const projectItem = await resolveIssueProjectItemForStateLookup(
-        config,
+        cycleConfig,
         node,
         fetchImpl
       );
@@ -625,7 +675,16 @@ export async function fetchIssueStatesByIds(
     }
   }
 
-  return issues;
+  const rateLimits = finalizeGraphQLRateLimitCycle(
+    latestRateLimits,
+    cycleConfig.rateLimitCollector
+  );
+  for (const issue of issues) {
+    issue.rateLimits = rateLimits;
+  }
+  (issues as TrackedIssueList).rateLimits = rateLimits;
+
+  return issues as GitHubTrackedIssue[] & TrackedIssueList;
 }
 
 export async function fetchProjectIssueByRepositoryAndNumber(
@@ -637,17 +696,18 @@ export async function fetchProjectIssueByRepositoryAndNumber(
   issueNumber: number,
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue | null> {
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
   const priorityOptionIds =
     !config.priority && config.priorityFieldName
       ? await fetchPriorityOptionOrder(
-          config,
+          cycleConfig,
           config.priorityFieldName,
           fetchImpl
         )
       : undefined;
   const result =
     await executeGraphQLQueryWithMetadata<GraphQLRepositoryIssueLookupResponse>(
-      config,
+      cycleConfig,
       REPOSITORY_ISSUE_QUERY,
       {
         owner: repository.owner,
@@ -663,7 +723,7 @@ export async function fetchProjectIssueByRepositoryAndNumber(
   }
 
   const projectItem = await resolveIssueProjectItemForStateLookup(
-    config,
+    cycleConfig,
     issue,
     fetchImpl
   );
@@ -684,7 +744,10 @@ export async function fetchProjectIssueByRepositoryAndNumber(
         optionIds: priorityOptionIds,
       },
     },
-    result.rateLimits
+    finalizeGraphQLRateLimitCycle(
+      result.rateLimits,
+      cycleConfig.rateLimitCollector
+    )
   );
 }
 
@@ -694,7 +757,7 @@ async function fetchProjectItemsPage(
   fetchImpl: FetchLike
 ): Promise<{
   page: GraphQLProjectItemsPage;
-  rateLimits: Record<string, unknown> | null;
+  rateLimits: GitHubRateLimitPayload | null;
 }> {
   const result =
     await executeGraphQLQueryWithMetadata<GraphQLProjectItemsResponse>(
@@ -994,11 +1057,7 @@ function normalizeIssueStateLookupNode(
   }
 
   const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
-  const state = requireProjectItemState(
-    fieldValues,
-    lifecycle,
-    projectItem.id
-  );
+  const state = requireProjectItemState(fieldValues, lifecycle, projectItem.id);
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
   const url =
@@ -1581,7 +1640,15 @@ async function executeGraphQLQueryWithMetadata<TData>(
   }
 
   const data = payload.data as TData;
-  const rateLimits = extractGitHubRateLimits(response.headers);
+  const fieldRateLimits = extractGraphQLRateLimitField(payload.data.rateLimit);
+  const rateLimits = extractGitHubRateLimits(response.headers, fieldRateLimits);
+  if (fieldRateLimits && rateLimits) {
+    config.rateLimitCollector?.observations.push({
+      operationName: extractGraphQLOperationName(query),
+      rateLimit: fieldRateLimits,
+      payload: rateLimits,
+    });
+  }
   cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
   return {
     data,
@@ -1627,8 +1694,31 @@ function fingerprintToken(token: string): string {
 }
 
 function extractGitHubRateLimits(
-  headers: Pick<Headers, "get"> | null | undefined
+  headers: Pick<Headers, "get"> | null | undefined,
+  fieldRateLimits: GraphQLRateLimitField | null = null
 ): GitHubRateLimitPayload | null {
+  const headerRateLimits = extractGitHubRateLimitHeaders(headers);
+  if (!fieldRateLimits) {
+    return headerRateLimits;
+  }
+
+  return {
+    source: "github",
+    limit: headerRateLimits?.limit ?? null,
+    remaining: fieldRateLimits.remaining,
+    used: headerRateLimits?.used ?? null,
+    reset: headerRateLimits?.reset ?? null,
+    resetAt: fieldRateLimits.resetAt,
+    resource: headerRateLimits?.resource ?? "graphql",
+    cost: fieldRateLimits.cost,
+    fieldRateLimits,
+    headerRateLimits,
+  };
+}
+
+function extractGitHubRateLimitHeaders(
+  headers: Pick<Headers, "get"> | null | undefined
+): GitHubRateLimitHeaderPayload | null {
   if (!headers || typeof headers.get !== "function") {
     return null;
   }
@@ -1657,6 +1747,84 @@ function extractGitHubRateLimits(
     reset,
     resetAt: reset === null ? null : new Date(reset * 1000).toISOString(),
     resource,
+  };
+}
+
+function extractGraphQLRateLimitField(
+  value: GraphQLRateLimitField | null | undefined
+): GraphQLRateLimitField | null {
+  if (
+    !value ||
+    !Number.isFinite(value.cost) ||
+    !Number.isFinite(value.remaining) ||
+    typeof value.resetAt !== "string" ||
+    parseTimestampMs(value.resetAt) === null
+  ) {
+    return null;
+  }
+
+  return {
+    cost: value.cost,
+    remaining: value.remaining,
+    resetAt: value.resetAt,
+  };
+}
+
+function extractGraphQLOperationName(query: string): string {
+  return (
+    /\b(?:query|mutation)\s+([_A-Za-z][_0-9A-Za-z]*)/.exec(query)?.[1] ??
+    "Anonymous"
+  );
+}
+
+function beginGraphQLRateLimitCycle(
+  config: GitHubTrackerConfig
+): GitHubTrackerConfig {
+  return {
+    ...config,
+    rateLimitCollector: {
+      observations: [],
+    },
+  };
+}
+
+function finalizeGraphQLRateLimitCycle(
+  latestRateLimits: GitHubRateLimitPayload | null,
+  collector: GitHubRateLimitCollector | undefined
+): GitHubRateLimitPayload | null {
+  const observations = collector?.observations ?? [];
+  if (observations.length === 0) {
+    return latestRateLimits;
+  }
+
+  const queryCosts: NonNullable<GitHubRateLimitPayload["queryCosts"]> = {};
+  let cycleCost = 0;
+  for (const observation of observations) {
+    const previous = queryCosts[observation.operationName] ?? {
+      requestCount: 0,
+      cost: 0,
+    };
+    queryCosts[observation.operationName] = {
+      requestCount: previous.requestCount + 1,
+      cost: previous.cost + observation.rateLimit.cost,
+    };
+    cycleCost += observation.rateLimit.cost;
+  }
+
+  const latestObservation = observations.at(-1);
+  return {
+    ...(latestObservation?.payload ??
+      latestRateLimits ?? {
+        source: "github",
+        limit: null,
+        remaining: latestObservation?.rateLimit.remaining ?? null,
+        used: null,
+        reset: null,
+        resetAt: latestObservation?.rateLimit.resetAt ?? null,
+        resource: "graphql",
+      }),
+    cycleCost,
+    queryCosts,
   };
 }
 
@@ -1690,6 +1858,11 @@ export function resetGitHubRateLimitCacheForTests(): void {
 
 const PROJECT_ITEMS_QUERY = `
   query ProjectItems($projectId: ID!, $cursor: String, $pageSize: Int!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     node(id: $projectId) {
       __typename
       ... on ProjectV2 {
@@ -1824,6 +1997,11 @@ const PROJECT_ITEMS_QUERY = `
 
 const PROJECT_FIELDS_QUERY = `
   query ProjectFields($projectId: ID!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     node(id: $projectId) {
       __typename
       ... on ProjectV2 {
@@ -1846,6 +2024,11 @@ const PROJECT_FIELDS_QUERY = `
 
 const ISSUE_STATES_BY_IDS_QUERY = `
   query IssueStatesByIds($issueIds: [ID!]!) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     nodes(ids: $issueIds) {
       __typename
       ... on Issue {
@@ -1951,6 +2134,11 @@ const ISSUE_STATES_BY_IDS_QUERY = `
 
 const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
   query IssueProjectItemsPage($issueId: ID!, $cursor: String) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     node(id: $issueId) {
       __typename
       ... on Issue {
@@ -2056,6 +2244,11 @@ const ISSUE_PROJECT_ITEMS_PAGE_QUERY = `
 
 const ISSUE_COMMENTS_BY_ID_QUERY = `
   query IssueCommentsById($issueId: ID!, $cursor: String) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     node(id: $issueId) {
       __typename
       ... on Issue {
@@ -2104,6 +2297,11 @@ const REPOSITORY_ISSUE_QUERY = `
     $name: String!
     $issueNumber: Int!
   ) {
+    rateLimit {
+      cost
+      remaining
+      resetAt
+    }
     repository(owner: $owner, name: $name) {
       issue(number: $issueNumber) {
         __typename

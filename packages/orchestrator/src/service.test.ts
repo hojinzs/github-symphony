@@ -8614,6 +8614,17 @@ Handle Linear issue.`,
         limit: 1500,
         remaining: 1499,
         resource: "graphql",
+        cycleCost: 13,
+        queryCosts: {
+          ProjectFields: {
+            requestCount: 1,
+            cost: 2,
+          },
+          ProjectItems: {
+            requestCount: 1,
+            cost: 11,
+          },
+        },
       },
     };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
@@ -8669,6 +8680,17 @@ Handle Linear issue.`,
           rateLimits: expect.objectContaining({
             source: "linear",
             remaining: 1499,
+            cycleCost: 13,
+            queryCosts: {
+              ProjectFields: {
+                requestCount: 1,
+                cost: 2,
+              },
+              ProjectItems: {
+                requestCount: 1,
+                cost: 11,
+              },
+            },
           }),
         }),
         expect.objectContaining({
