@@ -3,6 +3,7 @@ import type {
   OrchestratorTrackerAdapter,
   OrchestratorTrackerDependencies,
   OrchestratorTrackerConfig,
+  TrackedIssueList,
 } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
@@ -27,9 +28,11 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     const normalizedStates = new Set(
       states.map((state) => state.trim().toLowerCase())
     );
-    return issues.filter((issue) =>
+    const filtered = issues.filter((issue) =>
       normalizedStates.has(issue.state.trim().toLowerCase())
-    );
+    ) as TrackedIssueList;
+    filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
+    return filtered;
   },
 
   async fetchIssueStatesByIds(project, issueIds, dependencies = {}) {

@@ -8614,6 +8614,17 @@ Handle Linear issue.`,
         limit: 1500,
         remaining: 1499,
         resource: "graphql",
+        cycleCost: 13,
+        queryCosts: {
+          ProjectFields: {
+            requestCount: 1,
+            cost: 2,
+          },
+          ProjectItems: {
+            requestCount: 1,
+            cost: 11,
+          },
+        },
       },
     };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
@@ -8669,6 +8680,17 @@ Handle Linear issue.`,
           rateLimits: expect.objectContaining({
             source: "linear",
             remaining: 1499,
+            cycleCost: 13,
+            queryCosts: {
+              ProjectFields: {
+                requestCount: 1,
+                cost: 2,
+              },
+              ProjectItems: {
+                requestCount: 1,
+                cost: 11,
+              },
+            },
           }),
         }),
         expect.objectContaining({
@@ -8735,6 +8757,31 @@ Handle Linear issue.`,
       lastError: null,
       nextRetryAt: null,
     });
+    await store.saveRun({
+      runId: "run-2",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "linear-issue-2",
+      issueSubjectId: "linear-issue-2",
+      issueIdentifier: "ENG-2",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4604,
+      workingDirectory: join(tempRoot, "active-run-2"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(tempRoot, "active-run-2", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
 
     const issue = {
       id: "linear-issue-1",
@@ -8766,10 +8813,35 @@ Handle Linear issue.`,
         resource: "graphql",
       },
     };
+    const secondIssue = {
+      ...issue,
+      id: "linear-issue-2",
+      identifier: "ENG-2",
+      number: 2,
+      title: "Second Linear issue",
+      tracker: {
+        ...issue.tracker,
+        itemId: "linear-issue-2",
+      },
+    };
+    const refreshedIssues = [issue, secondIssue] as TrackedIssueList;
+    refreshedIssues.rateLimits = {
+      source: "linear",
+      limit: 1500,
+      remaining: 1497,
+      resource: "graphql",
+      cycleCost: 5,
+      queryCosts: {
+        IssuesByIds: {
+          requestCount: 1,
+          cost: 5,
+        },
+      },
+    };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues: vi.fn().mockResolvedValue([]),
       listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue(refreshedIssues),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         LINEAR_ISSUE_ID: "linear-issue-1",
       }),
@@ -8783,14 +8855,20 @@ Handle Linear issue.`,
     await service.runOnce();
 
     const rawEvents = (
-      await readFile(
-        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
-        "utf8"
+      await Promise.all(
+        ["run-1", "run-2"].map((runId) =>
+          readFile(
+            join(store.runDir(runId, projectConfig.projectId), "events.ndjson"),
+            "utf8"
+          )
+        )
       )
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    ).flatMap((contents) =>
+      contents
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+    );
     expect(rawEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -8803,13 +8881,158 @@ Handle Linear issue.`,
             identifier: "ENG-1",
             id: "linear-issue-1",
           },
-          rateLimits: expect.objectContaining({
-            source: "linear",
-            remaining: 1498,
-          }),
         }),
       ])
     );
+    const fetchEvents = rawEvents.filter(
+      (event) => event.event === "tracker.fetchByIds"
+    );
+    expect(fetchEvents).toHaveLength(2);
+    expect(
+      fetchEvents.filter(
+        (event) =>
+          (event.rateLimits as Record<string, unknown> | null)?.cycleCost === 5
+      )
+    ).toHaveLength(1);
+    expect(
+      fetchEvents.filter((event) => event.rateLimits === null)
+    ).toHaveLength(1);
+  });
+
+  it("records tracker.list cost on an active run when no issue is dispatched", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-no-dispatch-list-cost-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: 4603,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    });
+
+    const issue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Active issue",
+      description: null,
+      priority: null,
+      state: "In progress",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: projectConfig.tracker.bindingId,
+        itemId: "issue-1",
+      },
+      metadata: {},
+      rateLimits: null,
+    };
+    const listedIssues = [issue] as TrackedIssueList;
+    listedIssues.rateLimits = {
+      source: "github",
+      limit: 5000,
+      remaining: 4989,
+      resource: "graphql",
+      cycleCost: 11,
+      queryCosts: {
+        ProjectItems: {
+          requestCount: 1,
+          cost: 11,
+        },
+      },
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue(listedIssues),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+      reviveIssue: vi.fn(),
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const events = (
+      await readFile(
+        join(
+          store.runDir("run-1", projectConfig.projectId),
+          "events.ndjson"
+        ),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const listEvents = events.filter((event) => event.event === "tracker.list");
+
+    expect(snapshot.summary.dispatched).toBe(0);
+    expect(listEvents).toEqual([
+      expect.objectContaining({
+        event: "tracker.list",
+        issue: {
+          identifier: "acme/platform#1",
+          id: "issue-1",
+        },
+        rateLimits: expect.objectContaining({
+          cycleCost: 11,
+          queryCosts: {
+            ProjectItems: {
+              requestCount: 1,
+              cost: 11,
+            },
+          },
+        }),
+      }),
+    ]);
   });
 
   it("uses empty tracker list rate limits in project snapshots", async () => {

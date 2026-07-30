@@ -827,6 +827,9 @@ describe("resolveTrackerAdapter", () => {
           ? (JSON.parse(init.body) as { query?: string })
           : {};
       expect(body.query).toContain("RepositoryIssue");
+      expect(body.query).toMatch(
+        /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+      );
       return new Response(
         JSON.stringify({
           data: {
@@ -1025,10 +1028,20 @@ describe("resolveTrackerAdapter", () => {
 
     expect(result).toBe("created");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const queryBody = JSON.parse(
+      String(fetchImpl.mock.calls[0]?.[1]?.body)
+    ) as { query: string };
+    expect(queryBody.query).toContain("query IssueCommentsById");
+    expect(queryBody.query).toMatch(
+      /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+    );
     const mutationBody = JSON.parse(
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation AddIssueComment");
+    expect(mutationBody.query).toMatch(
+      /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+    );
     expect(mutationBody.variables.subjectId).toBe("issue-1");
   });
 
@@ -1125,6 +1138,9 @@ describe("resolveTrackerAdapter", () => {
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation UpdateIssueComment");
+    expect(mutationBody.query).toMatch(
+      /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+    );
     expect(mutationBody.variables.commentId).toBe("comment-1");
   });
 
@@ -1773,7 +1789,7 @@ describe("resolveTrackerAdapter", () => {
     }
   });
 
-  it("attaches GitHub API rate-limit headers to listed issues", async () => {
+  it("records field-based GraphQL cost while retaining rate-limit headers", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
       bindingId: "project-123",
@@ -1806,6 +1822,11 @@ describe("resolveTrackerAdapter", () => {
           new Response(
             JSON.stringify({
               data: {
+                rateLimit: {
+                  cost: 11,
+                  remaining: 4988,
+                  resetAt: "2026-03-19T04:02:00.000Z",
+                },
                 node: {
                   __typename: "ProjectV2",
                   items: {
@@ -1828,8 +1849,8 @@ describe("resolveTrackerAdapter", () => {
               headers: {
                 "content-type": "application/json",
                 "x-ratelimit-limit": "5000",
-                "x-ratelimit-remaining": "4999",
-                "x-ratelimit-used": "1",
+                "x-ratelimit-remaining": "4987",
+                "x-ratelimit-used": "13",
                 "x-ratelimit-reset": "1773892800",
                 "x-ratelimit-resource": "graphql",
               },
@@ -1839,15 +1860,43 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issues).toHaveLength(1);
-    expect(issues[0]?.rateLimits).toEqual({
+    expect(issues.rateLimits).toEqual({
       source: "github",
       limit: 5000,
-      remaining: 4999,
-      used: 1,
+      remaining: 4988,
+      used: 13,
       reset: 1773892800,
-      resetAt: "2026-03-19T04:00:00.000Z",
+      resetAt: "2026-03-19T04:02:00.000Z",
       resource: "graphql",
+      cost: 11,
+      cycleCost: 11,
+      queryCosts: {
+        ProjectItems: {
+          requestCount: 1,
+          cost: 11,
+        },
+      },
+      fieldRateLimits: {
+        cost: 11,
+        remaining: 4988,
+        resetAt: "2026-03-19T04:02:00.000Z",
+      },
+      headerRateLimits: {
+        source: "github",
+        limit: 5000,
+        remaining: 4987,
+        used: 13,
+        reset: 1773892800,
+        resetAt: "2026-03-19T04:00:00.000Z",
+        resource: "graphql",
+      },
     });
+    expect(issues[0]?.rateLimits).toEqual(
+      expect.objectContaining({
+        cost: 11,
+      })
+    );
+    expect(issues[0]?.rateLimits).not.toHaveProperty("cycleCost");
   });
 
   it("waits for the cached GraphQL rate limit reset when exhausted", async () => {
@@ -2281,7 +2330,7 @@ describe("resolveTrackerAdapter", () => {
           fetchImpl,
         }
       )
-    ).resolves.toEqual([]);
+    ).resolves.toHaveLength(0);
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
@@ -2333,6 +2382,11 @@ describe("resolveTrackerAdapter", () => {
                     }),
                   ],
                   pageInfo: { endCursor: "cursor-1", hasNextPage: true },
+                  rateLimit: {
+                    cost: 7,
+                    remaining: 4999,
+                    resetAt: "2026-03-19T04:00:00.000Z",
+                  },
                   headers: {
                     "content-type": "application/json",
                     "x-ratelimit-limit": "5000",
@@ -2353,6 +2407,11 @@ describe("resolveTrackerAdapter", () => {
                     }),
                   ],
                   pageInfo: { endCursor: null, hasNextPage: false },
+                  rateLimit: {
+                    cost: 4,
+                    remaining: 4997,
+                    resetAt: "2026-03-19T04:01:00.000Z",
+                  },
                   headers: {
                     "content-type": "application/json",
                     "x-ratelimit-limit": "5000",
@@ -2366,6 +2425,7 @@ describe("resolveTrackerAdapter", () => {
           return new Response(
             JSON.stringify({
               data: {
+                rateLimit: page.rateLimit,
                 node: {
                   __typename: "ProjectV2",
                   items: {
@@ -2385,26 +2445,24 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issues).toHaveLength(2);
+    expect(issues.rateLimits).toEqual(
+      expect.objectContaining({
+        cost: 4,
+        cycleCost: 11,
+        queryCosts: {
+          ProjectItems: {
+            requestCount: 2,
+            cost: 11,
+          },
+        },
+      })
+    );
     expect(issues.map((issue) => issue.rateLimits)).toEqual([
-      {
-        source: "github",
-        limit: 5000,
-        remaining: 4997,
-        used: 3,
-        reset: 1773892860,
-        resetAt: "2026-03-19T04:01:00.000Z",
-        resource: "graphql",
-      },
-      {
-        source: "github",
-        limit: 5000,
-        remaining: 4997,
-        used: 3,
-        reset: 1773892860,
-        resetAt: "2026-03-19T04:01:00.000Z",
-        resource: "graphql",
-      },
+      expect.objectContaining({ cost: 7 }),
+      expect.objectContaining({ cost: 4 }),
     ]);
+    expect(issues[0]?.rateLimits).not.toHaveProperty("cycleCost");
+    expect(issues[1]?.rateLimits).not.toHaveProperty("cycleCost");
   });
 
   it("applies the default network timeout to GitHub API requests", async () => {
@@ -2693,12 +2751,20 @@ describe("resolveTrackerAdapter", () => {
         token: "dependencies-token",
         fetchImpl: async (_url, init) => {
           const body = JSON.parse(String(init?.body)) as { query: string };
+          expect(body.query).toMatch(
+            /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+          );
 
           if (body.query.includes("query ProjectFields")) {
             expect(body.query).toContain("fields(first: 100)");
             return new Response(
               JSON.stringify({
                 data: {
+                  rateLimit: {
+                    cost: 2,
+                    remaining: 4998,
+                    resetAt: "2026-03-19T04:00:00.000Z",
+                  },
                   node: {
                     __typename: "ProjectV2",
                     fields: {
@@ -2729,6 +2795,11 @@ describe("resolveTrackerAdapter", () => {
           return new Response(
             JSON.stringify({
               data: {
+                rateLimit: {
+                  cost: 11,
+                  remaining: 4987,
+                  resetAt: "2026-03-19T04:00:00.000Z",
+                },
                 node: {
                   __typename: "ProjectV2",
                   items: {
@@ -2758,6 +2829,21 @@ describe("resolveTrackerAdapter", () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0]?.priority).toBe(1);
+    expect(issues.rateLimits).toEqual(
+      expect.objectContaining({
+        cycleCost: 13,
+        queryCosts: {
+          ProjectFields: {
+            requestCount: 1,
+            cost: 2,
+          },
+          ProjectItems: {
+            requestCount: 1,
+            cost: 11,
+          },
+        },
+      })
+    );
   });
 
   it("maps priority using only non-null option entries and fetches field metadata once", async () => {
@@ -3664,11 +3750,19 @@ describe("resolveTrackerAdapter", () => {
           cursor?: string | null;
         };
       };
+      expect(body.query).toMatch(
+        /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
+      );
 
       if (body.query.includes("query IssueStatesByIds")) {
         return new Response(
           JSON.stringify({
             data: {
+              rateLimit: {
+                cost: 3,
+                remaining: 4997,
+                resetAt: "2026-03-19T04:00:00.000Z",
+              },
               nodes: [
                 makeIssueStateLookupNode({
                   projectId: "project-999",
@@ -3702,6 +3796,11 @@ describe("resolveTrackerAdapter", () => {
       return new Response(
         JSON.stringify({
           data: {
+            rateLimit: {
+              cost: 2,
+              remaining: 4995,
+              resetAt: "2026-03-19T04:00:00.000Z",
+            },
             node: {
               __typename: "Issue",
               id: "issue-1",
@@ -3773,6 +3872,21 @@ describe("resolveTrackerAdapter", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]?.tracker.itemId).toBe("item-1");
     expect(issues[0]?.state).toBe("Done");
+    expect(issues.rateLimits).toEqual(
+      expect.objectContaining({
+        cycleCost: 5,
+        queryCosts: {
+          IssueStatesByIds: {
+            requestCount: 1,
+            cost: 3,
+          },
+          IssueProjectItemsPage: {
+            requestCount: 1,
+            cost: 2,
+          },
+        },
+      })
+    );
   });
 
   it("paginates pull request projectItems until the configured project item is found", async () => {
