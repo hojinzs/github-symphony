@@ -46,7 +46,9 @@ describe("OrchestratorService", () => {
 
   it("passes runtime assignedOnly into tracker dependencies", () => {
     const service = new OrchestratorService(
-      {} as never,
+      {
+        projectDir: () => "/tmp/orchestrator/projects/tenant-1",
+      } as never,
       createProjectConfig("/tmp/orchestrator", {
         owner: "acme",
         name: "platform",
