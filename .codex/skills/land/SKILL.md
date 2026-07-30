@@ -68,8 +68,11 @@ All must pass before merging. If any fails, record the failure in the workpad an
 ## Failure Handling
 
 1. Record the exact failure (command, exit code, output excerpt, timestamp) in the workpad `### Progress Log`.
-2. If recoverable in this run (e.g. branch behind → run `/pull`), do so and re-run pre-flight from scratch.
-3. After **3 consecutive failures of the same step (same cause)**, stop: write a `⛔ Blocker` issue comment with what · why · how to unblock, leave the issue in `Land` (do **not** auto-transition to `Backlog` — Land failures are usually merge-policy issues, not code-blockers), and exit. A human resolves and either re-enters `Land` or moves the issue elsewhere.
+2. If immediately recoverable in this run (branch behind → run `/pull`), do so and re-run pre-flight from scratch. If `/pull` fails, classify that failure using step 5.
+3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. Classify it in the same run, close the Land cycle after the board update succeeds, and keep the standalone transition comment and workpad `### Status Transitions` line in sync.
+4. **Approval or wait-only failure** — no human `APPROVED` review, pending required CI, or another condition awaiting human/external review: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment. This is not a `⛔ Blocker`.
+5. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
+6. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and state the unblock condition in the workpad.
 
 ## Guardrails
 
@@ -78,4 +81,4 @@ All must pass before merging. If any fails, record the failure in the workpad an
 - Do not transition the issue to `Done` before the merge succeeds.
 - Do not call ProjectV2 GraphQL APIs directly; use `/gh-project`.
 - Do not modify the issue body.
-- Do not auto-move a failed Land to `Backlog` — leave the human-resolvable state visible.
+- Do not leave a non-recoverable failure in active `Land`; return it to `In review`, `Ready`, or `Backlog` according to Failure Handling.
