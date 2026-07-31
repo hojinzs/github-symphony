@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.7.0
+
+### Minor Changes
+
+- [#509](https://github.com/hojinzs/github-symphony/pull/509) [`49aa79f`](https://github.com/hojinzs/github-symphony/commit/49aa79faab85faf52360cc3ba83a7f1b6581e633) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Enforce issue identity at runtime ([#507](https://github.com/hojinzs/github-symphony/issues/507)). The engine now prepends an identity header binding every initial, continuation, and recovery turn to the run's issue regardless of the WORKFLOW.md template; workers fail closed at startup when the workspace origin, workspace key, or checked-out branch does not belong to the run's issue; codex events whose command cwd escapes the workspace boundary terminate the turn; dirty recovery workspaces whose branch or workpads belong to a different issue are quarantined (preserved under a `.quarantine-*` directory with a `recovery-quarantined` event) instead of being committed and pushed; and worker event logs append the untruncated event cwd so truncation can no longer fake a project-root working directory.
+
+### Patch Changes
+
+- [#509](https://github.com/hojinzs/github-symphony/pull/509) [`3d85cca`](https://github.com/hojinzs/github-symphony/commit/3d85ccadf81134f5a4b98048d9b9a657b6d4ffcf) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Forward run-scoped orchestrator context (`SYMPHONY_ORCHESTRATOR_URL`, `SYMPHONY_RUN_ID`, `SYMPHONY_ORCHESTRATOR_TOKEN`) through the Codex runtime plan so the agent-side `/gh-project` skill can authenticate tracker state reads and transition requests. The orchestrator injected these into the worker process since [#502](https://github.com/hojinzs/github-symphony/issues/502), but the codex app-server environment allowlist stripped them, so every run fail-closed on its first Project transition.
+
 ## 0.6.5
 
 ### Patch Changes
