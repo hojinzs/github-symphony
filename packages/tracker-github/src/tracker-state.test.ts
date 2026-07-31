@@ -68,7 +68,7 @@ describe("requestGithubProjectItemState", () => {
     expect(results).toHaveLength(5);
     expect(results.every((result) => result.ok)).toBe(true);
     expect(results.every((result) => result.state === "In review")).toBe(true);
-    expect(results.every((result) => result.rateLimits?.cycleCost === 4)).toBe(
+    expect(results.every((result) => result.rateLimits?.cycleCost === 3)).toBe(
       true
     );
     expect(maxInFlight).toBe(1);
@@ -333,10 +333,19 @@ function graphqlResponse(
     });
   }
   if (query.includes("mutation UpdateProjectItemState")) {
+    // GitHub's schema only defines rateLimit on Query; selecting it inside a
+    // mutation fails validation in production (see the v0.6.6 transition
+    // outage), so the mock enforces the same rule.
+    if (query.includes("rateLimit")) {
+      return jsonResponse({
+        errors: [
+          { message: "Field 'rateLimit' doesn't exist on type 'Mutation'" },
+        ],
+      });
+    }
     states.set(variables.itemId, "In review");
     return jsonResponse({
       data: {
-        rateLimit: rateLimit(),
         updateProjectV2ItemFieldValue: {
           projectV2Item: { id: variables.itemId },
         },
