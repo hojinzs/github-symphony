@@ -55,6 +55,22 @@ describe("resolveLocalRuntimeLaunchConfig", () => {
     });
   });
 
+  it("carries run-scoped orchestrator context from the environment", () => {
+    const config = resolveLocalRuntimeLaunchConfig({
+      PROJECT_ID: "workspace-local",
+      WORKING_DIRECTORY: "/tmp/workspace-local",
+      SYMPHONY_ORCHESTRATOR_URL: "http://127.0.0.1:4680",
+      SYMPHONY_RUN_ID: "run-abc",
+      SYMPHONY_ORCHESTRATOR_TOKEN: "token-secret",
+    });
+
+    expect(config).toMatchObject({
+      orchestratorUrl: "http://127.0.0.1:4680",
+      orchestratorRunId: "run-abc",
+      orchestratorToken: "token-secret",
+    });
+  });
+
   it("fails when the working directory is missing", () => {
     expect(() =>
       resolveLocalRuntimeLaunchConfig({
