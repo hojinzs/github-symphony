@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -516,6 +517,9 @@ describe("OrchestratorService", () => {
       issueWorkspacePath,
       existingWorkspace: false,
     });
+    execSync(`git -C ${shell(repositoryDirectory)} switch -c feat/1-partial`, {
+      encoding: "utf8",
+    });
     await store.saveIssueWorkspace({
       workspaceKey,
       projectId: projectConfig.projectId,
@@ -699,6 +703,198 @@ describe("OrchestratorService", () => {
     ).toContain("?? partial.txt");
   });
 
+  it("quarantines dirty recovery workspaces whose work belongs to another issue", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-quarantine-foreign-dirty-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    // Cross-issue contamination: the previous worker adopted issue #2 inside
+    // issue #1's workspace (#507 incident shape).
+    execSync(`git -C ${shell(repositoryDirectory)} switch -c fix/2-foreign`, {
+      encoding: "utf8",
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await mkdir(join(repositoryDirectory, ".gh-symphony", "workpads"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(repositoryDirectory, ".gh-symphony", "workpads", "2.md"),
+      "# workpad for issue 2\n",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-contaminated",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:04:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-contaminated",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In Review",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 4410,
+      port: 4601,
+      workingDirectory: repositoryDirectory,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir: join(tempRoot, "run-contaminated", "workspace"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:04:30.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      threadId: "thread-1",
+      cumulativeTurnCount: 7,
+      turnCount: 7,
+      lastEvent: "heartbeat",
+      lastEventAt: "2026-03-08T00:04:30.000Z",
+      runtimeSession: {
+        sessionId: "thread-1-turn-7",
+        threadId: "thread-1",
+        status: "active",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:04:30.000Z",
+        exitClassification: null,
+      },
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4411,
+      unref: vi.fn(),
+    });
+    let currentTime = new Date("2026-03-08T00:05:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "In Review")
+        )
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "In Review")
+        )
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
+      spawnImpl: spawnImpl as never,
+      isProcessRunning: (pid) => pid === 4410,
+      sendSignal: vi.fn(),
+      now: () => currentTime,
+    });
+
+    const suppressed = await service.runOnce();
+    expect(suppressed.summary.suppressed).toBe(1);
+
+    currentTime = new Date("2026-03-08T00:06:00.000Z");
+    const redispatched = await service.runOnce();
+    const runs = await store.loadAllRuns();
+    const freshRun = runs.find((run) => run.runId !== "run-contaminated");
+    const spawnEnv = spawnImpl.mock.calls[0]?.[2]?.env;
+
+    expect(redispatched.summary.dispatched).toBe(1);
+    expect(freshRun).toMatchObject({
+      status: "running",
+      retryKind: null,
+      recovery: null,
+    });
+    expect(spawnEnv?.SYMPHONY_RECOVERY_KIND).toBe("");
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "## Engine-Enforced Run Identity"
+    );
+    expect(spawnEnv?.SYMPHONY_RENDERED_PROMPT).not.toContain(
+      "## Recovery Context — Incomplete Turn Dirty Workspace"
+    );
+
+    // The contaminated workspace is preserved under a quarantine directory
+    // and the active workspace is a fresh, clean clone.
+    const workspaceParent = join(issueWorkspacePath, "..");
+    const quarantined = (await readdir(workspaceParent)).filter((entry) =>
+      entry.startsWith(`${workspaceKey}.quarantine-`)
+    );
+    expect(quarantined).toHaveLength(1);
+    expect(
+      await readFile(
+        join(
+          workspaceParent,
+          quarantined[0]!,
+          "repository",
+          ".gh-symphony",
+          "workpads",
+          "2.md"
+        ),
+        "utf8"
+      )
+    ).toBe("# workpad for issue 2\n");
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("");
+    expect(
+      execSync(
+        `git -C ${shell(repositoryDirectory)} rev-parse --abbrev-ref HEAD`,
+        { encoding: "utf8" }
+      ).trim()
+    ).not.toBe("fix/2-foreign");
+
+    const eventsRaw = await readFile(
+      join(store.runDir(freshRun!.runId, "tenant-1"), "events.ndjson"),
+      "utf8"
+    );
+    expect(eventsRaw).toContain('"event":"recovery-quarantined"');
+    expect(eventsRaw).toContain("fix/2-foreign");
+  });
+
   it("recovers a dirty workspace after a crash even when session metadata is stale", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -728,6 +924,9 @@ describe("OrchestratorService", () => {
       repository,
       issueWorkspacePath,
       existingWorkspace: false,
+    });
+    execSync(`git -C ${shell(repositoryDirectory)} switch -c feat/1-partial`, {
+      encoding: "utf8",
     });
     await store.saveIssueWorkspace({
       workspaceKey,
@@ -8881,9 +9080,7 @@ Handle archived item reconciliation.`,
       },
     };
     const listIssues = vi.fn().mockResolvedValue([archivedIssue]);
-    const fetchIssueStatesByIds = vi
-      .fn()
-      .mockResolvedValue([archivedIssue]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([archivedIssue]);
     const killImpl = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,

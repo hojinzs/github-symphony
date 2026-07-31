@@ -12,6 +12,7 @@ export * from "./workflow/parser.js";
 export * from "./workflow/loader.js";
 export * from "./workflow/render.js";
 export * from "./workflow/exit-classification.js";
+export * from "./workflow/issue-identity.js";
 export * from "./orchestration/index.js";
 export * from "./runtime/index.js";
 export * from "./workspace/index.js";

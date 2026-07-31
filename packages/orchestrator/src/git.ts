@@ -166,6 +166,47 @@ export async function inspectIssueWorkspaceDirtyStatus(input: {
   };
 }
 
+export async function readGitCurrentBranch(
+  repositoryDirectory: string
+): Promise<string | null> {
+  try {
+    const branch = await runCommandCapture("git", [
+      "-C",
+      repositoryDirectory,
+      "rev-parse",
+      "--abbrev-ref",
+      "HEAD",
+    ]);
+    const trimmed = branch.trim();
+    return trimmed && trimmed !== "HEAD" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Preserve a workspace whose dirty state cannot be attributed to the run's
+ * issue by renaming it out of the active workspace path. Returns the
+ * quarantine directory, or null when the workspace no longer exists.
+ */
+export async function quarantineIssueWorkspace(
+  issueWorkspacePath: string,
+  now: Date = new Date()
+): Promise<string | null> {
+  const timestamp = now.toISOString().replace(/[:.]/g, "-");
+  const quarantinePath = `${issueWorkspacePath}.quarantine-${timestamp}`;
+  try {
+    await rename(issueWorkspacePath, quarantinePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+
+  return quarantinePath;
+}
+
 export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
   _repository: RepositoryRef

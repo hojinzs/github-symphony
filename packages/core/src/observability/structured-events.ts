@@ -105,6 +105,19 @@ export type RunSuppressedEvent = {
   reason: string;
 };
 
+export type RecoveryQuarantinedEvent = {
+  at: string;
+  event: "recovery-quarantined";
+  projectId?: string;
+  issueIdentifier: string;
+  issueId?: string;
+  workspaceKey: string;
+  reason: string;
+  currentBranch: string | null;
+  quarantinePath: string | null;
+  dirtyFiles: string[];
+};
+
 export type HookExecutedEvent = {
   at: string;
   event: "hook-executed";
@@ -239,6 +252,7 @@ export type OrchestratorEvent =
   | RunRetriedEvent
   | RunFailedEvent
   | RunSuppressedEvent
+  | RecoveryQuarantinedEvent
   | HookExecutedEvent
   | HookFailedEvent
   | WorkspaceCleanupEvent
