@@ -1069,9 +1069,9 @@ describe("resolveTrackerAdapter", () => {
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation AddIssueComment");
-    expect(mutationBody.query).toMatch(
-      /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
-    );
+    // rateLimit only exists on the Query type; selecting it in a mutation
+    // fails GitHub schema validation.
+    expect(mutationBody.query).not.toContain("rateLimit");
     expect(mutationBody.variables.subjectId).toBe("issue-1");
   });
 
@@ -1168,9 +1168,9 @@ describe("resolveTrackerAdapter", () => {
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation UpdateIssueComment");
-    expect(mutationBody.query).toMatch(
-      /rateLimit\s*\{\s*cost\s+remaining\s+resetAt\s*\}/s
-    );
+    // rateLimit only exists on the Query type; selecting it in a mutation
+    // fails GitHub schema validation.
+    expect(mutationBody.query).not.toContain("rateLimit");
     expect(mutationBody.variables.commentId).toBe("comment-1");
   });
 
