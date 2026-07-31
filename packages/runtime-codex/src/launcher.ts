@@ -44,6 +44,9 @@ export function resolveLocalRuntimeLaunchConfig(
     linearAuthorization: env.LINEAR_AUTHORIZATION,
     linearGraphqlUrl: env.LINEAR_GRAPHQL_URL,
     agentCommand: env.SYMPHONY_AGENT_COMMAND,
+    orchestratorUrl: env.SYMPHONY_ORCHESTRATOR_URL,
+    orchestratorRunId: env.SYMPHONY_RUN_ID,
+    orchestratorToken: env.SYMPHONY_ORCHESTRATOR_TOKEN,
   };
 }
 

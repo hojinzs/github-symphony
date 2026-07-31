@@ -1,0 +1,172 @@
+/**
+ * Engine-owned issue identity enforcement (#507).
+ *
+ * The Symphony engine — not the repository WORKFLOW.md template — is
+ * responsible for telling the agent which issue a run is bound to, and for
+ * deciding whether dirty workspace artifacts belong to that issue before any
+ * recovery flow is allowed to commit and push them.
+ */
+
+export type IssueIdentityContext = {
+  issueIdentifier: string;
+  issueTitle?: string | null;
+  repositorySlug?: string | null;
+};
+
+/**
+ * Build the identity header the engine prepends to every turn input
+ * (initial, continuation, and recovery), independent of the workflow
+ * prompt template.
+ */
+export function buildIssueIdentityHeader(
+  context: IssueIdentityContext
+): string {
+  const subject = context.issueTitle?.trim()
+    ? `${context.issueIdentifier} — ${context.issueTitle.trim()}`
+    : context.issueIdentifier;
+  const location = context.repositorySlug?.trim()
+    ? ` in ${context.repositorySlug.trim()}`
+    : "";
+
+  return [
+    "## Engine-Enforced Run Identity",
+    "",
+    `This run is bound exclusively to issue ${subject}${location}.`,
+    "",
+    `- Work only on ${context.issueIdentifier}. Never adopt another issue as the active task, even if the tracker or project board shows a different issue as active or in progress.`,
+    "- Never create or switch to branches, workpads, commits, or pull requests that belong to a different issue.",
+    `- If tracker state appears to conflict with this assignment, keep working on ${context.issueIdentifier} and report a blocker instead of switching issues.`,
+  ].join("\n");
+}
+
+/**
+ * Extract the numeric issue number from a canonical issue identifier such as
+ * `owner/repo#507`, `#507`, or `507`. Returns null when the identifier does
+ * not end in a numeric fragment.
+ */
+export function extractIssueNumberFromIdentifier(
+  identifier: string
+): number | null {
+  const match = identifier.trim().match(/(?:^|#|\/)(\d{1,9})$/);
+  if (!match) {
+    return null;
+  }
+
+  return Number.parseInt(match[1]!, 10);
+}
+
+/**
+ * Extract issue numbers encoded in a branch name using the conventional
+ * `<prefix>/<issue-number>-<slug>` shape (for example `feat/507-identity`).
+ * Only numbers at the start of a slash-delimited segment and followed by a
+ * separator are considered, so version-like fragments such as `node-24`
+ * are ignored.
+ */
+export function extractIssueNumbersFromBranch(branch: string): number[] {
+  const numbers = new Set<number>();
+  for (const match of branch.matchAll(/(?:^|\/)(\d{1,9})(?=[-_/]|$)/g)) {
+    numbers.add(Number.parseInt(match[1]!, 10));
+  }
+
+  return [...numbers];
+}
+
+const WORKPAD_FILE_PATTERN = /(?:^|\/)\.gh-symphony\/workpads\/([^/]+)\.md$/;
+
+/**
+ * Extract issue numbers referenced by dirty workpad files
+ * (`.gh-symphony/workpads/<n>.md`).
+ */
+export function extractIssueNumbersFromWorkpadFiles(
+  dirtyFiles: string[]
+): number[] {
+  const numbers = new Set<number>();
+  for (const file of dirtyFiles) {
+    const match = file.match(WORKPAD_FILE_PATTERN);
+    if (!match) {
+      continue;
+    }
+    const numeric = match[1]!.match(/(\d{1,9})/);
+    if (numeric) {
+      numbers.add(Number.parseInt(numeric[1]!, 10));
+    }
+  }
+
+  return [...numbers];
+}
+
+export type DirtyWorkAttributionInput = {
+  issueIdentifier: string;
+  /** Current checked-out branch of the dirty workspace, when readable. */
+  currentBranch?: string | null;
+  dirtyFiles: string[];
+  /** Branches known to belong to this issue (for example the tracker-linked PR head). */
+  expectedBranches?: string[];
+};
+
+export type DirtyWorkAttribution = {
+  attributed: boolean;
+  reason: string;
+};
+
+/**
+ * Decide whether dirty workspace state can be attributed to the run's issue.
+ *
+ * Fail-closed: attribution requires positive evidence (the issue's own
+ * branch, a tracker-linked branch, or the issue's own workpad) and is
+ * always denied when any artifact references a different issue.
+ */
+export function attributeDirtyWorkToIssue(
+  input: DirtyWorkAttributionInput
+): DirtyWorkAttribution {
+  const issueNumber = extractIssueNumberFromIdentifier(input.issueIdentifier);
+  const branch = input.currentBranch?.trim() || null;
+  const branchNumbers = branch ? extractIssueNumbersFromBranch(branch) : [];
+  const workpadNumbers = extractIssueNumbersFromWorkpadFiles(input.dirtyFiles);
+
+  const foreignBranchNumbers = branchNumbers.filter(
+    (number) => number !== issueNumber
+  );
+  if (foreignBranchNumbers.length > 0) {
+    return {
+      attributed: false,
+      reason: `current branch '${branch}' references issue #${foreignBranchNumbers[0]} instead of ${input.issueIdentifier}`,
+    };
+  }
+
+  const foreignWorkpadNumbers = workpadNumbers.filter(
+    (number) => number !== issueNumber
+  );
+  if (foreignWorkpadNumbers.length > 0) {
+    return {
+      attributed: false,
+      reason: `dirty workpad references issue #${foreignWorkpadNumbers[0]} instead of ${input.issueIdentifier}`,
+    };
+  }
+
+  if (branch && input.expectedBranches?.includes(branch)) {
+    return {
+      attributed: true,
+      reason: `current branch '${branch}' is tracker-linked to ${input.issueIdentifier}`,
+    };
+  }
+
+  if (issueNumber !== null && branchNumbers.includes(issueNumber)) {
+    return {
+      attributed: true,
+      reason: `current branch '${branch}' references ${input.issueIdentifier}`,
+    };
+  }
+
+  if (issueNumber !== null && workpadNumbers.includes(issueNumber)) {
+    return {
+      attributed: true,
+      reason: `dirty workpad belongs to ${input.issueIdentifier}`,
+    };
+  }
+
+  return {
+    attributed: false,
+    reason: `no dirty artifact could be attributed to ${input.issueIdentifier}`,
+  };
+}

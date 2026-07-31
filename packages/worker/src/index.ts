@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  buildIssueIdentityHeader,
   classifySessionExit,
   DEFAULT_AGENT_INPUT_REQUIRED_REASON,
   parseWorkflowMarkdown,
@@ -53,6 +54,11 @@ import {
   resolveWorkerRuntimeRoute,
 } from "./runtime-routing.js";
 import { buildContinuationTurnInput } from "./thread-resume.js";
+import { runWorkerIdentityPreflight } from "./identity-preflight.js";
+import {
+  findCwdBoundaryViolation,
+  formatEventCwdSuffix,
+} from "./workspace-boundary.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import {
   acquireTurnLease,
@@ -490,6 +496,16 @@ function emitTurnFailedEvent(
 
 async function startAssignedRun() {
   try {
+    // #507: fail closed before launching any agent when the workspace does
+    // not belong to this run's issue (origin, workspace key, or branch).
+    const identityPreflight = await runWorkerIdentityPreflight(launcherEnv);
+    if (!identityPreflight.ok) {
+      await exitWorkerStartupFailure(
+        `Issue identity preflight failed: ${identityPreflight.reason}`
+      );
+      return;
+    }
+
     const workflowPath =
       launcherEnv.SYMPHONY_WORKFLOW_PATH ||
       join(launcherEnv.WORKING_DIRECTORY!, "WORKFLOW.md");
@@ -1438,6 +1454,24 @@ async function runCodexClientProtocol(
     // Track the timestamp of every server-initiated notification/event.
     // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
     runtimeState.lastEventAt = new Date().toISOString();
+
+    // #507 / spec §9.5: any command cwd escaping the workspace boundary is an
+    // identity violation — fail the turn closed instead of letting the agent
+    // keep operating outside this issue's workspace.
+    const boundaryViolation = findCwdBoundaryViolation(msg.params, plan.cwd);
+    if (boundaryViolation) {
+      const reason = `identity_violation: event cwd '${boundaryViolation}' escapes workspace '${plan.cwd}'`;
+      process.stderr.write(`[worker] ${reason}\n`);
+      emitOrchestratorChannelEvent("worker_identity_violation");
+      markTurnTerminalFailure("failed", reason);
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // The codex process may already be gone.
+      }
+      return;
+    }
+
     const agentEvents = normalizeCodexRuntimeEvents(msg);
     let handledAgentEvent = false;
     for (const event of agentEvents) {
@@ -1452,12 +1486,14 @@ async function runCodexClientProtocol(
       applyRateLimitUpdate(msg.method, rateLimits);
     }
 
-    // Log all other server notifications for observability
+    // Log all other server notifications for observability. The payload is
+    // truncated, but any event cwd is appended in full (#507): truncated
+    // workspace paths previously masqueraded as project-root cwds.
     if (typeof msg.method === "string") {
       flushDeltaBuffer();
       emitOrchestratorChannelEvent(msg.method);
       process.stderr.write(
-        `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}\n`
+        `[worker] codex → ${msg.method} ${JSON.stringify(msg.params ?? {}).slice(0, 300)}${formatEventCwdSuffix(msg.params)}\n`
       );
     }
   }
@@ -1616,12 +1652,21 @@ async function runCodexClientProtocol(
         `[worker] acquired turn lease ${turnCount}/${maxTurns} (expires=${lease.expiresAt})\n`
       );
 
+      // #507: continuation turns carry the engine-owned identity header so
+      // the agent never loses its issue binding after the initial prompt.
       const turnInput = isFirstTurn
         ? renderedPrompt
-        : buildContinuationTurnInput({
-            continuationGuidance,
-            cumulativeTurnCount: turn,
-          });
+        : [
+            buildIssueIdentityHeader({
+              issueIdentifier: issueIdentifier || "the assigned issue",
+              issueTitle: env.SYMPHONY_ISSUE_TITLE ?? null,
+            }),
+            "",
+            buildContinuationTurnInput({
+              continuationGuidance,
+              cumulativeTurnCount: turn,
+            }),
+          ].join("\n");
 
       process.stderr.write(
         `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`

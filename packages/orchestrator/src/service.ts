@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
+  attributeDirtyWorkToIssue,
   buildHookEnv,
+  buildIssueIdentityHeader,
   buildPromptVariables,
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
@@ -54,6 +56,8 @@ import {
   ensureIssueWorkspaceRepository,
   inspectIssueWorkspaceDirtyStatus,
   loadRepositoryWorkflow,
+  quarantineIssueWorkspace,
+  readGitCurrentBranch,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
@@ -1769,16 +1773,64 @@ export class OrchestratorService {
     );
     const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
 
+    // #507: dirty recovery may only reuse the workspace when the dirty state
+    // is attributable to this run's issue. Otherwise quarantine the workspace
+    // (preserving the foreign work for operators) and start from a fresh clone.
+    let recovery = options.recovery ?? null;
+    let workspaceQuarantined = false;
+    if (
+      recovery?.kind === "incomplete-turn-dirty-workspace" &&
+      existingWorkspaceRecord
+    ) {
+      const currentBranch = await readGitCurrentBranch(
+        join(issueWorkspacePath, "repository")
+      );
+      const attribution = attributeDirtyWorkToIssue({
+        issueIdentifier: issue.identifier,
+        currentBranch,
+        dirtyFiles: recovery.dirtyFiles,
+        expectedBranches: pullRequestBranch
+          ? [pullRequestBranch.headRefName]
+          : [],
+      });
+      if (!attribution.attributed) {
+        const quarantinePath = await quarantineIssueWorkspace(
+          issueWorkspacePath,
+          now
+        );
+        workspaceQuarantined = true;
+        recovery = null;
+        this.writeStderr(
+          `[orchestrator] quarantined dirty workspace for ${issue.identifier}: ${attribution.reason}`
+        );
+        await this.store.appendRunEvent(runId, {
+          at: now.toISOString(),
+          event: "recovery-quarantined",
+          projectId: tenant.projectId,
+          issueId: issue.id,
+          issueIdentifier: issue.identifier,
+          workspaceKey,
+          reason: attribution.reason,
+          currentBranch,
+          quarantinePath,
+          dirtyFiles: formatRecoveryDirtyFiles(
+            options.recovery?.dirtyFiles ?? []
+          ),
+        });
+      }
+    }
+
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
-      existingWorkspace: Boolean(existingWorkspaceRecord),
+      existingWorkspace:
+        Boolean(existingWorkspaceRecord) && !workspaceQuarantined,
       pullRequestBranch,
       allowDirtyExistingWorkspace:
-        options.recovery?.kind === "incomplete-turn-dirty-workspace",
+        recovery?.kind === "incomplete-turn-dirty-workspace",
     });
 
-    if (!existingWorkspaceRecord) {
+    if (!existingWorkspaceRecord || workspaceQuarantined) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
         projectId: tenant.projectId,
@@ -1834,10 +1886,11 @@ export class OrchestratorService {
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
     });
-    const renderedPrompt = appendIncompleteTurnRecoveryPrompt(
+    const renderedPrompt = composeWorkerRunPrompt(
+      issue,
       workflow.promptTemplate,
       promptVariables,
-      options.recovery ?? null
+      recovery
     );
 
     // Run before_run hook before spawning the worker
@@ -1940,12 +1993,11 @@ export class OrchestratorService {
           SYMPHONY_CUMULATIVE_OUTPUT_TOKENS: "0",
           SYMPHONY_CUMULATIVE_TOTAL_TOKENS: "0",
           SYMPHONY_LAST_TURN_SUMMARY: "",
-          SYMPHONY_RECOVERY_KIND: options.recovery?.kind ?? "",
-          SYMPHONY_RECOVERY_DIRTY_FILES: options.recovery
-            ? formatRecoveryDirtyFilesForContext(options.recovery.dirtyFiles)
+          SYMPHONY_RECOVERY_KIND: recovery?.kind ?? "",
+          SYMPHONY_RECOVERY_DIRTY_FILES: recovery
+            ? formatRecoveryDirtyFilesForContext(recovery.dirtyFiles)
             : "",
-          SYMPHONY_RECOVERY_SUGGESTED_COMMAND:
-            options.recovery?.suggestedCommand ?? "",
+          SYMPHONY_RECOVERY_SUGGESTED_COMMAND: recovery?.suggestedCommand ?? "",
           SYMPHONY_SESSION_STARTED_AT: "",
           SYMPHONY_READ_TIMEOUT_MS: String(runtimeTimeouts.readTimeoutMs),
           SYMPHONY_TURN_TIMEOUT_MS: String(runtimeTimeouts.turnTimeoutMs),
@@ -2079,7 +2131,7 @@ export class OrchestratorService {
       issueWorkspaceKey: workspaceKey,
       workspaceRuntimeDir,
       workflowPath: workflow.workflowPath,
-      retryKind: options.recovery ? "recovery" : null,
+      retryKind: recovery ? "recovery" : null,
       threadId: null,
       cumulativeTurnCount: 0,
       lastTurnSummary: null,
@@ -2091,7 +2143,7 @@ export class OrchestratorService {
       nextRetryAt: null,
       runPhase: "preparing_workspace",
       rateLimits: issue.rateLimits ?? null,
-      recovery: options.recovery ?? null,
+      recovery,
     };
   }
 
@@ -3967,17 +4019,25 @@ function buildRuntimeSession(
   };
 }
 
-function appendIncompleteTurnRecoveryPrompt(
+function composeWorkerRunPrompt(
+  issue: TrackedIssue,
   promptTemplate: string,
   promptVariables: ReturnType<typeof buildPromptVariables>,
   recovery: IncompleteTurnRecoveryContext | null
 ): string {
+  const identityHeader = buildIssueIdentityHeader({
+    issueIdentifier: issue.identifier,
+    issueTitle: issue.title,
+    repositorySlug: `${issue.repository.owner}/${issue.repository.name}`,
+  });
   const renderedPrompt = renderPrompt(promptTemplate, promptVariables);
   if (!recovery) {
-    return renderedPrompt;
+    return [identityHeader, "", renderedPrompt].join("\n");
   }
 
   return [
+    identityHeader,
+    "",
     renderedPrompt,
     "",
     "## Recovery Context — Incomplete Turn Dirty Workspace",
@@ -3992,7 +4052,7 @@ function appendIncompleteTurnRecoveryPrompt(
     "Dirty files:",
     ...formatRecoveryDirtyFileLinesForPrompt(recovery.dirtyFiles),
     "",
-    "Inspect the dirty diff before editing. If the partial work is correct, validate it, commit it, and push it. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.",
+    `Inspect the dirty diff before editing. This dirty state was attributed to ${issue.identifier}; if any artifact turns out to belong to a different issue, stop and record a blocker instead of committing it. If the partial work is correct, validate it, commit it, and push it to this issue's branch only. If it is invalid, revert it explicitly and record a blocker/comment with the reason. Do not discard uncommitted work without making an intentional recovery decision.`,
     `Suggested operator command: ${recovery.suggestedCommand}`,
   ].join("\n");
 }

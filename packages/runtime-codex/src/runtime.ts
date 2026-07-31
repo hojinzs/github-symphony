@@ -62,6 +62,10 @@ export type CodexRuntimeConfig = {
   extraEnv?: NodeJS.ProcessEnv;
   /** Command line to launch codex app-server. Parsed into argv and spawned without a shell. */
   agentCommand?: string;
+  /** Run-scoped orchestrator context required by worker skills such as /gh-project. */
+  orchestratorUrl?: string;
+  orchestratorRunId?: string;
+  orchestratorToken?: string;
 };
 
 export type CodexRuntimePlan = {
@@ -543,6 +547,17 @@ export function buildCodexRuntimePlan(
     config.agentCommand ?? "codex app-server"
   );
   const agentEnv = resolvePreparedAgentEnvironment(config.agentEnv);
+  const orchestratorRunEnv = {
+    ...(config.orchestratorUrl
+      ? { SYMPHONY_ORCHESTRATOR_URL: config.orchestratorUrl }
+      : {}),
+    ...(config.orchestratorRunId
+      ? { SYMPHONY_RUN_ID: config.orchestratorRunId }
+      : {}),
+    ...(config.orchestratorToken
+      ? { SYMPHONY_ORCHESTRATOR_TOKEN: config.orchestratorToken }
+      : {}),
+  };
   const linearGraphqlEnv = config.enableLinearGraphqlTool
     ? {
         LINEAR_GRAPHQL_TOOL_NAME: "linear_graphql",
@@ -582,6 +597,7 @@ export function buildCodexRuntimePlan(
         ...githubTool.args,
       ].join(" "),
       ...linearGraphqlEnv,
+      ...orchestratorRunEnv,
       ...agentEnv,
       ...gitCredentialHelper,
       ...Object.assign({}, ...tools.map((tool) => tool.env)),

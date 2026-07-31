@@ -148,6 +148,46 @@ describe("buildCodexRuntimePlan", () => {
     }
   });
 
+  it("forwards run-scoped orchestrator context to the agent environment", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      orchestratorUrl: "http://127.0.0.1:4680",
+      orchestratorRunId: "run-abc",
+      orchestratorToken: "token-secret",
+      agentEnv: {
+        OPENAI_API_KEY: "sk-ready-runtime",
+      },
+    });
+
+    expect(plan.env.SYMPHONY_ORCHESTRATOR_URL).toBe("http://127.0.0.1:4680");
+    expect(plan.env.SYMPHONY_RUN_ID).toBe("run-abc");
+    expect(plan.env.SYMPHONY_ORCHESTRATOR_TOKEN).toBe("token-secret");
+  });
+
+  it("omits run-scoped orchestrator context when it is absent or empty", () => {
+    process.env.SYMPHONY_ORCHESTRATOR_TOKEN = "process-secret";
+
+    try {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: "/tmp/workspace-123",
+        orchestratorUrl: "",
+        orchestratorRunId: "",
+        orchestratorToken: "",
+        agentEnv: {
+          OPENAI_API_KEY: "sk-ready-runtime",
+        },
+      });
+
+      expect(plan.env.SYMPHONY_ORCHESTRATOR_URL).toBeUndefined();
+      expect(plan.env.SYMPHONY_RUN_ID).toBeUndefined();
+      expect(plan.env.SYMPHONY_ORCHESTRATOR_TOKEN).toBeUndefined();
+    } finally {
+      delete process.env.SYMPHONY_ORCHESTRATOR_TOKEN;
+    }
+  });
+
   it("exposes linear_graphql only when enabled for Linear tracker sessions", () => {
     const nonLinearPlan = buildCodexRuntimePlan({
       projectId: "workspace-123",
