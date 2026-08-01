@@ -8818,6 +8818,15 @@ Prefer focused changes.
       listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
     );
     expect(listIssues).toHaveBeenCalledTimes(1);
+    expect(listIssues).toHaveBeenCalledWith(
+      projectConfig,
+      expect.objectContaining({
+        workflowLifecycle: expect.objectContaining({
+          activeStates: ["Todo", "In Progress"],
+          terminalStates: ["Done"],
+        }),
+      })
+    );
     expect(snapshot.activeRuns[0]?.issueState).toBe("In Progress");
     expect(updatedRun?.issueState).toBe("In Progress");
   });

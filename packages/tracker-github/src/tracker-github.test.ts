@@ -1489,6 +1489,221 @@ describe("resolveTrackerAdapter", () => {
     );
   });
 
+  it("excludes terminal states with a negative Project V2 query and logs before/after counts", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    try {
+      const issues = await adapter.listIssues(makeProjectConfig(), {
+        token: "dependencies-token",
+        workflowLifecycle: {
+          stateFieldName: "Status",
+          activeStates: ["Ready", "In progress", "Land"],
+          terminalStates: ["Done", "Won't Do"],
+          blockerCheckStates: ["Ready"],
+          planningStates: ["Ready"],
+        },
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            query: string;
+            variables: {
+              query: string | null;
+              includeUnfilteredCount: boolean;
+            };
+          };
+          expect(body.query).toContain("$query: String");
+          expect(body.query).toContain(
+            "items(first: $pageSize, after: $cursor, query: $query)"
+          );
+          expect(body.variables.query).toBe(`-status:Done,"Won't Do"`);
+          expect(body.variables.includeUnfilteredCount).toBe(true);
+
+          return makeJsonResponse({
+            data: {
+              node: {
+                __typename: "ProjectV2",
+                unfilteredItems: {
+                  totalCount: 90,
+                },
+                items: {
+                  totalCount: 2,
+                  nodes: [
+                    makeProjectItem({
+                      itemId: "item-ready",
+                      issueId: "issue-ready",
+                      number: 1,
+                      title: "Ready issue",
+                      assignees: [],
+                      state: "Ready",
+                    }),
+                    makeProjectItem({
+                      itemId: "item-progress",
+                      issueId: "issue-progress",
+                      number: 2,
+                      title: "Active run issue",
+                      assignees: [],
+                      state: "In progress",
+                    }),
+                  ],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          });
+        },
+      });
+
+      expect(issues.map((issue) => issue.state)).toEqual([
+        "Ready",
+        "In progress",
+      ]);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '"event":"tracker-project-items-state-filtered"'
+        )
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"unfilteredCount":90')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"filteredCount":2')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"excludedCount":88')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it("falls back to unfiltered project items for a custom lifecycle state field", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      workflowLifecycle: {
+        stateFieldName: "Stage",
+        activeStates: ["Ready", "In progress"],
+        terminalStates: ["Done"],
+        blockerCheckStates: ["Ready"],
+        planningStates: ["Ready"],
+      },
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          variables: {
+            query: string | null;
+            includeUnfilteredCount: boolean;
+          };
+        };
+        expect(body.variables.query).toBeNull();
+        expect(body.variables.includeUnfilteredCount).toBe(false);
+
+        return makeJsonResponse(
+          makeProjectItemsPayload([
+            makeProjectItem({
+              itemId: "item-ready",
+              issueId: "issue-ready",
+              number: 1,
+              title: "Ready issue with custom state field",
+              assignees: [],
+              state: "Ready",
+              stateFieldName: "Stage",
+            }),
+          ])
+        );
+      },
+    });
+
+    expect(issues.map((issue) => issue.state)).toEqual(["Ready"]);
+  });
+
+  it("fails loudly instead of excluding a state configured as active and terminal", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      adapter.listIssues(makeProjectConfig(), {
+        token: "dependencies-token",
+        workflowLifecycle: {
+          stateFieldName: "Status",
+          activeStates: ["Ready", "In progress"],
+          terminalStates: ["Done", "ready"],
+          blockerCheckStates: ["Ready"],
+          planningStates: ["Ready"],
+        },
+        fetchImpl,
+      })
+    ).rejects.toThrow('state "ready" cannot be both active and terminal');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit state lookups unfiltered when candidate lifecycle filtering is enabled", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssuesByStates(
+      makeProjectConfig(),
+      ["Done"],
+      {
+        token: "dependencies-token",
+        workflowLifecycle: {
+          stateFieldName: "Status",
+          activeStates: ["Ready", "In progress"],
+          terminalStates: ["Done"],
+          blockerCheckStates: ["Ready"],
+          planningStates: ["Ready"],
+        },
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            variables: {
+              query: string | null;
+              includeUnfilteredCount: boolean;
+            };
+          };
+          expect(body.variables.query).toBeNull();
+          expect(body.variables.includeUnfilteredCount).toBe(false);
+          return makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-done",
+                issueId: "issue-done",
+                number: 3,
+                title: "Done issue",
+                assignees: [],
+                state: "Done",
+              }),
+            ])
+          );
+        },
+      }
+    );
+
+    expect(issues.map((issue) => issue.state)).toEqual(["Done"]);
+  });
+
   it("falls back to legacy assignedOnly tracker setting with a deprecation warning", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -4473,6 +4688,7 @@ function makeProjectItem(input: {
   title: string;
   assignees: string[];
   state?: string;
+  stateFieldName?: string;
   labels?: string[];
   priorityName?: string;
   priorityOptionId?: string;
@@ -4493,7 +4709,7 @@ function makeProjectItem(input: {
         {
           __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
           name: input.state ?? "Todo",
-          field: { name: "Status" },
+          field: { name: input.stateFieldName ?? "Status" },
         },
         ...(input.priorityOptionId
           ? [

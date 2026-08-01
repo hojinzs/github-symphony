@@ -223,6 +223,7 @@ type GraphQLUpdateIssueCommentResponse = {
 };
 
 type GraphQLProjectItemsPage = {
+  totalCount?: number;
   nodes: Array<GraphQLProjectItem | null> | null;
   pageInfo: {
     endCursor: string | null;
@@ -234,6 +235,9 @@ type GraphQLProjectItemsResponse = {
   node?: {
     __typename?: string;
     items?: GraphQLProjectItemsPage;
+    unfilteredItems?: {
+      totalCount?: number;
+    };
   } | null;
 };
 
@@ -542,10 +546,12 @@ export async function fetchProjectIssues(
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[] & TrackedIssueList> {
   const cycleConfig = beginGraphQLRateLimitCycle(config);
-  // GitHub Project V2 does not expose query-time item filtering by workflow
-  // state, so callers must fetch the project items and filter in memory.
+  const stateFilterQuery = buildTerminalStatesQuery(config.lifecycle);
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
+  let pageCount = 0;
+  let unfilteredCount: number | null = null;
+  let filteredCount: number | null = null;
   const priorityOptionIds =
     !config.priority && config.priorityFieldName
       ? await fetchPriorityOptionOrder(
@@ -565,9 +571,13 @@ export async function fetchProjectIssues(
     const pageResult = await fetchProjectItemsPage(
       cycleConfig,
       cursor,
+      stateFilterQuery,
       fetchImpl
     );
+    pageCount += 1;
     const page = pageResult.page;
+    unfilteredCount = pageResult.unfilteredCount ?? unfilteredCount;
+    filteredCount = page.totalCount ?? filteredCount;
     latestRateLimits = pageResult.rateLimits ?? latestRateLimits;
     const pageIssues = (page.nodes ?? []).flatMap((item) => {
       if (!item) {
@@ -617,6 +627,16 @@ export async function fetchProjectIssues(
     issues.push(...pageIssues);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
+
+  if (stateFilterQuery && unfilteredCount !== null && filteredCount !== null) {
+    emitProjectItemsStateFilterEvent({
+      projectId: config.projectId,
+      query: stateFilterQuery,
+      unfilteredCount,
+      filteredCount,
+      pageCount,
+    });
+  }
 
   if (currentUserLogin) {
     emitAssignedOnlyFilterEvent({
@@ -1132,10 +1152,12 @@ export async function fetchProjectIssueByRepositoryAndNumber(
 async function fetchProjectItemsPage(
   config: GitHubTrackerConfig,
   cursor: string | null,
+  query: string | null,
   fetchImpl: FetchLike
 ): Promise<{
   page: GraphQLProjectItemsPage;
   rateLimits: GitHubRateLimitPayload | null;
+  unfilteredCount: number | null;
 }> {
   const result =
     await executeGraphQLQueryWithMetadata<GraphQLProjectItemsResponse>(
@@ -1145,6 +1167,8 @@ async function fetchProjectItemsPage(
         projectId: config.projectId,
         cursor,
         pageSize: config.pageSize ?? DEFAULT_PAGE_SIZE,
+        query,
+        includeUnfilteredCount: cursor === null && query !== null,
       },
       fetchImpl
     );
@@ -1160,6 +1184,7 @@ async function fetchProjectItemsPage(
   return {
     page: items,
     rateLimits: result.rateLimits,
+    unfilteredCount: data.node?.unfilteredItems?.totalCount ?? null,
   };
 }
 
@@ -1630,6 +1655,75 @@ function emitRepositoryFilterEvent(input: {
       excludedCount: input.excludedCount,
     })
   );
+}
+
+function emitProjectItemsStateFilterEvent(input: {
+  projectId: string;
+  query: string;
+  unfilteredCount: number;
+  filteredCount: number;
+  pageCount: number;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "tracker-project-items-state-filtered",
+      projectId: input.projectId,
+      query: input.query,
+      unfilteredCount: input.unfilteredCount,
+      filteredCount: input.filteredCount,
+      excludedCount: input.unfilteredCount - input.filteredCount,
+      pageCount: input.pageCount,
+    })
+  );
+}
+
+function buildTerminalStatesQuery(
+  lifecycle: WorkflowLifecycleConfig | undefined
+): string | null {
+  if (!lifecycle) {
+    return null;
+  }
+
+  if (lifecycle.stateFieldName.trim().toLowerCase() !== "status") {
+    return null;
+  }
+
+  const activeStates = new Set(
+    lifecycle.activeStates.map((state) => state.trim().toLowerCase())
+  );
+  const terminalStates = new Map<string, string>();
+  for (const state of lifecycle.terminalStates) {
+    const trimmedState = state.trim();
+    if (!trimmedState) {
+      continue;
+    }
+
+    const normalizedState = trimmedState.toLowerCase();
+    if (activeStates.has(normalizedState)) {
+      throw new GitHubTrackerQueryError(
+        `Workflow state "${trimmedState}" cannot be both active and terminal.`
+      );
+    }
+    if (!terminalStates.has(normalizedState)) {
+      terminalStates.set(normalizedState, trimmedState);
+    }
+  }
+
+  if (terminalStates.size === 0) {
+    return null;
+  }
+
+  return `-status:${[...terminalStates.values()]
+    .map(formatProjectQueryValue)
+    .join(",")}`;
+}
+
+function formatProjectQueryValue(value: string): string {
+  if (/^[A-Za-z0-9_-]+$/.test(value)) {
+    return value;
+  }
+
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function extractFieldValues(
@@ -2231,7 +2325,7 @@ function resolveNetworkTimeoutMs(timeoutMs?: number): number {
 async function executeGraphQLQuery<TData>(
   config: GitHubTrackerConfig,
   query: string,
-  variables: Record<string, string | number | string[] | null>,
+  variables: Record<string, string | number | boolean | string[] | null>,
   fetchImpl: FetchLike
 ): Promise<TData> {
   const result = await executeGraphQLQueryWithMetadata<TData>(
@@ -2246,7 +2340,7 @@ async function executeGraphQLQuery<TData>(
 async function executeGraphQLQueryWithMetadata<TData>(
   config: GitHubTrackerConfig,
   query: string,
-  variables: Record<string, string | number | string[] | null>,
+  variables: Record<string, string | number | boolean | string[] | null>,
   fetchImpl: FetchLike
 ): Promise<{
   data: TData;
@@ -2529,7 +2623,13 @@ export function resetGitHubRateLimitCacheForTests(): void {
 }
 
 const PROJECT_ITEMS_QUERY = `
-  query ProjectItems($projectId: ID!, $cursor: String, $pageSize: Int!) {
+  query ProjectItems(
+    $projectId: ID!
+    $cursor: String
+    $pageSize: Int!
+    $query: String
+    $includeUnfilteredCount: Boolean!
+  ) {
     rateLimit {
       cost
       remaining
@@ -2538,7 +2638,11 @@ const PROJECT_ITEMS_QUERY = `
     node(id: $projectId) {
       __typename
       ... on ProjectV2 {
-        items(first: $pageSize, after: $cursor) {
+        unfilteredItems: items(first: 1) @include(if: $includeUnfilteredCount) {
+          totalCount
+        }
+        items(first: $pageSize, after: $cursor, query: $query) {
+          totalCount
           nodes {
             id
             updatedAt
