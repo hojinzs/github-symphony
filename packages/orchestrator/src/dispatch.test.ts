@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,10 @@ import type {
   TrackedIssue,
   TrackedPullRequestContext,
   IssueWorkspaceRecord,
+} from "@gh-symphony/core";
+import {
+  deriveIssueWorkspaceKey,
+  resolveIssueWorkspaceDirectory,
 } from "@gh-symphony/core";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as trackerAdapters from "./tracker-adapters.js";
@@ -889,6 +893,222 @@ describe("targeted canonical subject dispatch", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not suppress an unrelated active run during targeted reconciliation", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-active-run-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const targetIssue = makeIssue({
+      id: "issue-7",
+      identifier: "acme/platform#7",
+      number: 7,
+      state: "In review",
+      repository,
+    });
+    const activeIssue = makeIssue({
+      id: "issue-8",
+      identifier: "acme/platform#8",
+      number: 8,
+      state: "Todo",
+      repository,
+    });
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: activeIssue.id,
+        identifier: activeIssue.identifier,
+        workspaceKey: "acme-platform-8",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-active-8",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun(
+      makeRun({
+        runId: "run-active-8",
+        issueId: activeIssue.id,
+        issueSubjectId: activeIssue.id,
+        issueIdentifier: activeIssue.identifier,
+        issueState: activeIssue.state,
+        repository,
+        processId: 5400,
+        issueWorkspaceKey: "acme-platform-8",
+      })
+    );
+
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(repository, [targetIssue, activeIssue])
+    );
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      killImpl,
+      isProcessRunning: vi.fn().mockReturnValue(true),
+      spawnImpl: vi.fn() as never,
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: targetIssue.identifier,
+    });
+
+    expect(result.summary.suppressed).toBe(0);
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(
+      await store.loadRun("run-active-8", projectConfig.projectId)
+    ).toEqual(
+      expect.objectContaining({
+        status: "running",
+        processId: 5400,
+      })
+    );
+    expect(
+      await store.loadProjectIssueOrchestrations(projectConfig.projectId)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: activeIssue.id,
+          state: "running",
+          currentRunId: "run-active-8",
+        }),
+      ])
+    );
+  });
+
+  it("uses each repository lifecycle for targeted terminal reconciliation", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-targeted-terminal-lifecycle-")
+    );
+    const defaultRepository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const alternateRepository = await createRepositoryFixture(
+      tempRoot,
+      "other",
+      "service",
+      { activeStates: ["Doing"], terminalStates: ["Closed"] }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      defaultRepository.cloneUrl,
+      defaultRepository.owner,
+      defaultRepository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const defaultIssue = makeIssue({
+      id: "issue-default",
+      identifier: "acme/platform#9",
+      number: 9,
+      state: "Done",
+      repository: defaultRepository,
+    });
+    const targetIssue = makeIssue({
+      id: "issue-target",
+      identifier: "other/service#10",
+      number: 10,
+      state: "Closed",
+      repository: alternateRepository,
+    });
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: targetIssue.id,
+      },
+      targetIssue.identifier
+    );
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace(
+      makeIssueWorkspace({
+        workspaceKey,
+        issueSubjectId: targetIssue.id,
+        issueIdentifier: targetIssue.identifier,
+        workspacePath,
+        repositoryPath,
+      })
+    );
+    await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+      {
+        issueId: targetIssue.id,
+        identifier: targetIssue.identifier,
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-target-10",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun(
+      makeRun({
+        runId: "run-target-10",
+        issueId: targetIssue.id,
+        issueSubjectId: targetIssue.id,
+        issueIdentifier: targetIssue.identifier,
+        issueState: "Doing",
+        repository: alternateRepository,
+        processId: 5401,
+        issueWorkspaceKey: workspaceKey,
+      })
+    );
+
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(
+      createDispatchAdapter(defaultRepository, [defaultIssue, targetIssue])
+    );
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+      killImpl,
+      isProcessRunning: vi.fn().mockReturnValue(true),
+      spawnImpl: vi.fn() as never,
+    });
+
+    const result = await service.runOnce({
+      issueIdentifier: targetIssue.identifier,
+    });
+
+    expect(result.summary.suppressed).toBe(1);
+    expect(killImpl).toHaveBeenCalledWith(5401, "SIGTERM");
+    expect(
+      await store.loadRun("run-target-10", projectConfig.projectId)
+    ).toEqual(
+      expect.objectContaining({
+        status: "suppressed",
+        lastError:
+          "Run suppressed because the tracker issue moved to a terminal state.",
+      })
+    );
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(
+      await store.loadIssueWorkspace(projectConfig.projectId, workspaceKey)
+    ).toEqual(expect.objectContaining({ status: "removed" }));
+  });
+
   it("dispatches the canonical Issue when targeting a linked PR identifier", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-targeted-pr-"));
     const repository = await createRepositoryFixture(
@@ -1517,6 +1737,7 @@ async function createRepositoryFixture(
   name: string,
   options: {
     activeStates?: string[];
+    terminalStates?: string[];
     maxConcurrentByState?: Record<string, number>;
     codex?: {
       approvalPolicy?: string;
@@ -1566,7 +1787,11 @@ async function writeWorkflowFixture(
   } = {}
 ): Promise<void> {
   const activeStates = options.activeStates ?? ["Todo", "In Progress"];
+  const terminalStates = options.terminalStates ?? ["Done"];
   const activeStateLines = activeStates
+    .map((state) => `    - ${state}`)
+    .join("\n");
+  const terminalStateLines = terminalStates
     .map((state) => `    - ${state}`)
     .join("\n");
   const maxConcurrentByState = options.maxConcurrentByState
@@ -1607,7 +1832,7 @@ tracker:
   active_states:
 ${activeStateLines}
   terminal_states:
-    - Done
+${terminalStateLines}
   blocker_check_states:
     - Todo
 hooks:

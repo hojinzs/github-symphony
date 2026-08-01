@@ -892,23 +892,43 @@ export class OrchestratorService {
         trackerDependencies
       );
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
-      const filteredIssues = issueIdentifier
+      const {
+        candidates: trackedActionableIssues,
+        lifecyclesByIssueIdentifier,
+      } = await this.resolveActionableCandidates(tenant, canonicalIssues);
+      const resolveTrackedIssueLifecycle = async (
+        issue: TrackedIssue
+      ): Promise<WorkflowLifecycleConfig | null> => {
+        const cached = lifecyclesByIssueIdentifier.get(issue.identifier);
+        if (cached) {
+          return cached;
+        }
+        const resolved = await this.resolveIssueLifecycle(tenant, issue);
+        if (resolved) {
+          lifecyclesByIssueIdentifier.set(issue.identifier, resolved);
+        }
+        return resolved;
+      };
+      const actionableCandidates = issueIdentifier
+        ? trackedActionableIssues.filter((issue: TrackedIssue) =>
+            matchesTargetIssueIdentifier(issue, issueIdentifier)
+          )
+        : trackedActionableIssues;
+      const targetedIssues = issueIdentifier
         ? canonicalIssues.filter((issue: TrackedIssue) =>
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : canonicalIssues;
-      const { candidates: actionableCandidates, lifecycle } =
-        await this.resolveActionableCandidates(tenant, filteredIssues);
       await this.publishLinkedPullRequestActiveAdvisories(
         tenant,
         trackerAdapter,
-        filteredIssues,
+        targetedIssues,
         trackerDependencies
       );
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         syncedIssuesByIdentifier
       );
-      for (const issue of filteredIssues) {
+      for (const issue of canonicalIssues) {
         const existing = trackedIssuesByIdentifier.get(issue.identifier);
         trackedIssuesByIdentifier.set(issue.identifier, {
           ...(existing ?? issue),
@@ -1167,7 +1187,7 @@ export class OrchestratorService {
           suppressed += 1;
           continue;
         }
-        const resolvedIssue = actionableCandidates.find(
+        const resolvedIssue = trackedActionableIssues.find(
           (candidate) => candidate.identifier === issue.identifier
         );
         if (resolvedIssue) {
@@ -1179,9 +1199,11 @@ export class OrchestratorService {
           this.retireWorkerPid(activeRun.processId);
         }
         if (activeRun) {
+          const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
           const terminalState =
             !isArchivedProjectItem(issue) &&
-            isStateTerminal(issue.state, lifecycle);
+            issueLifecycle !== null &&
+            isStateTerminal(issue.state, issueLifecycle);
           const recovery = terminalState
             ? null
             : await this.classifyIncompleteTurnDirtyWorkspace(
@@ -1231,9 +1253,11 @@ export class OrchestratorService {
 
       const terminalIssuesByIdentifier = new Map<string, TrackedIssue>();
       for (const issue of trackedIssuesByIdentifier.values()) {
+        const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
         if (
           isArchivedProjectItem(issue) ||
-          !isStateTerminal(issue.state, lifecycle)
+          issueLifecycle === null ||
+          !isStateTerminal(issue.state, issueLifecycle)
         ) {
           continue;
         }
@@ -1557,51 +1581,40 @@ export class OrchestratorService {
     issues: TrackedIssue[]
   ): Promise<{
     candidates: TrackedIssue[];
-    lifecycle: WorkflowLifecycleConfig;
+    lifecyclesByIssueIdentifier: Map<string, WorkflowLifecycleConfig>;
   }> {
     const candidates: TrackedIssue[] = [];
-    let lifecycle: WorkflowLifecycleConfig | null = null;
+    const lifecyclesByIssueIdentifier = new Map<
+      string,
+      WorkflowLifecycleConfig
+    >();
 
     for (const issue of issues) {
-      const resolution = await this.loadProjectWorkflow(
-        tenant,
-        issue.repository
-      );
-      if (!isUsableWorkflowResolution(resolution)) {
+      const lifecycle = await this.resolveIssueLifecycle(tenant, issue);
+      if (!lifecycle) {
         continue;
       }
-      if (!lifecycle) {
-        lifecycle = resolution.lifecycle;
-      }
+      lifecyclesByIssueIdentifier.set(issue.identifier, lifecycle);
 
-      if (!this.isIssueCandidateEligible(issue, resolution.lifecycle, issues)) {
+      if (!this.isIssueCandidateEligible(issue, lifecycle, issues)) {
         continue;
       }
 
       candidates.push(issue);
     }
 
-    // If no issues were processed, load lifecycle from the configured repo.
-    if (!lifecycle) {
-      const resolution = await this.loadProjectWorkflow(
-        tenant,
-        tenant.repository
-      );
-      if (isUsableWorkflowResolution(resolution)) {
-        lifecycle = resolution.lifecycle;
-      }
-    }
-
     return {
       candidates,
-      lifecycle: lifecycle ?? {
-        stateFieldName: "Status",
-        activeStates: ["Todo", "In Progress"],
-        terminalStates: ["Done"],
-        blockerCheckStates: ["Todo"],
-        planningStates: ["Todo"],
-      },
+      lifecyclesByIssueIdentifier,
     };
+  }
+
+  private async resolveIssueLifecycle(
+    tenant: OrchestratorProjectConfig,
+    issue: TrackedIssue
+  ): Promise<WorkflowLifecycleConfig | null> {
+    const resolution = await this.loadProjectWorkflow(tenant, issue.repository);
+    return isUsableWorkflowResolution(resolution) ? resolution.lifecycle : null;
   }
 
   private isIssueCandidateEligible(
@@ -1718,7 +1731,11 @@ export class OrchestratorService {
       repositoryDirectory,
       repository
     );
-    return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
+    return this.resolveWorkflowResolution(
+      repository,
+      cacheRoot,
+      resolution
+    );
   }
 
   private async startRun(
@@ -3754,7 +3771,8 @@ function shouldInheritProcessEnvKey(key: string): boolean {
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
-    env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
+    env[WORKFLOW_HOOK_APPROVAL_ENV] ??
+    process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
 }
 
