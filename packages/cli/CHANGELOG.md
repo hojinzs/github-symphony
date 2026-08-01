@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.7.2
+
+### Patch Changes
+
+- [#490](https://github.com/hojinzs/github-symphony/pull/490) [`97d0bcd`](https://github.com/hojinzs/github-symphony/commit/97d0bcdf4f29c9c69940141fc3987e84221ed33d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep unrelated active workers running when targeted reconciliation narrows dispatch candidates for [#477](https://github.com/hojinzs/github-symphony/issues/477).
+
+- [#500](https://github.com/hojinzs/github-symphony/pull/500) [`df99231`](https://github.com/hojinzs/github-symphony/commit/df9923171cf617c48863080fedb612a806fcf614) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Filter terminal GitHub Project items server-side during candidate polling to reduce pagination work.
+
 ## 0.7.1
 
 ### Patch Changes
