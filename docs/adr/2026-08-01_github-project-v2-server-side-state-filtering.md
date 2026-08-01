@@ -3,7 +3,7 @@
 - **Date**: 2026-08-01
 - **Status**: Accepted
 - **Related Issues**: #475
-- **Related PRs**: #500 (runtime implementation)
+- **Related PRs**: #500, #515 (runtime implementation and contract correction)
 - **Supersedes**:
   [`2026-03-19_github-project-v2-state-filtering-cache.md`](./2026-03-19_github-project-v2-state-filtering-cache.md)
 - **Related Analysis**:
@@ -100,12 +100,13 @@ cache의 lifetime은 기존 결정대로 단일 poll tick이다. 다음 tick에�
 cache를 만들어 stale project snapshot을 재사용하지 않는다. startup cleanup과
 이후 loop tick도 서로 다른 cache를 사용한다.
 
-cache entry는 “Project 전체 item”이 아니라 **동일한 query와 normalization
-입력으로 만든 snapshot**을 뜻한다. 따라서 key에는 최소한 다음 결과 차원을
-구분할 수 있는 입력이 포함되어야 한다.
+cache entry는 “Project 전체 item”이 아니라 **동일한 server filter mode와
+normalization 입력으로 만든 snapshot**을 뜻한다. 따라서 key에는 최소한 다음
+결과 차원을 구분할 수 있는 입력이 포함되어야 한다.
 
 - Project와 GraphQL endpoint, 인증 주체
 - server-side state filter를 결정하는 workflow lifecycle
+- 정규화된 terminal-state server filter 활성 여부(query가 `null`이면 동일)
 - repository와 assignee scope
 - priority normalization 설정
 - timeout 등 fetch 결과/동작을 구분해야 하는 adapter 입력
@@ -122,10 +123,10 @@ upstream spec §8.6의 startup terminal workspace cleanup처럼 요청받은 ter
 상태 자체를 찾아야 한다. candidate용 `-status:<terminal>` snapshot을 재사용하면
 필요한 item이 이미 제외되어 correctness를 깨뜨린다.
 
-이 경로는 workflow lifecycle을 server query 입력에서 제거해 unfiltered
-snapshot을 조회한 뒤, 요청받은 상태 이름을 trim 및 case-insensitive 비교로
-로컬 필터링한다. 임의의 요청 상태를 긍정 query로 바꾸지 않는 이유는 다음과
-같다.
+이 경로는 workflow lifecycle을 normalization 입력으로 유지하되,
+terminal-state server filter만 비활성화해 unfiltered snapshot을 조회한다. 그런
+다음 요청받은 상태 이름을 trim 및 case-insensitive 비교로 로컬 필터링한다.
+임의의 요청 상태를 긍정 query로 바꾸지 않는 이유는 다음과 같다.
 
 - 존재하지 않거나 rename된 상태가 빈 결과로 성공하는 silent failure를
   피한다.
@@ -163,8 +164,8 @@ snapshot을 조회한 뒤, 요청받은 상태 이름을 trim 및 case-insensiti
 
 - `fetchIssueStatesByIds()`의 `nodes(ids:)` 기반 active-run reconciliation은
   project item candidate cache의 대상이 아니며 이 결정으로 바뀌지 않는다.
-- 이 ADR은 이미 반영된 runtime 동작(#500)을 문서화한다. 새 runtime 또는
-  configuration 변경을 요구하지 않는다.
+- 이 ADR은 #500의 runtime 동작과 #515의 explicit state lookup 보정을
+  문서화한다. 새 configuration 변경을 요구하지 않는다.
 
 ## Validation
 
