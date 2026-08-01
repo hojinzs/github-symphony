@@ -609,9 +609,6 @@ describe("OrchestratorService", () => {
         .mockResolvedValueOnce(
           createTrackerResponseWithState(repository, "In Review")
         )
-        .mockResolvedValueOnce(
-          createTrackerResponseWithState(repository, "In Review")
-        )
         .mockResolvedValue(createTrackerResponseWithState(repository, "Todo")),
       spawnImpl: spawnImpl as never,
       isProcessRunning: (pid) => pid === 4410,
@@ -819,9 +816,6 @@ describe("OrchestratorService", () => {
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
-        .mockResolvedValueOnce(
-          createTrackerResponseWithState(repository, "In Review")
-        )
         .mockResolvedValueOnce(
           createTrackerResponseWithState(repository, "In Review")
         )
@@ -3393,7 +3387,7 @@ Prefer focused changes.
     expect(result.summary.recovered).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(listIssues).toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
@@ -3829,9 +3823,11 @@ Prefer focused changes.
           rateLimits,
         },
       ]),
-      listIssues: vi
-        .fn()
-        .mockRejectedValue(new Error("Rate limit near exhaustion")),
+      listIssues: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Rate limit near exhaustion"), {
+          rateLimits,
+        })
+      ),
       listIssuesByStates: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: vi.fn().mockReturnValue({}),
       reviveIssue: vi.fn(),
@@ -4549,9 +4545,8 @@ Prefer focused changes.
         createTrackerResponseWithPullRequestOnly(repository, "Todo")
       )
       .mockResolvedValueOnce(
-        createPullRequestStateLookupResponse(repository, "In Progress")
-      )
-      .mockResolvedValueOnce(createEmptyTrackerResponse());
+        createTrackerResponseWithPullRequestOnly(repository, "In Progress")
+      );
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl,
       spawnImpl: vi.fn().mockReturnValue({
@@ -6745,7 +6740,7 @@ Prefer focused changes.
         nextRetryAt: null,
       });
 
-      const fetchIssueStatesByIds = vi.fn().mockImplementation(async () => {
+      const listIssues = vi.fn().mockImplementation(async () => {
         (
           service as unknown as {
             consumeWorkerStderrLine(runId: string, line: string): void;
@@ -6800,32 +6795,9 @@ Prefer focused changes.
         ];
       });
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-        listIssues: vi.fn().mockResolvedValue([
-          {
-            id: "issue-1",
-            identifier: "acme/platform#1",
-            number: 1,
-            title: "Test issue",
-            description: null,
-            priority: null,
-            state: "Todo",
-            branchName: null,
-            url: "https://github.com/acme/platform/issues/1",
-            labels: [],
-            blockedBy: [],
-            createdAt: "2026-03-08T00:00:00.000Z",
-            updatedAt: "2026-03-08T00:05:00.000Z",
-            repository,
-            tracker: {
-              adapter: "github-project" as const,
-              bindingId: "project-123",
-              itemId: "item-1",
-            },
-            metadata: {},
-          },
-        ]),
+        listIssues,
         listIssuesByStates: vi.fn().mockResolvedValue([]),
-        fetchIssueStatesByIds,
+        fetchIssueStatesByIds: vi.fn(),
         buildWorkerEnvironment: vi.fn().mockReturnValue({
           GITHUB_PROJECT_ID: "project-123",
         }),
@@ -8685,7 +8657,7 @@ Prefer focused changes.
     expect(updatedRun?.runtimeSession?.sessionId).toBeNull();
   });
 
-  it("reuses listIssues results to synchronize active run issueState", async () => {
+  it("reuses the full listIssues snapshot during targeted active run synchronization", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-state-"));
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -8803,20 +8775,12 @@ Prefer focused changes.
       now: () => new Date("2026-03-08T00:05:00.000Z"),
     });
 
-    const snapshot = await service.runOnce();
+    const snapshot = await service.runOnce({
+      issueIdentifier: "acme/platform#999",
+    });
     const updatedRun = await store.loadRun("run-1");
 
-    expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
-    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
-      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
-    );
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(listIssues).toHaveBeenCalledTimes(1);
     expect(listIssues).toHaveBeenCalledWith(
       projectConfig,
@@ -8843,6 +8807,14 @@ Prefer focused changes.
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
+    projectConfig.tracker = {
+      adapter: "linear",
+      bindingId: "symphony-0c79b11b75ea",
+      settings: {
+        projectSlug: "symphony-0c79b11b75ea",
+        activeStates: ["Todo", "In Progress"],
+      },
+    };
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations("tenant-1", [
       {
@@ -8884,7 +8856,7 @@ Prefer focused changes.
     });
     const workspaceKey = deriveIssueWorkspaceKey(
       {
-        adapter: "github-project",
+        adapter: "linear",
         issueSubjectId: "issue-1",
       },
       "acme/platform#1"
@@ -8900,7 +8872,7 @@ Prefer focused changes.
     await store.saveIssueWorkspace({
       workspaceKey,
       projectId: "tenant-1",
-      adapter: "github-project",
+      adapter: "linear",
       issueSubjectId: "issue-1",
       issueIdentifier: "acme/platform#1",
       workspacePath,
@@ -8911,38 +8883,37 @@ Prefer focused changes.
       lastError: null,
     });
 
-    const listIssues = vi.fn().mockResolvedValue([]);
-    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([
-      {
-        id: "issue-1",
-        identifier: "acme/platform#1",
-        number: 1,
-        title: "Test issue",
-        description: null,
-        priority: null,
-        state: "Done",
-        branchName: null,
-        url: "https://github.com/acme/platform/issues/1",
-        labels: [],
-        blockedBy: [],
-        createdAt: "2026-03-08T00:00:00.000Z",
-        updatedAt: "2026-03-08T00:05:00.000Z",
-        repository,
-        tracker: {
-          adapter: "github-project" as const,
-          bindingId: "project-123",
-          itemId: "item-1",
-        },
-        metadata: {},
+    const terminalIssue = {
+      id: "issue-1",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Test issue",
+      description: null,
+      priority: null,
+      state: "Done",
+      branchName: null,
+      url: "https://github.com/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      repository,
+      tracker: {
+        adapter: "linear" as const,
+        bindingId: "symphony-0c79b11b75ea",
+        itemId: "issue-1",
       },
-    ]);
+      metadata: {},
+    };
+    const listIssues = vi.fn().mockResolvedValue([]);
+    const fetchIssueStatesByIds = vi.fn().mockResolvedValue([terminalIssue]);
     const killImpl = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
       fetchIssueStatesByIds,
       buildWorkerEnvironment: vi.fn().mockReturnValue({
-        GITHUB_PROJECT_ID: "project-123",
+        LINEAR_ISSUE_ID: "issue-1",
       }),
       reviveIssue: vi.fn(),
     });
@@ -8965,9 +8936,12 @@ Prefer focused changes.
     );
 
     expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
-    expect(fetchIssueStatesByIds.mock.invocationCallOrder[0]).toBeLessThan(
-      listIssues.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({ fetchImpl: expect.any(Function) })
     );
+    expect(listIssues).toHaveBeenCalledTimes(1);
     expect(killImpl).toHaveBeenCalledWith(4205, "SIGTERM");
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.issueState).toBe("Done");
@@ -8980,7 +8954,7 @@ Prefer focused changes.
     expect(snapshot.activeRuns).toHaveLength(0);
   });
 
-  it("suppresses an active run when its project item is archived", async () => {
+  it("suppresses an active run when its issue is removed from the project snapshot", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-archived-reconciliation-")
@@ -9088,7 +9062,7 @@ Handle archived item reconciliation.`,
         isArchived: true,
       },
     };
-    const listIssues = vi.fn().mockResolvedValue([archivedIssue]);
+    const listIssues = vi.fn().mockResolvedValue([]);
     const fetchIssueStatesByIds = vi.fn().mockResolvedValue([archivedIssue]);
     const killImpl = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
@@ -9114,15 +9088,15 @@ Handle archived item reconciliation.`,
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(fetchIssueStatesByIds).toHaveBeenCalledTimes(1);
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
     expect(killImpl).toHaveBeenCalledWith(4209, "SIGTERM");
     expect(updatedRun).toMatchObject({
       status: "suppressed",
-      issueState: "Archived",
+      issueState: "In Progress",
       processId: null,
       runPhase: "canceled_by_reconciliation",
       lastError:
-        "Run suppressed because the tracker state is no longer actionable.",
+        "Run suppressed because the tracker issue is no longer tracked.",
     });
     expect(issueRecords[0]?.state).toBe("released");
     expect(snapshot.activeRuns).toHaveLength(0);
@@ -9298,7 +9272,7 @@ Handle Linear issue.`,
     );
   });
 
-  it("records tracker.fetchByIds metadata when active Linear runs are refreshed", async () => {
+  it("records tracker.list metadata when active Linear runs are refreshed", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-linear-fetch-events-")
     );
@@ -9427,9 +9401,9 @@ Handle Linear issue.`,
       },
     };
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      listIssues: vi.fn().mockResolvedValue([]),
+      listIssues: vi.fn().mockResolvedValue(refreshedIssues),
       listIssuesByStates: vi.fn().mockResolvedValue([]),
-      fetchIssueStatesByIds: vi.fn().mockResolvedValue(refreshedIssues),
+      fetchIssueStatesByIds: vi.fn(),
       buildWorkerEnvironment: vi.fn().mockReturnValue({
         LINEAR_ISSUE_ID: "linear-issue-1",
       }),
@@ -9443,24 +9417,18 @@ Handle Linear issue.`,
     await service.runOnce();
 
     const rawEvents = (
-      await Promise.all(
-        ["run-1", "run-2"].map((runId) =>
-          readFile(
-            join(store.runDir(runId, projectConfig.projectId), "events.ndjson"),
-            "utf8"
-          )
-        )
+      await readFile(
+        join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
+        "utf8"
       )
-    ).flatMap((contents) =>
-      contents
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>)
-    );
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(rawEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          event: "tracker.fetchByIds",
+          event: "tracker.list",
           tracker: {
             adapter: "linear",
             projectSlug: "symphony-0c79b11b75ea",
@@ -9472,18 +9440,15 @@ Handle Linear issue.`,
         }),
       ])
     );
-    const fetchEvents = rawEvents.filter(
-      (event) => event.event === "tracker.fetchByIds"
+    const listEvents = rawEvents.filter(
+      (event) => event.event === "tracker.list"
     );
-    expect(fetchEvents).toHaveLength(2);
+    expect(listEvents).toHaveLength(1);
     expect(
-      fetchEvents.filter(
+      listEvents.filter(
         (event) =>
           (event.rateLimits as Record<string, unknown> | null)?.cycleCost === 5
       )
-    ).toHaveLength(1);
-    expect(
-      fetchEvents.filter((event) => event.rateLimits === null)
     ).toHaveLength(1);
   });
 
@@ -9741,13 +9706,8 @@ Handle Linear issue.`,
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
-      projectConfig,
-      ["issue-1"],
-      expect.objectContaining({
-        fetchImpl: expect.any(Function),
-      })
-    );
+    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
+    expect(listIssues).toHaveBeenCalledTimes(1);
     expect(killImpl).toHaveBeenCalledWith(4208, "SIGTERM");
     expect(updatedRun).toMatchObject({
       status: "suppressed",
@@ -11147,66 +11107,6 @@ function createTrackerResponseWithPullRequestOnly(
   return createTrackerResponseFromProjectItems([
     makeTrackerProjectPullRequest(repository, state),
   ]);
-}
-
-function createPullRequestStateLookupResponse(
-  repository: {
-    owner: string;
-    name: string;
-    cloneUrl: string;
-  },
-  state: string
-) {
-  return {
-    ok: true,
-    json: async () => ({
-      data: {
-        nodes: [
-          {
-            __typename: "PullRequest",
-            id: "pr-2",
-            number: 2,
-            url: `https://example.test/${repository.owner}/${repository.name}/pull/2`,
-            updatedAt: "2026-03-08T00:00:00.000Z",
-            headRefName: "feature/canonical-pr",
-            repository: {
-              name: repository.name,
-              url: `file://${repository.cloneUrl}`,
-              owner: {
-                login: repository.owner,
-              },
-            },
-            projectItems: {
-              nodes: [
-                {
-                  id: "item-pr-2",
-                  updatedAt: "2026-03-08T00:01:00.000Z",
-                  project: {
-                    id: "project-123",
-                  },
-                  fieldValues: {
-                    nodes: [
-                      {
-                        __typename: "ProjectV2ItemFieldSingleSelectValue",
-                        name: state,
-                        field: {
-                          name: "Status",
-                        },
-                      },
-                    ],
-                  },
-                },
-              ],
-              pageInfo: {
-                endCursor: null,
-                hasNextPage: false,
-              },
-            },
-          },
-        ],
-      },
-    }),
-  };
 }
 
 function createTrackerResponseFromProjectItems(items: unknown[]) {

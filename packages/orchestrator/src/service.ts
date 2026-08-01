@@ -873,20 +873,6 @@ export class OrchestratorService {
           run.projectId === tenant.projectId &&
           isActiveRunRecordStatus(run.status)
       );
-      const {
-        runs: syncedActiveRuns,
-        issuesByIdentifier: syncedIssuesByIdentifier,
-      } = await this.syncActiveRunIssueStates(
-        tenant,
-        trackerAdapter,
-        currentActiveRuns,
-        now
-      );
-      trackerRateLimits = resolveTrackerRateLimits(
-        syncedIssuesByIdentifier.values()
-      );
-      this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
-      rateLimits = rateLimits ?? trackerRateLimits;
       const candidateTrackerDependencies =
         await this.resolveCandidateTrackerDependencies(
           tenant,
@@ -897,6 +883,79 @@ export class OrchestratorService {
         candidateTrackerDependencies
       );
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
+      // `canonicalIssues`로 맵을 무조건 시딩하므로 기존 두 번째 역순 머지
+      // 루프는 불필요하다. 시딩이 조건부가 되면 우선순위를 다시 검토해야 한다.
+      const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
+        canonicalIssues.map((issue) => [issue.identifier, issue])
+      );
+      const missingLinearActiveIssueIds =
+        tenant.tracker.adapter === "linear"
+          ? [
+              ...new Set(
+                currentActiveRuns
+                  .filter(
+                    (run) => !trackedIssuesByIdentifier.has(run.issueIdentifier)
+                  )
+                  .map((run) => run.issueId)
+              ),
+            ]
+          : [];
+      const supplementalLinearIssues =
+        missingLinearActiveIssueIds.length > 0
+          ? await trackerAdapter.fetchIssueStatesByIds(
+              tenant,
+              missingLinearActiveIssueIds,
+              trackerDependencies
+            )
+          : [];
+      const supplementalLinearIssueIdentifiers = new Set<string>();
+      for (const issue of supplementalLinearIssues) {
+        if (!trackedIssuesByIdentifier.has(issue.identifier)) {
+          trackedIssuesByIdentifier.set(issue.identifier, issue);
+          supplementalLinearIssueIdentifiers.add(issue.identifier);
+        }
+      }
+      const supplementalLinearRateLimits = getTrackedIssueListRateLimits(
+        supplementalLinearIssues
+      );
+      let supplementalLinearRateLimitsRecorded = false;
+      const syncedActiveRuns: OrchestratorRunRecord[] = [];
+      for (const run of currentActiveRuns) {
+        const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
+        if (
+          currentIssue &&
+          supplementalLinearIssueIdentifiers.has(run.issueIdentifier)
+        ) {
+          const eventRateLimits =
+            supplementalLinearRateLimits &&
+            !supplementalLinearRateLimitsRecorded
+              ? supplementalLinearRateLimits
+              : supplementalLinearRateLimits
+                ? null
+                : (currentIssue.rateLimits ?? null);
+          supplementalLinearRateLimitsRecorded ||=
+            supplementalLinearRateLimits !== null;
+          await this.store.appendRunEvent(run.runId, {
+            at: now.toISOString(),
+            event: "tracker.fetchByIds",
+            projectId: tenant.projectId,
+            ...buildStructuredTrackerEventMetadata(tenant, currentIssue),
+            rateLimits: eventRateLimits,
+          });
+        }
+        if (!currentIssue || currentIssue.state === run.issueState) {
+          syncedActiveRuns.push(run);
+          continue;
+        }
+
+        const updatedRun: OrchestratorRunRecord = {
+          ...run,
+          issueState: currentIssue.state,
+          updatedAt: now.toISOString(),
+        };
+        await this.store.saveRun(updatedRun);
+        syncedActiveRuns.push(updatedRun);
+      }
       const {
         candidates: trackedActionableIssues,
         lifecyclesByIssueIdentifier,
@@ -930,37 +989,14 @@ export class OrchestratorService {
         targetedIssues,
         trackerDependencies
       );
-      const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
-        syncedIssuesByIdentifier
-      );
-      for (const issue of canonicalIssues) {
-        const existing = trackedIssuesByIdentifier.get(issue.identifier);
-        trackedIssuesByIdentifier.set(issue.identifier, {
-          ...(existing ?? issue),
-          ...issue,
-          rateLimits: issue.rateLimits ?? existing?.rateLimits ?? null,
-        });
-      }
-      for (const [identifier, issue] of syncedIssuesByIdentifier) {
-        const existing = trackedIssuesByIdentifier.get(identifier);
-        if (!existing) {
-          trackedIssuesByIdentifier.set(identifier, issue);
-          continue;
-        }
-        trackedIssuesByIdentifier.set(identifier, {
-          ...issue,
-          ...existing,
-          rateLimits: existing.rateLimits ?? issue.rateLimits ?? null,
-        });
-      }
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
         trackedIssuesByIdentifier.values(),
-        getTrackedIssueListRateLimits(issues)
+        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits
       );
       trackerRateLimits = resolveTrackerRateLimits(
         trackedIssuesByIdentifier.values(),
-        getTrackedIssueListRateLimits(issues)
+        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       const concurrency = await this.getProjectConcurrency(tenant);
@@ -1754,11 +1790,7 @@ export class OrchestratorService {
       repositoryDirectory,
       repository
     );
-    return this.resolveWorkflowResolution(
-      repository,
-      cacheRoot,
-      resolution
-    );
+    return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 
   private async startRun(
@@ -2184,81 +2216,6 @@ export class OrchestratorService {
       runPhase: "preparing_workspace",
       rateLimits: issue.rateLimits ?? null,
       recovery,
-    };
-  }
-
-  private async syncActiveRunIssueStates(
-    tenant: OrchestratorProjectConfig,
-    trackerAdapter: OrchestratorTrackerAdapter,
-    activeRuns: OrchestratorRunRecord[],
-    now: Date
-  ): Promise<{
-    runs: OrchestratorRunRecord[];
-    issuesByIdentifier: Map<string, TrackedIssue>;
-  }> {
-    const activeIssueIds = [...new Set(activeRuns.map((run) => run.issueId))];
-    if (activeIssueIds.length === 0) {
-      return {
-        runs: activeRuns,
-        issuesByIdentifier: new Map(),
-      };
-    }
-
-    const issues = await trackerAdapter.fetchIssueStatesByIds(
-      tenant,
-      activeIssueIds,
-      {
-        fetchImpl: this.dependencies.fetchImpl,
-      }
-    );
-    const issuesByIdentifier = new Map<string, TrackedIssue>(
-      issues.map((issue) => [issue.identifier, issue])
-    );
-    const issueStateByIdentifier = new Map<string, TrackedIssue["state"]>(
-      issues.map((issue) => [issue.identifier, issue.state])
-    );
-    const fetchRateLimits = getTrackedIssueListRateLimits(issues);
-    let fetchRateLimitsRecorded = false;
-
-    const syncedRuns: OrchestratorRunRecord[] = [];
-    for (const run of activeRuns) {
-      const currentIssue = issuesByIdentifier.get(run.issueIdentifier);
-      if (currentIssue) {
-        const eventRateLimits =
-          fetchRateLimits && !fetchRateLimitsRecorded
-            ? fetchRateLimits
-            : fetchRateLimits
-              ? null
-              : (currentIssue.rateLimits ?? null);
-        fetchRateLimitsRecorded ||= fetchRateLimits !== null;
-        await this.store.appendRunEvent(run.runId, {
-          at: now.toISOString(),
-          event: "tracker.fetchByIds",
-          projectId: tenant.projectId,
-          ...buildStructuredTrackerEventMetadata(tenant, currentIssue),
-          rateLimits: eventRateLimits,
-        });
-      }
-      const currentTrackerState = issueStateByIdentifier.get(
-        run.issueIdentifier
-      );
-      if (!currentTrackerState || currentTrackerState === run.issueState) {
-        syncedRuns.push(run);
-        continue;
-      }
-
-      const updatedRun: OrchestratorRunRecord = {
-        ...run,
-        issueState: currentTrackerState,
-        updatedAt: now.toISOString(),
-      };
-      await this.store.saveRun(updatedRun);
-      syncedRuns.push(updatedRun);
-    }
-
-    return {
-      runs: syncedRuns,
-      issuesByIdentifier,
     };
   }
 
@@ -3794,8 +3751,7 @@ function shouldInheritProcessEnvKey(key: string): boolean {
 
 function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
-    env[WORKFLOW_HOOK_APPROVAL_ENV] ??
-    process.env[WORKFLOW_HOOK_APPROVAL_ENV];
+    env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
 }
 
