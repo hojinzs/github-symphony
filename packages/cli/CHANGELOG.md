@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- [#511](https://github.com/hojinzs/github-symphony/pull/511) [`3847eb9`](https://github.com/hojinzs/github-symphony/commit/3847eb98b4b349cd88cc4c273ec5cd237c976edf) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Remove the invalid `rateLimit` selection from GitHub GraphQL mutation documents (project item state transition, add/update issue comment). GitHub only defines `rateLimit` on the Query type, so every orchestrator-owned `Ready → In progress` transition failed schema validation with `Field 'rateLimit' doesn't exist on type 'Mutation'`. Mutation rate-limit telemetry now relies on the `x-ratelimit-*` response headers instead of an in-body field, and per-cycle GraphQL cost no longer counts a field-reported mutation cost.
+
 ## 0.7.0
 
 ### Minor Changes
