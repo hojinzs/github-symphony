@@ -118,6 +118,7 @@ log "Issues injected; refresh trigger accepted (202). Falling back to polling un
 
 SAW_RUNNING=false
 SAW_RETRY=false
+SAW_REDACTED_STATE=false
 ELAPSED=0
 
 log "Polling..."
@@ -136,6 +137,21 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
   if [ "$RUN_STATUS" = "running" ]; then
     SAW_RUNNING=true
+    if echo "$STATUS_JSON" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert any(
+    run.get("issueIdentifier") == "test-owner/test-repo#1"
+    and run.get("runId") not in (None, "[REDACTED]")
+    and "workingDirectory" not in run
+    and "workspaceRuntimeDir" not in run
+    and run.get("tokenUsage") == "[REDACTED]"
+    and (run.get("runtimeSession") or {}).get("sessionId") == "[REDACTED]"
+    for run in data.get("activeRuns", [])
+)
+' 2>/dev/null; then
+      SAW_REDACTED_STATE=true
+    fi
   fi
 
   if [ "$RUN_STATUS" = "retrying" ]; then
@@ -161,9 +177,10 @@ log "=== Event Logs ==="
 docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
-if [ "$SAW_RUNNING" = true ]; then
+if [ "$SAW_RUNNING" = true ] && [ "$SAW_REDACTED_STATE" = true ]; then
   log "=== Result ==="
   log "  Worker dispatched and ran: YES"
+  log "  Routable IDs + redaction:  YES"
   log "  Worker entered retry:     $SAW_RETRY"
   log "  Final health:             $HEALTH"
   log "  Elapsed:                  ${ELAPSED}s"
@@ -172,7 +189,8 @@ if [ "$SAW_RUNNING" = true ]; then
   exit 0
 else
   fail "=== Result ==="
-  fail "  Worker never reached 'running' state within ${TIMEOUT}s"
+  fail "  Worker reached running:    $SAW_RUNNING"
+  fail "  Routable IDs + redaction:  $SAW_REDACTED_STATE"
   echo ""
   fail "FAILED"
   docker logs symphony-e2e 2>&1 | tail -20

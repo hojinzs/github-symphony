@@ -39,15 +39,19 @@ an explicit all-interface opt-in. Unit tests cover the production default
      -X POST http://localhost:4680/api/v1/refresh)" = "202"
    ```
 
-4. Poll authenticated state and verify sensitive fields are redacted:
+4. Poll authenticated state and verify routing identifiers remain usable while
+   sensitive infrastructure fields are redacted:
 
    ```bash
    state="$(curl -s -H 'Authorization: Bearer e2e-http-token' \
      http://localhost:4680/api/v1/state)"
-   jq -e '.. | objects | select(has("runId")) | .runId == "[REDACTED]"' \
-     <<<"$state"
-   jq -e '.. | objects | select(has("issueIdentifier")) | \
-     .issueIdentifier == "[REDACTED]"' <<<"$state"
+   jq -e '.activeRuns[] | select(.status == "running") |
+     .issueIdentifier == "test-owner/test-repo#1" and
+     (.runId != null and .runId != "[REDACTED]") and
+     (has("workingDirectory") | not) and
+     (has("workspaceRuntimeDir") | not) and
+     .tokenUsage == "[REDACTED]" and
+     .runtimeSession.sessionId == "[REDACTED]"' <<<"$state"
    test "$(jq -r '.lastError // "null"' <<<"$state")" != \
      "private project failure"
    ```
@@ -57,8 +61,8 @@ an explicit all-interface opt-in. Unit tests cover the production default
 - `/healthz` remains available for liveness checks.
 - Every `/api/v1/*` route rejects missing bearer credentials with `401`.
 - Authenticated refresh returns `202` and dispatch becomes observable.
-- State preserves operational status while redacting issue/run identity,
-  token usage, workspace/session paths, and error details.
+- State preserves the authenticated UI's issue/run routing identifiers while
+  redacting token usage, workspace/session paths, and error details.
 
 ## Cleanup
 
