@@ -939,6 +939,12 @@ export class OrchestratorService {
     const activeRuns = allRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
+    issueRecords = await this.selectCurrentRunsForReconciliation(
+      tenant,
+      issueRecords,
+      activeRuns,
+      now
+    );
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(
         tenant,
@@ -2767,6 +2773,87 @@ export class OrchestratorService {
       issueRecords,
       recovered: false,
     };
+  }
+
+  private async selectCurrentRunsForReconciliation(
+    tenant: OrchestratorProjectConfig,
+    issueRecords: IssueOrchestrationRecord[],
+    activeRuns: OrchestratorRunRecord[],
+    now: Date
+  ): Promise<IssueOrchestrationRecord[]> {
+    const runsByIssueId = new Map<string, OrchestratorRunRecord[]>();
+    for (const run of activeRuns) {
+      const matchingRuns = runsByIssueId.get(run.issueId) ?? [];
+      matchingRuns.push(run);
+      runsByIssueId.set(run.issueId, matchingRuns);
+    }
+
+    let selectedIssueRecords = issueRecords;
+    let changed = false;
+    for (const [issueId, matchingRuns] of runsByIssueId) {
+      const issueRecord = selectedIssueRecords.find(
+        (candidate) => candidate.issueId === issueId
+      );
+      if (
+        issueRecord?.currentRunId &&
+        matchingRuns.some((run) => run.runId === issueRecord.currentRunId)
+      ) {
+        continue;
+      }
+
+      const selectedCandidate = matchingRuns
+        .map((run) => ({ run, isLive: this.isRunProcessRunning(run) }))
+        .sort((left, right) => {
+          if (left.isLive !== right.isLive) {
+            return left.isLive ? -1 : 1;
+          }
+          const leftActivityAt =
+            parseTimestampMs(left.run.lastEventAt ?? left.run.updatedAt) ??
+            -Infinity;
+          const rightActivityAt =
+            parseTimestampMs(right.run.lastEventAt ?? right.run.updatedAt) ??
+            -Infinity;
+          if (leftActivityAt !== rightActivityAt) {
+            return rightActivityAt - leftActivityAt;
+          }
+          return left.run.runId.localeCompare(right.run.runId);
+        })[0];
+      if (!selectedCandidate) {
+        continue;
+      }
+      const { run: selectedRun, isLive: selectedRunIsLive } = selectedCandidate;
+      selectedIssueRecords = upsertIssueOrchestration(selectedIssueRecords, {
+        issueId: selectedRun.issueId,
+        identifier: selectedRun.issueIdentifier,
+        workspaceKey:
+          selectedRun.issueWorkspaceKey ??
+          issueRecord?.workspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: selectedRun.issueSubjectId,
+            },
+            selectedRun.issueIdentifier
+          ),
+        state:
+          issueRecord?.state ??
+          (selectedRunIsLive || selectedRun.status !== "retrying"
+            ? "running"
+            : "retry_queued"),
+        currentRunId: selectedRun.runId,
+        retryEntry: issueRecord?.retryEntry ?? null,
+        updatedAt: now.toISOString(),
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      await this.store.saveProjectIssueOrchestrations(
+        tenant.projectId,
+        selectedIssueRecords
+      );
+    }
+    return selectedIssueRecords;
   }
 
   private now(): Date {

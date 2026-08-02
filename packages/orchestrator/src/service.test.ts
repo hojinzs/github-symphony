@@ -17,7 +17,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
+  type IssueOrchestrationRecord,
   type OrchestratorProjectConfig,
+  type OrchestratorRunRecord,
   type OrchestratorTrackerDependencies,
   type RepositoryRef,
   type TrackedIssueList,
@@ -3291,6 +3293,128 @@ Prefer focused changes.
     expect(recoveredRun?.cumulativeTurnCount).toBe(4);
     expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");
     expect(recoveredRun?.turnCount).toBe(0);
+  });
+
+  it("selects a live current run before reconciling dead-first duplicates", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-live-owner-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const issueRecords: IssueOrchestrationRecord[] = [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ];
+    await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
+    const baseRun = {
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueTitle: "Test issue",
+      issueState: "Todo",
+      repository,
+      status: "running" as const,
+      attempt: 1,
+      port: null,
+      workingDirectory: join(tempRoot, "issue-workspace"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "issue-workspace", ".runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    };
+    const deadRun: OrchestratorRunRecord = {
+      ...baseRun,
+      runId: "run-a-dead",
+      processId: 4101,
+      updatedAt: "2026-03-08T00:00:10.000Z",
+    };
+    const liveRun: OrchestratorRunRecord = {
+      ...baseRun,
+      runId: "run-z-live",
+      processId: 4102,
+      updatedAt: "2026-03-08T00:00:20.000Z",
+    };
+    await store.saveRun(deadRun);
+    await store.saveRun(liveRun);
+
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      isProcessRunning: (pid) => pid === 4102,
+      killImpl,
+      now: () => new Date("2026-03-08T00:01:00.000Z"),
+    });
+    const selectCurrentRunsForReconciliation = (
+      service as unknown as {
+        selectCurrentRunsForReconciliation(
+          tenant: OrchestratorProjectConfig,
+          records: IssueOrchestrationRecord[],
+          runs: OrchestratorRunRecord[],
+          now: Date
+        ): Promise<IssueOrchestrationRecord[]>;
+      }
+    ).selectCurrentRunsForReconciliation.bind(service);
+    const reconcileRun = (
+      service as unknown as {
+        reconcileRun(
+          tenant: OrchestratorProjectConfig,
+          run: OrchestratorRunRecord,
+          records: IssueOrchestrationRecord[]
+        ): Promise<{
+          issueRecords: IssueOrchestrationRecord[];
+          recovered: boolean;
+        }>;
+      }
+    ).reconcileRun.bind(service);
+
+    let selectedRecords = await selectCurrentRunsForReconciliation(
+      projectConfig,
+      issueRecords,
+      [deadRun, liveRun],
+      new Date("2026-03-08T00:01:00.000Z")
+    );
+    expect(selectedRecords[0]?.currentRunId).toBe("run-z-live");
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.currentRunId
+    ).toBe("run-z-live");
+
+    selectedRecords = (
+      await reconcileRun(projectConfig, deadRun, selectedRecords)
+    ).issueRecords;
+    selectedRecords = (
+      await reconcileRun(projectConfig, liveRun, selectedRecords)
+    ).issueRecords;
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(await store.loadRun("run-a-dead")).toMatchObject({
+      status: "failed",
+      lastError:
+        "worker_lease_lost: run_not_current; superseded by current run run-z-live.",
+    });
+    expect(await store.loadRun("run-z-live")).toMatchObject({
+      status: "running",
+      processId: 4102,
+    });
   });
 
   it("releases due retrying runs when a Todo issue becomes blocked before restart", async () => {
