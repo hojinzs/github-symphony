@@ -19,15 +19,19 @@ pnpm exec vitest run packages/cli/src/commands/lifecycle.test.ts packages/cli/sr
 
 1. Verify a due stale retry fences the issue to its replacement run before the
    worker is spawned, and terminalizes duplicate runs as
-   `worker_lease_lost: run_not_current`.
+   `worker_lease_lost: run_not_current`. With `currentRunId: null` and a dead
+   record ordered before a live record, verify the live run is selected and
+   persisted before either record is reconciled.
 2. Verify clean-workspace convergence returns the tracker item to the first
    configured active state after confirmed readback; when the tracker cannot
    perform that transition, verify a durable failure retry is queued.
 3. Verify a persisted worker PID with a different process-start identity is
-   rejected before active-run/concurrency accounting.
-4. Verify `repo stop` rejects a daemon with the wrong repository CWD and, when
-   `daemon.pid` is stale, finds and stops the identity/CWD-matching daemon from
-   the project lock.
+   rejected before active-run/concurrency accounting, while a surviving child
+   in the detached process group remains live after its wrapper leader exits.
+4. Verify `repo stop` rejects a daemon with the wrong repository CWD, resolves
+   legacy PID records from the configured repository when invoked elsewhere,
+   and, when `daemon.pid` is stale, finds and stops the identity/CWD-matching
+   daemon from the project lock.
 5. Run the Docker black-box failure/retry lifecycle:
 
    ```bash
