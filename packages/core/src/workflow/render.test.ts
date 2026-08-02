@@ -280,6 +280,36 @@ describe("buildPromptVariables", () => {
   });
 });
 
+describe("renderPrompt resource limits", () => {
+  const variables = buildPromptVariables(createTrackedIssue(), {
+    attempt: null,
+  });
+
+  it("aborts Liquid rendering after the configured deadline", () => {
+    expect(() =>
+      renderPrompt(
+        "{% for label in issue.labels %}{{ label }}{% endfor %}",
+        {
+          ...variables,
+          issue: {
+            ...variables.issue,
+            labels: Array.from({ length: 1_000 }, (_, index) => String(index)),
+          },
+        },
+        { renderLimitMs: -1 }
+      )
+    ).toThrow(/template_render_error: .*template render limit exceeded/);
+  });
+
+  it("aborts Liquid rendering when its allocation budget is exhausted", () => {
+    expect(() =>
+      renderPrompt("{{ issue.title | append: issue.description }}", variables, {
+        memoryLimit: 1,
+      })
+    ).toThrow(/template_render_error: .*memory alloc limit exceeded/);
+  });
+});
+
 describe("renderContinuationGuidance", () => {
   it("renders supported continuation variables", () => {
     expect(
