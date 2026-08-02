@@ -5,6 +5,18 @@ import type {
 } from "./status-surface.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
 
+export class TrackerRateLimitError extends Error {
+  readonly name: string = "TrackerRateLimitError";
+
+  constructor(
+    message: string,
+    readonly rateLimits: Record<string, unknown> | null,
+    readonly retryAt: string | null
+  ) {
+    super(message);
+  }
+}
+
 export type TrackerAdapterKind = "github-project" | (string & {});
 
 export type TrackerBindingSummary = {
