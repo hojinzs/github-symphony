@@ -25,9 +25,8 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
 
     // Terminal-state exclusion is only safe for candidate listing. State
     // lookups (including startup cleanup for Done items) stay unfiltered.
-    const issues = await listProjectIssues(project, {
-      ...dependencies,
-      workflowLifecycle: undefined,
+    const issues = await listProjectIssues(project, dependencies, {
+      filterTerminalStates: false,
     });
     const normalizedStates = new Set(
       states.map((state) => state.trim().toLowerCase())
@@ -123,9 +122,13 @@ export async function findGithubProjectIssue(
 
 async function listProjectIssues(
   project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0],
-  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {}
+  dependencies: Parameters<OrchestratorTrackerAdapter["listIssues"]>[1] = {},
+  options: { filterTerminalStates?: boolean } = {}
 ) {
-  const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
+  const trackerConfig = {
+    ...resolveGitHubTrackerConfig(project, dependencies),
+    filterTerminalStates: options.filterTerminalStates ?? true,
+  };
   const loadProjectIssues = () =>
     fetchGithubProjectIssues(trackerConfig, dependencies.fetchImpl);
 
@@ -262,12 +265,28 @@ function buildProjectItemsCacheKey(
     priorityFieldName: config.priorityFieldName ?? null,
     projectId: config.projectId,
     workflowLifecycle: config.lifecycle ?? null,
+    terminalStateFilterEnabled: isTerminalStateFilterEnabled(config),
     repositoryFilter: config.repositoryFilter
       ? `${config.repositoryFilter.owner}/${config.repositoryFilter.name}`
       : null,
     timeoutMs: config.timeoutMs,
     tokenFingerprint: hashToken(config.token),
   });
+}
+
+function isTerminalStateFilterEnabled(
+  config: ReturnType<typeof resolveGitHubTrackerConfig> & {
+    filterTerminalStates?: boolean;
+  }
+): boolean {
+  if (config.filterTerminalStates === false || !config.lifecycle) {
+    return false;
+  }
+
+  return (
+    config.lifecycle.stateFieldName.trim().toLowerCase() === "status" &&
+    config.lifecycle.terminalStates.some((state) => state.trim().length > 0)
+  );
 }
 
 function hashToken(token: string | null): string | null {

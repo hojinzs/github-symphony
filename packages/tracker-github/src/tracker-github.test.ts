@@ -1629,6 +1629,52 @@ describe("resolveTrackerAdapter", () => {
     expect(issues.map((issue) => issue.state)).toEqual(["Ready"]);
   });
 
+  it("falls back to unfiltered project items when terminal states are empty", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      workflowLifecycle: {
+        stateFieldName: "Status",
+        activeStates: ["Ready", "In progress"],
+        terminalStates: [],
+        blockerCheckStates: ["Ready"],
+        planningStates: ["Ready"],
+      },
+      fetchImpl: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          variables: {
+            query: string | null;
+            includeUnfilteredCount: boolean;
+          };
+        };
+        expect(body.variables.query).toBeNull();
+        expect(body.variables.includeUnfilteredCount).toBe(false);
+
+        return makeJsonResponse(
+          makeProjectItemsPayload([
+            makeProjectItem({
+              itemId: "item-ready",
+              issueId: "issue-ready",
+              number: 1,
+              title: "Ready issue without terminal states",
+              assignees: [],
+              state: "Ready",
+            }),
+          ])
+        );
+      },
+    });
+
+    expect(issues.map((issue) => issue.state)).toEqual(["Ready"]);
+  });
+
   it("fails loudly instead of excluding a state configured as active and terminal", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -1694,6 +1740,56 @@ describe("resolveTrackerAdapter", () => {
                 title: "Done issue",
                 assignees: [],
                 state: "Done",
+              }),
+            ])
+          );
+        },
+      }
+    );
+
+    expect(issues.map((issue) => issue.state)).toEqual(["Done"]);
+  });
+
+  it("keeps the custom lifecycle field when explicit state lookups disable server filtering", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+
+    const issues = await adapter.listIssuesByStates(
+      makeProjectConfig(),
+      ["Done"],
+      {
+        token: "dependencies-token",
+        workflowLifecycle: {
+          stateFieldName: "Stage",
+          activeStates: ["Ready", "In progress"],
+          terminalStates: ["Done"],
+          blockerCheckStates: ["Ready"],
+          planningStates: ["Ready"],
+        },
+        fetchImpl: async (_url, init) => {
+          const body = JSON.parse(String(init?.body)) as {
+            variables: {
+              query: string | null;
+              includeUnfilteredCount: boolean;
+            };
+          };
+          expect(body.variables.query).toBeNull();
+          expect(body.variables.includeUnfilteredCount).toBe(false);
+          return makeJsonResponse(
+            makeProjectItemsPayload([
+              makeProjectItem({
+                itemId: "item-done",
+                issueId: "issue-done",
+                number: 3,
+                title: "Done issue with custom state field",
+                assignees: [],
+                state: "Done",
+                stateFieldName: "Stage",
               }),
             ])
           );
@@ -3772,6 +3868,76 @@ describe("resolveTrackerAdapter", () => {
     expect(listed).toHaveLength(1);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.identifier).toBe(listed[0]?.identifier);
+  });
+
+  it("uses separate cache entries for filtered candidates and unfiltered state lookups", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+      },
+    });
+    const entries = new Map<string, Promise<TrackedIssue[]>>();
+    const projectItemsCache: ProjectItemsCache = {
+      getOrLoad(key, load) {
+        const cached = entries.get(key);
+        if (cached) {
+          return cached;
+        }
+
+        const pending = load();
+        entries.set(key, pending);
+        return pending;
+      },
+    };
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        variables: { query: string | null };
+      };
+      const filtered = body.variables.query !== null;
+      return makeJsonResponse(
+        makeProjectItemsPayload([
+          makeProjectItem({
+            itemId: filtered ? "item-ready" : "item-done",
+            issueId: filtered ? "issue-ready" : "issue-done",
+            number: filtered ? 1 : 2,
+            title: filtered ? "Ready issue" : "Done issue",
+            assignees: [],
+            state: filtered ? "Ready" : "Done",
+          }),
+        ])
+      );
+    });
+    const workflowLifecycle = {
+      stateFieldName: "Status",
+      activeStates: ["Ready", "In progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Ready"],
+      planningStates: ["Ready"],
+    };
+
+    const listed = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      workflowLifecycle,
+      fetchImpl,
+      projectItemsCache,
+    });
+    const done = await adapter.listIssuesByStates(
+      makeProjectConfig(),
+      ["Done"],
+      {
+        token: "dependencies-token",
+        workflowLifecycle,
+        fetchImpl,
+        projectItemsCache,
+      }
+    );
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(entries).toHaveProperty("size", 2);
+    expect(listed.map((issue) => issue.state)).toEqual(["Ready"]);
+    expect(done.map((issue) => issue.state)).toEqual(["Done"]);
   });
 
   it("uses a non-reversible token fingerprint in the shared project item cache key", async () => {

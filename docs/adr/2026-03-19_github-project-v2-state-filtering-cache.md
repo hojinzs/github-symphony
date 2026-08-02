@@ -1,11 +1,19 @@
 # ADR: GitHub Project V2 state filtering limitation과 per-tick cache
 
 - **Date**: 2026-03-19
-- **Status**: Accepted
+- **Status**: Superseded by
+  [`2026-08-01_github-project-v2-server-side-state-filtering.md`](./2026-08-01_github-project-v2-server-side-state-filtering.md)
 - **Related Issues**: #59, #60, #61
 - **Related Spec**: `docs/symphony-spec.md` Section 11.2
 
 ## Context
+
+> **Superseded (2026-08-01):** 2026-07-19 live introspection and board
+> verification confirmed that `ProjectV2.items` supports `query: String`.
+> The successor ADR adopts server-side filtering while retaining a per-tick
+> cache with a revised contract. **All assumptions, decisions, and consequences
+> below are retained only as historical context and must not be used as the
+> current adapter contract.**
 
 GitHub Project V2 GraphQL API는 project item 조회 시 상태 필드 기준의 query-time filtering을 제공하지 않는다.
 따라서 orchestrator가 특정 workflow state만 필요하더라도 전체 project item을 가져온 뒤 코드에서 상태를 필터링해야 한다.

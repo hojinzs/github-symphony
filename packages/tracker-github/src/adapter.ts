@@ -26,6 +26,7 @@ export type GitHubTrackerConfig = {
   token: string;
   apiUrl?: string;
   lifecycle?: WorkflowLifecycleConfig;
+  filterTerminalStates?: boolean;
   pageSize?: number;
   assignedOnly?: boolean;
   repositoryFilter?: { owner: string; name: string } | null;
@@ -546,7 +547,10 @@ export async function fetchProjectIssues(
   fetchImpl: FetchLike = fetch
 ): Promise<GitHubTrackedIssue[] & TrackedIssueList> {
   const cycleConfig = beginGraphQLRateLimitCycle(config);
-  const stateFilterQuery = buildTerminalStatesQuery(config.lifecycle);
+  const stateFilterQuery =
+    config.filterTerminalStates === false
+      ? null
+      : buildTerminalStatesQuery(config.lifecycle);
   const issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
   let pageCount = 0;
