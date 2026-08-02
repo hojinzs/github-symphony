@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { readlinkSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -406,6 +407,46 @@ export function getProcessIdentity(pid: number): string | null {
 
   const identity = result.stdout.trim().replace(/\s+/g, " ");
   return identity.length > 0 ? identity : null;
+}
+
+export function getProcessStartIdentity(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "lstart="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+  const identity = result.stdout.trim().replace(/\s+/g, " ");
+  return identity.length > 0 ? identity : null;
+}
+
+export function getProcessCwd(pid: number): string | null {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+
+  try {
+    return resolve(readlinkSync(`/proc/${pid}/cwd`));
+  } catch {
+    const result = spawnSync(
+      "lsof",
+      ["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
+      { encoding: "utf8" }
+    );
+    if (result.status !== 0) {
+      return null;
+    }
+    const cwd = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("n"))
+      ?.slice(1)
+      .trim();
+    return cwd ? resolve(cwd) : null;
+  }
 }
 
 function isProcessRunning(pid: number): boolean {

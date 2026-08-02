@@ -125,6 +125,7 @@ describe("config persistence", () => {
       pid: 1234,
       startedAt: "",
       processIdentity: null,
+      cwd: null,
     });
     expect(
       parseDaemonPidRecord(
@@ -138,6 +139,7 @@ describe("config persistence", () => {
       pid: 5678,
       startedAt: "2026-07-15T00:00:00.000Z",
       processIdentity: "node gh-symphony repo start",
+      cwd: null,
     });
     expect(parseDaemonPidRecord("not-a-pid")).toBeNull();
   });

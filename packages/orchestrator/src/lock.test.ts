@@ -8,15 +8,22 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   acquireProjectLock,
+  getProcessCwd,
+  getProcessStartIdentity,
   releaseProjectLock,
   renewProjectLock,
 } from "./lock.js";
 
 describe("project lock", () => {
+  it("resolves the current process working directory", () => {
+    expect(getProcessCwd(process.pid)).toBe(resolve(process.cwd()));
+    expect(getProcessStartIdentity(process.pid)).not.toBeNull();
+  });
+
   it("creates a project-scoped lock file with pid metadata", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-lock-"));
 

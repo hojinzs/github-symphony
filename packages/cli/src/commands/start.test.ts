@@ -761,6 +761,7 @@ describe("start command foreground locking", () => {
     expect(pidRecord).toMatchObject({
       pid: 2468,
       processIdentity: "process-2468",
+      cwd: process.cwd(),
     });
     expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
   });

@@ -18,6 +18,7 @@ import {
   executeWorkspaceHook,
   isStateTerminal,
   isMatchingIssueRun,
+  matchesWorkflowState,
   isOrchestratorChannelEvent,
   mapIssueOrchestrationStateToStatus,
   readEnvFile,
@@ -60,6 +61,7 @@ import {
   readGitCurrentBranch,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
+import { getProcessStartIdentity } from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
@@ -368,6 +370,7 @@ export class OrchestratorService {
       maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
+      getProcessStartIdentity?: (pid: number) => string | null;
       waitImpl?: (ms: number) => Promise<void>;
       stderr?: Pick<NodeJS.WriteStream, "write">;
       createWriteStreamImpl?: (
@@ -591,6 +594,98 @@ export class OrchestratorService {
       error: result.error,
       rateLimits: result.rateLimits,
     });
+  }
+
+  private async returnConvergedIssueToRetryableState(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<{ confirmed: boolean; state: string | null }> {
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      run.repository
+    ).catch(() => null);
+    if (!resolution || !isUsableWorkflowResolution(resolution)) {
+      return { confirmed: false, state: null };
+    }
+
+    const retryableState = resolution.workflow.tracker.activeStates[0]?.trim();
+    if (
+      !retryableState ||
+      matchesWorkflowState(run.issueState, [retryableState])
+    ) {
+      return { confirmed: false, state: null };
+    }
+
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    if (!trackerAdapter.requestState) {
+      return { confirmed: false, state: null };
+    }
+
+    let canonicalItemId = run.trackerItemId?.trim() ?? "";
+    try {
+      if (!canonicalItemId) {
+        const refreshed = await trackerAdapter.fetchIssueStatesByIds(
+          tenant,
+          [run.issueSubjectId],
+          trackerDependencies
+        );
+        canonicalItemId =
+          refreshed.find((issue) => issue.id === run.issueSubjectId)?.tracker
+            .itemId ?? "";
+      }
+      if (!canonicalItemId) {
+        return { confirmed: false, state: null };
+      }
+
+      const request: TrackerStateRequest = {
+        type: "transition-request",
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: "Clean-workspace convergence requires a fresh retry cycle.",
+      };
+      const result = await trackerAdapter.requestState(
+        tenant,
+        {
+          issueSubjectId: run.issueSubjectId,
+          itemId: canonicalItemId,
+          request,
+        },
+        trackerDependencies
+      );
+      await this.appendTrackerStateEvent(
+        { ...run, trackerItemId: canonicalItemId },
+        request,
+        result
+      );
+      this.rememberTrackerRateLimits(tenant.projectId, result.rateLimits);
+      return {
+        confirmed:
+          result.ok &&
+          result.outcome === "confirmed" &&
+          result.state !== null &&
+          matchesWorkflowState(result.state, [retryableState]),
+        state: result.state,
+      };
+    } catch (error) {
+      const request: TrackerStateRequest = {
+        type: "transition-request",
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: "Clean-workspace convergence requires a fresh retry cycle.",
+      };
+      await this.appendTrackerStateEvent(run, request, {
+        ok: false,
+        outcome: "failed",
+        state: null,
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: request.reason,
+        rateLimits: extractTrackerRateLimitsFromError(error),
+        error: this.formatErrorMessage(error),
+      });
+      return { confirmed: false, state: null };
+    }
   }
 
   async run(
@@ -844,6 +939,12 @@ export class OrchestratorService {
     const activeRuns = allRuns.filter((run) =>
       isActiveRunRecordStatus(run.status)
     );
+    issueRecords = await this.selectCurrentRunsForReconciliation(
+      tenant,
+      issueRecords,
+      activeRuns,
+      now
+    );
     for (const run of activeRuns) {
       const outcome = await this.reconcileRun(
         tenant,
@@ -1092,13 +1193,50 @@ export class OrchestratorService {
           retryEntry: null,
           updatedAt: now.toISOString(),
         });
+        await this.store.saveProjectIssueOrchestrations(
+          tenant.projectId,
+          issueRecords
+        );
         let run: OrchestratorRunRecord;
+        let preparedRun: OrchestratorRunRecord | null = null;
         try {
           run = await this.startRun(tenant, issue, {
             recovery: recoveryContext,
+            onPrepared: async (candidate) => {
+              preparedRun = candidate;
+              issueRecords = upsertIssueOrchestration(issueRecords, {
+                issueId: candidate.issueId,
+                identifier: candidate.issueIdentifier,
+                workspaceKey:
+                  candidate.issueWorkspaceKey ?? preferredWorkspaceKey,
+                state: "running",
+                currentRunId: candidate.runId,
+                retryEntry: null,
+                updatedAt: now.toISOString(),
+              });
+              await this.store.saveRun(candidate);
+              await this.store.saveProjectIssueOrchestrations(
+                tenant.projectId,
+                issueRecords
+              );
+            },
           });
         } catch (error) {
+          const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
+          if (failedPreparedRun) {
+            await this.store.saveRun({
+              ...failedPreparedRun,
+              status: "failed",
+              completedAt: now.toISOString(),
+              updatedAt: now.toISOString(),
+              lastError: `Worker spawn failed: ${this.formatErrorMessage(error)}`,
+            });
+          }
           issueRecords = releaseIssueOrchestration(issueRecords, issue.id, now);
+          await this.store.saveProjectIssueOrchestrations(
+            tenant.projectId,
+            issueRecords
+          );
           throw error;
         }
         issueRecords = upsertIssueOrchestration(issueRecords, {
@@ -1111,6 +1249,10 @@ export class OrchestratorService {
           updatedAt: now.toISOString(),
         });
         await this.store.saveRun(run);
+        await this.store.saveProjectIssueOrchestrations(
+          tenant.projectId,
+          issueRecords
+        );
         const eventRateLimits =
           listRateLimits && !listRateLimitsRecorded
             ? listRateLimits
@@ -1179,7 +1321,7 @@ export class OrchestratorService {
           if (
             !activeRun ||
             activeRun.processId === null ||
-            !this.isProcessRunning(activeRun.processId)
+            !this.isRunProcessRunning(activeRun)
           ) {
             continue;
           }
@@ -1798,6 +1940,7 @@ export class OrchestratorService {
     issue: TrackedIssue,
     options: {
       recovery?: IncompleteTurnRecoveryContext | null;
+      onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
   ): Promise<OrchestratorRunRecord> {
     if (this.shuttingDown || !this.running) {
@@ -1984,6 +2127,48 @@ export class OrchestratorService {
     );
 
     const runtimeTimeouts = resolveWorkflowRuntimeTimeouts(workflow.workflow);
+    const buildRunRecord = (
+      processId: number | null,
+      processIdentity: string | null = null
+    ): OrchestratorRunRecord => ({
+      runId,
+      projectId: tenant.projectId,
+      projectSlug: tenant.slug,
+      issueId: issue.id,
+      issueSubjectId,
+      trackerItemId: issue.tracker.itemId,
+      issueIdentifier: issue.identifier,
+      issueTitle: issue.title,
+      issueState: issue.state,
+      repository: issue.repository,
+      status: "running",
+      attempt: 1,
+      processId,
+      processIdentity,
+      port: null,
+      workingDirectory: repositoryDirectory,
+      issueWorkspaceKey: workspaceKey,
+      workspaceRuntimeDir,
+      workflowPath: workflow.workflowPath,
+      retryKind: recovery ? "recovery" : null,
+      threadId: null,
+      cumulativeTurnCount: 0,
+      lastTurnSummary: null,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      startedAt: now.toISOString(),
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "preparing_workspace",
+      rateLimits: issue.rateLimits ?? null,
+      recovery,
+    });
+
+    // Fence the issue to this run before the worker can request its first
+    // lease. This also leaves a recoverable preparing record if the daemon
+    // exits between preparation and process spawn.
+    await options.onPrepared?.(buildRunRecord(null));
     mkdirSync(runDir, { recursive: true });
     const workerLogStream = (
       this.dependencies.createWriteStreamImpl ?? createWriteStream
@@ -2184,39 +2369,10 @@ export class OrchestratorService {
     });
     child.unref();
 
-    return {
-      runId,
-      projectId: tenant.projectId,
-      projectSlug: tenant.slug,
-      issueId: issue.id,
-      issueSubjectId,
-      trackerItemId: issue.tracker.itemId,
-      issueIdentifier: issue.identifier,
-      issueTitle: issue.title,
-      issueState: issue.state,
-      repository: issue.repository,
-      status: "running",
-      attempt: 1,
-      processId: child.pid ?? null,
-      port: null,
-      workingDirectory: repositoryDirectory,
-      issueWorkspaceKey: workspaceKey,
-      workspaceRuntimeDir,
-      workflowPath: workflow.workflowPath,
-      retryKind: recovery ? "recovery" : null,
-      threadId: null,
-      cumulativeTurnCount: 0,
-      lastTurnSummary: null,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      startedAt: now.toISOString(),
-      completedAt: null,
-      lastError: null,
-      nextRetryAt: null,
-      runPhase: "preparing_workspace",
-      rateLimits: issue.rateLimits ?? null,
-      recovery,
-    };
+    return buildRunRecord(
+      child.pid ?? null,
+      child.pid ? this.resolveProcessIdentity(child.pid) : null
+    );
   }
 
   private async reconcileRun(
@@ -2229,8 +2385,38 @@ export class OrchestratorService {
     recovered: boolean;
   }> {
     const now = this.now();
+    const issueRecord = issueRecords.find(
+      (candidate) => candidate.issueId === run.issueId
+    );
 
-    if (run.processId && this.isProcessRunning(run.processId)) {
+    if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
+      if (this.isRunProcessRunning(run)) {
+        this.sendSignal(run.processId!, "SIGTERM");
+        this.retireWorkerPid(run.processId);
+      }
+      const supersededRun: OrchestratorRunRecord = {
+        ...run,
+        status: "failed",
+        processId: null,
+        completedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        nextRetryAt: null,
+        retryKind: null,
+        lastError: `worker_lease_lost: run_not_current; superseded by current run ${issueRecord.currentRunId}.`,
+      };
+      await this.store.saveRun(supersededRun);
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "run-suppressed",
+        projectId: run.projectId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        reason: "run_not_current",
+      } as OrchestratorEvent);
+      return { issueRecords, recovered: false };
+    }
+
+    if (this.isRunProcessRunning(run)) {
       const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
       const configuredStallTimeoutMs = retryPolicy?.stallTimeoutMs ?? null;
       const lastActivityAtMs = parseTimestampMs(
@@ -2267,7 +2453,7 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        this.sendSignal(run.processId, "SIGTERM");
+        this.sendSignal(run.processId!, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {
@@ -2373,28 +2559,6 @@ export class OrchestratorService {
       return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
     }
 
-    if (workerInfo.exitClassification === "convergence-detected") {
-      const completedRun: OrchestratorRunRecord = {
-        ...runWithTokens,
-        status: "failed",
-        processId: null,
-        updatedAt: now.toISOString(),
-        completedAt: now.toISOString(),
-        nextRetryAt: null,
-        retryKind: null,
-        lastError: runWithTokens.lastError,
-        runPhase: runWithTokens.runPhase ?? "failed",
-      };
-      await this.store.saveRun(completedRun);
-      this.logVerbose(
-        `[run-completed] ${completedRun.runId} status=${completedRun.status}`
-      );
-      return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
-        recovered: false,
-      };
-    }
-
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
         this.store.projectDir(tenant.projectId),
@@ -2424,13 +2588,47 @@ export class OrchestratorService {
       runWithTokens,
       now
     );
+    const convergenceDetected =
+      workerInfo.exitClassification === "convergence-detected";
+
+    if (convergenceDetected && !recovery) {
+      const trackerRecovery = await this.returnConvergedIssueToRetryableState(
+        tenant,
+        runWithTokens,
+        trackerDependencies
+      );
+      if (trackerRecovery.confirmed) {
+        const completedRun: OrchestratorRunRecord = {
+          ...runWithTokens,
+          issueState: trackerRecovery.state ?? runWithTokens.issueState,
+          status: "failed",
+          processId: null,
+          updatedAt: now.toISOString(),
+          completedAt: now.toISOString(),
+          nextRetryAt: null,
+          retryKind: null,
+          lastError: runWithTokens.lastError,
+          runPhase: runWithTokens.runPhase ?? "failed",
+        };
+        await this.store.saveRun(completedRun);
+        this.logVerbose(
+          `[run-completed] ${completedRun.runId} status=${completedRun.status}`
+        );
+        return {
+          issueRecords: releaseIssueOrchestration(
+            issueRecords,
+            run.issueId,
+            now
+          ),
+          recovered: false,
+        };
+      }
+    }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = await this.classifyRetryKind(
-      tenant,
-      run,
-      trackerDependencies
-    );
+    const retryKind = convergenceDetected
+      ? "failure"
+      : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
@@ -2533,8 +2731,10 @@ export class OrchestratorService {
       lastTurnSummary:
         runWithTokens.lastTurnSummary ?? run.lastTurnSummary ?? null,
       runPhase: runWithTokens.runPhase ?? "failed",
-      lastError:
-        recovery || retryKind === "continuation"
+      lastError: convergenceDetected
+        ? (runWithTokens.lastError ??
+          "convergence_detected: repeated non-productive turns")
+        : recovery || retryKind === "continuation"
           ? null
           : "Worker process exited unexpectedly.",
       recovery,
@@ -2573,6 +2773,87 @@ export class OrchestratorService {
       issueRecords,
       recovered: false,
     };
+  }
+
+  private async selectCurrentRunsForReconciliation(
+    tenant: OrchestratorProjectConfig,
+    issueRecords: IssueOrchestrationRecord[],
+    activeRuns: OrchestratorRunRecord[],
+    now: Date
+  ): Promise<IssueOrchestrationRecord[]> {
+    const runsByIssueId = new Map<string, OrchestratorRunRecord[]>();
+    for (const run of activeRuns) {
+      const matchingRuns = runsByIssueId.get(run.issueId) ?? [];
+      matchingRuns.push(run);
+      runsByIssueId.set(run.issueId, matchingRuns);
+    }
+
+    let selectedIssueRecords = issueRecords;
+    let changed = false;
+    for (const [issueId, matchingRuns] of runsByIssueId) {
+      const issueRecord = selectedIssueRecords.find(
+        (candidate) => candidate.issueId === issueId
+      );
+      if (
+        issueRecord?.currentRunId &&
+        matchingRuns.some((run) => run.runId === issueRecord.currentRunId)
+      ) {
+        continue;
+      }
+
+      const selectedCandidate = matchingRuns
+        .map((run) => ({ run, isLive: this.isRunProcessRunning(run) }))
+        .sort((left, right) => {
+          if (left.isLive !== right.isLive) {
+            return left.isLive ? -1 : 1;
+          }
+          const leftActivityAt =
+            parseTimestampMs(left.run.lastEventAt ?? left.run.updatedAt) ??
+            -Infinity;
+          const rightActivityAt =
+            parseTimestampMs(right.run.lastEventAt ?? right.run.updatedAt) ??
+            -Infinity;
+          if (leftActivityAt !== rightActivityAt) {
+            return rightActivityAt - leftActivityAt;
+          }
+          return left.run.runId.localeCompare(right.run.runId);
+        })[0];
+      if (!selectedCandidate) {
+        continue;
+      }
+      const { run: selectedRun, isLive: selectedRunIsLive } = selectedCandidate;
+      selectedIssueRecords = upsertIssueOrchestration(selectedIssueRecords, {
+        issueId: selectedRun.issueId,
+        identifier: selectedRun.issueIdentifier,
+        workspaceKey:
+          selectedRun.issueWorkspaceKey ??
+          issueRecord?.workspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: selectedRun.issueSubjectId,
+            },
+            selectedRun.issueIdentifier
+          ),
+        state:
+          issueRecord?.state ??
+          (selectedRunIsLive || selectedRun.status !== "retrying"
+            ? "running"
+            : "retry_queued"),
+        currentRunId: selectedRun.runId,
+        retryEntry: issueRecord?.retryEntry ?? null,
+        updatedAt: now.toISOString(),
+      });
+      changed = true;
+    }
+
+    if (changed) {
+      await this.store.saveProjectIssueOrchestrations(
+        tenant.projectId,
+        selectedIssueRecords
+      );
+    }
+    return selectedIssueRecords;
   }
 
   private now(): Date {
@@ -3237,7 +3518,60 @@ export class OrchestratorService {
       run
     );
     const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
-    const restarted = await this.startRun(tenant, issue, { recovery });
+    let nextIssueRecords = issueRecords;
+    let preparedRun: OrchestratorRunRecord | null = null;
+    let restarted: OrchestratorRunRecord;
+    try {
+      restarted = await this.startRun(tenant, issue, {
+        recovery,
+        onPrepared: async (candidate) => {
+          preparedRun = candidate;
+          nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
+            issueId: candidate.issueId,
+            identifier: candidate.issueIdentifier,
+            workspaceKey:
+              candidate.issueWorkspaceKey ??
+              deriveIssueWorkspaceKey(
+                {
+                  adapter: tenant.tracker.adapter,
+                  issueSubjectId: candidate.issueSubjectId,
+                },
+                candidate.issueIdentifier
+              ),
+            state: "running",
+            currentRunId: candidate.runId,
+            retryEntry: null,
+            updatedAt: now.toISOString(),
+          });
+          await this.store.saveRun(candidate);
+          await this.store.saveProjectIssueOrchestrations(
+            tenant.projectId,
+            nextIssueRecords
+          );
+        },
+      });
+    } catch (error) {
+      const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
+      if (failedPreparedRun) {
+        await this.store.saveRun({
+          ...failedPreparedRun,
+          status: "failed",
+          completedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          lastError: `Worker spawn failed: ${this.formatErrorMessage(error)}`,
+        });
+      }
+      nextIssueRecords = releaseIssueOrchestration(
+        nextIssueRecords,
+        run.issueId,
+        now
+      );
+      await this.store.saveProjectIssueOrchestrations(
+        tenant.projectId,
+        nextIssueRecords
+      );
+      throw error;
+    }
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
       attempt: run.attempt,
@@ -3250,6 +3584,10 @@ export class OrchestratorService {
       turnCount: 0,
     };
     await this.store.saveRun(recoveredRecord);
+    await this.store.saveProjectIssueOrchestrations(
+      tenant.projectId,
+      nextIssueRecords
+    );
     await this.store.appendRunEvent(run.runId, {
       at: now.toISOString(),
       event: "run-recovered",
@@ -3260,7 +3598,7 @@ export class OrchestratorService {
     } as OrchestratorEvent);
 
     return {
-      issueRecords: upsertIssueOrchestration(issueRecords, {
+      issueRecords: upsertIssueOrchestration(nextIssueRecords, {
         issueId: recoveredRecord.issueId,
         identifier: recoveredRecord.issueIdentifier,
         workspaceKey:
@@ -3535,6 +3873,29 @@ export class OrchestratorService {
     } catch {
       return false;
     }
+  }
+
+  private resolveProcessIdentity(processId: number): string | null {
+    return (
+      this.dependencies.getProcessStartIdentity ?? getProcessStartIdentity
+    )(processId);
+  }
+
+  private isRunProcessRunning(run: OrchestratorRunRecord): boolean {
+    if (!run.processId || !this.isProcessRunning(run.processId)) {
+      return false;
+    }
+    if (!run.processIdentity) {
+      return true;
+    }
+    const liveLeaderIdentity = this.resolveProcessIdentity(run.processId);
+    if (liveLeaderIdentity === null) {
+      // isProcessRunning also checks the detached process group. A wrapper leader
+      // may exit while its worker child remains alive, so a missing leader must
+      // not narrow the group-level liveness result and permit a second worker.
+      return true;
+    }
+    return liveLeaderIdentity === run.processIdentity;
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {
