@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.7.3
+
+### Patch Changes
+
+- [#515](https://github.com/hojinzs/github-symphony/pull/515) [`6e53e2a`](https://github.com/hojinzs/github-symphony/commit/6e53e2ad0fd77825f4029c98d6f0f2ed0f328f18) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Use GitHub Project V2 server-side terminal-state filtering while preserving exact unfiltered state lookups for custom workflow fields in [#475](https://github.com/hojinzs/github-symphony/issues/475).
+
+- [#519](https://github.com/hojinzs/github-symphony/pull/519) [`1d0005b`](https://github.com/hojinzs/github-symphony/commit/1d0005b30e0ce1ab0f3be5f31c42c0a0ca099e38) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Report the GitHub authentication source used by CLI operations, aggregate failures across environment and `gh` credentials, and classify runtime authentication failures with typed errors for [#448](https://github.com/hojinzs/github-symphony/issues/448).
+
+- [#514](https://github.com/hojinzs/github-symphony/pull/514) [`4034df7`](https://github.com/hojinzs/github-symphony/commit/4034df753eeac369515838a7e38946facc107b70) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reuse each reconciliation cycle's project item snapshot for active-run state synchronization, removing the duplicate by-ID tracker lookup for [#478](https://github.com/hojinzs/github-symphony/issues/478).
+
 ## 0.7.2
 
 ### Patch Changes
