@@ -215,6 +215,17 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("redacts YAML doubled-quote values without leaking fragments", () => {
+    const raw = "password: 'abc''def'\nstatus: failed";
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe("password: '[REDACTED]'\nstatus: failed");
+    for (const fragment of ["abc", "def"]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
   it("redacts complete unquoted secret values containing punctuation", () => {
     const raw = ["GITHUB_TOKEN=abc,def", "CUSTOM_PASSWORD=abc;def"].join("\n");
 
@@ -226,6 +237,22 @@ describe("redactObservabilitySecrets", () => {
     for (const fragment of ["abc", "def"]) {
       expect(redacted.value).not.toContain(fragment);
     }
+  });
+
+  it("preserves adjacent compact log fields after unquoted secrets", () => {
+    const raw = ["token=abc,status=failed", "password=abc;result=denied"].join(
+      "\n"
+    );
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      [
+        "token=[REDACTED],status=failed",
+        "password=[REDACTED];result=denied",
+      ].join("\n")
+    );
+    expect(redacted.value).not.toContain("abc");
   });
 
   it("preserves JSON when redacting sensitive literal values", () => {

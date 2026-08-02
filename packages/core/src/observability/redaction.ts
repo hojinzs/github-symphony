@@ -164,7 +164,7 @@ function redactTextValue(
   );
   redacted = replaceAndCount(
     redacted,
-    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])((?:\\.|(?!\2)[^\\])*)\2/gi,
+    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])((?:\\.|\2\2|(?!\2)[^\\])*)\2/gi,
     "secret_key",
     counts,
     "$1$2[REDACTED]$2"
@@ -178,7 +178,7 @@ function redactTextValue(
   );
   redacted = replaceAndCount(
     redacted,
-    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(?!["']|\[REDACTED\])([^\s}\]"']+)/gi,
+    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
     "secret_key",
     counts,
     "$1[REDACTED]"
