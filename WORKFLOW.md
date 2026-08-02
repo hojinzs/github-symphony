@@ -80,6 +80,8 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
      ```
      Reason = _why this transition now_, not a restatement of the target state ("리뷰 blocking 2건 rework", not "moved to In progress").
 
+   **Lifecycle finalization order.** Treat a Project status transition as the final lifecycle mutation for the turn, not as a progress signal. Before requesting it, complete the scoped implementation/rebase/merge decision, collect final validation output, refresh the PR/workpad narrative, and record the transition reason and evidence in the workpad's Validation/Progress Log sections. Then request the state transition and confirm exact-item readback. The only permitted work after the confirmed transition is its standalone audit comment and the matching confirmed Status Transitions line. Never transition first and defer the decision evidence or failure classification to later work in the same turn.
+
 6. Treat Issue cards as the canonical project item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only. If an issue has an open PR, inspect it from the issue timeline before deciding whether to create a new branch.
 7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, treat that as a **new work cycle**: run the relevant guard (Step 0 _Ready-return rework guard_ for `Ready`; the `/land` skill's pre-flight for `Land`) and create a **new workpad comment** for the cycle before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
 8. Use the `/gh-project` skill for all tracker status reads and transitions. Workers send intent to the run-scoped orchestrator API and never traverse provider boards or mutate tracker fields directly.
@@ -152,6 +154,7 @@ Entered from one of:
 
 4. **Turn-end checklist.** Before ending a turn:
    - workpad Plan item marked `[x]` and a Progress Log entry added.
+   - For a lifecycle handoff, merge outcome, or failure classification: all final evidence, exact reason, and intended next action are already recorded in the workpad before requesting the Project state transition. The post-readback standalone audit is the only deferred bookkeeping.
    - Any status transition this turn is logged (standalone comment + workpad Status Transitions line).
    - All changes committed; no broken intermediate state.
    - **Resting-state rule** — ending a turn in `In progress` is valid only when **(a)** an unchecked, in-scope Plan item remains, or **(b)** a code-blocker was hit, parked to `Backlog` per Posture 2.
@@ -178,10 +181,11 @@ Entered from one of:
 
 8. **Mandatory handoff gate.** The moment Steps 5–7 are satisfied, in **this same turn**:
    1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
-   2. Mark the Draft PR ready: `gh pr ready <pr-number>`.
-   3. Transition the issue to `In review` via `/gh-project`. Only proceed after the orchestrator confirms exact-item readback for `In review`.
-   4. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
-   5. Append the matching workpad Status Transitions line; tick the Completion Bar items; record final Validation results; close the cycle marker.
+   2. Complete the current workpad's Completion Bar, final Validation results, and Progress Log entry, including the exact handoff reason, before its lifecycle transition.
+   3. Mark the Draft PR ready: `gh pr ready <pr-number>`.
+   4. Transition the issue to `In review` via `/gh-project`. Only proceed after the orchestrator confirms exact-item readback for `In review`.
+   5. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
+   6. Append the matching confirmed workpad Status Transitions line and close the cycle marker. Do not postpone any other completion evidence until after the transition.
 
    **Never end a turn with the Completion Bar met and the PR still Draft.** That state deadlocks the workflow (Step 3 only fires on merge; the worker won't be re-dispatched). The Step 0 stalled-handoff safety net rescues it on the next polling tick as a backstop, but it should not be needed.
 
@@ -210,8 +214,9 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
 
 3. **Close the land cycle.** Once `/land` completes, verify the standalone `🔁 Status: Land → Done` comment was posted and the workpad Status Transitions line was appended (cycle N close: land). If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
 
-4. **On `/land` failure.** The skill records the failure, classifies it, and exits without merging. It must not leave a non-recoverable failure in active `Land` for repeated polling:
-   - **Approval or wait-only failure** — no human `APPROVED` review, pending required CI, or other condition that only needs human/external review: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment and append the Land workpad transition line. Do **not** write a `⛔ Blocker` comment.
+4. **On `/land` failure or wait.** The skill records the final evidence before any lifecycle transition, classifies it, and exits without merging only when it cannot safely complete the Land cycle:
+   - **Required CI pending or registering** — keep the issue in `Land` and wait in the current Land turn. This includes checks re-queued because `/pull` refreshed the branch. Only required checks gate this path: before `/pull`, record the required-check names returned by `gh pr checks <pr-number> --required --json name,bucket`. If that result is empty, no required CI is configured and this gate passes without a registration wait. Otherwise, poll every 10 seconds until those previously observed required checks appear on the fresh head, then use `gh pr checks <pr-number> --required --watch --interval 10` until it reaches a terminal state. Do not invoke `--watch` while no check suite is registered, because it exits immediately instead of waiting for a future suite. Limit check-registration polling to 5 minutes; if the expected required checks do not appear, record the new head SHA and polling evidence, then classify it as the external wait-only failure below. Do not treat a newly-running required check as a `Land` → `In review` failure. Once CI reaches a terminal state, re-run the **entire** Land pre-flight (approval, checks, freshness, changeset, mergeability, and review feedback): merge if it passes; otherwise classify the resulting concrete failure below.
+   - **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: complete the workpad evidence first, transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment and append the Land workpad transition line. Do **not** write a `⛔ Blocker` comment.
    - **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition that the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment and append the Land workpad transition line. The Ready-return rework guard opens the next cycle and routes it to `In progress`.
    - **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and append the Land workpad transition line. State the unblock condition.
    - **Immediately recoverable branch freshness** — when the branch is behind, run `/pull` and re-run the complete pre-flight sequence. Keep `Land` only for this in-run recovery path; if `/pull` fails, classify the failure using the rules above.
