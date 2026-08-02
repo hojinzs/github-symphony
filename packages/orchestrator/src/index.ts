@@ -9,7 +9,9 @@ import {
 import {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessCwd,
   getProcessIdentity,
+  getProcessStartIdentity,
   releaseProjectLock,
   renewProjectLock,
   type ProjectLockHandle,
@@ -27,7 +29,9 @@ export {
 export {
   acquireProjectLock,
   assertValidProjectId,
+  getProcessCwd,
   getProcessIdentity,
+  getProcessStartIdentity,
   releaseProjectLock,
   renewProjectLock,
   type ProjectLockHandle,

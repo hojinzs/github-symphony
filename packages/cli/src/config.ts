@@ -42,6 +42,7 @@ export type DaemonPidRecord = {
   pid: number;
   startedAt: string;
   processIdentity: string | null;
+  cwd: string | null;
 };
 
 export type CliGlobalConfig = {
@@ -260,7 +261,12 @@ async function writeFileAtomically(path: string, data: string): Promise<void> {
 export function parseDaemonPidRecord(raw: string): DaemonPidRecord | null {
   const legacyPid = Number(raw.trim());
   if (Number.isInteger(legacyPid) && legacyPid > 0) {
-    return { pid: legacyPid, startedAt: "", processIdentity: null };
+    return {
+      pid: legacyPid,
+      startedAt: "",
+      processIdentity: null,
+      cwd: null,
+    };
   }
 
   try {
@@ -270,11 +276,14 @@ export function parseDaemonPidRecord(raw: string): DaemonPidRecord | null {
       (parsed.pid ?? 0) <= 0 ||
       typeof parsed.startedAt !== "string" ||
       (parsed.processIdentity !== null &&
-        typeof parsed.processIdentity !== "string")
+        typeof parsed.processIdentity !== "string") ||
+      (parsed.cwd !== undefined &&
+        parsed.cwd !== null &&
+        typeof parsed.cwd !== "string")
     ) {
       return null;
     }
-    return parsed as DaemonPidRecord;
+    return { ...parsed, cwd: parsed.cwd ?? null } as DaemonPidRecord;
   } catch {
     return null;
   }

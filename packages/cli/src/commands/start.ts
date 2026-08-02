@@ -1278,6 +1278,7 @@ async function startDaemon(
       pid: child.pid,
       startedAt: new Date().toISOString(),
       processIdentity: getProcessIdentity(child.pid),
+      cwd: process.cwd(),
     });
     child.unref();
   } catch (error) {

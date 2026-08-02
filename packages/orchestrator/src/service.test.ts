@@ -70,6 +70,44 @@ describe("OrchestratorService", () => {
     expect(dependencies.assignedOnly).toBe(true);
   });
 
+  it("rejects a live PID whose worker process identity was reused", () => {
+    const service = new OrchestratorService(
+      {
+        projectDir: () => "/tmp/orchestrator/projects/tenant-1",
+      } as never,
+      createProjectConfig("/tmp/orchestrator", {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      {
+        isProcessRunning: () => true,
+        getProcessStartIdentity: () => "new-process-start",
+      }
+    );
+    const isRunProcessRunning = (
+      service as unknown as {
+        isRunProcessRunning(run: {
+          processId: number | null;
+          processIdentity?: string | null;
+        }): boolean;
+      }
+    ).isRunProcessRunning.bind(service);
+
+    expect(
+      isRunProcessRunning({
+        processId: 4321,
+        processIdentity: "old-process-start",
+      })
+    ).toBe(false);
+    expect(
+      isRunProcessRunning({
+        processId: 4321,
+        processIdentity: "new-process-start",
+      })
+    ).toBe(true);
+  });
+
   it("grants short-lived turn leases only to the current running worker", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-turn-lease-"));
     const store = new OrchestratorFsStore(tempRoot);
@@ -3175,6 +3213,7 @@ Prefer focused changes.
         json: async () => ({}),
       } as Response) as never,
       spawnImpl: spawnImpl as never,
+      getProcessStartIdentity: (pid) => `worker-${pid}-started-once`,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
 
@@ -3213,6 +3252,7 @@ Prefer focused changes.
     );
     expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");
+    expect(recoveredRun?.processIdentity).toBe("worker-4102-started-once");
     expect(recoveredRun?.threadId).toBeNull();
     expect(recoveredRun?.cumulativeTurnCount).toBe(4);
     expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");

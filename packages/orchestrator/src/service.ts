@@ -61,6 +61,7 @@ import {
   readGitCurrentBranch,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
+import { getProcessStartIdentity } from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
@@ -369,6 +370,7 @@ export class OrchestratorService {
       maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
+      getProcessStartIdentity?: (pid: number) => string | null;
       waitImpl?: (ms: number) => Promise<void>;
       stderr?: Pick<NodeJS.WriteStream, "write">;
       createWriteStreamImpl?: (
@@ -1313,7 +1315,7 @@ export class OrchestratorService {
           if (
             !activeRun ||
             activeRun.processId === null ||
-            !this.isProcessRunning(activeRun.processId)
+            !this.isRunProcessRunning(activeRun)
           ) {
             continue;
           }
@@ -2120,7 +2122,8 @@ export class OrchestratorService {
 
     const runtimeTimeouts = resolveWorkflowRuntimeTimeouts(workflow.workflow);
     const buildRunRecord = (
-      processId: number | null
+      processId: number | null,
+      processIdentity: string | null = null
     ): OrchestratorRunRecord => ({
       runId,
       projectId: tenant.projectId,
@@ -2135,6 +2138,7 @@ export class OrchestratorService {
       status: "running",
       attempt: 1,
       processId,
+      processIdentity,
       port: null,
       workingDirectory: repositoryDirectory,
       issueWorkspaceKey: workspaceKey,
@@ -2359,7 +2363,10 @@ export class OrchestratorService {
     });
     child.unref();
 
-    return buildRunRecord(child.pid ?? null);
+    return buildRunRecord(
+      child.pid ?? null,
+      child.pid ? this.resolveProcessIdentity(child.pid) : null
+    );
   }
 
   private async reconcileRun(
@@ -2377,8 +2384,8 @@ export class OrchestratorService {
     );
 
     if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
-      if (run.processId && this.isProcessRunning(run.processId)) {
-        this.sendSignal(run.processId, "SIGTERM");
+      if (this.isRunProcessRunning(run)) {
+        this.sendSignal(run.processId!, "SIGTERM");
         this.retireWorkerPid(run.processId);
       }
       const supersededRun: OrchestratorRunRecord = {
@@ -2403,7 +2410,7 @@ export class OrchestratorService {
       return { issueRecords, recovered: false };
     }
 
-    if (run.processId && this.isProcessRunning(run.processId)) {
+    if (this.isRunProcessRunning(run)) {
       const retryPolicy = await this.loadRetryPolicy(tenant, run.repository);
       const configuredStallTimeoutMs = retryPolicy?.stallTimeoutMs ?? null;
       const lastActivityAtMs = parseTimestampMs(
@@ -2440,7 +2447,7 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        this.sendSignal(run.processId, "SIGTERM");
+        this.sendSignal(run.processId!, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {
@@ -3779,6 +3786,22 @@ export class OrchestratorService {
     } catch {
       return false;
     }
+  }
+
+  private resolveProcessIdentity(processId: number): string | null {
+    return (
+      this.dependencies.getProcessStartIdentity ?? getProcessStartIdentity
+    )(processId);
+  }
+
+  private isRunProcessRunning(run: OrchestratorRunRecord): boolean {
+    if (!run.processId || !this.isProcessRunning(run.processId)) {
+      return false;
+    }
+    if (!run.processIdentity) {
+      return true;
+    }
+    return this.resolveProcessIdentity(run.processId) === run.processIdentity;
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {

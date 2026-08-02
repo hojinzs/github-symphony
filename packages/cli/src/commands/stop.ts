@@ -1,5 +1,6 @@
 import { readFile, rm } from "node:fs/promises";
-import { getProcessIdentity } from "@gh-symphony/orchestrator";
+import { join, resolve } from "node:path";
+import { getProcessCwd, getProcessIdentity } from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
 import { daemonPidPath, parseDaemonPidRecord } from "../config.js";
 import {
@@ -74,35 +75,41 @@ const handler = async (
     process.exitCode = 1;
     return;
   }
-  const pid = pidRecord.pid;
-
-  try {
-    // Check if process is running
-    process.kill(pid, 0);
-  } catch {
+  const expectedCwd = resolve(pidRecord.cwd ?? process.cwd());
+  let target = validateDaemonProcess(
+    pidRecord.pid,
+    pidRecord.processIdentity,
+    expectedCwd
+  );
+  if (!target) {
+    target = await resolveProjectLockDaemon(
+      options.configDir,
+      resolvedProjectId,
+      expectedCwd
+    );
+    if (!target) {
+      process.stderr.write(
+        `Stale daemon PID ${pidRecord.pid} for project "${resolvedProjectId}"; no live orchestrator with repository CWD "${expectedCwd}" was found in the project lock. Cleaning up stale PID file.\n`
+      );
+      await rm(pidPath, { force: true });
+      process.exitCode = 1;
+      return;
+    }
     process.stdout.write(
-      `Daemon for project "${resolvedProjectId}" (PID ${pid}) is not running. Cleaning up PID file.\n`
+      `Recovered orchestrator PID ${target.pid} from the project lock for repository CWD "${expectedCwd}".\n`
     );
-    await rm(pidPath, { force: true });
-    return;
   }
 
-  const checkedIdentity = getProcessIdentity(pid);
-  const identityMatches = pidRecord.processIdentity
-    ? checkedIdentity === pidRecord.processIdentity
-    : isLegacyOrchestratorIdentity(checkedIdentity);
-  if (!identityMatches) {
-    process.stderr.write(
-      `Refusing to stop PID ${pid}: process identity does not match the recorded orchestrator daemon. Cleaning up stale PID file.\n`
-    );
-    await rm(pidPath, { force: true });
-    process.exitCode = 1;
-    return;
-  }
+  const { pid, identity: checkedIdentity } = target;
 
   const signal = resolvedForce ? "SIGKILL" : "SIGTERM";
   try {
-    if (getProcessIdentity(pid) !== checkedIdentity) {
+    const signalCwd = getProcessCwd(pid);
+    if (
+      getProcessIdentity(pid) !== checkedIdentity ||
+      !signalCwd ||
+      resolve(signalCwd) !== expectedCwd
+    ) {
       throw new Error("process identity changed before signal delivery");
     }
     process.kill(pid, signal);
@@ -118,6 +125,52 @@ const handler = async (
   await rm(pidPath, { force: true });
   process.stdout.write("Daemon stopped.\n");
 };
+
+function validateDaemonProcess(
+  pid: number,
+  recordedIdentity: string | null,
+  expectedCwd: string
+): { pid: number; identity: string } | null {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return null;
+  }
+
+  const identity = getProcessIdentity(pid);
+  const identityMatches = recordedIdentity
+    ? identity === recordedIdentity
+    : isLegacyOrchestratorIdentity(identity);
+  const cwd = getProcessCwd(pid);
+  if (!identity || !identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
+    return null;
+  }
+  return { pid, identity };
+}
+
+async function resolveProjectLockDaemon(
+  configDir: string,
+  projectId: string,
+  expectedCwd: string
+): Promise<{ pid: number; identity: string } | null> {
+  try {
+    const lock = JSON.parse(
+      await readFile(join(configDir, "projects", projectId, ".lock"), "utf8")
+    ) as { pid?: unknown; processIdentity?: unknown };
+    if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) {
+      return null;
+    }
+    const processIdentity =
+      typeof lock.processIdentity === "string" ? lock.processIdentity : null;
+    return validateDaemonProcess(
+      lock.pid as number,
+      processIdentity,
+      expectedCwd
+    );
+  } catch {
+    return null;
+  }
+}
 
 function isLegacyOrchestratorIdentity(identity: string | null): boolean {
   return Boolean(

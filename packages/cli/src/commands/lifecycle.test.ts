@@ -10,12 +10,14 @@ const spawnMock = vi.fn();
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
 const getProcessIdentityMock = vi.fn();
+const getProcessCwdMock = vi.fn();
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
 }));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
+  getProcessCwd: getProcessCwdMock,
   getProcessIdentity: getProcessIdentityMock,
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
@@ -61,6 +63,7 @@ beforeEach(() => {
   getProcessIdentityMock.mockImplementation(
     (pid: number) => `node gh-symphony index.js repo start --pid ${pid}`
   );
+  getProcessCwdMock.mockReturnValue(process.cwd());
   ghAuthMocks.resolveGitHubAuth.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
     source: "gh",
@@ -74,6 +77,7 @@ afterEach(() => {
   orchestratorRunCli.mockReset();
   spawnMock.mockReset();
   getProcessIdentityMock.mockReset();
+  getProcessCwdMock.mockReset();
   selectMock.mockReset();
   cancelMock.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockReset();
@@ -391,12 +395,56 @@ describe("lifecycle command integration", () => {
     expect(killSpy).toHaveBeenCalledWith(111, 0);
     expect(killSpy).not.toHaveBeenCalledWith(111, "SIGTERM");
     expect(stderr.mock.calls.map((call) => String(call[0])).join("")).toContain(
-      "process identity does not match"
+      "no live orchestrator with repository CWD"
     );
     await expect(
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
     expect(process.exitCode).toBe(1);
+  });
+
+  it("recovers a repository daemon from the project lock when daemon.pid is stale", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      JSON.stringify({
+        pid: 111,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        processIdentity: "stale-daemon",
+        cwd: process.cwd(),
+      }) + "\n"
+    );
+    await writeFile(
+      join(configDir, "projects", "tenant-a", ".lock"),
+      JSON.stringify({
+        ownerToken: "222:owner",
+        pid: 222,
+        startedAt: "2026-07-15T00:00:01.000Z",
+        heartbeatAt: "2026-07-15T00:00:02.000Z",
+        processIdentity: "live-daemon",
+      }) + "\n"
+    );
+    getProcessIdentityMock.mockImplementation((pid: number) =>
+      pid === 222 ? "live-daemon" : "unrelated-process"
+    );
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | 0) =>
+          true) as typeof process.kill
+      );
+
+    await stopModule.default([], baseOptions(configDir));
+
+    expect(killSpy).not.toHaveBeenCalledWith(111, "SIGTERM");
+    expect(killSpy).toHaveBeenCalledWith(222, 0);
+    expect(killSpy).toHaveBeenCalledWith(222, "SIGTERM");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects unknown project stop flags before touching daemon state", async () => {
