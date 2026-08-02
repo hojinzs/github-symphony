@@ -162,24 +162,21 @@ function redactTextValue(
     counts,
     "$1[REDACTED]"
   );
-  redacted = replaceAndCount(
+  redacted = replaceSensitiveKeyAndCount(
     redacted,
-    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])((?:\\.|\2\2|(?!\2)[^\\])*)\2/gi,
-    "secret_key",
+    /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*)(["'])((?:\\.|\3\3|(?!\3)[^\\])*)\3/gi,
     counts,
-    "$1$2[REDACTED]$2"
+    "$1$3[REDACTED]$3"
   );
-  redacted = replaceAndCount(
+  redacted = replaceSensitiveKeyAndCount(
     redacted,
-    /((?:")?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:")?\s*:\s*)(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(?=\s*[,}\]])/gi,
-    "secret_key",
+    /((?:")?\b([A-Za-z0-9_.-]+)(?:")?\s*:\s*)(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(?=\s*[,}\]])/gi,
     counts,
     '$1"[REDACTED]"'
   );
-  redacted = replaceAndCount(
+  redacted = replaceSensitiveKeyAndCount(
     redacted,
-    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
-    "secret_key",
+    /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
     counts,
     "$1[REDACTED]"
   );
@@ -205,6 +202,27 @@ function redactTextValue(
     "[REDACTED]"
   );
   return redactHighEntropyValues(redacted, counts);
+}
+
+function replaceSensitiveKeyAndCount(
+  text: string,
+  pattern: RegExp,
+  counts: Map<RedactionClass, number>,
+  replacement: string
+): string {
+  return text.replace(pattern, (...args: unknown[]) => {
+    const matched = typeof args[0] === "string" ? args[0] : "";
+    const key = typeof args[2] === "string" ? args[2] : "";
+    if (!redactionClassForKey(key) || matched.includes(REDACTED)) {
+      return matched;
+    }
+
+    incrementRedaction(counts, "secret_key");
+    return replacement.replace(/\$(\d+)/g, (_placeholder, index: string) => {
+      const group = args[Number.parseInt(index, 10)];
+      return typeof group === "string" ? group : "";
+    });
+  });
 }
 
 function redactHighEntropyValues(

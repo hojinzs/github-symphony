@@ -273,6 +273,31 @@ describe("redactObservabilitySecrets", () => {
     expect(redacted.redactions).toEqual([{ class: "secret_key", count: 3 }]);
   });
 
+  it("preserves token usage metrics in raw turn-completed NDJSON", () => {
+    const raw = JSON.stringify({
+      event: "turn_completed",
+      githubGraphqlToken: "abc",
+      tokenUsage: {
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30,
+      },
+    });
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(JSON.parse(redacted.value)).toEqual({
+      event: "turn_completed",
+      githubGraphqlToken: "[REDACTED]",
+      tokenUsage: {
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30,
+      },
+    });
+    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 1 }]);
+  });
+
   it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
