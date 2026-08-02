@@ -10,6 +10,7 @@ import {
 import {
   normalizeGithubProjectItem,
   resetGitHubRateLimitCacheForTests,
+  resetPriorityOptionOrderCacheForTests,
 } from "./adapter.js";
 import {
   findGithubProjectIssue,
@@ -25,6 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   resetGitHubRateLimitCacheForTests();
+  resetPriorityOptionOrderCacheForTests();
 });
 
 describe("resolveTrackerAdapter", () => {
@@ -3555,6 +3557,172 @@ describe("resolveTrackerAdapter", () => {
     expect(issues.map((issue) => issue.priority)).toEqual([0, 1]);
   });
 
+  it("reuses project fields across listing cycles and priority field names", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Priority",
+      },
+    });
+    const severityAdapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: {
+        projectId: "project-123",
+        priorityFieldName: "Severity",
+      },
+    });
+    const project = {
+      projectId: "workspace-1",
+      slug: "workspace-1",
+      workspaceDir: "/tmp/workspace-1",
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      },
+      tracker: {
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: {
+          projectId: "project-123",
+          priorityFieldName: "Priority",
+        },
+      },
+    };
+    let fieldQueryCount = 0;
+    let itemsQueryCount = 0;
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { query: string };
+
+      if (body.query.includes("query ProjectFields")) {
+        fieldQueryCount += 1;
+        return new Response(
+          JSON.stringify({
+            data: {
+              rateLimit: {
+                cost: 2,
+                remaining: 4998,
+                resetAt: "2026-03-19T04:00:00.000Z",
+              },
+              node: {
+                __typename: "ProjectV2",
+                fields: {
+                  nodes: [
+                    {
+                      __typename: "ProjectV2SingleSelectField",
+                      name: "Priority",
+                      options: [
+                        { id: "priority-p0", name: "P0" },
+                        { id: "priority-p1", name: "P1" },
+                      ],
+                    },
+                    {
+                      __typename: "ProjectV2SingleSelectField",
+                      name: "Severity",
+                      options: [
+                        { id: "severity-s0", name: "S0" },
+                        { id: "severity-s1", name: "S1" },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        );
+      }
+
+      itemsQueryCount += 1;
+      return new Response(
+        JSON.stringify({
+          data: {
+            rateLimit: {
+              cost: 11,
+              remaining: 4987 - itemsQueryCount,
+              resetAt: "2026-03-19T04:00:00.000Z",
+            },
+            node: {
+              __typename: "ProjectV2",
+              items: {
+                nodes: [
+                  makeProjectItem({
+                    itemId: `item-${itemsQueryCount}`,
+                    issueId: `issue-${itemsQueryCount}`,
+                    number: itemsQueryCount,
+                    title: `Prioritized issue ${itemsQueryCount}`,
+                    assignees: [],
+                    priorityOptionId:
+                      itemsQueryCount === 2 ? "severity-s1" : "priority-p1",
+                    priorityFieldName:
+                      itemsQueryCount === 2 ? "Severity" : "Priority",
+                  }),
+                ],
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    });
+
+    const firstIssues = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl,
+    });
+    const secondIssues = await severityAdapter.listIssues(
+      {
+        ...project,
+        tracker: {
+          ...project.tracker,
+          settings: {
+            ...project.tracker.settings,
+            priorityFieldName: "Severity",
+          },
+        },
+      },
+      {
+        token: "dependencies-token",
+        fetchImpl,
+      }
+    );
+    const thirdIssues = await adapter.listIssues(project, {
+      token: "dependencies-token",
+      fetchImpl,
+    });
+
+    expect(fieldQueryCount).toBe(1);
+    expect(itemsQueryCount).toBe(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(firstIssues[0]?.priority).toBe(1);
+    expect(secondIssues[0]?.priority).toBe(1);
+    expect(thirdIssues[0]?.priority).toBe(1);
+    expect(firstIssues.rateLimits?.queryCosts).toEqual(
+      expect.objectContaining({
+        ProjectFields: {
+          requestCount: 1,
+          cost: 2,
+        },
+      })
+    );
+    expect(secondIssues.rateLimits?.queryCosts).not.toHaveProperty(
+      "ProjectFields"
+    );
+    expect(thirdIssues.rateLimits?.queryCosts).not.toHaveProperty(
+      "ProjectFields"
+    );
+  });
+
   it("uses explicit project-field mapping during listing without fetching option order", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -4859,6 +5027,7 @@ function makeProjectItem(input: {
   priorityName?: string;
   priorityOptionId?: string;
   isArchived?: boolean;
+  priorityFieldName?: string;
   repository?: {
     owner: string;
     name: string;
@@ -4883,7 +5052,7 @@ function makeProjectItem(input: {
                 __typename: "ProjectV2ItemFieldSingleSelectValue" as const,
                 name: input.priorityName ?? "P1",
                 optionId: input.priorityOptionId,
-                field: { name: "Priority" },
+                field: { name: input.priorityFieldName ?? "Priority" },
               },
             ]
           : []),
