@@ -215,6 +215,37 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("redacts complete unquoted secret values containing punctuation", () => {
+    const raw = ["GITHUB_TOKEN=abc,def", "CUSTOM_PASSWORD=abc;def"].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      ["GITHUB_TOKEN=[REDACTED]", "CUSTOM_PASSWORD=[REDACTED]"].join("\n")
+    );
+    for (const fragment of ["abc", "def"]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
+  it("preserves JSON when redacting sensitive literal values", () => {
+    const raw = [
+      '{"token":123,"status":"failed"}',
+      '{"custom_secret":false,"status":"failed"}',
+      '{"password":null,"status":"failed"}',
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+    const records = redacted.value.split("\n").map((line) => JSON.parse(line));
+
+    expect(records).toEqual([
+      { token: "[REDACTED]", status: "failed" },
+      { custom_secret: "[REDACTED]", status: "failed" },
+      { password: "[REDACTED]", status: "failed" },
+    ]);
+    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 3 }]);
+  });
+
   it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
