@@ -24,6 +24,7 @@ Work unattended. Do not ask humans for follow-up. Stop only on a genuine blocker
 - Never hardcode `origin/main` for branch-freshness checks — always use the PR's actual base branch (it may be an Epic working branch).
 - **Squash merge only** for this repository. Other merge strategies are not used.
 - Record every merge attempt, blocker, and outcome in the Land cycle workpad comment.
+- Treat a Project status transition as the final lifecycle mutation for the Land turn. Before requesting it, finish the pre-flight/merge decision and write its exact evidence and reason into the workpad Validation/Progress Log. After exact-item readback, only the standalone transition audit and matching confirmed Status Transitions line may remain.
 
 ## Required Context
 
@@ -43,7 +44,7 @@ If no PR is linked to the issue, record the blocker in the workpad and exit.
 All must pass before merging. If any fails, record the failure in the workpad and **do not** merge.
 
 1. **At least one human approval.** `gh pr view <pr-number> --json reviews --jq '[.reviews[] | select(.state == "APPROVED")] | length'` must be ≥ 1.
-2. **All required CI checks green.** `gh pr checks <pr-number>` — no failing or pending required checks.
+2. **All required CI checks green.** `gh pr checks <pr-number>` — no failing or pending required checks. If a required check is pending, including one re-queued by this run's `/pull`, keep the issue in `Land` and wait with `gh pr checks <pr-number> --watch --interval 10`. Do not transition to `In review` merely because newly-triggered CI is still running. Once the checks reach terminal states, restart the full pre-flight from step 1.
 3. **Branch up-to-date with the PR base.**
    ```bash
    base=$(gh pr view <pr-number> --json baseRefName --jq .baseRefName)
@@ -60,19 +61,19 @@ All must pass before merging. If any fails, record the failure in the workpad an
 2. If the PR is already merged, skip the merge command; run post-merge steps idempotently.
 3. Otherwise squash-merge with branch deletion: `gh pr merge <pr-number> --squash --delete-branch`.
 4. Capture the merge commit SHA: `gh pr view <pr-number> --json mergeCommit --jq .mergeCommit.oid`.
-5. Update the Land cycle workpad's `### Validation` section: merge commit SHA, changeset path (if any), timestamp.
+5. Update the Land cycle workpad's `### Validation` and `### Progress Log` sections with merge commit SHA, changeset path (if any), timestamp, and the exact `Land → Done` reason. Complete all Land-cycle evidence before the tracker transition.
 6. Transition the issue to `Done` via `/gh-project`. Only proceed to step 7 once the orchestrator returns `ok: true`, `outcome: confirmed`, and exact-item readback state `Done`.
-7. Post the standalone `🔁 Status: Land → Done` comment (cycle close: land) and append the matching workpad Status Transitions line.
-8. Update the workpad's `### Progress Log` with the final outcome.
+7. Post the standalone `🔁 Status: Land → Done` comment (cycle close: land) and append the matching confirmed workpad Status Transitions line. Do not defer other outcome details until after the transition.
 
 ## Failure Handling
 
 1. Record the exact failure (command, exit code, output excerpt, timestamp) in the workpad `### Progress Log`.
 2. If immediately recoverable in this run (branch behind → run `/pull`), do so and re-run pre-flight from scratch. If `/pull` fails, classify that failure using step 5.
-3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. Classify it in the same run, close the Land cycle after the orchestrator confirms the transition readback, and keep the standalone transition comment and workpad `### Status Transitions` line in sync.
-4. **Approval or wait-only failure** — no human `APPROVED` review, pending required CI, or another condition awaiting human/external review: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment. This is not a `⛔ Blocker`.
-5. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
-6. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and state the unblock condition in the workpad.
+3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. First write its concrete classification, command output excerpt, timestamp, and exact transition reason into the workpad; then close the Land cycle after the orchestrator confirms the transition readback, and keep the standalone transition comment and workpad `### Status Transitions` line in sync.
+4. **Required CI pending** — wait in the current Land run with `gh pr checks <pr-number> --watch --interval 10`; keep `Land` while checks are running. When checks complete, restart all pre-flight checks. A failed required check is a rework failure; a green result proceeds to merge. Do not use `Land` → `In review` solely because CI was re-queued by `/pull` or another fresh head update.
+5. **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: transition `Land` → `In review` via `/gh-project`, then post the standalone transition comment. This is not a `⛔ Blocker`.
+6. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: transition `Land` → `Ready` via `/gh-project` with reason `Land-return rework: <cause>`, then post the standalone transition comment. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
+7. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, transition `Land` → `Backlog` via `/gh-project`, then post the standalone transition comment and state the unblock condition in the workpad.
 
 ## Guardrails
 
