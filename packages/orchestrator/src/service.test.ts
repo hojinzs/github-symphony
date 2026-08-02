@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -2839,7 +2840,7 @@ Prefer focused changes.
     expect(waitImpl).not.toHaveBeenCalled();
   });
 
-  it("restarts retrying runs after backoff elapses", async () => {
+  it("restarts only the current retrying run and fences it before spawn", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-"));
     const repository = await createRepositoryFixture(
@@ -2892,11 +2893,60 @@ Prefer focused changes.
       turnCount: 4,
       lastTurnSummary: "turn/completed",
     });
-
-    const spawnImpl = vi.fn().mockReturnValue({
-      pid: 4102,
-      unref: vi.fn(),
+    await store.saveRun({
+      runId: "run-stale",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueTitle: "Stale duplicate",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4602,
+      workingDirectory: join(tempRoot, "stale-duplicate"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "stale-duplicate",
+        "workspace-runtime"
+      ),
+      workflowPath: null,
+      retryKind: "recovery",
+      createdAt: "2026-03-08T00:00:01.000Z",
+      updatedAt: "2026-03-08T00:00:11.000Z",
+      startedAt: "2026-03-08T00:00:01.000Z",
+      completedAt: null,
+      lastError: "Stale duplicate run.",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
     });
+
+    const spawnImpl = vi.fn(
+      (
+        _command: string,
+        _args: readonly string[],
+        options: { env?: object }
+      ) => {
+        const runId = (options.env as NodeJS.ProcessEnv).SYMPHONY_RUN_ID;
+        const persistedIssues = JSON.parse(
+          readFileSync(
+            join(store.projectDir("tenant-1"), "issues.json"),
+            "utf8"
+          )
+        ) as Array<{ currentRunId: string | null; state: string }>;
+        expect(persistedIssues[0]).toMatchObject({
+          currentRunId: runId,
+          state: "running",
+        });
+        return {
+          pid: 4102,
+          unref: vi.fn(),
+        };
+      }
+    );
     const listIssues = vi.fn().mockResolvedValue([
       {
         id: "issue-1",
@@ -3004,8 +3054,19 @@ Prefer focused changes.
     expect(listIssues).toHaveBeenCalled();
 
     const runs = await store.loadAllRuns();
-    const recoveredRun = runs.find((run) => run.runId !== "run-1");
+    const recoveredRun = runs.find(
+      (run) => run.runId !== "run-1" && run.runId !== "run-stale"
+    );
+    const staleRun = runs.find((run) => run.runId === "run-stale");
 
+    expect(staleRun).toMatchObject({
+      status: "failed",
+      nextRetryAt: null,
+      retryKind: null,
+    });
+    expect(staleRun?.lastError).toBe(
+      `Superseded by current run ${recoveredRun?.runId}.`
+    );
     expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");
     expect(recoveredRun?.threadId).toBeNull();
