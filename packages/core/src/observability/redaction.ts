@@ -204,9 +204,11 @@ function redactHighEntropyValues(
   text: string,
   counts: Map<RedactionClass, number>
 ): string {
-  return text.replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (candidate) => {
+  return text.replace(/[A-Za-z0-9+_-]{32,}={0,2}/g, (candidate) => {
+    const separatorCount = candidate.match(/[_-]/g)?.length ?? 0;
     if (
       candidate.includes(REDACTED) ||
+      separatorCount > 2 ||
       !/[a-z]/.test(candidate) ||
       !/[A-Z]/.test(candidate) ||
       !/\d/.test(candidate) ||

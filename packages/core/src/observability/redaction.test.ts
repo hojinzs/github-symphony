@@ -85,6 +85,8 @@ describe("redactObservabilitySecrets", () => {
         "callback https://example.test/path?custom_access_token=gho_11AA22bb33CC44dd55EE66ff&safe=yes",
       stderr: `CUSTOM_VALUE=${highEntropySecret}`,
       safe: "commit 0123456789abcdef0123456789abcdef01234567",
+      safePath: "/tmp/doctor-config-gMkszL/WORKFLOW.md",
+      safeArtifact: "gh-symphony-support-bundle-20260802-145748Z",
     });
     const output = JSON.stringify(redacted);
 
@@ -94,6 +96,8 @@ describe("redactObservabilitySecrets", () => {
         "callback https://example.test/path?custom_access_token=[REDACTED]&safe=yes",
       stderr: "CUSTOM_VALUE=[REDACTED]",
       safe: "commit 0123456789abcdef0123456789abcdef01234567",
+      safePath: "/tmp/doctor-config-gMkszL/WORKFLOW.md",
+      safeArtifact: "gh-symphony-support-bundle-20260802-145748Z",
     });
     expect(output).not.toContain("github_pat_");
     expect(output).not.toContain("gho_");
