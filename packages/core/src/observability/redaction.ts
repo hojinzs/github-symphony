@@ -2,9 +2,16 @@ const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY_SUBSTRINGS = [
   "authorization",
   "secret",
-  "apiKey",
+  "apikey",
   "api-key",
   "api_key",
+  "api.key",
+  "credential",
+  "password",
+  "passwd",
+  "privatekey",
+  "private-key",
+  "private_key",
 ];
 
 export type RedactionClass =
@@ -32,7 +39,7 @@ export function redactObservabilitySecretsWithStats<T>(
 ): RedactionResult<T> {
   const counts = createRedactionCounts();
   const redacted = redactValue(value, counts, {
-    redactStringValues: false,
+    redactStringValues: true,
   }) as T;
   return { value: redacted, redactions: summarizeRedactionCounts(counts) };
 }
@@ -129,7 +136,7 @@ function redactTextValue(
 ): string {
   let redacted = replaceAndCount(
     text,
-    /\b(Authorization\s*:\s*Bearer\s+)([^\s]+)/gi,
+    /\b(Authorization\s*[:=]\s*)(?:Bearer\s+|Basic\s+|token\s+)?([^\s,;]+)/gi,
     "authorization_header",
     counts,
     "$1[REDACTED]"
@@ -143,49 +150,35 @@ function redactTextValue(
   );
   redacted = replaceAndCount(
     redacted,
-    /^([A-Z0-9_]*(?:TOKEN)\w*\s*=\s*)([^\s]+)/gim,
-    "env_token",
+    /(https?:\/\/)([^\s/@]+@)/gi,
+    "secret_key",
     counts,
-    "$1[REDACTED]"
+    "$1[REDACTED]@"
   );
   redacted = replaceAndCount(
     redacted,
-    /^([A-Z0-9_]*(?:API_KEY)\w*\s*=\s*)([^\s]+)/gim,
-    "api_key",
-    counts,
-    "$1[REDACTED]"
-  );
-  redacted = replaceAndCount(
-    redacted,
-    /^([A-Z0-9_]*(?:SECRET)\w*\s*=\s*)([^\s]+)/gim,
+    /([?&](?:[^\s&#=]*(?:token|secret|api[-_.]?key|password|passwd|credential|authorization)[^\s&#=]*)=)([^\s&#]*)/gi,
     "secret_key",
     counts,
     "$1[REDACTED]"
   );
   redacted = replaceAndCount(
     redacted,
-    /((?:"token"|'token'|token)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/gi,
-    "env_token",
-    counts,
-    '$1"[REDACTED]"'
-  );
-  redacted = replaceAndCount(
-    redacted,
-    /((?:"secret"|'secret'|secret)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/gi,
+    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])(.*?)\2/gi,
     "secret_key",
     counts,
-    '$1"[REDACTED]"'
+    "$1$2[REDACTED]$2"
   );
   redacted = replaceAndCount(
     redacted,
-    /((?:"apiKey"|'apiKey'|apiKey)\s*:\s*)(?:"([^"]*)"|'([^']*)'|([^\s,}\]]+))/g,
-    "api_key",
+    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(?!\[REDACTED\])([^\s,;}\]]+)/gi,
+    "secret_key",
     counts,
-    '$1"[REDACTED]"'
+    "$1[REDACTED]"
   );
   redacted = replaceAndCount(
     redacted,
-    /\bghp_[A-Za-z0-9_]+/g,
+    /\b(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]+/g,
     "env_token",
     counts,
     "[REDACTED]"
@@ -204,7 +197,39 @@ function redactTextValue(
     counts,
     "[REDACTED]"
   );
-  return redacted;
+  return redactHighEntropyValues(redacted, counts);
+}
+
+function redactHighEntropyValues(
+  text: string,
+  counts: Map<RedactionClass, number>
+): string {
+  return text.replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (candidate) => {
+    if (
+      candidate.includes(REDACTED) ||
+      !/[a-z]/.test(candidate) ||
+      !/[A-Z]/.test(candidate) ||
+      !/\d/.test(candidate) ||
+      shannonEntropy(candidate) < 4
+    ) {
+      return candidate;
+    }
+
+    incrementRedaction(counts, "secret_key");
+    return REDACTED;
+  });
+}
+
+function shannonEntropy(value: string): number {
+  const frequencies = new Map<string, number>();
+  for (const character of value) {
+    frequencies.set(character, (frequencies.get(character) ?? 0) + 1);
+  }
+
+  return Array.from(frequencies.values()).reduce((entropy, frequency) => {
+    const probability = frequency / value.length;
+    return entropy - probability * Math.log2(probability);
+  }, 0);
 }
 
 function replaceAndCount(

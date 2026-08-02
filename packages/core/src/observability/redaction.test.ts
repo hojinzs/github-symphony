@@ -58,16 +58,46 @@ describe("redactObservabilitySecrets", () => {
     expect(JSON.stringify(redacted)).not.toContain("lin_secret");
   });
 
-  it("keeps shared structured redaction key-focused", () => {
+  it("redacts secrets embedded in persisted free-form fields", () => {
     const redacted = redactObservabilitySecrets({
       event: "worker",
-      message: "token: ordinary-diagnostic-text",
+      message: "request failed with github_pat_11AA22bb33CC44dd55EE66ff",
+      error: "Authorization: token gho_11AA22bb33CC44dd55EE66ff",
+      reason: "upstream returned ghs_11AA22bb33CC44dd55EE66ff",
+      stderr: "CUSTOM_CREDENTIAL=plain-text-secret",
     });
 
     expect(redacted).toEqual({
       event: "worker",
-      message: "token: ordinary-diagnostic-text",
+      message: "request failed with [REDACTED]",
+      error: "Authorization: [REDACTED]",
+      reason: "upstream returned [REDACTED]",
+      stderr: "CUSTOM_CREDENTIAL=[REDACTED]",
     });
+  });
+
+  it("redacts URL credentials, sensitive query values, and opaque high-entropy values", () => {
+    const highEntropySecret = "A9fK2mP7qR4tV8xZ1bC6dE3gH5jL0nQs";
+    const redacted = redactObservabilitySecrets({
+      message:
+        "clone https://oauth2:github_pat_11AA22bb33CC44dd55EE66ff@github.com/org/repo",
+      reason:
+        "callback https://example.test/path?custom_access_token=gho_11AA22bb33CC44dd55EE66ff&safe=yes",
+      stderr: `CUSTOM_VALUE=${highEntropySecret}`,
+      safe: "commit 0123456789abcdef0123456789abcdef01234567",
+    });
+    const output = JSON.stringify(redacted);
+
+    expect(redacted).toEqual({
+      message: "clone https://[REDACTED]@github.com/org/repo",
+      reason:
+        "callback https://example.test/path?custom_access_token=[REDACTED]&safe=yes",
+      stderr: "CUSTOM_VALUE=[REDACTED]",
+      safe: "commit 0123456789abcdef0123456789abcdef01234567",
+    });
+    expect(output).not.toContain("github_pat_");
+    expect(output).not.toContain("gho_");
+    expect(output).not.toContain(highEntropySecret);
   });
 
   it("redacts structured and raw support diagnostics secrets with class counts", () => {
@@ -118,7 +148,7 @@ describe("redactObservabilitySecrets", () => {
     );
   });
 
-  it("reports key-only structured redaction stats without scanning strings", () => {
+  it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
       message: "Authorization: Bearer abc123",
@@ -126,8 +156,11 @@ describe("redactObservabilitySecrets", () => {
 
     expect(structured.value).toEqual({
       token: "[REDACTED]",
-      message: "Authorization: Bearer abc123",
+      message: "Authorization: [REDACTED]",
     });
-    expect(structured.redactions).toEqual([{ class: "env_token", count: 1 }]);
+    expect(structured.redactions).toEqual([
+      { class: "authorization_header", count: 1 },
+      { class: "env_token", count: 1 },
+    ]);
   });
 });
