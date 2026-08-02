@@ -614,8 +614,7 @@ async function startHttpServer(input: {
           const isWorkerApi =
             url.pathname === "/api/v1/worker-state" ||
             url.pathname === "/api/v1/worker-turn-lease";
-          const isTrackerStateApi =
-            url.pathname === "/api/v1/tracker-state";
+          const isTrackerStateApi = url.pathname === "/api/v1/tracker-state";
           if (
             url.pathname.startsWith("/api/v1/") &&
             !isTrackerStateApi &&
@@ -1128,7 +1127,9 @@ const handler = async (
         logLine(
           cyan("\u25A1"),
           parsed.webPort !== undefined
-            ? `Open ${httpServer.url}/#token=${httpApiToken}`
+            ? `Open ${httpServer.url}/#token=${encodeURIComponent(
+                httpApiToken
+              )}`
             : `Bearer token: ${httpApiToken}`
         );
       }

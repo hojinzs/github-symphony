@@ -1299,6 +1299,7 @@ describe("start command foreground locking", () => {
   });
 
   it("starts the control plane server when --web is enabled", async () => {
+    process.env.GH_SYMPHONY_HTTP_TOKEN = "custom+token&value%#";
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1339,7 +1340,7 @@ describe("start command foreground locking", () => {
         host: "127.0.0.1",
         port: 4680,
         runtimeRoot: join(configDir, "projects", "tenant-a"),
-        apiToken: HTTP_API_TOKEN,
+        apiToken: "custom+token&value%#",
         onRefreshRequest: expect.any(Function),
       });
 
@@ -1361,6 +1362,8 @@ describe("start command foreground locking", () => {
         endpoint: url,
       });
       expect(stdout.output()).toContain("Web dashboard listening on");
+      expect(stdout.output()).toContain("#token=custom%2Btoken%26value%25%23");
+      expect(stdout.output()).not.toContain("#token=custom+token&value%#");
 
       const onRefreshRequest = (
         startControlPlaneServer.mock.calls[0]?.[0] as

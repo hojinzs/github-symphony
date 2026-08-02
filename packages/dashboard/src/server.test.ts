@@ -81,8 +81,6 @@ describe("GET /api/v1/state", () => {
       issues: [
         {
           ...snapshot.issues[0],
-          issueId: "[REDACTED]",
-          identifier: "[REDACTED]",
           workspaceKey: "[REDACTED]",
         },
       ],
@@ -132,9 +130,9 @@ describe("GET /api/v1/state", () => {
     expect(result.payload).toEqual({
       activeRuns: [
         {
-          runId: "[REDACTED]",
-          issueId: "[REDACTED]",
-          issueIdentifier: "[REDACTED]",
+          runId: "run-secret",
+          issueId: "issue-secret",
+          issueIdentifier: "acme/repo#123",
           workingDirectory: "[REDACTED]",
           workspaceRuntimeDir: "[REDACTED]",
           runtimeSession: { sessionId: "[REDACTED]" },
@@ -144,6 +142,52 @@ describe("GET /api/v1/state", () => {
       ],
       issues: [],
       lastError: "[REDACTED]",
+    });
+  });
+
+  it("keeps authenticated dashboard routing identifiers intact", async () => {
+    const reader = createReader();
+    reader.loadProjectState.mockResolvedValue({
+      activeRuns: [
+        {
+          runId: "run-1",
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#123",
+          workspacePath: "/private/workspace",
+        },
+      ],
+      issues: [
+        {
+          issueId: "issue-1",
+          identifier: "acme/repo#123",
+          currentRunId: "run-1",
+          workspaceKey: "private-workspace-key",
+        },
+      ],
+    });
+
+    const result = await resolveDashboardResponse({
+      pathname: "/api/v1/state",
+      reader: reader as never,
+    });
+
+    expect(result.payload).toMatchObject({
+      activeRuns: [
+        {
+          runId: "run-1",
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#123",
+          workspacePath: "[REDACTED]",
+        },
+      ],
+      issues: [
+        {
+          issueId: "issue-1",
+          identifier: "acme/repo#123",
+          currentRunId: "run-1",
+          workspaceKey: "[REDACTED]",
+        },
+      ],
     });
   });
 });

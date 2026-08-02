@@ -35,6 +35,15 @@ afterEach(async () => {
 });
 
 describe("createControlPlaneHandler", () => {
+  it("fails fast when the API token is empty", () => {
+    expect(() =>
+      createControlPlaneHandler({
+        reader: createReader() as never,
+        apiToken: "   ",
+      })
+    ).toThrow("Control plane API token must not be empty.");
+  });
+
   it("calls the refresh callback for POST /api/v1/refresh", async () => {
     const onRefreshRequest = vi.fn();
     const handler = createControlPlaneHandler({

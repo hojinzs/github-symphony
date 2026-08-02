@@ -85,6 +85,22 @@ describe("worker turn lease", () => {
       reason: "ECONNREFUSED",
     });
   });
+
+  it("reports a missing worker API token", async () => {
+    await expect(
+      acquireTurnLease(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ISSUE_ID: "issue-1",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        1
+      )
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "missing orchestrator URL, token, or worker run identity",
+    });
+  });
 });
 
 describe("tracker refresh fail-closed threshold", () => {

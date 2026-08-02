@@ -85,6 +85,10 @@ export interface ControlPlaneServerStartResult {
 export function createControlPlaneHandler(
   options: ControlPlaneHandlerOptions
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  if (!options.apiToken.trim()) {
+    throw new Error("Control plane API token must not be empty.");
+  }
+
   return async (request, response) => {
     try {
       const method = request.method ?? "GET";

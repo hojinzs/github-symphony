@@ -9,12 +9,7 @@ import { DashboardFsReader, statusForIssue } from "./store.js";
 
 const REDACTED = "[REDACTED]";
 const STATE_REDACTED_KEYS = new Set([
-  "currentRunId",
-  "identifier",
-  "issueId",
-  "issueIdentifier",
   "lastError",
-  "runId",
   "sessionId",
   "tokenUsage",
   "workingDirectory",

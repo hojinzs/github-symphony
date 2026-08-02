@@ -74,7 +74,7 @@ export async function acquireTurnLease(
   if (!orchestratorUrl || !issueId || !runId || !apiToken) {
     return {
       status: "unavailable",
-      reason: "missing orchestrator URL or worker run identity",
+      reason: "missing orchestrator URL, token, or worker run identity",
     };
   }
 
