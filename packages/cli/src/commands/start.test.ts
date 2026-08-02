@@ -32,7 +32,10 @@ const {
   setWorkerOrchestratorToken,
 } = orchestratorMocks;
 const resolveDashboardResponse = vi.fn();
+const isAuthorizedApiRequest = vi.fn();
+const loadProjectState = vi.fn();
 const startControlPlaneServer = vi.fn();
+const HTTP_API_TOKEN = "test-http-api-token";
 const serviceDependencies: Array<Record<string, unknown>> = [];
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
@@ -82,8 +85,10 @@ vi.mock("@gh-symphony/dashboard", () => ({
       public runtimeRoot: string,
       public projectId: string
     ) {}
+    loadProjectState = loadProjectState;
   },
   resolveDashboardResponse,
+  isAuthorizedApiRequest,
 }));
 
 vi.mock("@gh-symphony/control-plane", () => ({
@@ -113,6 +118,7 @@ const ghAuth = await import("../github/gh-auth.js");
 const githubClient = await import("../github/client.js");
 const originalGithubToken = process.env.GITHUB_GRAPHQL_TOKEN;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
+const originalHttpApiToken = process.env.GH_SYMPHONY_HTTP_TOKEN;
 
 beforeEach(() => {
   acquireProjectLock.mockReset();
@@ -141,6 +147,15 @@ beforeEach(() => {
   setWorkerOrchestratorUrl.mockReset();
   setWorkerOrchestratorToken.mockReset();
   resolveDashboardResponse.mockReset();
+  isAuthorizedApiRequest.mockReset();
+  isAuthorizedApiRequest.mockImplementation(
+    (request: { headers: { authorization?: string } }, apiToken: string) =>
+      request.headers.authorization === `Bearer ${apiToken}`
+  );
+  loadProjectState.mockReset();
+  loadProjectState.mockResolvedValue({
+    activeRuns: [{ issueIdentifier: "acme/platform#1" }],
+  });
   startControlPlaneServer.mockReset();
   resolveDashboardResponse.mockImplementation(
     async ({ pathname, method }: { pathname: string; method?: string }) => ({
@@ -167,6 +182,7 @@ beforeEach(() => {
   childProcessMocks.spawn.mockImplementation(() => createSpawnedChild(2468));
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
+  process.env.GH_SYMPHONY_HTTP_TOKEN = HTTP_API_TOKEN;
   serviceDependencies.length = 0;
 });
 
@@ -189,6 +205,7 @@ afterEach(() => {
   process.exitCode = undefined;
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
+  process.env.GH_SYMPHONY_HTTP_TOKEN = originalHttpApiToken;
 });
 
 function forceTty(value: boolean): () => void {
@@ -1182,12 +1199,19 @@ describe("start command foreground locking", () => {
         )
       ) as { host: string; port: number; endpoint: string };
       expect(httpState).toEqual({
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: Number.parseInt(new URL(url).port, 10),
         endpoint: url,
       });
+      const unauthenticated = await fetch(`${url}/api/v1/state`);
+      expect(unauthenticated.status).toBe(401);
+      await expect(unauthenticated.json()).resolves.toEqual({
+        error: "Unauthorized",
+      });
       await expect(
-        fetch(`${url}/api/v1/state`).then((response) => response.json())
+        fetch(`${url}/api/v1/state`, {
+          headers: { authorization: `Bearer ${HTTP_API_TOKEN}` },
+        }).then((response) => response.json())
       ).resolves.toEqual({
         pathname: "/api/v1/state",
         method: "GET",
@@ -1197,6 +1221,7 @@ describe("start command foreground locking", () => {
         method: "POST",
         body: JSON.stringify({ reason: "manual" }),
         headers: {
+          authorization: `Bearer ${HTTP_API_TOKEN}`,
           "content-type": "application/json",
         },
       });
@@ -1204,10 +1229,16 @@ describe("start command foreground locking", () => {
       await expect(refreshResponse.json()).resolves.toEqual({ ok: true });
       expect(requestReconcile).toHaveBeenCalledTimes(1);
 
+      const workerApiToken = setWorkerOrchestratorToken.mock.calls[0]?.[0];
+      expect(workerApiToken).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
+
       const leaseResponse = await fetch(`${url}/api/v1/worker-turn-lease`, {
         method: "POST",
         body: JSON.stringify({ issueId: "issue-1", runId: "run-1", turn: 2 }),
-        headers: { "content-type": "application/json" },
+        headers: {
+          authorization: `Bearer ${workerApiToken}`,
+          "content-type": "application/json",
+        },
       });
       expect(leaseResponse.status).toBe(200);
       await expect(leaseResponse.json()).resolves.toEqual({
@@ -1219,7 +1250,6 @@ describe("start command foreground locking", () => {
         runId: "run-1",
         turn: 2,
       });
-
       const transitionResponse = await fetch(`${url}/api/v1/tracker-state`, {
         method: "POST",
         body: JSON.stringify({
@@ -1231,8 +1261,7 @@ describe("start command foreground locking", () => {
         headers: {
           "content-type": "application/json",
           "x-symphony-run-id": "run-1",
-          "x-symphony-orchestrator-token":
-            setWorkerOrchestratorToken.mock.calls[0]?.[0],
+          "x-symphony-orchestrator-token": workerApiToken,
         },
       });
       expect(transitionResponse.status).toBe(200);
@@ -1251,9 +1280,7 @@ describe("start command foreground locking", () => {
         },
       });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);
-      expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(
-        expect.stringMatching(/^[a-f0-9]{64}$/)
-      );
+      expect(setWorkerOrchestratorToken).toHaveBeenCalledWith(workerApiToken);
 
       const unauthenticatedResponse = await fetch(
         `${url}/api/v1/tracker-state`,
@@ -1276,6 +1303,18 @@ describe("start command foreground locking", () => {
         reason: null,
         rateLimits: null,
         error: "tracker_state_authentication_failed",
+      });
+      const workerStateResponse = await fetch(`${url}/api/v1/worker-state`, {
+        method: "POST",
+        body: JSON.stringify({ issueIdentifier: "acme/platform#1" }),
+        headers: {
+          authorization: `Bearer ${workerApiToken}`,
+          "content-type": "application/json",
+        },
+      });
+      expect(workerStateResponse.status).toBe(200);
+      await expect(workerStateResponse.json()).resolves.toEqual({
+        active: true,
       });
 
       await expect(
@@ -1308,6 +1347,7 @@ describe("start command foreground locking", () => {
   });
 
   it("starts the control plane server when --web is enabled", async () => {
+    process.env.GH_SYMPHONY_HTTP_TOKEN = "custom+token&value%#";
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1345,9 +1385,10 @@ describe("start command foreground locking", () => {
 
       const url = await waitForHttpUrl(stdout.output);
       expect(startControlPlaneServer).toHaveBeenCalledWith({
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: 4680,
         runtimeRoot: join(configDir, "projects", "tenant-a"),
+        apiToken: "custom+token&value%#",
         onRefreshRequest: expect.any(Function),
       });
 
@@ -1364,11 +1405,13 @@ describe("start command foreground locking", () => {
         )
       ) as { host: string; port: number; endpoint: string };
       expect(httpState).toEqual({
-        host: "0.0.0.0",
+        host: "127.0.0.1",
         port: Number.parseInt(new URL(url).port, 10),
         endpoint: url,
       });
       expect(stdout.output()).toContain("Web dashboard listening on");
+      expect(stdout.output()).toContain("#token=custom%2Btoken%26value%25%23");
+      expect(stdout.output()).not.toContain("#token=custom+token&value%#");
 
       const onRefreshRequest = (
         startControlPlaneServer.mock.calls[0]?.[0] as
@@ -1404,7 +1447,7 @@ describe("start command foreground locking", () => {
     expect(resolveDashboardResponse).not.toHaveBeenCalled();
   });
 
-  it("passes an explicit port to the control plane server", async () => {
+  it("passes an explicit port and --bind-all to the control plane server", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1434,7 +1477,7 @@ describe("start command foreground locking", () => {
       );
 
     const startPromise = startModule.default(
-      ["--web", "4900"],
+      ["--web", "4900", "--bind-all"],
       baseOptions(configDir)
     );
 
@@ -1443,6 +1486,7 @@ describe("start command foreground locking", () => {
         host: "0.0.0.0",
         port: 4900,
         runtimeRoot: join(configDir, "projects", "tenant-a"),
+        apiToken: HTTP_API_TOKEN,
         onRefreshRequest: expect.any(Function),
       });
     });
@@ -1571,7 +1615,9 @@ describe("start command foreground locking", () => {
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      const response = await fetch(`${url}/api/v1/state`);
+      const response = await fetch(`${url}/api/v1/state`, {
+        headers: { authorization: `Bearer ${HTTP_API_TOKEN}` },
+      });
       expect(response.status).toBe(500);
       await expect(response.json()).resolves.toEqual({
         error: "Internal server error",
@@ -1614,7 +1660,7 @@ describe("start command foreground locking", () => {
 
     const blocker = createServer();
     await new Promise<void>((resolve) =>
-      blocker.listen(0, "0.0.0.0", () => resolve())
+      blocker.listen(0, "127.0.0.1", () => resolve())
     );
     const address = blocker.address();
     if (!address || typeof address === "string") {
@@ -1819,7 +1865,9 @@ async function fetchJsonWithRetry(
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: { authorization: `Bearer ${HTTP_API_TOKEN}` },
+      });
       return await response.json();
     } catch (error) {
       lastError = error;

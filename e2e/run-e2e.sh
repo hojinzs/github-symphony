@@ -9,6 +9,7 @@ set -euo pipefail
 SCENARIO="${1:-happy}"
 TIMEOUT="${2:-30}"
 COMPOSE="docker compose -f docker-compose.e2e.yml"
+HTTP_API_TOKEN="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -18,7 +19,13 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[e2e]${NC} $*"; }
 warn() { echo -e "${YELLOW}[e2e]${NC} $*"; }
 fail() { echo -e "${RED}[e2e]${NC} $*"; }
-orch_curl() { $COMPOSE exec -T symphony-e2e curl "$@"; }
+orch_curl() {
+  $COMPOSE exec -T symphony-e2e curl \
+    -H "Authorization: Bearer ${HTTP_API_TOKEN}" "$@"
+}
+unauthenticated_orch_curl() {
+  $COMPOSE exec -T symphony-e2e curl "$@"
+}
 
 cleanup() {
   log "Cleaning up..."
@@ -58,6 +65,27 @@ for i in $(seq 1 20); do
 done
 log "Dashboard ready"
 
+# ── Verify authentication gate ────────────────────────────────
+
+UNAUTHENTICATED_STATE_STATUS=$(
+  unauthenticated_orch_curl -s -o /dev/null -w '%{http_code}' \
+    http://localhost:4680/api/v1/state
+)
+if [ "$UNAUTHENTICATED_STATE_STATUS" != "401" ]; then
+  fail "Expected unauthenticated state endpoint to return 401, got: $UNAUTHENTICATED_STATE_STATUS"
+  exit 1
+fi
+
+UNAUTHENTICATED_REFRESH_STATUS=$(
+  unauthenticated_orch_curl -s -o /dev/null -w '%{http_code}' -X POST \
+    http://localhost:4680/api/v1/refresh
+)
+if [ "$UNAUTHENTICATED_REFRESH_STATUS" != "401" ]; then
+  fail "Expected unauthenticated refresh endpoint to return 401, got: $UNAUTHENTICATED_REFRESH_STATUS"
+  exit 1
+fi
+log "Unauthenticated state and refresh requests rejected (401)"
+
 # ── Verify idle ───────────────────────────────────────────────
 
 HEALTH=$(orch_curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json;print(json.load(sys.stdin)['health'])")
@@ -90,6 +118,7 @@ log "Issues injected; refresh trigger accepted (202). Falling back to polling un
 
 SAW_RUNNING=false
 SAW_RETRY=false
+SAW_REDACTED_STATE=false
 ELAPSED=0
 
 log "Polling..."
@@ -108,6 +137,21 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
   if [ "$RUN_STATUS" = "running" ]; then
     SAW_RUNNING=true
+    if echo "$STATUS_JSON" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert any(
+    run.get("issueIdentifier") == "test-owner/test-repo#1"
+    and run.get("runId") not in (None, "[REDACTED]")
+    and "workingDirectory" not in run
+    and "workspaceRuntimeDir" not in run
+    and run.get("tokenUsage") == "[REDACTED]"
+    and (run.get("runtimeSession") or {}).get("sessionId") == "[REDACTED]"
+    for run in data.get("activeRuns", [])
+)
+' 2>/dev/null; then
+      SAW_REDACTED_STATE=true
+    fi
   fi
 
   if [ "$RUN_STATUS" = "retrying" ]; then
@@ -133,9 +177,10 @@ log "=== Event Logs ==="
 docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
-if [ "$SAW_RUNNING" = true ]; then
+if [ "$SAW_RUNNING" = true ] && [ "$SAW_REDACTED_STATE" = true ]; then
   log "=== Result ==="
   log "  Worker dispatched and ran: YES"
+  log "  Routable IDs + redaction:  YES"
   log "  Worker entered retry:     $SAW_RETRY"
   log "  Final health:             $HEALTH"
   log "  Elapsed:                  ${ELAPSED}s"
@@ -144,7 +189,8 @@ if [ "$SAW_RUNNING" = true ]; then
   exit 0
 else
   fail "=== Result ==="
-  fail "  Worker never reached 'running' state within ${TIMEOUT}s"
+  fail "  Worker reached running:    $SAW_RUNNING"
+  fail "  Routable IDs + redaction:  $SAW_REDACTED_STATE"
   echo ""
   fail "FAILED"
   docker logs symphony-e2e 2>&1 | tail -20

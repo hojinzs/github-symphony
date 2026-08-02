@@ -281,7 +281,13 @@ The `--web` flag is available on `gh-symphony repo start`:
 gh-symphony repo start --web       # orchestrator + HTML dashboard
 gh-symphony repo start --web 4680  # explicit port
 gh-symphony repo start --http      # orchestrator + JSON API only
+gh-symphony repo start --web --bind-all # opt in to all-interface binding
 ```
+
+Both HTTP modes bind to `127.0.0.1` by default. All `/api/v1/*` routes require
+`Authorization: Bearer <token>`; `GH_SYMPHONY_HTTP_TOKEN` supplies a stable
+shared secret, otherwise the CLI generates one. The browser launch URL uses a
+fragment token so the secret is not sent as part of the initial HTTP request.
 
 In `packages/cli/src/commands/start.ts`:
 
@@ -290,17 +296,17 @@ import { startControlPlaneServer } from "@gh-symphony/control-plane";
 
 if (parsed.web !== undefined) {
   httpServer = await startControlPlaneServer({
-    host: HTTP_HOST,
+    host: parsed.bindAll ? "0.0.0.0" : "127.0.0.1",
     port: parsed.web ?? DEFAULT_HTTP_PORT,
     runtimeRoot,
-    projectId,
+    apiToken,
     onRefreshRequest: () => service.requestReconcile(),
   });
   logLine(cyan("□"), `Web dashboard: ${httpServer.url}`);
 }
 ```
 
-The `--http` flag and its existing inline server remain unchanged for backward compatibility.
+The `--http` inline server uses the same localhost default and bearer gate.
 
 ---
 

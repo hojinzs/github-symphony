@@ -2,6 +2,8 @@ import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveDashboardResponse, startDashboardServer } from "./server.js";
 
+const API_TOKEN = "test-dashboard-token";
+
 function createReader() {
   return {
     loadProjectState: vi.fn().mockResolvedValue(null),
@@ -74,7 +76,15 @@ describe("GET /api/v1/state", () => {
     });
 
     expect(result.status).toBe(200);
-    expect(result.payload).toEqual(snapshot);
+    expect(result.payload).toEqual({
+      ...snapshot,
+      issues: [
+        {
+          ...snapshot.issues[0],
+          workspaceKey: "[REDACTED]",
+        },
+      ],
+    });
     expect(result.payload).not.toHaveProperty("projectId");
     expect(result.payload).not.toHaveProperty("slug");
     expect(reader.loadProjectState).toHaveBeenCalledOnce();
@@ -90,6 +100,94 @@ describe("GET /api/v1/state", () => {
     expect(result).toEqual({
       status: 405,
       payload: { error: "Method not allowed" },
+    });
+  });
+
+  it("redacts run, token, workspace, session, and error fields", async () => {
+    const reader = createReader();
+    reader.loadProjectState.mockResolvedValue({
+      activeRuns: [
+        {
+          runId: "run-secret",
+          issueId: "issue-secret",
+          issueIdentifier: "acme/repo#123",
+          workingDirectory: "/private/workspace",
+          workspaceRuntimeDir: "/private/runtime",
+          runtimeSession: { sessionId: "session-secret" },
+          tokenUsage: { totalTokens: 123 },
+          lastError: "private failure detail",
+        },
+      ],
+      issues: [],
+      lastError: "private project failure",
+    });
+
+    const result = await resolveDashboardResponse({
+      pathname: "/api/v1/state",
+      reader: reader as never,
+    });
+
+    expect(result.payload).toEqual({
+      activeRuns: [
+        {
+          runId: "run-secret",
+          issueId: "issue-secret",
+          issueIdentifier: "acme/repo#123",
+          workingDirectory: "[REDACTED]",
+          workspaceRuntimeDir: "[REDACTED]",
+          runtimeSession: { sessionId: "[REDACTED]" },
+          tokenUsage: "[REDACTED]",
+          lastError: "[REDACTED]",
+        },
+      ],
+      issues: [],
+      lastError: "[REDACTED]",
+    });
+  });
+
+  it("keeps authenticated dashboard routing identifiers intact", async () => {
+    const reader = createReader();
+    reader.loadProjectState.mockResolvedValue({
+      activeRuns: [
+        {
+          runId: "run-1",
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#123",
+          workspacePath: "/private/workspace",
+        },
+      ],
+      issues: [
+        {
+          issueId: "issue-1",
+          identifier: "acme/repo#123",
+          currentRunId: "run-1",
+          workspaceKey: "private-workspace-key",
+        },
+      ],
+    });
+
+    const result = await resolveDashboardResponse({
+      pathname: "/api/v1/state",
+      reader: reader as never,
+    });
+
+    expect(result.payload).toMatchObject({
+      activeRuns: [
+        {
+          runId: "run-1",
+          issueId: "issue-1",
+          issueIdentifier: "acme/repo#123",
+          workspacePath: "[REDACTED]",
+        },
+      ],
+      issues: [
+        {
+          issueId: "issue-1",
+          identifier: "acme/repo#123",
+          currentRunId: "run-1",
+          workspaceKey: "[REDACTED]",
+        },
+      ],
     });
   });
 });
@@ -361,14 +459,44 @@ describe("GET /api/v1/<issue_identifier>", () => {
 });
 
 describe("startDashboardServer", () => {
-  it("returns a 500 JSON payload when request handling throws", async () => {
+  it("binds to localhost by default and rejects unauthenticated API requests", async () => {
     const reader = createReader();
-    reader.loadProjectState.mockRejectedValue(new Error("boom"));
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const server = startDashboardServer({
-      host: "127.0.0.1",
       port: 0,
       reader: reader as never,
+      apiToken: API_TOKEN,
+    });
+
+    try {
+      await once(server, "listening");
+      const addressInfo = server.address();
+      if (!addressInfo || typeof addressInfo !== "object") {
+        throw new Error("Expected server address information.");
+      }
+
+      expect(addressInfo.address).toBe("127.0.0.1");
+      const baseUrl = `http://127.0.0.1:${addressInfo.port}`;
+      const unauthorized = await fetch(`${baseUrl}/api/v1/state`);
+      expect(unauthorized.status).toBe(401);
+      await expect(unauthorized.json()).resolves.toEqual({
+        error: "Unauthorized",
+      });
+      expect(reader.loadProjectState).not.toHaveBeenCalled();
+
+      const health = await fetch(`${baseUrl}/healthz`);
+      expect(health.status).toBe(200);
+      await expect(health.json()).resolves.toEqual({ ok: true });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("accepts a matching bearer token", async () => {
+    const reader = createReader();
+    const server = startDashboardServer({
+      port: 0,
+      reader: reader as never,
+      apiToken: API_TOKEN,
     });
 
     try {
@@ -379,7 +507,37 @@ describe("startDashboardServer", () => {
       }
 
       const response = await fetch(
-        `http://127.0.0.1:${addressInfo.port}/api/v1/state`
+        `http://127.0.0.1:${addressInfo.port}/api/v1/state`,
+        { headers: { authorization: `Bearer ${API_TOKEN}` } }
+      );
+      expect(response.status).toBe(404);
+      expect(reader.loadProjectState).toHaveBeenCalledOnce();
+    } finally {
+      server.close();
+    }
+  });
+
+  it("returns a 500 JSON payload when request handling throws", async () => {
+    const reader = createReader();
+    reader.loadProjectState.mockRejectedValue(new Error("boom"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const server = startDashboardServer({
+      host: "127.0.0.1",
+      port: 0,
+      reader: reader as never,
+      apiToken: API_TOKEN,
+    });
+
+    try {
+      await once(server, "listening");
+      const addressInfo = server.address();
+      if (!addressInfo || typeof addressInfo !== "object") {
+        throw new Error("Expected server address information.");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:${addressInfo.port}/api/v1/state`,
+        { headers: { authorization: `Bearer ${API_TOKEN}` } }
       );
 
       expect(response.status).toBe(500);

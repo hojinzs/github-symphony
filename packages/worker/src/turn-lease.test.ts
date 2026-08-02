@@ -22,6 +22,7 @@ describe("worker turn lease", () => {
       acquireTurnLease(
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
           SYMPHONY_ISSUE_ID: "issue-1",
           SYMPHONY_RUN_ID: "run-1",
         },
@@ -36,6 +37,9 @@ describe("worker turn lease", () => {
       "http://localhost:4680/api/v1/worker-turn-lease",
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer worker-api-token",
+        }),
         body: JSON.stringify({ issueId: "issue-1", runId: "run-1", turn: 2 }),
       })
     );
@@ -52,6 +56,7 @@ describe("worker turn lease", () => {
       acquireTurnLease(
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
           SYMPHONY_ISSUE_ID: "issue-1",
           SYMPHONY_RUN_ID: "old-run",
         },
@@ -68,6 +73,7 @@ describe("worker turn lease", () => {
       acquireTurnLease(
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
           SYMPHONY_ISSUE_ID: "issue-1",
           SYMPHONY_RUN_ID: "run-1",
         },
@@ -79,15 +85,59 @@ describe("worker turn lease", () => {
       reason: "ECONNREFUSED",
     });
   });
+
+  it("reports a missing worker API token", async () => {
+    await expect(
+      acquireTurnLease(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ISSUE_ID: "issue-1",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        1
+      )
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "missing orchestrator URL, token, or worker run identity",
+    });
+  });
 });
 
 describe("tracker refresh fail-closed threshold", () => {
+  it("checks worker state through an authenticated minimal response", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ active: true })));
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+        },
+        fetchImpl
+      )
+    ).resolves.toBe("active");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://localhost:4680/api/v1/worker-state",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer worker-api-token",
+        }),
+        body: JSON.stringify({ issueIdentifier: "acme/repo#1" }),
+      })
+    );
+  });
+
   it("returns unknown on transport failure for threshold accounting", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("network error"));
     await expect(
       refreshTrackerState(
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
           SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
         },
         fetchImpl

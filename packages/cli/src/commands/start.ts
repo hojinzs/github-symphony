@@ -34,6 +34,7 @@ import type {
 } from "@gh-symphony/core";
 import {
   DashboardFsReader,
+  isAuthorizedApiRequest,
   resolveDashboardResponse,
 } from "@gh-symphony/dashboard";
 import { startControlPlaneServer } from "@gh-symphony/control-plane";
@@ -275,7 +276,9 @@ type HttpBindingState = {
 };
 
 const DEFAULT_HTTP_PORT = 4680;
-const HTTP_HOST = "0.0.0.0";
+const DEFAULT_HTTP_HOST = "127.0.0.1";
+const BIND_ALL_HTTP_HOST = "0.0.0.0";
+const HTTP_API_TOKEN_ENV = "GH_SYMPHONY_HTTP_TOKEN";
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
@@ -283,6 +286,7 @@ function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
   assignedOnly?: boolean;
+  bindAll: boolean;
   httpPort?: number;
   webPort?: number;
   logLevel?: string;
@@ -292,12 +296,14 @@ function parseStartArgs(args: string[]): {
     daemon: boolean;
     once: boolean;
     assignedOnly?: boolean;
+    bindAll: boolean;
     httpPort?: number;
     webPort?: number;
     logLevel?: string;
     error?: string;
   } = {
     daemon: false,
+    bindAll: false,
     once: false,
   };
 
@@ -313,6 +319,10 @@ function parseStartArgs(args: string[]): {
     }
     if (arg === "--assigned-only") {
       parsed.assignedOnly = true;
+      continue;
+    }
+    if (arg === "--bind-all") {
+      parsed.bindAll = true;
       continue;
     }
     if (arg === "--http") {
@@ -487,6 +497,11 @@ function parsePort(value: string, optionName: string): number {
   return parsed;
 }
 
+function resolveHttpApiToken(): string {
+  const configured = process.env[HTTP_API_TOKEN_ENV]?.trim();
+  return configured || randomBytes(32).toString("base64url");
+}
+
 function respondJson(
   response: ServerResponse,
   status: number,
@@ -501,7 +516,7 @@ function respondJson(
 function formatBoundUrl(server: Server): string {
   const address = server.address();
   if (!address || typeof address === "string") {
-    return `http://${HTTP_HOST}`;
+    return `http://${DEFAULT_HTTP_HOST}`;
   }
 
   const host =
@@ -557,6 +572,7 @@ async function startHttpServer(input: {
   projectId: string;
   initialPort: number;
   host: string;
+  apiToken: string;
   service: {
     requestReconcile(): void;
     acquireWorkerTurnLease(request: {
@@ -582,11 +598,44 @@ async function startHttpServer(input: {
     const server = createServer((request, response) => {
       void (async () => {
         try {
-          const url = new URL(request.url ?? "/", `http://${HTTP_HOST}`);
+          const url = new URL(request.url ?? "/", `http://${input.host}`);
+          const isWorkerApi =
+            url.pathname === "/api/v1/worker-state" ||
+            url.pathname === "/api/v1/worker-turn-lease";
+          const isTrackerStateApi = url.pathname === "/api/v1/tracker-state";
+          if (
+            url.pathname.startsWith("/api/v1/") &&
+            !isTrackerStateApi &&
+            !isAuthorizedApiRequest(
+              request,
+              isWorkerApi ? input.trackerStateToken : input.apiToken
+            )
+          ) {
+            respondJson(response, 401, { error: "Unauthorized" });
+            return;
+          }
           if (request.method === "POST" && url.pathname === "/api/v1/refresh") {
             request.resume();
             input.service.requestReconcile();
             respondJson(response, 202, { ok: true });
+            return;
+          }
+
+          if (
+            request.method === "POST" &&
+            url.pathname === "/api/v1/worker-state"
+          ) {
+            const body = await readJsonRequest(request);
+            if (!body || typeof body.issueIdentifier !== "string") {
+              respondJson(response, 400, { reason: "invalid_request" });
+              return;
+            }
+            const snapshot = await reader.loadProjectState();
+            const active =
+              snapshot?.activeRuns.some(
+                (run) => run.issueIdentifier === body.issueIdentifier
+              ) ?? false;
+            respondJson(response, 200, { active });
             return;
           }
 
@@ -819,7 +868,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony repo start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]]\n"
+      "Usage: gh-symphony repo start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]] [--bind-all]\n"
     );
     process.exitCode = 2;
     return;
@@ -869,6 +918,8 @@ const handler = async (
   if (!authPreflight.ok) {
     return;
   }
+  const httpApiToken = resolveHttpApiToken();
+  const httpHost = parsed.bindAll ? BIND_ALL_HTTP_HOST : DEFAULT_HTTP_HOST;
 
   if (parsed.daemon) {
     await startDaemon(
@@ -877,7 +928,9 @@ const handler = async (
       parsed.logLevel ?? (options.verbose ? "verbose" : undefined),
       parsed.httpPort,
       parsed.webPort,
-      parsed.assignedOnly === true
+      parsed.assignedOnly === true,
+      parsed.bindAll,
+      httpApiToken
     );
     return;
   }
@@ -988,7 +1041,8 @@ const handler = async (
         runtimeRoot,
         projectId,
         initialPort: parsed.httpPort ?? 0,
-        host: parsed.httpPort !== undefined ? HTTP_HOST : "127.0.0.1",
+        host: parsed.httpPort !== undefined ? httpHost : DEFAULT_HTTP_HOST,
+        apiToken: httpApiToken,
         service,
         trackerStateToken,
       });
@@ -998,13 +1052,14 @@ const handler = async (
       httpServer =
         parsed.webPort !== undefined
           ? await startControlPlaneServer({
-              host: HTTP_HOST,
+              host: httpHost,
               port: parsed.webPort,
               runtimeRoot: join(
                 runtimeRoot,
                 "projects",
                 encodeURIComponent(projectId)
               ),
+              apiToken: httpApiToken,
               onRefreshRequest: () => service.requestReconcile(),
             })
           : parsed.httpPort !== undefined
@@ -1013,7 +1068,7 @@ const handler = async (
       if (httpServer) {
         try {
           await writeHttpBindingState(options.configDir, projectId, {
-            host: HTTP_HOST,
+            host: httpHost,
             port: httpServer.port,
             endpoint: httpServer.url,
           });
@@ -1039,6 +1094,14 @@ const handler = async (
           parsed.webPort !== undefined
             ? `Web dashboard listening on ${httpServer.url}`
             : `HTTP status API listening on ${httpServer.url}`
+        );
+        logLine(
+          cyan("\u25A1"),
+          parsed.webPort !== undefined
+            ? `Open ${httpServer.url}/#token=${encodeURIComponent(
+                httpApiToken
+              )}`
+            : `Bearer token: ${httpApiToken}`
         );
       }
       logLine(
@@ -1236,7 +1299,9 @@ async function startDaemon(
   logLevel?: string,
   httpPort?: number,
   webPort?: number,
-  assignedOnly = false
+  assignedOnly = false,
+  bindAll = false,
+  httpApiToken = resolveHttpApiToken()
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1252,6 +1317,7 @@ async function startDaemon(
       "start",
       ...(options.verbose ? ["--verbose"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
+      ...(bindAll ? ["--bind-all"] : []),
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
       ...(webPort !== undefined ? ["--web", String(webPort)] : []),
       ...(logLevel ? ["--log-level", logLevel] : []),
@@ -1261,6 +1327,7 @@ async function startDaemon(
       env: {
         ...process.env,
         GH_SYMPHONY_CONFIG_DIR: options.configDir,
+        [HTTP_API_TOKEN_ENV]: httpApiToken,
       },
       detached: true,
       stdio: ["ignore", logFd, logFd],
@@ -1300,6 +1367,9 @@ async function startDaemon(
       `Logs: ${logPath}\n` +
       "Stop with: gh-symphony repo stop\n"
   );
+  if (httpPort !== undefined || webPort !== undefined) {
+    process.stdout.write(`HTTP API bearer token: ${httpApiToken}\n`);
+  }
 }
 
 async function waitForChildSpawn(child: ChildProcess): Promise<void> {

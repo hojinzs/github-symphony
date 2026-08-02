@@ -151,6 +151,7 @@ gh-symphony repo start --daemon          # Start (background)
 gh-symphony repo stop                    # Stop the daemon
 gh-symphony repo stop --force            # Force stop with SIGKILL
 gh-symphony repo start --web             # Browser control-plane dashboard at http://127.0.0.1:4680/
+gh-symphony repo start --web --bind-all  # Explicitly bind the dashboard to all interfaces
 ```
 
 Monitor from the terminal:
@@ -175,11 +176,19 @@ where issue identifiers such as `acme/web#42` are URL-encoded as
 `acme%2Fweb%2342`. It is backed by the same JSON API used for status snapshots
 and refresh.
 
+HTTP servers bind to `127.0.0.1` unless `--bind-all` is explicitly supplied.
+Every `/api/v1/*` request requires the bearer token printed by `repo start`.
+Set `GH_SYMPHONY_HTTP_TOKEN` to provide a stable shared secret; otherwise the
+CLI generates one for the process. The `--web` launch URL carries the token in
+the URL fragment, moves it to session storage, and removes it from the visible
+URL before API requests begin.
+
 Use `gh-symphony repo start --http` when you only need the JSON status API, for
 example from CI, scripts, or another monitoring process. It exposes
 `/api/v1/state`, `/api/v1/<encoded-identifier>`, and
 `POST /api/v1/refresh`, but `/` is not a browser dashboard. Use
-`repo status --watch` for an interactive terminal view.
+`repo status --watch` for an interactive terminal view. For scripts, send
+`Authorization: Bearer $GH_SYMPHONY_HTTP_TOKEN`.
 
 Dispatch a single issue manually:
 

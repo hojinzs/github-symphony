@@ -4,6 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$root_dir"
 
+http_api_token="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
+
 mkdir -p evidence
 echo "[]" > e2e/fixtures/issues.json
 
@@ -18,10 +20,12 @@ docker compose -f docker-compose.e2e.yml up -d --build
 (
   curl --fail --retry-all-errors --retry 20 --retry-delay 2 http://localhost:4680/healthz
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
-  curl --fail -X POST http://localhost:4680/api/v1/refresh
+  curl --fail -H "Authorization: Bearer ${http_api_token}" \
+    -X POST http://localhost:4680/api/v1/refresh
   deadline=$((SECONDS + 90))
   while ((SECONDS < deadline)); do
-    state="$(curl -fsS http://localhost:4680/api/v1/state)"
+    state="$(curl -fsS -H "Authorization: Bearer ${http_api_token}" \
+      http://localhost:4680/api/v1/state)"
     if jq -e '.summary.activeRuns >= 1 or (.activeRuns | length) >= 1' >/dev/null <<<"$state"; then
       exit 0
     fi

@@ -12,6 +12,8 @@ const CLIENT_DIST_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
   "../client/dist"
 );
+const API_TOKEN = "test-control-plane-token";
+const AUTHORIZATION = { authorization: `Bearer ${API_TOKEN}` };
 
 function createReader() {
   return {
@@ -33,16 +35,27 @@ afterEach(async () => {
 });
 
 describe("createControlPlaneHandler", () => {
+  it("fails fast when the API token is empty", () => {
+    expect(() =>
+      createControlPlaneHandler({
+        reader: createReader() as never,
+        apiToken: "   ",
+      })
+    ).toThrow("Control plane API token must not be empty.");
+  });
+
   it("calls the refresh callback for POST /api/v1/refresh", async () => {
     const onRefreshRequest = vi.fn();
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
       onRefreshRequest,
     });
 
     const response = await fetchWithHandler(handler, "/api/v1/refresh", {
       method: "POST",
       body: JSON.stringify({ manual: true }),
+      headers: AUTHORIZATION,
     });
 
     expect(response.status).toBe(202);
@@ -80,9 +93,14 @@ describe("createControlPlaneHandler", () => {
       completedCount: 0,
       issues: [],
     });
-    const handler = createControlPlaneHandler({ reader: reader as never });
+    const handler = createControlPlaneHandler({
+      reader: reader as never,
+      apiToken: API_TOKEN,
+    });
 
-    const response = await fetchWithHandler(handler, "/api/v1/state");
+    const response = await fetchWithHandler(handler, "/api/v1/state", {
+      headers: AUTHORIZATION,
+    });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -90,6 +108,26 @@ describe("createControlPlaneHandler", () => {
       tracker: { settings: { projectId: "PVT_project_1" } },
       health: "idle",
     });
+  });
+
+  it("rejects unauthenticated API requests before invoking handlers", async () => {
+    const reader = createReader();
+    const onRefreshRequest = vi.fn();
+    const handler = createControlPlaneHandler({
+      reader: reader as never,
+      apiToken: API_TOKEN,
+      onRefreshRequest,
+    });
+
+    const stateResponse = await fetchWithHandler(handler, "/api/v1/state");
+    expect(stateResponse.status).toBe(401);
+    expect(reader.loadProjectState).not.toHaveBeenCalled();
+
+    const refreshResponse = await fetchWithHandler(handler, "/api/v1/refresh", {
+      method: "POST",
+    });
+    expect(refreshResponse.status).toBe(401);
+    expect(onRefreshRequest).not.toHaveBeenCalled();
   });
 
   it("serves static assets from client/dist", async () => {
@@ -100,6 +138,7 @@ describe("createControlPlaneHandler", () => {
     );
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
     });
 
     const response = await fetchWithHandler(handler, "/assets/app.js");
@@ -119,6 +158,7 @@ describe("createControlPlaneHandler", () => {
     );
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
     });
 
     const response = await fetchWithHandler(handler, "/assets/app%2Ejs");
@@ -135,6 +175,7 @@ describe("createControlPlaneHandler", () => {
     );
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
     });
 
     const response = await fetchWithHandler(handler, "/%E0%A4%A");
@@ -151,6 +192,7 @@ describe("createControlPlaneHandler", () => {
     );
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
     });
 
     const response = await fetchWithHandler(
@@ -171,6 +213,7 @@ describe("createControlPlaneHandler", () => {
     );
     const handler = createControlPlaneHandler({
       reader: createReader() as never,
+      apiToken: API_TOKEN,
     });
 
     const response = await fetchWithHandler(handler, "/index.html");
@@ -219,15 +262,18 @@ describe("startControlPlaneServer", () => {
     await writeFile(join(runtimeRoot, "issues.json"), "[]");
 
     const started = await startControlPlaneServer({
-      host: "127.0.0.1",
       port: 0,
       runtimeRoot,
+      apiToken: API_TOKEN,
     });
 
     try {
       const response = await fetch(`${started.url}/healthz`);
 
       expect(started.port).toBeGreaterThan(0);
+      expect(started.server.address()).toMatchObject({
+        address: "127.0.0.1",
+      });
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ ok: true });
     } finally {
