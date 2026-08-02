@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.7.4
+
+### Patch Changes
+
+- [#498](https://github.com/hojinzs/github-symphony/pull/498) [`e8bd944`](https://github.com/hojinzs/github-symphony/commit/e8bd944ddd9eb92ffbd8381679c336913460f29e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Cache GitHub Project priority field definitions for the process lifetime to avoid repeated GraphQL requests on each listing cycle ([#479](https://github.com/hojinzs/github-symphony/issues/479)).
+
+- [#518](https://github.com/hojinzs/github-symphony/pull/518) [`ea6d78a`](https://github.com/hojinzs/github-symphony/commit/ea6d78a6f921b4e42144786408f9399e57f111a0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent stale-run recovery from creating duplicate workers or leaving issue [#517](https://github.com/hojinzs/github-symphony/issues/517) runs falsely active, and make daemon/status process reconciliation safe across PID reuse and stale PID files.
+
+- [#470](https://github.com/hojinzs/github-symphony/pull/470) [`252da2e`](https://github.com/hojinzs/github-symphony/commit/252da2e1bd69a3079318e899fd56bceba0b9cdfc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Default HTTP servers to localhost, require bearer authentication for runtime APIs, and redact sensitive state fields for [#467](https://github.com/hojinzs/github-symphony/issues/467).
+
 ## 0.7.3
 
 ### Patch Changes
