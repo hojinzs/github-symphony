@@ -108,6 +108,40 @@ describe("OrchestratorService", () => {
     ).toBe(true);
   });
 
+  it("preserves a live worker group after its recorded leader exits", () => {
+    const service = new OrchestratorService(
+      {
+        projectDir: () => "/tmp/orchestrator/projects/tenant-1",
+      } as never,
+      createProjectConfig("/tmp/orchestrator", {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      {
+        // The detached process group still has a child, but the recorded shell
+        // leader is gone and therefore has no resolvable start identity.
+        isProcessRunning: () => true,
+        getProcessStartIdentity: () => null,
+      }
+    );
+    const isRunProcessRunning = (
+      service as unknown as {
+        isRunProcessRunning(run: {
+          processId: number | null;
+          processIdentity?: string | null;
+        }): boolean;
+      }
+    ).isRunProcessRunning.bind(service);
+
+    expect(
+      isRunProcessRunning({
+        processId: 4321,
+        processIdentity: "recorded-leader-start",
+      })
+    ).toBe(true);
+  });
+
   it("grants short-lived turn leases only to the current running worker", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-turn-lease-"));
     const store = new OrchestratorFsStore(tempRoot);

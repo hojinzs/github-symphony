@@ -3801,7 +3801,14 @@ export class OrchestratorService {
     if (!run.processIdentity) {
       return true;
     }
-    return this.resolveProcessIdentity(run.processId) === run.processIdentity;
+    const liveLeaderIdentity = this.resolveProcessIdentity(run.processId);
+    if (liveLeaderIdentity === null) {
+      // isProcessRunning also checks the detached process group. A wrapper leader
+      // may exit while its worker child remains alive, so a missing leader must
+      // not narrow the group-level liveness result and permit a second worker.
+      return true;
+    }
+    return liveLeaderIdentity === run.processIdentity;
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {
