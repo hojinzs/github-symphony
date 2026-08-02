@@ -183,6 +183,21 @@ describe("redactObservabilitySecrets", () => {
     expect(redacted.value).not.toContain("abc");
   });
 
+  it("preserves JSON delimiters when redacting Authorization values", () => {
+    const raw = JSON.stringify({
+      error: "Authorization: Basic YWJjZA==",
+      status: "failed",
+    });
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(JSON.parse(redacted.value)).toEqual({
+      error: "Authorization: [REDACTED]",
+      status: "failed",
+    });
+    expect(redacted.value).not.toContain("YWJjZA==");
+  });
+
   it("redacts quoted values containing escaped quotes without leaking fragments", () => {
     const raw = JSON.stringify({
       password: 'abc "def" rest',

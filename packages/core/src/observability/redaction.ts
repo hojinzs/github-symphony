@@ -136,7 +136,7 @@ function redactTextValue(
 ): string {
   let redacted = replaceAndCount(
     text,
-    /\b(Authorization\s*[:=]\s*)(?:Bearer\s+|Basic\s+|token\s+)?([^\s,;]+)/gi,
+    /\b(Authorization\s*[:=]\s*)(?:Bearer\s+|Basic\s+|token\s+)?([^\s,;"'}\]]+)/gi,
     "authorization_header",
     counts,
     "$1[REDACTED]"
