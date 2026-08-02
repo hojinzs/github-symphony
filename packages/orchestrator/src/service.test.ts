@@ -1473,7 +1473,7 @@ describe("OrchestratorService", () => {
     }
   });
 
-  it("releases a converged worker session without scheduling a retry", async () => {
+  it("queues a clean convergence failure when the tracker is already in the retryable state", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-convergence-release-")
@@ -1561,14 +1561,158 @@ describe("OrchestratorService", () => {
         projectConfig.projectId
       );
 
-      expect(updatedRun?.status).toBe("failed");
-      expect(updatedRun?.retryKind).toBeNull();
-      expect(updatedRun?.nextRetryAt).toBeNull();
-      expect(updatedRun?.completedAt).toBe("2026-03-08T00:01:00.000Z");
+      expect(updatedRun?.status).toBe("retrying");
+      expect(updatedRun?.retryKind).toBe("failure");
+      expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:01:02.000Z");
+      expect(updatedRun?.completedAt).toBeNull();
       expect(updatedRun?.lastError).toBe(
         "convergence_detected: workspace unchanged"
       );
-      expect(issueRecords[0]?.state).toBe("released");
+      expect(issueRecords[0]).toMatchObject({
+        state: "retry_queued",
+        failureRetryCount: 1,
+        currentRunId: "run-1",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns clean convergence to the configured retryable tracker state", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-convergence-tracker-retry-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Ready, In progress]
+  terminal_states: [Done]
+agent:
+  max_concurrent_agents: 10
+codex:
+  command: codex app-server
+---
+Retry inconclusive work.
+`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "workspace-1",
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          completedOnce: false,
+          failureRetryCount: 0,
+        },
+      ]);
+      await store.saveRun({
+        runId: "run-1",
+        projectId: projectConfig.projectId,
+        projectSlug: projectConfig.slug,
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        trackerItemId: "item-1",
+        issueIdentifier: "acme/platform#1",
+        issueTitle: "Issue 1",
+        issueState: "In progress",
+        repository,
+        status: "running",
+        attempt: 1,
+        processId: 9999,
+        port: null,
+        workingDirectory: repository.path,
+        issueWorkspaceKey: "workspace-1",
+        workspaceRuntimeDir: join(tempRoot, "runtime-run-1"),
+        workflowPath: join(repository.path, "WORKFLOW.md"),
+        retryKind: null,
+        threadId: "thread-1",
+        cumulativeTurnCount: 3,
+        lastTurnSummary: "turn/completed",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:10.000Z",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        completedAt: null,
+        lastError: "convergence_detected: workspace unchanged",
+        nextRetryAt: null,
+        runPhase: "failed",
+        runtimeSession: {
+          sessionId: "thread-1-turn-3",
+          threadId: "thread-1",
+          status: "completed",
+          startedAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:10.000Z",
+          exitClassification: "convergence-detected",
+        },
+      });
+
+      const requestState = vi.fn().mockResolvedValue({
+        ok: true,
+        outcome: "confirmed",
+        state: "Ready",
+        expectedState: "In progress",
+        targetState: "Ready",
+        reason: "Clean-workspace convergence requires a fresh retry cycle.",
+        rateLimits: null,
+        error: null,
+      });
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+        listIssues: vi.fn().mockResolvedValue([]),
+        listIssuesByStates: vi.fn().mockResolvedValue([]),
+        fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+        buildWorkerEnvironment: vi.fn().mockReturnValue({}),
+        reviveIssue: vi.fn(),
+        requestState,
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        isProcessRunning: () => false,
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      });
+
+      await service.runOnce();
+
+      expect(requestState).toHaveBeenCalledWith(
+        projectConfig,
+        {
+          issueSubjectId: "issue-1",
+          itemId: "item-1",
+          request: {
+            type: "transition-request",
+            expectedState: "In progress",
+            targetState: "Ready",
+            reason: "Clean-workspace convergence requires a fresh retry cycle.",
+          },
+        },
+        expect.any(Object)
+      );
+      await expect(store.loadRun("run-1")).resolves.toMatchObject({
+        status: "failed",
+        issueState: "Ready",
+        retryKind: null,
+        nextRetryAt: null,
+        completedAt: "2026-03-08T00:01:00.000Z",
+      });
+      const issueRecords = await store.loadProjectIssueOrchestrations(
+        projectConfig.projectId
+      );
+      expect(issueRecords[0]).toMatchObject({
+        state: "released",
+        currentRunId: null,
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -3065,7 +3209,7 @@ Prefer focused changes.
       retryKind: null,
     });
     expect(staleRun?.lastError).toBe(
-      `Superseded by current run ${recoveredRun?.runId}.`
+      `worker_lease_lost: run_not_current; superseded by current run ${recoveredRun?.runId}.`
     );
     expect(recoveredRun?.issueTitle).toBe("Test issue");
     expect(recoveredRun?.issueState).toBe("Todo");

@@ -18,6 +18,7 @@ import {
   executeWorkspaceHook,
   isStateTerminal,
   isMatchingIssueRun,
+  matchesWorkflowState,
   isOrchestratorChannelEvent,
   mapIssueOrchestrationStateToStatus,
   readEnvFile,
@@ -591,6 +592,98 @@ export class OrchestratorService {
       error: result.error,
       rateLimits: result.rateLimits,
     });
+  }
+
+  private async returnConvergedIssueToRetryableState(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    trackerDependencies: OrchestratorTrackerDependencies
+  ): Promise<{ confirmed: boolean; state: string | null }> {
+    const resolution = await this.loadProjectWorkflow(
+      tenant,
+      run.repository
+    ).catch(() => null);
+    if (!resolution || !isUsableWorkflowResolution(resolution)) {
+      return { confirmed: false, state: null };
+    }
+
+    const retryableState = resolution.workflow.tracker.activeStates[0]?.trim();
+    if (
+      !retryableState ||
+      matchesWorkflowState(run.issueState, [retryableState])
+    ) {
+      return { confirmed: false, state: null };
+    }
+
+    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+    if (!trackerAdapter.requestState) {
+      return { confirmed: false, state: null };
+    }
+
+    let canonicalItemId = run.trackerItemId?.trim() ?? "";
+    try {
+      if (!canonicalItemId) {
+        const refreshed = await trackerAdapter.fetchIssueStatesByIds(
+          tenant,
+          [run.issueSubjectId],
+          trackerDependencies
+        );
+        canonicalItemId =
+          refreshed.find((issue) => issue.id === run.issueSubjectId)?.tracker
+            .itemId ?? "";
+      }
+      if (!canonicalItemId) {
+        return { confirmed: false, state: null };
+      }
+
+      const request: TrackerStateRequest = {
+        type: "transition-request",
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: "Clean-workspace convergence requires a fresh retry cycle.",
+      };
+      const result = await trackerAdapter.requestState(
+        tenant,
+        {
+          issueSubjectId: run.issueSubjectId,
+          itemId: canonicalItemId,
+          request,
+        },
+        trackerDependencies
+      );
+      await this.appendTrackerStateEvent(
+        { ...run, trackerItemId: canonicalItemId },
+        request,
+        result
+      );
+      this.rememberTrackerRateLimits(tenant.projectId, result.rateLimits);
+      return {
+        confirmed:
+          result.ok &&
+          result.outcome === "confirmed" &&
+          result.state !== null &&
+          matchesWorkflowState(result.state, [retryableState]),
+        state: result.state,
+      };
+    } catch (error) {
+      const request: TrackerStateRequest = {
+        type: "transition-request",
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: "Clean-workspace convergence requires a fresh retry cycle.",
+      };
+      await this.appendTrackerStateEvent(run, request, {
+        ok: false,
+        outcome: "failed",
+        state: null,
+        expectedState: run.issueState,
+        targetState: retryableState,
+        reason: request.reason,
+        rateLimits: extractTrackerRateLimitsFromError(error),
+        error: this.formatErrorMessage(error),
+      });
+      return { confirmed: false, state: null };
+    }
   }
 
   async run(
@@ -2296,7 +2389,7 @@ export class OrchestratorService {
         updatedAt: now.toISOString(),
         nextRetryAt: null,
         retryKind: null,
-        lastError: `Superseded by current run ${issueRecord.currentRunId}.`,
+        lastError: `worker_lease_lost: run_not_current; superseded by current run ${issueRecord.currentRunId}.`,
       };
       await this.store.saveRun(supersededRun);
       await this.store.appendRunEvent(run.runId, {
@@ -2453,28 +2546,6 @@ export class OrchestratorService {
       return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
     }
 
-    if (workerInfo.exitClassification === "convergence-detected") {
-      const completedRun: OrchestratorRunRecord = {
-        ...runWithTokens,
-        status: "failed",
-        processId: null,
-        updatedAt: now.toISOString(),
-        completedAt: now.toISOString(),
-        nextRetryAt: null,
-        retryKind: null,
-        lastError: runWithTokens.lastError,
-        runPhase: runWithTokens.runPhase ?? "failed",
-      };
-      await this.store.saveRun(completedRun);
-      this.logVerbose(
-        `[run-completed] ${completedRun.runId} status=${completedRun.status}`
-      );
-      return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
-        recovered: false,
-      };
-    }
-
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
         this.store.projectDir(tenant.projectId),
@@ -2504,13 +2575,47 @@ export class OrchestratorService {
       runWithTokens,
       now
     );
+    const convergenceDetected =
+      workerInfo.exitClassification === "convergence-detected";
+
+    if (convergenceDetected && !recovery) {
+      const trackerRecovery = await this.returnConvergedIssueToRetryableState(
+        tenant,
+        runWithTokens,
+        trackerDependencies
+      );
+      if (trackerRecovery.confirmed) {
+        const completedRun: OrchestratorRunRecord = {
+          ...runWithTokens,
+          issueState: trackerRecovery.state ?? runWithTokens.issueState,
+          status: "failed",
+          processId: null,
+          updatedAt: now.toISOString(),
+          completedAt: now.toISOString(),
+          nextRetryAt: null,
+          retryKind: null,
+          lastError: runWithTokens.lastError,
+          runPhase: runWithTokens.runPhase ?? "failed",
+        };
+        await this.store.saveRun(completedRun);
+        this.logVerbose(
+          `[run-completed] ${completedRun.runId} status=${completedRun.status}`
+        );
+        return {
+          issueRecords: releaseIssueOrchestration(
+            issueRecords,
+            run.issueId,
+            now
+          ),
+          recovered: false,
+        };
+      }
+    }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = await this.classifyRetryKind(
-      tenant,
-      run,
-      trackerDependencies
-    );
+    const retryKind = convergenceDetected
+      ? "failure"
+      : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
@@ -2613,8 +2718,10 @@ export class OrchestratorService {
       lastTurnSummary:
         runWithTokens.lastTurnSummary ?? run.lastTurnSummary ?? null,
       runPhase: runWithTokens.runPhase ?? "failed",
-      lastError:
-        recovery || retryKind === "continuation"
+      lastError: convergenceDetected
+        ? (runWithTokens.lastError ??
+          "convergence_detected: repeated non-productive turns")
+        : recovery || retryKind === "continuation"
           ? null
           : "Worker process exited unexpectedly.",
       recovery,
