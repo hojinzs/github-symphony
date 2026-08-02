@@ -11,6 +11,7 @@ const selectMock = vi.fn();
 const cancelMock = vi.fn();
 const getProcessIdentityMock = vi.fn();
 const getProcessCwdMock = vi.fn();
+const originalCwd = process.cwd();
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
 }));
@@ -82,6 +83,7 @@ afterEach(() => {
   cancelMock.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockReset();
   vi.restoreAllMocks();
+  process.chdir(originalCwd);
   process.exitCode = undefined;
 });
 
@@ -369,6 +371,46 @@ describe("lifecycle command integration", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("uses the configured repository CWD for a legacy daemon PID", async () => {
+    const repositoryCwd = await mkdtemp(
+      join(tmpdir(), "cli-stop-repository-cwd-")
+    );
+    const callerCwd = await mkdtemp(join(tmpdir(), "cli-stop-caller-cwd-"));
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform", repositoryCwd)],
+    });
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      JSON.stringify({
+        pid: 111,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        processIdentity: "node gh-symphony index.js repo start --pid 111",
+      }) + "\n"
+    );
+    getProcessCwdMock.mockReturnValue(repositoryCwd);
+    process.chdir(callerCwd);
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((pid: number, signal?: NodeJS.Signals | 0) => {
+        if (signal === 0) {
+          return true;
+        }
+        if (pid !== 111 || signal !== "SIGTERM") {
+          throw new Error(`unexpected kill ${pid} ${String(signal)}`);
+        }
+        return true;
+      });
+
+    await stopModule.default([], baseOptions(configDir));
+
+    expect(killSpy).toHaveBeenCalledWith(111, 0);
+    expect(killSpy).toHaveBeenCalledWith(111, "SIGTERM");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("refuses to signal a reused PID with a different process identity", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -532,12 +574,13 @@ function baseOptions(configDir: string) {
 function createTenant(
   projectId: string,
   owner: string,
-  name: string
+  name: string,
+  workspaceDir = process.cwd()
 ): CliProjectConfig {
   return {
     projectId,
     slug: projectId,
-    workspaceDir: join("/tmp", projectId),
+    workspaceDir,
     repository: {
       owner,
       name,

@@ -75,7 +75,7 @@ const handler = async (
     process.exitCode = 1;
     return;
   }
-  const expectedCwd = resolve(pidRecord.cwd ?? process.cwd());
+  const expectedCwd = resolve(pidRecord.cwd ?? projectConfig.workspaceDir);
   let target = validateDaemonProcess(
     pidRecord.pid,
     pidRecord.processIdentity,

@@ -100,7 +100,7 @@ export type OrchestratorRunRecord = {
   status: OrchestratorRunStatus;
   attempt: number;
   processId: number | null;
-  /** Stable process start/command identity used to reject PID reuse. */
+  /** Stable process start-time identity used to reject PID reuse. */
   processIdentity?: string | null;
   port: number | null;
   workingDirectory: string;
