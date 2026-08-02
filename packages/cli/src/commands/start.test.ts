@@ -378,6 +378,46 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
+  it("warns when both auth sources are configured and names the source used", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
+      source: "env",
+      token: "env-token",
+      login: "env-user",
+      scopes: ["repo", "read:org", "project"],
+      configuredSources: ["env", "gh"],
+    });
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
+    run.mockImplementation(async () => {
+      process.emit("SIGINT");
+    });
+    vi.spyOn(process, "exit").mockImplementation(
+      ((_code?: number) => undefined) as (code?: number) => never
+    );
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Both GITHUB_GRAPHQL_TOKEN and gh CLI authentication are configured"
+    );
+    expect(stderr.output()).toContain(
+      "This operation is using GITHUB_GRAPHQL_TOKEN"
+    );
+  });
+
   it("does not offer interactive gh remediation for env-token auth failures", async () => {
     const restoreTty = forceTty(true);
     const configDir = await createConfigFixture({
@@ -833,7 +873,7 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("shuts down cleanly when a tick reports a GitHub auth failure", async () => {
+  it("does not classify snapshot error text as a GitHub auth failure", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -859,6 +899,7 @@ describe("start command foreground locking", () => {
         retryQueue: [],
         lastError: "Token is missing required GitHub scopes.",
       });
+      process.emit("SIGINT");
       await onTick?.({
         repository: { owner: "acme", name: "platform" },
         tracker: { adapter: "github-project", bindingId: "project-1" },
@@ -883,15 +924,12 @@ describe("start command foreground locking", () => {
       stderr.restore();
     }
 
-    expect(stderr.output()).toContain(
+    expect(stderr.output()).not.toContain(
       "Stopping repo start because GitHub authentication can no longer be validated."
-    );
-    expect(stderr.output()).toContain(
-      "Run 'gh auth refresh --scopes repo,read:org,project', then re-run 'gh-symphony repo start'."
     );
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it("does not classify non-GitHub tracker 401 snapshots as GitHub auth failures", async () => {
@@ -1034,7 +1072,7 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it("retries the foreground run loop after a service.run error", async () => {
+  it("does not classify an untyped status 401 message as an auth error", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1051,7 +1089,7 @@ describe("start command foreground locking", () => {
     run.mockImplementation(async () => {
       attempts += 1;
       if (attempts === 1) {
-        throw new Error("transient failure");
+        throw new Error("temporary proxy failure with status 401");
       }
 
       const onTick = serviceDependencies.at(-1)?.onTick as
@@ -1076,9 +1114,18 @@ describe("start command foreground locking", () => {
         ((_code?: number) => undefined) as (code?: number) => never
       );
 
-    await startModule.default([], baseOptions(configDir));
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
 
     expect(run).toHaveBeenCalledTimes(2);
+    expect(stderr.output()).not.toContain(
+      "Stopping repo start because GitHub authentication can no longer be validated."
+    );
     expect(releaseProjectLock).toHaveBeenCalledWith(lock);
     expect(shutdown).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
