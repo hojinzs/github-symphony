@@ -46,7 +46,7 @@ import { rejectRemovedProjectId } from "../removed-project-id.js";
 import { bold, dim, green, red, yellow, cyan, setNoColor } from "../ansi.js";
 import {
   formatGhAuthRemediation,
-  GhAuthError,
+  GitHubAuthError,
   type GitHubAuthSource,
   resolveGitHubAuth,
   runGhAuthLogin,
@@ -77,7 +77,7 @@ function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
-function displayGhAuthError(error: GhAuthError): void {
+function displayGhAuthError(error: GitHubAuthError): void {
   const remediation = formatGhAuthRemediation(error, {
     retryCommand: REPO_START_COMMAND,
   });
@@ -92,7 +92,13 @@ function formatAuthSource(source: "env" | "gh"): string {
 function displayGitHubAuthSuccess(auth: {
   source: "env" | "gh";
   login: string;
+  configuredSources?: GitHubAuthSource[];
 }): void {
+  if ((auth.configuredSources?.length ?? 0) > 1) {
+    process.stderr.write(
+      `Warning: Both GITHUB_GRAPHQL_TOKEN and gh CLI authentication are configured. This operation is using ${formatAuthSource(auth.source)}.\n`
+    );
+  }
   process.stdout.write(
     `Authenticated via ${formatAuthSource(auth.source)} as ${auth.login}\n`
   );
@@ -107,7 +113,7 @@ async function resolveRepoStartGitHubAuth(input: {
     displayGitHubAuthSuccess(auth);
     return { ok: true, githubAuthSource: auth.source };
   } catch (error) {
-    if (!(error instanceof GhAuthError)) {
+    if (!(error instanceof GitHubAuthError)) {
       throw error;
     }
 
@@ -151,7 +157,7 @@ async function resolveRepoStartGitHubAuth(input: {
       displayGitHubAuthSuccess(auth);
       return { ok: true, githubAuthSource: auth.source };
     } catch (retryError) {
-      if (retryError instanceof GhAuthError) {
+      if (retryError instanceof GitHubAuthError) {
         displayGhAuthError(retryError);
         process.exitCode = 1;
         return { ok: false };
@@ -185,46 +191,35 @@ async function preflightRepoStartAuth(
   return { ok: true };
 }
 
-function isGitHubAuthRuntimeError(error: unknown): error is Error {
+type GitHubAuthRuntimeError =
+  | GitHubAuthError
+  | GitHubScopeError
+  | GitHubApiError;
+
+function isGitHubAuthRuntimeError(
+  error: unknown
+): error is GitHubAuthRuntimeError {
   if (error instanceof GitHubScopeError) {
     return true;
   }
-  if (error instanceof GhAuthError) {
+  if (error instanceof GitHubAuthError) {
     return error.code === "missing_scopes" || error.code === "invalid_token";
   }
   if (error instanceof GitHubApiError) {
     return error.status === 401;
   }
-  if (error instanceof Error) {
-    const maybeStatus = (error as { status?: unknown }).status;
-    if (maybeStatus === 401) {
-      return true;
-    }
-    const message = error.message.toLowerCase();
-    return (
-      message.includes("missing required github scopes") ||
-      message.includes("missing required scopes") ||
-      message.includes("missing required scope") ||
-      message.includes("missing_scopes") ||
-      message.includes("bad credentials") ||
-      message.includes("invalid token") ||
-      message.includes("authentication failed") ||
-      message.includes("status 401") ||
-      message.includes("401 unauthorized")
-    );
-  }
   return false;
 }
 
 function ghRuntimeErrorToAuthError(
-  error: Error,
+  error: GitHubAuthRuntimeError,
   source?: GitHubAuthSource
-): GhAuthError {
-  if (error instanceof GhAuthError) {
+): GitHubAuthError {
+  if (error instanceof GitHubAuthError) {
     return error;
   }
   if (error instanceof GitHubScopeError) {
-    return new GhAuthError(
+    return new GitHubAuthError(
       "missing_scopes",
       `GitHub token is missing required scopes: ${error.requiredScopes.join(", ")}`,
       {
@@ -234,14 +229,7 @@ function ghRuntimeErrorToAuthError(
       }
     );
   }
-  if (
-    error.message.toLowerCase().includes("missing required github scopes") ||
-    error.message.toLowerCase().includes("missing required scopes") ||
-    error.message.toLowerCase().includes("missing_scopes")
-  ) {
-    return new GhAuthError("missing_scopes", error.message, { source });
-  }
-  return new GhAuthError(
+  return new GitHubAuthError(
     "invalid_token",
     error.message || "GitHub token validation failed.",
     { source }
@@ -249,7 +237,7 @@ function ghRuntimeErrorToAuthError(
 }
 
 function displayRuntimeAuthShutdown(
-  error: Error,
+  error: GitHubAuthRuntimeError,
   source?: GitHubAuthSource
 ): void {
   const authError = ghRuntimeErrorToAuthError(error, source);
@@ -915,23 +903,6 @@ const handler = async (
         try {
           if (authShutdownRequested) {
             return;
-          }
-
-          if (
-            projectConfig.tracker.adapter === "github-project" &&
-            snapshot.lastError
-          ) {
-            const runtimeError = new Error(snapshot.lastError);
-            if (isGitHubAuthRuntimeError(runtimeError)) {
-              authShutdownRequested = true;
-              displayRuntimeAuthShutdown(
-                runtimeError,
-                authPreflight.githubAuthSource
-              );
-              process.exitCode = 1;
-              requestShutdown?.();
-              return;
-            }
           }
 
           logTickResult(snapshot, prevSnapshot, isFirst);

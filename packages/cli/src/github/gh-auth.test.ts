@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubApiError } from "./client.js";
 import {
   GhAuthError,
+  GitHubAuthError,
   checkGhAuthenticated,
   checkGhInstalled,
   checkGhScopes,
@@ -527,7 +528,72 @@ describe("resolveGitHubAuth", () => {
       token: "ghp_good_token",
       login: "gh-user",
       scopes: ["repo", "read:org", "project"],
+      configuredSources: ["env", "gh"],
     });
+  });
+
+  it("reports both configured sources while using a valid env token", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "env-token";
+    const execImpl = vi.fn(() => "gh version 2.0.0") as ExecMock;
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(0, "", "Logged in to github.com account gh-user")
+    ) as SpawnMock;
+
+    await expect(
+      resolveGitHubAuth({
+        execImpl,
+        spawnImpl,
+        createClientImpl: vi.fn((token: string) => ({ token })) as never,
+        validateTokenImpl: vi.fn(async () => ({
+          login: "env-user",
+          name: "Env User",
+          scopes: ["repo", "read:org", "project"],
+        })) as never,
+      })
+    ).resolves.toEqual({
+      source: "env",
+      token: "env-token",
+      login: "env-user",
+      scopes: ["repo", "read:org", "project"],
+      configuredSources: ["env", "gh"],
+    });
+  });
+
+  it("aggregates failures from the env token and gh CLI auth", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "bad-env-token";
+    const execImpl = vi.fn(() => "gh version 2.0.0") as ExecMock;
+    const spawnImpl = vi.fn(() =>
+      buildSpawnResult(1, "not logged in")
+    ) as SpawnMock;
+
+    const error = await resolveGitHubAuth({
+      execImpl,
+      spawnImpl,
+      createClientImpl: vi.fn((token: string) => ({ token })) as never,
+      validateTokenImpl: vi.fn(async () => {
+        throw new GitHubApiError("Bad credentials", 401);
+      }) as never,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(GitHubAuthError);
+    expect(error).toMatchObject({
+      code: "all_sources_failed",
+      details: {
+        attempts: [
+          {
+            source: "env",
+            code: "invalid_token",
+            message: "GITHUB_GRAPHQL_TOKEN is invalid or expired.",
+          },
+          {
+            source: "gh",
+            code: "not_authenticated",
+          },
+        ],
+      },
+    });
+    expect((error as Error).message).toContain("GITHUB_GRAPHQL_TOKEN");
+    expect((error as Error).message).toContain("gh CLI");
   });
 });
 

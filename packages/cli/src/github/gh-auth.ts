@@ -20,6 +20,12 @@ type ExecError = Error & {
 export const REQUIRED_GH_SCOPES = ["repo", "read:org", "project"] as const;
 export type GitHubAuthSource = "env" | "gh";
 
+export type GitHubAuthAttemptFailure = {
+  source: GitHubAuthSource;
+  code: GitHubAuthError["code"];
+  message: string;
+};
+
 export type GhAuthRemediationResult = {
   mode: "login" | "refresh";
   status: "applied" | "manual";
@@ -27,25 +33,30 @@ export type GhAuthRemediationResult = {
   summary: string;
 };
 
-export class GhAuthError extends Error {
+export class GitHubAuthError extends Error {
   constructor(
     public readonly code:
       | "not_installed"
       | "not_authenticated"
       | "missing_scopes"
       | "token_failed"
-      | "invalid_token",
+      | "invalid_token"
+      | "all_sources_failed",
     message: string,
     public readonly details: {
       missingScopes?: string[];
       currentScopes?: string[];
       source?: GitHubAuthSource;
+      attempts?: GitHubAuthAttemptFailure[];
     } = {}
   ) {
     super(message);
-    this.name = "GhAuthError";
+    this.name = "GitHubAuthError";
   }
 }
+
+// Backward-compatible export for existing CLI consumers.
+export { GitHubAuthError as GhAuthError };
 
 export type GhAuthRemediation = {
   title: string;
@@ -59,6 +70,7 @@ export type ResolvedGitHubAuth = {
   token: string;
   login: string;
   scopes: string[];
+  configuredSources?: GitHubAuthSource[];
 };
 
 function ghTokenReadErrorMessage(): string {
@@ -81,7 +93,7 @@ function parseMissingScopes(message: string): string[] {
 }
 
 export function formatGhAuthRemediation(
-  error: GhAuthError,
+  error: GitHubAuthError,
   opts?: { retryCommand?: string }
 ): GhAuthRemediation {
   const retryCommand = opts?.retryCommand ?? "gh-symphony repo start";
@@ -149,9 +161,15 @@ export function formatGhAuthRemediation(
         hint: `Run '${command}' to re-authenticate, then re-run '${retryCommand}'.`,
       };
     }
+    case "all_sources_failed":
+      return {
+        title: "GitHub authentication sources failed",
+        message: error.message,
+        hint: `Update or unset GITHUB_GRAPHQL_TOKEN and verify 'gh auth status', then re-run '${retryCommand}'.`,
+      };
     default: {
       const exhaustive: never = error.code;
-      throw new Error(`Unhandled GhAuthError code: ${exhaustive}`);
+      throw new Error(`Unhandled GitHubAuthError code: ${exhaustive}`);
     }
   }
 }
@@ -159,14 +177,14 @@ export function formatGhAuthRemediation(
 function classifyTokenValidationError(
   error: unknown,
   source: GitHubAuthSource
-): GhAuthError {
-  if (error instanceof GhAuthError) {
+): GitHubAuthError {
+  if (error instanceof GitHubAuthError) {
     return error;
   }
 
   if (error instanceof GitHubApiError) {
     if (error.status === 401) {
-      return new GhAuthError(
+      return new GitHubAuthError(
         source === "env" ? "invalid_token" : "token_failed",
         source === "env"
           ? "GITHUB_GRAPHQL_TOKEN is invalid or expired."
@@ -179,7 +197,7 @@ function classifyTokenValidationError(
       source === "env"
         ? "GITHUB_GRAPHQL_TOKEN could not be validated"
         : "gh CLI token could not be validated";
-    return new GhAuthError("token_failed", `${prefix}: ${error.message}`, {
+    return new GitHubAuthError("token_failed", `${prefix}: ${error.message}`, {
       source,
     });
   }
@@ -189,12 +207,12 @@ function classifyTokenValidationError(
       source === "env"
         ? "GITHUB_GRAPHQL_TOKEN could not be validated"
         : "gh CLI token could not be validated";
-    return new GhAuthError("token_failed", `${prefix}: ${error.message}`, {
+    return new GitHubAuthError("token_failed", `${prefix}: ${error.message}`, {
       source,
     });
   }
 
-  return new GhAuthError(
+  return new GitHubAuthError(
     "token_failed",
     source === "env"
       ? "GITHUB_GRAPHQL_TOKEN could not be validated."
@@ -257,6 +275,24 @@ export function checkGhAuthenticated(opts?: {
 
   const login = parseLogin((result.stdout ?? "").toString());
   return { authenticated: true, login };
+}
+
+function hasConfiguredGhAuth(opts?: {
+  execImpl?: ExecImpl;
+  spawnImpl?: SpawnImpl;
+  hostname?: string;
+}): boolean {
+  try {
+    return (
+      checkGhInstalled({ execImpl: opts?.execImpl }) &&
+      checkGhAuthenticated({
+        spawnImpl: opts?.spawnImpl,
+        hostname: opts?.hostname,
+      }).authenticated
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function checkGhScopes(opts?: {
@@ -345,16 +381,20 @@ export function getGhTokenWithSource(opts?: {
       .trim();
 
     if (!token) {
-      throw new GhAuthError("token_failed", ghTokenReadErrorMessage());
+      throw new GitHubAuthError("token_failed", ghTokenReadErrorMessage(), {
+        source: "gh",
+      });
     }
 
     return { token, source: "gh" };
   } catch (error) {
-    if (error instanceof GhAuthError) {
+    if (error instanceof GitHubAuthError) {
       throw error;
     }
 
-    throw new GhAuthError("token_failed", ghTokenReadErrorMessage());
+    throw new GitHubAuthError("token_failed", ghTokenReadErrorMessage(), {
+      source: "gh",
+    });
   }
 }
 
@@ -386,7 +426,7 @@ export async function validateGitHubToken(
   const scopeCheck = checkRequiredScopesImpl(viewer.scopes);
   if (!scopeCheck.valid) {
     if (source === "env") {
-      throw new GhAuthError(
+      throw new GitHubAuthError(
         "missing_scopes",
         `GITHUB_GRAPHQL_TOKEN is missing required scopes: ${scopeCheck.missing.join(", ")}`,
         {
@@ -397,7 +437,7 @@ export async function validateGitHubToken(
       );
     }
 
-    throw new GhAuthError(
+    throw new GitHubAuthError(
       "missing_scopes",
       missingGhScopesMessage(scopeCheck.missing),
       {
@@ -426,13 +466,16 @@ export async function resolveGitHubAuth(opts?: {
   checkRequiredScopesImpl?: typeof checkRequiredScopes;
 }): Promise<ResolvedGitHubAuth> {
   const envToken = getEnvGitHubToken();
-  let envError: GhAuthError | null = null;
+  let envError: GitHubAuthError | null = null;
 
   if (envToken) {
     try {
-      return await validateGitHubToken(envToken, "env", opts);
+      const resolved = await validateGitHubToken(envToken, "env", opts);
+      return hasConfiguredGhAuth(opts)
+        ? { ...resolved, configuredSources: ["env", "gh"] }
+        : resolved;
     } catch (error) {
-      if (error instanceof GhAuthError) {
+      if (error instanceof GitHubAuthError) {
         envError = error;
       } else {
         throw error;
@@ -442,10 +485,30 @@ export async function resolveGitHubAuth(opts?: {
 
   try {
     const auth = ensureGhAuth(opts);
-    return await validateGitHubToken(auth.token, "gh", opts);
+    const resolved = await validateGitHubToken(auth.token, "gh", opts);
+    return envToken
+      ? { ...resolved, configuredSources: ["env", "gh"] }
+      : resolved;
   } catch (error) {
-    if (envError && error instanceof GhAuthError) {
-      throw envError;
+    if (envError && error instanceof GitHubAuthError) {
+      const attempts: GitHubAuthAttemptFailure[] = [envError, error].map(
+        (failure) => ({
+          source: failure.details.source ?? "gh",
+          code: failure.code,
+          message: failure.message,
+        })
+      );
+      throw new GitHubAuthError(
+        "all_sources_failed",
+        [
+          "All configured GitHub authentication sources failed:",
+          ...attempts.map(
+            (attempt) =>
+              `- ${attempt.source === "env" ? "GITHUB_GRAPHQL_TOKEN" : "gh CLI"}: ${attempt.message}`
+          ),
+        ].join("\n"),
+        { attempts }
+      );
     }
     throw error;
   }
@@ -464,7 +527,7 @@ export function ensureGhAuth(opts?: {
   const spawnImpl = opts?.spawnImpl ?? spawnSync;
 
   if (!checkGhInstalled({ execImpl })) {
-    throw new GhAuthError(
+    throw new GitHubAuthError(
       "not_installed",
       "gh CLI is not installed. Install it from https://cli.github.com or set GITHUB_GRAPHQL_TOKEN.",
       { source: "gh" }
@@ -473,7 +536,7 @@ export function ensureGhAuth(opts?: {
 
   const auth = checkGhAuthenticated({ spawnImpl, hostname: opts?.hostname });
   if (!auth.authenticated) {
-    throw new GhAuthError(
+    throw new GitHubAuthError(
       "not_authenticated",
       "Run 'gh auth login --scopes repo,read:org,project' or set GITHUB_GRAPHQL_TOKEN.",
       { source: "gh" }
@@ -482,7 +545,7 @@ export function ensureGhAuth(opts?: {
 
   const scopeCheck = checkGhScopes({ spawnImpl, hostname: opts?.hostname });
   if (!scopeCheck.valid) {
-    throw new GhAuthError(
+    throw new GitHubAuthError(
       "missing_scopes",
       missingGhScopesMessage(scopeCheck.missing),
       {
