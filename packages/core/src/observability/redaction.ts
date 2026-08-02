@@ -157,14 +157,14 @@ function redactTextValue(
   );
   redacted = replaceAndCount(
     redacted,
-    /([?&](?:[^\s&#=]*(?:token|secret|api[-_.]?key|password|passwd|credential|authorization)[^\s&#=]*)=)([^\s&#]*)/gi,
+    /([?&](?:[^\s&#=]*(?:token|secret|api[-_.]?key|password|passwd|credential|authorization)[^\s&#=]*)=)([^\s&#"'}\]]*)/gi,
     "secret_key",
     counts,
     "$1[REDACTED]"
   );
   redacted = replaceAndCount(
     redacted,
-    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])(.*?)\2/gi,
+    /((?:["'])?\b[A-Za-z0-9_.-]*(?:token|secret|api[-_.]?key|password|passwd|credential|private[-_.]?key)[A-Za-z0-9_.-]*(?:["'])?\s*[:=]\s*)(["'])((?:\\.|(?!\2)[^\\])*)\2/gi,
     "secret_key",
     counts,
     "$1$2[REDACTED]$2"
@@ -207,7 +207,6 @@ function redactHighEntropyValues(
   return text.replace(/[A-Za-z0-9+_-]{32,}={0,2}/g, (candidate) => {
     const separatorCount = candidate.match(/[_-]/g)?.length ?? 0;
     if (
-      candidate.includes(REDACTED) ||
       separatorCount > 2 ||
       !/[a-z]/.test(candidate) ||
       !/[A-Z]/.test(candidate) ||

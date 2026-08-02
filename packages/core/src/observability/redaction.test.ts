@@ -168,6 +168,38 @@ describe("redactObservabilitySecrets", () => {
     expect(redacted.redactions).toEqual([{ class: "secret_key", count: 2 }]);
   });
 
+  it("preserves JSON when a sensitive query parameter is last in a URL", () => {
+    const raw = JSON.stringify({
+      url: "https://example.test/?access_token=abc",
+      status: "failed",
+    });
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(JSON.parse(redacted.value)).toEqual({
+      url: "https://example.test/?access_token=[REDACTED]",
+      status: "failed",
+    });
+    expect(redacted.value).not.toContain("abc");
+  });
+
+  it("redacts quoted values containing escaped quotes without leaking fragments", () => {
+    const raw = JSON.stringify({
+      password: 'abc "def" rest',
+      status: "failed",
+    });
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(JSON.parse(redacted.value)).toEqual({
+      password: "[REDACTED]",
+      status: "failed",
+    });
+    for (const fragment of ["abc", "def", "rest"]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
   it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
