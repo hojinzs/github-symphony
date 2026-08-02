@@ -10,12 +10,16 @@ import {
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
+import {
+  GitHubGraphQLRateLimitPolicy,
+  isGitHubRateLimitResponse,
+  parseGitHubRetryAfterMs,
+  type GitHubGraphQLAttemptResult,
+} from "./github-rate-limit.js";
 
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_NETWORK_TIMEOUT_MS = 30_000;
-const RATE_LIMIT_SOFT_THRESHOLD = 100;
-const RATE_LIMIT_HARD_THRESHOLD = 0;
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 const MAX_TRANSITION_QUEUE_DEPTH = 100;
 const TRANSITION_RETRY_ATTEMPTS = 3;
@@ -398,10 +402,7 @@ type GitHubRateLimitCollector = {
   observations: GitHubRateLimitObservation[];
 };
 
-const cachedGitHubGraphQLRateLimits = new Map<
-  string,
-  GitHubRateLimitPayload | null
->();
+const graphQLRateLimitPolicy = new GitHubGraphQLRateLimitPolicy();
 const ARCHIVED_PROJECT_ITEM_STATE = "Archived";
 const transitionQueueTails = new Map<string, Promise<void>>();
 const transitionQueueDepths = new Map<string, number>();
@@ -771,9 +772,7 @@ export async function requestGithubProjectItemState(
         input.request.type === "transition-request"
           ? input.request.reason
           : null,
-      rateLimits:
-        cachedGitHubGraphQLRateLimits.get(fingerprintToken(config.token)) ??
-        null,
+      rateLimits: graphQLRateLimitPolicy.get(fingerprintToken(config.token)),
       error: "tracker_transition_queue_full",
     };
   }
@@ -1084,10 +1083,7 @@ function isRetryableTransitionError(error: unknown): boolean {
   ) {
     return true;
   }
-  return (
-    error instanceof GitHubTrackerError &&
-    error.message.toLowerCase().includes("rate limit")
-  );
+  return false;
 }
 
 function statesEqual(left: string, right: string): boolean {
@@ -2368,35 +2364,71 @@ async function executeGraphQLQueryWithMetadata<TData>(
   rateLimits: GitHubRateLimitPayload | null;
 }> {
   const tokenFingerprint = fingerprintToken(config.token);
-  await guardGraphQLRateLimit(tokenFingerprint);
+  const requestResult = await graphQLRateLimitPolicy.execute(
+    tokenFingerprint,
+    async (): Promise<
+      GitHubGraphQLAttemptResult<
+        {
+          response: Response;
+          payload: GraphQLResponse<TData>;
+        },
+        GitHubRateLimitPayload
+      >
+    > => {
+      const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.token}`,
+        },
+        body: JSON.stringify({
+          query,
+          variables,
+        }),
+        signal: buildRequestSignal(config.timeoutMs),
+      });
+      const rateLimits = extractGitHubRateLimits(response.headers);
+      if (!response.ok) {
+        const details = await response.text();
+        return {
+          ok: false,
+          status: response.status,
+          details,
+          rateLimits,
+          retryAfterMs: parseGitHubRetryAfterMs(
+            response.headers?.get?.("retry-after") ?? null
+          ),
+          rateLimited: isGitHubRateLimitResponse(
+            response.status,
+            details,
+            response.headers
+          ),
+        };
+      }
 
-  const response = await fetchImpl(config.apiUrl ?? DEFAULT_API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.token}`,
-    },
-    body: JSON.stringify({
-      query,
-      variables,
-    }),
-    signal: buildRequestSignal(config.timeoutMs),
-  });
+      const payload = (await response.json()) as GraphQLResponse<TData>;
+      const fieldRateLimits = extractGraphQLRateLimitField(
+        payload.data?.rateLimit
+      );
+      return {
+        ok: true,
+        value: { response, payload },
+        rateLimits: extractGitHubRateLimits(response.headers, fieldRateLimits),
+      };
+    }
+  );
 
-  if (!response.ok) {
-    const details = await response.text();
-    const rateLimits = extractGitHubRateLimits(response.headers);
-    cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
+  if (!requestResult.ok) {
     throw new GitHubTrackerHttpError(
-      `GitHub GraphQL request failed with status ${response.status}`,
-      response.status,
-      details,
-      rateLimits,
-      parseRetryAfterMs(response.headers?.get?.("retry-after") ?? null)
+      `GitHub GraphQL request failed with status ${requestResult.status}`,
+      requestResult.status,
+      requestResult.details,
+      requestResult.rateLimits,
+      requestResult.retryAfterMs
     );
   }
 
-  const payload = (await response.json()) as GraphQLResponse<TData>;
+  const { payload, response } = requestResult.value;
 
   if (payload.errors?.length) {
     throw new GitHubTrackerQueryError(
@@ -2420,44 +2452,10 @@ async function executeGraphQLQueryWithMetadata<TData>(
       payload: rateLimits,
     });
   }
-  cachedGitHubGraphQLRateLimits.set(tokenFingerprint, rateLimits);
   return {
     data,
     rateLimits,
   };
-}
-
-async function guardGraphQLRateLimit(tokenFingerprint: string): Promise<void> {
-  const rateLimit = cachedGitHubGraphQLRateLimits.get(tokenFingerprint) ?? null;
-  if (!rateLimit) {
-    return;
-  }
-
-  const remaining = rateLimit.remaining;
-  if (remaining === null || remaining > RATE_LIMIT_SOFT_THRESHOLD) {
-    return;
-  }
-
-  const resetAtMs = parseTimestampMs(rateLimit.resetAt);
-  if (resetAtMs === null) {
-    if (remaining <= RATE_LIMIT_HARD_THRESHOLD) {
-      throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
-    }
-    return;
-  }
-
-  const waitMs = Math.max(0, resetAtMs - Date.now());
-  if (waitMs > MAX_RATE_LIMIT_WAIT_MS) {
-    if (remaining <= RATE_LIMIT_HARD_THRESHOLD) {
-      throw new GitHubTrackerError("Rate limit near exhaustion", rateLimit);
-    }
-    return;
-  }
-
-  cachedGitHubGraphQLRateLimits.delete(tokenFingerprint);
-  if (waitMs > 0) {
-    await sleep(waitMs);
-  }
 }
 
 function fingerprintToken(token: string): string {
@@ -2617,20 +2615,6 @@ function parseTimestampMs(value: string | null): number | null {
   return Number.isFinite(timestampMs) ? timestampMs : null;
 }
 
-function parseRetryAfterMs(value: string | null): number | null {
-  if (!value) {
-    return null;
-  }
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return seconds * 1_000;
-  }
-  const retryAtMs = Date.parse(value);
-  return Number.isFinite(retryAtMs)
-    ? Math.max(0, retryAtMs - Date.now())
-    : null;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -2638,7 +2622,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function resetGitHubRateLimitCacheForTests(): void {
-  cachedGitHubGraphQLRateLimits.clear();
+  graphQLRateLimitPolicy.reset();
   transitionQueueTails.clear();
   transitionQueueDepths.clear();
 }

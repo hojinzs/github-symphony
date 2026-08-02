@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
+  TrackerRateLimitError,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -924,6 +925,7 @@ export class OrchestratorService {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     let lastError: string | null = null;
+    let trackerError: unknown = null;
     let dispatched = 0;
     let suppressed = 0;
     let recovered = 0;
@@ -1452,6 +1454,7 @@ export class OrchestratorService {
         await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
       }
     } catch (error) {
+      trackerError = error;
       lastError =
         error instanceof Error ? error.message : "Unknown orchestration error";
       trackerRateLimits =
@@ -1516,7 +1519,7 @@ export class OrchestratorService {
       lastError,
       rateLimits,
       dispatchSuppressedUntil: resolveDispatchSuppressedUntil(
-        lastError,
+        trackerError,
         dispatchRateLimits
       ),
       issueWorkspaces,
@@ -4333,17 +4336,20 @@ function isLowRateLimit(
 }
 
 function resolveDispatchSuppressedUntil(
-  lastError: string | null,
+  error: unknown,
   rateLimits: Record<string, unknown> | null
 ): string | null {
-  if (
-    lastError !== "Rate limit near exhaustion" ||
-    !isTrackerGraphqlRateLimits(rateLimits)
-  ) {
+  if (!(error instanceof TrackerRateLimitError)) {
     return null;
   }
 
-  return typeof rateLimits.resetAt === "string" ? rateLimits.resetAt : null;
+  if (error.retryAt) {
+    return error.retryAt;
+  }
+  return isTrackerGraphqlRateLimits(rateLimits) &&
+    typeof rateLimits.resetAt === "string"
+    ? rateLimits.resetAt
+    : null;
 }
 
 function buildRuntimeSession(

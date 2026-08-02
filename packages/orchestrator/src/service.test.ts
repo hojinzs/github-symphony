@@ -25,6 +25,7 @@ import {
   type TrackedIssueList,
   type WorkflowResolution,
 } from "@gh-symphony/core";
+import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { OrchestratorService } from "./service.js";
@@ -4226,11 +4227,18 @@ Prefer focused changes.
           rateLimits,
         },
       ]),
-      listIssues: vi.fn().mockRejectedValue(
-        Object.assign(new Error("Rate limit near exhaustion"), {
-          rateLimits,
-        })
-      ),
+      listIssues: vi
+        .fn()
+        .mockRejectedValue(
+          new GitHubGraphQLRateLimitError(
+            "GitHub GraphQL rate limit near exhaustion",
+            null,
+            "Cached GitHub GraphQL rate limit is exhausted.",
+            rateLimits,
+            null,
+            rateLimits.resetAt
+          )
+        ),
       listIssuesByStates: vi.fn().mockResolvedValue([]),
       buildWorkerEnvironment: vi.fn().mockReturnValue({}),
       reviveIssue: vi.fn(),
@@ -4247,7 +4255,9 @@ Prefer focused changes.
     const snapshot = await service.runOnce();
 
     expect(snapshot.health).toBe("degraded");
-    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.lastError).toBe(
+      "GitHub GraphQL rate limit near exhaustion"
+    );
     expect(snapshot.rateLimits).toEqual(rateLimits);
     expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
     expect(stderr.write).toHaveBeenCalledWith(
@@ -4282,7 +4292,16 @@ Prefer focused changes.
     const listIssues = vi
       .fn()
       .mockResolvedValueOnce(listedIssues)
-      .mockRejectedValueOnce(new Error("Rate limit near exhaustion"));
+      .mockRejectedValueOnce(
+        new GitHubGraphQLRateLimitError(
+          "GitHub GraphQL rate limit near exhaustion",
+          null,
+          "Cached GitHub GraphQL rate limit is exhausted.",
+          rateLimits,
+          null,
+          rateLimits.resetAt
+        )
+      );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues,
       listIssuesByStates: vi.fn().mockResolvedValue([]),
@@ -4304,7 +4323,9 @@ Prefer focused changes.
 
     expect(listIssues).toHaveBeenCalledTimes(2);
     expect(snapshot.health).toBe("degraded");
-    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.lastError).toBe(
+      "GitHub GraphQL rate limit near exhaustion"
+    );
     expect(snapshot.rateLimits).toEqual(rateLimits);
     expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
     expect(stderr.write).toHaveBeenLastCalledWith(
@@ -4334,10 +4355,14 @@ Prefer focused changes.
       resetAt: "2026-07-03T15:56:07.000Z",
       resource: "graphql",
     };
-    const error = new Error("Rate limit near exhaustion") as Error & {
-      rateLimits: Record<string, unknown>;
-    };
-    error.rateLimits = rateLimits;
+    const error = new GitHubGraphQLRateLimitError(
+      "GitHub GraphQL rate limit near exhaustion",
+      null,
+      "Cached GitHub GraphQL rate limit is exhausted.",
+      rateLimits,
+      null,
+      rateLimits.resetAt
+    );
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
       listIssues: vi.fn().mockRejectedValue(error),
@@ -4357,7 +4382,9 @@ Prefer focused changes.
     const snapshot = await service.runOnce();
 
     expect(snapshot.health).toBe("degraded");
-    expect(snapshot.lastError).toBe("Rate limit near exhaustion");
+    expect(snapshot.lastError).toBe(
+      "GitHub GraphQL rate limit near exhaustion"
+    );
     expect(snapshot.rateLimits).toEqual(rateLimits);
     expect(snapshot.dispatchSuppressedUntil).toBe("2026-07-03T15:56:07.000Z");
     expect(stderr.write).toHaveBeenCalledWith(

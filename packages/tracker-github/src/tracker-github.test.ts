@@ -21,6 +21,7 @@ import {
   detectDuplicatePlacements,
   detectTransferRebindRequired,
 } from "./validation.js";
+import { GitHubGraphQLRateLimitError } from "./github-rate-limit.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -2597,6 +2598,99 @@ describe("resolveTrackerAdapter", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("retries a secondary rate-limit 403 after Retry-After", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const success = new Response(
+      JSON.stringify({
+        data: {
+          node: {
+            __typename: "ProjectV2",
+            items: {
+              nodes: [],
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+          },
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("secondary rate limit exceeded", {
+          status: 403,
+          headers: { "retry-after": "2" },
+        })
+      )
+      .mockResolvedValueOnce(success);
+
+    const pending = adapter.listIssues(
+      {
+        projectId: "workspace-1",
+        slug: "workspace-1",
+        workspaceDir: "/tmp/workspace-1",
+        repository: {
+          owner: "acme",
+          name: "platform",
+          cloneUrl: "https://github.com/acme/platform.git",
+        },
+        tracker: {
+          adapter: "github-project",
+          bindingId: "project-123",
+          settings: { projectId: "project-123" },
+        },
+      },
+      { token: "dependencies-token", fetchImpl }
+    );
+
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry an authentication or permission 403", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response("Resource not accessible by personal access token", {
+        status: 403,
+      })
+    );
+
+    await expect(
+      adapter.listIssues(
+        {
+          projectId: "workspace-1",
+          slug: "workspace-1",
+          workspaceDir: "/tmp/workspace-1",
+          repository: {
+            owner: "acme",
+            name: "platform",
+            cloneUrl: "https://github.com/acme/platform.git",
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "project-123",
+            settings: { projectId: "project-123" },
+          },
+        },
+        { token: "dependencies-token", fetchImpl }
+      )
+    ).rejects.toMatchObject({ status: 403 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("allows a soft-threshold GraphQL request when the cached reset is too far away", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-19T04:00:00.000Z"));
@@ -2780,8 +2874,10 @@ describe("resolveTrackerAdapter", () => {
       thrown = error;
     }
 
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toBe("Rate limit near exhaustion");
+    expect(thrown).toBeInstanceOf(GitHubGraphQLRateLimitError);
+    expect((thrown as Error).message).toBe(
+      "GitHub GraphQL rate limit near exhaustion"
+    );
     expect((thrown as { rateLimits?: unknown }).rateLimits).toEqual({
       source: "github",
       limit: 5000,
