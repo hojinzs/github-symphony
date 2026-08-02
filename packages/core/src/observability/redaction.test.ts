@@ -152,6 +152,22 @@ describe("redactObservabilitySecrets", () => {
     );
   });
 
+  it("preserves JSON and NDJSON syntax when redacting quoted values", () => {
+    const raw = [
+      '{"token":"abc def","message":"safe"}',
+      '{"custom_secret":"line one","status":"failed"}',
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+    const records = redacted.value.split("\n").map((line) => JSON.parse(line));
+
+    expect(records).toEqual([
+      { token: "[REDACTED]", message: "safe" },
+      { custom_secret: "[REDACTED]", status: "failed" },
+    ]);
+    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 2 }]);
+  });
+
   it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
