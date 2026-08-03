@@ -165,7 +165,10 @@ describe("redactObservabilitySecrets", () => {
       { token: "[REDACTED]", message: "safe" },
       { custom_secret: "[REDACTED]", status: "failed" },
     ]);
-    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 2 }]);
+    expect(redacted.redactions).toEqual([
+      { class: "env_token", count: 1 },
+      { class: "secret_key", count: 1 },
+    ]);
   });
 
   it("preserves JSON when a sensitive query parameter is last in a URL", () => {
@@ -270,7 +273,10 @@ describe("redactObservabilitySecrets", () => {
       { custom_secret: "[REDACTED]", status: "failed" },
       { password: "[REDACTED]", status: "failed" },
     ]);
-    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 3 }]);
+    expect(redacted.redactions).toEqual([
+      { class: "env_token", count: 1 },
+      { class: "secret_key", count: 2 },
+    ]);
   });
 
   it("preserves token usage metrics in raw turn-completed NDJSON", () => {
@@ -295,7 +301,7 @@ describe("redactObservabilitySecrets", () => {
         totalTokens: 30,
       },
     });
-    expect(redacted.redactions).toEqual([{ class: "secret_key", count: 1 }]);
+    expect(redacted.redactions).toEqual([{ class: "env_token", count: 1 }]);
   });
 
   it("reports structured and free-form redaction stats", () => {
@@ -312,5 +318,31 @@ describe("redactObservabilitySecrets", () => {
       { class: "authorization_header", count: 1 },
       { class: "env_token", count: 1 },
     ]);
+  });
+
+  it("preserves redaction classes for raw assignments", () => {
+    const redacted = redactObservabilityTextWithStats(
+      ["GITHUB_TOKEN=abc", "OPENAI_API_KEY=def"].join("\n")
+    );
+
+    expect(redacted.value).toBe(
+      ["GITHUB_TOKEN=[REDACTED]", "OPENAI_API_KEY=[REDACTED]"].join("\n")
+    );
+    expect(redacted.redactions).toEqual([
+      { class: "api_key", count: 1 },
+      { class: "env_token", count: 1 },
+    ]);
+  });
+
+  it("redacts standard Base64 secrets containing slashes without masking paths", () => {
+    const base64Secret = "Ab3dEf5hIj7kLm9nOp1q/Rs3tUv5wXy7zA9bCd2e";
+    const redacted = redactObservabilityTextWithStats(
+      `error: upstream opaque credential ${base64Secret}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
+    );
+
+    expect(redacted.value).toBe(
+      "error: upstream opaque credential [REDACTED]\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md"
+    );
+    expect(redacted.value).not.toContain(base64Secret);
   });
 });

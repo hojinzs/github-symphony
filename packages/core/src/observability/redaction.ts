@@ -213,11 +213,12 @@ function replaceSensitiveKeyAndCount(
   return text.replace(pattern, (...args: unknown[]) => {
     const matched = typeof args[0] === "string" ? args[0] : "";
     const key = typeof args[2] === "string" ? args[2] : "";
-    if (!redactionClassForKey(key) || matched.includes(REDACTED)) {
+    const redactionClass = redactionClassForKey(key);
+    if (!redactionClass || matched.includes(REDACTED)) {
       return matched;
     }
 
-    incrementRedaction(counts, "secret_key");
+    incrementRedaction(counts, redactionClass);
     return replacement.replace(/\$(\d+)/g, (_placeholder, index: string) => {
       const group = args[Number.parseInt(index, 10)];
       return typeof group === "string" ? group : "";
@@ -229,7 +230,7 @@ function redactHighEntropyValues(
   text: string,
   counts: Map<RedactionClass, number>
 ): string {
-  return text.replace(/[A-Za-z0-9+_-]{32,}={0,2}/g, (candidate) => {
+  return text.replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (candidate) => {
     const separatorCount = candidate.match(/[_-]/g)?.length ?? 0;
     if (
       separatorCount > 2 ||
