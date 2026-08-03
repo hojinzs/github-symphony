@@ -243,6 +243,37 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("redacts YAML block scalar payloads through the indentation boundary", () => {
+    const raw = [
+      "config:",
+      "  password: |-",
+      "    correct horse battery staple",
+      "    second secret line",
+      "  status: failed",
+      "result: failed",
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      [
+        "config:",
+        "  password: [REDACTED]",
+        "  status: failed",
+        "result: failed",
+      ].join("\n")
+    );
+    for (const fragment of [
+      "correct",
+      "horse",
+      "battery",
+      "staple",
+      "second secret line",
+    ]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
   it("redacts complete unquoted secret values containing punctuation", () => {
     const raw = ["GITHUB_TOKEN=abc,def", "CUSTOM_PASSWORD=abc;def"].join("\n");
 
@@ -375,5 +406,13 @@ describe("redactObservabilitySecrets", () => {
     );
     expect(redacted.value).not.toContain(base64Secret);
     expect(redacted.value).not.toContain(slashPrefixedBase64Secret);
+  });
+
+  it("preserves absolute paths under arbitrary configured roots", () => {
+    const workingDirectory = "/data/workspaces/tenantA/ENG123/repository";
+
+    const redacted = redactObservabilitySecrets({ workingDirectory });
+
+    expect(redacted).toEqual({ workingDirectory });
   });
 });

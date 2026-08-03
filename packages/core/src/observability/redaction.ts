@@ -180,6 +180,7 @@ function redactTextValue(
     counts,
     "$1[REDACTED]"
   );
+  redacted = redactYamlBlockScalars(redacted, counts);
   redacted = replaceSensitiveKeyAndCount(
     redacted,
     /(^|\r?\n)([ \t]*)(-\s+)?([A-Za-z0-9_.-]+)(\s*:\s+)(?!["']|\[REDACTED\])([^\r\n]*?\S)([ \t]+#.*)?(?=\r?\n|$)/gm,
@@ -290,29 +291,8 @@ function isLikelyFilesystemPath(
     return true;
   }
 
-  const firstSegment = (candidate.startsWith("/") ? segments[1] : segments[0])
-    .replace(/^\/+/, "")
-    .toLowerCase();
-  const knownPathRoot = new Set([
-    "bin",
-    "dev",
-    "etc",
-    "home",
-    "opt",
-    "private",
-    "proc",
-    "root",
-    "run",
-    "srv",
-    "sys",
-    "tmp",
-    "usr",
-    "var",
-    "users",
-    "workspace",
-    "workspaces",
-  ]);
-  if (knownPathRoot.has(firstSegment)) {
+  const pathSegments = candidate.startsWith("/") ? segments.slice(1) : segments;
+  if (pathSegments.some(isReadableFilesystemSegment)) {
     return true;
   }
 
@@ -325,11 +305,103 @@ function isLikelyFilesystemPath(
     return true;
   }
 
-  return (
-    firstSegment === "runtime" ||
-    firstSegment === "project" ||
-    firstSegment === "projects"
-  );
+  return false;
+}
+
+function isReadableFilesystemSegment(segment: string): boolean {
+  if (
+    segment.length > 24 ||
+    !/^[A-Za-z0-9._-]+$/.test(segment) ||
+    /\d/.test(segment)
+  ) {
+    return false;
+  }
+
+  return /[a-z]{3,}/.test(segment) || /[A-Z]{3,}/.test(segment);
+}
+
+type TextLine = {
+  content: string;
+  ending: "" | "\n" | "\r\n";
+};
+
+function redactYamlBlockScalars(
+  text: string,
+  counts: Map<RedactionClass, number>
+): string {
+  const lines = splitTextLines(text);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match =
+      /^([ \t]*)(-\s+)?([A-Za-z0-9_.-]+)(\s*:\s+)(?!["']|\[REDACTED\])([|>])(?:[-+]?\d?)([ \t]+#.*)?$/.exec(
+        lines[index].content
+      );
+    if (!match) {
+      continue;
+    }
+
+    const redactionClass = redactionClassForKey(match[3]);
+    if (!redactionClass) {
+      continue;
+    }
+
+    const headerIndent = match[1].length;
+    let end = index + 1;
+    let hasPayload = false;
+    while (end < lines.length) {
+      const content = lines[end].content;
+      const indentation = content.match(/^[ \t]*/)?.[0].length ?? 0;
+      if (content.trim() === "") {
+        const nextContent = lines[end + 1]?.content ?? "";
+        const nextIndentation = nextContent.match(/^[ \t]*/)?.[0].length ?? 0;
+        if (nextContent.trim() !== "" && nextIndentation <= headerIndent) {
+          break;
+        }
+        end += 1;
+        continue;
+      }
+      if (indentation <= headerIndent) {
+        break;
+      }
+      hasPayload = true;
+      end += 1;
+    }
+
+    incrementRedaction(counts, redactionClass);
+    lines[index] = {
+      content: `${match[1]}${match[2] ?? ""}${match[3]}${match[4]}${REDACTED}${match[6] ?? ""}`,
+      ending: lines[index].ending,
+    };
+    if (hasPayload || end > index + 1) {
+      lines.splice(index + 1, end - index - 1);
+    }
+  }
+
+  return lines.map((line) => `${line.content}${line.ending}`).join("");
+}
+
+function splitTextLines(text: string): TextLine[] {
+  const lines: TextLine[] = [];
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf("\n", start);
+    if (newline === -1) {
+      lines.push({ content: text.slice(start), ending: "" });
+      return lines;
+    }
+
+    const hasCarriageReturn = newline > start && text[newline - 1] === "\r";
+    lines.push({
+      content: text.slice(start, hasCarriageReturn ? newline - 1 : newline),
+      ending: hasCarriageReturn ? "\r\n" : "\n",
+    });
+    start = newline + 1;
+  }
+
+  if (text.length === 0 || text.endsWith("\n")) {
+    lines.push({ content: "", ending: "" });
+  }
+  return lines;
 }
 
 function shannonEntropy(value: string): number {
