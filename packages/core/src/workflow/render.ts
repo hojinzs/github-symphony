@@ -189,12 +189,25 @@ export type RenderPromptOptions = {
    * variables are left as-is.
    */
   strict?: boolean;
+  /** Override the default Liquid render deadline, primarily for tests. */
+  renderLimitMs?: number;
+  /** Override the default Liquid allocation budget, primarily for tests. */
+  memoryLimit?: number;
 };
+
+export const PROMPT_RENDER_LIMITS = {
+  parseCharacters: 1_000_000,
+  renderMilliseconds: 5_000,
+  memoryUnits: 10_000_000,
+} as const;
 
 const STRICT_LIQUID_ENGINE = new Liquid({
   strictVariables: true,
   strictFilters: true,
   ownPropertyOnly: true,
+  parseLimit: PROMPT_RENDER_LIMITS.parseCharacters,
+  renderLimit: PROMPT_RENDER_LIMITS.renderMilliseconds,
+  memoryLimit: PROMPT_RENDER_LIMITS.memoryUnits,
 });
 
 /**
@@ -220,7 +233,11 @@ export function renderPrompt(
   }
 
   try {
-    return STRICT_LIQUID_ENGINE.parseAndRenderSync(template, variables);
+    return STRICT_LIQUID_ENGINE.parseAndRenderSync(template, variables, {
+      renderLimit:
+        options.renderLimitMs ?? PROMPT_RENDER_LIMITS.renderMilliseconds,
+      memoryLimit: options.memoryLimit ?? PROMPT_RENDER_LIMITS.memoryUnits,
+    });
   } catch (error) {
     throw normalizeTemplateError(error);
   }
@@ -228,6 +245,10 @@ export function renderPrompt(
 
 function normalizeTemplateError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("parse length limit exceeded")) {
+    return new Error(`template_parse_error: ${message}`, { cause: error });
+  }
 
   if (
     error instanceof UndefinedVariableError ||
