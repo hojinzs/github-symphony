@@ -182,6 +182,13 @@ function redactTextValue(
   );
   redacted = replaceSensitiveKeyAndCount(
     redacted,
+    /(^|\r?\n)([ \t]*)(-\s+)?([A-Za-z0-9_.-]+)(\s*:\s+)(?!["']|\[REDACTED\])([^\r\n]*?\S)([ \t]+#.*)?(?=\r?\n|$)/gm,
+    counts,
+    "$1$2$3$4$5[REDACTED]$7",
+    4
+  );
+  redacted = replaceSensitiveKeyAndCount(
+    redacted,
     /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*:\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
     counts,
     "$1[REDACTED]"
@@ -214,11 +221,13 @@ function replaceSensitiveKeyAndCount(
   text: string,
   pattern: RegExp,
   counts: Map<RedactionClass, number>,
-  replacement: string
+  replacement: string,
+  keyGroupIndex = 2
 ): string {
   return text.replace(pattern, (...args: unknown[]) => {
     const matched = typeof args[0] === "string" ? args[0] : "";
-    const key = typeof args[2] === "string" ? args[2] : "";
+    const key =
+      typeof args[keyGroupIndex] === "string" ? args[keyGroupIndex] : "";
     const redactionClass = redactionClassForKey(key);
     if (!redactionClass || matched.includes(REDACTED)) {
       return matched;
@@ -277,11 +286,50 @@ function isLikelyFilesystemPath(
     return false;
   }
 
-  if (candidate.startsWith("/") || preceding === ".") {
+  if (preceding === ".") {
     return true;
   }
 
-  return segments.some((segment) => /[-_]/.test(segment));
+  const firstSegment = (candidate.startsWith("/") ? segments[1] : segments[0])
+    .replace(/^\/+/, "")
+    .toLowerCase();
+  const knownPathRoot = new Set([
+    "bin",
+    "dev",
+    "etc",
+    "home",
+    "opt",
+    "private",
+    "proc",
+    "root",
+    "run",
+    "srv",
+    "sys",
+    "tmp",
+    "usr",
+    "var",
+    "users",
+    "workspace",
+    "workspaces",
+  ]);
+  if (knownPathRoot.has(firstSegment)) {
+    return true;
+  }
+
+  const pathContext = source.slice(Math.max(0, offset - 80), offset);
+  if (
+    /\b(?:artifact|cwd|directory|file|path|repo(?:sitory)?|workspace|working\s+directory)\s*(?:is|at|=|:)?\s*$/i.test(
+      pathContext
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    firstSegment === "runtime" ||
+    firstSegment === "project" ||
+    firstSegment === "projects"
+  );
 }
 
 function shannonEntropy(value: string): number {

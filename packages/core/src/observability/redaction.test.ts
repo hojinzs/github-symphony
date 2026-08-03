@@ -229,6 +229,20 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("redacts complete YAML plain scalars without leaking words", () => {
+    const raw =
+      "password: correct horse battery staple # diagnostic\nstatus: failed";
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      "password: [REDACTED] # diagnostic\nstatus: failed"
+    );
+    for (const fragment of ["correct", "horse", "battery", "staple"]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
   it("redacts complete unquoted secret values containing punctuation", () => {
     const raw = ["GITHUB_TOKEN=abc,def", "CUSTOM_PASSWORD=abc;def"].join("\n");
 
@@ -349,14 +363,17 @@ describe("redactObservabilitySecrets", () => {
 
   it("redacts standard Base64 secrets containing slashes without masking paths", () => {
     const base64Secret = "Ab3dEf5hIj7kLm9nOp1q/Rs3tUv5wXy7zA9bCd2e";
-    const relativePath = ".runtime/projects/tenant-a/ENG-123/repository";
+    const slashPrefixedBase64Secret =
+      "/Ab3dEf5hIj7kLm9nOp1q/Rs3tUv5wXy7zA9bCd2e";
+    const relativePath = "runtime/projects/tenantA/ENG123/repository";
     const redacted = redactObservabilityTextWithStats(
-      `error: upstream opaque credential ${base64Secret}\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
+      `error: upstream opaque credential ${base64Secret}\nerror: slash-prefixed credential ${slashPrefixedBase64Secret}\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
     );
 
     expect(redacted.value).toBe(
-      `error: upstream opaque credential [REDACTED]\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
+      `error: upstream opaque credential [REDACTED]\nerror: slash-prefixed credential [REDACTED]\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
     );
     expect(redacted.value).not.toContain(base64Secret);
+    expect(redacted.value).not.toContain(slashPrefixedBase64Secret);
   });
 });
