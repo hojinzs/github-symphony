@@ -1,6 +1,25 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  parse,
+  print,
+  Kind,
+  type DefinitionNode,
+  type FieldNode,
+  type OperationDefinitionNode,
+} from "graphql";
+import {
+  extractGitHubRateLimits,
+  extractGraphQLRateLimitField,
+  fingerprintGitHubToken,
+  githubGraphQLRateLimitPolicy,
+  isGitHubRateLimitResponse,
+  parseGitHubRetryAfterMs,
+  type GitHubGraphQLRateLimitPolicy,
+  type GitHubGraphQLAttemptResult,
+  type GitHubRateLimitPayload,
+} from "./github-rate-limit.js";
+import {
   validateGitHubGraphQLApiUrl,
   validateGitHubTokenBrokerUrl,
 } from "./url-policy.js";
@@ -20,6 +39,7 @@ export type GitHubGraphQLToolConfig = {
   tokenBrokerUrl?: string;
   tokenBrokerSecret?: string;
   tokenCachePath?: string;
+  rateLimitPolicy?: GitHubGraphQLRateLimitPolicy;
 };
 
 export async function executeGitHubGraphQL(
@@ -33,30 +53,163 @@ export async function executeGitHubGraphQL(
   const apiUrl = validateGitHubGraphQLApiUrl(
     config.apiUrl ?? DEFAULT_GITHUB_GRAPHQL_API_URL
   );
-  const response = await fetchImpl(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(invocation),
-  });
+  const instrumentedInvocation = instrumentGitHubGraphQLInvocation(invocation);
+  const rateLimitPolicy =
+    config.rateLimitPolicy ?? githubGraphQLRateLimitPolicy;
+  const result = await rateLimitPolicy.execute(
+    fingerprintGitHubToken(token),
+    async (): Promise<
+      GitHubGraphQLAttemptResult<
+        {
+          payload: GitHubGraphQLPayload;
+          rateLimits: GitHubRateLimitPayload | null;
+        },
+        GitHubRateLimitPayload
+      >
+    > => {
+      const response = await fetchImpl(apiUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(instrumentedInvocation),
+      });
 
-  const payload = (await response.json()) as {
-    errors?: Array<{ message: string }>;
-  };
+      const payload = (await response.json()) as GitHubGraphQLPayload;
+      const fieldRateLimits = extractGraphQLRateLimitField(
+        isRecord(payload.data) ? payload.data.rateLimit : null
+      );
+      const rateLimits = extractGitHubRateLimits(
+        response.headers,
+        fieldRateLimits
+      );
 
-  if (!response.ok) {
+      if (!response.ok) {
+        const details = JSON.stringify(payload);
+        return {
+          ok: false,
+          status: response.status,
+          details,
+          rateLimits,
+          retryAfterMs: parseGitHubRetryAfterMs(
+            response.headers?.get?.("retry-after") ?? null
+          ),
+          rateLimited: isGitHubRateLimitResponse(
+            response.status,
+            details,
+            response.headers
+          ),
+        };
+      }
+
+      return {
+        ok: true,
+        value: { payload, rateLimits },
+        rateLimits,
+      };
+    }
+  );
+
+  if (!result.ok) {
     throw new Error(
-      `GitHub GraphQL request failed with status ${response.status}: ${JSON.stringify(payload)}`
+      `GitHub GraphQL request failed with status ${result.status}: ${result.details}`
     );
   }
 
+  const { payload, rateLimits } = result.value;
   if (payload.errors?.length) {
     throw new Error(payload.errors.map((error) => error.message).join("; "));
   }
 
-  return payload;
+  return rateLimits ? { ...payload, rateLimits } : payload;
+}
+
+type GitHubGraphQLPayload = {
+  data?: Record<string, unknown> | null;
+  errors?: Array<{ message: string }>;
+  [key: string]: unknown;
+};
+
+function instrumentGitHubGraphQLInvocation(
+  invocation: GitHubGraphQLInvocation
+): GitHubGraphQLInvocation {
+  try {
+    const document = parse(invocation.query);
+    const definitions = document.definitions.map((definition) => {
+      if (!shouldInstrumentOperation(definition, invocation.operationName)) {
+        return definition;
+      }
+
+      if (
+        definition.selectionSet.selections.some(
+          (selection) =>
+            selection.kind === "Field" && selection.name.value === "rateLimit"
+        )
+      ) {
+        return definition;
+      }
+
+      return {
+        ...definition,
+        selectionSet: {
+          ...definition.selectionSet,
+          selections: [
+            ...definition.selectionSet.selections,
+            buildRateLimitField(),
+          ],
+        },
+      };
+    });
+
+    return {
+      ...invocation,
+      query: print({ ...document, definitions }),
+    };
+  } catch {
+    // Preserve the server's existing validation and error behavior for invalid
+    // or provider-specific GraphQL documents that the local parser rejects.
+    return invocation;
+  }
+}
+
+function shouldInstrumentOperation(
+  definition: DefinitionNode,
+  operationName: string | undefined
+): definition is OperationDefinitionNode {
+  return (
+    definition.kind === "OperationDefinition" &&
+    definition.operation === "query" &&
+    (operationName === undefined || definition.name?.value === operationName)
+  );
+}
+
+function buildRateLimitField(): FieldNode {
+  return {
+    kind: Kind.FIELD,
+    name: { kind: Kind.NAME, value: "rateLimit" },
+    selectionSet: {
+      kind: Kind.SELECTION_SET,
+      selections: [
+        {
+          kind: Kind.FIELD,
+          name: { kind: Kind.NAME, value: "cost" },
+        },
+        {
+          kind: Kind.FIELD,
+          name: { kind: Kind.NAME, value: "remaining" },
+        },
+        {
+          kind: Kind.FIELD,
+          name: { kind: Kind.NAME, value: "resetAt" },
+        },
+      ],
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function resolveGitHubGraphQLToken(

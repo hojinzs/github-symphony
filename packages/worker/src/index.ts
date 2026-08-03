@@ -60,6 +60,7 @@ import {
   formatEventCwdSuffix,
 } from "./workspace-boundary.js";
 import { resolveMaxTurns } from "./turn-limits.js";
+import { extractToolRateLimitPayload } from "./tool-rate-limit.js";
 import {
   acquireTurnLease,
   refreshTrackerState,
@@ -1262,6 +1263,11 @@ async function runCodexClientProtocol(
 
     try {
       const output = await runToolProcess(toolDef, inputJson);
+      const toolRateLimits = extractToolRateLimitPayload(output);
+      if (toolRateLimits) {
+        applyRateLimitUpdate(`tool.${toolName}`, toolRateLimits, "agent-tool");
+        emitOrchestratorChannelEvent("agent.rateLimit");
+      }
       sendMessage({
         jsonrpc: "2.0",
         method: "dynamic_tool_call_response",
