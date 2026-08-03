@@ -162,6 +162,7 @@ function redactTextValue(
     counts,
     "$1[REDACTED]"
   );
+  redacted = redactSensitiveJsonContainers(redacted, counts);
   redacted = replaceSensitiveKeyAndCount(
     redacted,
     /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*)(["'])((?:\\.|\3\3|(?!\3)[^\\])*)\3/gi,
@@ -242,6 +243,102 @@ function replaceSensitiveKeyAndCount(
   });
 }
 
+function redactSensitiveJsonContainers(
+  text: string,
+  counts: Map<RedactionClass, number>
+): string {
+  const keyPattern = /("(?:\\.|[^"\\])*")\s*:\s*(\{|\[)/g;
+  let redacted = "";
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = keyPattern.exec(text)) !== null) {
+    const preceding = previousNonWhitespaceCharacter(text, match.index - 1);
+    if (preceding !== "{" && preceding !== ",") {
+      continue;
+    }
+
+    let key: string;
+    try {
+      key = JSON.parse(match[1]) as string;
+    } catch {
+      continue;
+    }
+
+    const redactionClass = redactionClassForKey(key);
+    if (!redactionClass) {
+      continue;
+    }
+
+    const containerStart = match.index + match[0].length - 1;
+    const containerEnd = findJsonContainerEnd(text, containerStart);
+    if (containerEnd === null) {
+      continue;
+    }
+
+    redacted += text.slice(cursor, containerStart);
+    redacted += `"${REDACTED}"`;
+    cursor = containerEnd;
+    keyPattern.lastIndex = containerEnd;
+    incrementRedaction(counts, redactionClass);
+  }
+
+  return cursor === 0 ? text : redacted + text.slice(cursor);
+}
+
+function previousNonWhitespaceCharacter(text: string, end: number): string {
+  for (let index = end; index >= 0; index -= 1) {
+    if (!/\s/.test(text[index])) {
+      return text[index];
+    }
+  }
+  return "";
+}
+
+function findJsonContainerEnd(text: string, start: number): number | null {
+  const opening = text[start];
+  if (opening !== "{" && opening !== "[") {
+    return null;
+  }
+
+  const containers: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{" || character === "[") {
+      containers.push(character === "{" ? "}" : "]");
+      continue;
+    }
+    if (character === "}" || character === "]") {
+      if (containers.pop() !== character) {
+        return null;
+      }
+      if (containers.length === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return null;
+}
+
 function redactHighEntropyValues(
   text: string,
   counts: Map<RedactionClass, number>
@@ -292,7 +389,11 @@ function isLikelyFilesystemPath(
   }
 
   const pathSegments = candidate.startsWith("/") ? segments.slice(1) : segments;
-  if (pathSegments.some(isReadableFilesystemSegment)) {
+  const readableSegments = pathSegments.filter(isReadableFilesystemSegment);
+  if (
+    readableSegments.length >= 3 ||
+    pathSegments.some((segment) => segment.includes("."))
+  ) {
     return true;
   }
 
@@ -333,7 +434,7 @@ function redactYamlBlockScalars(
 
   for (let index = 0; index < lines.length; index += 1) {
     const match =
-      /^([ \t]*)(-\s+)?([A-Za-z0-9_.-]+)(\s*:\s+)(?!["']|\[REDACTED\])([|>])(?:[-+]?\d?)([ \t]+#.*)?$/.exec(
+      /^([ \t]*)(-\s+)?([A-Za-z0-9_.-]+)(\s*:\s+)(?!["']|\[REDACTED\])([|>])(?:[-+]?\d?|\d[-+]?)?([ \t]+#.*)?$/.exec(
         lines[index].content
       );
     if (!match) {
@@ -345,7 +446,7 @@ function redactYamlBlockScalars(
       continue;
     }
 
-    const headerIndent = match[1].length;
+    const headerIndent = match[1].length + (match[2]?.length ?? 0);
     let end = index + 1;
     let hasPayload = false;
     while (end < lines.length) {

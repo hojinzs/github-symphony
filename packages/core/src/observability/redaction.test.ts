@@ -287,6 +287,48 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("redacts YAML block scalars with digit-first modifiers", () => {
+    const raw = [
+      "password: |2-",
+      "  correct horse battery staple",
+      "apiKey: |-2",
+      "  second secret line",
+      "status: failed",
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      ["password: [REDACTED]", "apiKey: [REDACTED]", "status: failed"].join(
+        "\n"
+      )
+    );
+    expect(redacted.value).not.toContain("correct horse battery staple");
+    expect(redacted.value).not.toContain("second secret line");
+  });
+
+  it("preserves YAML siblings after sequence block scalar payloads", () => {
+    const raw = [
+      "items:",
+      "  - password: |-",
+      "      correct horse battery staple",
+      "    status: failed",
+      "next: ok",
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      [
+        "items:",
+        "  - password: [REDACTED]",
+        "    status: failed",
+        "next: ok",
+      ].join("\n")
+    );
+    expect(redacted.value).not.toContain("correct horse battery staple");
+  });
+
   it("consumes JSON delimiter characters in raw assignments", () => {
     const raw = ["GITHUB_TOKEN=abc}def", "CUSTOM_PASSWORD=one]two"].join("\n");
 
@@ -362,6 +404,24 @@ describe("redactObservabilitySecrets", () => {
     expect(redacted.redactions).toEqual([{ class: "env_token", count: 1 }]);
   });
 
+  it("redacts sensitive JSON containers while preserving record syntax", () => {
+    const raw = [
+      '{"credentials":{"value":"container-secret"},"status":"failed"}',
+      '{"credentials":["first-secret","second-secret"],"status":"failed"}',
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+    const records = redacted.value.split("\n").map((line) => JSON.parse(line));
+
+    expect(records).toEqual([
+      { credentials: "[REDACTED]", status: "failed" },
+      { credentials: "[REDACTED]", status: "failed" },
+    ]);
+    expect(redacted.value).not.toContain("container-secret");
+    expect(redacted.value).not.toContain("first-secret");
+    expect(redacted.value).not.toContain("second-secret");
+  });
+
   it("reports structured and free-form redaction stats", () => {
     const structured = redactObservabilitySecretsWithStats({
       token: "ghp_xxx",
@@ -414,5 +474,18 @@ describe("redactObservabilitySecrets", () => {
     const redacted = redactObservabilitySecrets({ workingDirectory });
 
     expect(redacted).toEqual({ workingDirectory });
+  });
+
+  it("redacts slash-delimited Base64 that resembles a path without path context", () => {
+    const base64Secret = "/abc/DEF/Gh1jKl3mNo5pQr7sTu9vWxYzAbCdEfG";
+
+    const redacted = redactObservabilityTextWithStats(
+      `message: upstream opaque credential ${base64Secret}`
+    );
+
+    expect(redacted.value).toBe(
+      "message: upstream opaque credential [REDACTED]"
+    );
+    expect(redacted.value).not.toContain(base64Secret);
   });
 });
