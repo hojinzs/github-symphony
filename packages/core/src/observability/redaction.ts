@@ -71,14 +71,17 @@ export function redactObservabilityTextWithStats(
 function redactValue(
   value: unknown,
   counts: Map<RedactionClass, number>,
-  options: { redactStringValues: boolean }
+  options: {
+    redactStringValues: boolean;
+    preserveFilesystemPaths?: boolean;
+  }
 ): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => redactValue(item, counts, options));
   }
 
   if (typeof value === "string" && options.redactStringValues) {
-    return redactTextValue(value, counts);
+    return redactTextValue(value, counts, options);
   }
 
   if (!isRecord(value)) {
@@ -93,7 +96,14 @@ function redactValue(
         return [key, REDACTED];
       }
 
-      return [key, redactValue(nested, counts, options)];
+      return [
+        key,
+        redactValue(nested, counts, {
+          ...options,
+          preserveFilesystemPaths:
+            options.preserveFilesystemPaths || isFilesystemPathKey(key),
+        }),
+      ];
     })
   );
 }
@@ -132,7 +142,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function redactTextValue(
   text: string,
-  counts: Map<RedactionClass, number>
+  counts: Map<RedactionClass, number>,
+  options: { preserveFilesystemPaths?: boolean } = {}
 ): string {
   let redacted = replaceAndCount(
     text,
@@ -163,6 +174,7 @@ function redactTextValue(
     "$1[REDACTED]"
   );
   redacted = redactSensitiveJsonContainers(redacted, counts);
+  redacted = redactYamlContainers(redacted, counts);
   redacted = replaceSensitiveKeyAndCount(
     redacted,
     /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*)(["'])((?:\\.|\3\3|(?!\3)[^\\])*)\3/gi,
@@ -216,7 +228,17 @@ function redactTextValue(
     counts,
     "[REDACTED]"
   );
-  return redactHighEntropyValues(redacted, counts);
+  return redactHighEntropyValues(
+    redacted,
+    counts,
+    options.preserveFilesystemPaths ?? false
+  );
+}
+
+function isFilesystemPathKey(key: string): boolean {
+  return /(?:artifact|cwd|directory|file|path|repo(?:sitory)?|workspace)/i.test(
+    key
+  );
 }
 
 function replaceSensitiveKeyAndCount(
@@ -341,12 +363,20 @@ function findJsonContainerEnd(text: string, start: number): number | null {
 
 function redactHighEntropyValues(
   text: string,
-  counts: Map<RedactionClass, number>
+  counts: Map<RedactionClass, number>,
+  preserveFilesystemPaths: boolean
 ): string {
   return text.replace(
     /[A-Za-z0-9+/_-]{32,}={0,2}/g,
     (candidate, offset: number, source: string) => {
-      if (isLikelyFilesystemPath(candidate, source, offset)) {
+      if (
+        isLikelyFilesystemPath(
+          candidate,
+          source,
+          offset,
+          preserveFilesystemPaths
+        )
+      ) {
         return candidate;
       }
 
@@ -370,7 +400,8 @@ function redactHighEntropyValues(
 function isLikelyFilesystemPath(
   candidate: string,
   source: string,
-  offset: number
+  offset: number,
+  preserveFilesystemPaths: boolean
 ): boolean {
   const segments = candidate.split("/");
   if (segments.length < 3) {
@@ -384,29 +415,22 @@ function isLikelyFilesystemPath(
     return false;
   }
 
-  if (preceding === ".") {
-    return true;
+  const pathContext = source.slice(Math.max(0, offset - 80), offset);
+  const hasPathContext =
+    preserveFilesystemPaths ||
+    /\b(?:artifact|cwd|directory|file|path|repo(?:sitory)?|workspace|working\s+directory)\s*(?:is|at|=|:)?\s*(?:\.\/?\s*)?$/i.test(
+      pathContext
+    );
+  if (!hasPathContext) {
+    return false;
   }
 
   const pathSegments = candidate.startsWith("/") ? segments.slice(1) : segments;
   const readableSegments = pathSegments.filter(isReadableFilesystemSegment);
-  if (
+  return (
     readableSegments.length >= 3 ||
     pathSegments.some((segment) => segment.includes("."))
-  ) {
-    return true;
-  }
-
-  const pathContext = source.slice(Math.max(0, offset - 80), offset);
-  if (
-    /\b(?:artifact|cwd|directory|file|path|repo(?:sitory)?|workspace|working\s+directory)\s*(?:is|at|=|:)?\s*$/i.test(
-      pathContext
-    )
-  ) {
-    return true;
-  }
-
-  return false;
+  );
 }
 
 function isReadableFilesystemSegment(segment: string): boolean {
@@ -425,6 +449,65 @@ type TextLine = {
   content: string;
   ending: "" | "\n" | "\r\n";
 };
+
+function redactYamlContainers(
+  text: string,
+  counts: Map<RedactionClass, number>
+): string {
+  const lines = splitTextLines(text);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match =
+      /^([ \t]*)(-\s+)?((?:["'])?[A-Za-z0-9_.-]+(?:["'])?)([ \t]*:[ \t]*)(#.*)?$/.exec(
+        lines[index].content
+      );
+    if (!match) {
+      continue;
+    }
+
+    const key = match[3].replace(/^["']|["']$/g, "");
+    const redactionClass = redactionClassForKey(key);
+    if (!redactionClass) {
+      continue;
+    }
+
+    const headerIndent = match[1].length + (match[2]?.length ?? 0);
+    let end = index + 1;
+    let hasPayload = false;
+    while (end < lines.length) {
+      const content = lines[end].content;
+      const indentation = content.match(/^[ \t]*/)?.[0].length ?? 0;
+      if (content.trim() === "") {
+        const nextContent = lines[end + 1]?.content ?? "";
+        const nextIndentation = nextContent.match(/^[ \t]*/)?.[0].length ?? 0;
+        if (nextContent.trim() !== "" && nextIndentation <= headerIndent) {
+          break;
+        }
+        end += 1;
+        continue;
+      }
+      if (indentation <= headerIndent) {
+        break;
+      }
+      hasPayload = true;
+      end += 1;
+    }
+
+    if (!hasPayload) {
+      continue;
+    }
+
+    incrementRedaction(counts, redactionClass);
+    const valueSeparator = /[ \t]$/.test(match[4]) ? match[4] : `${match[4]} `;
+    lines[index] = {
+      content: `${match[1]}${match[2] ?? ""}${match[3]}${valueSeparator}${REDACTED}${match[5] ?? ""}`,
+      ending: lines[index].ending,
+    };
+    lines.splice(index + 1, end - index - 1);
+  }
+
+  return lines.map((line) => `${line.content}${line.ending}`).join("");
+}
 
 function redactYamlBlockScalars(
   text: string,

@@ -488,4 +488,47 @@ describe("redactObservabilitySecrets", () => {
     );
     expect(redacted.value).not.toContain(base64Secret);
   });
+
+  it("requires path context before preserving readable slash-delimited candidates", () => {
+    const base64Secret = "abc/DEF/ghi/Jk1Lm3No5Pq7Rs9TuVwX";
+
+    const redacted = redactObservabilityTextWithStats(
+      `message: upstream credential ${base64Secret}`
+    );
+
+    expect(redacted.value).toBe("message: upstream credential [REDACTED]");
+    expect(redacted.value).not.toContain(base64Secret);
+  });
+
+  it("redacts complete YAML mapping and sequence containers", () => {
+    const raw = [
+      "credentials:",
+      "  - first-secret",
+      "  - second-secret",
+      "status: failed",
+      "password:",
+      "  primary: first-passphrase",
+      "  secondary: second-passphrase",
+      "result: denied",
+    ].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      [
+        "credentials: [REDACTED]",
+        "status: failed",
+        "password: [REDACTED]",
+        "result: denied",
+      ].join("\n")
+    );
+    for (const fragment of [
+      "first-secret",
+      "second-secret",
+      "first-passphrase",
+      "second-passphrase",
+    ]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
 });
