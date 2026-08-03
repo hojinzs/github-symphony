@@ -206,7 +206,14 @@ importers:
         specifier: workspace:*
         version: link:../tool-linear-graphql
 
-  packages/tool-github-graphql: {}
+  packages/tool-github-graphql:
+    dependencies:
+      '@gh-symphony/core':
+        specifier: workspace:*
+        version: link:../core
+      graphql:
+        specifier: ^16.11.0
+        version: 16.14.0
 
   packages/tool-linear-graphql:
     dependencies:
@@ -225,6 +232,9 @@ importers:
       '@gh-symphony/core':
         specifier: workspace:*
         version: link:../core
+      '@gh-symphony/tool-github-graphql':
+        specifier: workspace:*
+        version: link:../tool-github-graphql
 
   packages/tracker-linear:
     dependencies:
@@ -246,6 +256,9 @@ importers:
       '@gh-symphony/runtime-codex':
         specifier: workspace:*
         version: link:../runtime-codex
+      '@gh-symphony/tool-github-graphql':
+        specifier: workspace:*
+        version: link:../tool-github-graphql
       '@gh-symphony/tracker-github':
         specifier: workspace:*
         version: link:../tracker-github

@@ -61,6 +61,10 @@ import {
 } from "./workspace-boundary.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import {
+  extractToolRateLimitPayload,
+  guardDynamicToolRateLimit,
+} from "./tool-rate-limit.js";
+import {
   acquireTurnLease,
   refreshTrackerState,
   resolveRefreshFailureThreshold,
@@ -96,6 +100,7 @@ const runtimeState: {
   };
   lastEventAt: string | null;
   rateLimits: Record<string, unknown> | null;
+  agentGitHubRateLimits: Record<string, unknown> | null;
   sessionInfo: {
     threadId: string | null;
     turnId: string | null;
@@ -131,6 +136,7 @@ const runtimeState: {
   },
   lastEventAt: null,
   rateLimits: null,
+  agentGitHubRateLimits: null,
   sessionInfo: {
     threadId: null,
     turnId: null,
@@ -1261,7 +1267,16 @@ async function runCodexClientProtocol(
     );
 
     try {
-      const output = await runToolProcess(toolDef, inputJson);
+      const output = await runToolProcess(
+        toolDef,
+        inputJson,
+        runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits
+      );
+      const toolRateLimits = extractToolRateLimitPayload(output);
+      if (toolRateLimits) {
+        applyRateLimitUpdate(`tool.${toolName}`, toolRateLimits, "agent-tool");
+        emitOrchestratorChannelEvent("agent.rateLimit");
+      }
       sendMessage({
         jsonrpc: "2.0",
         method: "dynamic_tool_call_response",
@@ -1900,10 +1915,15 @@ function applyRateLimitUpdate(
   rateLimits: Record<string, unknown>,
   runtimeSource = "codex"
 ): void {
-  runtimeState.rateLimits = {
+  const normalizedRateLimits = {
     ...rateLimits,
-    source: runtimeSource,
+    source:
+      typeof rateLimits.source === "string" ? rateLimits.source : runtimeSource,
   };
+  runtimeState.rateLimits = normalizedRateLimits;
+  if (normalizedRateLimits.source === "github") {
+    runtimeState.agentGitHubRateLimits = normalizedRateLimits;
+  }
   process.stderr.write(
     `[worker] rate_limits source=${source} payload=${JSON.stringify(runtimeState.rateLimits).slice(0, 300)}\n`
   );
@@ -2095,41 +2115,45 @@ function failWorkerTurnGate(event: string, reason: string): void {
  */
 function runToolProcess(
   toolDef: RuntimeToolDefinition,
-  inputJson: string
+  inputJson: string,
+  rateLimits: Record<string, unknown> | null
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const toolEnv = {
-      ...process.env,
-      ...toolDef.env,
-    };
+  return guardDynamicToolRateLimit(toolDef.name, rateLimits).then(
+    () =>
+      new Promise((resolve, reject) => {
+        const toolEnv = {
+          ...process.env,
+          ...toolDef.env,
+        };
 
-    const toolProc = spawn(toolDef.command, toolDef.args, {
-      env: toolEnv,
-      stdio: "pipe",
-    });
+        const toolProc = spawn(toolDef.command, toolDef.args, {
+          env: toolEnv,
+          stdio: "pipe",
+        });
 
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
 
-    toolProc.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
-    toolProc.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+        toolProc.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
+        toolProc.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
 
-    toolProc.once("error", (err) => reject(err));
-    toolProc.once("exit", (code) => {
-      const output = Buffer.concat(stdout).toString("utf8").trim();
-      if (code === 0) {
-        resolve(output || "{}");
-      } else {
-        const errOutput = Buffer.concat(stderr).toString("utf8").trim();
-        reject(
-          new Error(
-            `Tool exited with code ${code ?? "unknown"}: ${errOutput || output}`
-          )
-        );
-      }
-    });
+        toolProc.once("error", (err) => reject(err));
+        toolProc.once("exit", (code) => {
+          const output = Buffer.concat(stdout).toString("utf8").trim();
+          if (code === 0) {
+            resolve(output || "{}");
+          } else {
+            const errOutput = Buffer.concat(stderr).toString("utf8").trim();
+            reject(
+              new Error(
+                `Tool exited with code ${code ?? "unknown"}: ${errOutput || output}`
+              )
+            );
+          }
+        });
 
-    toolProc.stdin?.write(inputJson);
-    toolProc.stdin?.end();
-  });
+        toolProc.stdin?.write(inputJson);
+        toolProc.stdin?.end();
+      })
+  );
 }

@@ -11,11 +11,16 @@ import {
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
 import {
-  GitHubGraphQLRateLimitPolicy,
+  extractGitHubRateLimits,
+  extractGraphQLRateLimitField,
+  fingerprintGitHubToken,
+  githubGraphQLRateLimitPolicy,
   isGitHubRateLimitResponse,
   parseGitHubRetryAfterMs,
+  type GitHubRateLimitPayload,
+  type GraphQLRateLimitField,
   type GitHubGraphQLAttemptResult,
-} from "./github-rate-limit.js";
+} from "@gh-symphony/tool-github-graphql";
 
 const DEFAULT_API_URL = "https://api.github.com/graphql";
 const DEFAULT_PAGE_SIZE = 25;
@@ -360,38 +365,6 @@ export class GitHubTrackerHttpError extends GitHubTrackerError {
 
 export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
-type GitHubRateLimitPayload = {
-  source: "github";
-  limit: number | null;
-  remaining: number | null;
-  used: number | null;
-  reset: number | null;
-  resetAt: string | null;
-  resource: string | null;
-  cost?: number;
-  cycleCost?: number;
-  queryCosts?: Record<
-    string,
-    {
-      requestCount: number;
-      cost: number;
-    }
-  >;
-  fieldRateLimits?: GraphQLRateLimitField;
-  headerRateLimits?: GitHubRateLimitHeaderPayload | null;
-};
-
-type GitHubRateLimitHeaderPayload = Omit<
-  GitHubRateLimitPayload,
-  "cost" | "cycleCost" | "queryCosts" | "fieldRateLimits" | "headerRateLimits"
->;
-
-type GraphQLRateLimitField = {
-  cost: number;
-  remaining: number;
-  resetAt: string;
-};
-
 type GitHubRateLimitObservation = {
   operationName: string;
   rateLimit: GraphQLRateLimitField;
@@ -402,7 +375,6 @@ type GitHubRateLimitCollector = {
   observations: GitHubRateLimitObservation[];
 };
 
-const graphQLRateLimitPolicy = new GitHubGraphQLRateLimitPolicy();
 const ARCHIVED_PROJECT_ITEM_STATE = "Archived";
 const transitionQueueTails = new Map<string, Promise<void>>();
 const transitionQueueDepths = new Map<string, number>();
@@ -753,7 +725,7 @@ export async function requestGithubProjectItemState(
   },
   fetchImpl: FetchLike = fetch
 ): Promise<TrackerStateResult> {
-  const queueKey = `${fingerprintToken(config.token)}:${config.projectId}`;
+  const queueKey = `${fingerprintGitHubToken(config.token)}:${config.projectId}`;
   const depth = transitionQueueDepths.get(queueKey) ?? 0;
   if (depth >= MAX_TRANSITION_QUEUE_DEPTH) {
     return {
@@ -772,7 +744,9 @@ export async function requestGithubProjectItemState(
         input.request.type === "transition-request"
           ? input.request.reason
           : null,
-      rateLimits: graphQLRateLimitPolicy.get(fingerprintToken(config.token)),
+      rateLimits: githubGraphQLRateLimitPolicy.get(
+        fingerprintGitHubToken(config.token)
+      ),
       error: "tracker_transition_queue_full",
     };
   }
@@ -2363,8 +2337,8 @@ async function executeGraphQLQueryWithMetadata<TData>(
   data: TData;
   rateLimits: GitHubRateLimitPayload | null;
 }> {
-  const tokenFingerprint = fingerprintToken(config.token);
-  const requestResult = await graphQLRateLimitPolicy.execute(
+  const tokenFingerprint = fingerprintGitHubToken(config.token);
+  const requestResult = await githubGraphQLRateLimitPolicy.execute(
     tokenFingerprint,
     async (): Promise<
       GitHubGraphQLAttemptResult<
@@ -2458,87 +2432,6 @@ async function executeGraphQLQueryWithMetadata<TData>(
   };
 }
 
-function fingerprintToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
-function extractGitHubRateLimits(
-  headers: Pick<Headers, "get"> | null | undefined,
-  fieldRateLimits: GraphQLRateLimitField | null = null
-): GitHubRateLimitPayload | null {
-  const headerRateLimits = extractGitHubRateLimitHeaders(headers);
-  if (!fieldRateLimits) {
-    return headerRateLimits;
-  }
-
-  return {
-    source: "github",
-    limit: headerRateLimits?.limit ?? null,
-    remaining: fieldRateLimits.remaining,
-    used: headerRateLimits?.used ?? null,
-    reset: headerRateLimits?.reset ?? null,
-    resetAt: fieldRateLimits.resetAt,
-    resource: headerRateLimits?.resource ?? "graphql",
-    cost: fieldRateLimits.cost,
-    fieldRateLimits,
-    headerRateLimits,
-  };
-}
-
-function extractGitHubRateLimitHeaders(
-  headers: Pick<Headers, "get"> | null | undefined
-): GitHubRateLimitHeaderPayload | null {
-  if (!headers || typeof headers.get !== "function") {
-    return null;
-  }
-
-  const limit = parseIntegerHeader(headers.get("x-ratelimit-limit"));
-  const remaining = parseIntegerHeader(headers.get("x-ratelimit-remaining"));
-  const used = parseIntegerHeader(headers.get("x-ratelimit-used"));
-  const reset = parseIntegerHeader(headers.get("x-ratelimit-reset"));
-  const resource = headers.get("x-ratelimit-resource");
-
-  if (
-    limit === null &&
-    remaining === null &&
-    used === null &&
-    reset === null &&
-    resource === null
-  ) {
-    return null;
-  }
-
-  return {
-    source: "github",
-    limit,
-    remaining,
-    used,
-    reset,
-    resetAt: reset === null ? null : new Date(reset * 1000).toISOString(),
-    resource,
-  };
-}
-
-function extractGraphQLRateLimitField(
-  value: GraphQLRateLimitField | null | undefined
-): GraphQLRateLimitField | null {
-  if (
-    !value ||
-    !Number.isFinite(value.cost) ||
-    !Number.isFinite(value.remaining) ||
-    typeof value.resetAt !== "string" ||
-    parseTimestampMs(value.resetAt) === null
-  ) {
-    return null;
-  }
-
-  return {
-    cost: value.cost,
-    remaining: value.remaining,
-    resetAt: value.resetAt,
-  };
-}
-
 function extractGraphQLOperationName(query: string): string {
   return (
     /\b(?:query|mutation)\s+([_A-Za-z][_0-9A-Za-z]*)/.exec(query)?.[1] ??
@@ -2597,15 +2490,6 @@ function finalizeGraphQLRateLimitCycle(
   };
 }
 
-function parseIntegerHeader(value: string | null): number | null {
-  if (value === null) {
-    return null;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function parseTimestampMs(value: string | null): number | null {
   if (!value) {
     return null;
@@ -2622,7 +2506,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function resetGitHubRateLimitCacheForTests(): void {
-  graphQLRateLimitPolicy.reset();
+  githubGraphQLRateLimitPolicy.reset();
   transitionQueueTails.clear();
   transitionQueueDepths.clear();
 }
