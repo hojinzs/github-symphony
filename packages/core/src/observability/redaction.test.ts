@@ -242,6 +242,19 @@ describe("redactObservabilitySecrets", () => {
     }
   });
 
+  it("consumes JSON delimiter characters in raw assignments", () => {
+    const raw = ["GITHUB_TOKEN=abc}def", "CUSTOM_PASSWORD=one]two"].join("\n");
+
+    const redacted = redactObservabilityTextWithStats(raw);
+
+    expect(redacted.value).toBe(
+      ["GITHUB_TOKEN=[REDACTED]", "CUSTOM_PASSWORD=[REDACTED]"].join("\n")
+    );
+    for (const fragment of ["abc", "def", "one", "two"]) {
+      expect(redacted.value).not.toContain(fragment);
+    }
+  });
+
   it("preserves adjacent compact log fields after unquoted secrets", () => {
     const raw = ["token=abc,status=failed", "password=abc;result=denied"].join(
       "\n"
@@ -336,12 +349,13 @@ describe("redactObservabilitySecrets", () => {
 
   it("redacts standard Base64 secrets containing slashes without masking paths", () => {
     const base64Secret = "Ab3dEf5hIj7kLm9nOp1q/Rs3tUv5wXy7zA9bCd2e";
+    const relativePath = ".runtime/projects/tenant-a/ENG-123/repository";
     const redacted = redactObservabilityTextWithStats(
-      `error: upstream opaque credential ${base64Secret}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
+      `error: upstream opaque credential ${base64Secret}\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
     );
 
     expect(redacted.value).toBe(
-      "error: upstream opaque credential [REDACTED]\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md"
+      `error: upstream opaque credential [REDACTED]\nworking directory ${relativePath}\nartifact at /tmp/doctor-config-gMkszL/WORKFLOW.md`
     );
     expect(redacted.value).not.toContain(base64Secret);
   });

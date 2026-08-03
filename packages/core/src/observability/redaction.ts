@@ -176,7 +176,13 @@ function redactTextValue(
   );
   redacted = replaceSensitiveKeyAndCount(
     redacted,
-    /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
+    /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*=\s*)(?!["']|\[REDACTED\])([^\s]+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|$)/gi,
+    counts,
+    "$1[REDACTED]"
+  );
+  redacted = replaceSensitiveKeyAndCount(
+    redacted,
+    /((?:["'])?\b([A-Za-z0-9_.-]+)(?:["'])?\s*:\s*)(?!["']|\[REDACTED\])([^\s}\]"']+?)(?=[,;](?=[A-Za-z0-9_.-]+\s*=)|\s|[}\]"']|$)/gi,
     counts,
     "$1[REDACTED]"
   );
@@ -230,21 +236,52 @@ function redactHighEntropyValues(
   text: string,
   counts: Map<RedactionClass, number>
 ): string {
-  return text.replace(/[A-Za-z0-9+/_-]{32,}={0,2}/g, (candidate) => {
-    const separatorCount = candidate.match(/[_-]/g)?.length ?? 0;
-    if (
-      separatorCount > 2 ||
-      !/[a-z]/.test(candidate) ||
-      !/[A-Z]/.test(candidate) ||
-      !/\d/.test(candidate) ||
-      shannonEntropy(candidate) < 4
-    ) {
-      return candidate;
-    }
+  return text.replace(
+    /[A-Za-z0-9+/_-]{32,}={0,2}/g,
+    (candidate, offset: number, source: string) => {
+      if (isLikelyFilesystemPath(candidate, source, offset)) {
+        return candidate;
+      }
 
-    incrementRedaction(counts, "secret_key");
-    return REDACTED;
-  });
+      const separatorCount = candidate.match(/[_-]/g)?.length ?? 0;
+      if (
+        separatorCount > 2 ||
+        !/[a-z]/.test(candidate) ||
+        !/[A-Z]/.test(candidate) ||
+        !/\d/.test(candidate) ||
+        shannonEntropy(candidate) < 4
+      ) {
+        return candidate;
+      }
+
+      incrementRedaction(counts, "secret_key");
+      return REDACTED;
+    }
+  );
+}
+
+function isLikelyFilesystemPath(
+  candidate: string,
+  source: string,
+  offset: number
+): boolean {
+  const segments = candidate.split("/");
+  if (segments.length < 3) {
+    return false;
+  }
+
+  const preceding = source[offset - 1] ?? "";
+  const startsAtPathBoundary =
+    offset === 0 || /[\s([{"'=]/.test(preceding) || preceding === ".";
+  if (!startsAtPathBoundary) {
+    return false;
+  }
+
+  if (candidate.startsWith("/") || preceding === ".") {
+    return true;
+  }
+
+  return segments.some((segment) => /[-_]/.test(segment));
 }
 
 function shannonEntropy(value: string): number {
