@@ -256,6 +256,9 @@ importers:
       '@gh-symphony/runtime-codex':
         specifier: workspace:*
         version: link:../runtime-codex
+      '@gh-symphony/tool-github-graphql':
+        specifier: workspace:*
+        version: link:../tool-github-graphql
       '@gh-symphony/tracker-github':
         specifier: workspace:*
         version: link:../tracker-github

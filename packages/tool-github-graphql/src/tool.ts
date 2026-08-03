@@ -73,12 +73,14 @@ export async function executeGitHubGraphQL(
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(instrumentedInvocation),
+        body: JSON.stringify(instrumentedInvocation.invocation),
       });
 
       const payload = (await response.json()) as GitHubGraphQLPayload;
       const fieldRateLimits = extractGraphQLRateLimitField(
-        isRecord(payload.data) ? payload.data.rateLimit : null
+        isRecord(payload.data)
+          ? payload.data[instrumentedInvocation.rateLimitResponseKey]
+          : null
       );
       const rateLimits = extractGitHubRateLimits(
         response.headers,
@@ -133,44 +135,75 @@ type GitHubGraphQLPayload = {
 
 function instrumentGitHubGraphQLInvocation(
   invocation: GitHubGraphQLInvocation
-): GitHubGraphQLInvocation {
+): {
+  invocation: GitHubGraphQLInvocation;
+  rateLimitResponseKey: string;
+} {
   try {
     const document = parse(invocation.query);
+    let rateLimitResponseKey: string | null = null;
     const definitions = document.definitions.map((definition) => {
       if (!shouldInstrumentOperation(definition, invocation.operationName)) {
         return definition;
       }
 
-      if (
-        definition.selectionSet.selections.some(
-          (selection) =>
-            selection.kind === "Field" && selection.name.value === "rateLimit"
-        )
-      ) {
+      const existingRateLimit = definition.selectionSet.selections.find(
+        (selection) =>
+          selection.kind === "Field" && selection.name.value === "rateLimit"
+      );
+      if (existingRateLimit?.kind === "Field") {
+        rateLimitResponseKey = getFieldResponseKey(existingRateLimit);
         return definition;
       }
 
+      const usedResponseKeys = new Set(
+        definition.selectionSet.selections
+          .filter(
+            (selection): selection is FieldNode => selection.kind === "Field"
+          )
+          .map(getFieldResponseKey)
+      );
+      const rateLimitAlias = createUniqueRateLimitAlias(usedResponseKeys);
+      rateLimitResponseKey = rateLimitAlias;
       return {
         ...definition,
         selectionSet: {
           ...definition.selectionSet,
           selections: [
             ...definition.selectionSet.selections,
-            buildRateLimitField(),
+            buildRateLimitField(rateLimitAlias),
           ],
         },
       };
     });
 
     return {
-      ...invocation,
-      query: print({ ...document, definitions }),
+      invocation: {
+        ...invocation,
+        query: print({ ...document, definitions }),
+      },
+      rateLimitResponseKey: rateLimitResponseKey ?? "rateLimit",
     };
   } catch {
     // Preserve the server's existing validation and error behavior for invalid
     // or provider-specific GraphQL documents that the local parser rejects.
-    return invocation;
+    return { invocation, rateLimitResponseKey: "rateLimit" };
   }
+}
+
+function getFieldResponseKey(field: FieldNode): string {
+  return field.alias?.value ?? field.name.value;
+}
+
+function createUniqueRateLimitAlias(usedResponseKeys: Set<string>): string {
+  const base = "__ghSymphonyRateLimit";
+  let alias = base;
+  let suffix = 2;
+  while (usedResponseKeys.has(alias)) {
+    alias = `${base}${suffix}`;
+    suffix += 1;
+  }
+  return alias;
 }
 
 function shouldInstrumentOperation(
@@ -184,9 +217,10 @@ function shouldInstrumentOperation(
   );
 }
 
-function buildRateLimitField(): FieldNode {
+function buildRateLimitField(alias: string): FieldNode {
   return {
     kind: Kind.FIELD,
+    alias: { kind: Kind.NAME, value: alias },
     name: { kind: Kind.NAME, value: "rateLimit" },
     selectionSet: {
       kind: Kind.SELECTION_SET,

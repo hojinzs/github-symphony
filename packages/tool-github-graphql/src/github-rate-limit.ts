@@ -7,6 +7,14 @@ const DEFAULT_MAX_WAIT_MS = 60_000;
 const DEFAULT_RETRY_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 1_000;
 
+export type GitHubGraphQLRateLimitGuardOptions = {
+  softThreshold?: number;
+  hardThreshold?: number;
+  maxWaitMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
 export type GitHubRateLimitState = Record<string, unknown> & {
   remaining?: number | null;
   reset?: number | null;
@@ -83,14 +91,9 @@ export class GitHubGraphQLRateLimitPolicy {
   private readonly queueTails = new Map<string, Promise<void>>();
 
   constructor(
-    private readonly options: {
-      softThreshold?: number;
-      hardThreshold?: number;
-      maxWaitMs?: number;
+    private readonly options: GitHubGraphQLRateLimitGuardOptions & {
       retryAttempts?: number;
       retryBaseMs?: number;
-      now?: () => number;
-      sleep?: (ms: number) => Promise<void>;
     } = {}
   ) {}
 
@@ -144,51 +147,16 @@ export class GitHubGraphQLRateLimitPolicy {
 
   async guard(tokenKey: string): Promise<void> {
     const rateLimits = this.states.get(tokenKey) ?? null;
-    if (!rateLimits) {
-      return;
+    const waited = await guardGitHubGraphQLRateLimitState(rateLimits, {
+      softThreshold: this.options.softThreshold,
+      hardThreshold: this.options.hardThreshold,
+      maxWaitMs: this.options.maxWaitMs,
+      now: () => this.now(),
+      sleep: (ms) => this.sleep(ms),
+    });
+    if (waited) {
+      this.states.delete(tokenKey);
     }
-
-    const remaining = finiteNumber(rateLimits.remaining);
-    const softThreshold = this.options.softThreshold ?? DEFAULT_SOFT_THRESHOLD;
-    if (remaining === null || remaining > softThreshold) {
-      return;
-    }
-
-    const resetAtMs = resolveResetAtMs(rateLimits);
-    const hardThreshold = this.options.hardThreshold ?? DEFAULT_HARD_THRESHOLD;
-    if (resetAtMs === null) {
-      if (remaining <= hardThreshold) {
-        throw this.buildGuardError(rateLimits, null);
-      }
-      return;
-    }
-
-    const waitMs = Math.max(0, resetAtMs - this.now());
-    if (waitMs > this.maxWaitMs()) {
-      if (remaining <= hardThreshold) {
-        throw this.buildGuardError(rateLimits, resetAtMs);
-      }
-      return;
-    }
-
-    this.states.delete(tokenKey);
-    if (waitMs > 0) {
-      await this.sleep(waitMs);
-    }
-  }
-
-  private buildGuardError(
-    rateLimits: GitHubRateLimitState,
-    retryAtMs: number | null
-  ): GitHubGraphQLRateLimitError {
-    return new GitHubGraphQLRateLimitError(
-      "GitHub GraphQL rate limit near exhaustion",
-      null,
-      "Cached GitHub GraphQL rate limit is exhausted.",
-      rateLimits,
-      null,
-      toIsoTimestamp(retryAtMs)
-    );
   }
 
   private buildRateLimitError(
@@ -258,23 +226,78 @@ export class GitHubGraphQLRateLimitPolicy {
   }
 
   private sleep(ms: number): Promise<void> {
-    const sleepImpl =
-      this.options.sleep ??
-      ((delayMs: number) =>
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, delayMs);
-        }));
-    return sleepImpl(ms);
+    return (this.options.sleep ?? defaultSleep)(ms);
   }
 }
 
 export const githubGraphQLRateLimitPolicy = new GitHubGraphQLRateLimitPolicy();
+
+export async function guardGitHubGraphQLRateLimitState(
+  rateLimits: GitHubRateLimitState | null | undefined,
+  options: GitHubGraphQLRateLimitGuardOptions = {}
+): Promise<boolean> {
+  if (!rateLimits) {
+    return false;
+  }
+
+  const remaining = finiteNumber(rateLimits.remaining);
+  const softThreshold = options.softThreshold ?? DEFAULT_SOFT_THRESHOLD;
+  if (remaining === null || remaining > softThreshold) {
+    return false;
+  }
+
+  const resetAtMs = resolveResetAtMs(rateLimits);
+  const hardThreshold = options.hardThreshold ?? DEFAULT_HARD_THRESHOLD;
+  if (resetAtMs === null) {
+    if (remaining <= hardThreshold) {
+      throw buildGuardError(rateLimits, null);
+    }
+    return false;
+  }
+
+  const now = options.now ?? Date.now;
+  const waitMs = Math.max(0, resetAtMs - now());
+  const maxWaitMs = options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
+  if (waitMs > maxWaitMs) {
+    if (remaining <= hardThreshold) {
+      throw buildGuardError(rateLimits, resetAtMs);
+    }
+    return false;
+  }
+
+  if (waitMs > 0) {
+    await (options.sleep ?? defaultSleep)(waitMs);
+    return true;
+  }
+
+  return false;
+}
 
 export function guardGraphQLRateLimit(
   policy: GitHubGraphQLRateLimitPolicy,
   tokenKey: string
 ): Promise<void> {
   return policy.guard(tokenKey);
+}
+
+function buildGuardError(
+  rateLimits: GitHubRateLimitState,
+  retryAtMs: number | null
+): GitHubGraphQLRateLimitError {
+  return new GitHubGraphQLRateLimitError(
+    "GitHub GraphQL rate limit near exhaustion",
+    null,
+    "Cached GitHub GraphQL rate limit is exhausted.",
+    rateLimits,
+    null,
+    toIsoTimestamp(retryAtMs)
+  );
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export function fingerprintGitHubToken(token: string): string {

@@ -338,7 +338,7 @@ describe("executeGitHubGraphQL", () => {
         JSON.stringify({
           data: {
             viewer: { login: "octo" },
-            rateLimit: {
+            __ghSymphonyRateLimit: {
               cost: 7,
               remaining: 4_992,
               resetAt: "2026-08-03T01:00:00.000Z",
@@ -393,6 +393,68 @@ describe("executeGitHubGraphQL", () => {
     expect(body.query).toContain("resetAt");
   });
 
+  it("uses a collision-free alias when the caller aliases another root field", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            rateLimit: { login: "octo" },
+            __ghSymphonyRateLimit: {
+              cost: 3,
+              remaining: 4_997,
+              resetAt: "2026-08-03T01:00:00.000Z",
+            },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await executeGitHubGraphQL(
+      {
+        query: "query Viewer { rateLimit: viewer { login } }",
+      },
+      { token: "ghs_static" },
+      fetchImpl as typeof fetch
+    );
+
+    expect(result).toMatchObject({
+      rateLimits: { cost: 3, remaining: 4_997 },
+    });
+    const request = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body)) as { query: string };
+    expect(body.query).toContain("__ghSymphonyRateLimit: rateLimit");
+  });
+
+  it("extracts rate-limit metadata through an existing response alias", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            rl: {
+              cost: 5,
+              remaining: 4_995,
+              resetAt: "2026-08-03T01:00:00.000Z",
+            },
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      executeGitHubGraphQL(
+        {
+          query: "query Viewer { rl: rateLimit { cost remaining resetAt } }",
+        },
+        { token: "ghs_static" },
+        fetchImpl as typeof fetch
+      )
+    ).resolves.toMatchObject({
+      rateLimits: { cost: 5, remaining: 4_995 },
+    });
+  });
+
   it("blocks a request when the shared cached budget is exhausted", async () => {
     const policy = new GitHubGraphQLRateLimitPolicy({
       now: () => Date.parse("2026-08-03T00:00:00.000Z"),
@@ -439,7 +501,7 @@ describe("executeGitHubGraphQL", () => {
           JSON.stringify({
             data: {
               viewer: { login: "octo" },
-              rateLimit: {
+              __ghSymphonyRateLimit: {
                 cost: 1,
                 remaining: 4_999,
                 resetAt: "2026-08-03T01:00:00.000Z",
