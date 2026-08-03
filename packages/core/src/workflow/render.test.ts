@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPromptVariables,
+  PROMPT_RENDER_LIMITS,
   renderContinuationGuidance,
   renderPrompt,
 } from "./render.js";
@@ -307,6 +308,16 @@ describe("renderPrompt resource limits", () => {
         memoryLimit: 1,
       })
     ).toThrow(/template_render_error: .*memory alloc limit exceeded/);
+  });
+
+  it("classifies oversized templates as parse errors", () => {
+    const oversizedTemplate = "x".repeat(
+      PROMPT_RENDER_LIMITS.parseCharacters + 1
+    );
+
+    expect(() => renderPrompt(oversizedTemplate, variables)).toThrow(
+      /template_parse_error: .*parse length limit exceeded/
+    );
   });
 });
 

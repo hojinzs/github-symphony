@@ -246,6 +246,10 @@ export function renderPrompt(
 function normalizeTemplateError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
 
+  if (message.includes("parse length limit exceeded")) {
+    return new Error(`template_parse_error: ${message}`, { cause: error });
+  }
+
   if (
     error instanceof UndefinedVariableError ||
     error instanceof RenderError ||
