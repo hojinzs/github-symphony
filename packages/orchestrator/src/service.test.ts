@@ -2332,7 +2332,7 @@ Prefer focused changes.
       lastError: null,
     });
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stderr = { write: vi.fn() };
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi
         .fn()
@@ -2345,6 +2345,7 @@ Prefer focused changes.
         unref: vi.fn(),
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
     });
 
     await service.run({ once: true });
@@ -2356,11 +2357,316 @@ Prefer focused changes.
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
     expect(workspaceRecord?.lastError).toBeNull();
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[orchestrator] before_remove hook failed for acme/platform#1; continuing cleanup: cleanup hook failed"
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] before_remove hook failed for acme/platform#1: cleanup hook failed\n"
     );
-    warnSpy.mockRestore();
     delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+  });
+
+  it("logs hook failures and appends a hook-failed run event", async () => {
+    process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = "1";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-hook-event-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: project-123
+  state_field: Status
+  active_states: [Todo]
+  terminal_states: [Done]
+hooks:
+  after_run: hooks/after_run.sh
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 1
+codex:
+  command: codex app-server
+---
+Test hook failures.
+`,
+      }
+    );
+    await mkdir(join(repository.path, "hooks"), { recursive: true });
+    await writeFile(
+      join(repository.path, "hooks", "after_run.sh"),
+      "#!/usr/bin/env bash\nprintf 'after run failed' >&2\nexit 1\n",
+      "utf8"
+    );
+    await chmod(join(repository.path, "hooks", "after_run.sh"), 0o755);
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    const result = await (
+      service as unknown as {
+        runHook(
+          kind: "after_run",
+          tenant: OrchestratorProjectConfig,
+          repositoryDirectory: string,
+          repository: RepositoryRef,
+          context: {
+            projectId: string;
+            workspaceKey: string;
+            issueSubjectId: string;
+            issueIdentifier: string;
+            workspacePath: string;
+            repositoryPath: string;
+            runId: string;
+          }
+        ): Promise<{ outcome: string; error: string | null }>;
+      }
+    ).runHook("after_run", projectConfig, repository.path, repository, {
+      projectId: "tenant-1",
+      workspaceKey: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: repository.path,
+      repositoryPath: repository.path,
+      runId: "run-hook-failure",
+    });
+
+    expect(result).toMatchObject({
+      outcome: "failure",
+      error: "after run failed",
+    });
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] after_run hook failed for acme/platform#1: after run failed\n"
+    );
+    await expect(
+      readFile(
+        join(store.runDir("run-hook-failure", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    ).resolves.toContain(
+      '"event":"hook-failed","projectId":"tenant-1","hook":"after_run","error":"after run failed"'
+    );
+  });
+
+  it("keeps cleanup pending when workspace deletion fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-startup-remove-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    const repositoryPath = join(workspacePath, "repository");
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+    await mkdir(repositoryPath, { recursive: true });
+    await writeFile(sentinelPath, "preserve me", "utf8");
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(
+          createTrackerResponseWithState(repository, "Done")
+        )
+        .mockResolvedValueOnce(createTrackerResponse(repository)) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4104,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+      rmImpl: vi.fn().mockRejectedValue(new Error("disk busy")),
+    });
+
+    await service.run({ once: true });
+
+    const workspaceRecord = await store.loadIssueWorkspace(
+      "tenant-1",
+      workspaceKey
+    );
+    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("preserve me");
+    expect(workspaceRecord).toMatchObject({
+      status: "cleanup_pending",
+      lastError: "Failed to remove workspace for acme/platform#1: disk busy",
+    });
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] Failed to remove workspace for acme/platform#1: disk busy\n"
+    );
+  });
+
+  it("continues terminal cleanup after a workspace deletion fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-terminal-cleanup-continue-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const failedWorkspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const removedWorkspaceKey = deriveIssueWorkspaceKey("acme/platform#2");
+    const failedWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      failedWorkspaceKey
+    );
+    const removedWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      removedWorkspaceKey
+    );
+    await mkdir(join(failedWorkspacePath, "repository"), { recursive: true });
+    await mkdir(join(removedWorkspacePath, "repository"), { recursive: true });
+    await writeFile(join(failedWorkspacePath, "sentinel.txt"), "keep", "utf8");
+    await writeFile(
+      join(removedWorkspacePath, "sentinel.txt"),
+      "remove",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: failedWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+      {
+        issueId: "issue-2",
+        identifier: "acme/platform#2",
+        workspaceKey: removedWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    for (const [
+      issueSubjectId,
+      issueIdentifier,
+      workspaceKey,
+      workspacePath,
+    ] of [
+      ["issue-1", "acme/platform#1", failedWorkspaceKey, failedWorkspacePath],
+      ["issue-2", "acme/platform#2", removedWorkspaceKey, removedWorkspacePath],
+    ] as const) {
+      await store.saveIssueWorkspace({
+        workspaceKey,
+        projectId: "tenant-1",
+        adapter: "github-project",
+        issueSubjectId,
+        issueIdentifier,
+        workspacePath,
+        repositoryPath: join(workspacePath, "repository"),
+        status: "active",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        lastError: null,
+      });
+    }
+
+    const stderr = { write: vi.fn() };
+    const rmImpl = vi.fn(async (workspacePath: Parameters<typeof rm>[0]) => {
+      if (workspacePath === failedWorkspacePath) {
+        throw new Error("disk busy");
+      }
+      await rm(workspacePath, { recursive: true, force: true });
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createEmptyTrackerResponse())
+        .mockResolvedValueOnce(
+          createTrackerResponseWithItems(repository, [
+            {
+              id: "issue-1",
+              identifier: "acme/platform#1",
+              state: "Done",
+            },
+            {
+              id: "issue-2",
+              identifier: "acme/platform#2",
+              state: "Done",
+            },
+          ])
+        ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+      rmImpl,
+    });
+
+    await service.run({ once: true });
+
+    await expect(
+      readFile(join(failedWorkspacePath, "sentinel.txt"), "utf8")
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(join(removedWorkspacePath, "sentinel.txt"), "utf8")
+    ).rejects.toThrow();
+    await expect(
+      store.loadIssueWorkspace("tenant-1", failedWorkspaceKey)
+    ).resolves.toMatchObject({
+      status: "cleanup_pending",
+      lastError: "Failed to remove workspace for acme/platform#1: disk busy",
+    });
+    await expect(
+      store.loadIssueWorkspace("tenant-1", removedWorkspaceKey)
+    ).resolves.toMatchObject({ status: "removed", lastError: null });
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] Terminal workspace cleanup failed for acme/platform#1; continuing: Failed to remove workspace for acme/platform#1: disk busy\n"
+    );
   });
 
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {

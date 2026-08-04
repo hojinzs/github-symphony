@@ -334,6 +334,38 @@ describe("orchestrator CLI", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("releases the project lock when service shutdown fails", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+    const service = createMockService();
+    (service.shutdown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("shutdown failed")
+    );
+    const lock = {
+      lockPath: join(runtimeRoot, ".lock"),
+      ownerToken: "owner-1",
+      pid: 1234,
+      startedAt: "2026-03-16T00:00:00.000Z",
+      heartbeatAt: "2026-03-16T00:00:00.000Z",
+      processIdentity: "test-process",
+    };
+    const acquireLock = vi.fn().mockResolvedValue(lock);
+    const releaseLock = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      runCli(
+        ["run", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
+        {
+          createService: () => service,
+          acquireLock,
+          releaseLock,
+        }
+      )
+    ).rejects.toThrow("shutdown failed");
+
+    expect(releaseLock).toHaveBeenCalledOnce();
+    expect(releaseLock).toHaveBeenCalledWith(lock);
+  });
+
   it.each(["run-once", "dispatch", "run-issue", "recover"])(
     "holds the project lock across the %s mutation",
     async (command) => {

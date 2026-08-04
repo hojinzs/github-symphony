@@ -381,6 +381,7 @@ export class OrchestratorService {
       logLevel?: OrchestratorLogLevel;
       onTick?: OrchestratorTickHandler;
       assignedOnly?: boolean;
+      rmImpl?: typeof rm;
     } = {}
   ) {}
 
@@ -1451,7 +1452,17 @@ export class OrchestratorService {
       }
 
       for (const issue of terminalIssuesByIdentifier.values()) {
-        await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
+        try {
+          await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unknown terminal workspace cleanup error";
+          this.writeStderr(
+            `[orchestrator] Terminal workspace cleanup failed for ${issue.identifier}; continuing: ${message}`
+          );
+        }
       }
     } catch (error) {
       trackerError = error;
@@ -3410,8 +3421,8 @@ export class OrchestratorService {
 
   /**
    * Execute a workspace lifecycle hook using the workflow configuration
-   * loaded from the repository. Returns the hook result or null if the
-   * workflow could not be loaded.
+   * loaded from the repository. Failures are logged and mirrored to the
+   * run event stream when a run id is available.
    */
   private async runHook(
     kind: "after_create" | "before_run" | "after_run" | "before_remove",
@@ -3429,32 +3440,71 @@ export class OrchestratorService {
       state?: string;
     },
     resolution?: ProjectWorkflowResolution
-  ): Promise<HookResult | null> {
+  ): Promise<HookResult> {
+    let result: HookResult;
     try {
       const workflowResolution =
         resolution ?? (await this.loadProjectWorkflow(tenant, repository));
       if (!isUsableWorkflowResolution(workflowResolution)) {
-        return null;
+        result = {
+          kind,
+          outcome: "failure",
+          exitCode: null,
+          durationMs: 0,
+          error:
+            workflowResolution.validationError ??
+            "Repository WORKFLOW.md could not be loaded.",
+        };
+      } else {
+        const hookEnv = this.buildProjectExecutionEnv(
+          tenant.projectId,
+          buildHookEnv(context)
+        );
+        result = await executeWorkspaceHook({
+          kind,
+          hooks: workflowResolution.workflow.hooks,
+          repositoryPath: repositoryDirectory,
+          env: hookEnv,
+          trusted: isWorkflowHookExecutionAllowed(hookEnv),
+          envAllowlist: parseCommaSeparatedEnvList(
+            hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV]
+          ),
+          timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
+        });
       }
-      const hookEnv = this.buildProjectExecutionEnv(
-        tenant.projectId,
-        buildHookEnv(context)
-      );
-      return executeWorkspaceHook({
+    } catch (error) {
+      result = {
         kind,
-        hooks: workflowResolution.workflow.hooks,
-        repositoryPath: repositoryDirectory,
-        env: hookEnv,
-        trusted: isWorkflowHookExecutionAllowed(hookEnv),
-        envAllowlist: parseCommaSeparatedEnvList(
-          hookEnv[WORKFLOW_HOOK_ENV_ALLOWLIST_ENV]
-        ),
-        timeoutMs: workflowResolution.workflow.hooks.timeoutMs,
-      });
-    } catch {
-      // If workflow cannot be loaded, skip hook execution
-      return null;
+        outcome: "failure",
+        exitCode: null,
+        durationMs: 0,
+        error: this.formatErrorMessage(error),
+      };
     }
+
+    if (result.outcome !== "success" && result.outcome !== "skipped") {
+      const errorMessage = result.error ?? `${kind} hook ${result.outcome}`;
+      this.writeStderr(
+        `[orchestrator] ${kind} hook failed for ${context.issueIdentifier}: ${errorMessage}`
+      );
+      if (context.runId) {
+        try {
+          await this.store.appendRunEvent(context.runId, {
+            at: this.now().toISOString(),
+            event: "hook-failed",
+            projectId: tenant.projectId,
+            hook: kind,
+            error: errorMessage,
+          });
+        } catch (error) {
+          this.writeStderr(
+            `[orchestrator] Failed to persist ${kind} hook failure event for ${context.issueIdentifier}: ${this.formatErrorMessage(error)}`
+          );
+        }
+      }
+    }
+
+    return result;
   }
 
   private readProjectEnv(projectId: string): Record<string, string> {
@@ -3998,7 +4048,7 @@ export class OrchestratorService {
     await this.store.saveIssueWorkspace(pendingRecord);
 
     // Run before_remove hook. Failures are logged but do not block cleanup.
-    const hookResult = await this.runHook(
+    await this.runHook(
       "before_remove",
       tenant,
       workspaceRecord.repositoryPath,
@@ -4014,23 +4064,23 @@ export class OrchestratorService {
       workflowResolution
     );
 
-    if (
-      hookResult &&
-      hookResult.outcome !== "success" &&
-      hookResult.outcome !== "skipped"
-    ) {
-      const errorMessage =
-        hookResult.error ?? `before_remove hook ${hookResult.outcome}`;
-      console.warn(
-        `[orchestrator] before_remove hook failed for ${issue.identifier}; continuing cleanup: ${errorMessage}`
-      );
-    }
-
-    // Hook succeeded or was skipped — remove workspace directory
+    // Hook failures are observable but do not block removal per spec 9.4.
     try {
-      await rm(workspaceRecord.workspacePath, { recursive: true, force: true });
-    } catch {
-      // Directory removal failure is not fatal to the record transition
+      await (this.dependencies.rmImpl ?? rm)(workspaceRecord.workspacePath, {
+        recursive: true,
+        force: true,
+      });
+    } catch (error) {
+      const removalError =
+        error instanceof Error ? error.message : String(error);
+      const errorMessage = `Failed to remove workspace for ${issue.identifier}: ${removalError}`;
+      await this.store.saveIssueWorkspace({
+        ...pendingRecord,
+        updatedAt: this.now().toISOString(),
+        lastError: errorMessage,
+      });
+      this.writeStderr(`[orchestrator] ${errorMessage}`);
+      throw new Error(errorMessage, { cause: error });
     }
 
     const removedRecord: IssueWorkspaceRecord = {
