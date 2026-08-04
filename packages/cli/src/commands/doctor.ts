@@ -4,6 +4,8 @@ import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
   parseWorkflowMarkdown,
+  redactObservabilitySecrets,
+  redactObservabilityText,
   type ParsedWorkflow,
   type TrackedIssue,
 } from "@gh-symphony/core";
@@ -2661,6 +2663,15 @@ function renderBundleSummary(summary: SupportBundleSummary): string {
   ].join("\n");
 }
 
+function writeDoctorJson(value: unknown): void {
+  const redacted = redactObservabilitySecrets(value);
+  process.stdout.write(JSON.stringify(redacted, null, 2) + "\n");
+}
+
+function writeDoctorText(value: string): void {
+  process.stdout.write(redactObservabilityText(value) + "\n");
+}
+
 export async function runDoctorCommand(
   args: string[],
   options: GlobalOptions,
@@ -2688,9 +2699,9 @@ export async function runDoctorCommand(
         doctorReport: initialReport,
       });
       if (options.json) {
-        process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+        writeDoctorJson(summary);
       } else {
-        process.stdout.write(renderBundleSummary(summary) + "\n");
+        writeDoctorText(renderBundleSummary(summary));
       }
       process.exitCode = initialReport.ok ? 0 : 1;
       return;
@@ -2708,9 +2719,9 @@ export async function runDoctorCommand(
       );
       report.remediation = remediation;
       if (options.json) {
-        process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+        writeDoctorJson(report);
       } else {
-        process.stdout.write(renderTextReport(report) + "\n");
+        writeDoctorText(renderTextReport(report));
       }
       process.exitCode = report.ok ? 0 : 1;
       return;
@@ -2718,14 +2729,16 @@ export async function runDoctorCommand(
 
     const report = initialReport;
     if (options.json) {
-      process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      writeDoctorJson(report);
     } else {
-      process.stdout.write(renderTextReport(report) + "\n");
+      writeDoctorText(renderTextReport(report));
     }
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
     process.stderr.write(
-      `${error instanceof Error ? error.message : "Unknown error"}\n`
+      `${redactObservabilityText(
+        error instanceof Error ? error.message : "Unknown error"
+      )}\n`
     );
     process.exitCode = 2;
   }

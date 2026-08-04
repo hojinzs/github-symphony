@@ -1617,6 +1617,58 @@ describe("doctor command handler", () => {
     });
   });
 
+  it("redacts API error secrets from JSON output", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-json-redaction-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const secret = "gho_11AA22bb33CC44dd55EE66ff";
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await withCwd(repoDir, () =>
+        runDoctorCommand(
+          ["--smoke"],
+          { ...baseOptions(configDir), json: true },
+          {
+            ...authDependencies(),
+            inspectManagedProjectSelection: async () => ({
+              kind: "resolved",
+              projectId: "tenant-a",
+              projectConfig: createProjectConfig(workspaceDir, "PVT_test", [
+                {
+                  owner: "acme",
+                  name: "widgets",
+                  url: "https://github.com/acme/widgets",
+                  cloneUrl: "https://github.com/acme/widgets.git",
+                },
+              ]),
+            }),
+            getProjectDetail: (async () =>
+              createProjectDetail() as never) as never,
+            fetchProjectIssues: (async () => {
+              throw new Error(`GitHub Project query failed with ${secret}`);
+            }) as never,
+            pathEnv,
+          }
+        )
+      );
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      checks: Array<{
+        id: string;
+        details?: { error?: string };
+      }>;
+    };
+    expect(
+      report.checks.find((check) => check.id === "smoke_issue")?.details?.error
+    ).toBe("GitHub Project query failed with [REDACTED]");
+    expect(stdout.output()).not.toContain(secret);
+  });
+
   it("sets exit code 2 for invalid args", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const stderr = captureWrites(process.stderr);
@@ -1629,6 +1681,22 @@ describe("doctor command handler", () => {
 
     expect(process.exitCode).toBe(2);
     expect(stderr.output()).toContain("Usage: gh-symphony doctor");
+  });
+
+  it("redacts secrets from top-level stderr output", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const secret = "github_pat_11AA22bb33CC44dd55EE66ff";
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await doctorCommand([`--${secret}`], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(2);
+    expect(stderr.output()).toContain("[REDACTED]");
+    expect(stderr.output()).not.toContain(secret);
   });
 
   it("applies missing directory fixes and reports structured JSON remediation steps", async () => {
@@ -1923,7 +1991,8 @@ describe("doctor command handler", () => {
       "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nAuthorization: Bearer abc123\n",
       "utf8"
     );
-    const outputPath = join(repoDir, "tmp", "support-bundle");
+    const outputSecret = "github_pat_11AA22bb33CC44dd55EE66ff";
+    const outputPath = join(repoDir, "tmp", `support-bundle-${outputSecret}`);
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -1957,7 +2026,8 @@ describe("doctor command handler", () => {
       redactionClasses: Array<{ class: string; count: number }>;
       truncationCount: number;
     };
-    expect(summary.outputPath).toBe(outputPath);
+    expect(summary.outputPath).toContain("[REDACTED]");
+    expect(stdout.output()).not.toContain(outputSecret);
     expect(summary.includedCount).toBeGreaterThanOrEqual(9);
     expect(summary.missingCount).toBe(0);
     expect(summary.redactionCount).toBeGreaterThan(0);
