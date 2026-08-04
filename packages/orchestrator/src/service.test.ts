@@ -2533,6 +2533,142 @@ Test hook failures.
     );
   });
 
+  it("continues terminal cleanup after a workspace deletion fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-terminal-cleanup-continue-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const failedWorkspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
+    const removedWorkspaceKey = deriveIssueWorkspaceKey("acme/platform#2");
+    const failedWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      failedWorkspaceKey
+    );
+    const removedWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir(projectConfig.projectId),
+      removedWorkspaceKey
+    );
+    await mkdir(join(failedWorkspacePath, "repository"), { recursive: true });
+    await mkdir(join(removedWorkspacePath, "repository"), { recursive: true });
+    await writeFile(join(failedWorkspacePath, "sentinel.txt"), "keep", "utf8");
+    await writeFile(
+      join(removedWorkspacePath, "sentinel.txt"),
+      "remove",
+      "utf8"
+    );
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: failedWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+      {
+        issueId: "issue-2",
+        identifier: "acme/platform#2",
+        workspaceKey: removedWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    for (const [
+      issueSubjectId,
+      issueIdentifier,
+      workspaceKey,
+      workspacePath,
+    ] of [
+      ["issue-1", "acme/platform#1", failedWorkspaceKey, failedWorkspacePath],
+      ["issue-2", "acme/platform#2", removedWorkspaceKey, removedWorkspacePath],
+    ] as const) {
+      await store.saveIssueWorkspace({
+        workspaceKey,
+        projectId: "tenant-1",
+        adapter: "github-project",
+        issueSubjectId,
+        issueIdentifier,
+        workspacePath,
+        repositoryPath: join(workspacePath, "repository"),
+        status: "active",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        lastError: null,
+      });
+    }
+
+    const stderr = { write: vi.fn() };
+    const rmImpl = vi.fn(async (workspacePath: Parameters<typeof rm>[0]) => {
+      if (workspacePath === failedWorkspacePath) {
+        throw new Error("disk busy");
+      }
+      await rm(workspacePath, { recursive: true, force: true });
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createEmptyTrackerResponse())
+        .mockResolvedValueOnce(
+          createTrackerResponseWithItems(repository, [
+            {
+              id: "issue-1",
+              identifier: "acme/platform#1",
+              state: "Done",
+            },
+            {
+              id: "issue-2",
+              identifier: "acme/platform#2",
+              state: "Done",
+            },
+          ])
+        ) as never,
+      spawnImpl: vi.fn().mockReturnValue({
+        pid: 4105,
+        unref: vi.fn(),
+      }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+      rmImpl,
+    });
+
+    await service.run({ once: true });
+
+    await expect(
+      readFile(join(failedWorkspacePath, "sentinel.txt"), "utf8")
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(join(removedWorkspacePath, "sentinel.txt"), "utf8")
+    ).rejects.toThrow();
+    await expect(
+      store.loadIssueWorkspace("tenant-1", failedWorkspaceKey)
+    ).resolves.toMatchObject({
+      status: "cleanup_pending",
+      lastError: "Failed to remove workspace for acme/platform#1: disk busy",
+    });
+    await expect(
+      store.loadIssueWorkspace("tenant-1", removedWorkspaceKey)
+    ).resolves.toMatchObject({ status: "removed", lastError: null });
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] Terminal workspace cleanup failed for acme/platform#1; continuing: Failed to remove workspace for acme/platform#1: disk busy\n"
+    );
+  });
+
   it("logs a warning and continues startup when terminal issue fetch fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

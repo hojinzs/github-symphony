@@ -1452,7 +1452,17 @@ export class OrchestratorService {
       }
 
       for (const issue of terminalIssuesByIdentifier.values()) {
-        await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
+        try {
+          await this.cleanupTerminalIssueWorkspace(tenant, issue, now);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unknown terminal workspace cleanup error";
+          this.writeStderr(
+            `[orchestrator] Terminal workspace cleanup failed for ${issue.identifier}; continuing: ${message}`
+          );
+        }
       }
     } catch (error) {
       trackerError = error;
