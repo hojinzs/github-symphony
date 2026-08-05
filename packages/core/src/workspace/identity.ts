@@ -1,6 +1,7 @@
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { IssueSubjectIdentity } from "../domain/issue.js";
+import { isPathWithinRoot } from "./path-safety.js";
 
 const RESERVED_WORKSPACE_KEYS = new Set([
   "cache",
@@ -72,7 +73,7 @@ export function resolveIssueWorkspaceDirectory(
   const normalizedRuntimeRoot = resolve(runtimeRoot);
   const candidate = resolve(normalizedRuntimeRoot, workspaceKey);
 
-  if (!candidate.startsWith(`${normalizedRuntimeRoot}/`)) {
+  if (!isPathWithinRoot(normalizedRuntimeRoot, candidate, false)) {
     throw new Error(
       "Issue workspace path escapes the configured runtime root."
     );
@@ -87,8 +88,7 @@ export function resolveIssueWorkspaceDirectory(
 
 function isReservedWorkspaceKey(workspaceKey: string): boolean {
   return (
-    workspaceKey.startsWith(".") ||
-    RESERVED_WORKSPACE_KEYS.has(workspaceKey)
+    workspaceKey.startsWith(".") || RESERVED_WORKSPACE_KEYS.has(workspaceKey)
   );
 }
 

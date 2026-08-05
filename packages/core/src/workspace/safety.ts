@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { isPathWithinRoot } from "./path-safety.js";
 
 export function resolveWorkspaceDirectory(
   workspaceRoot: string,
@@ -7,7 +8,7 @@ export function resolveWorkspaceDirectory(
   const normalizedRoot = resolve(workspaceRoot);
   const candidate = resolve(normalizedRoot, workspaceId);
 
-  if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}/`)) {
+  if (!isPathWithinRoot(normalizedRoot, candidate)) {
     throw new Error("Workspace path escapes the configured workspace root.");
   }
 
@@ -19,6 +20,8 @@ export function assertRepositoryAllowed(
   allowedRepositoryCloneUrls: string[]
 ): void {
   if (!allowedRepositoryCloneUrls.includes(targetRepositoryCloneUrl)) {
-    throw new Error(`Repository is not in the workspace allowlist: ${targetRepositoryCloneUrl}`);
+    throw new Error(
+      `Repository is not in the workspace allowlist: ${targetRepositoryCloneUrl}`
+    );
   }
 }

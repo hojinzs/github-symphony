@@ -16,6 +16,9 @@ import {
   resolveIssueWorkspaceDirectory,
   scheduleRetryAt,
 } from "./index.js";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RunDispatchedEvent } from "./observability/structured-events.js";
 
 describe("deriveWorkspaceKey", () => {
@@ -80,6 +83,12 @@ describe("resolveIssueWorkspaceDirectory", () => {
     expect(result).toBe("/runtime/orchestrator/abc123");
   });
 
+  it("accepts Windows-style separators in an issue workspace key", () => {
+    expect(() =>
+      resolveIssueWorkspaceDirectory("/runtime/orchestrator", "abc\\nested")
+    ).not.toThrow();
+  });
+
   it("rejects path traversal that escapes the root", () => {
     expect(() =>
       resolveIssueWorkspaceDirectory(
@@ -96,6 +105,35 @@ describe("resolveIssueWorkspaceDirectory", () => {
     expect(() =>
       resolveIssueWorkspaceDirectory("/runtime/orchestrator", ".lock")
     ).toThrow("reserved");
+  });
+
+  it("rejects an issue workspace symlink that resolves outside the runtime root", () => {
+    const root = mkdtempSync(join(tmpdir(), "symphony-runtime-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "symphony-runtime-outside-"));
+    symlinkSync(outside, join(root, "linked"));
+
+    try {
+      expect(() => resolveIssueWorkspaceDirectory(root, "linked")).toThrow(
+        "Issue workspace path escapes"
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+      rmSync(outside, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a dangling issue workspace symlink that points outside the runtime root", () => {
+    const root = mkdtempSync(join(tmpdir(), "symphony-runtime-root-"));
+    const outside = join(tmpdir(), "symphony-runtime-missing-target");
+    symlinkSync(outside, join(root, "linked"));
+
+    try {
+      expect(() => resolveIssueWorkspaceDirectory(root, "linked")).toThrow(
+        "Issue workspace path escapes"
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });
 
