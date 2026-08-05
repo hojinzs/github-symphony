@@ -39,6 +39,17 @@ describe("resolveWorkspaceDirectory", () => {
     );
   });
 
+  it("rejects a dangling symlink that points outside the workspace root", () => {
+    const root = mkdtempSync(join(tmpdir(), "symphony-workspace-root-"));
+    const outside = join(tmpdir(), "symphony-workspace-missing-target");
+    temporaryDirectories.push(root);
+    symlinkSync(outside, join(root, "linked"));
+
+    expect(() => resolveWorkspaceDirectory(root, "linked")).toThrow(
+      "Workspace path escapes"
+    );
+  });
+
   it("accepts paths containing Windows-style separators as workspace names", () => {
     expect(() =>
       resolveWorkspaceDirectory("/tmp/github-symphony", "workspace\\nested")

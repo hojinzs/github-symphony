@@ -121,6 +121,20 @@ describe("resolveIssueWorkspaceDirectory", () => {
       rmSync(outside, { force: true, recursive: true });
     }
   });
+
+  it("rejects a dangling issue workspace symlink that points outside the runtime root", () => {
+    const root = mkdtempSync(join(tmpdir(), "symphony-runtime-root-"));
+    const outside = join(tmpdir(), "symphony-runtime-missing-target");
+    symlinkSync(outside, join(root, "linked"));
+
+    try {
+      expect(() => resolveIssueWorkspaceDirectory(root, "linked")).toThrow(
+        "Issue workspace path escapes"
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
 });
 
 describe("resolveIssueRepositoryPath", () => {
