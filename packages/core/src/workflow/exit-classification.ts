@@ -20,6 +20,10 @@ export function classifySessionExit(params: {
     return "convergence-detected";
   }
 
+  if (params.runPhase === "canceled_by_reconciliation") {
+    return "canceled_by_reconciliation";
+  }
+
   if (params.runPhase === "timed_out" || params.runPhase === "stalled") {
     return "timeout";
   }
