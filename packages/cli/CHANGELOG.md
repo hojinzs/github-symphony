@@ -1,5 +1,17 @@
 # @gh-symphony/cli
 
+## 0.7.7
+
+### Patch Changes
+
+- [#535](https://github.com/hojinzs/github-symphony/pull/535) [`4ddcc26`](https://github.com/hojinzs/github-symphony/commit/4ddcc265d76e1947661525e8d839af03f623b9f1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Bound convergence locks with a configurable TTL and record an expiration event so stale locks cannot permanently suppress an issue. ( hojinzs/github-symphony#529 )
+
+- [#536](https://github.com/hojinzs/github-symphony/pull/536) [`39ea369`](https://github.com/hojinzs/github-symphony/commit/39ea369b0b5b42c7f633e4e3ffe689259405a51a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Harden HTTP refresh input and Linear pagination for issue [#468](https://github.com/hojinzs/github-symphony/issues/468). As an explicit
+  repository policy that diverges from the upstream configured-cadence behavior,
+  workflow polling inputs are clamped to 1 second–5 minutes: smaller values run
+  every second and larger values run every 5 minutes, while adaptive rate-limit
+  backoff may still schedule a longer delay.
+
 ## 0.7.6
 
 ### Patch Changes
