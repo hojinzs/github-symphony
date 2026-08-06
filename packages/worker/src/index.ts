@@ -571,9 +571,14 @@ async function startAssignedRun() {
     config.linearAuthorization = launcherEnv.LINEAR_AUTHORIZATION;
     config.linearGraphqlUrl = launcherEnv.LINEAR_GRAPHQL_URL;
     const plan = await prepareCodexRuntimePlan(config);
-    const codexLaunch = launchCodexWithValidatedPolicy(launcherEnv, () =>
-      launchCodexAppServer(plan)
+    const codexLaunch = await launchCodexWithValidatedPolicy(
+      launcherEnv,
+      () => launchCodexAppServer(plan),
+      exitWorkerStartupFailure
     );
+    if (!codexLaunch) {
+      return;
+    }
     childProcess = codexLaunch.child;
     runtimeState.status = "running";
     runtimeState.runPhase = "initializing_session";
