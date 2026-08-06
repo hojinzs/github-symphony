@@ -28,12 +28,18 @@ import {
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
-import { OrchestratorService } from "./service.js";
+import { clampPollInterval, OrchestratorService } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
   const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+
+  it("clamps polling intervals to prevent spins and excessive sleeps", () => {
+    expect(clampPollInterval(0)).toBe(1_000);
+    expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
+    expect(clampPollInterval(30_000)).toBe(30_000);
+  });
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -4353,13 +4359,19 @@ Prefer focused changes.
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-rate-limit-"));
     const createServiceWithRemaining = async (
       suffix: string,
-      remainingRef: { value: number }
+      remainingRef: { value: number },
+      schedulerPollIntervalMs = 30_000
     ) => {
       const repository = await createRepositoryFixture(
         tempRoot,
         "acme",
         `platform-${suffix}`
       );
+      if (schedulerPollIntervalMs !== 30_000) {
+        await commitWorkflowFixture(repository.path, {
+          schedulerPollIntervalMs,
+        });
+      }
       const store = new OrchestratorFsStore(tempRoot);
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
@@ -4410,14 +4422,15 @@ Prefer focused changes.
     const exhaustedRemaining = { value: 100 };
     const exhaustedService = await createServiceWithRemaining(
       "exhausted",
-      exhaustedRemaining
+      exhaustedRemaining,
+      60_000
     );
     await exhaustedService.runOnce();
-    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(300_000);
+    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(600_000);
 
     exhaustedRemaining.value = 4000;
     await exhaustedService.runOnce();
-    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(30_000);
+    expect(exhaustedService.getEffectivePollIntervalMs()).toBe(60_000);
   });
 
   it("logs a warning when GitHub rate limits fall below five percent", async () => {

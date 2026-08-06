@@ -182,6 +182,70 @@ describe("linearTrackerAdapter", () => {
     ]);
   });
 
+  it("limits pagination and supplies a per-page abort signal", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-1", [])],
+            pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
+          },
+        },
+      })
+    );
+
+    const issues = await linearTrackerAdapter.listIssues(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          maxPages: 1,
+          pageTimeoutMs: 1_000,
+        },
+      }),
+      { fetchImpl, token: "linear-token" }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("keeps the per-page timeout active while reading the response body", async () => {
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const signal = init?.signal;
+        if (!signal) {
+          throw new Error("Expected an abort signal");
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers(),
+          json: () =>
+            new Promise<never>((_resolve, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+              });
+            }),
+        } as unknown as Response;
+      }
+    );
+
+    await expect(
+      linearTrackerAdapter.listIssues(
+        makeProject({
+          settings: {
+            projectSlug: "symphony-0c79b11b75ea",
+            activeStates: "Todo",
+            pageTimeoutMs: 1,
+          },
+        }),
+        { fetchImpl, token: "linear-token" }
+      )
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("listIssuesByStates queries Linear directly without using projectItemsCache", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({

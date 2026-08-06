@@ -63,6 +63,94 @@ describe("createControlPlaneHandler", () => {
     expect(onRefreshRequest).toHaveBeenCalledOnce();
   });
 
+  it("rejects refresh bodies over the configured limit", async () => {
+    const onRefreshRequest = vi.fn();
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+      apiToken: API_TOKEN,
+      onRefreshRequest,
+    });
+
+    const response = await fetchWithHandler(handler, "/api/v1/refresh", {
+      method: "POST",
+      body: Buffer.alloc(64 * 1024 + 1),
+      headers: AUTHORIZATION,
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body too large",
+    });
+    expect(onRefreshRequest).not.toHaveBeenCalled();
+  });
+
+  it("finishes handling a streaming request as soon as its body is oversized", async () => {
+    const http = await import("node:http");
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+      apiToken: API_TOKEN,
+    });
+    let resolveHandled: (() => void) | undefined;
+    const handled = new Promise<void>((resolve) => {
+      resolveHandled = resolve;
+    });
+    const instance = http.createServer((request, response) => {
+      void handler(request, response).then(() => resolveHandled?.());
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      instance.listen(0, "127.0.0.1", (error?: Error) =>
+        error ? reject(error) : resolve()
+      );
+    });
+    const address = instance.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected TCP address");
+    }
+
+    const request = http.request({
+      host: "127.0.0.1",
+      port: address.port,
+      path: "/api/v1/refresh",
+      method: "POST",
+      headers: {
+        ...AUTHORIZATION,
+        "Transfer-Encoding": "chunked",
+      },
+    });
+    try {
+      const response = new Promise<{
+        statusCode: number | undefined;
+        body: string;
+      }>((resolve, reject) => {
+        request.on("response", (incoming) => {
+          const chunks: Buffer[] = [];
+          incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+          incoming.on("end", () =>
+            resolve({
+              statusCode: incoming.statusCode,
+              body: Buffer.concat(chunks).toString("utf8"),
+            })
+          );
+        });
+        request.on("error", reject);
+      });
+
+      request.write(Buffer.alloc(64 * 1024 + 1));
+
+      await expect(response).resolves.toEqual({
+        statusCode: 413,
+        body: JSON.stringify({ error: "Request body too large" }),
+      });
+      await expect(handled).resolves.toBeUndefined();
+    } finally {
+      request.destroy();
+      await new Promise<void>((resolve, reject) =>
+        instance.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+  });
+
   it("delegates GET /api/v1/state to the dashboard resolver", async () => {
     const reader = createReader();
     reader.loadProjectState.mockResolvedValue({

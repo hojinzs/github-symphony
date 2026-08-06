@@ -11,6 +11,10 @@ import {
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
+export const DEFAULT_LINEAR_MAX_PAGES = 100;
+export const MAX_LINEAR_MAX_PAGES = 1_000;
+export const DEFAULT_LINEAR_PAGE_TIMEOUT_MS = 10_000;
+export const MAX_LINEAR_PAGE_TIMEOUT_MS = 60_000;
 const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
 type LinearRateLimitPayload = {
@@ -263,6 +267,7 @@ async function listLinearIssues(
         : undefined,
     assignedOnly: config.assignedOnly,
     pageSize: config.pageSize,
+    maxPages: config.maxPages,
   });
 
   const fetchedIssues = result.nodes.map((node) =>
@@ -301,6 +306,7 @@ async function fetchPaginatedLinearIssues(
     issueIdentifiers?: string[];
     assignedOnly: boolean;
     pageSize: number;
+    maxPages: number;
   }
 ): Promise<{
   nodes: LinearIssueNode[];
@@ -310,7 +316,7 @@ async function fetchPaginatedLinearIssues(
   let latestRateLimits: LinearRateLimitPayload | null = null;
   let after: string | null = null;
 
-  do {
+  for (let page = 0; page < input.maxPages; page += 1) {
     const query = input.issueIdentifiers
       ? LINEAR_ISSUES_BY_IDENTIFIERS_QUERY
       : input.issueIds
@@ -331,7 +337,10 @@ async function fetchPaginatedLinearIssues(
     after = connection?.pageInfo?.hasNextPage
       ? (connection.pageInfo.endCursor ?? null)
       : null;
-  } while (after);
+    if (!after) {
+      break;
+    }
+  }
 
   return {
     nodes: issues,
@@ -428,49 +437,56 @@ function createLinearGraphqlClient(
     data: TData;
     rateLimits: LinearRateLimitPayload | null;
   }> => {
-    const response = await fetchImpl(config.endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: config.token,
-      },
-      body: JSON.stringify({ query, variables }),
-    });
-    const rateLimits = extractLinearRateLimits(response.headers);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.pageTimeoutMs);
+    try {
+      const response = await fetchImpl(config.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: config.token,
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+      const rateLimits = extractLinearRateLimits(response.headers);
 
-    if (!response.ok) {
-      const retryAfter = rateLimits?.retryAfter;
-      const retrySuffix =
-        typeof retryAfter === "number"
-          ? ` Retry after ${retryAfter} seconds.`
-          : "";
-      throw new Error(
-        `Linear GraphQL request failed with HTTP ${response.status}.${retrySuffix}`
-      );
+      if (!response.ok) {
+        const retryAfter = rateLimits?.retryAfter;
+        const retrySuffix =
+          typeof retryAfter === "number"
+            ? ` Retry after ${retryAfter} seconds.`
+            : "";
+        throw new Error(
+          `Linear GraphQL request failed with HTTP ${response.status}.${retrySuffix}`
+        );
+      }
+
+      const payload = (await response.json()) as {
+        data?: TData;
+        errors?: Array<{ message?: string }>;
+      };
+
+      if (payload.errors?.length) {
+        const message =
+          payload.errors
+            .map((error) => error.message)
+            .filter(Boolean)
+            .join("; ") || "Unknown Linear GraphQL error";
+        throw new Error(`Linear GraphQL request failed: ${message}`);
+      }
+
+      if (!payload.data) {
+        throw new Error("Linear GraphQL response did not include data.");
+      }
+
+      return {
+        data: payload.data,
+        rateLimits,
+      };
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const payload = (await response.json()) as {
-      data?: TData;
-      errors?: Array<{ message?: string }>;
-    };
-
-    if (payload.errors?.length) {
-      const message =
-        payload.errors
-          .map((error) => error.message)
-          .filter(Boolean)
-          .join("; ") || "Unknown Linear GraphQL error";
-      throw new Error(`Linear GraphQL request failed: ${message}`);
-    }
-
-    if (!payload.data) {
-      throw new Error("Linear GraphQL response did not include data.");
-    }
-
-    return {
-      data: payload.data,
-      rateLimits,
-    };
   };
 }
 
@@ -559,6 +575,16 @@ function resolveLinearTrackerConfig(
     pageSize:
       readPositiveIntegerSetting(project.tracker, "pageSize") ??
       DEFAULT_PAGE_SIZE,
+    maxPages: Math.min(
+      readPositiveIntegerSetting(project.tracker, "maxPages") ??
+        DEFAULT_LINEAR_MAX_PAGES,
+      MAX_LINEAR_MAX_PAGES
+    ),
+    pageTimeoutMs: Math.min(
+      readPositiveIntegerSetting(project.tracker, "pageTimeoutMs") ??
+        DEFAULT_LINEAR_PAGE_TIMEOUT_MS,
+      MAX_LINEAR_PAGE_TIMEOUT_MS
+    ),
     pickupLabels: resolvePickupLabels(project.tracker),
     projectSlug,
     token,
