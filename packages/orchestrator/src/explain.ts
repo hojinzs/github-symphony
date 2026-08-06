@@ -59,6 +59,10 @@ export type ExplainDispatchInput = {
   activeRunCount: number;
   maxConcurrentAgents: number;
   maxConcurrentAgentsByState: Readonly<Record<string, number>>;
+  convergenceLock?: {
+    now?: Date;
+    ttlMs?: number;
+  };
 };
 
 const MAX_FAILURE_RETRIES_EXCEEDED_REASON = "max_failure_retries_exceeded";
@@ -107,7 +111,8 @@ export function explainIssueDispatch(
       issue,
       input.issueRecords,
       input.runs,
-      input.issueWorkspaces ?? []
+      input.issueWorkspaces ?? [],
+      input.convergenceLock
     )
   );
   checks.push(
@@ -199,10 +204,12 @@ export function getConvergenceLockStatus(
   const convergedAtMs = parseConvergenceTimestampMs(
     latestRun.completedAt ?? latestRun.updatedAt
   );
-  const issueUpdatedAtMs = parseConvergenceTimestampMs(issueUpdatedAt);
+  const issueUpdatedAtMs = issueUpdatedAt
+    ? parseConvergenceTimestampMs(issueUpdatedAt)
+    : null;
   const nowMs = (options.now ?? new Date()).getTime();
   const ttlMs = options.ttlMs ?? DEFAULT_CONVERGENCE_LOCK_TTL_MS;
-  if (issueUpdatedAtMs > convergedAtMs) {
+  if (issueUpdatedAtMs !== null && issueUpdatedAtMs > convergedAtMs) {
     return { run: null, expired: false };
   }
   if (nowMs - convergedAtMs >= ttlMs) {
@@ -412,7 +419,11 @@ function explainRuntimeOwnership(
   issue: TrackedIssue,
   issueRecords: readonly IssueOrchestrationRecord[],
   runs: readonly OrchestratorRunRecord[],
-  issueWorkspaces: readonly IssueWorkspaceRecord[]
+  issueWorkspaces: readonly IssueWorkspaceRecord[],
+  convergenceLockOptions: {
+    now?: Date;
+    ttlMs?: number;
+  } = {}
 ): DispatchExplainCheck {
   const record = issueRecords.find(
     (candidate) =>
@@ -457,7 +468,8 @@ function explainRuntimeOwnership(
     runs,
     issue.id,
     issue.state,
-    issue.updatedAt
+    issue.updatedAt,
+    convergenceLockOptions
   );
   if (convergenceRun) {
     return {

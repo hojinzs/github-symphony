@@ -81,6 +81,17 @@ describe("convergence lock policy", () => {
     ).toThrow(/timestamp is invalid/);
   });
 
+  it("keeps the lock when the tracker timestamp is absent", () => {
+    const run = convergenceRun("2026-08-05T00:00:00.000Z");
+
+    expect(
+      hasConvergenceLockedRunForIssue([run], "issue-1", "Todo", null, {
+        now: new Date("2026-08-05T00:01:00.000Z"),
+        ttlMs: 60 * 60 * 1000,
+      })
+    ).toBe(run);
+  });
+
   it("uses a bounded default TTL and accepts a positive override", () => {
     expect(resolveConvergenceLockTtlMs({})).toBe(
       DEFAULT_CONVERGENCE_LOCK_TTL_MS
