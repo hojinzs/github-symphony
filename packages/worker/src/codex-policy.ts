@@ -16,7 +16,7 @@ export const TURN_SANDBOX_POLICY_TYPES = [
 ] as const;
 export type TurnSandboxPolicyType = (typeof TURN_SANDBOX_POLICY_TYPES)[number];
 export type TurnSandboxPolicy = { type: TurnSandboxPolicyType } | undefined;
-type CodexPolicyEnv = Partial<
+export type CodexPolicyEnv = Partial<
   Record<
     | "SYMPHONY_APPROVAL_POLICY"
     | "SYMPHONY_THREAD_SANDBOX"
@@ -25,11 +25,15 @@ type CodexPolicyEnv = Partial<
   >
 >;
 
-export function resolveCodexPolicySettings(env: CodexPolicyEnv): {
+export type CodexPolicySettings = {
   approvalPolicy: ApprovalPolicy;
   threadSandbox: ThreadSandboxMode;
   turnSandboxPolicy: TurnSandboxPolicy;
-} {
+};
+
+export function resolveCodexPolicySettings(
+  env: CodexPolicyEnv
+): CodexPolicySettings {
   const approvalPolicy = resolvePolicyValue(
     env.SYMPHONY_APPROVAL_POLICY,
     "never",

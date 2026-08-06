@@ -36,7 +36,8 @@ import {
   resolveFinalExecutionPhase,
   resolveInitialExecutionPhase,
 } from "./execution-phase.js";
-import { resolveCodexPolicySettings } from "./codex-policy.js";
+import type { CodexPolicySettings } from "./codex-policy.js";
+import { launchCodexWithValidatedPolicy } from "./codex-startup.js";
 import {
   captureTurnBoundarySnapshot,
   evaluateTurnProgress,
@@ -570,7 +571,10 @@ async function startAssignedRun() {
     config.linearAuthorization = launcherEnv.LINEAR_AUTHORIZATION;
     config.linearGraphqlUrl = launcherEnv.LINEAR_GRAPHQL_URL;
     const plan = await prepareCodexRuntimePlan(config);
-    childProcess = launchCodexAppServer(plan);
+    const codexLaunch = launchCodexWithValidatedPolicy(launcherEnv, () =>
+      launchCodexAppServer(plan)
+    );
+    childProcess = codexLaunch.child;
     runtimeState.status = "running";
     runtimeState.runPhase = "initializing_session";
 
@@ -581,6 +585,7 @@ async function startAssignedRun() {
     // Wire up the codex app-server client protocol (multi-turn)
     void runCodexClientProtocol(childProcess, plan, launcherEnv, {
       continuationGuidance: workflow.continuationGuidance,
+      policySettings: codexLaunch.policySettings,
     });
 
     childProcess.once(
@@ -1005,6 +1010,7 @@ async function runCodexClientProtocol(
   env: NodeJS.ProcessEnv,
   options: {
     continuationGuidance: string | null;
+    policySettings: CodexPolicySettings;
   }
 ): Promise<void> {
   const renderedPrompt = env.SYMPHONY_RENDERED_PROMPT;
@@ -1032,7 +1038,7 @@ async function runCodexClientProtocol(
   const continuationGuidance =
     env.SYMPHONY_CONTINUATION_GUIDANCE ?? options.continuationGuidance;
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
-    resolveCodexPolicySettings(env);
+    options.policySettings;
   let previousTurnProgressSnapshot = {
     ...captureTurnBoundarySnapshot(plan.cwd),
     lastError: runtimeState.run?.lastError ?? null,
