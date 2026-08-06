@@ -231,21 +231,6 @@ export function resolveConvergenceLockTtlMs(env: NodeJS.ProcessEnv): number {
     : DEFAULT_CONVERGENCE_LOCK_TTL_MS;
 }
 
-export function isConvergenceLockExpired(
-  run: OrchestratorRunRecord,
-  now: Date,
-  ttlMs: number
-): boolean {
-  if (run.runtimeSession?.exitClassification !== "convergence-detected") {
-    return false;
-  }
-
-  const convergedAtMs = parseConvergenceTimestampMs(
-    run.completedAt ?? run.updatedAt
-  );
-  return now.getTime() - convergedAtMs >= ttlMs;
-}
-
 export function isIssueOrchestrationClaimedState(
   state: IssueOrchestrationRecord["state"]
 ): boolean {
