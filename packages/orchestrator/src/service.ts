@@ -66,7 +66,8 @@ import { getProcessStartIdentity } from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
-  hasConvergenceLockedRunForIssue,
+  getConvergenceLockStatus,
+  resolveConvergenceLockTtlMs,
   findActiveLinkedPullRequest,
   isActiveRunRecordStatus,
   isIssueCandidateEligibleWithReason,
@@ -934,6 +935,7 @@ export class OrchestratorService {
   ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
+    const convergenceLockTtlMs = resolveConvergenceLockTtlMs(process.env);
     let lastError: string | null = null;
     let trackerError: unknown = null;
     let dispatched = 0;
@@ -1121,16 +1123,22 @@ export class OrchestratorService {
       const latestRunsByIssueId = buildLatestRunMapByIssueId(
         projectRunsAfterReconcile
       );
+      const expiredConvergenceLocks = new Map<string, OrchestratorRunRecord>();
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
-        if (
-          hasConvergenceLockedRunForIssue(
-            projectRunsAfterReconcile,
-            issue.id,
-            issue.state,
-            issue.updatedAt
-          )
-        ) {
+        const convergenceLock = getConvergenceLockStatus(
+          projectRunsAfterReconcile,
+          issue.id,
+          issue.state,
+          issue.updatedAt,
+          { now, ttlMs: convergenceLockTtlMs }
+        );
+        if (convergenceLock.expired) {
+          const expiredRun = convergenceLock.run;
+          if (expiredRun) {
+            expiredConvergenceLocks.set(issue.id, expiredRun);
+          }
+        } else if (convergenceLock.run) {
           return false;
         }
 
@@ -1140,7 +1148,6 @@ export class OrchestratorService {
             isIssueOrchestrationClaimedState(record.state)
         );
       });
-
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);
       const listRateLimits = getTrackedIssueListRateLimits(issues);
@@ -1196,6 +1203,30 @@ export class OrchestratorService {
           latestRunsByIssueId.get(issue.id) ?? null,
           preferredWorkspaceKey
         );
+        const expiredConvergenceRun = expiredConvergenceLocks.get(issue.id);
+        if (expiredConvergenceRun) {
+          const recentEvents = await this.store.loadRecentRunEvents(
+            expiredConvergenceRun.runId,
+            100,
+            tenant.projectId
+          );
+          if (
+            !recentEvents.some(
+              (event) => event.event === "convergence-lock-expired"
+            )
+          ) {
+            await this.store.appendRunEvent(expiredConvergenceRun.runId, {
+              at: now.toISOString(),
+              event: "convergence-lock-expired",
+              projectId: tenant.projectId,
+              issueIdentifier: issue.identifier,
+              issueId: issue.id,
+              runId: expiredConvergenceRun.runId,
+              ttlMs: convergenceLockTtlMs,
+              reason: "ttl_expired",
+            });
+          }
+        }
         issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: issue.id,
           identifier: issue.identifier,

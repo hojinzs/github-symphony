@@ -17,6 +17,7 @@ import {
   findGithubProjectIssue,
   isActiveRunRecordStatus,
   parseIssueIdentifier,
+  resolveConvergenceLockTtlMs,
   resolveCanonicalSubjectIssues,
   resolveTrackerAdapter,
   type DispatchExplainReport,
@@ -201,6 +202,10 @@ const handler = async (
     activeRunCount,
     maxConcurrentAgents: workflow.maxConcurrentAgents,
     maxConcurrentAgentsByState: workflow.maxConcurrentAgentsByState,
+    convergenceLock: {
+      now: new Date(),
+      ttlMs: resolveConvergenceLockTtlMs(process.env),
+    },
   });
   const enrichedReport = {
     ...report,

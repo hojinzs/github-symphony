@@ -24,6 +24,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return event.lastError;
     case "run-suppressed":
       return event.reason;
+    case "convergence-lock-expired":
+      return `Convergence lock expired after ${event.ttlMs}ms`;
     case "recovery-quarantined":
       return `Workspace quarantined before recovery: ${event.reason}`;
     case "hook-executed":

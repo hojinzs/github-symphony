@@ -38,7 +38,7 @@ import {
 } from "./execution-phase.js";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 import {
-  captureTurnWorkspaceSnapshot,
+  captureTurnBoundarySnapshot,
   evaluateTurnProgress,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
@@ -1034,7 +1034,7 @@ async function runCodexClientProtocol(
   const { approvalPolicy, threadSandbox, turnSandboxPolicy } =
     resolveCodexPolicySettings(env);
   let previousTurnProgressSnapshot = {
-    ...captureTurnWorkspaceSnapshot(plan.cwd),
+    ...captureTurnBoundarySnapshot(plan.cwd),
     lastError: runtimeState.run?.lastError ?? null,
   };
 
@@ -1753,7 +1753,7 @@ async function runCodexClientProtocol(
       }
 
       const currentTurnProgressSnapshot = {
-        ...captureTurnWorkspaceSnapshot(plan.cwd),
+        ...captureTurnBoundarySnapshot(plan.cwd),
         lastError: runtimeState.run?.lastError ?? null,
       };
       const turnProgress = evaluateTurnProgress(

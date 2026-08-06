@@ -105,6 +105,17 @@ export type RunSuppressedEvent = {
   reason: string;
 };
 
+export type ConvergenceLockExpiredEvent = {
+  at: string;
+  event: "convergence-lock-expired";
+  projectId?: string;
+  issueIdentifier: string;
+  issueId?: string;
+  runId: string;
+  ttlMs: number;
+  reason: "ttl_expired";
+};
+
 export type RecoveryQuarantinedEvent = {
   at: string;
   event: "recovery-quarantined";
@@ -252,6 +263,7 @@ export type OrchestratorEvent =
   | RunRetriedEvent
   | RunFailedEvent
   | RunSuppressedEvent
+  | ConvergenceLockExpiredEvent
   | RecoveryQuarantinedEvent
   | HookExecutedEvent
   | HookFailedEvent

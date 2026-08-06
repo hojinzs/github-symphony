@@ -34,6 +34,8 @@ import * as trackerAdapters from "./tracker-adapters.js";
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
   const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+  const originalConvergenceLockTtlMs =
+    process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS;
 
   it("clamps polling intervals to prevent spins and excessive sleeps", () => {
     expect(clampPollInterval(0)).toBe(1_000);
@@ -52,6 +54,12 @@ describe("OrchestratorService", () => {
       delete process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
     } else {
       process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS = originalAllowWorkflowHooks;
+    }
+    if (originalConvergenceLockTtlMs === undefined) {
+      delete process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS;
+    } else {
+      process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS =
+        originalConvergenceLockTtlMs;
     }
   });
 
@@ -6280,6 +6288,68 @@ Prefer focused changes.
     }
   });
 
+  it("emits one expiry event only after an expired lock can be redispatched", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS = "60000";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-convergence-expiry-event-")
+    );
+    try {
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        { maxConcurrentAgents: 0 }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await store.saveRun(
+        createConvergenceRunRecord(repository, tempRoot, {
+          completedAt: "2026-03-07T00:00:00.000Z",
+        })
+      );
+
+      const spawnImpl = vi.fn().mockReturnValue({
+        pid: 4110,
+        unref: vi.fn(),
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        fetchImpl: vi.fn().mockResolvedValue(
+          createTrackerResponseWithState(repository, "Todo", {
+            updatedAt: "2026-03-07T00:00:00.000Z",
+          })
+        ) as never,
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      await service.runOnce();
+      await service.runOnce();
+      expect(
+        await store.loadRecentRunEvents("run-1", 100, "tenant-1")
+      ).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "convergence-lock-expired" }),
+        ])
+      );
+
+      await commitWorkflowFixture(repository.path, {
+        maxConcurrentAgents: 1,
+      });
+      await service.runOnce();
+      await service.runOnce();
+
+      const expiryEvents = (
+        await store.loadRecentRunEvents("run-1", 100, "tenant-1")
+      ).filter((event) => event.event === "convergence-lock-expired");
+      expect(expiryEvents).toHaveLength(1);
+      expect(spawnImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("falls back to the default max failure retry limit when workflow loading fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -11612,6 +11682,48 @@ function createProjectConfig(
         projectId: "project-123",
         repository: `${repository.owner}/${repository.name}`,
       },
+    },
+  };
+}
+
+function createConvergenceRunRecord(
+  repository: RepositoryRef & { cloneUrl: string },
+  root: string,
+  options: { completedAt: string }
+): OrchestratorRunRecord {
+  return {
+    runId: "run-1",
+    projectId: "tenant-1",
+    projectSlug: "tenant-1",
+    issueId: "issue-1",
+    issueSubjectId: "issue-1",
+    issueIdentifier: "acme/platform#1",
+    issueState: "Todo",
+    repository,
+    status: "failed",
+    attempt: 1,
+    processId: null,
+    port: 4601,
+    workingDirectory: join(root, "run-1"),
+    issueWorkspaceKey: "acme_platform_1",
+    workspaceRuntimeDir: join(root, "run-1", "workspace-runtime"),
+    workflowPath: null,
+    retryKind: null,
+    threadId: "thread-1",
+    createdAt: options.completedAt,
+    updatedAt: options.completedAt,
+    startedAt: options.completedAt,
+    completedAt: options.completedAt,
+    lastError: "convergence_detected: workspace unchanged",
+    nextRetryAt: null,
+    runPhase: "failed",
+    runtimeSession: {
+      sessionId: "thread-1-turn-2",
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: options.completedAt,
+      updatedAt: options.completedAt,
+      exitClassification: "convergence-detected",
     },
   };
 }

@@ -392,6 +392,50 @@ describe("explainIssueDispatch", () => {
     );
   });
 
+  it("uses the effective convergence TTL when explaining ownership", () => {
+    const issue = makeIssue({
+      id: "issue-1",
+      identifier: "acme/repo#1",
+      updatedAt: null,
+    });
+    const run = makeRun({
+      runId: "run-convergence",
+      issueId: issue.id,
+      status: "failed",
+      completedAt: "2026-03-09T00:00:00.000Z",
+      runtimeSession: {
+        sessionId: null,
+        threadId: null,
+        status: "completed",
+        startedAt: "2026-03-09T00:00:00.000Z",
+        updatedAt: "2026-03-09T00:00:00.000Z",
+        exitClassification: "convergence-detected",
+      },
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [run],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+      convergenceLock: {
+        now: new Date("2026-03-09T00:02:00.000Z"),
+        ttlMs: 60_000,
+      },
+    });
+
+    expect(report.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "runtime_ownership", status: "pass" }),
+      ])
+    );
+  });
+
   it("does not warn about dirty-workspace recovery for a removed issue workspace", () => {
     const issue = makeIssue({ id: "issue-1", identifier: "acme/repo#1" });
     const run = makeRun({
