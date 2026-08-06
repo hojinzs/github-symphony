@@ -923,7 +923,7 @@ export class OrchestratorService {
       (value) => Number.isFinite(value) && value > 0
     );
     return configuredIntervals.length
-      ? clampPollInterval(Math.min(...configuredIntervals))
+      ? Math.min(...configuredIntervals)
       : DEFAULT_POLL_INTERVAL_MS;
   }
 

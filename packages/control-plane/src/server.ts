@@ -223,31 +223,59 @@ async function handleRefreshRequest(
     Number.isFinite(contentLength) &&
     contentLength > MAX_REFRESH_BODY_BYTES
   ) {
-    request.resume();
-    respondJson(response, 413, { error: "Request body too large" });
+    rejectOversizedRefreshRequest(request, response);
     return;
   }
 
   await new Promise<void>((resolve) => {
     let received = 0;
-    let rejected = false;
-    request.on("data", (chunk: Buffer | string) => {
+    const onData = (chunk: Buffer | string) => {
       received += Buffer.byteLength(chunk);
-      if (received > MAX_REFRESH_BODY_BYTES && !rejected) {
-        rejected = true;
-        request.resume();
-        respondJson(response, 413, { error: "Request body too large" });
+      if (received > MAX_REFRESH_BODY_BYTES) {
+        cleanup();
+        rejectOversizedRefreshRequest(request, response);
+        resolve();
       }
-    });
-    request.on("end", () => {
-      if (!rejected) {
-        options.onRefreshRequest?.();
-        respondJson(response, 202, { ok: true });
+    };
+    const onEnd = () => {
+      cleanup();
+      options.onRefreshRequest?.();
+      respondJson(response, 202, { ok: true });
+      resolve();
+    };
+    const onAborted = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      if (!response.headersSent) {
+        respondJson(response, 400, { error: "Invalid request body" });
       }
       resolve();
-    });
-    request.on("error", () => resolve());
+    };
+    const cleanup = () => {
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("aborted", onAborted);
+      request.off("error", onError);
+    };
+
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("aborted", onAborted);
+    request.on("error", onError);
   });
+}
+
+function rejectOversizedRefreshRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+): void {
+  response.shouldKeepAlive = false;
+  response.setHeader("Connection", "close");
+  response.once("finish", () => request.destroy());
+  respondJson(response, 413, { error: "Request body too large" });
 }
 
 function isDashboardRequest(pathname: string): boolean {
