@@ -161,26 +161,82 @@ export function hasConvergenceLockedRunForIssue(
   runs: readonly OrchestratorRunRecord[],
   issueId: string,
   issueState: string,
-  issueUpdatedAt: string | null | undefined
+  issueUpdatedAt: string | null | undefined,
+  options: {
+    now?: Date;
+    ttlMs?: number;
+  } = {}
 ): OrchestratorRunRecord | null {
+  const status = getConvergenceLockStatus(
+    runs,
+    issueId,
+    issueState,
+    issueUpdatedAt,
+    options
+  );
+  return status.expired ? null : status.run;
+}
+
+export function getConvergenceLockStatus(
+  runs: readonly OrchestratorRunRecord[],
+  issueId: string,
+  issueState: string,
+  issueUpdatedAt: string | null | undefined,
+  options: {
+    now?: Date;
+    ttlMs?: number;
+  } = {}
+): { run: OrchestratorRunRecord | null; expired: boolean } {
   const latestRun = latestRunForIssue(runs, issueId);
 
   if (
     latestRun?.runtimeSession?.exitClassification !== "convergence-detected" ||
     latestRun.issueState !== issueState
   ) {
-    return null;
+    return { run: null, expired: false };
   }
 
-  const convergedAtMs = parseTimestampMs(
+  const convergedAtMs = parseConvergenceTimestampMs(
     latestRun.completedAt ?? latestRun.updatedAt
   );
-  const issueUpdatedAtMs = parseTimestampMs(issueUpdatedAt);
-  if (convergedAtMs === null || issueUpdatedAtMs === null) {
-    return latestRun;
+  const issueUpdatedAtMs = parseConvergenceTimestampMs(issueUpdatedAt);
+  const nowMs = (options.now ?? new Date()).getTime();
+  const ttlMs = options.ttlMs ?? DEFAULT_CONVERGENCE_LOCK_TTL_MS;
+  if (issueUpdatedAtMs > convergedAtMs) {
+    return { run: null, expired: false };
+  }
+  if (nowMs - convergedAtMs >= ttlMs) {
+    return { run: latestRun, expired: true };
   }
 
-  return issueUpdatedAtMs <= convergedAtMs ? latestRun : null;
+  return {
+    run: latestRun,
+    expired: false,
+  };
+}
+
+export const DEFAULT_CONVERGENCE_LOCK_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function resolveConvergenceLockTtlMs(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS);
+  return Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_CONVERGENCE_LOCK_TTL_MS;
+}
+
+export function isConvergenceLockExpired(
+  run: OrchestratorRunRecord,
+  now: Date,
+  ttlMs: number
+): boolean {
+  if (run.runtimeSession?.exitClassification !== "convergence-detected") {
+    return false;
+  }
+
+  const convergedAtMs = parseConvergenceTimestampMs(
+    run.completedAt ?? run.updatedAt
+  );
+  return now.getTime() - convergedAtMs >= ttlMs;
 }
 
 export function isIssueOrchestrationClaimedState(
@@ -594,6 +650,23 @@ function latestRunForIssue(
           (parseTimestampMs(left.updatedAt) ?? -Infinity)
       )[0] ?? null
   );
+}
+
+function parseConvergenceTimestampMs(value: string | null | undefined): number {
+  if (!value) {
+    throw new Error(
+      "Convergence lock timestamp is missing; refusing to apply a silent fallback."
+    );
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(
+      `Convergence lock timestamp is invalid: ${JSON.stringify(value)}`
+    );
+  }
+
+  return parsed;
 }
 
 function parseTimestampMs(value: string | null | undefined): number | null {

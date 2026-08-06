@@ -66,7 +66,8 @@ import { getProcessStartIdentity } from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
-  hasConvergenceLockedRunForIssue,
+  getConvergenceLockStatus,
+  resolveConvergenceLockTtlMs,
   findActiveLinkedPullRequest,
   isActiveRunRecordStatus,
   isIssueCandidateEligibleWithReason,
@@ -934,6 +935,7 @@ export class OrchestratorService {
   ): Promise<ProjectStatusSnapshot> {
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
+    const convergenceLockTtlMs = resolveConvergenceLockTtlMs(process.env);
     let lastError: string | null = null;
     let trackerError: unknown = null;
     let dispatched = 0;
@@ -1121,16 +1123,25 @@ export class OrchestratorService {
       const latestRunsByIssueId = buildLatestRunMapByIssueId(
         projectRunsAfterReconcile
       );
+      const expiredConvergenceLocks: Array<{
+        run: OrchestratorRunRecord;
+        issue: TrackedIssue;
+      }> = [];
 
       const unscheduledCandidates = actionableCandidates.filter((issue) => {
-        if (
-          hasConvergenceLockedRunForIssue(
-            projectRunsAfterReconcile,
-            issue.id,
-            issue.state,
-            issue.updatedAt
-          )
-        ) {
+        const convergenceLock = getConvergenceLockStatus(
+          projectRunsAfterReconcile,
+          issue.id,
+          issue.state,
+          issue.updatedAt,
+          { now, ttlMs: convergenceLockTtlMs }
+        );
+        if (convergenceLock.expired) {
+          const expiredRun = convergenceLock.run;
+          if (expiredRun) {
+            expiredConvergenceLocks.push({ run: expiredRun, issue });
+          }
+        } else if (convergenceLock.run) {
           return false;
         }
 
@@ -1140,6 +1151,20 @@ export class OrchestratorService {
             isIssueOrchestrationClaimedState(record.state)
         );
       });
+      await Promise.all(
+        expiredConvergenceLocks.map(({ run, issue }) =>
+          this.store.appendRunEvent(run.runId, {
+            at: now.toISOString(),
+            event: "convergence-lock-expired",
+            projectId: tenant.projectId,
+            issueIdentifier: issue.identifier,
+            issueId: issue.id,
+            runId: run.runId,
+            ttlMs: convergenceLockTtlMs,
+            reason: "ttl_expired",
+          })
+        )
+      );
 
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
       const sortedCandidates = sortCandidatesForDispatch(unscheduledCandidates);

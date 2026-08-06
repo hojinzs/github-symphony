@@ -8,6 +8,13 @@ export type TurnWorkspaceSnapshot = {
   headSha: string | null;
 };
 
+/** Capture only at a turn boundary; callers must not sample during a turn. */
+export function captureTurnBoundarySnapshot(
+  cwd: string
+): TurnWorkspaceSnapshot {
+  return captureTurnWorkspaceSnapshot(cwd);
+}
+
 export type TurnProgressSnapshot = TurnWorkspaceSnapshot & {
   lastError: string | null;
 };
@@ -20,9 +27,7 @@ export type TurnProgressEvaluation = {
   fingerprintUnchanged: boolean;
 };
 
-export function resolveMaxNonProductiveTurns(
-  env: NodeJS.ProcessEnv
-): number {
+export function resolveMaxNonProductiveTurns(env: NodeJS.ProcessEnv): number {
   const rawValue = env.SYMPHONY_MAX_NONPRODUCTIVE_TURNS;
   const parsed = Number(rawValue);
   return Number.isInteger(parsed) && parsed > 0

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  captureTurnBoundarySnapshot,
   captureTurnWorkspaceSnapshot,
   evaluateTurnProgress,
   resolveMaxNonProductiveTurns,
@@ -83,6 +84,45 @@ describe("convergence detection helpers", () => {
     expect(snapshot.fingerprint).toBe("");
     expect(snapshot.changedFiles).toEqual([]);
     expect(snapshot.headSha).toBe(headSha);
+  });
+
+  it("uses the same snapshot contract at turn boundaries", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "worker-convergence-"));
+    tempRoots.push(repoRoot);
+
+    execSync("git init", { cwd: repoRoot, stdio: "ignore" });
+    const boundary = captureTurnBoundarySnapshot(repoRoot);
+
+    expect(boundary).toEqual(captureTurnWorkspaceSnapshot(repoRoot));
+  });
+
+  it("compares HEAD snapshots at turn boundaries when a turn commits", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "worker-convergence-"));
+    tempRoots.push(repoRoot);
+
+    execSync("git init", { cwd: repoRoot, stdio: "ignore" });
+    await writeFile(join(repoRoot, "notes.txt"), "before\n", "utf8");
+    execSync("git add notes.txt", { cwd: repoRoot, stdio: "ignore" });
+    execSync(
+      'git -c user.name="Test User" -c user.email="test@example.com" -c commit.gpgsign=false commit -m "initial"',
+      { cwd: repoRoot, stdio: "ignore" }
+    );
+    const turnStart = captureTurnBoundarySnapshot(repoRoot);
+
+    await writeFile(join(repoRoot, "notes.txt"), "after\n", "utf8");
+    execSync("git add notes.txt", { cwd: repoRoot, stdio: "ignore" });
+    execSync(
+      'git -c user.name="Test User" -c user.email="test@example.com" -c commit.gpgsign=false commit -m "turn change"',
+      { cwd: repoRoot, stdio: "ignore" }
+    );
+    const turnEnd = captureTurnBoundarySnapshot(repoRoot);
+
+    expect(
+      evaluateTurnProgress(
+        { ...turnStart, lastError: null },
+        { ...turnEnd, lastError: null }
+      ).nonProductive
+    ).toBe(false);
   });
 
   it("marks clean snapshots with unchanged HEAD as non-productive", () => {
