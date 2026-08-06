@@ -1417,7 +1417,7 @@ describe("read timeout (3.5)", () => {
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
-      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "workspaceWrite",
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
@@ -1444,7 +1444,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
-          sandboxPolicy: { type: "workspace-write" },
+          sandboxPolicy: { type: "workspaceWrite" },
         },
       },
     ]);
@@ -1458,7 +1458,7 @@ describe("read timeout (3.5)", () => {
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
-      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "workspaceWrite",
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
@@ -1499,7 +1499,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
-          sandboxPolicy: { type: "workspace-write" },
+          sandboxPolicy: { type: "workspaceWrite" },
         },
       },
     ]);

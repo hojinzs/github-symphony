@@ -1,18 +1,21 @@
-export const APPROVAL_POLICIES = [
-  "never",
-  "on-failure",
-  "on-request",
-  "untrusted",
-] as const;
+export const APPROVAL_POLICIES = ["never", "on-request", "untrusted"] as const;
 export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
 
-export const SANDBOX_POLICIES = [
+export const THREAD_SANDBOX_MODES = [
   "read-only",
   "workspace-write",
   "danger-full-access",
 ] as const;
-export type SandboxPolicyType = (typeof SANDBOX_POLICIES)[number];
-export type TurnSandboxPolicy = { type: SandboxPolicyType } | undefined;
+export type ThreadSandboxMode = (typeof THREAD_SANDBOX_MODES)[number];
+
+export const TURN_SANDBOX_POLICY_TYPES = [
+  "dangerFullAccess",
+  "readOnly",
+  "externalSandbox",
+  "workspaceWrite",
+] as const;
+export type TurnSandboxPolicyType = (typeof TURN_SANDBOX_POLICY_TYPES)[number];
+export type TurnSandboxPolicy = { type: TurnSandboxPolicyType } | undefined;
 type CodexPolicyEnv = Partial<
   Record<
     | "SYMPHONY_APPROVAL_POLICY"
@@ -24,7 +27,7 @@ type CodexPolicyEnv = Partial<
 
 export function resolveCodexPolicySettings(env: CodexPolicyEnv): {
   approvalPolicy: ApprovalPolicy;
-  threadSandbox: SandboxPolicyType;
+  threadSandbox: ThreadSandboxMode;
   turnSandboxPolicy: TurnSandboxPolicy;
 } {
   const approvalPolicy = resolvePolicyValue(
@@ -36,7 +39,7 @@ export function resolveCodexPolicySettings(env: CodexPolicyEnv): {
   const threadSandbox = resolvePolicyValue(
     env.SYMPHONY_THREAD_SANDBOX,
     "danger-full-access",
-    SANDBOX_POLICIES,
+    THREAD_SANDBOX_MODES,
     "SYMPHONY_THREAD_SANDBOX"
   );
 
@@ -48,7 +51,7 @@ export function resolveCodexPolicySettings(env: CodexPolicyEnv): {
           type: resolvePolicyValue(
             env.SYMPHONY_TURN_SANDBOX_POLICY,
             undefined,
-            SANDBOX_POLICIES,
+            TURN_SANDBOX_POLICY_TYPES,
             "SYMPHONY_TURN_SANDBOX_POLICY"
           ),
         }

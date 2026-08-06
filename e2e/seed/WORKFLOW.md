@@ -22,7 +22,7 @@ codex:
   command: node /app/e2e/stub-worker.js
   approval_policy: on-request
   thread_sandbox: workspace-write
-  turn_sandbox_policy: workspace-write
+  turn_sandbox_policy: workspaceWrite
   stall_timeout_ms: 60000
 ---
 You are an AI agent working on issue {{issue.identifier}}.
