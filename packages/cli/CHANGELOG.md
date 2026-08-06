@@ -1,5 +1,21 @@
 # @gh-symphony/cli
 
+## 0.7.5
+
+### Patch Changes
+
+- [#534](https://github.com/hojinzs/github-symphony/pull/534) [`8a1285e`](https://github.com/hojinzs/github-symphony/commit/8a1285e5530bec8fd4212f42fba343100e1b0a5c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Harden workspace path validation against traversal and symlink escapes across platforms (hojinzs/github-symphony#528).
+
+- [#527](https://github.com/hojinzs/github-symphony/pull/527) [`2b1421a`](https://github.com/hojinzs/github-symphony/commit/2b1421a801e7fa73118bbcc617ff72b38134c2ff) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Protect `github_graphql` agent calls with shared GitHub GraphQL rate-limit guards and record measured request cost for issue [#481](https://github.com/hojinzs/github-symphony/issues/481).
+
+- [#524](https://github.com/hojinzs/github-symphony/pull/524) [`fba1616`](https://github.com/hojinzs/github-symphony/commit/fba1616ec28cca69f40b0b3cb08e2cf3ff5fbf5b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Serialize GitHub GraphQL rate-limit checks and recover from rate-limited responses with bounded retries for [#450](https://github.com/hojinzs/github-symphony/issues/450).
+
+- [#525](https://github.com/hojinzs/github-symphony/pull/525) [`b5a417e`](https://github.com/hojinzs/github-symphony/commit/b5a417e0caed751fc02bfd4a52207671c5e610c9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Bound Liquid prompt rendering resources and isolate untrusted issue bodies in worker prompts for [#449](https://github.com/hojinzs/github-symphony/issues/449).
+
+- [#520](https://github.com/hojinzs/github-symphony/pull/520) [`ea5309a`](https://github.com/hojinzs/github-symphony/commit/ea5309a7967dfa897150d3616b932e5bd2319c11) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Redact free-form observability and doctor output secrets, including fine-grained GitHub PATs and URL-embedded credentials, for [#442](https://github.com/hojinzs/github-symphony/issues/442).
+
+- [#531](https://github.com/hojinzs/github-symphony/pull/531) [`1cebb68`](https://github.com/hojinzs/github-symphony/commit/1cebb682f803c5dbf8f18e65468c6017fc325977) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Surface orchestrator hook and workspace cleanup failures, preserve cleanup-pending state when deletion fails, and guarantee project lock release during shutdown for [#451](https://github.com/hojinzs/github-symphony/issues/451).
+
 ## 0.7.4
 
 ### Patch Changes
