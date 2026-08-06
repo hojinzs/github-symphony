@@ -8,6 +8,33 @@ import { timingSafeEqual } from "node:crypto";
 import { DashboardFsReader, statusForIssue } from "./store.js";
 
 const REDACTED = "[REDACTED]";
+const SAFE_ERROR_NAMES = new Set([
+  "AggregateError",
+  "Error",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TypeError",
+  "URIError",
+]);
+export const SECURITY_RESPONSE_HEADERS = Object.freeze({
+  "content-security-policy": [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "img-src 'self' data:",
+    "object-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+  ].join("; "),
+  "permissions-policy": "camera=(), geolocation=(), microphone=()",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+});
 const STATE_REDACTED_KEYS = new Set([
   "lastError",
   "sessionId",
@@ -136,7 +163,7 @@ export function createDashboardRequestHandler(options: {
       });
       respondJson(response, resolved.status, resolved.payload);
     } catch (error) {
-      console.error("Dashboard request failed.", error);
+      console.error("Dashboard request failed.", sanitizeErrorForLog(error));
       if (!response.headersSent) {
         respondJson(response, 500, {
           error: "Internal server error",
@@ -216,7 +243,18 @@ function respondJson(
   payload: unknown
 ): void {
   response.writeHead(status, {
-    "content-type": "application/json",
+    ...SECURITY_RESPONSE_HEADERS,
+    "content-type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(payload));
+}
+
+export function sanitizeErrorForLog(error: unknown): {
+  errorType: string;
+} {
+  if (!(error instanceof Error) || !SAFE_ERROR_NAMES.has(error.name)) {
+    return { errorType: "UnknownError" };
+  }
+
+  return { errorType: error.name };
 }

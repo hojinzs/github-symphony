@@ -11,6 +11,8 @@ import {
   DashboardFsReader,
   isAuthorizedApiRequest,
   resolveDashboardResponse,
+  sanitizeErrorForLog,
+  SECURITY_RESPONSE_HEADERS,
 } from "@gh-symphony/dashboard";
 
 const CLIENT_DIST_DIR = join(
@@ -136,7 +138,10 @@ export function createControlPlaneHandler(
 
       await respondFile(response, asset.path, method, asset.fallback);
     } catch (error) {
-      console.error("Control plane request failed.", error);
+      console.error(
+        "Control plane request failed.",
+        sanitizeErrorForLog(error)
+      );
       if (!response.headersSent) {
         respondJson(response, 500, { error: "Internal server error" });
       } else {
@@ -382,6 +387,7 @@ async function respondFile(
       ? "no-cache"
       : "public, max-age=31536000, immutable";
   response.writeHead(200, {
+    ...SECURITY_RESPONSE_HEADERS,
     "cache-control": cacheControl,
     "content-type": contentType,
   });
@@ -407,6 +413,7 @@ function respondJson(
   payload: unknown
 ): void {
   response.writeHead(status, {
+    ...SECURITY_RESPONSE_HEADERS,
     "content-type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(payload));

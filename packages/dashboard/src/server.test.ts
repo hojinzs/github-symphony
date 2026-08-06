@@ -478,6 +478,10 @@ describe("startDashboardServer", () => {
       const baseUrl = `http://127.0.0.1:${addressInfo.port}`;
       const unauthorized = await fetch(`${baseUrl}/api/v1/state`);
       expect(unauthorized.status).toBe(401);
+      expectSecurityHeaders(unauthorized);
+      expect(unauthorized.headers.get("content-type")).toBe(
+        "application/json; charset=utf-8"
+      );
       await expect(unauthorized.json()).resolves.toEqual({
         error: "Unauthorized",
       });
@@ -519,7 +523,9 @@ describe("startDashboardServer", () => {
 
   it("returns a 500 JSON payload when request handling throws", async () => {
     const reader = createReader();
-    reader.loadProjectState.mockRejectedValue(new Error("boom"));
+    reader.loadProjectState.mockRejectedValue(
+      new Error("token=super-secret at /Users/operator/private/workspace")
+    );
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const server = startDashboardServer({
       host: "127.0.0.1",
@@ -545,8 +551,25 @@ describe("startDashboardServer", () => {
         error: "Internal server error",
       });
       expect(errorSpy).toHaveBeenCalledOnce();
+      expect(errorSpy).toHaveBeenCalledWith("Dashboard request failed.", {
+        errorType: "Error",
+      });
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("super-secret");
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("/Users/");
     } finally {
       server.close();
     }
   });
 });
+
+function expectSecurityHeaders(response: Response): void {
+  expect(response.headers.get("content-security-policy")).toContain(
+    "frame-ancestors 'none'"
+  );
+  expect(response.headers.get("permissions-policy")).toBe(
+    "camera=(), geolocation=(), microphone=()"
+  );
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("x-frame-options")).toBe("DENY");
+}

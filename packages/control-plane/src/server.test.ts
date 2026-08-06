@@ -232,6 +232,7 @@ describe("createControlPlaneHandler", () => {
     const response = await fetchWithHandler(handler, "/assets/app.js");
 
     expect(response.status).toBe(200);
+    expectSecurityHeaders(response);
     expect(response.headers.get("content-type")).toContain(
       "application/javascript"
     );
@@ -289,6 +290,7 @@ describe("createControlPlaneHandler", () => {
     );
 
     expect(response.status).toBe(200);
+    expectSecurityHeaders(response);
     expect(response.headers.get("content-type")).toContain("text/html");
     await expect(response.text()).resolves.toContain('<div id="root"></div>');
   });
@@ -308,6 +310,30 @@ describe("createControlPlaneHandler", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  it("logs a sanitized error type without message, stack, or path", async () => {
+    const reader = createReader();
+    const sensitiveError = new Error(
+      "token=super-secret at /Users/operator/private/workspace"
+    );
+    reader.loadProjectState.mockRejectedValue(sensitiveError);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = createControlPlaneHandler({
+      reader: reader as never,
+      apiToken: API_TOKEN,
+    });
+
+    const response = await fetchWithHandler(handler, "/api/v1/state", {
+      headers: AUTHORIZATION,
+    });
+
+    expect(response.status).toBe(500);
+    expect(errorSpy).toHaveBeenCalledWith("Control plane request failed.", {
+      errorType: "Error",
+    });
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("super-secret");
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("/Users/");
   });
 });
 
@@ -386,6 +412,18 @@ async function fetchWithHandler(
       server.instance.close((error) => (error ? reject(error) : resolve()))
     );
   }
+}
+
+function expectSecurityHeaders(response: Response): void {
+  expect(response.headers.get("content-security-policy")).toContain(
+    "frame-ancestors 'none'"
+  );
+  expect(response.headers.get("permissions-policy")).toBe(
+    "camera=(), geolocation=(), microphone=()"
+  );
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("x-frame-options")).toBe("DENY");
 }
 
 async function startEphemeralServer(
