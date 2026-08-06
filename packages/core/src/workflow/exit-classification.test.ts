@@ -35,6 +35,18 @@ describe("classifySessionExit", () => {
     ).toBe("timeout");
   });
 
+  it("classifies reconciliation cancellations separately from errors", () => {
+    expect(
+      classifySessionExit({
+        runPhase: "canceled_by_reconciliation",
+        userInputRequired: false,
+        budgetExceeded: false,
+        convergenceDetected: false,
+        maxTurnsReached: false,
+      })
+    ).toBe("canceled_by_reconciliation");
+  });
+
   it("classifies budget exits distinctly from per-session turn limits", () => {
     expect(
       classifySessionExit({

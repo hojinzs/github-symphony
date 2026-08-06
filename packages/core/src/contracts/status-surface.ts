@@ -69,6 +69,7 @@ export const SESSION_EXIT_CLASSIFICATIONS = [
   "max-turns-reached",
   "user-input-required",
   "timeout",
+  "canceled_by_reconciliation",
   "error",
   "incomplete-turn-dirty-workspace",
 ] as const;
