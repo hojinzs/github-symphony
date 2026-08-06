@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.7.6
+
+### Patch Changes
+
+- [#532](https://github.com/hojinzs/github-symphony/pull/532) [`52e51cf`](https://github.com/hojinzs/github-symphony/commit/52e51cfbdb736b40f565b2293885fba3009214a8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Classify reconciliation-canceled sessions separately from errors ([#452](https://github.com/hojinzs/github-symphony/issues/452)).
+
 ## 0.7.5
 
 ### Patch Changes
