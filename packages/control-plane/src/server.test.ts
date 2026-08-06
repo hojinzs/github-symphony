@@ -63,6 +63,27 @@ describe("createControlPlaneHandler", () => {
     expect(onRefreshRequest).toHaveBeenCalledOnce();
   });
 
+  it("rejects refresh bodies over the configured limit", async () => {
+    const onRefreshRequest = vi.fn();
+    const handler = createControlPlaneHandler({
+      reader: createReader() as never,
+      apiToken: API_TOKEN,
+      onRefreshRequest,
+    });
+
+    const response = await fetchWithHandler(handler, "/api/v1/refresh", {
+      method: "POST",
+      body: Buffer.alloc(64 * 1024 + 1),
+      headers: AUTHORIZATION,
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "Request body too large",
+    });
+    expect(onRefreshRequest).not.toHaveBeenCalled();
+  });
+
   it("delegates GET /api/v1/state to the dashboard resolver", async () => {
     const reader = createReader();
     reader.loadProjectState.mockResolvedValue({

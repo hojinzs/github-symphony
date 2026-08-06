@@ -28,12 +28,18 @@ import {
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
-import { OrchestratorService } from "./service.js";
+import { clampPollInterval, OrchestratorService } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
   const originalToken = process.env.GITHUB_GRAPHQL_TOKEN;
   const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
+
+  it("clamps polling intervals to prevent spins and excessive sleeps", () => {
+    expect(clampPollInterval(0)).toBe(1_000);
+    expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
+    expect(clampPollInterval(30_000)).toBe(30_000);
+  });
 
   afterEach(() => {
     vi.restoreAllMocks();

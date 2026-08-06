@@ -11,6 +11,10 @@ import {
 
 export const DEFAULT_LINEAR_GRAPHQL_URL = CORE_DEFAULT_LINEAR_GRAPHQL_URL;
 const DEFAULT_PAGE_SIZE = 50;
+export const DEFAULT_LINEAR_MAX_PAGES = 100;
+export const MAX_LINEAR_MAX_PAGES = 1_000;
+export const DEFAULT_LINEAR_PAGE_TIMEOUT_MS = 10_000;
+export const MAX_LINEAR_PAGE_TIMEOUT_MS = 60_000;
 const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
 
 type LinearRateLimitPayload = {
@@ -263,6 +267,8 @@ async function listLinearIssues(
         : undefined,
     assignedOnly: config.assignedOnly,
     pageSize: config.pageSize,
+    maxPages: config.maxPages,
+    pageTimeoutMs: config.pageTimeoutMs,
   });
 
   const fetchedIssues = result.nodes.map((node) =>
@@ -301,6 +307,8 @@ async function fetchPaginatedLinearIssues(
     issueIdentifiers?: string[];
     assignedOnly: boolean;
     pageSize: number;
+    maxPages: number;
+    pageTimeoutMs: number;
   }
 ): Promise<{
   nodes: LinearIssueNode[];
@@ -310,7 +318,7 @@ async function fetchPaginatedLinearIssues(
   let latestRateLimits: LinearRateLimitPayload | null = null;
   let after: string | null = null;
 
-  do {
+  for (let page = 0; page < input.maxPages; page += 1) {
     const query = input.issueIdentifiers
       ? LINEAR_ISSUES_BY_IDENTIFIERS_QUERY
       : input.issueIds
@@ -331,7 +339,10 @@ async function fetchPaginatedLinearIssues(
     after = connection?.pageInfo?.hasNextPage
       ? (connection.pageInfo.endCursor ?? null)
       : null;
-  } while (after);
+    if (!after) {
+      break;
+    }
+  }
 
   return {
     nodes: issues,
@@ -428,14 +439,22 @@ function createLinearGraphqlClient(
     data: TData;
     rateLimits: LinearRateLimitPayload | null;
   }> => {
-    const response = await fetchImpl(config.endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: config.token,
-      },
-      body: JSON.stringify({ query, variables }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.pageTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetchImpl(config.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: config.token,
+        },
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     const rateLimits = extractLinearRateLimits(response.headers);
 
     if (!response.ok) {
@@ -559,6 +578,16 @@ function resolveLinearTrackerConfig(
     pageSize:
       readPositiveIntegerSetting(project.tracker, "pageSize") ??
       DEFAULT_PAGE_SIZE,
+    maxPages: Math.min(
+      readPositiveIntegerSetting(project.tracker, "maxPages") ??
+        DEFAULT_LINEAR_MAX_PAGES,
+      MAX_LINEAR_MAX_PAGES
+    ),
+    pageTimeoutMs: Math.min(
+      readPositiveIntegerSetting(project.tracker, "pageTimeoutMs") ??
+        DEFAULT_LINEAR_PAGE_TIMEOUT_MS,
+      MAX_LINEAR_PAGE_TIMEOUT_MS
+    ),
     pickupLabels: resolvePickupLabels(project.tracker),
     projectSlug,
     token,

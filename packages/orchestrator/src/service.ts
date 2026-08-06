@@ -74,6 +74,8 @@ import {
 } from "./explain.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
+export const MIN_POLL_INTERVAL_MS = 1_000;
+export const MAX_POLL_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 30_000;
 const CONTINUATION_RETRY_DELAY_MS = 1_000;
@@ -101,6 +103,13 @@ const INHERITED_ENV_ALLOWLIST = new Set([
 ]);
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 const WORKFLOW_HOOK_ENV_ALLOWLIST_ENV = "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST";
+
+export function clampPollInterval(intervalMs: number): number {
+  return Math.min(
+    MAX_POLL_INTERVAL_MS,
+    Math.max(MIN_POLL_INTERVAL_MS, intervalMs)
+  );
+}
 
 type ProjectWorkflowResolution = Awaited<
   ReturnType<typeof loadRepositoryWorkflow>
@@ -907,14 +916,14 @@ export class OrchestratorService {
 
   getEffectivePollIntervalMs(): number {
     if (this.dependencies.pollIntervalMs) {
-      return this.dependencies.pollIntervalMs;
+      return clampPollInterval(this.dependencies.pollIntervalMs);
     }
 
     const configuredIntervals = [...this.projectPollIntervals.values()].filter(
       (value) => Number.isFinite(value) && value > 0
     );
     return configuredIntervals.length
-      ? Math.min(...configuredIntervals)
+      ? clampPollInterval(Math.min(...configuredIntervals))
       : DEFAULT_POLL_INTERVAL_MS;
   }
 
@@ -3714,7 +3723,7 @@ export class OrchestratorService {
       ? resolution.workflow.polling.intervalMs
       : NaN;
     return Number.isFinite(interval) && interval > 0
-      ? interval
+      ? clampPollInterval(interval)
       : DEFAULT_POLL_INTERVAL_MS;
   }
 

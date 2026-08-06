@@ -182,6 +182,35 @@ describe("linearTrackerAdapter", () => {
     ]);
   });
 
+  it("limits pagination and supplies a per-page abort signal", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-1", [])],
+            pageInfo: { hasNextPage: true, endCursor: "cursor-1" },
+          },
+        },
+      })
+    );
+
+    const issues = await linearTrackerAdapter.listIssues(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          maxPages: 1,
+          pageTimeoutMs: 1_000,
+        },
+      }),
+      { fetchImpl, token: "linear-token" }
+    );
+
+    expect(issues).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("listIssuesByStates queries Linear directly without using projectItemsCache", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({

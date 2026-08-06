@@ -35,6 +35,7 @@ const CLIENT_DIST_DIR_CANDIDATES = [
   WORKSPACE_CLIENT_DIST_DIR,
   NODE_MODULES_CLIENT_DIST_DIR,
 ];
+export const MAX_REFRESH_BODY_BYTES = 64 * 1024;
 let clientDistDirPromise: Promise<string | null> | undefined;
 
 const TEXT_CONTENT_TYPES = new Set([
@@ -214,9 +215,39 @@ async function handleRefreshRequest(
     return;
   }
 
-  request.resume();
-  options.onRefreshRequest?.();
-  respondJson(response, 202, { ok: true });
+  const contentLength = Number.parseInt(
+    request.headers["content-length"] ?? "",
+    10
+  );
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_REFRESH_BODY_BYTES
+  ) {
+    request.resume();
+    respondJson(response, 413, { error: "Request body too large" });
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    let received = 0;
+    let rejected = false;
+    request.on("data", (chunk: Buffer | string) => {
+      received += Buffer.byteLength(chunk);
+      if (received > MAX_REFRESH_BODY_BYTES && !rejected) {
+        rejected = true;
+        request.resume();
+        respondJson(response, 413, { error: "Request body too large" });
+      }
+    });
+    request.on("end", () => {
+      if (!rejected) {
+        options.onRefreshRequest?.();
+        respondJson(response, 202, { ok: true });
+      }
+      resolve();
+    });
+    request.on("error", () => resolve());
+  });
 }
 
 function isDashboardRequest(pathname: string): boolean {
