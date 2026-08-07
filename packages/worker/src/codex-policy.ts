@@ -1,4 +1,16 @@
-export const APPROVAL_POLICIES = ["never", "on-request", "untrusted"] as const;
+/**
+ * Keep these values aligned with the Codex contracts used by the worker:
+ * `ApprovalMode` from @openai/codex-sdk@0.147.0 (`dist/index.d.ts`) and
+ * sandbox types from `codex app-server generate-ts` (`v2/SandboxMode.ts` and
+ * `v2/SandboxPolicy.ts`). `codex.command` is user-configurable, so update
+ * these lists when the targeted Codex protocol changes.
+ */
+export const APPROVAL_POLICIES = [
+  "never",
+  "on-request",
+  "on-failure",
+  "untrusted",
+] as const;
 export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
 
 export const THREAD_SANDBOX_MODES = [

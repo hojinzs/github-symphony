@@ -6,7 +6,7 @@ describe("resolveCodexPolicySettings", () => {
     expect(() =>
       resolveCodexPolicySettings({ SYMPHONY_APPROVAL_POLICY: "on-reqest" })
     ).toThrow(
-      'Invalid SYMPHONY_APPROVAL_POLICY value "on-reqest". Expected one of: never, on-request, untrusted.'
+      'Invalid SYMPHONY_APPROVAL_POLICY value "on-reqest". Expected one of: never, on-request, on-failure, untrusted.'
     );
 
     expect(() =>
@@ -25,7 +25,12 @@ describe("resolveCodexPolicySettings", () => {
   });
 
   it("accepts every supported policy value", () => {
-    for (const approvalPolicy of ["never", "on-request", "untrusted"]) {
+    for (const approvalPolicy of [
+      "never",
+      "on-request",
+      "on-failure",
+      "untrusted",
+    ]) {
       expect(
         resolveCodexPolicySettings({
           SYMPHONY_APPROVAL_POLICY: approvalPolicy,
