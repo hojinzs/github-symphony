@@ -13,7 +13,7 @@ metadata:
 ## Purpose
 
 Request issue-scoped tracker state reads and transitions from the orchestrator,
-then write lifecycle comments only after confirmed success.
+writing lifecycle comments before the request and correcting them if it fails.
 
 ## Prerequisites
 
@@ -70,5 +70,6 @@ Use `gh api -X PATCH /repos/<owner>/<repo>/issues/comments/<comment-id> -F body=
 - Always follow the `WORKFLOW.md` status map.
 - Never traverse provider boards or mutate tracker fields directly from a worker.
 - Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions.
-- Post transition comments and update the workpad only after `.ok == true`, `.outcome == "confirmed"`, and the returned state matches the target.
+- Post the transition comment and workpad line **before** sending the transition request. A confirmed transition into a non-active state makes the issue ineligible, and reconciliation can terminate this worker mid-turn, so anything deferred until after the response may never be written.
+- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, immediately post the `⚠️ Status transition failed` correction comment and workpad line (WORKFLOW.md Posture 5). A failed transition leaves the worker running, so the correction always lands.
 - Before transitioning to a terminal state, verify the Completion Bar and merged PR requirements.

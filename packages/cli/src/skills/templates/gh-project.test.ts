@@ -46,10 +46,20 @@ describe("generateGhProjectSkill", () => {
     expect(result).not.toContain("PVTF_field123");
   });
 
-  it("requires confirmed readback before lifecycle comments", () => {
+  it("requires the transition comment before the transition request", () => {
+    const result = generateGhProjectSkill(mockCtx);
+    expect(result).toContain(
+      "Post the transition comment and workpad line **before** sending the transition request"
+    );
+    expect(result).not.toContain(
+      "Post transition comments and update the workpad only after"
+    );
+  });
+
+  it("requires a correction record when the transition is not confirmed", () => {
     const result = generateGhProjectSkill(mockCtx);
     expect(result).toContain('.outcome == "confirmed"');
-    expect(result).toContain("only after");
+    expect(result).toContain("⚠️ Status transition failed");
   });
 
   it("does not contain raw double-brace template variables", () => {

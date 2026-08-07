@@ -11,7 +11,9 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push(
     "Request issue-scoped tracker state reads and transitions from the orchestrator,"
   );
-  lines.push("then write lifecycle comments only after confirmed success.");
+  lines.push(
+    "writing lifecycle comments before the request and correcting them if it fails."
+  );
   lines.push("");
   lines.push("## Prerequisites");
   lines.push("");
@@ -121,7 +123,10 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     "- Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions"
   );
   lines.push(
-    '- Post transition comments and update the workpad only after `.ok == true`, `.outcome == "confirmed"`, and the returned state matches the target'
+    "- Post the transition comment and workpad line **before** sending the transition request; a confirmed transition into a non-active state makes the issue ineligible and reconciliation can terminate the worker mid-turn, so deferred bookkeeping may never be written"
+  );
+  lines.push(
+    '- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, immediately post the `⚠️ Status transition failed` correction comment and workpad line'
   );
   lines.push(
     "- Before transitioning to a terminal state, verify the Completion Bar is satisfied:"
