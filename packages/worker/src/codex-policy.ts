@@ -1,16 +1,15 @@
 /**
  * Keep these values aligned with the Codex contracts used by the worker:
- * `ApprovalMode` from @openai/codex-sdk@0.147.0 (`dist/index.d.ts`) and
- * sandbox types from `codex app-server generate-ts` (`v2/SandboxMode.ts` and
- * `v2/SandboxPolicy.ts`). `codex.command` is user-configurable, so update
- * these lists when the targeted Codex protocol changes.
+ * string variants of `AskForApproval`, `SandboxMode`, and `SandboxPolicy`
+ * from `codex app-server generate-ts`@0.147.0
+ * (`v2/AskForApproval.ts`, `v2/SandboxMode.ts`, and
+ * `v2/SandboxPolicy.ts`). The granular approval object and structured turn
+ * sandbox variants cannot be represented by the current string environment
+ * settings, so they are intentionally not accepted here. `codex.command`
+ * is user-configurable; update these lists when the targeted Codex protocol
+ * changes.
  */
-export const APPROVAL_POLICIES = [
-  "never",
-  "on-request",
-  "on-failure",
-  "untrusted",
-] as const;
+export const APPROVAL_POLICIES = ["never", "on-request", "untrusted"] as const;
 export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
 
 export const THREAD_SANDBOX_MODES = [
@@ -20,12 +19,7 @@ export const THREAD_SANDBOX_MODES = [
 ] as const;
 export type ThreadSandboxMode = (typeof THREAD_SANDBOX_MODES)[number];
 
-export const TURN_SANDBOX_POLICY_TYPES = [
-  "dangerFullAccess",
-  "readOnly",
-  "externalSandbox",
-  "workspaceWrite",
-] as const;
+export const TURN_SANDBOX_POLICY_TYPES = ["dangerFullAccess"] as const;
 export type TurnSandboxPolicyType = (typeof TURN_SANDBOX_POLICY_TYPES)[number];
 export type TurnSandboxPolicy = { type: TurnSandboxPolicyType } | undefined;
 export type CodexPolicyEnv = Partial<

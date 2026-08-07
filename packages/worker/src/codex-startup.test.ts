@@ -31,7 +31,7 @@ describe("launchCodexWithValidatedPolicy", () => {
         {
           SYMPHONY_APPROVAL_POLICY: "on-request",
           SYMPHONY_THREAD_SANDBOX: "workspace-write",
-          SYMPHONY_TURN_SANDBOX_POLICY: "workspaceWrite",
+          SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAccess",
         },
         launch,
         onPolicyValidationFailure
@@ -41,7 +41,7 @@ describe("launchCodexWithValidatedPolicy", () => {
       policySettings: {
         approvalPolicy: "on-request",
         threadSandbox: "workspace-write",
-        turnSandboxPolicy: { type: "workspaceWrite" },
+        turnSandboxPolicy: { type: "dangerFullAccess" },
       },
     });
     expect(launch).toHaveBeenCalledOnce();

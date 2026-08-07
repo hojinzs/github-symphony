@@ -6,7 +6,7 @@ describe("resolveCodexPolicySettings", () => {
     expect(() =>
       resolveCodexPolicySettings({ SYMPHONY_APPROVAL_POLICY: "on-reqest" })
     ).toThrow(
-      'Invalid SYMPHONY_APPROVAL_POLICY value "on-reqest". Expected one of: never, on-request, on-failure, untrusted.'
+      'Invalid SYMPHONY_APPROVAL_POLICY value "on-reqest". Expected one of: never, on-request, untrusted.'
     );
 
     expect(() =>
@@ -20,17 +20,22 @@ describe("resolveCodexPolicySettings", () => {
         SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAcess",
       })
     ).toThrow(
-      'Invalid SYMPHONY_TURN_SANDBOX_POLICY value "dangerFullAcess". Expected one of: dangerFullAccess, readOnly, externalSandbox, workspaceWrite.'
+      'Invalid SYMPHONY_TURN_SANDBOX_POLICY value "dangerFullAcess". Expected one of: dangerFullAccess.'
+    );
+  });
+
+  it("rejects structured turn sandbox variants without accepting incomplete payloads", () => {
+    expect(() =>
+      resolveCodexPolicySettings({
+        SYMPHONY_TURN_SANDBOX_POLICY: "workspaceWrite",
+      })
+    ).toThrow(
+      'Invalid SYMPHONY_TURN_SANDBOX_POLICY value "workspaceWrite". Expected one of: dangerFullAccess.'
     );
   });
 
   it("accepts every supported policy value", () => {
-    for (const approvalPolicy of [
-      "never",
-      "on-request",
-      "on-failure",
-      "untrusted",
-    ]) {
+    for (const approvalPolicy of ["never", "on-request", "untrusted"]) {
       expect(
         resolveCodexPolicySettings({
           SYMPHONY_APPROVAL_POLICY: approvalPolicy,
@@ -50,12 +55,7 @@ describe("resolveCodexPolicySettings", () => {
       ).toBe(threadSandbox);
     }
 
-    for (const turnSandboxPolicy of [
-      "dangerFullAccess",
-      "readOnly",
-      "externalSandbox",
-      "workspaceWrite",
-    ]) {
+    for (const turnSandboxPolicy of ["dangerFullAccess"]) {
       expect(
         resolveCodexPolicySettings({
           SYMPHONY_TURN_SANDBOX_POLICY: turnSandboxPolicy,

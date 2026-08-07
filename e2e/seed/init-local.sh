@@ -62,7 +62,7 @@ codex:
   command: node $STUB_WORKER_JS
   approval_policy: on-request
   thread_sandbox: workspace-write
-  turn_sandbox_policy: workspaceWrite
+  turn_sandbox_policy: dangerFullAccess
   stall_timeout_ms: 60000
 ---
 You are an AI agent working on issue {{issue.identifier}}.
