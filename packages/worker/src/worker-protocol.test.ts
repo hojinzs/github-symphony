@@ -1236,7 +1236,9 @@ describe("multi-turn loop (2.7)", () => {
     expect(turnResults).toEqual(["turn-1"]);
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: tool execution failed"
+    );
   });
 
   it("stops immediately when turn/cancelled is received", async () => {
@@ -1417,7 +1419,7 @@ describe("read timeout (3.5)", () => {
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
-      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAccess",
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
@@ -1444,7 +1446,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
-          sandboxPolicy: { type: "workspace-write" },
+          sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
     ]);
@@ -1458,7 +1460,7 @@ describe("read timeout (3.5)", () => {
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
-      SYMPHONY_TURN_SANDBOX_POLICY: "workspace-write",
+      SYMPHONY_TURN_SANDBOX_POLICY: "dangerFullAccess",
     });
 
     const messages = readSentMessages(ctx.fake.stdin);
@@ -1499,7 +1501,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
           approvalPolicy: "on-request",
-          sandboxPolicy: { type: "workspace-write" },
+          sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
     ]);
@@ -1736,7 +1738,9 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: model backend failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: model backend failed"
+    );
   });
 
   it("resolves pending turn wait when turn/cancelled is received", async () => {
@@ -1822,7 +1826,9 @@ describe("turn timeout (3.6)", () => {
 
     expect(ctx.runtimeState.status).toBe("failed");
     expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe("turn_failed: tool execution failed");
+    expect(ctx.runtimeState.run.lastError).toBe(
+      "turn_failed: tool execution failed"
+    );
   });
 });
 
