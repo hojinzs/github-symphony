@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.7.8
+
+### Patch Changes
+
+- [#538](https://github.com/hojinzs/github-symphony/pull/538) [`401d44e`](https://github.com/hojinzs/github-symphony/commit/401d44ea1fd6e1e9fe6fce2d09f4fd465efe28e5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Harden control-plane and dashboard HTTP responses with security headers, consistent UTF-8 content types, and sanitized request error logs ([#469](https://github.com/hojinzs/github-symphony/issues/469)).
+
+- [`88578f2`](https://github.com/hojinzs/github-symphony/commit/88578f2e72f1c8835b975f62026239da1b541d78) - Post status transition comments before requesting the tracker transition so the reason survives reconciliation worker termination ([#530](https://github.com/hojinzs/github-symphony/issues/530)).
+
 ## 0.7.7
 
 ### Patch Changes
