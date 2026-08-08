@@ -1257,6 +1257,7 @@ describe("start command foreground locking", () => {
           expected_state: "In progress",
           target_state: "In review",
           reason: "validation passed",
+          comment_body: "agent-authored transition body",
         }),
         headers: {
           "content-type": "application/json",
@@ -1277,6 +1278,7 @@ describe("start command foreground locking", () => {
           expectedState: "In progress",
           targetState: "In review",
           reason: "validation passed",
+          commentBody: "agent-authored transition body",
         },
       });
       expect(setWorkerOrchestratorUrl).toHaveBeenCalledWith(url);

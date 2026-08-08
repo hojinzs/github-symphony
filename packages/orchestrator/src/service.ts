@@ -529,7 +529,7 @@ export class OrchestratorService {
           this.createTrackerDependencies()
         );
         const nowIso = this.now().toISOString();
-        await this.store.saveRun({
+        const persistedRun: OrchestratorRunRecord = {
           ...run,
           trackerItemId: canonicalItemId,
           issueState: result.state ?? run.issueState,
@@ -543,15 +543,23 @@ export class OrchestratorService {
           lastError: result.ok
             ? run.lastError
             : (result.error ?? run.lastError),
-        });
-        await this.appendTrackerStateEvent(
-          { ...run, trackerItemId: canonicalItemId },
+        };
+        await this.persistTrackerStateDiagnostics(
+          persistedRun,
           input.request,
           result
         );
+        const transitionCommentRateLimits =
+          await this.publishConfirmedTransitionComment({
+            run: persistedRun,
+            request: input.request,
+            result,
+            trackerAdapter,
+            dependencies: this.createTrackerDependencies(),
+          });
         this.rememberTrackerRateLimits(
           this.projectConfig.projectId,
-          result.rateLimits
+          transitionCommentRateLimits ?? result.rateLimits
         );
         return result;
       } catch (error) {
@@ -607,6 +615,135 @@ export class OrchestratorService {
       error: result.error,
       rateLimits: result.rateLimits,
     });
+  }
+
+  private async persistTrackerStateDiagnostics(
+    run: OrchestratorRunRecord,
+    request: TrackerStateRequest,
+    result: TrackerStateResult
+  ): Promise<void> {
+    try {
+      await this.store.saveRun(run);
+    } catch (error) {
+      this.reportDiagnosticWriteFailure(run, "saveRun", error);
+    }
+
+    try {
+      await this.appendTrackerStateEvent(run, request, result);
+    } catch (error) {
+      this.reportDiagnosticWriteFailure(run, "appendRunEvent", error);
+    }
+  }
+
+  private async publishConfirmedTransitionComment(input: {
+    run: OrchestratorRunRecord;
+    request: TrackerStateRequest;
+    result: TrackerStateResult;
+    trackerAdapter: OrchestratorTrackerAdapter;
+    dependencies: OrchestratorTrackerDependencies;
+  }): Promise<Record<string, unknown> | null> {
+    if (
+      input.request.type !== "transition-request" ||
+      input.request.commentBody === undefined ||
+      !isConfirmedTrackerTransition(input.request, input.result)
+    ) {
+      return null;
+    }
+
+    let outcome: "created" | "unchanged" | "failed" = "failed";
+    let error: string | null = null;
+    let rateLimits: Record<string, unknown> | null =
+      input.run.rateLimits ?? null;
+    try {
+      if (!input.trackerAdapter.upsertTransitionComment) {
+        throw new Error("tracker_transition_comments_unsupported");
+      }
+      const commentResult = await input.trackerAdapter.upsertTransitionComment(
+        this.projectConfig,
+        {
+          issueSubjectId: input.run.issueSubjectId,
+          body: input.request.commentBody,
+        },
+        input.dependencies
+      );
+      outcome = commentResult.outcome;
+      rateLimits = commentResult.rateLimits ?? rateLimits;
+    } catch (cause) {
+      error =
+        cause instanceof Error ? cause.message : this.formatErrorMessage(cause);
+      rateLimits = extractTrackerRateLimitsFromError(cause) ?? rateLimits;
+    }
+
+    const nowIso = this.now().toISOString();
+    const diagnosticRun: OrchestratorRunRecord = {
+      ...input.run,
+      updatedAt: nowIso,
+      lastEvent:
+        error === null
+          ? "tracker-transition-comment"
+          : "tracker-transition-comment-failed",
+      lastEventAt: nowIso,
+      lastError:
+        error === null
+          ? input.run.lastError
+          : `tracker_transition_comment_failed: ${error}`,
+      transitionComment: {
+        status: outcome,
+        updatedAt: nowIso,
+        error,
+      },
+      rateLimits,
+    };
+    try {
+      await this.store.saveRun(diagnosticRun);
+    } catch (cause) {
+      this.reportDiagnosticWriteFailure(input.run, "saveRun", cause);
+    }
+
+    try {
+      await this.store.appendRunEvent(input.run.runId, {
+        at: nowIso,
+        event: "tracker.transition-comment",
+        projectId: input.run.projectId,
+        runId: input.run.runId,
+        tracker: {
+          adapter: this.projectConfig.tracker.adapter,
+        },
+        issue: {
+          identifier: input.run.issueIdentifier,
+          id: input.run.issueSubjectId,
+        },
+        expectedState: input.request.expectedState,
+        targetState: input.request.targetState,
+        outcome,
+        error,
+        rateLimits,
+      });
+    } catch (cause) {
+      this.reportDiagnosticWriteFailure(input.run, "appendRunEvent", cause);
+    }
+    return rateLimits;
+  }
+
+  private reportDiagnosticWriteFailure(
+    run: OrchestratorRunRecord,
+    operation: "saveRun" | "appendRunEvent",
+    error: unknown
+  ): void {
+    this.dependencies.stderr?.write(
+      `${JSON.stringify({
+        at: this.now().toISOString(),
+        event: "tracker.diagnostic-write-failed",
+        projectId: run.projectId,
+        runId: run.runId,
+        issue: {
+          identifier: run.issueIdentifier,
+          id: run.issueSubjectId,
+        },
+        operation,
+        error: this.formatErrorMessage(error),
+      })}\n`
+    );
   }
 
   private async returnConvergedIssueToRetryableState(
@@ -4250,14 +4387,31 @@ function validateTrackerStateRequest(
   if (!request.reason.trim()) {
     return "transition_reason_required";
   }
+  if (request.commentBody !== undefined && !request.commentBody.trim()) {
+    return "transition_comment_body_required";
+  }
   if (
     request.expectedState.length > 200 ||
     request.targetState.length > 200 ||
-    request.reason.length > 2_000
+    request.reason.length > 2_000 ||
+    (request.commentBody?.length ?? 0) > 8_000
   ) {
     return "tracker_state_request_too_large";
   }
   return null;
+}
+
+function isConfirmedTrackerTransition(
+  request: Extract<TrackerStateRequest, { type: "transition-request" }>,
+  result: TrackerStateResult
+): boolean {
+  return (
+    result.ok &&
+    result.outcome === "confirmed" &&
+    result.state !== null &&
+    result.state.trim().toLowerCase() ===
+      request.targetState.trim().toLowerCase()
+  );
 }
 
 function extractTrackerRateLimitsFromError(

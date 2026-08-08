@@ -6,6 +6,7 @@
  *   fail            — starting(2s) → running(3s) → failed, exit 1
  *   stall           — starting(2s) → running(∞), waits for SIGTERM
  *   slow            — starting(2s) → running(30s) → completed, exit 0
+ *   transition-race — requests Ready → In review, then stalls for reconciliation
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -17,23 +18,37 @@ const RUN_ID = process.env.SYMPHONY_RUN_ID ?? "unknown";
 const ISSUE_ID = process.env.SYMPHONY_ISSUE_ID ?? null;
 const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
 const ISSUE_STATE = process.env.SYMPHONY_ISSUE_STATE ?? null;
-const WORKSPACE_RUNTIME_DIR = process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
-type Scenario = "happy" | "fail" | "stall" | "slow";
-const VALID_SCENARIOS: ReadonlySet<string> = new Set(["happy", "fail", "stall", "slow"]);
+const WORKSPACE_RUNTIME_DIR =
+  process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
+type Scenario = "happy" | "fail" | "stall" | "slow" | "transition-race";
+const VALID_SCENARIOS: ReadonlySet<string> = new Set([
+  "happy",
+  "fail",
+  "stall",
+  "slow",
+  "transition-race",
+]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
   ? (rawScenario as Scenario)
   : (() => {
-      console.error(`[stub-worker] unknown STUB_SCENARIO="${rawScenario}", falling back to "happy"`);
+      console.error(
+        `[stub-worker] unknown STUB_SCENARIO="${rawScenario}", falling back to "happy"`
+      );
       return "happy" as Scenario;
     })();
 
-const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> = {
-  happy: { startMs: 2000, runMs: 5000 },
-  fail: { startMs: 2000, runMs: 3000 },
-  stall: { startMs: 2000, runMs: Infinity },
-  slow: { startMs: 2000, runMs: 30000 },
-};
+const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
+  {
+    happy: { startMs: 2000, runMs: 5000 },
+    fail: { startMs: 2000, runMs: 3000 },
+    stall: { startMs: 2000, runMs: Infinity },
+    slow: { startMs: 2000, runMs: 30000 },
+    "transition-race": { startMs: 2000, runMs: Infinity },
+  };
+
+const ORCHESTRATOR_URL = process.env.SYMPHONY_ORCHESTRATOR_URL ?? "";
+const ORCHESTRATOR_TOKEN = process.env.SYMPHONY_ORCHESTRATOR_TOKEN ?? "";
 
 // ── State ────────────────────────────────────────────────────────
 
@@ -94,10 +109,54 @@ async function saveTokenArtifact() {
     await mkdir(WORKSPACE_RUNTIME_DIR, { recursive: true });
     await writeFile(
       join(WORKSPACE_RUNTIME_DIR, "token-usage.json"),
-      JSON.stringify(tokenUsage, null, 2),
+      JSON.stringify(tokenUsage, null, 2)
     );
   } catch {
     // best-effort
+  }
+}
+
+async function requestTransitionForRace(): Promise<void> {
+  if (!ORCHESTRATOR_URL || !ORCHESTRATOR_TOKEN || !RUN_ID) {
+    throw new Error("stub_worker_orchestrator_context_missing");
+  }
+
+  const expectedState = ISSUE_STATE ?? "Ready";
+  const targetState = "In review";
+  const commentBody = [
+    `🔁 Status: \`${expectedState}\` → \`${targetState}\``,
+    "",
+    "Reason: E2E transition comment race",
+    "Cycle: e2e transition-race",
+  ].join("\n");
+  const response = await fetch(`${ORCHESTRATOR_URL}/api/v1/tracker-state`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-symphony-run-id": RUN_ID,
+      "x-symphony-orchestrator-token": ORCHESTRATOR_TOKEN,
+    },
+    body: JSON.stringify({
+      type: "transition-request",
+      expected_state: expectedState,
+      target_state: targetState,
+      reason: "E2E transition comment race",
+      comment_body: commentBody,
+    }),
+  });
+  const payload = (await response.json()) as {
+    ok?: boolean;
+    outcome?: string;
+    state?: string | null;
+    error?: string | null;
+  };
+  console.error(
+    `[stub-worker] transition response status=${response.status} payload=${JSON.stringify(payload)}`
+  );
+  if (!response.ok || payload.ok !== true || payload.outcome !== "confirmed") {
+    throw new Error(
+      `stub_transition_failed:${payload.error ?? payload.outcome ?? response.status}`
+    );
   }
 }
 
@@ -118,6 +177,9 @@ async function run() {
   lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=running`);
   emitOrchestratorEvent("running");
+  if (SCENARIO === "transition-race") {
+    await requestTransitionForRace();
+  }
   await sleep(durations.runMs);
 
   // Terminal phase

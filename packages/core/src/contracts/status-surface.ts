@@ -146,6 +146,12 @@ export type OrchestratorRunRecord = {
   runPhase?: RunAttemptPhase | null;
   /** Latest rate-limit payload observed from the worker runtime */
   rateLimits?: Record<string, unknown> | null;
+  /** Latest orchestrator-owned transition comment publication outcome. */
+  transitionComment?: {
+    status: "created" | "unchanged" | "failed";
+    updatedAt: string;
+    error: string | null;
+  } | null;
   /** Recoverable dirty workspace left by an incomplete runtime session. */
   recovery?: IncompleteTurnRecoveryInfo | null;
 };

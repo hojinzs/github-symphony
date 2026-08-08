@@ -21,6 +21,12 @@ if [ ! -f /e2e/fixtures/issues.json ]; then
   echo "[]" > /e2e/fixtures/issues.json
 fi
 
+# The orchestrator intentionally passes only allowlisted host environment keys
+# to workers. Keep the stub scenario in the project-scoped env so the Docker
+# TC can select a deterministic worker behavior without widening that allowlist.
+printf 'STUB_SCENARIO=%s\n' "${STUB_SCENARIO:-happy}" > \
+  "$WORK_DIR/.runtime/orchestrator/projects/repository/.env"
+
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
 node /app/packages/cli/dist/index.js repo start \
   --http 4680 \

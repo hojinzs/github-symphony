@@ -12,6 +12,10 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return event.error
         ? `${event.requestType}: ${event.outcome} (${event.error})`
         : `${event.requestType}: ${event.outcome} (${event.confirmedState ?? "unknown"})`;
+    case "tracker.transition-comment":
+      return event.error
+        ? `transition comment: ${event.outcome} (${event.error})`
+        : `transition comment: ${event.outcome}`;
     case "run-dispatched":
       return event.issueState
         ? `Dispatched from ${event.issueState}`

@@ -13,7 +13,7 @@ metadata:
 ## Purpose
 
 Request issue-scoped tracker state reads and transitions from the orchestrator,
-writing lifecycle comments before the request and correcting them if it fails.
+supplying policy-authored lifecycle comment bodies for publication after confirmed readback.
 
 ## Prerequisites
 
@@ -41,11 +41,14 @@ curl --fail-with-body --silent --show-error \
 expected_state="In progress"
 target_state="In review"
 reason="PR created; validation passed"
+comment_body_file="transition-comment.md"
+comment_body=$(<"$comment_body_file")
 payload=$(jq -n \
   --arg expected "$expected_state" \
   --arg target "$target_state" \
   --arg reason "$reason" \
-  '{type:"transition-request", expected_state:$expected, target_state:$target, reason:$reason}')
+  --arg comment_body "$comment_body" \
+  '{type:"transition-request", expected_state:$expected, target_state:$target, reason:$reason, comment_body:$comment_body}')
 response=$(curl --fail-with-body --silent --show-error \
   -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \
   -H "Content-Type: application/json" \
@@ -70,6 +73,7 @@ Use `gh api -X PATCH /repos/<owner>/<repo>/issues/comments/<comment-id> -F body=
 - Always follow the `WORKFLOW.md` status map.
 - Never traverse provider boards or mutate tracker fields directly from a worker.
 - Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions.
-- Post the transition comment and workpad line **before** sending the transition request. A confirmed transition into a non-active state makes the issue ineligible, and reconciliation can terminate this worker mid-turn, so anything deferred until after the response may never be written.
-- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, immediately post the `⚠️ Status transition failed` correction comment and workpad line (WORKFLOW.md Posture 5). A failed transition leaves the worker running, so the correction always lands.
+- Do not post a standalone status-transition comment before or after the request; the orchestrator publishes the supplied `comment_body` only after confirmed readback.
+- Keep the transition reason and intended comment body in the workpad before requesting the transition. A failed transition produces no status comment and remains recoverable in the current worker.
+- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, record the failure in the workpad and do not publish a correction status comment.
 - Before transitioning to a terminal state, verify the Completion Bar and merged PR requirements.

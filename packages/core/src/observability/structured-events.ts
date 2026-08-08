@@ -52,6 +52,20 @@ export type TrackerStateRequestEvent = {
   rateLimits?: Record<string, unknown> | null;
 };
 
+export type TrackerTransitionCommentEvent = {
+  at: string;
+  event: "tracker.transition-comment";
+  projectId: string;
+  runId: string;
+  tracker: TrackerEventMetadata;
+  issue: IssueEventMetadata;
+  expectedState: string;
+  targetState: string;
+  outcome: "created" | "unchanged" | "failed";
+  error: string | null;
+  rateLimits?: Record<string, unknown> | null;
+};
+
 export type RunDispatchedEvent = {
   at: string;
   event: "run-dispatched";
@@ -258,6 +272,7 @@ export type OrchestratorEvent =
   | TrackerListEvent
   | TrackerFetchByIdsEvent
   | TrackerStateRequestEvent
+  | TrackerTransitionCommentEvent
   | RunDispatchedEvent
   | RunRecoveredEvent
   | RunRetriedEvent
