@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow
+#   scenario: happy (default), fail, stall, slow, transition-race
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -157,7 +157,9 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    echo "[]" > e2e/fixtures/issues.json
+    if [ "$SCENARIO" != "transition-race" ]; then
+      echo "[]" > e2e/fixtures/issues.json
+    fi
   fi
 
   # Check terminal conditions based on scenario
@@ -177,6 +179,37 @@ log "=== Event Logs ==="
 docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
+if [ "$SCENARIO" = "transition-race" ]; then
+  if [ "$SAW_RUNNING" != true ]; then
+    fail "=== Result ==="
+    fail "  Worker reached running:    $SAW_RUNNING"
+    fail "FAILED"
+    docker logs symphony-e2e 2>&1 | tail -20
+    exit 1
+  fi
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+issues = json.loads(Path("e2e/fixtures/issues.json").read_text())
+assert len(issues) == 1, issues
+issue = issues[0]
+assert issue["state"] == "In review", issue
+comments = issue.get("metadata", {}).get("transitionComments", [])
+expected = "🔁 Status: `Ready` → `In review`\n\nReason: E2E transition comment race\nCycle: e2e transition-race"
+assert comments == [expected], comments
+PY
+  log "Confirmed transition comment survived worker reconciliation: YES"
+  log "=== Result ==="
+  log "  Worker dispatched and ran: YES"
+  log "  Final tracker state:      In review"
+  log "  Exact comments:           1"
+  log "  Elapsed:                  ${ELAPSED}s"
+  echo ""
+  log "PASSED"
+  exit 0
+fi
+
 if [ "$SAW_RUNNING" = true ] && [ "$SAW_REDACTED_STATE" = true ]; then
   log "=== Result ==="
   log "  Worker dispatched and ran: YES"

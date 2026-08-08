@@ -7,6 +7,7 @@ import {
   type TrackedIssueList,
   type TrackerStateRequest,
   type TrackerStateResult,
+  type TrackerCommentWriteResult,
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
@@ -777,6 +778,121 @@ export async function requestGithubProjectItemState(
   }
 }
 
+export async function upsertGithubTransitionComment(
+  config: GitHubTrackerConfig,
+  input: {
+    issueSubjectId: string;
+    body: string;
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<TrackerCommentWriteResult> {
+  const queueKey =
+    fingerprintGitHubToken(config.token) + ":" + config.projectId;
+  const depth = transitionQueueDepths.get(queueKey) ?? 0;
+  if (depth >= MAX_TRANSITION_QUEUE_DEPTH) {
+    throw new GitHubTrackerQueryError("tracker_transition_queue_full");
+  }
+
+  transitionQueueDepths.set(queueKey, depth + 1);
+  const previous = transitionQueueTails.get(queueKey) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  transitionQueueTails.set(
+    queueKey,
+    previous.catch(() => undefined).then(() => gate)
+  );
+
+  await previous.catch(() => undefined);
+  try {
+    return await executeGithubTransitionComment(config, input, fetchImpl);
+  } finally {
+    release();
+    const nextDepth = (transitionQueueDepths.get(queueKey) ?? 1) - 1;
+    if (nextDepth <= 0) {
+      transitionQueueDepths.delete(queueKey);
+      transitionQueueTails.delete(queueKey);
+    } else {
+      transitionQueueDepths.set(queueKey, nextDepth);
+    }
+  }
+}
+
+async function executeGithubTransitionComment(
+  config: GitHubTrackerConfig,
+  input: { issueSubjectId: string; body: string },
+  fetchImpl: FetchLike
+): Promise<TrackerCommentWriteResult> {
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
+  const finalizeRateLimits = () =>
+    finalizeGraphQLRateLimitCycle(null, cycleConfig.rateLimitCollector);
+  try {
+    const existing = await findIssueCommentByExactBody(
+      cycleConfig,
+      input.issueSubjectId,
+      input.body,
+      fetchImpl
+    );
+    if (existing) {
+      return { outcome: "unchanged", rateLimits: finalizeRateLimits() };
+    }
+
+    for (let attempt = 0; attempt < TRANSITION_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const result =
+          await executeGraphQLQueryWithMetadata<GraphQLAddIssueCommentResponse>(
+            cycleConfig,
+            ADD_ISSUE_COMMENT_MUTATION,
+            {
+              subjectId: input.issueSubjectId,
+              body: input.body,
+            },
+            fetchImpl
+          );
+        if (!result.data.addComment?.commentEdge?.node) {
+          throw new GitHubTrackerQueryError(
+            "tracker_transition_comment_mutation_unconfirmed"
+          );
+        }
+        return { outcome: "created", rateLimits: finalizeRateLimits() };
+      } catch (error) {
+        if (
+          attempt + 1 >= TRANSITION_RETRY_ATTEMPTS ||
+          !isRetryableTransitionError(error)
+        ) {
+          throw error;
+        }
+        const delayMs = resolveTransitionRetryDelay(error, attempt);
+        if (delayMs === null) {
+          throw error;
+        }
+        await sleep(delayMs);
+        const discovered = await findIssueCommentByExactBody(
+          cycleConfig,
+          input.issueSubjectId,
+          input.body,
+          fetchImpl
+        );
+        if (discovered) {
+          return { outcome: "unchanged", rateLimits: finalizeRateLimits() };
+        }
+      }
+    }
+
+    throw new GitHubTrackerQueryError("tracker_transition_comment_failed");
+  } catch (error) {
+    const rateLimits = finalizeRateLimits();
+    if (
+      error instanceof GitHubTrackerError &&
+      error.rateLimits === null &&
+      rateLimits !== null
+    ) {
+      Object.assign(error, { rateLimits });
+    }
+    throw error;
+  }
+}
 async function executeGithubProjectItemStateRequest(
   config: GitHubTrackerConfig,
   input: {
@@ -1523,6 +1639,45 @@ async function findIssueCommentByMarker(
       return match;
     }
 
+    if (!issueNode.comments.pageInfo.hasNextPage) {
+      return null;
+    }
+    cursor = issueNode.comments.pageInfo.endCursor;
+  }
+}
+
+async function findIssueCommentByExactBody(
+  config: GitHubTrackerConfig,
+  issueId: string,
+  body: string,
+  fetchImpl: FetchLike
+): Promise<GraphQLIssueCommentNode | null> {
+  let cursor: string | null = null;
+
+  while (true) {
+    const data: GraphQLIssueCommentsByIdResponse =
+      await executeGraphQLQuery<GraphQLIssueCommentsByIdResponse>(
+        config,
+        ISSUE_COMMENTS_BY_ID_QUERY,
+        { issueId, cursor },
+        fetchImpl
+      );
+    if (data.node?.__typename !== "Issue") {
+      throw new GitHubTrackerQueryError(
+        "GitHub GraphQL response did not include issue comments."
+      );
+    }
+    const issueNode = data.node as Extract<
+      GraphQLIssueCommentsByIdResponse["node"],
+      { __typename: "Issue" }
+    >;
+    const match =
+      issueNode.comments.nodes?.find(
+        (comment: GraphQLIssueCommentNode | null) => comment?.body === body
+      ) ?? null;
+    if (match) {
+      return match;
+    }
     if (!issueNode.comments.pageInfo.hasNextPage) {
       return null;
     }

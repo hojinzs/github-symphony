@@ -12,7 +12,7 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     "Request issue-scoped tracker state reads and transitions from the orchestrator,"
   );
   lines.push(
-    "writing lifecycle comments before the request and correcting them if it fails."
+    "supplying policy-authored transition comment bodies for publication after confirmed readback."
   );
   lines.push("");
   lines.push("## Prerequisites");
@@ -48,19 +48,22 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
   lines.push("### Request Issue Status Transition");
   lines.push("");
   lines.push(
-    "Send only transition intent. Use `jq` so state names and the reason are JSON-encoded safely:"
+    "Send only transition intent. The orchestrator publishes `comment_body` after confirmed readback; do not post the same transition comment directly. Use `jq` so all values are JSON-encoded safely:"
   );
   lines.push("");
   lines.push("```bash");
   lines.push('expected_state="In progress"');
   lines.push('target_state="In review"');
   lines.push('reason="PR created; validation passed"');
+  lines.push('comment_body_file="transition-comment.md"');
+  lines.push('comment_body=$(<"$comment_body_file")');
   lines.push("payload=$(jq -n \\");
   lines.push('  --arg expected "$expected_state" \\');
   lines.push('  --arg target "$target_state" \\');
   lines.push('  --arg reason "$reason" \\');
+  lines.push('  --arg comment_body "$comment_body" \\');
   lines.push(
-    "  '{type:\"transition-request\", expected_state:$expected, target_state:$target, reason:$reason}')"
+    "  '{type:\"transition-request\", expected_state:$expected, target_state:$target, reason:$reason, comment_body:$comment_body}')"
   );
   lines.push("response=$(curl --fail-with-body --silent --show-error \\");
   lines.push('  -X POST "$SYMPHONY_ORCHESTRATOR_URL/api/v1/tracker-state" \\');
@@ -123,10 +126,10 @@ export function generateGhProjectSkill(_ctx: SkillTemplateContext): string {
     "- Treat non-2xx responses, expected-state mismatches, and readback mismatches as failed transitions"
   );
   lines.push(
-    "- Post the transition comment and workpad line **before** sending the transition request; a confirmed transition into a non-active state makes the issue ineligible and reconciliation can terminate the worker mid-turn, so deferred bookkeeping may never be written"
+    "- Do not post a standalone status-transition comment before or after the request; the orchestrator publishes the supplied `comment_body` only after confirmed readback"
   );
   lines.push(
-    '- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, immediately post the `⚠️ Status transition failed` correction comment and workpad line'
+    '- When the response is not `.ok == true`, `.outcome == "confirmed"`, and the returned state matching the target, record the failure in the workpad and do not publish a correction status comment'
   );
   lines.push(
     "- Before transitioning to a terminal state, verify the Completion Bar is satisfied:"

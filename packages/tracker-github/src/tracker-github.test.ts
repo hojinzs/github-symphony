@@ -1006,6 +1006,86 @@ describe("resolveTrackerAdapter", () => {
     expect(issue.tracker.itemId).toBe("");
   });
 
+  it("writes transition comments idempotently without changing the agent body", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const body = [
+      "🔁 Status: `In progress` → `In review`",
+      "",
+      "Reason: handoff",
+    ].join("\n");
+    const comments: Array<{ id: string; body: string }> = [];
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as {
+        query: string;
+        variables: Record<string, string | null>;
+      };
+      if (request.query.includes("query IssueCommentsById")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              rateLimit: {
+                cost: 2,
+                remaining: 4998,
+                resetAt: "2026-03-19T04:02:00.000Z",
+              },
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: comments,
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        );
+      }
+      expect(request.query).toContain("mutation AddIssueComment");
+      expect(request.variables).toMatchObject({
+        subjectId: "issue-1",
+        body,
+      });
+      comments.push({ id: "comment-1", body });
+      return new Response(
+        JSON.stringify({
+          data: {
+            addComment: { commentEdge: { node: { id: "comment-1", body } } },
+          },
+        })
+      );
+    });
+
+    await expect(
+      adapter.upsertTransitionComment?.(
+        makeProjectConfig(),
+        { issueSubjectId: "issue-1", body },
+        { token: "test-token", fetchImpl }
+      )
+    ).resolves.toMatchObject({
+      outcome: "created",
+      rateLimits: expect.objectContaining({
+        cycleCost: 2,
+        queryCosts: {
+          IssueCommentsById: { requestCount: 1, cost: 2 },
+        },
+      }),
+    });
+    await expect(
+      adapter.upsertTransitionComment?.(
+        makeProjectConfig(),
+        { issueSubjectId: "issue-1", body },
+        { token: "test-token", fetchImpl }
+      )
+    ).resolves.toMatchObject({
+      outcome: "unchanged",
+      rateLimits: expect.objectContaining({ cycleCost: 2 }),
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
   it("creates advisory comments when the marker is absent", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",

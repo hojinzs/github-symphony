@@ -806,7 +806,8 @@ function parseTrackerStateRequest(
     body?.type !== "transition-request" ||
     typeof body.expected_state !== "string" ||
     typeof body.target_state !== "string" ||
-    typeof body.reason !== "string"
+    typeof body.reason !== "string" ||
+    (body.comment_body !== undefined && typeof body.comment_body !== "string")
   ) {
     return null;
   }
@@ -815,6 +816,9 @@ function parseTrackerStateRequest(
     expectedState: body.expected_state,
     targetState: body.target_state,
     reason: body.reason,
+    ...(body.comment_body === undefined
+      ? {}
+      : { commentBody: body.comment_body }),
   };
 }
 

@@ -265,6 +265,7 @@ describe("OrchestratorService", () => {
       rateLimits: { source: "github", remaining: 3999, cycleCost: 1 },
       error: "expected_state_mismatch",
     });
+    const upsertTransitionComment = vi.fn();
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       listIssues: vi.fn(),
       listIssuesByStates: vi.fn(),
@@ -272,6 +273,7 @@ describe("OrchestratorService", () => {
       buildWorkerEnvironment: vi.fn(),
       reviveIssue: vi.fn(),
       requestState,
+      upsertTransitionComment,
     });
     const service = new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-07-30T13:01:00.000Z"),
@@ -284,10 +286,12 @@ describe("OrchestratorService", () => {
         expectedState: "In progress",
         targetState: "In review",
         reason: "handoff",
+        commentBody: "must not be published",
       },
     });
 
     expect(result.outcome).toBe("expected_state_mismatch");
+    expect(upsertTransitionComment).not.toHaveBeenCalled();
     expect(requestState).toHaveBeenCalledWith(
       projectConfig,
       {
@@ -298,6 +302,7 @@ describe("OrchestratorService", () => {
           expectedState: "In progress",
           targetState: "In review",
           reason: "handoff",
+          commentBody: "must not be published",
         },
       },
       expect.any(Object)
@@ -354,6 +359,259 @@ describe("OrchestratorService", () => {
         rateLimits: expect.objectContaining({ remaining: 0 }),
       }),
     ]);
+  });
+
+  it("publishes transition comments only after confirmation and preserves transition failures", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-transition-comment-")
+    );
+    try {
+      const store = new OrchestratorFsStore(tempRoot);
+      const repository = {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      };
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "issue-1",
+          completedOnce: false,
+          failureRetryCount: 0,
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-08-07T09:00:00.000Z",
+        },
+      ]);
+      await store.saveRun({
+        runId: "run-1",
+        projectId: projectConfig.projectId,
+        projectSlug: projectConfig.slug,
+        issueId: "issue-1",
+        issueSubjectId: "issue-1",
+        trackerItemId: "item-1",
+        issueIdentifier: "acme/platform#1",
+        issueState: "In progress",
+        repository,
+        status: "running",
+        attempt: 1,
+        processId: null,
+        port: null,
+        workingDirectory: tempRoot,
+        issueWorkspaceKey: "issue-1",
+        workspaceRuntimeDir: join(tempRoot, "runtime"),
+        workflowPath: null,
+        retryKind: null,
+        createdAt: "2026-08-07T09:00:00.000Z",
+        updatedAt: "2026-08-07T09:00:00.000Z",
+        startedAt: "2026-08-07T09:00:00.000Z",
+        completedAt: null,
+        lastError: null,
+        nextRetryAt: null,
+      });
+      const requestState = vi.fn().mockResolvedValue({
+        ok: true,
+        outcome: "confirmed",
+        state: "In review",
+        expectedState: "In progress",
+        targetState: "In review",
+        reason: "handoff",
+        rateLimits: null,
+        error: null,
+      });
+      const upsertTransitionComment = vi
+        .fn()
+        .mockResolvedValueOnce({ outcome: "created", rateLimits: null })
+        .mockRejectedValueOnce(new Error("comment write failed"));
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+        listIssues: vi.fn(),
+        listIssuesByStates: vi.fn(),
+        fetchIssueStatesByIds: vi.fn(),
+        buildWorkerEnvironment: vi.fn(),
+        reviveIssue: vi.fn(),
+        requestState,
+        upsertTransitionComment,
+      });
+      const service = new OrchestratorService(store, projectConfig, {
+        now: () => new Date("2026-08-07T09:01:00.000Z"),
+      });
+      const request = {
+        type: "transition-request" as const,
+        expectedState: "In progress",
+        targetState: "In review",
+        reason: "handoff",
+        commentBody: "agent-authored transition body",
+      };
+
+      await expect(
+        service.requestTrackerState({ runId: "run-1", request })
+      ).resolves.toMatchObject({ ok: true, outcome: "confirmed" });
+      expect(upsertTransitionComment).toHaveBeenCalledOnce();
+      expect(upsertTransitionComment).toHaveBeenCalledWith(
+        projectConfig,
+        { issueSubjectId: "issue-1", body: request.commentBody },
+        expect.any(Object)
+      );
+      await expect(
+        store.loadRun("run-1", projectConfig.projectId)
+      ).resolves.toMatchObject({
+        issueState: "In review",
+        transitionComment: { status: "created", error: null },
+      });
+
+      await expect(
+        service.requestTrackerState({ runId: "run-1", request })
+      ).resolves.toMatchObject({ ok: true, outcome: "confirmed" });
+      await expect(
+        store.loadRun("run-1", projectConfig.projectId)
+      ).resolves.toMatchObject({
+        issueState: "In review",
+        lastEvent: "tracker-transition-comment-failed",
+        lastError: "tracker_transition_comment_failed: comment write failed",
+        transitionComment: { status: "failed", error: "comment write failed" },
+      });
+      const events = (
+        await readFile(
+          join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
+          "utf8"
+        )
+      )
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(
+        events.filter((event) => event.event === "tracker.transition-comment")
+      ).toEqual([
+        expect.objectContaining({ outcome: "created", error: null }),
+        expect.objectContaining({
+          outcome: "failed",
+          error: "comment write failed",
+        }),
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a confirmed transition when comment diagnostics cannot save the run", async () => {
+    const repository = {
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "https://github.com/acme/platform.git",
+    };
+    const projectConfig = createProjectConfig("/tmp/orchestrator", repository);
+    const run: OrchestratorRunRecord = {
+      runId: "run-1",
+      projectId: projectConfig.projectId,
+      projectSlug: projectConfig.slug,
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      trackerItemId: "item-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "In progress",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: null,
+      port: null,
+      workingDirectory: "/tmp/orchestrator",
+      issueWorkspaceKey: "issue-1",
+      workspaceRuntimeDir: "/tmp/orchestrator/runtime",
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-08-07T09:00:00.000Z",
+      updatedAt: "2026-08-07T09:00:00.000Z",
+      startedAt: "2026-08-07T09:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+      nextRetryAt: null,
+    };
+    const saveRun = vi
+      .fn()
+      .mockImplementation(async (record: OrchestratorRunRecord) => {
+        if (record.transitionComment) {
+          throw new Error("snapshot disk full");
+        }
+      });
+    const appendRunEvent = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      loadRun: vi.fn().mockResolvedValue(run),
+      loadProjectIssueOrchestrations: vi.fn().mockResolvedValue([
+        {
+          issueId: "issue-1",
+          identifier: "acme/platform#1",
+          workspaceKey: "issue-1",
+          completedOnce: false,
+          failureRetryCount: 0,
+          state: "running",
+          currentRunId: "run-1",
+          retryEntry: null,
+          updatedAt: "2026-08-07T09:00:00.000Z",
+        },
+      ]),
+      saveRun,
+      appendRunEvent,
+      projectDir: vi.fn().mockReturnValue("/tmp/orchestrator"),
+    } as unknown as OrchestratorStateStore;
+    const requestState = vi.fn().mockResolvedValue({
+      ok: true,
+      outcome: "confirmed",
+      state: "In review",
+      expectedState: "In progress",
+      targetState: "In review",
+      reason: "handoff",
+      rateLimits: { source: "github", cycleCost: 1 },
+      error: null,
+    });
+    const upsertTransitionComment = vi.fn().mockResolvedValue({
+      outcome: "created",
+      rateLimits: { source: "github", cycleCost: 2 },
+    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn(),
+      listIssuesByStates: vi.fn(),
+      fetchIssueStatesByIds: vi.fn(),
+      buildWorkerEnvironment: vi.fn(),
+      reviveIssue: vi.fn(),
+      requestState,
+      upsertTransitionComment,
+    });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => new Date("2026-08-07T09:01:00.000Z"),
+      stderr,
+    });
+
+    const result = await service.requestTrackerState({
+      runId: "run-1",
+      request: {
+        type: "transition-request",
+        expectedState: "In progress",
+        targetState: "In review",
+        reason: "handoff",
+        commentBody: "agent-authored transition body",
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, outcome: "confirmed" });
+    expect(saveRun).toHaveBeenCalledWith(
+      expect.objectContaining({ issueState: "In review" })
+    );
+    expect(upsertTransitionComment).toHaveBeenCalledOnce();
+    expect(appendRunEvent).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        event: "tracker.transition-comment",
+        outcome: "created",
+      })
+    );
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"tracker.diagnostic-write-failed"')
+    );
   });
 
   it("rejects a stale run tracker request without calling the provider", async () => {

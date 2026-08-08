@@ -39,19 +39,23 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("");
   lines.push("## Flow");
   lines.push("");
-  lines.push("1. Run all pre-flight checks above");
+  lines.push(
+    "1. Run all pre-flight checks above. The human-owned `In review` → `Land` transition is already confirmed before this skill runs; do not replay it or post a duplicate status comment."
+  );
   lines.push("2. If all checks pass, merge the PR:");
   lines.push("   ```bash");
   lines.push("   gh pr merge --squash    # squash merge (default)");
   lines.push("   # or: gh pr merge --merge   # merge commit");
   lines.push("   # or: gh pr merge --rebase  # rebase merge");
   lines.push("   ```");
-  lines.push("   Choose the merge strategy per project policy.");
+  lines.push("   Use squash merge per project policy.");
   lines.push("3. On merge success:");
   lines.push(
-    "   - Use the **gh-project skill** to transition the issue status to Done"
+    "   - Prepare the policy-authored `Land → Done` body and pass it as `comment_body` to the **gh-project skill**"
   );
-  lines.push("   - Do NOT call status APIs directly — delegate to gh-project");
+  lines.push(
+    "   - The orchestrator publishes the transition body after confirmed readback; do not post a duplicate status comment"
+  );
   lines.push("4. On merge failure:");
   lines.push("   - Record the failure reason in workpad Notes");
   lines.push("   - Resolve the blocking issue (re-run pre-flight checks)");
@@ -63,6 +67,9 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("- Never call `gh pr merge` without completing pre-flight checks");
   lines.push(
     "- Status transition to Done MUST go through the gh-project skill"
+  );
+  lines.push(
+    "- Transition comments MUST be supplied as gh-project `comment_body`; agents must not publish correction comments"
   );
   lines.push(
     "- If any pre-flight check fails, do not merge — fix the issue first"

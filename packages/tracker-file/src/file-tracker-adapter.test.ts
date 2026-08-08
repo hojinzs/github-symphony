@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { writeFile, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileTrackerAdapter } from "./file-tracker-adapter.js";
@@ -108,7 +108,7 @@ describe("fileTrackerAdapter", () => {
 
       const project = makeProject(issuesPath);
       await expect(fileTrackerAdapter.listIssues(project)).rejects.toThrow(
-        `[tracker-file] Failed to parse issues JSON at ${issuesPath}`,
+        `[tracker-file] Failed to parse issues JSON at ${issuesPath}`
       );
     });
 
@@ -178,6 +178,81 @@ describe("fileTrackerAdapter", () => {
       );
 
       expect(env).toEqual({ SYMPHONY_FILE_TRACKER: "true" });
+    });
+  });
+
+  describe("tracker state and transition comments", () => {
+    it("confirms a transition and writes an idempotent comment body", async () => {
+      const issuesPath = join(testDir, "issues.json");
+      await writeFile(issuesPath, JSON.stringify([sampleIssue]));
+      const project = makeProject(issuesPath);
+      const request = {
+        type: "transition-request" as const,
+        expectedState: "Ready",
+        targetState: "In review",
+        reason: "E2E transition comment race",
+        commentBody: "agent-authored transition body",
+      };
+
+      await expect(
+        fileTrackerAdapter.requestState?.(project, {
+          issueSubjectId: "issue-1",
+          itemId: "issue-1",
+          request,
+        })
+      ).resolves.toMatchObject({
+        ok: true,
+        outcome: "confirmed",
+        state: "In review",
+      });
+      await expect(
+        fileTrackerAdapter.upsertTransitionComment?.(project, {
+          issueSubjectId: "issue-1",
+          body: request.commentBody,
+        })
+      ).resolves.toEqual({ outcome: "created", rateLimits: null });
+      await expect(
+        fileTrackerAdapter.upsertTransitionComment?.(project, {
+          issueSubjectId: "issue-1",
+          body: request.commentBody,
+        })
+      ).resolves.toEqual({ outcome: "unchanged", rateLimits: null });
+
+      const entries = JSON.parse(await readFile(issuesPath, "utf8")) as Array<{
+        state: string;
+        metadata: { transitionComments: string[] };
+      }>;
+      expect(entries[0]).toMatchObject({
+        state: "In review",
+        metadata: { transitionComments: [request.commentBody] },
+      });
+    });
+
+    it("does not write a comment when the expected state does not match", async () => {
+      const issuesPath = join(testDir, "issues.json");
+      await writeFile(issuesPath, JSON.stringify([sampleIssue]));
+      const project = makeProject(issuesPath);
+
+      await expect(
+        fileTrackerAdapter.requestState?.(project, {
+          issueSubjectId: "issue-1",
+          itemId: "issue-1",
+          request: {
+            type: "transition-request",
+            expectedState: "In progress",
+            targetState: "In review",
+            reason: "should fail",
+            commentBody: "must not be published",
+          },
+        })
+      ).resolves.toMatchObject({
+        ok: false,
+        outcome: "expected_state_mismatch",
+        state: "Ready",
+      });
+      expect(JSON.parse(await readFile(issuesPath, "utf8"))).toEqual([
+        sampleIssue,
+      ]);
     });
   });
 

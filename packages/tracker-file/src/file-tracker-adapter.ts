@@ -1,20 +1,21 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorProjectConfig,
   OrchestratorRunRecord,
   TrackedIssue,
+  TrackerCommentWriteResult,
+  TrackerStateRequest,
+  TrackerStateResult,
 } from "@gh-symphony/core";
 
 function requireTrackerSetting(
   project: OrchestratorProjectConfig,
-  key: string,
+  key: string
 ): string {
   const value = project.tracker.settings?.[key];
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(
-      `Tracker adapter "file" requires the "${key}" setting.`,
-    );
+    throw new Error(`Tracker adapter "file" requires the "${key}" setting.`);
   }
   return value;
 }
@@ -38,6 +39,47 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
   );
 }
 
+async function readIssueEntries(
+  issuesPath: string
+): Promise<Record<string, unknown>[]> {
+  const raw = await readFile(issuesPath, "utf-8");
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `Expected an array of issues in ${issuesPath}, got ${typeof parsed}`
+    );
+  }
+  return parsed.filter(
+    (entry): entry is Record<string, unknown> =>
+      Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
+  );
+}
+
+async function writeIssueEntries(
+  issuesPath: string,
+  entries: readonly Record<string, unknown>[]
+): Promise<void> {
+  await writeFile(issuesPath, `${JSON.stringify(entries, null, 2)}\n`);
+}
+
+function buildTrackerStateResult(
+  request: TrackerStateRequest,
+  result: Pick<TrackerStateResult, "ok" | "outcome" | "state" | "error">
+): TrackerStateResult {
+  return {
+    ok: result.ok,
+    outcome: result.outcome,
+    state: result.state,
+    expectedState:
+      request.type === "transition-request" ? request.expectedState : null,
+    targetState:
+      request.type === "transition-request" ? request.targetState : null,
+    reason: request.type === "transition-request" ? request.reason : null,
+    rateLimits: null,
+    error: result.error,
+  };
+}
+
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project) {
     const issuesPath = requireTrackerSetting(project, "issuesPath");
@@ -46,7 +88,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) {
         throw new Error(
-          `Expected an array of issues in ${issuesPath}, got ${typeof parsed}`,
+          `Expected an array of issues in ${issuesPath}, got ${typeof parsed}`
         );
       }
       const valid: TrackedIssue[] = [];
@@ -55,7 +97,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
           valid.push(parsed[i]);
         } else {
           process.stderr.write(
-            `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`,
+            `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`
           );
         }
       }
@@ -71,7 +113,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       if (err instanceof SyntaxError) {
         throw new Error(
           `[tracker-file] Failed to parse issues JSON at ${issuesPath}: ${err.message}`,
-          { cause: err },
+          { cause: err }
         );
       }
       throw err;
@@ -85,10 +127,10 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
 
     const issues = await this.listIssues(project);
     const normalizedStates = new Set(
-      states.map((state) => state.trim().toLowerCase()),
+      states.map((state) => state.trim().toLowerCase())
     );
     return issues.filter((issue) =>
-      normalizedStates.has(issue.state.trim().toLowerCase()),
+      normalizedStates.has(issue.state.trim().toLowerCase())
     );
   },
 
@@ -100,6 +142,97 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
     const issues = await this.listIssues(project);
     const ids = new Set(issueIds);
     return issues.filter((issue) => ids.has(issue.id));
+  },
+
+  async requestState(project, input): Promise<TrackerStateResult> {
+    const issuesPath = requireTrackerSetting(project, "issuesPath");
+    let entries: Record<string, unknown>[];
+    try {
+      entries = await readIssueEntries(issuesPath);
+    } catch (error) {
+      return buildTrackerStateResult(input.request, {
+        ok: false,
+        outcome: "failed",
+        state: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const entry = entries.find(
+      (candidate) => candidate.id === input.issueSubjectId
+    );
+    if (!entry || typeof entry.state !== "string") {
+      return buildTrackerStateResult(input.request, {
+        ok: false,
+        outcome: "failed",
+        state: null,
+        error: "file_tracker_issue_not_found",
+      });
+    }
+
+    if (input.request.type === "state-read") {
+      return buildTrackerStateResult(input.request, {
+        ok: true,
+        outcome: "confirmed",
+        state: entry.state,
+        error: null,
+      });
+    }
+
+    if (
+      entry.state.trim().toLowerCase() !==
+      input.request.expectedState.trim().toLowerCase()
+    ) {
+      return buildTrackerStateResult(input.request, {
+        ok: false,
+        outcome: "expected_state_mismatch",
+        state: entry.state,
+        error: "expected_state_mismatch",
+      });
+    }
+
+    entry.state = input.request.targetState;
+    await writeIssueEntries(issuesPath, entries);
+    return buildTrackerStateResult(input.request, {
+      ok: true,
+      outcome: "confirmed",
+      state: input.request.targetState,
+      error: null,
+    });
+  },
+
+  async upsertTransitionComment(
+    project,
+    input
+  ): Promise<TrackerCommentWriteResult> {
+    const issuesPath = requireTrackerSetting(project, "issuesPath");
+    const entries = await readIssueEntries(issuesPath);
+    const entry = entries.find(
+      (candidate) => candidate.id === input.issueSubjectId
+    );
+    if (!entry) {
+      throw new Error("file_tracker_issue_not_found");
+    }
+
+    const metadata =
+      entry.metadata &&
+      typeof entry.metadata === "object" &&
+      !Array.isArray(entry.metadata)
+        ? (entry.metadata as Record<string, unknown>)
+        : {};
+    const comments = Array.isArray(metadata.transitionComments)
+      ? metadata.transitionComments.filter(
+          (comment): comment is string => typeof comment === "string"
+        )
+      : [];
+    if (comments.includes(input.body)) {
+      return { outcome: "unchanged", rateLimits: null };
+    }
+
+    metadata.transitionComments = [...comments, input.body];
+    entry.metadata = metadata;
+    await writeIssueEntries(issuesPath, entries);
+    return { outcome: "created", rateLimits: null };
   },
 
   buildWorkerEnvironment(_project, _issue) {

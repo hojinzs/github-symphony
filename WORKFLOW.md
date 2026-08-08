@@ -64,47 +64,27 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 2. **Blocker = code-blocking only.** A blocker is something that prevents the _code change itself_ from being completed (missing required secret, unrecoverable test-infra failure, contradictory requirements that need a human decision). Review feedback, deploy concerns, and UI polish are **not** blockers. On a code-blocker: post a `⛔ Blocker` issue comment (what · why · how to unblock), transition Status → `Backlog` via `/gh-project`, then exit. Never leave a blocked issue in `In progress` with a draft PR.
 3. In your final message, report only what was completed and any blockers. Do not include "next steps".
 4. **Report language**: detect from the issue body and apply consistently to workpad, progress/blocker/transition comments, and PR review replies. If the language is unclear or mixed, default to English. Keep code, commands, identifiers, and raw tool output in their original form when translating reports.
-5. **Log every status transition publicly** in _two_ places, **immediately before requesting the orchestrator-owned `/gh-project` transition** — then reconcile the record if the request fails.
+5. **Log every status transition through the orchestrator-owned `/gh-project` request.** The agent supplies the policy-authored `comment_body`; the orchestrator publishes that exact body only after `ok: true` + `outcome: confirmed` + exact target-state readback. The agent must not post a duplicate standalone status-transition comment or a correction status comment with `gh issue comment`.
 
-   **Why before.** A confirmed transition into a non-active state makes the issue ineligible, and the orchestrator terminates the worker on its next reconciliation tick (upstream SPEC §8.5). Work deferred until after a confirmed transition can therefore be killed mid-turn and lost — the transition reason then never becomes observable to humans. A **failed** transition leaves the worker running, so the correction below is always postable. Order the two records accordingly:
-   - A standalone issue comment (`gh issue comment --body-file`), formatted:
+   Prepare the body in a temporary file and pass its contents as `comment_body`:
 
-     ```
-     🔁 Status: `FROM` → `TO`
+   ```
+   🔁 Status: `FROM` → `TO`
 
-     Reason: <why now>
-     Cycle: <N> open|close
-     ```
+   Reason: <why now>
+   Cycle: <N> open|close
+   ```
 
-   - One append-only line in the current workpad's `### Status Transitions` section, newest last:
+   Reason = _why this transition now_, not a restatement of the target state ("review blocking 2 items rework", not "moved to In progress"). Keep the exact body and intended workpad line in the current workpad before requesting the transition. After a confirmed readback, append the matching line to `### Status Transitions` if the worker remains alive.
 
-     ```
-     - <ISO-8601 UTC ts> · `<FROM>` → `<TO>` · <reason> (cycle <N> open|close)
-     ```
+   If the response is not `ok: true` + `outcome: confirmed` + the requested target state, no status comment was published. Record the returned state/error and the failed transition in the workpad, then follow the failure handling for the current step. Do not publish a correction status comment.
 
-     Reason = _why this transition now_, not a restatement of the target state ("리뷰 blocking 2건 rework", not "moved to In progress").
-
-   - **On a failed transition** — the `/gh-project` response is not `ok: true` + `outcome: confirmed` + the requested target state — the two records above are now wrong. Immediately post a correction comment and append a matching workpad line:
-
-     ```
-     ⚠️ Status transition failed: `FROM` → `TO`
-
-     Result: <ok/outcome/returned state, or the error string>
-     Current state: `FROM` (unchanged)
-     ```
-
-     ```
-     - <ISO-8601 UTC ts> · ⚠️ `<FROM>` → `<TO>` 전이 실패 · <error> (cycle <N>)
-     ```
-
-     Then follow the failure handling of the current step. Never leave an uncorrected transition record for a transition that did not take effect.
-
-   **Lifecycle finalization order.** Treat a Project status transition as the final lifecycle mutation for the turn, not as a progress signal. Before requesting it, complete the scoped implementation/rebase/merge decision, collect final validation output, refresh the PR/workpad narrative, record the transition reason and evidence in the workpad's Validation/Progress Log sections, and post the two transition records above. Then request the state transition. The only permitted work after the request is the failure correction. Never transition first and defer the decision evidence, the audit records, or the failure classification to later work in the same turn.
+   **Lifecycle finalization order.** Treat a Project status transition as the final lifecycle mutation for the turn, not as a progress signal. Before requesting it, complete the scoped implementation/rebase/merge decision, collect final validation output, refresh the PR/workpad narrative, and record the transition reason, exact `comment_body`, and evidence in the workpad's Validation/Progress Log sections. Then request the state transition. The only permitted work after the request is recording a failed response if the worker remains alive; the orchestrator owns the public transition comment.
 
 6. Treat Issue cards as the canonical project item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only. If an issue has an open PR, inspect it from the issue timeline before deciding whether to create a new branch.
 7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, treat that as a **new work cycle**: run the relevant guard (Step 0 _Ready-return rework guard_ for `Ready`; the `/land` skill's pre-flight for `Land`) and create a **new workpad comment** for the cycle before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
 8. Use the `/gh-project` skill for all tracker status reads and transitions. Workers send intent to the run-scoped orchestrator API and never traverse provider boards or mutate tracker fields directly.
-9. **Multi-line GitHub comments**: never pass escaped `\n` strings as `--body`. Write the body to a temporary markdown file and post with `gh ... --body-file <file>`. This applies to issue comments, PR comments, and review replies — including the standalone transition comment in Posture 5.
+9. **Multi-line GitHub comments**: never pass escaped `\n` strings as `--body`. Write the body to a temporary markdown file and post with `gh ... --body-file <file>`. This applies to workpad comments, triage/blocker comments, PR comments, and review replies. Status-transition bodies are supplied as `/gh-project` `comment_body`; do not post them directly.
 10. Do not edit the issue body for planning or progress tracking.
 11. If you discover out-of-scope improvements during the work, open a separate issue rather than expanding the current scope.
 
@@ -129,7 +109,7 @@ When entering `Ready`, before treating it as a fresh pickup, board drift, or res
 1. Find linked/open PRs from the issue/project item, the current workpad, and `gh pr list --search "<issue-number>"`.
 2. For each linked/open PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
 3. If any linked/open PR has `CHANGES_REQUESTED`, unresolved actionable review comments, a human instruction indicating rework, or a recent `Land` → `Ready` transition recorded as a **Land-return rework**, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
-4. For rework return: open a new work cycle (new `## Workpad` comment), post the standalone `🔁 Status: Ready → In progress` comment and the matching workpad line, then transition `Ready` → `In progress` via `/gh-project` (Posture 5 ordering), and proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
+4. For rework return: open a new work cycle (new `## Workpad` comment), prepare the `🔁 Status: Ready → In progress` body, and pass it as `comment_body` through `/gh-project`. Append the matching workpad line only after confirmed readback, then proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
 5. Otherwise (no actionable feedback or Land-return rework marker on any linked PR): proceed to Step 1 normally as a fresh pickup or resume.
 
 ##### Stalled-handoff safety net
@@ -142,8 +122,8 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
 
 1. Read the issue body and existing comments to understand the requested work.
 2. **Triage actionability:**
-   - **Requirements unclear** → write a triage comment in the report language requesting clarification, post the `🔁 Status: Ready → Backlog` transition log (Posture 5), then transition `Ready` → `Backlog` via `/gh-project`, exit.
-   - **Scope too large** (likely >20 files or >3 packages) → write a triage comment requesting issue splitting, post the transition log, then transition `Ready` → `Backlog` via `/gh-project`, exit. State explicitly whether the reason is unclear requirements, oversized scope, or both.
+   - **Requirements unclear** → write a triage comment in the report language requesting clarification, prepare the `🔁 Status: Ready → Backlog` body with `Cycle: — (triage rejection)`, and send it as `comment_body` through `/gh-project`, then exit.
+   - **Scope too large** (likely >20 files or >3 packages) → write a triage comment requesting issue splitting, prepare the transition body, and send it as `comment_body` through `/gh-project`. State explicitly whether the reason is unclear requirements, oversized scope, or both.
 3. **Resume check (idempotent).** If a `feat/<issue-number>-…` branch or Draft PR for this issue already exists from a prior cycle (e.g. parked in `Backlog` then moved back), adopt them — do **not** recreate.
 4. **Open the new work cycle:**
    - Create a new `## Workpad — {{issue.identifier}} — Cycle N` comment using the Workpad Template (see _Workpad Lifecycle_). N is the next cycle number after the most recent workpad on the issue (1 if none).
@@ -151,7 +131,7 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
    - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
    - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
    - Record the Draft PR URL and base branch in the workpad.
-5. Post the standalone `🔁 Status: Ready → In progress` comment (cycle N open) and append the matching workpad `### Status Transitions` line, then transition the issue from `Ready` to `In progress` via `/gh-project` (Posture 5 ordering). If the request does not return confirmed readback for `In progress`, post the failure correction and stop.
+5. Prepare the `🔁 Status: Ready → In progress` body, pass it as `comment_body` to `/gh-project`, and append the matching workpad `### Status Transitions` line only after confirmed readback. If the request does not return confirmed readback for `In progress`, record the failure and stop without publishing a status comment.
 6. Proceed to Step 2.
 
 #### Step 2: In progress / Execution
@@ -173,8 +153,8 @@ Entered from one of:
 
 4. **Turn-end checklist.** Before ending a turn:
    - workpad Plan item marked `[x]` and a Progress Log entry added.
-   - For a lifecycle handoff, merge outcome, or failure classification: all final evidence, exact reason, and intended next action are already recorded in the workpad before requesting the Project state transition. The post-readback standalone audit is the only deferred bookkeeping.
-   - Any status transition this turn is logged (standalone comment + workpad Status Transitions line).
+   - For a lifecycle handoff, merge outcome, or failure classification: all final evidence, exact reason, intended next action, and transition `comment_body` are already recorded in the workpad before requesting the Project state transition. Only recording the confirmed response/workpad line is deferred.
+   - Any confirmed status transition this turn is logged by the orchestrator's exact `comment_body` publication plus the workpad Status Transitions line when the worker remains alive.
    - All changes committed; no broken intermediate state.
    - **Resting-state rule** — ending a turn in `In progress` is valid only when **(a)** an unchecked, in-scope Plan item remains, or **(b)** a code-blocker was hit, parked to `Backlog` per Posture 2.
 
@@ -202,9 +182,8 @@ Entered from one of:
    1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
    2. Complete the current workpad's Completion Bar, final Validation results, and Progress Log entry, including the exact handoff reason, before its lifecycle transition.
    3. Mark the Draft PR ready: `gh pr ready <pr-number>`.
-   4. Post the standalone `🔁 Status: In progress → In review` comment (cycle N close).
-   5. Append the matching workpad Status Transitions line and close the cycle marker. Do not postpone any completion evidence until after the transition.
-   6. Transition the issue to `In review` via `/gh-project` as the last action of the turn. If it does not return confirmed exact-item readback for `In review`, post the failure correction (Posture 5) and keep the cycle open.
+   4. Prepare the `🔁 Status: In progress → In review` body and include it as `comment_body` in the `/gh-project` request.
+   5. Transition the issue to `In review` via `/gh-project` as the last action of the turn. The orchestrator publishes the body after confirmed exact-item readback; if the request fails, record the failure and keep the cycle open.
 
    **Never end a turn with the Completion Bar met and the PR still Draft.** That state deadlocks the workflow (Step 3 only fires on merge; the worker won't be re-dispatched). The Step 0 stalled-handoff safety net rescues it on the next polling tick as a backstop, but it should not be needed.
 
@@ -212,7 +191,7 @@ Entered from one of:
 
 This is a human-review wait state. `In review` is **not** in `active_states`, so the dispatcher does not normally wake the worker here. If the worker is invoked at this state (e.g. a PR-card merge event triggers re-dispatch, or a future poll catches a stale in-review issue whose PR was merged outside the normal flow), perform a single defensive check:
 
-1. If the PR has been merged: refresh the merged commit SHA into the workpad, post the standalone `🔁 Status: In review → Done` comment (cycle close) and append the matching workpad Status Transitions line, then transition the issue to `Done` via `/gh-project` (Posture 5 ordering) and exit.
+1. If the PR has been merged: refresh the merged commit SHA into the workpad, prepare the `🔁 Status: In review → Done` body, and send it as `comment_body` through `/gh-project`. After confirmed readback, append the matching workpad Status Transitions line when the worker remains alive, then exit.
 2. Otherwise: exit immediately. Do **not** process review feedback. Do **not** reply to inline comments. Do **not** transition the issue.
 
 Rework feedback is initiated by a human moving the issue back to `Ready` — the Step 0 _Ready-return rework guard_ then opens the rework cycle (Step 2). PR approval and the actual merge happen when a human moves the issue to `Land` — Step 4 (`/land`) performs the squash merge.
@@ -221,23 +200,23 @@ Rework feedback is initiated by a human moving the issue back to `Ready` — the
 
 **Trigger:** `{{issue.state}}` = `Land`. A human has approved the PR and moved the issue here.
 
-1. **Open the land cycle.** Create a new `## Workpad — {{issue.identifier}} — Cycle N (Land)` comment (do not reuse the prior `In progress` cycle's workpad — see _Workpad Lifecycle_). Post the standalone `🔁 Status: In review → Land` comment (cycle N open: land), append the matching workpad Status Transitions line.
+1. **Open the land cycle.** Create a new `## Workpad — {{issue.identifier}} — Cycle N (Land)` comment (do not reuse the prior `In progress` cycle's workpad — see _Workpad Lifecycle_). The human-owned `In review` → `Land` transition has already been confirmed before this worker is dispatched; record it as the cycle trigger, but do not replay it through `/gh-project` or publish a duplicate status comment. All agent-owned transitions in this cycle (including `Land` → `Done` and classified exits) must carry their policy-authored body as `comment_body` through `/gh-project`.
 
 2. **Invoke the `/land` skill** (defined at `.codex/skills/land/SKILL.md`). The skill is responsible for:
    - Pre-flight checks (approval, required CI checks, base-branch freshness, changeset presence if labeled — see the skill for the exact list).
    - Running `/pull` if the branch is behind, then re-running pre-flight from scratch.
    - Squash merge: `gh pr merge <pr-number> --squash --delete-branch`.
    - Recording the merged commit SHA and changeset path (if any) in the workpad.
-   - Posting the standalone `🔁 Status: Land → Done` comment and the matching workpad line once the merge succeeds.
+   - Supplying the `🔁 Status: Land → Done` body as `comment_body` to `/gh-project`; the orchestrator publishes it after confirmed readback and the worker records the matching workpad line if it remains alive.
    - Transitioning the issue to `Done` via `/gh-project` afterwards, as the last action of the turn (Posture 5 ordering).
 
-3. **Close the land cycle.** Once `/land` completes, verify the standalone `🔁 Status: Land → Done` comment was posted and the workpad Status Transitions line was appended (cycle N close: land). If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
+3. **Close the land cycle.** Once `/land` completes, verify the orchestrator confirmed the `Land → Done` request and the workpad Status Transitions line was appended (cycle N close: land) if the worker remains alive. If `/land` exited before this step (e.g. due to dependency-skill failure noted in `.codex/skills/land/SKILL.md` Required Context), do not retry blindly — the skill's failure handling already recorded the cause.
 
 4. **On `/land` failure or wait.** The skill records the final evidence before any lifecycle transition, classifies it, and exits without merging only when it cannot safely complete the Land cycle:
    - **Required CI pending or registering** — keep the issue in `Land` and wait in the current Land turn. This includes checks re-queued because `/pull` refreshed the branch. Only required checks gate this path: before `/pull`, record the required-check names returned by `gh pr checks <pr-number> --required --json name,bucket`. If that result is empty, no required CI is configured and this gate passes without a registration wait. Otherwise, poll every 10 seconds until those previously observed required checks appear on the fresh head, then use `gh pr checks <pr-number> --required --watch --interval 10` until it reaches a terminal state. Do not invoke `--watch` while no check suite is registered, because it exits immediately instead of waiting for a future suite. Limit check-registration polling to 5 minutes; if the expected required checks do not appear, record the new head SHA and polling evidence, then classify it as the external wait-only failure below. Do not treat a newly-running required check as a `Land` → `In review` failure. Once CI reaches a terminal state, re-run the **entire** Land pre-flight (approval, checks, freshness, changeset, mergeability, and review feedback): merge if it passes; otherwise classify the resulting concrete failure below.
-   - **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: complete the workpad evidence, post the standalone transition comment stating the concrete pre-flight finding (which gate failed, on which head SHA, and what a human must do), append the Land workpad transition line, and only then transition `Land` → `In review` via `/gh-project`. Do **not** write a `⛔ Blocker` comment.
-   - **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition that the worker can address: post the standalone transition comment with reason `Land-return rework: <cause>` and append the Land workpad transition line, then transition `Land` → `Ready` via `/gh-project`. The Ready-return rework guard opens the next cycle and routes it to `In progress`.
-   - **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment, post the standalone transition comment and append the Land workpad transition line, then transition `Land` → `Backlog` via `/gh-project`. State the unblock condition.
+   - **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: complete the workpad evidence, prepare a status body stating the concrete pre-flight finding (which gate failed, on which head SHA, and what a human must do), and send it as `comment_body` while transitioning `Land` → `In review` via `/gh-project`. Do **not** write a `⛔ Blocker` comment.
+   - **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition that the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. The Ready-return rework guard opens the next cycle and routes it to `In progress`.
+   - **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment, prepare a status body stating the unblock condition, then transition `Land` → `Backlog` via `/gh-project` with that body.
    - **Immediately recoverable branch freshness** — when the branch is behind, run `/pull` and re-run the complete pre-flight sequence. Keep `Land` only for this in-run recovery path; if `/pull` fails, classify the failure using the rules above.
 
 This step performs no code edits, commits, or pushes itself — only the workpad/comment bookkeeping around the skill call. Any rework code change must come through the `Land` → `Ready` → `In progress` path.
@@ -275,27 +254,26 @@ A **work cycle** is one continuous active stretch on an issue. It opens when the
 - When a new cycle opens, create a **new** workpad comment. Prior cycle workpads remain as historical audit records — do not silently rewrite them.
 - The "current" workpad is the newest open cycle comment. Identify it by searching for the most recent comment whose body starts with `## Workpad —`.
 - Cycle number N increments across the whole issue lifetime — including land cycles. (Example: cycle 1 initial work, cycle 2 rework, cycle 3 land.) Cycles open on a transition into `In progress` (Step 1.5 / Step 0 Ready-return guard step 4) or `Land` (Step 4.1); transitions into intermediate active states like `Ready` do not open a cycle.
-- Triage failures (`Ready` → `Backlog` from Step 1.2) do **not** open or close a cycle. The standalone status comment is still posted, but the `Cycle:` line is written as `Cycle: — (triage rejection)`. The next cycle number is unaffected.
+- Triage failures (`Ready` → `Backlog` from Step 1.2) do **not** open or close a cycle. The `comment_body` still identifies the transition, but the `Cycle:` line is written as `Cycle: — (triage rejection)`. The next cycle number is unaffected.
 
 ### Status Transition Log
 
-(See Posture 5 for the rule, including the ordering rationale and the failure correction.) Both records are written **before** the `/gh-project` transition request. Every status transition produces two audit records:
+(See Posture 5 for the orchestrator-owned publication rule.) For every requested lifecycle transition, the agent prepares this exact body and sends it as `/gh-project` `comment_body`:
 
-1. Standalone issue comment via `gh issue comment --body-file`:
+```md
+🔁 Status: `FROM` → `TO`
 
-   ```
-   🔁 Status: `FROM` → `TO`
+Reason: <why now>
+Cycle: <N> open|close
+```
 
-   Reason: <why now>
-   Cycle: <N> open|close
-   ```
+After confirmed readback, the orchestrator publishes the body exactly once (or reports `unchanged` when the exact body already exists). The agent appends one matching line to the current workpad's `### Status Transitions` section if it remains alive:
 
-2. One append-only line in the current workpad's `### Status Transitions` section:
-   ```
-   - <ISO-8601 UTC ts> · `<FROM>` → `<TO>` · <reason> (cycle <N> open|close)
-   ```
+```md
+- <ISO-8601 UTC ts> · `<FROM>` → `<TO>` · <reason> (cycle <N> open|close)
+```
 
-`reason` is _why this transition now_ — not a restatement of `TO`. "Completion Bar 통과, 핸드오프"·"리뷰 blocking 2건 rework", not "moved to In review".
+On a failed request, no status comment is published; record the returned state/error and a failure line in the workpad. `reason` is _why this transition now_ — not a restatement of `TO`.
 
 ### Workpad Template
 
@@ -311,7 +289,8 @@ Used for all cycles. Land-cycle workpads keep Plan/Validation/Progress Log fille
 
 ### Status Transitions
 
-<!-- append-only within this cycle; also post each transition as a standalone issue comment -->
+<!-- append-only within this cycle; the orchestrator publishes the exact
+     comment_body after confirmed readback -->
 
 - {ISO ts} · `{FROM}` → `{TO}` · {why now} (cycle {N} open|close)
 

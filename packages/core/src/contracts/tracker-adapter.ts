@@ -138,7 +138,14 @@ export type TrackerStateRequest =
       expectedState: string;
       targetState: string;
       reason: string;
+      /** Agent-authored body to publish after a confirmed readback. */
+      commentBody?: string;
     };
+
+export type TrackerCommentWriteResult = {
+  outcome: "created" | "unchanged";
+  rateLimits: Record<string, unknown> | null;
+};
 
 export type TrackerStateResult = {
   ok: boolean;
@@ -183,6 +190,14 @@ export type OrchestratorTrackerAdapter = {
     },
     dependencies?: OrchestratorTrackerDependencies
   ): Promise<TrackerStateResult>;
+  upsertTransitionComment?(
+    project: OrchestratorProjectConfig,
+    input: {
+      issueSubjectId: string;
+      body: string;
+    },
+    dependencies?: OrchestratorTrackerDependencies
+  ): Promise<TrackerCommentWriteResult>;
   upsertIssueComment?(
     project: OrchestratorProjectConfig,
     issue: TrackedIssue,
