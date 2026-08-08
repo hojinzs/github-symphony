@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.7.9
+
+### Patch Changes
+
+- [#533](https://github.com/hojinzs/github-symphony/pull/533) [`06c67cf`](https://github.com/hojinzs/github-symphony/commit/06c67cf9e4a008aaeb8c257a06506f377592c9c5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Validate Codex approval and sandbox policy environment values and fail loudly on unknown values ([#530](https://github.com/hojinzs/github-symphony/issues/530)).
+
+  For the current string-based `turn_sandbox_policy` setting, use the Codex app-server's `dangerFullAccess` value. The other app-server turn variants (`readOnly`, `externalSandbox`, and `workspaceWrite`) require structured fields that this setting cannot provide and are rejected rather than sent as incomplete payloads. The thread-level `thread_sandbox` values remain kebab-case (`read-only`, `workspace-write`, or `danger-full-access`).
+
 ## 0.7.8
 
 ### Patch Changes
