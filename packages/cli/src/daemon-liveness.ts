@@ -3,9 +3,11 @@ import { join, resolve } from "node:path";
 import { getProcessCwd, getProcessIdentity } from "@gh-symphony/orchestrator";
 import { daemonPidPath, parseDaemonPidRecord } from "./config.js";
 
+const PROJECT_LOCK_HEARTBEAT_MAX_AGE_MS = 60_000;
+
 export type DaemonProcessTarget = {
   pid: number;
-  identity: string;
+  identity: string | null;
 };
 
 export type DaemonLiveness =
@@ -36,6 +38,22 @@ export async function resolveDaemonLiveness(options: {
   try {
     pidContents = await readFile(pidPath, "utf8");
   } catch {
+    const expectedCwd = resolve(options.workspaceDir);
+    const lockTarget = await resolveProjectLockDaemon(
+      options.configDir,
+      options.projectId,
+      expectedCwd
+    );
+    if (lockTarget) {
+      return {
+        running: true,
+        target: lockTarget,
+        source: "project-lock",
+        expectedCwd,
+        pidPath,
+        recordedPid: lockTarget.pid,
+      };
+    }
     return { running: false, reason: "missing-pid", pidPath };
   }
 
@@ -121,15 +139,22 @@ async function resolveProjectLockDaemon(
   try {
     const lock = JSON.parse(
       await readFile(join(configDir, "projects", projectId, ".lock"), "utf8")
-    ) as { pid?: unknown; processIdentity?: unknown };
+    ) as {
+      pid?: unknown;
+      processIdentity?: unknown;
+      heartbeatAt?: unknown;
+    };
     if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) {
       return null;
     }
     const processIdentity =
       typeof lock.processIdentity === "string" ? lock.processIdentity : null;
-    return validateDaemonProcess(
+    const heartbeatAt =
+      typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null;
+    return validateProjectLockProcess(
       lock.pid as number,
       processIdentity,
+      heartbeatAt,
       expectedCwd
     );
   } catch {
@@ -137,10 +162,49 @@ async function resolveProjectLockDaemon(
   }
 }
 
+function validateProjectLockProcess(
+  pid: number,
+  recordedIdentity: string | null,
+  heartbeatAt: string | null,
+  expectedCwd: string
+): DaemonProcessTarget | null {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return null;
+  }
+
+  const identity = getProcessIdentity(pid);
+  const identityMatches = recordedIdentity
+    ? identity === recordedIdentity
+    : identity
+      ? isLegacyOrchestratorIdentity(identity)
+      : isFreshProjectLockHeartbeat(heartbeatAt);
+  const cwd = getProcessCwd(pid);
+  if (!identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
+    return null;
+  }
+  return { pid, identity };
+}
+
+function isFreshProjectLockHeartbeat(heartbeatAt: string | null): boolean {
+  if (!heartbeatAt) {
+    return false;
+  }
+  const heartbeatAtMs = Date.parse(heartbeatAt);
+  const ageMs = Date.now() - heartbeatAtMs;
+  return (
+    Number.isFinite(heartbeatAtMs) &&
+    Math.abs(ageMs) <= PROJECT_LOCK_HEARTBEAT_MAX_AGE_MS
+  );
+}
+
 function isLegacyOrchestratorIdentity(identity: string | null): boolean {
   return Boolean(
     identity &&
-    /(?:gh-symphony|(?:^|\s)(?:dist\/)?index\.js)(?:\s|$)/.test(identity) &&
+    /(?:gh-symphony|(?:^|\s)(?:\S*\/)?(?:dist\/)?index\.js)(?:\s|$)/.test(
+      identity
+    ) &&
     /\brepo\s+start\b/.test(identity)
   );
 }

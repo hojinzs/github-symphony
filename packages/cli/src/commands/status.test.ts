@@ -146,6 +146,20 @@ async function writeDaemonPid(
   );
 }
 
+async function writeProjectLock(configDir: string, pid = 222): Promise<void> {
+  await writeFile(
+    join(configDir, "projects", "tenant-a", ".lock"),
+    JSON.stringify({
+      ownerToken: `${pid}:owner`,
+      pid,
+      startedAt: "2026-03-30T11:00:00.000Z",
+      heartbeatAt: "2026-03-30T11:00:00.000Z",
+      processIdentity: null,
+    }) + "\n",
+    "utf8"
+  );
+}
+
 beforeEach(() => {
   daemonProcessMocks.getProcessCwd.mockReset();
   daemonProcessMocks.getProcessIdentity.mockReset();
@@ -181,6 +195,33 @@ describe("status command", () => {
       "daemon not running — run 'gh-symphony repo start'"
     );
     expect(stdout.output()).toContain("Last known state: running");
+  });
+
+  it("recognizes a live foreground daemon from the project lock", async () => {
+    const configDir = await createConfigFixture();
+    await writeProjectLock(configDir);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      health: "running",
+      daemonRunning: true,
+    });
   });
 
   it("renders a stopped banner for a stale PID", async () => {
