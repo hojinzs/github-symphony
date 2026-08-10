@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.7.10
+
+### Patch Changes
+
+- [#542](https://github.com/hojinzs/github-symphony/pull/542) [`0b8482e`](https://github.com/hojinzs/github-symphony/commit/0b8482ec65abf77d5a0a16e75893b7ad101d346c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Publish agent-authored status-transition comments from the orchestrator after confirmed tracker readback, with idempotent GitHub writes and durable failure diagnostics. ([#541](https://github.com/hojinzs/github-symphony/issues/541))
+
 ## 0.7.9
 
 ### Patch Changes
