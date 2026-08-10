@@ -7,7 +7,7 @@
 - **Related ADRs**:
   - `docs/adr/2026-03-19_github-project-v2-state-filtering-cache.md` (GitHub Project V2 adapter constraints)
   - `docs/adr/2026-05-04_single-repo-orchestrator.md` (`tracker.*` config shape direction)
-- **Related Analysis**: `docs/spec-gap-analysis.md` §4.2 (priority status and historical context)
+- **Related Analysis**: `docs/reports/2026-06-25-spec-gap-analysis.md` §4.2 (priority status and historical context)
 
 > **Scope marker.** This is a **repository-local extension / implementation choice** for the GitHub Project V2 tracker adapter. The upstream Symphony specification (`docs/symphony-spec.md`) treats `priority` as a tracker-provided numeric attribute consumed by the dispatch sort; it does not prescribe how a tracker without a native priority concept derives that number. GitHub issues/Projects have no first-class priority. This ADR defines how github-symphony derives `TrackedIssue.priority` from explicitly configured `WORKFLOW.md` mappings. Nothing here edits `docs/symphony-spec.md`; divergence is documented per the repo's Spec Discipline.
 
@@ -22,7 +22,7 @@ Today the only GitHub priority source is the flat front-matter key `tracker.prio
 - Parsed in `packages/core/src/workflow/parser.ts` into `parsed.tracker.priorityFieldName` / `WorkflowConfig.tracker.priorityFieldName`, then forwarded into the GitHub tracker adapter config.
 - Resolved in `packages/tracker-github/src/adapter.ts`: `extractPriorityOptionOrder` assigns numeric priority **implicitly from the display order of the Project V2 single-select options** (0, 1, 2, …); `resolvePriority` maps the issue's selected option to that derived number; anything unmatched yields `null`.
 
-This is an **implicit heuristic**: the numeric mapping is never written down, it silently changes if a maintainer reorders Project field options, and there is no label-based path at all. The refreshed gap analysis now records this as historical context in `docs/spec-gap-analysis.md` §4.2.
+This is an **implicit heuristic**: the numeric mapping is never written down, it silently changes if a maintainer reorders Project field options, and there is no label-based path at all. The refreshed gap analysis now records this as historical context in `docs/reports/2026-06-25-spec-gap-analysis.md` §4.2.
 
 Issue #236 originated as a request for **label-based priority fallback**. The product owner has reversed that framing: **no implicit heuristics and no fallback**. Priority must be explicitly declared in `WORKFLOW.md`, from exactly one source, with an explicit value mapping.
 
@@ -300,7 +300,7 @@ Per `AGENTS.md` ("작업 완료 후 반드시 TC를 작성하고 테스트를 �
 ## 16. References
 
 - Upstream spec (read-only): `docs/symphony-spec.md` §11, §5.1
-- Gap analysis: `docs/spec-gap-analysis.md` §4.2
+- Gap analysis: `docs/reports/2026-06-25-spec-gap-analysis.md` §4.2
 - Dispatch sort: `packages/orchestrator/src/service.ts:3452` (`sortCandidatesForDispatch`)
 - Current GitHub priority resolution: `packages/tracker-github/src/adapter.ts` (`extractPriorityOptionOrder`, `resolvePriority`)
 - Current parser key: `packages/core/src/workflow/parser.ts` (`priority_field` → `priorityFieldName`)

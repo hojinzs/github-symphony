@@ -1,7 +1,7 @@
 # Spec: GitHub Project V2 디스패치를 데몬 자기 리포로 스코프
 
 - **Date**: 2026-07-06
-- **Status**: Approved (brainstorming)
+- **Status**: Shipped — `fix(tracker-github): scope Project V2 dispatch to daemon repo` (PR #435, `4499b07`)
 - **Refs**: #433
 - **Symphony Layers**: Integration (`tracker-github`), Coordination (dispatch selection), Observability (filter event)
 - **Related ADRs**:
@@ -34,11 +34,11 @@ GitHub Project V2 셀렉션을 **데몬 자기 리포로 자동 스코프하고,
 
 `tracker.settings.repository`(`readOptionalStringTrackerSetting(project.tracker, "repository")`) 값에 따라:
 
-| 값 | 해석 결과 (`repositoryFilter`) |
-|---|---|
+| 값                 | 해석 결과 (`repositoryFilter`)                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | 미설정 / 빈 문자열 | **`{ owner: project.repository.owner, name: project.repository.name }`** — cwd origin으로 자동 스코프 (기본 동작) |
-| `"owner/name"` | `{ owner, name }` — 오버라이드 (cwd origin과 다른 repo를 노릴 때) |
-| `"*"` | `null` — 전체 디스패치 (opt-out 탈출구) |
+| `"owner/name"`     | `{ owner, name }` — 오버라이드 (cwd origin과 다른 repo를 노릴 때)                                                 |
+| `"*"`              | `null` — 전체 디스패치 (opt-out 탈출구)                                                                           |
 
 - sentinel은 `"*"` 하나만. `"all"` 등 별칭은 만들지 않는다 (YAGNI).
 - `"owner/name"` 파싱은 `adapter.ts` ~L1304의 식별자 구성(`${owner.login}/${name}`)과 동일 규칙. 슬래시 1개, 양쪽 non-empty가 아니면 명시적 파싱 에러.
@@ -61,8 +61,14 @@ export type GitHubTrackerConfig = {
 `project: OrchestratorProjectConfig`를 이미 받으므로 `project.repository`에 접근 가능. 반환 객체에 `repositoryFilter`를 위 표대로 계산해 추가:
 
 ```ts
-const repositoryOverride = readOptionalStringTrackerSetting(project.tracker, "repository");
-const repositoryFilter = resolveRepositoryFilter(repositoryOverride, project.repository);
+const repositoryOverride = readOptionalStringTrackerSetting(
+  project.tracker,
+  "repository"
+);
+const repositoryFilter = resolveRepositoryFilter(
+  repositoryOverride,
+  project.repository
+);
 ```
 
 - `resolveRepositoryFilter(override, ownRepo)`: `"*"`→`null`; `"owner/name"`→파싱; 미설정→`{ owner: ownRepo.owner, name: ownRepo.name }`.
