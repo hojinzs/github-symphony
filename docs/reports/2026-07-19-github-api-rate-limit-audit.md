@@ -4,7 +4,7 @@
 - **범위**: `packages/tracker-github`, `packages/orchestrator`, `packages/tool-github-graphql` — GitHub API를 소비하는 전 경로
 - **계기**: GitHub Project를 트래커로 사용하는 오케스트레이터에서, 여러 리포지토리를 오케스트레이션할 때 GraphQL 한도가 빠르게 소진됨
 - **방법**: 디스패치 루프 정적 추적 → 호출 지점 전수 조사 → 중복/N+1 식별 → 제거 가능성에 대한 적대적 검증(정말 중복인지 반증 시도)
-- **상태**: 검수 대기 (구현 미착수)
+- **상태**: 부분 구현 — §2 R1.5(서버사이드 상태 필터)는 `docs/adr/2026-08-01_github-project-v2-server-side-state-filtering.md` (PR #500, #515)로 출하됨. 나머지 항목은 시점성 스냅샷으로 유지.
 
 > ✅ **2026-07-19 갱신: 비용은 실측값으로 대체되었다.** 초판의 추정치(페이지당 ~245pt)는 문서상 노드 곱셈 공식에 근거한 것으로, **실측 결과 11pt로 약 22배 과대평가였다.** 실 GitHub API가 반환한 `rateLimit { cost }` 기준으로 전면 수정했다.
 >
@@ -31,18 +31,18 @@
 
 **"여러 리포지토리를 오케스트레이션할 때"가 조건이 아니었다. 리포 하나, 데몬 하나로 이미 초과한다.** 여러 리포는 증상을 앞당겼을 뿐 원인이 아니다. 따라서 초판이 주범으로 지목한 **P2(데몬 중복)는 현재 배포에 해당하지 않으며**, 실제 원인은 **P1(요청당 비용 11배) × P10(Done 83개까지 전량 조회)** 두 축이다.
 
-| ID | 문제 | 심각도 | 성격 |
-|---|---|---|---|
-| P1 | 중첩 PR의 `labels`/`assignees`가 요청 비용을 **1 → 11pt로 11배** 증폭 (실측) | 🔴 Critical | 쿼리 설계 |
+| ID  | 문제                                                                                                    | 심각도      | 성격      |
+| --- | ------------------------------------------------------------------------------------------------------- | ----------- | --------- |
+| P1  | 중첩 PR의 `labels`/`assignees`가 요청 비용을 **1 → 11pt로 11배** 증폭 (실측)                            | 🔴 Critical | 쿼리 설계 |
 | P10 | 상태와 무관하게 **보드 전량** 조회 (운영 보드 92%가 Done) — **API가 지원함에도** 서버사이드 필터 미사용 | 🔴 Critical | 조회 경로 |
-| P2 | 리포별 데몬 = 동일 보드 N회 조회 — **현재 배포에는 미해당**, 확장 시 리스크 | 🟡 Medium | 배치 구조 |
-| P3 | 어드바이저리 코멘트 무한 페이징 (매 사이클, 변경 없어도) | 🟠 High | N+1 |
-| P4 | 실제 point 비용 관측 불가 | 🟠 High | 관측성 |
-| P5 | `fetchIssueStatesByIds` 내부 N+1 (순차, 최악 100 왕복) | 🟡 Medium | N+1 |
-| P6 | `fetchPriorityOptionOrder` 매 사이클 재조회 | 🟡 Medium | 캐싱 |
-| P7 | 403/429·`Retry-After` 처리 부재 | 🟡 Medium | 복원력 |
-| P8 | `tool-github-graphql`이 rate-limit 가드 없이 같은 버킷 소비 | 🟡 Medium | 예산 누수 |
-| P9 | 아카이브된 보드 아이템의 stale state 유지 | ⚪ Low | 정합성 |
+| P2  | 리포별 데몬 = 동일 보드 N회 조회 — **현재 배포에는 미해당**, 확장 시 리스크                             | 🟡 Medium   | 배치 구조 |
+| P3  | 어드바이저리 코멘트 무한 페이징 (매 사이클, 변경 없어도)                                                | 🟠 High     | N+1       |
+| P4  | 실제 point 비용 관측 불가                                                                               | 🟠 High     | 관측성    |
+| P5  | `fetchIssueStatesByIds` 내부 N+1 (순차, 최악 100 왕복)                                                  | 🟡 Medium   | N+1       |
+| P6  | `fetchPriorityOptionOrder` 매 사이클 재조회                                                             | 🟡 Medium   | 캐싱      |
+| P7  | 403/429·`Retry-After` 처리 부재                                                                         | 🟡 Medium   | 복원력    |
+| P8  | `tool-github-graphql`이 rate-limit 가드 없이 같은 버킷 소비                                             | 🟡 Medium   | 예산 누수 |
+| P9  | 아카이브된 보드 아이템의 stale state 유지                                                               | ⚪ Low      | 정합성    |
 
 ---
 
@@ -53,12 +53,12 @@
 - **파일**: [`packages/tracker-github/src/adapter.ts:1691`](../packages/tracker-github/src/adapter.ts) (`PROJECT_ITEMS_QUERY`), 중첩 위치 [`adapter.ts:1810`](../packages/tracker-github/src/adapter.ts) `PullRequestMetadata` fragment, 페이지 크기 [`adapter.ts:10`](../packages/tracker-github/src/adapter.ts) `DEFAULT_PAGE_SIZE = 25`
 - **실측 (`first: 25` 고정, 필드 구성만 변경)**:
 
-  | 쿼리 구성 | 실측 cost |
-  |---|---|
-  | `items` + `content { id }` 만 | **1** |
-  | + `blockedBy(first: 100)` | **1** |
-  | 현행 전체 (중첩 PR `labels`/`assignees` 포함) | **11** |
-  | 현행에서 중첩 PR `labels`/`assignees` 만 제거 | **1** |
+  | 쿼리 구성                                     | 실측 cost |
+  | --------------------------------------------- | --------- |
+  | `items` + `content { id }` 만                 | **1**     |
+  | + `blockedBy(first: 100)`                     | **1**     |
+  | 현행 전체 (중첩 PR `labels`/`assignees` 포함) | **11**    |
+  | 현행에서 중첩 PR `labels`/`assignees` 만 제거 | **1**     |
 
 - **핵심**: 비용 증가분 10pt가 **전부 `closedByPullRequestsReferences` 안에 중첩된 `labels(20)`/`assignees(20)`**에서 나온다. 이 두 필드는 오케스트레이터의 어떤 판단에도 쓰이지 않고 워커 템플릿 변수로만 전달된다(§2 R1).
 - **초판 정정**: `blockedBy(first: 100)`을 주요 비용원으로 지목했으나 **실측 결과 기여도 0**이다. 제거 대상이 아니다.
@@ -79,15 +79,15 @@
 
 - **실측 검증** (61 아이템 보드, Status 옵션 `Backlog / Ready / In progress / In review / Land / Done`):
 
-  | `query` 인자 | 반환 수 |
-  |---|---|
-  | (없음) | 61 |
-  | `status:Backlog` | 8 |
-  | `status:Done` | 53 |
-  | `-status:Done` | **8** |
-  | `-status:Done,Backlog` | 0 |
-  | `is:open` / `is:issue` | 8 / 56 |
-  | `status:NoSuchState` | **0 (에러 아님)** ⚠️ |
+  | `query` 인자           | 반환 수              |
+  | ---------------------- | -------------------- |
+  | (없음)                 | 61                   |
+  | `status:Backlog`       | 8                    |
+  | `status:Done`          | 53                   |
+  | `-status:Done`         | **8**                |
+  | `-status:Done,Backlog` | 0                    |
+  | `is:open` / `is:issue` | 8 / 56               |
+  | `status:NoSuchState`   | **0 (에러 아님)** ⚠️ |
 
   `8 + 53 = 61`로 정합하며, 부정(`-`)·다중값·`is:` 한정자 모두 동작한다.
 
@@ -99,7 +99,6 @@
 > **2026-07-19 실측으로 격하.** 초판은 이를 주범으로 지목했으나, 확인 결과 **실행 중인 오케스트레이터는 1대뿐**이다(PID 42112, `gh-symphony repo start --assigned-only`, cwd `/Users/steve/Projects/ioa-tracker`, 2026-07-17 기동). 단일 프로젝트·단일 리포 구성이므로 중복 조회는 발생하지 않는다.
 >
 > 아래 구조적 분석은 **다중 리포로 확장할 때** 유효하므로 기록을 유지한다.
-
 
 - **파일**: [`service.ts:638`](../packages/orchestrator/src/service.ts) `reconcileProject`, [`orchestrator-adapter.ts:196`](../packages/tracker-github/src/orchestrator-adapter.ts) `resolveRepositoryFilter`, [`adapter.ts:512`](../packages/tracker-github/src/adapter.ts) `isIssueInRepository`
 - **근거**: `OrchestratorService` 인스턴스 하나 = 프로젝트 설정 하나 = Project V2 보드 하나. 리포 스코핑은 **보드 전체를 가져온 뒤 클라이언트에서 필터링**한다. `resolveRepositoryFilter`는 `tracker.settings.repository`가 미설정이면 `project.repository` 기준 필터를 반환하며, 리터럴 `"*"`만 이를 비활성화한다.
@@ -187,9 +186,9 @@
 - **R1과의 관계**: 서로 다른 축이므로 **곱해진다.** R1은 요청당 cost(11→1), R1.5는 요청 수(3→1).
 - **⚠️ 필터 표현식 선택 — 안전성이 갈린다**:
 
-  | 방식 | 평가 |
-  |---|---|
-  | `-status:Done,<기타 terminal>` (부정) | **권장.** 새 상태가 추가되어도 누락되지 않고 포함된다. 실패 시 과다 조회(안전) |
+  | 방식                                    | 평가                                                                                |
+  | --------------------------------------- | ----------------------------------------------------------------------------------- |
+  | `-status:Done,<기타 terminal>` (부정)   | **권장.** 새 상태가 추가되어도 누락되지 않고 포함된다. 실패 시 과다 조회(안전)      |
   | `status:Ready,"In progress",...` (긍정) | **비권장.** 옵션 이름 변경 시 **에러 없이 0건** 반환 → 디스패치 전면 중단(P10 참조) |
 
   긍정 필터를 쓴다면, 이미 존재하는 `PROJECT_FIELDS_QUERY`([`adapter.ts:1825`](../packages/tracker-github/src/adapter.ts))로 옵션 이름을 **읽어 검증한 뒤** 표현식을 조립하고, 불일치 시 **fail-loud** 해야 한다.
@@ -252,11 +251,11 @@
 - **공개 URL 불필요**: installation token 흐름은 전부 outbound(JWT 서명 → `POST /app/installations/{id}/access_tokens` → GraphQL 호출)다. webhook을 쓰지 않으면 공개 엔드포인트가 필요 없다
 - **전환 시 블로커**:
 
-  | 이슈 | 위치 | 내용 |
-  |---|---|---|
-  | `GET /user` 403 | [`adapter.ts:823`](../packages/tracker-github/src/adapter.ts) `fetchCurrentUserLogin` | installation token으로 호출 불가. `assignedOnly` 사용 시 즉시 실패 |
-  | `viewer` 쿼리 | [`client.ts:848`](../packages/cli/src/github/client.ts), [`client.ts:869`](../packages/cli/src/github/client.ts) | 부트스트랩/프로젝트 탐색 경로 실패 (데몬 루프는 무관) |
-  | user-owned 프로젝트 | — | Project V2가 개인 계정 소유면 **도달 불가**. org 소유 이전 필요 |
+  | 이슈                    | 위치                                                                                                                                                                                   | 내용                                                                                                                                                     |
+  | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `GET /user` 403         | [`adapter.ts:823`](../packages/tracker-github/src/adapter.ts) `fetchCurrentUserLogin`                                                                                                  | installation token으로 호출 불가. `assignedOnly` 사용 시 즉시 실패                                                                                       |
+  | `viewer` 쿼리           | [`client.ts:848`](../packages/cli/src/github/client.ts), [`client.ts:869`](../packages/cli/src/github/client.ts)                                                                       | 부트스트랩/프로젝트 탐색 경로 실패 (데몬 루프는 무관)                                                                                                    |
+  | user-owned 프로젝트     | —                                                                                                                                                                                      | Project V2가 개인 계정 소유면 **도달 불가**. org 소유 이전 필요                                                                                          |
   | 토큰 회전 시 캐시 churn | [`adapter.ts:1625`](../packages/tracker-github/src/adapter.ts) `fingerprintToken`, [`orchestrator-adapter.ts:254`](../packages/tracker-github/src/orchestrator-adapter.ts) `hashToken` | 캐시 키가 **토큰 값** 기반. 1시간마다 만료되는 토큰에서는 갱신 때마다 rate-limit 캐시·project-items 캐시가 전부 무효화된다. **전환 시 최우선 수정 대상** |
 
 - **재사용 가능한 기반**: [`tool.ts:62`](../packages/tool-github-graphql/src/tool.ts) `resolveGitHubGraphQLToken`이 이미 `{ token, expiresAt }` 브로커 패턴을 구현하고 있다(캐시 파일 0600, 60초 재사용 윈도우). 트래커는 이를 쓰지 않고 정적 `token: string`을 가정하므로([`adapter.ts:18`](../packages/tracker-github/src/adapter.ts)), `token: string | (() => Promise<string>)`로 확장하면 된다
@@ -265,14 +264,14 @@
 
 ## 3. 검토했으나 채택하지 않은 방안
 
-| 방안 | 기각 사유 |
-|---|---|
-| **리포/환경마다 PAT 분리** | 효과 없음. primary rate limit은 토큰이 아닌 **계정** 단위. 같은 계정의 PAT N개는 동일한 5,000pt 버킷을 공유한다 |
-| **machine user 계정 다중 생성** | 계정별 버킷 분리는 되지만 한도 회피 목적의 계정 다중 생성은 GitHub ToS 위반 소지가 있고 seat 비용이 발생한다 |
-| **`pageSize` 25 → 100 증가** | **비용 중립 — 실측 확인** (`first:` 10/25/50/100 → cost 4/11/22/44 선형). 지연시간만 개선되므로 R1.5와 함께라면 고려 가능 |
-| **Project V2 조회 전체를 REST로 이관** | **불가능.** Project V2는 REST API가 없다. 보드 아이템·필드 값·status는 GraphQL에 남아야 한다 |
-| ~~**서버사이드 state 필터링**~~ | **기각 철회 — 채택.** 초판은 API 미지원으로 기각했으나 실측 결과 `items(query:)`가 지원된다. **R1.5로 승격**. [`adr/2026-03-19`](./adr/2026-03-19_github-project-v2-state-filtering-cache.md)는 supersede 대상 |
-| **2단계 페치(얇은 스윕 + 선별 상세)** | 서버사이드 필터로 더 적은 복잡도로 동등 효과 달성 가능. 필터 적용 후에도 보드가 수천 건 규모라면 재검토 |
+| 방안                                   | 기각 사유                                                                                                                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **리포/환경마다 PAT 분리**             | 효과 없음. primary rate limit은 토큰이 아닌 **계정** 단위. 같은 계정의 PAT N개는 동일한 5,000pt 버킷을 공유한다                                                                                                |
+| **machine user 계정 다중 생성**        | 계정별 버킷 분리는 되지만 한도 회피 목적의 계정 다중 생성은 GitHub ToS 위반 소지가 있고 seat 비용이 발생한다                                                                                                   |
+| **`pageSize` 25 → 100 증가**           | **비용 중립 — 실측 확인** (`first:` 10/25/50/100 → cost 4/11/22/44 선형). 지연시간만 개선되므로 R1.5와 함께라면 고려 가능                                                                                      |
+| **Project V2 조회 전체를 REST로 이관** | **불가능.** Project V2는 REST API가 없다. 보드 아이템·필드 값·status는 GraphQL에 남아야 한다                                                                                                                   |
+| ~~**서버사이드 state 필터링**~~        | **기각 철회 — 채택.** 초판은 API 미지원으로 기각했으나 실측 결과 `items(query:)`가 지원된다. **R1.5로 승격**. [`adr/2026-03-19`](./adr/2026-03-19_github-project-v2-state-filtering-cache.md)는 supersede 대상 |
+| **2단계 페치(얇은 스윕 + 선별 상세)**  | 서버사이드 필터로 더 적은 복잡도로 동등 효과 달성 가능. 필터 적용 후에도 보드가 수천 건 규모라면 재검토                                                                                                        |
 
 ---
 
@@ -280,15 +279,15 @@
 
 **초판의 미해결 항목은 2026-07-19 조사로 전부 해소되었다.** 이슈 발행에 필요한 전제는 남아 있지 않다.
 
-| # | 항목 | 결과 |
-|---|---|---|
-| 1 | 운영 배포가 리포별 데몬 형태인가? | ✅ **아니오.** 데몬 1대(PID 42112, `repo start --assigned-only`, cwd `/Users/steve/Projects/ioa-tracker`, 2026-07-17 기동), 단일 프로젝트·단일 리포. **P2는 현재 원인이 아님 → 🟡로 격하** |
-| 2 | 템플릿이 `linked_pull_requests[].labels`/`.assignees`를 참조하는가? | ✅ **아니오. R1은 안전.** 아래 상세 |
-| 3 | `items()`가 아카이브 아이템을 반환하는가? | ✅ **해소.** `archivedStates` 기본값 = `NOT_ARCHIVED` 실측 확인. 양 경로 대칭(§1 P9 정정) |
-| 4 | `items()`에 필터 인자가 추가되었는가? | ✅ **`query: String` 지원 확인.** ADR supersede 필요 (§1 P10) |
-| 5 | `service.ts:734-745`가 죽은 코드인가? | ✅ **확인.** 아래 상세 |
-| 6 | 잔여량을 소비한 주체는? | ✅ **실행 중인 단일 데몬.** `used=3419` 관측치가 계산값(5,280 pt/hr)과 부합 |
-| 7 | 실측 보드가 운영 보드를 대표하는가? | ✅ **운영 보드 직접 측정으로 대체.** 부록 A-1은 실제 폴링 대상 보드(90 아이템) 기준 |
+| #   | 항목                                                                | 결과                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | 운영 배포가 리포별 데몬 형태인가?                                   | ✅ **아니오.** 데몬 1대(PID 42112, `repo start --assigned-only`, cwd `/Users/steve/Projects/ioa-tracker`, 2026-07-17 기동), 단일 프로젝트·단일 리포. **P2는 현재 원인이 아님 → 🟡로 격하** |
+| 2   | 템플릿이 `linked_pull_requests[].labels`/`.assignees`를 참조하는가? | ✅ **아니오. R1은 안전.** 아래 상세                                                                                                                                                        |
+| 3   | `items()`가 아카이브 아이템을 반환하는가?                           | ✅ **해소.** `archivedStates` 기본값 = `NOT_ARCHIVED` 실측 확인. 양 경로 대칭(§1 P9 정정)                                                                                                  |
+| 4   | `items()`에 필터 인자가 추가되었는가?                               | ✅ **`query: String` 지원 확인.** ADR supersede 필요 (§1 P10)                                                                                                                              |
+| 5   | `service.ts:734-745`가 죽은 코드인가?                               | ✅ **확인.** 아래 상세                                                                                                                                                                     |
+| 6   | 잔여량을 소비한 주체는?                                             | ✅ **실행 중인 단일 데몬.** `used=3419` 관측치가 계산값(5,280 pt/hr)과 부합                                                                                                                |
+| 7   | 실측 보드가 운영 보드를 대표하는가?                                 | ✅ **운영 보드 직접 측정으로 대체.** 부록 A-1은 실제 폴링 대상 보드(90 아이템) 기준                                                                                                        |
 
 **#2 상세 — R1의 리스크는 0으로 확인되었다.**
 `linked_pull_requests`는 PR 객체 전체가 전달되며([`render.ts:111`](../packages/core/src/workflow/render.ts), `TrackedPullRequestContext`의 index signature로 `labels`/`assignees`가 보존됨), 따라서 템플릿이 `pr.labels`를 명시하면 접근 가능하다. 그러나 **암묵적 누출은 불가능하다** — Liquid/legacy 양 경로 모두 객체를 JSON 직렬화하지 않고 `[object Object]`를 출력한다([`render.ts:194`](../packages/core/src/workflow/render.ts), [`render.ts:261`](../packages/core/src/workflow/render.ts)에서 배열 skip).
@@ -322,21 +321,21 @@ fetchIssueStatesByIds         ⌈A/100⌉ + 최대 A 추가 (N+1)          ← P
 
 **대상**: `PVT_kwDOBB0_W84BRapW` "유지보수 서비스 프로젝트" — 실행 중인 데몬이 실제로 폴링하는 보드
 
-| 항목 | 값 |
-|---|---|
-| 전체 아이템 | **90** |
-| 상태 분포 | Done **83 (92%)** / Ready 4 / In progress 2 / In review 1 / Backlog 0 |
-| `-status:Done` | **7** |
-| `pageSize` (`DEFAULT_PAGE_SIZE`) | 25 → **4 페이지** |
-| 폴링 주기 | 30,000ms (`WORKFLOW.md` `polling.interval_ms`) → **120 cycle/hr** |
-| 요청당 실측 cost | **11** (현행) / **1** (R1 적용) |
+| 항목                             | 값                                                                    |
+| -------------------------------- | --------------------------------------------------------------------- |
+| 전체 아이템                      | **90**                                                                |
+| 상태 분포                        | Done **83 (92%)** / Ready 4 / In progress 2 / In review 1 / Backlog 0 |
+| `-status:Done`                   | **7**                                                                 |
+| `pageSize` (`DEFAULT_PAGE_SIZE`) | 25 → **4 페이지**                                                     |
+| 폴링 주기                        | 30,000ms (`WORKFLOW.md` `polling.interval_ms`) → **120 cycle/hr**     |
+| 요청당 실측 cost                 | **11** (현행) / **1** (R1 적용)                                       |
 
-| 시나리오 | cost/req | 페이지 | pt/cycle | pt/hr | 한도(5,000) 대비 |
-|---|---|---|---|---|---|
-| **현재** | 11 | 4 | **44** | **5,280** | **106% — 초과** |
-| R1만 (중첩 필드 제거) | 1 | 4 | 4 | 480 | 9.6% |
-| R1.5만 (`-status:Done`) | 11 | 1 | 11 | 1,320 | 26% |
-| **R1 + R1.5** | 1 | 1 | **1** | **120** | **2.4% (44배 절감)** |
+| 시나리오                | cost/req | 페이지 | pt/cycle | pt/hr     | 한도(5,000) 대비     |
+| ----------------------- | -------- | ------ | -------- | --------- | -------------------- |
+| **현재**                | 11       | 4      | **44**   | **5,280** | **106% — 초과**      |
+| R1만 (중첩 필드 제거)   | 1        | 4      | 4        | 480       | 9.6%                 |
+| R1.5만 (`-status:Done`) | 11       | 1      | 11       | 1,320     | 26%                  |
+| **R1 + R1.5**           | 1        | 1      | **1**    | **120**   | **2.4% (44배 절감)** |
 
 **해석 — 초판과 결론이 완전히 다르다:**
 
@@ -352,10 +351,10 @@ fetchIssueStatesByIds         ⌈A/100⌉ + 최대 A 추가 (N+1)          ← P
 
 ## 부록 B. 한도 구조 참고
 
-| | 한도 | 단위 | 비고 |
-|---|---|---|---|
-| REST (PAT) | 5,000 **요청**/hr | 계정 | ETag 304 응답은 미소모 |
-| GraphQL (PAT) | 5,000 **point**/hr | 계정 | 요청당 1이 아님 — 노드 수 기반 |
+|                                   | 한도                     | 단위         | 비고                                     |
+| --------------------------------- | ------------------------ | ------------ | ---------------------------------------- |
+| REST (PAT)                        | 5,000 **요청**/hr        | 계정         | ETag 304 응답은 미소모                   |
+| GraphQL (PAT)                     | 5,000 **point**/hr       | 계정         | 요청당 1이 아님 — 노드 수 기반           |
 | REST / GraphQL (App installation) | org 규모에 따라 스케일업 | installation | 정확한 상한은 최신 GitHub 문서 확인 필요 |
 
 **REST와 GraphQL은 완전히 별개 버킷이다.** 이관만으로 총 예산이 늘어난다. 다만 실측 결과 GraphQL cost가 예상보다 훨씬 낮으므로(페이지당 11pt), 초판이 강조한 "REST 이관의 비용 우위"는 과장이었다. **REST 이관의 실질 가치는 point 절감이 아니라 ETag 조건부 요청(304 = 무소모)에 있으며**, 이는 P3(어드바이저리 코멘트)에 국한된다.

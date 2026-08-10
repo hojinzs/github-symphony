@@ -7,7 +7,7 @@
 - **Supersedes**:
   [`2026-03-19_github-project-v2-state-filtering-cache.md`](./2026-03-19_github-project-v2-state-filtering-cache.md)
 - **Related Analysis**:
-  [`docs/2026-07-19-github-api-rate-limit-audit.md`](../2026-07-19-github-api-rate-limit-audit.md)
+  [`docs/reports/2026-07-19-github-api-rate-limit-audit.md`](../reports/2026-07-19-github-api-rate-limit-audit.md)
   §2 R1.5
 - **Related Spec**: `docs/symphony-spec.md` §8.1, §8.6, §11.1
 

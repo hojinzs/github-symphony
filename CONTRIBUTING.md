@@ -6,6 +6,7 @@
 - Keep changes scoped. Separate refactors from feature work when possible.
 - Prefer additive changes over silent behavioral rewrites.
 - Keep design decisions reviewable. Use `docs/adr/` for architecture decision records when a change needs a durable rationale.
+- Place documents by kind (see [docs/README.md](docs/README.md)): `docs/adr/` for decisions, `docs/designs/` for pre-implementation design specs and plans, `docs/reports/` for point-in-time audits and investigations. Living reference docs stay at the `docs/` root without a date prefix; dated documents use `YYYY-MM-DD-slug.md`.
 - Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Development workflow

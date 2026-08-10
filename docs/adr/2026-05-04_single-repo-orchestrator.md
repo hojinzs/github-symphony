@@ -7,13 +7,13 @@
 - **Related ADRs**:
   - `docs/adr/2026-03-16_issue-centric-state-model.md` (시너지 — workspace key 단순화)
   - `docs/adr/2026-04-29_linear-tracker-integration.md` (PR #255, 직교 진행)
-- **Investigation Basis**: `docs/2026-05-04_single-repo-orchestrator-feasibility.md` — 가정 4건에 대한 codex 독립 리뷰 결과 포함
+- **Investigation Basis**: `docs/reports/2026-05-04-single-repo-orchestrator-feasibility.md` — 가정 4건에 대한 codex 독립 리뷰 결과 포함
 
 ## Context
 
 upstream `docs/symphony-spec.md` §3.1, §5.1 은 **단일 리포지토리 + repo-local `WORKFLOW.md`** 모델을 명시한다. OpenAI Elixir 레퍼런스도 `./bin/symphony ./WORKFLOW.md` 한 명령으로 시작하며 한 인스턴스가 한 리포를 watch 한다.
 
-현재 github-symphony 구현은 GitHub Project V2 가 여러 linked repository 를 가질 수 있다는 점을 1급으로 받아들여 multi-tenant 형태로 발전했다 (`docs/spec-gap-analysis.md` D4):
+현재 github-symphony 구현은 GitHub Project V2 가 여러 linked repository 를 가질 수 있다는 점을 1급으로 받아들여 multi-tenant 형태로 발전했다 (`docs/reports/2026-06-25-spec-gap-analysis.md` D4):
 
 - `OrchestratorProjectConfig.repositories: RepositoryRef[]` (배열)
 - 디스크 레이아웃 `<runtimeRoot>/projects/<projectId>/issues/<workspaceKey>/repository/`
@@ -26,7 +26,7 @@ upstream `docs/symphony-spec.md` §3.1, §5.1 은 **단일 리포지토리 + rep
 2. **upstream spec 부합 약화** — spec §5.1 "the workflow file is expected to be repository-owned" 인데, 현재는 `loadProjectWorkflow` 가 `tenant.repositories[0]` 또는 `issue.repository` 를 고르는 정책 의존 동작 (`packages/orchestrator/src/service.ts:1100-1140`).
 3. **부트스트랩 복잡도** — 사용자가 GitHub Project ID, projectSlug, projectConfig 디렉터리를 거쳐야 시작. spec/레퍼런스의 `cd repo && symphony start` 단순함을 잃음.
 
-조사 결과 (`docs/2026-05-04_single-repo-orchestrator-feasibility.md`, codex 4건 리뷰):
+조사 결과 (`docs/reports/2026-05-04-single-repo-orchestrator-feasibility.md`, codex 4건 리뷰):
 
 - issue/run/workflow 처리 경로는 사실상 단일 repo 가정 위에서 동작 중. array 의존은 정책 집계 로직 ~3곳 (`service.ts:825,2527,2546`) 에 국한 — 단일 repo 로 가면 `min(x) → x` 로 **단순화** 되는 방향.
 - `OrchestratorProjectConfig.repositories` 가 cross-repo 라우팅에 본질적으로 쓰이는 곳은 없다. issue.repository / run.repository 는 이미 단일 `RepositoryRef`.
@@ -65,7 +65,7 @@ $ cd ~/work/repo-b && gh-symphony repo start --web 4681
 
 ### Positive
 
-- **upstream spec 부합 회복** — `docs/spec-gap-analysis.md` D4 (multi-tenant workspace path) 해소.
+- **upstream spec 부합 회복** — `docs/reports/2026-06-25-spec-gap-analysis.md` D4 (multi-tenant workspace path) 해소.
 - **PR #255 와 어댑터 contract 통일** — GitHub/Linear 모두 `tracker.settings.repository` 단일 모양.
 - **키 체계 압축** — `(projectId × repositoryId × workspaceKey) → workspaceKey`. ADR `2026-03-16` 의 `deriveWorkspaceKey(identifier)` 채택과 시너지.
 - **control-plane 단순화** — `ControlPlaneServerOptions.projectId` 와 server-side store 의 `projectId` 의존 제거.
@@ -128,8 +128,8 @@ $ cd ~/work/repo-b && gh-symphony repo start --web 4681
 
 ## References
 
-- 조사 문서: `docs/2026-05-04_single-repo-orchestrator-feasibility.md` (codex 4건 리뷰 인용 포함)
-- spec gap 분석: `docs/spec-gap-analysis.md` D4
+- 조사 문서: `docs/reports/2026-05-04-single-repo-orchestrator-feasibility.md` (codex 4건 리뷰 인용 포함)
+- spec gap 분석: `docs/reports/2026-06-25-spec-gap-analysis.md` D4
 - upstream spec: `docs/symphony-spec.md` §3.1, §5.1
 - OpenAI Elixir 레퍼런스: <https://github.com/openai/symphony/blob/main/elixir/README.md>
 - 관련 PR: #255 (Linear adapter ADR draft)

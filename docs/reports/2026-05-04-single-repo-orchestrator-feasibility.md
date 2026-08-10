@@ -2,13 +2,13 @@
 
 - **Date**: 2026-05-04
 - **Author**: hojinzs@gmail.com (with Claude assist)
-- **Status**: Investigation / pre-ADR
+- **Status**: Concluded — `docs/adr/2026-05-04_single-repo-orchestrator.md`로 승격되어 채택됨. 시점성 조사 문서이므로 본문이 언급하는 CLI 명령(예: `gh-symphony start`)은 2026-05-10 CLI 재구조화 이전 형태다.
 - **Related**:
   - upstream spec: `docs/symphony-spec.md` (Draft v1)
   - reference impl: <https://github.com/openai/symphony> (elixir)
   - PR #255 (Linear adapter ADR draft): `docs/adr/2026-04-29_linear-tracker-integration.md` (in PR)
   - existing ADR: `docs/adr/2026-03-16_issue-centric-state-model.md`
-  - gap analysis: `docs/spec-gap-analysis.md`
+  - gap analysis: `docs/reports/2026-06-25-spec-gap-analysis.md`
 
 > Per-assumption review by Codex (gpt-5-codex via `codex:codex-rescue`) is recorded inline. The Codex outputs are quoted verbatim and condensed; raw transcripts live in the agent task output store.
 
@@ -18,7 +18,7 @@
 
 upstream Symphony spec (`docs/symphony-spec.md` §3, §5) 은 명시적으로 **단일-리포 + repo-local `WORKFLOW.md`** 모델이다. OpenAI 의 Elixir 레퍼런스 구현 (<https://github.com/openai/symphony/blob/main/elixir/README.md>) 도 `./bin/symphony ./WORKFLOW.md` 한 명령으로 시작하고, `hooks.after_create` 안에서 `git clone` 하는 형태로 한 워크스페이스 = 한 리포를 가정한다.
 
-그러나 현재 github-symphony 구현은 GitHub Project V2 가 _여러 linked repository_ 를 가질 수 있다는 사실을 1급으로 받아들여 multi-tenant 형태로 발전했다 (`docs/spec-gap-analysis.md` D4 — `<root>/<projectId>/issues/<key>/repository` 디렉터리, `OrchestratorProjectConfig.repositories: RepositoryRef[]` 배열). 그 결과:
+그러나 현재 github-symphony 구현은 GitHub Project V2 가 _여러 linked repository_ 를 가질 수 있다는 사실을 1급으로 받아들여 multi-tenant 형태로 발전했다 (`docs/reports/2026-06-25-spec-gap-analysis.md` D4 — `<root>/<projectId>/issues/<key>/repository` 디렉터리, `OrchestratorProjectConfig.repositories: RepositoryRef[]` 배열). 그 결과:
 
 1. **PR #255 와의 충돌** — Linear 어댑터는 "이슈에 repo 가 없다 → config 에서 단일 repo 를 주입한다" 는 단일-repo 매핑을 1차 범위로 권장. GitHub 쪽은 array, Linear 쪽은 single 으로 양식이 갈라진다.
 2. **upstream spec 부합 약화** — `docs/symphony-spec.md` §5.1 은 "the workflow file is expected to be repository-owned"; 현재는 `loadProjectWorkflow` 가 `tenant.repositories[0]` 또는 `issue.repository` 의 WORKFLOW.md 를 로드하는 정책 의존 동작이 됐다 (`packages/orchestrator/src/service.ts:1100-1140`).
@@ -36,6 +36,7 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 ```
 
 핵심 변경:
+
 - `OrchestratorProjectConfig.repositories: RepositoryRef[]` → `repository: RepositoryRef` 단일 필드.
 - `WORKFLOW.md` 의 1차 출처는 **cwd (또는 명시된 리포 디렉터리)**. 사용자가 `--workflow-file <path>` 로 override 하면 그 경로가 우선 (이미 spec §5.1).
 - 디렉터리 레이아웃: `.runtime/orchestrator/<workspaceKey>/...` (또는 `.runtime/orchestrator/issues/<workspaceKey>/...`) — `<projectId>` 단계 제거.
@@ -59,6 +60,7 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 > "issue/run/workflow 자체는 단일 repo 중심이지만, project-wide 정책(poll interval, concurrency)은 `tenant.repositories` 배열 전체를 집계(min/merge)한다."
 >
 > Hidden coupling:
+>
 > - `packages/orchestrator/src/service.ts:2527` — poll interval 을 repos 전체에서 min 으로 집계
 > - `packages/orchestrator/src/service.ts:2546` — concurrency 정책을 여러 repo 에서 merge/min
 > - `packages/orchestrator/src/service.ts:825` — startup terminal cleanup 이 resolved repos 전체 순회
@@ -80,6 +82,7 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 > "프로덕션 코드 델타(`status-surface.ts:15-21`, `fs-store.ts:43-188,297-346`, `service.ts:868-946,2527-2638`)는 **700~1,100 LoC** 추정치이며, `service.test.ts`의 **64개/94개 테스트가 `tenant-1`/project path를 내장**해 30~50h는 빡빡함."
 >
 > Bigger-than-expected surface:
+>
 > - `packages/core/src/contracts/state-store.ts:11-40` — store API 가 `projectId` 필수 파라미터로 고정
 > - `packages/core/src/workspace/identity.ts:12-14,43-60` — workspace path/key 에 `projectId` 내장
 > - `packages/dashboard/src/store.ts:33-47` — control-plane `/api/v1/state` 서버 경로 의존이 예상보다 깊음 (client 는 얕지만 server store 는 아님)
@@ -96,13 +99,14 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 
 > 가정: 단일-리포 전환은 (i) 키 체계 압축, (ii) control-plane `projectId` 라우팅 제거, (iii) issue-centric ADR (`2026-03-16`) 과 시너지 → 유의미한 유지보수성 향상.
 
-**나의 분석**: 키 체계가 (projectId × repositoryId × workspaceKey) → (workspaceKey) 로 평탄화. control-plane 의 `projectId` 인자 (`docs/CONTROL_PLANE.md` §1.4 의 `ControlPlaneServerOptions.projectId`) 가 사라짐. spec divergence (D1~D6) 중 D4 가 해소되고 spec §3.1 layer 분리가 명료해진다.
+**나의 분석**: 키 체계가 (projectId × repositoryId × workspaceKey) → (workspaceKey) 로 평탄화. control-plane 의 `projectId` 인자 (`packages/control-plane/README.md` §1.4 의 `ControlPlaneServerOptions.projectId`) 가 사라짐. spec divergence (D1~D6) 중 D4 가 해소되고 spec §3.1 layer 분리가 명료해진다.
 
 **Codex 리뷰 결과 (gain: medium, synergy: 있음)**:
 
 > "**Simplification gain: Medium** — `projectId` is pervasive but mostly namespace/routing glue; the harder repo/tracker/run logic stays regardless.
 >
 > Lost capabilities:
+>
 > - Multi-repo project configs via `repositories: RepositoryRef[]` (one orchestrator spanning N repos is gone)
 > - Runtime root partitioning across multiple `projects/<projectId>` directories (one service per repo becomes the model)
 >
@@ -113,6 +117,7 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 > Confidence: Medium."
 
 **해석**: 단순화 이득은 분명하나 "high" 가 아닌 "medium" — 어려운 로직(repo/tracker/run) 자체는 그대로다. 잃는 기능 2가지는 현실적 비용으로 인정해야 함:
+
 - 한 오케스트레이터 인스턴스가 N 리포를 도는 시나리오 → 리포당 인스턴스로 다중화.
 - 단일 `.runtime/` 아래 `<projectId>` 칸막이 → 인스턴스별 `--runtime-root` 로 분리.
 
@@ -131,6 +136,7 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 > "읽은 타입 기준으로 `TrackedIssue.repository` / `OrchestratorRunRecord.repository`는 이미 단일 `RepositoryRef`지만 `OrchestratorProjectConfig.repositories`는 배열이라, issue/run 출력 계층의 flattening 만 공통 계약과 맞습니다.
 >
 > **Contract unification benefit:**
+>
 > - 단일 `issue.repository`로 오케스트레이터가 어댑터별 분기 없이 워크스페이스/런 환경을 만들 수 있음
 > - `reviveIssue(project, run)` 도 `run.repository` 로 동일한 `TrackedIssue` 형태를 복원
 >
@@ -146,18 +152,18 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 
 ## 4. 핵심 변경 표면 (codex 보강 반영)
 
-| 영역 | 파일 | 변경 |
-|---|---|---|
-| Contract | `packages/core/src/contracts/status-surface.ts:15-21` | `repositories: RepositoryRef[]` → `repository: RepositoryRef` |
-| Contract | `packages/core/src/contracts/state-store.ts:11-40` | store API 의 `projectId` 파라미터 제거 또는 옵션화 |
-| Identity | `packages/core/src/workspace/identity.ts:12-14,43-60` | workspace path/key 에서 `projectId` 제거. ADR `2026-03-16` 의 `deriveWorkspaceKey(identifier)` 와 통합. |
-| Orchestrator | `packages/orchestrator/src/service.ts:825,868-946,2527-2638` | array 집계(min/merge) → 직접 사용. tenant 모델 단순화. |
-| Orchestrator | `packages/orchestrator/src/fs-store.ts:43-188,297-346` | 디스크 레이아웃 `.runtime/orchestrator/<workspaceKey>/...`. |
-| Orchestrator | `packages/orchestrator/src/git.ts:116-134` | 변경 없음 (이미 단일 repo). |
-| Tracker | `packages/tracker-github/src/orchestrator-adapter.ts` | `tracker.settings.repository = "owner/repo"` 모양으로 통일. |
-| CLI | `packages/cli/src/commands/{init,start,project,repo}.ts` | cwd 기반 동작. `--project-id` 옵션 제거 또는 hidden. |
-| Control plane | `packages/control-plane/src/server.ts`, `packages/dashboard/src/store.ts:33-47` | `projectId` 라우팅 제거. |
-| Tests | `packages/orchestrator/src/service.test.ts` (94 suites, 64 tests 영향), e2e fixtures | fixture 체인 갱신. |
+| 영역          | 파일                                                                                 | 변경                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Contract      | `packages/core/src/contracts/status-surface.ts:15-21`                                | `repositories: RepositoryRef[]` → `repository: RepositoryRef`                                           |
+| Contract      | `packages/core/src/contracts/state-store.ts:11-40`                                   | store API 의 `projectId` 파라미터 제거 또는 옵션화                                                      |
+| Identity      | `packages/core/src/workspace/identity.ts:12-14,43-60`                                | workspace path/key 에서 `projectId` 제거. ADR `2026-03-16` 의 `deriveWorkspaceKey(identifier)` 와 통합. |
+| Orchestrator  | `packages/orchestrator/src/service.ts:825,868-946,2527-2638`                         | array 집계(min/merge) → 직접 사용. tenant 모델 단순화.                                                  |
+| Orchestrator  | `packages/orchestrator/src/fs-store.ts:43-188,297-346`                               | 디스크 레이아웃 `.runtime/orchestrator/<workspaceKey>/...`.                                             |
+| Orchestrator  | `packages/orchestrator/src/git.ts:116-134`                                           | 변경 없음 (이미 단일 repo).                                                                             |
+| Tracker       | `packages/tracker-github/src/orchestrator-adapter.ts`                                | `tracker.settings.repository = "owner/repo"` 모양으로 통일.                                             |
+| CLI           | `packages/cli/src/commands/{init,start,project,repo}.ts`                             | cwd 기반 동작. `--project-id` 옵션 제거 또는 hidden.                                                    |
+| Control plane | `packages/control-plane/src/server.ts`, `packages/dashboard/src/store.ts:33-47`      | `projectId` 라우팅 제거.                                                                                |
+| Tests         | `packages/orchestrator/src/service.test.ts` (94 suites, 64 tests 영향), e2e fixtures | fixture 체인 갱신.                                                                                      |
 
 추가로 ADR 문서 + spec gap 분석 갱신 + 마이그레이션 스크립트.
 
@@ -185,11 +191,11 @@ $ gh-symphony repo start    # 폴링 시작, 이 리포의 WORKFLOW.md 를 정�
 
 ## 7. 결론 / 권장
 
-| 질문 | 답 |
-|---|---|
-| 현재 구현에서 변경 가능한가? | **예** — 표면 변경. 정책 집계 로직(min/merge) 이 단순화되는 방향. |
-| 변경에 드는 노력은? | **60~80h (1.5~2주) / 1인** — codex 상향. |
-| 아키텍처가 단순해지는가? | **medium 단순화** — 키 체계 압축 + control-plane 라우팅 제거 + ADR 시너지. 단, 어려운 로직 자체는 유지. |
+| 질문                         | 답                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 현재 구현에서 변경 가능한가? | **예** — 표면 변경. 정책 집계 로직(min/merge) 이 단순화되는 방향.                                       |
+| 변경에 드는 노력은?          | **60~80h (1.5~2주) / 1인** — codex 상향.                                                                |
+| 아키텍처가 단순해지는가?     | **medium 단순화** — 키 체계 압축 + control-plane 라우팅 제거 + ADR 시너지. 단, 어려운 로직 자체는 유지. |
 
 **권장 다음 단계**:
 

@@ -1,9 +1,10 @@
 # CLI Restructure: Repo-Centric Cleanup
 
 > **Date**: 2026-05-10
-> **Status**: Draft (pending user approval)
+> **Status**: Shipped (2026-05-10~ — `750f6a6` remove top-level lifecycle commands, `9073c1c` move lifecycle under `repo`, `8259e73` drop legacy repo set commands, `d5fbb53` finalize repo-centric surface; removed commands now route through `packages/cli/src/commands/removed-command.ts`)
 > **Type**: BREAKING CHANGE
 > **Scope**: `@gh-symphony/cli` (no orchestrator/core changes beyond removing legacy multi-project plumbing the CLI relied on)
+> **Symphony Layers**: Coordination (CLI lifecycle surface), Configuration (config resolution paths)
 
 ## Background
 
@@ -76,21 +77,21 @@ Global Options:
 
 ### What's removed (BREAKING)
 
-| Removed | Replacement | Migration message |
-|---|---|---|
-| `gh-symphony init` | `gh-symphony workflow init` | "Use `gh-symphony workflow init`." |
-| `gh-symphony start` | `gh-symphony repo start` | "Use `gh-symphony repo start` from the target repository." |
-| `gh-symphony stop` | `gh-symphony repo stop` | "Use `gh-symphony repo stop`." |
-| `gh-symphony status` | `gh-symphony repo status` | "Use `gh-symphony repo status`." |
-| `gh-symphony run <issue>` | `gh-symphony repo run <issue>` | "Use `gh-symphony repo run <issue>`." |
-| `gh-symphony recover` | `gh-symphony repo recover` | "Use `gh-symphony repo recover`." |
-| `gh-symphony logs` | `gh-symphony repo logs` | "Use `gh-symphony repo logs`." |
-| `gh-symphony project *` (entire namespace) | — | "The `project` command was removed. The orchestrator is now per-repository. Run `gh-symphony repo init` in the target repository." |
-| `gh-symphony repo add <owner/name>` | — | "Removed. The orchestrator binds to the cwd repository via `repo init`." |
-| `gh-symphony repo remove <owner/name>` | — | Same as above. |
-| `gh-symphony repo sync` | — | "Removed. Single-repo model has no linked-repo set to sync." |
-| `gh-symphony repo list` | — | The "list" was a list of `repositories[]` — that field is gone. Repository identity is shown by `repo status`. |
-| `gh-symphony setup --project <id>` flag | (no replacement; `setup` becomes purely cwd-driven) | "Use `gh-symphony setup` from inside the target repository." |
+| Removed                                    | Replacement                                         | Migration message                                                                                                                  |
+| ------------------------------------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-symphony init`                         | `gh-symphony workflow init`                         | "Use `gh-symphony workflow init`."                                                                                                 |
+| `gh-symphony start`                        | `gh-symphony repo start`                            | "Use `gh-symphony repo start` from the target repository."                                                                         |
+| `gh-symphony stop`                         | `gh-symphony repo stop`                             | "Use `gh-symphony repo stop`."                                                                                                     |
+| `gh-symphony status`                       | `gh-symphony repo status`                           | "Use `gh-symphony repo status`."                                                                                                   |
+| `gh-symphony run <issue>`                  | `gh-symphony repo run <issue>`                      | "Use `gh-symphony repo run <issue>`."                                                                                              |
+| `gh-symphony recover`                      | `gh-symphony repo recover`                          | "Use `gh-symphony repo recover`."                                                                                                  |
+| `gh-symphony logs`                         | `gh-symphony repo logs`                             | "Use `gh-symphony repo logs`."                                                                                                     |
+| `gh-symphony project *` (entire namespace) | —                                                   | "The `project` command was removed. The orchestrator is now per-repository. Run `gh-symphony repo init` in the target repository." |
+| `gh-symphony repo add <owner/name>`        | —                                                   | "Removed. The orchestrator binds to the cwd repository via `repo init`."                                                           |
+| `gh-symphony repo remove <owner/name>`     | —                                                   | Same as above.                                                                                                                     |
+| `gh-symphony repo sync`                    | —                                                   | "Removed. Single-repo model has no linked-repo set to sync."                                                                       |
+| `gh-symphony repo list`                    | —                                                   | The "list" was a list of `repositories[]` — that field is gone. Repository identity is shown by `repo status`.                     |
+| `gh-symphony setup --project <id>` flag    | (no replacement; `setup` becomes purely cwd-driven) | "Use `gh-symphony setup` from inside the target repository."                                                                       |
 
 Removed commands invoke a deprecation handler that prints the migration message to stderr and exits with code 2 (consistent with `rejectRemovedProjectId` precedent at `packages/cli/src/removed-project-id.ts`).
 

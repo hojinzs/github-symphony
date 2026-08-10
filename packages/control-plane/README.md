@@ -94,21 +94,24 @@ export function createControlPlaneHandler(options: {
 Static assets are resolved relative to `import.meta.url`:
 
 ```typescript
-const clientDist = join(dirname(fileURLToPath(import.meta.url)), "../client/dist");
+const clientDist = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../client/dist"
+);
 ```
 
 ---
 
 ## 2. Frontend Tech Stack
 
-| Layer | Library | Version |
-|-------|---------|---------|
-| Framework | React | 19 |
-| Routing | TanStack Router | latest (file-based, browser history, SPA) |
-| Data fetching | TanStack Query + Axios | latest |
-| UI primitives | Radix UI | latest |
-| Styling | Tailwind CSS | v4 (CSS-first config) |
-| Build | Vite | latest |
+| Layer         | Library                | Version                                   |
+| ------------- | ---------------------- | ----------------------------------------- |
+| Framework     | React                  | 19                                        |
+| Routing       | TanStack Router        | latest (file-based, browser history, SPA) |
+| Data fetching | TanStack Query + Axios | latest                                    |
+| UI primitives | Radix UI               | latest                                    |
+| Styling       | Tailwind CSS           | v4 (CSS-first config)                     |
+| Build         | Vite                   | latest                                    |
 
 ### 2.1 TanStack Router (File-Based)
 
@@ -133,11 +136,11 @@ export default defineConfig({
 
 Route file conventions:
 
-| File | Path | Page |
-|------|------|------|
-| `routes/__root.tsx` | (layout) | Root layout with nav bar |
-| `routes/index.tsx` | `/` | Project overview |
-| `routes/issues/$identifier.tsx` | `/issues/:identifier` | Issue detail |
+| File                            | Path                  | Page                     |
+| ------------------------------- | --------------------- | ------------------------ |
+| `routes/__root.tsx`             | (layout)              | Root layout with nav bar |
+| `routes/index.tsx`              | `/`                   | Project overview         |
+| `routes/issues/$identifier.tsx` | `/issues/:identifier` | Issue detail             |
 
 The SPA fallback on the Node.js server ensures any deep link (e.g., `/issues/gh-symphony%23174`) is handled by React Router client-side.
 
@@ -161,7 +164,7 @@ Query hooks:
 export function useProjectState() {
   return useQuery({
     queryKey: queryKeys.projectState(),
-    queryFn: () => api.get<ProjectState>("/api/v1/state").then(r => r.data),
+    queryFn: () => api.get<ProjectState>("/api/v1/state").then((r) => r.data),
     refetchInterval: 30_000,
   });
 }
@@ -170,7 +173,10 @@ export function useProjectState() {
 export function useIssueDetail(identifier: string) {
   return useQuery({
     queryKey: queryKeys.issueDetail(identifier),
-    queryFn: () => api.get<IssueStatus>(`/api/v1/${encodeURIComponent(identifier)}`).then(r => r.data),
+    queryFn: () =>
+      api
+        .get<IssueStatus>(`/api/v1/${encodeURIComponent(identifier)}`)
+        .then((r) => r.data),
     refetchInterval: 10_000,
   });
 }
@@ -204,6 +210,7 @@ export function useRefresh() {
 - Completed issues count
 
 **UX:**
+
 - Auto-refresh every 30 seconds (TanStack Query `refetchInterval`)
 - Manual refresh button → `POST /api/v1/refresh` then invalidate all queries
 - Issue identifiers in active runs link to `/issues/:identifier`
@@ -226,6 +233,7 @@ export function useRefresh() {
 - Last error
 
 **UX:**
+
 - Auto-refresh every 10 seconds
 - Back link to `/`
 - Manual refresh button
@@ -252,10 +260,10 @@ export function useRefresh() {
 
 ### 4.2 Output
 
-| Output | Contents | Purpose |
-|--------|----------|---------|
-| `client/dist/` | Vite-bundled React app | Served as static assets |
-| `dist/` | tsup-compiled Node.js server | npm package entry |
+| Output         | Contents                     | Purpose                 |
+| -------------- | ---------------------------- | ----------------------- |
+| `client/dist/` | Vite-bundled React app       | Served as static assets |
+| `dist/`        | tsup-compiled Node.js server | npm package entry       |
 
 Both directories are included in `files` in `package.json`.
 
@@ -322,15 +330,15 @@ The `--http` inline server uses the same localhost default and bearer gate.
 
 ### 6.2 Component Guidelines (Radix UI)
 
-| UI Element | Radix Primitive |
-|------------|----------------|
-| Status badge | `Badge` |
-| Data tables | `Table` |
-| Error message | `Callout` |
-| Refresh button | `Button` |
-| Navigation | custom (minimal) |
-| Loading state | `Skeleton` |
-| Tooltip (timestamps) | `Tooltip` |
+| UI Element           | Radix Primitive  |
+| -------------------- | ---------------- |
+| Status badge         | `Badge`          |
+| Data tables          | `Table`          |
+| Error message        | `Callout`        |
+| Refresh button       | `Button`         |
+| Navigation           | custom (minimal) |
+| Loading state        | `Skeleton`       |
+| Tooltip (timestamps) | `Tooltip`        |
 
 ### 6.3 Performance
 
