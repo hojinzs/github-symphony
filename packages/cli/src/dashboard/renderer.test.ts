@@ -38,6 +38,43 @@ describe("renderDashboard", () => {
     expect(output).toContain("Agents");
   });
 
+  it("renders stopped daemon health and restart guidance", () => {
+    const snapshot = loadFixture("idle");
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+      runtimeStatus: {
+        daemonRunning: false,
+        lastTickLabel: "22d ago",
+        lastTickStale: false,
+      },
+    });
+
+    expect(output).toContain("● Health  stopped");
+    expect(output).toContain(
+      "daemon not running — run 'gh-symphony repo start'"
+    );
+    expect(output).toContain(`Last known state: ${snapshot.health}`);
+  });
+
+  it("annotates stale last ticks while the daemon is live", () => {
+    const snapshot = loadFixture("idle");
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+      runtimeStatus: {
+        daemonRunning: true,
+        lastTickLabel: "2m ago",
+        lastTickStale: true,
+      },
+    });
+
+    expect(output).toContain(`Health  ${snapshot.health}`);
+    expect(output).toContain("Last tick  2m ago (stale)");
+  });
+
   it("renders busy fixture with column headers", () => {
     const snapshot = loadFixture("busy");
     const output = renderDashboard([snapshot], {

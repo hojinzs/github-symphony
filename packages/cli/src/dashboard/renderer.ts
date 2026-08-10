@@ -20,6 +20,11 @@ export type DashboardOptions = {
   terminalWidth: number;
   noColor: boolean;
   maxAgents?: number;
+  runtimeStatus?: {
+    daemonRunning: boolean;
+    lastTickLabel: string;
+    lastTickStale: boolean;
+  };
   /** Override Date.now() for deterministic testing */
   now?: number;
 };
@@ -225,6 +230,27 @@ function buildSummaryLines(
   const limitStr = hasLimits ? "active" : "standard";
   lines.push(`  ${c.dim("Rate Limits")}  ${limitStr}`);
 
+  const runtimeStatus = options.runtimeStatus;
+  const primarySnapshot = snapshots[0];
+  if (runtimeStatus && primarySnapshot) {
+    const health = runtimeStatus.daemonRunning
+      ? primarySnapshot.health
+      : "stopped";
+    const healthDot =
+      health === "degraded" || health === "stopped"
+        ? c.red("\u25CF")
+        : c.green("\u25CF");
+    const staleLabel = runtimeStatus.lastTickStale ? c.yellow(" (stale)") : "";
+    lines.push(
+      `  ${healthDot} ${c.dim("Health")}  ${c.bold(health)}     ${c.dim("Last tick")}  ${runtimeStatus.lastTickLabel}${staleLabel}`
+    );
+    if (!runtimeStatus.daemonRunning) {
+      lines.push(
+        `  ${c.yellow("daemon not running \u2014 run 'gh-symphony repo start'")}  ${c.dim(`Last known state: ${primarySnapshot.health}`)}`
+      );
+    }
+  }
+
   return lines;
 }
 
@@ -317,9 +343,7 @@ export function renderDashboard(
     const hasRetries = snap.retryQueue.length > 0;
     if (!hasActiveRuns && !hasRetries) continue;
 
-    lines.push(
-      sectionDivider(formatRepositoryDisplay(snap), width, c)
-    );
+    lines.push(sectionDivider(formatRepositoryDisplay(snap), width, c));
     if (hasActiveRuns) {
       lines.push(tableHeaderRow(c));
       for (const rawRun of snap.activeRuns) {
