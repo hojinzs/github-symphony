@@ -8,6 +8,7 @@ import {
   type TrackerStateRequest,
   type TrackerStateResult,
   type TrackerCommentWriteResult,
+  type TrackerIssueCommentUpsertResult,
   type WorkflowPriorityConfig,
   type WorkflowLifecycleConfig,
 } from "@gh-symphony/core";
@@ -368,12 +369,13 @@ export class GitHubTrackerQueryError extends GitHubTrackerError {}
 
 type GitHubRateLimitObservation = {
   operationName: string;
-  rateLimit: GraphQLRateLimitField;
+  cost: number;
   payload: GitHubRateLimitPayload;
 };
 
 type GitHubRateLimitCollector = {
   observations: GitHubRateLimitObservation[];
+  lastUsed: number | null;
 };
 
 const ARCHIVED_PROJECT_ITEM_STATE = "Archived";
@@ -1299,11 +1301,40 @@ async function upsertIssueComment(
   },
   fetchImpl: FetchLike = fetch,
   cache?: IssueCommentCache
-): Promise<"created" | "updated" | "unchanged"> {
-  if (cache) {
-    return upsertIssueCommentWithCache(config, issue, input, fetchImpl, cache);
-  }
+): Promise<TrackerIssueCommentUpsertResult> {
+  const cycleConfig = beginGraphQLRateLimitCycle(config);
+  const result = cache
+    ? await upsertIssueCommentWithCache(
+        cycleConfig,
+        issue,
+        input,
+        fetchImpl,
+        cache
+      )
+    : await upsertIssueCommentWithoutCache(
+        cycleConfig,
+        issue,
+        input,
+        fetchImpl
+      );
+  return {
+    outcome: result,
+    rateLimits: finalizeGraphQLRateLimitCycle(
+      null,
+      cycleConfig.rateLimitCollector
+    ),
+  };
+}
 
+async function upsertIssueCommentWithoutCache(
+  config: GitHubTrackerConfig,
+  issue: Pick<TrackedIssue, "id" | "number" | "repository">,
+  input: {
+    marker: string;
+    body: string;
+  },
+  fetchImpl: FetchLike
+): Promise<"created" | "updated" | "unchanged"> {
   const existingComment = await findIssueCommentByMarker(
     config,
     issue.id,
@@ -2574,12 +2605,18 @@ async function executeGraphQLQueryWithMetadata<TData>(
   const data = payload.data as TData;
   const fieldRateLimits = extractGraphQLRateLimitField(payload.data.rateLimit);
   const rateLimits = extractGitHubRateLimits(response.headers, fieldRateLimits);
-  if (fieldRateLimits && rateLimits) {
+  const cost =
+    fieldRateLimits?.cost ??
+    inferGraphQLHeaderCost(config.rateLimitCollector, rateLimits);
+  if (rateLimits && cost !== null) {
     config.rateLimitCollector?.observations.push({
       operationName: extractGraphQLOperationName(query),
-      rateLimit: fieldRateLimits,
+      cost,
       payload: rateLimits,
     });
+  }
+  if (rateLimits && config.rateLimitCollector) {
+    config.rateLimitCollector.lastUsed = rateLimits.used;
   }
   return {
     data,
@@ -2601,6 +2638,7 @@ function beginGraphQLRateLimitCycle(
     ...config,
     rateLimitCollector: {
       observations: [],
+      lastUsed: null,
     },
   };
 }
@@ -2623,26 +2661,34 @@ function finalizeGraphQLRateLimitCycle(
     };
     queryCosts[observation.operationName] = {
       requestCount: previous.requestCount + 1,
-      cost: previous.cost + observation.rateLimit.cost,
+      cost: previous.cost + observation.cost,
     };
-    cycleCost += observation.rateLimit.cost;
+    cycleCost += observation.cost;
   }
 
-  const latestObservation = observations.at(-1);
   return {
-    ...(latestObservation?.payload ??
-      latestRateLimits ?? {
-        source: "github",
-        limit: null,
-        remaining: latestObservation?.rateLimit.remaining ?? null,
-        used: null,
-        reset: null,
-        resetAt: latestObservation?.rateLimit.resetAt ?? null,
-        resource: "graphql",
-      }),
+    ...observations.at(-1)!.payload,
     cycleCost,
     queryCosts,
   };
+}
+
+function inferGraphQLHeaderCost(
+  collector: GitHubRateLimitCollector | undefined,
+  rateLimits: GitHubRateLimitPayload | null
+): number | null {
+  if (
+    !collector ||
+    !rateLimits ||
+    rateLimits.used === null ||
+    collector.lastUsed === null
+  ) {
+    return null;
+  }
+
+  // Header deltas are token-scoped, so concurrent requests can over-attribute cost.
+  const cost = rateLimits.used - collector.lastUsed;
+  return cost >= 0 ? cost : null;
 }
 
 function parseTimestampMs(value: string | null): number | null {

@@ -1100,6 +1100,11 @@ describe("resolveTrackerAdapter", () => {
         new Response(
           JSON.stringify({
             data: {
+              rateLimit: {
+                cost: 2,
+                remaining: 4998,
+                resetAt: "2026-03-19T04:02:00.000Z",
+              },
               node: {
                 __typename: "Issue",
                 comments: {
@@ -1108,13 +1113,24 @@ describe("resolveTrackerAdapter", () => {
                 },
               },
             },
-          })
+          }),
+          {
+            headers: {
+              "x-ratelimit-used": "2",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
         )
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             data: {
+              rateLimit: {
+                cost: 3,
+                remaining: 4995,
+                resetAt: "2026-03-19T04:02:00.000Z",
+              },
               addComment: {
                 commentEdge: {
                   node: {
@@ -1124,7 +1140,13 @@ describe("resolveTrackerAdapter", () => {
                 },
               },
             },
-          })
+          }),
+          {
+            headers: {
+              "x-ratelimit-used": "5",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
         )
       );
 
@@ -1139,7 +1161,16 @@ describe("resolveTrackerAdapter", () => {
       { token: "test-token", fetchImpl }
     );
 
-    expect(result).toBe("created");
+    expect(result).toMatchObject({
+      outcome: "created",
+      rateLimits: {
+        cycleCost: 5,
+        queryCosts: {
+          IssueCommentsById: { requestCount: 1, cost: 2 },
+          AddIssueComment: { requestCount: 1, cost: 3 },
+        },
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const queryBody = JSON.parse(
       String(fetchImpl.mock.calls[0]?.[1]?.body)
@@ -1152,8 +1183,8 @@ describe("resolveTrackerAdapter", () => {
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation AddIssueComment");
-    // rateLimit only exists on the Query type; selecting it in a mutation
-    // fails GitHub schema validation.
+    // GitHub exposes rateLimit on Query only; mutation cost is inferred from
+    // successive x-ratelimit-used response headers.
     expect(mutationBody.query).not.toContain("rateLimit");
     expect(mutationBody.variables.subjectId).toBe("issue-1");
   });
@@ -1173,6 +1204,11 @@ describe("resolveTrackerAdapter", () => {
       new Response(
         JSON.stringify({
           data: {
+            rateLimit: {
+              cost: 2,
+              remaining: 4998,
+              resetAt: "2026-03-19T04:02:00.000Z",
+            },
             node: {
               __typename: "Issue",
               comments: {
@@ -1192,7 +1228,15 @@ describe("resolveTrackerAdapter", () => {
       { token: "test-token", fetchImpl }
     );
 
-    expect(result).toBe("unchanged");
+    expect(result).toMatchObject({
+      outcome: "unchanged",
+      rateLimits: {
+        cycleCost: 2,
+        queryCosts: {
+          IssueCommentsById: { requestCount: 1, cost: 2 },
+        },
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -1212,6 +1256,11 @@ describe("resolveTrackerAdapter", () => {
         new Response(
           JSON.stringify({
             data: {
+              rateLimit: {
+                cost: 2,
+                remaining: 4998,
+                resetAt: "2026-03-19T04:02:00.000Z",
+              },
               node: {
                 __typename: "Issue",
                 comments: {
@@ -1220,13 +1269,24 @@ describe("resolveTrackerAdapter", () => {
                 },
               },
             },
-          })
+          }),
+          {
+            headers: {
+              "x-ratelimit-used": "2",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
         )
       )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             data: {
+              rateLimit: {
+                cost: 4,
+                remaining: 4994,
+                resetAt: "2026-03-19T04:02:00.000Z",
+              },
               updateIssueComment: {
                 issueComment: {
                   id: "comment-1",
@@ -1234,7 +1294,13 @@ describe("resolveTrackerAdapter", () => {
                 },
               },
             },
-          })
+          }),
+          {
+            headers: {
+              "x-ratelimit-used": "6",
+              "x-ratelimit-resource": "graphql",
+            },
+          }
         )
       );
 
@@ -1245,14 +1311,23 @@ describe("resolveTrackerAdapter", () => {
       { token: "test-token", fetchImpl }
     );
 
-    expect(result).toBe("updated");
+    expect(result).toMatchObject({
+      outcome: "updated",
+      rateLimits: {
+        cycleCost: 6,
+        queryCosts: {
+          IssueCommentsById: { requestCount: 1, cost: 2 },
+          UpdateIssueComment: { requestCount: 1, cost: 4 },
+        },
+      },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const mutationBody = JSON.parse(
       String(fetchImpl.mock.calls[1]?.[1]?.body)
     ) as { query: string; variables: Record<string, string> };
     expect(mutationBody.query).toContain("mutation UpdateIssueComment");
-    // rateLimit only exists on the Query type; selecting it in a mutation
-    // fails GitHub schema validation.
+    // GitHub exposes rateLimit on Query only; mutation cost is inferred from
+    // successive x-ratelimit-used response headers.
     expect(mutationBody.query).not.toContain("rateLimit");
     expect(mutationBody.variables.commentId).toBe("comment-1");
   });
@@ -1326,8 +1401,8 @@ describe("resolveTrackerAdapter", () => {
       dependencies
     );
 
-    expect(first).toBe("unchanged");
-    expect(second).toBe("unchanged");
+    expect(first).toMatchObject({ outcome: "unchanged", rateLimits: null });
+    expect(second).toMatchObject({ outcome: "unchanged", rateLimits: null });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
       "https://api.github.com/graphql"
@@ -1414,7 +1489,7 @@ describe("resolveTrackerAdapter", () => {
       { token: "test-token", fetchImpl, issueCommentCache: cache }
     );
 
-    expect(result).toBe("unchanged");
+    expect(result).toMatchObject({ outcome: "unchanged", rateLimits: null });
     expect(cache.delete).toHaveBeenCalledTimes(1);
     expect(entry).toEqual({
       commentId: 42,

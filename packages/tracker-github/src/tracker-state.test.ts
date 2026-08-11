@@ -332,7 +332,11 @@ function graphqlResponse(
       },
     });
   }
-  if (query.includes("mutation UpdateProjectItemState")) {
+  if (
+    query.includes("mutation UpdateProjectItemState") ||
+    query.includes("mutation AddIssueComment") ||
+    query.includes("mutation UpdateIssueComment")
+  ) {
     // GitHub's schema only defines rateLimit on Query; selecting it inside a
     // mutation fails validation in production (see the v0.6.6 transition
     // outage), so the mock enforces the same rule.
