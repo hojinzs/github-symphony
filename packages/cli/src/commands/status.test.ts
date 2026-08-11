@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -454,6 +454,32 @@ describe("status command", () => {
         code: "missing_repository_runtime_config",
         message:
           "No repository runtime config found. Run 'gh-symphony repo init' first.",
+      },
+    });
+  });
+
+  it("includes daemonRunning when JSON status has no snapshot", async () => {
+    const configDir = await createConfigFixture();
+    await rm(join(configDir, "status.json"));
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toEqual({
+      daemonRunning: false,
+      error: {
+        code: "status_snapshot_unavailable",
+        message: "Unable to read status snapshot.",
       },
     });
   });

@@ -95,10 +95,10 @@ async function resolveRuntimeStatus(options: {
   configDir: string;
   projectId: string;
   workspaceDir: string;
-  snapshot: ProjectStatusSnapshot;
+  snapshot: ProjectStatusSnapshot | null;
 }): Promise<RuntimeStatus> {
   const liveness = await resolveDaemonLiveness(options);
-  if (!liveness.running) {
+  if (!liveness.running || !options.snapshot) {
     return { daemonRunning: false, lastTickStale: false };
   }
   const staleThresholdMs = await resolveStaleThresholdMs(
@@ -354,18 +354,18 @@ const handler = async (
 
     const run = async () => {
       const snapshot = await readStatusSnapshot(runtimeRoot, projectId);
-      const runtimeStatus = snapshot
-        ? await resolveRuntimeStatus({
-            configDir: options.configDir,
-            projectId,
-            workspaceDir: projectConfig.workspaceDir,
-            snapshot,
-          })
-        : { daemonRunning: false, lastTickStale: false };
+      const runtimeStatus = await resolveRuntimeStatus({
+        configDir: options.configDir,
+        projectId,
+        workspaceDir: projectConfig.workspaceDir,
+        snapshot,
+      });
       if (options.json || !isTTY) {
         process.stdout.write(
           JSON.stringify(
-            withDaemonRunning(snapshot, runtimeStatus.daemonRunning),
+            snapshot
+              ? withDaemonRunning(snapshot, runtimeStatus.daemonRunning)
+              : { daemonRunning: runtimeStatus.daemonRunning },
             null,
             2
           ) + "\n"
@@ -446,11 +446,33 @@ const handler = async (
       );
     }
   } else {
-    writeCliError({
-      code: "status_snapshot_unavailable",
-      message: "Unable to read status snapshot.",
-      json: options.json,
+    const runtimeStatus = await resolveRuntimeStatus({
+      configDir: options.configDir,
+      projectId,
+      workspaceDir: projectConfig.workspaceDir,
+      snapshot: null,
     });
+    if (options.json) {
+      process.stdout.write(
+        JSON.stringify(
+          {
+            daemonRunning: runtimeStatus.daemonRunning,
+            error: {
+              code: "status_snapshot_unavailable",
+              message: "Unable to read status snapshot.",
+            },
+          },
+          null,
+          2
+        ) + "\n"
+      );
+      process.exitCode = 1;
+    } else {
+      writeCliError({
+        code: "status_snapshot_unavailable",
+        message: "Unable to read status snapshot.",
+      });
+    }
   }
 };
 
