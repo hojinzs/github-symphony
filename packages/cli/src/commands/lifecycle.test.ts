@@ -489,6 +489,43 @@ describe("lifecycle command integration", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("does not signal an identity-unverified daemon recovered from a lock", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createTenant("tenant-a", "acme", "platform")],
+    });
+    await writeFile(
+      join(configDir, "projects", "tenant-a", ".lock"),
+      JSON.stringify({
+        ownerToken: "222:owner",
+        pid: 222,
+        startedAt: "2026-07-15T00:00:01.000Z",
+        heartbeatAt: new Date().toISOString(),
+        processIdentity: null,
+        cwd: process.cwd(),
+      }) + "\n"
+    );
+    getProcessIdentityMock.mockReturnValue(null);
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation(
+        ((_pid: number, _signal?: NodeJS.Signals | 0) =>
+          true) as typeof process.kill
+      );
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    await stopModule.default([], baseOptions(configDir));
+
+    expect(killSpy).toHaveBeenCalledWith(222, 0);
+    expect(killSpy).not.toHaveBeenCalledWith(222, "SIGTERM");
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("process identity could not be verified")
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
   it("rejects unknown project stop flags before touching daemon state", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",

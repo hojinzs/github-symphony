@@ -92,6 +92,14 @@ const handler = async (
 
   const { pid, identity: checkedIdentity } = liveness.target;
 
+  if (!liveness.target.verified) {
+    process.stderr.write(
+      `Refusing to signal PID ${pid}: process identity could not be verified.\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const signal = resolvedForce ? "SIGKILL" : "SIGTERM";
   try {
     const signalCwd = getProcessCwd(pid);

@@ -8,6 +8,7 @@ const PROJECT_LOCK_HEARTBEAT_MAX_AGE_MS = 60_000;
 export type DaemonProcessTarget = {
   pid: number;
   identity: string | null;
+  verified: boolean;
 };
 
 export type DaemonLiveness =
@@ -38,20 +39,19 @@ export async function resolveDaemonLiveness(options: {
   try {
     pidContents = await readFile(pidPath, "utf8");
   } catch {
-    const expectedCwd = resolve(options.workspaceDir);
     const lockTarget = await resolveProjectLockDaemon(
       options.configDir,
       options.projectId,
-      expectedCwd
+      options.workspaceDir
     );
     if (lockTarget) {
       return {
         running: true,
-        target: lockTarget,
+        target: lockTarget.target,
         source: "project-lock",
-        expectedCwd,
+        expectedCwd: lockTarget.expectedCwd,
         pidPath,
-        recordedPid: lockTarget.pid,
+        recordedPid: lockTarget.target.pid,
       };
     }
     return { running: false, reason: "missing-pid", pidPath };
@@ -63,16 +63,16 @@ export async function resolveDaemonLiveness(options: {
     const lockTarget = await resolveProjectLockDaemon(
       options.configDir,
       options.projectId,
-      expectedCwd
+      options.workspaceDir
     );
     if (lockTarget) {
       return {
         running: true,
-        target: lockTarget,
+        target: lockTarget.target,
         source: "project-lock",
-        expectedCwd,
+        expectedCwd: lockTarget.expectedCwd,
         pidPath,
-        recordedPid: lockTarget.pid,
+        recordedPid: lockTarget.target.pid,
       };
     }
     return {
@@ -104,14 +104,14 @@ export async function resolveDaemonLiveness(options: {
   const lockTarget = await resolveProjectLockDaemon(
     options.configDir,
     options.projectId,
-    expectedCwd
+    options.workspaceDir
   );
   if (lockTarget) {
     return {
       running: true,
-      target: lockTarget,
+      target: lockTarget.target,
       source: "project-lock",
-      expectedCwd,
+      expectedCwd: lockTarget.expectedCwd,
       pidPath,
       recordedPid: pidRecord.pid,
     };
@@ -145,14 +145,14 @@ export function validateDaemonProcess(
   if (!identity || !identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
     return null;
   }
-  return { pid, identity };
+  return { pid, identity, verified: true };
 }
 
 async function resolveProjectLockDaemon(
   configDir: string,
   projectId: string,
-  expectedCwd: string
-): Promise<DaemonProcessTarget | null> {
+  workspaceDir: string
+): Promise<{ target: DaemonProcessTarget; expectedCwd: string } | null> {
   try {
     const lock = JSON.parse(
       await readFile(join(configDir, "projects", projectId, ".lock"), "utf8")
@@ -160,6 +160,7 @@ async function resolveProjectLockDaemon(
       pid?: unknown;
       processIdentity?: unknown;
       heartbeatAt?: unknown;
+      cwd?: unknown;
     };
     if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) {
       return null;
@@ -168,12 +169,16 @@ async function resolveProjectLockDaemon(
       typeof lock.processIdentity === "string" ? lock.processIdentity : null;
     const heartbeatAt =
       typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null;
-    return validateProjectLockProcess(
+    const expectedCwd = resolve(
+      typeof lock.cwd === "string" ? lock.cwd : workspaceDir
+    );
+    const target = validateProjectLockProcess(
       lock.pid as number,
       processIdentity,
       heartbeatAt,
       expectedCwd
     );
+    return target ? { target, expectedCwd } : null;
   } catch {
     return null;
   }
@@ -201,7 +206,7 @@ function validateProjectLockProcess(
   if (!identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
     return null;
   }
-  return { pid, identity };
+  return { pid, identity, verified: identity !== null };
 }
 
 function isFreshProjectLockHeartbeat(heartbeatAt: string | null): boolean {
@@ -212,14 +217,15 @@ function isFreshProjectLockHeartbeat(heartbeatAt: string | null): boolean {
   const ageMs = Date.now() - heartbeatAtMs;
   return (
     Number.isFinite(heartbeatAtMs) &&
-    Math.abs(ageMs) <= PROJECT_LOCK_HEARTBEAT_MAX_AGE_MS
+    ageMs >= 0 &&
+    ageMs <= PROJECT_LOCK_HEARTBEAT_MAX_AGE_MS
   );
 }
 
 function isLegacyOrchestratorIdentity(identity: string | null): boolean {
   return Boolean(
     identity &&
-    /(?:gh-symphony|(?:^|\s)(?:\S*\/)?(?:dist\/)?index\.js)(?:\s|$)/.test(
+    /(?:gh-symphony|(?:^|\s)(?:(?:\S*\/)?dist\/)?index\.js)(?:\s|$)/.test(
       identity
     ) &&
     /\brepo\s+start\b/.test(identity)

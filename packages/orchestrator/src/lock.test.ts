@@ -42,6 +42,7 @@ describe("project lock", () => {
       ownerToken: string;
       heartbeatAt: string;
       processIdentity: string;
+      cwd: string;
     };
 
     expect(contents.pid).toBe(4321);
@@ -49,6 +50,7 @@ describe("project lock", () => {
     expect(contents.ownerToken).toBe(lock.ownerToken);
     expect(contents.heartbeatAt).toBe("2026-03-16T00:00:00.000Z");
     expect(contents.processIdentity).toBe("test-process-4321");
+    expect(contents.cwd).toBe(resolve(process.cwd()));
     const projectDirStats = await stat(
       join(runtimeRoot, "projects", "project-1")
     );

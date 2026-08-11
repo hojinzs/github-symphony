@@ -146,7 +146,11 @@ async function writeDaemonPid(
   );
 }
 
-async function writeProjectLock(configDir: string, pid = 222): Promise<void> {
+async function writeProjectLock(
+  configDir: string,
+  pid = 222,
+  cwd?: string
+): Promise<void> {
   await writeFile(
     join(configDir, "projects", "tenant-a", ".lock"),
     JSON.stringify({
@@ -155,6 +159,7 @@ async function writeProjectLock(configDir: string, pid = 222): Promise<void> {
       startedAt: "2026-03-30T11:00:00.000Z",
       heartbeatAt: "2026-03-30T11:00:00.000Z",
       processIdentity: null,
+      ...(cwd ? { cwd } : {}),
     }) + "\n",
     "utf8"
   );
@@ -222,6 +227,32 @@ describe("status command", () => {
       health: "running",
       daemonRunning: true,
     });
+  });
+
+  it("uses the foreground daemon CWD recorded in the project lock", async () => {
+    const configDir = await createConfigFixture();
+    const foregroundCwd = join("/tmp", "foreground-daemon");
+    await writeProjectLock(configDir, 222, foregroundCwd);
+    daemonProcessMocks.getProcessCwd.mockReturnValue(foregroundCwd);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({ daemonRunning: true });
   });
 
   it("recognizes a live foreground daemon when the PID file is malformed", async () => {
