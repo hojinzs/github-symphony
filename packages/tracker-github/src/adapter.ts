@@ -1052,9 +1052,10 @@ async function readExactProjectItemState(
       EXACT_PROJECT_ITEM_STATE_QUERY,
       {
         itemId: input.itemId,
-        stateFieldName:
+        stateFieldName: (
           config.lifecycle?.stateFieldName ??
-          DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+          DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName
+        ).trim(),
       },
       fetchImpl
     );
@@ -1203,7 +1204,7 @@ function invalidateProjectStatusFieldMetadata(
 function isStaleStatusFieldMetadataError(error: unknown): boolean {
   return (
     error instanceof GitHubTrackerQueryError &&
-    /(?:field|option|single.?select).*(?:invalid|not found)|(?:invalid|not found).*(?:field|option|single.?select)/i.test(
+    /(?:field|option|single.?select).*(?:invalid|not found|does not belong)|(?:invalid|not found|does not belong).*(?:field|option|single.?select)|could not resolve to a node with the global id/i.test(
       error.message
     )
   );

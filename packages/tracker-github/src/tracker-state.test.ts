@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_WORKFLOW_LIFECYCLE } from "@gh-symphony/core";
 import {
   requestGithubProjectItemState,
   resetGitHubRateLimitCacheForTests,
@@ -86,7 +87,7 @@ describe("requestGithubProjectItemState", () => {
     );
   });
 
-  it("reads the Status field by name when it falls after the first 20 fields", async () => {
+  it("queries the Status field by name without a field-value page limit", async () => {
     const states = new Map([["item-21", "In progress"]]);
     const fetchImpl = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) => {
@@ -118,6 +119,40 @@ describe("requestGithubProjectItemState", () => {
       outcome: "confirmed",
       state: "In progress",
     });
+  });
+
+  it("trims the configured Status field name for exact-item readback", async () => {
+    const states = new Map([["item-trimmed", "In progress"]]);
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (body.query.includes("query ExactProjectItemState")) {
+          expect(body.variables.stateFieldName).toBe("Status");
+        }
+        return graphqlResponse(body.query, body.variables, states);
+      }
+    ) as typeof fetch;
+
+    const result = await requestGithubProjectItemState(
+      {
+        ...config,
+        lifecycle: {
+          ...DEFAULT_WORKFLOW_LIFECYCLE,
+          stateFieldName: " Status ",
+        },
+      },
+      {
+        issueSubjectId: "issue-trimmed",
+        itemId: "item-trimmed",
+        request: { type: "state-read" },
+      },
+      fetchImpl
+    );
+
+    expect(result).toMatchObject({ ok: true, state: "In progress" });
   });
 
   it("refreshes stale cached Status metadata after an invalid option mutation", async () => {
@@ -177,6 +212,77 @@ describe("requestGithubProjectItemState", () => {
           expectedState: "In progress",
           targetState: "In review",
           reason: "refresh stale metadata",
+        },
+      },
+      fetchImpl
+    );
+
+    expect(result).toMatchObject({ ok: true, state: "In review" });
+    expect(projectFieldRequests).toBe(2);
+  });
+
+  it("refreshes stale cached Status metadata after a global-ID mutation error", async () => {
+    const states = new Map([["item-global-id", "In progress"]]);
+    let projectFieldRequests = 0;
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (body.query.includes("query ProjectFields")) {
+          projectFieldRequests += 1;
+          return jsonResponse({
+            data: {
+              rateLimit: rateLimit(),
+              node: {
+                __typename: "ProjectV2",
+                fields: {
+                  nodes: [
+                    {
+                      __typename: "ProjectV2SingleSelectField",
+                      id: `status-field-${projectFieldRequests}`,
+                      name: "Status",
+                      options: [
+                        {
+                          id: `in-review-${projectFieldRequests}`,
+                          name: "In review",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        if (
+          body.query.includes("mutation UpdateProjectItemState") &&
+          body.variables.fieldId === "status-field-1"
+        ) {
+          return jsonResponse({
+            errors: [
+              {
+                message:
+                  "Could not resolve to a node with the global id of 'PVTSSF_stale'",
+              },
+            ],
+          });
+        }
+        return graphqlResponse(body.query, body.variables, states);
+      }
+    ) as typeof fetch;
+
+    const result = await requestGithubProjectItemState(
+      config,
+      {
+        issueSubjectId: "issue-global-id",
+        itemId: "item-global-id",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "refresh stale global ID metadata",
         },
       },
       fetchImpl
