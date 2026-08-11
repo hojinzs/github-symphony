@@ -18,7 +18,10 @@ import {
 } from "./lock.js";
 
 export { OrchestratorService, createStore };
-export { resolveCanonicalSubjectIssues } from "./service.js";
+export {
+  resolveAdaptivePollIntervalMs,
+  resolveCanonicalSubjectIssues,
+} from "./service.js";
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";
 export * from "./explain.js";

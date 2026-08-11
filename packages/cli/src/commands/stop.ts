@@ -1,13 +1,13 @@
-import { readFile, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 import { getProcessCwd, getProcessIdentity } from "@gh-symphony/orchestrator";
 import type { GlobalOptions } from "../index.js";
-import { daemonPidPath, parseDaemonPidRecord } from "../config.js";
 import {
   handleMissingManagedProjectConfig,
   resolveManagedProjectConfig,
 } from "../project-selection.js";
 import { rejectRemovedProjectId } from "../removed-project-id.js";
+import { resolveDaemonLiveness } from "../daemon-liveness.js";
 
 function parseStopArgs(args: string[]): {
   force: boolean;
@@ -57,50 +57,48 @@ const handler = async (
   }
   const resolvedProjectId = projectConfig.projectId;
 
-  const pidPath = daemonPidPath(options.configDir, resolvedProjectId);
-  let pidStr: string;
-  try {
-    pidStr = await readFile(pidPath, "utf8");
-  } catch {
+  const liveness = await resolveDaemonLiveness({
+    configDir: options.configDir,
+    projectId: resolvedProjectId,
+    workspaceDir: projectConfig.workspaceDir,
+  });
+  if (!liveness.running && liveness.reason === "missing-pid") {
     process.stderr.write(
       `No running daemon found for project "${resolvedProjectId}" (PID file missing).\n`
     );
     process.exitCode = 1;
     return;
   }
-
-  const pidRecord = parseDaemonPidRecord(pidStr);
-  if (!pidRecord) {
-    process.stderr.write(`Invalid PID in ${pidPath}: ${pidStr}\n`);
+  if (!liveness.running && liveness.reason === "invalid-pid") {
+    process.stderr.write(
+      `Invalid PID in ${liveness.pidPath}: ${liveness.pidContents ?? ""}\n`
+    );
     process.exitCode = 1;
     return;
   }
-  const expectedCwd = resolve(pidRecord.cwd ?? projectConfig.workspaceDir);
-  let target = validateDaemonProcess(
-    pidRecord.pid,
-    pidRecord.processIdentity,
-    expectedCwd
-  );
-  if (!target) {
-    target = await resolveProjectLockDaemon(
-      options.configDir,
-      resolvedProjectId,
-      expectedCwd
+  if (!liveness.running) {
+    process.stderr.write(
+      `Stale daemon PID ${liveness.recordedPid} for project "${resolvedProjectId}"; no live orchestrator with repository CWD "${liveness.expectedCwd}" was found in the project lock. Cleaning up stale PID file.\n`
     );
-    if (!target) {
-      process.stderr.write(
-        `Stale daemon PID ${pidRecord.pid} for project "${resolvedProjectId}"; no live orchestrator with repository CWD "${expectedCwd}" was found in the project lock. Cleaning up stale PID file.\n`
-      );
-      await rm(pidPath, { force: true });
-      process.exitCode = 1;
-      return;
-    }
+    await rm(liveness.pidPath, { force: true });
+    process.exitCode = 1;
+    return;
+  }
+  if (liveness.source === "project-lock") {
     process.stdout.write(
-      `Recovered orchestrator PID ${target.pid} from the project lock for repository CWD "${expectedCwd}".\n`
+      `Recovered orchestrator PID ${liveness.target.pid} from the project lock for repository CWD "${liveness.expectedCwd}".\n`
     );
   }
 
-  const { pid, identity: checkedIdentity } = target;
+  const { pid, identity: checkedIdentity } = liveness.target;
+
+  if (!liveness.target.verified) {
+    process.stderr.write(
+      `Refusing to signal PID ${pid}: process identity could not be verified.\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const signal = resolvedForce ? "SIGKILL" : "SIGTERM";
   try {
@@ -108,7 +106,7 @@ const handler = async (
     if (
       getProcessIdentity(pid) !== checkedIdentity ||
       !signalCwd ||
-      resolve(signalCwd) !== expectedCwd
+      resolve(signalCwd) !== liveness.expectedCwd
     ) {
       throw new Error("process identity changed before signal delivery");
     }
@@ -122,62 +120,8 @@ const handler = async (
     return;
   }
 
-  await rm(pidPath, { force: true });
+  await rm(liveness.pidPath, { force: true });
   process.stdout.write("Daemon stopped.\n");
 };
-
-function validateDaemonProcess(
-  pid: number,
-  recordedIdentity: string | null,
-  expectedCwd: string
-): { pid: number; identity: string } | null {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return null;
-  }
-
-  const identity = getProcessIdentity(pid);
-  const identityMatches = recordedIdentity
-    ? identity === recordedIdentity
-    : isLegacyOrchestratorIdentity(identity);
-  const cwd = getProcessCwd(pid);
-  if (!identity || !identityMatches || !cwd || resolve(cwd) !== expectedCwd) {
-    return null;
-  }
-  return { pid, identity };
-}
-
-async function resolveProjectLockDaemon(
-  configDir: string,
-  projectId: string,
-  expectedCwd: string
-): Promise<{ pid: number; identity: string } | null> {
-  try {
-    const lock = JSON.parse(
-      await readFile(join(configDir, "projects", projectId, ".lock"), "utf8")
-    ) as { pid?: unknown; processIdentity?: unknown };
-    if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) {
-      return null;
-    }
-    const processIdentity =
-      typeof lock.processIdentity === "string" ? lock.processIdentity : null;
-    return validateDaemonProcess(
-      lock.pid as number,
-      processIdentity,
-      expectedCwd
-    );
-  } catch {
-    return null;
-  }
-}
-
-function isLegacyOrchestratorIdentity(identity: string | null): boolean {
-  return Boolean(
-    identity &&
-    /(?:gh-symphony|(?:^|\s)(?:dist\/)?index\.js)(?:\s|$)/.test(identity) &&
-    /\brepo\s+start\b/.test(identity)
-  );
-}
 
 export default handler;

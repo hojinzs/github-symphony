@@ -300,14 +300,9 @@ describe("orchestrator CLI", () => {
       }
     );
 
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (signalTarget.listenerCount("SIGTERM") === 1) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-
-    expect(signalTarget.listenerCount("SIGTERM")).toBe(1);
+    await vi.waitFor(() => {
+      expect(signalTarget.listenerCount("SIGTERM")).toBe(1);
+    });
     signalTarget.emit("SIGTERM");
     await runPromise;
 
@@ -428,9 +423,9 @@ describe("orchestrator CLI", () => {
       ["run-once", "--runtime-root", runtimeRoot, "--project-id", "tenant-1"],
       { createService: () => firstService }
     );
-    for (let attempt = 0; attempt < 20 && !finishFirst; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
+    await vi.waitFor(() => {
+      expect(finishFirst).toBeTypeOf("function");
+    });
 
     const secondService = createMockService();
     await expect(

@@ -1,9 +1,24 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import statusCommand from "./status.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import statusCommand, { relativeTime } from "./status.js";
 import type { CliProjectConfig } from "../config.js";
+
+const daemonProcessMocks = vi.hoisted(() => ({
+  getProcessCwd: vi.fn(),
+  getProcessIdentity: vi.fn(),
+  resolveAdaptivePollIntervalMs: vi.fn(
+    (basePollIntervalMs: number) => basePollIntervalMs
+  ),
+}));
+
+vi.mock("@gh-symphony/orchestrator", () => ({
+  getProcessCwd: daemonProcessMocks.getProcessCwd,
+  getProcessIdentity: daemonProcessMocks.getProcessIdentity,
+  resolveAdaptivePollIntervalMs:
+    daemonProcessMocks.resolveAdaptivePollIntervalMs,
+}));
 
 function captureWrites(stream: NodeJS.WriteStream): {
   output: () => string;
@@ -120,12 +135,336 @@ async function createConfigFixture(
   return configDir;
 }
 
+async function writeDaemonPid(
+  configDir: string,
+  options: { pid?: number; identity?: string; cwd?: string } = {}
+): Promise<void> {
+  await writeFile(
+    join(configDir, "projects", "tenant-a", "daemon.pid"),
+    JSON.stringify({
+      pid: options.pid ?? 111,
+      startedAt: "2026-03-30T11:00:00.000Z",
+      processIdentity: options.identity ?? "live-daemon",
+      cwd: options.cwd ?? join("/tmp", "tenant-a"),
+    }) + "\n",
+    "utf8"
+  );
+}
+
+async function writeProjectLock(
+  configDir: string,
+  pid = 222,
+  cwd?: string
+): Promise<void> {
+  await writeFile(
+    join(configDir, "projects", "tenant-a", ".lock"),
+    JSON.stringify({
+      ownerToken: `${pid}:owner`,
+      pid,
+      startedAt: "2026-03-30T11:00:00.000Z",
+      heartbeatAt: "2026-03-30T11:00:00.000Z",
+      processIdentity: null,
+      ...(cwd ? { cwd } : {}),
+    }) + "\n",
+    "utf8"
+  );
+}
+
+beforeEach(() => {
+  daemonProcessMocks.getProcessCwd.mockReset();
+  daemonProcessMocks.getProcessIdentity.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockImplementation(
+    (basePollIntervalMs: number) => basePollIntervalMs
+  );
+  daemonProcessMocks.getProcessCwd.mockReturnValue(join("/tmp", "tenant-a"));
+  daemonProcessMocks.getProcessIdentity.mockReturnValue("live-daemon");
+});
+
 afterEach(() => {
+  daemonProcessMocks.getProcessCwd.mockReset();
+  daemonProcessMocks.getProcessIdentity.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReset();
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
 
 describe("status command", () => {
+  it("renders a stopped banner and restart hint when the PID file is missing", async () => {
+    const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("● Health    stopped");
+    expect(stdout.output()).toContain(
+      "daemon not running — run 'gh-symphony repo start'"
+    );
+    expect(stdout.output()).toContain("Last known state: running");
+  });
+
+  it("recognizes a live foreground daemon from the project lock", async () => {
+    const configDir = await createConfigFixture();
+    await writeProjectLock(configDir);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      health: "running",
+      daemonRunning: true,
+    });
+  });
+
+  it("uses the foreground daemon CWD recorded in the project lock", async () => {
+    const configDir = await createConfigFixture();
+    const foregroundCwd = join("/tmp", "foreground-daemon");
+    await writeProjectLock(configDir, 222, foregroundCwd);
+    daemonProcessMocks.getProcessCwd.mockReturnValue(foregroundCwd);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({ daemonRunning: true });
+  });
+
+  it("recognizes a live foreground daemon when the PID file is malformed", async () => {
+    const configDir = await createConfigFixture();
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      "partially-written-pid-record\n",
+      "utf8"
+    );
+    await writeProjectLock(configDir);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      health: "running",
+      daemonRunning: true,
+    });
+  });
+
+  it("renders a stopped banner for a stale PID", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir, { pid: 999_999 });
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw new Error("ESRCH");
+    });
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("● Health    stopped");
+  });
+
+  it("keeps live daemon health and annotates a stale last tick", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:02:00.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("● Health    running");
+    expect(stdout.output()).toContain("Last tick  2m ago (stale)");
+    expect(stdout.output()).not.toContain("daemon not running");
+  });
+
+  it("keeps fresh live daemon output free of stopped and stale warnings", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("● Health    running");
+    expect(stdout.output()).not.toContain("stopped");
+    expect(stdout.output()).not.toContain("stale");
+  });
+
+  it("uses the adaptive rate-limit poll interval for stale detection", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify({
+        ...JSON.parse(await readFile(join(configDir, "status.json"), "utf8")),
+        rateLimits: { limit: 5_000, remaining: 0 },
+      }) + "\n",
+      "utf8"
+    );
+    daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReturnValue(300_000);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:02:00.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("(stale)");
+    expect(
+      daemonProcessMocks.resolveAdaptivePollIntervalMs
+    ).toHaveBeenCalledWith(30_000, { limit: 5_000, remaining: 0 });
+  });
+
+  it("uses the daemon's recorded tracker polling interval for stale detection", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify({
+        ...JSON.parse(await readFile(join(configDir, "status.json"), "utf8")),
+        effectivePollIntervalMs: 300_000,
+        rateLimits: { source: "codex", limit: 5_000, remaining: 5_000 },
+      }) + "\n",
+      "utf8"
+    );
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:02:00.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("(stale)");
+    expect(
+      daemonProcessMocks.resolveAdaptivePollIntervalMs
+    ).not.toHaveBeenCalled();
+  });
+
+  it("adds daemonRunning to JSON output", async () => {
+    const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      health: "running",
+      daemonRunning: false,
+    });
+  });
+
+  it("renders durations of at least 48 hours in days", () => {
+    const now = new Date("2026-04-01T12:00:00.000Z").getTime();
+    expect(relativeTime("2026-03-30T11:00:00.000Z", now)).toBe("2d ago");
+  });
+
   it("prints JSON for missing runtime config when --json is set", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-status-missing-"));
     const stdout = captureWrites(process.stdout);
@@ -152,6 +491,71 @@ describe("status command", () => {
           "No repository runtime config found. Run 'gh-symphony repo init' first.",
       },
     });
+  });
+
+  it("includes daemonRunning when JSON status has no snapshot", async () => {
+    const configDir = await createConfigFixture();
+    await rm(join(configDir, "status.json"));
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout.output())).toEqual({
+      daemonRunning: true,
+      error: {
+        code: "status_snapshot_unavailable",
+        message: "Unable to read status snapshot.",
+      },
+    });
+  });
+
+  it("preserves live daemon liveness in non-TTY watch JSON without a snapshot", async () => {
+    const configDir = await createConfigFixture();
+    await rm(join(configDir, "status.json"));
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(
+      process.stdout,
+      "isTTY"
+    );
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      void statusCommand(["--watch"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+      await vi.waitFor(() => {
+        expect(JSON.parse(stdout.output())).toEqual({ daemonRunning: true });
+      });
+      process.emit("SIGTERM", "SIGTERM");
+    } finally {
+      stdout.restore();
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdout, "isTTY", isTTYDescriptor);
+      } else {
+        delete (process.stdout as { isTTY?: boolean }).isTTY;
+      }
+    }
   });
 
   it("renders project tokens from the flat runtime status snapshot", async () => {

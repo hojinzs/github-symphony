@@ -20,6 +20,7 @@ type ProjectLockRecord = {
   startedAt: string;
   heartbeatAt: string | null;
   processIdentity: string | null;
+  cwd?: string;
 };
 
 export type ProjectLockHandle = {
@@ -29,6 +30,7 @@ export type ProjectLockHandle = {
   startedAt: string;
   heartbeatAt: string;
   processIdentity: string | null;
+  cwd: string;
 };
 
 type LeaseLostHandler = (error: Error) => void | Promise<void>;
@@ -46,6 +48,7 @@ export async function acquireProjectLock(input: {
   now?: Date;
   isProcessRunning?: (pid: number) => boolean;
   getProcessIdentity?: (pid: number) => string | null;
+  cwd?: string;
   leaseTtlMs?: number;
   onLeaseLost?: LeaseLostHandler;
 }): Promise<ProjectLockHandle> {
@@ -54,6 +57,7 @@ export async function acquireProjectLock(input: {
   const startedAt = (input.now ?? new Date()).toISOString();
   const heartbeatAt = startedAt;
   const processIdentity = (input.getProcessIdentity ?? getProcessIdentity)(pid);
+  const cwd = resolve(input.cwd ?? process.cwd());
   const ownerToken = `${pid}:${randomUUID()}`;
   const lockPath = resolveProjectLockPath(input.runtimeRoot, input.projectId);
   const record: ProjectLockRecord = {
@@ -62,6 +66,7 @@ export async function acquireProjectLock(input: {
     startedAt,
     heartbeatAt,
     processIdentity,
+    cwd,
   };
   let invalidReadAttempts = 0;
 
@@ -84,6 +89,7 @@ export async function acquireProjectLock(input: {
         startedAt,
         heartbeatAt,
         processIdentity,
+        cwd,
       };
       startProjectLockHeartbeat(
         lock,
@@ -370,6 +376,7 @@ function parseProjectLock(raw: string): ProjectLockRecord | null {
       !Number.isInteger(parsed.pid) ||
       parsed.pid <= 0 ||
       typeof parsed.startedAt !== "string" ||
+      (parsed.cwd !== undefined && typeof parsed.cwd !== "string") ||
       (parsed.heartbeatAt !== undefined &&
         typeof parsed.heartbeatAt !== "string") ||
       (parsed.processIdentity !== undefined &&
@@ -385,6 +392,7 @@ function parseProjectLock(raw: string): ProjectLockRecord | null {
       startedAt: parsed.startedAt,
       heartbeatAt: parsed.heartbeatAt ?? null,
       processIdentity: parsed.processIdentity ?? null,
+      cwd: parsed.cwd,
     };
   } catch {
     return null;

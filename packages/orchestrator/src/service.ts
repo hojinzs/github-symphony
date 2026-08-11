@@ -1724,6 +1724,7 @@ export class OrchestratorService {
       lastTickAt: now.toISOString(),
       lastError,
       rateLimits,
+      effectivePollIntervalMs,
       dispatchSuppressedUntil: resolveDispatchSuppressedUntil(
         trackerError,
         dispatchRateLimits
@@ -4581,7 +4582,7 @@ function readNonNegativeNumber(value: unknown): number {
     : 0;
 }
 
-function resolveAdaptivePollIntervalMs(
+export function resolveAdaptivePollIntervalMs(
   basePollIntervalMs: number,
   rateLimits: Record<string, unknown> | null
 ): number {
