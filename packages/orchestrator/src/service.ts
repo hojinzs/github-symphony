@@ -1236,20 +1236,30 @@ export class OrchestratorService {
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : canonicalIssues;
-      await this.publishLinkedPullRequestActiveAdvisories(
-        tenant,
-        trackerAdapter,
-        targetedIssues,
-        trackerDependencies
-      );
+      const advisoryRateLimits =
+        await this.publishLinkedPullRequestActiveAdvisories(
+          tenant,
+          trackerAdapter,
+          targetedIssues,
+          trackerDependencies
+        );
+      const pollListRateLimits =
+        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits;
       rateLimits = resolveProjectRateLimits(
         syncedActiveRuns,
         trackedIssuesByIdentifier.values(),
-        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits
+        pollListRateLimits
       );
+      rateLimits = isTrackerGraphqlRateLimits(rateLimits)
+        ? (mergeTrackerRateLimits(rateLimits, advisoryRateLimits) ?? rateLimits)
+        : rateLimits;
       trackerRateLimits = resolveTrackerRateLimits(
         trackedIssuesByIdentifier.values(),
-        getTrackedIssueListRateLimits(issues) ?? supplementalLinearRateLimits
+        pollListRateLimits
+      );
+      trackerRateLimits = mergeTrackerRateLimits(
+        trackerRateLimits,
+        advisoryRateLimits
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       const concurrency = await this.getProjectConcurrency(tenant);
@@ -2028,10 +2038,12 @@ export class OrchestratorService {
     trackerAdapter: OrchestratorTrackerAdapter,
     issues: readonly TrackedIssue[],
     trackerDependencies: OrchestratorTrackerDependencies
-  ): Promise<void> {
+  ): Promise<Record<string, unknown> | null> {
     if (!trackerAdapter.upsertIssueComment) {
-      return;
+      return null;
     }
+
+    let rateLimits: Record<string, unknown> | null = null;
 
     for (const issue of issues) {
       if (
@@ -2071,18 +2083,21 @@ export class OrchestratorService {
       });
 
       try {
-        await trackerAdapter.upsertIssueComment(
+        const result = await trackerAdapter.upsertIssueComment(
           tenant,
           issue,
           { marker, body },
           trackerDependencies
         );
+        rateLimits = mergeTrackerRateLimits(rateLimits, result.rateLimits);
       } catch (error) {
         this.writeStderr(
           `[orchestrator] failed to publish linked PR active advisory for ${issue.identifier}: ${this.formatErrorMessage(error)}`
         );
       }
     }
+
+    return rateLimits;
   }
 
   private async loadProjectWorkflow(
@@ -4512,6 +4527,50 @@ function resolveTrackerRateLimits(
   return isTrackerGraphqlRateLimits(fallbackRateLimits)
     ? fallbackRateLimits
     : null;
+}
+
+function mergeTrackerRateLimits(
+  ...rateLimits: Array<Record<string, unknown> | null>
+): Record<string, unknown> | null {
+  const graphqlRateLimits = rateLimits.filter(isTrackerGraphqlRateLimits);
+  if (graphqlRateLimits.length === 0) {
+    return null;
+  }
+  if (graphqlRateLimits.length === 1) {
+    return graphqlRateLimits[0] ?? null;
+  }
+
+  const queryCosts: Record<string, { requestCount: number; cost: number }> = {};
+  let cycleCost = 0;
+  for (const rateLimit of graphqlRateLimits) {
+    cycleCost += readNonNegativeNumber(rateLimit.cycleCost);
+    if (!isRecord(rateLimit.queryCosts)) {
+      continue;
+    }
+    for (const [operation, value] of Object.entries(rateLimit.queryCosts)) {
+      if (!isRecord(value)) {
+        continue;
+      }
+      const previous = queryCosts[operation] ?? { requestCount: 0, cost: 0 };
+      queryCosts[operation] = {
+        requestCount:
+          previous.requestCount + readNonNegativeNumber(value.requestCount),
+        cost: previous.cost + readNonNegativeNumber(value.cost),
+      };
+    }
+  }
+
+  return {
+    ...graphqlRateLimits.at(-1),
+    cycleCost,
+    queryCosts,
+  };
+}
+
+function readNonNegativeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : 0;
 }
 
 function resolveAdaptivePollIntervalMs(

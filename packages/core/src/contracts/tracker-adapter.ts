@@ -147,6 +147,11 @@ export type TrackerCommentWriteResult = {
   rateLimits: Record<string, unknown> | null;
 };
 
+export type TrackerIssueCommentUpsertResult = {
+  outcome: "created" | "updated" | "unchanged";
+  rateLimits: Record<string, unknown> | null;
+};
+
 export type TrackerStateResult = {
   ok: boolean;
   outcome: "confirmed" | "expected_state_mismatch" | "rejected" | "failed";
@@ -206,5 +211,5 @@ export type OrchestratorTrackerAdapter = {
       body: string;
     },
     dependencies?: OrchestratorTrackerDependencies
-  ): Promise<"created" | "updated" | "unchanged">;
+  ): Promise<TrackerIssueCommentUpsertResult>;
 };

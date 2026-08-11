@@ -8875,9 +8875,16 @@ Prefer focused changes.
       },
     });
 
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(createTrackerResponseWithState(repository, "Todo"));
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ...createTrackerResponseWithState(repository, "Todo"),
+      headers: new Headers({
+        "x-ratelimit-limit": "5000",
+        "x-ratelimit-remaining": "4998",
+        "x-ratelimit-used": "2",
+        "x-ratelimit-reset": "1773892920",
+        "x-ratelimit-resource": "graphql",
+      }),
+    });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
