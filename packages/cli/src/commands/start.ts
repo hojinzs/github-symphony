@@ -391,6 +391,13 @@ function logTickResult(
     if (snapshot.summary.activeRuns > 0) {
       logLine(cyan("\u25B8"), `${snapshot.summary.activeRuns} active run(s)`);
     }
+    const skipped = snapshot.summary.skipped ?? 0;
+    if (skipped > 0) {
+      logLine(
+        yellow("⚠"),
+        `${bold(String(skipped))} item(s) skipped by the tracker`
+      );
+    }
     return;
   }
 
@@ -457,6 +464,15 @@ function logTickResult(
     );
   }
 
+  const prevSkipped = prevSnapshot?.summary.skipped ?? 0;
+  const skipped = snapshot.summary.skipped ?? 0;
+  if (skipped !== prevSkipped) {
+    logLine(
+      yellow("⚠"),
+      `${bold(String(skipped))} item(s) skipped by the tracker`
+    );
+  }
+
   const prevRetryCount = prevSnapshot?.retryQueue.length ?? 0;
   if (snapshot.retryQueue.length > prevRetryCount) {
     const delta = snapshot.retryQueue.length - prevRetryCount;
@@ -469,6 +485,7 @@ function logTickResult(
     snapshot.summary.dispatched !== prevSnapshot?.summary.dispatched ||
     snapshot.summary.suppressed !== prevSnapshot?.summary.suppressed ||
     snapshot.summary.recovered !== prevSnapshot?.summary.recovered ||
+    (snapshot.summary.skipped ?? 0) !== (prevSnapshot?.summary.skipped ?? 0) ||
     snapshot.activeRuns.length !== (prevSnapshot?.activeRuns.length ?? 0) ||
     snapshot.retryQueue.length !== (prevSnapshot?.retryQueue.length ?? 0);
 
