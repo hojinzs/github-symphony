@@ -363,6 +363,9 @@ export class OrchestratorService {
   private sleepTimer: ReturnType<typeof setTimeout> | null = null;
   private sleepResolver: (() => void) | null = null;
   private reconcilePromise: Promise<void> = Promise.resolve();
+  // Provider calls can wait for GraphQL rate limits. Their ordering is kept
+  // separate from reconciliation so polling and dispatch are not blocked.
+  private trackerStatePromise: Promise<void> = Promise.resolve();
   private reconcileRequested = false;
   private workerOrchestratorUrl: string | null = null;
   private workerOrchestratorToken: string | null = null;
@@ -442,7 +445,7 @@ export class OrchestratorService {
     runId: string;
     request: TrackerStateRequest;
   }): Promise<TrackerStateResult> {
-    return this.runSerialized(async () => {
+    return this.runTrackerStateSerialized(async () => {
       const rejected = (error: string): TrackerStateResult => ({
         ok: false,
         outcome: "rejected",
@@ -462,44 +465,61 @@ export class OrchestratorService {
         rateLimits: null,
         error,
       });
-      const run = await this.store.loadRun(
-        input.runId,
-        this.projectConfig.projectId
-      );
-      if (!run) {
-        return rejected("run_not_found");
+      const authorization: {
+        run?: OrchestratorRunRecord;
+        trackerAdapter?: OrchestratorTrackerAdapter;
+        result?: TrackerStateResult;
+      } = await this.runSerialized(async () => {
+        const run = await this.store.loadRun(
+          input.runId,
+          this.projectConfig.projectId
+        );
+        if (!run) return { result: rejected("run_not_found") };
+
+        const issueRecords = await this.store.loadProjectIssueOrchestrations(
+          this.projectConfig.projectId
+        );
+        const issueRecord = issueRecords.find(
+          (candidate) => candidate.issueId === run.issueId
+        );
+        if (
+          !issueRecord ||
+          issueRecord.state !== "running" ||
+          issueRecord.currentRunId !== run.runId ||
+          !isActiveRunRecordStatus(run.status)
+        ) {
+          return { run, result: rejected("run_not_current") };
+        }
+        const invalidRequest = validateTrackerStateRequest(input.request);
+        if (invalidRequest) return { run, result: rejected(invalidRequest) };
+
+        const trackerAdapter = resolveTrackerAdapter(
+          this.projectConfig.tracker
+        );
+        if (!trackerAdapter.requestState) {
+          return {
+            run,
+            result: rejected("tracker_state_requests_unsupported"),
+          };
+        }
+        return { run, trackerAdapter };
+      });
+      if (authorization.result !== undefined) {
+        if (authorization.run) {
+          await this.runSerialized(() =>
+            this.appendTrackerStateEvent(
+              authorization.run!,
+              input.request,
+              authorization.result!
+            )
+          );
+        }
+        return authorization.result;
       }
 
-      const issueRecords = await this.store.loadProjectIssueOrchestrations(
-        this.projectConfig.projectId
-      );
-      const issueRecord = issueRecords.find(
-        (candidate) => candidate.issueId === run.issueId
-      );
-      if (
-        !issueRecord ||
-        issueRecord.state !== "running" ||
-        issueRecord.currentRunId !== run.runId ||
-        !isActiveRunRecordStatus(run.status)
-      ) {
-        const result = rejected("run_not_current");
-        await this.appendTrackerStateEvent(run, input.request, result);
-        return result;
-      }
-
-      const invalidRequest = validateTrackerStateRequest(input.request);
-      if (invalidRequest) {
-        const result = rejected(invalidRequest);
-        await this.appendTrackerStateEvent(run, input.request, result);
-        return result;
-      }
-
-      const trackerAdapter = resolveTrackerAdapter(this.projectConfig.tracker);
-      if (!trackerAdapter.requestState) {
-        const result = rejected("tracker_state_requests_unsupported");
-        await this.appendTrackerStateEvent(run, input.request, result);
-        return result;
-      }
+      const run = authorization.run!;
+      const trackerAdapter = authorization.trackerAdapter!;
+      const requestState = trackerAdapter.requestState!;
 
       let canonicalItemId = run.trackerItemId?.trim() ?? "";
       try {
@@ -514,12 +534,14 @@ export class OrchestratorService {
               .itemId ?? "";
           if (!canonicalItemId) {
             const result = rejected("canonical_tracker_item_missing");
-            await this.appendTrackerStateEvent(run, input.request, result);
+            await this.runSerialized(() =>
+              this.appendTrackerStateEvent(run, input.request, result)
+            );
             return result;
           }
         }
 
-        const result = await trackerAdapter.requestState(
+        const result = await requestState(
           this.projectConfig,
           {
             issueSubjectId: run.issueSubjectId,
@@ -528,27 +550,38 @@ export class OrchestratorService {
           },
           this.createTrackerDependencies()
         );
-        const nowIso = this.now().toISOString();
-        const persistedRun: OrchestratorRunRecord = {
-          ...run,
-          trackerItemId: canonicalItemId,
-          issueState: result.state ?? run.issueState,
-          updatedAt: nowIso,
-          lastEvent:
-            input.request.type === "transition-request"
-              ? "tracker-transition"
-              : "tracker-state-read",
-          lastEventAt: nowIso,
-          rateLimits: result.rateLimits ?? run.rateLimits ?? null,
-          lastError: result.ok
-            ? run.lastError
-            : (result.error ?? run.lastError),
-        };
-        await this.persistTrackerStateDiagnostics(
-          persistedRun,
-          input.request,
-          result
-        );
+        const persistedRun = await this.runSerialized(async () => {
+          // Reconciliation may have updated this run while the provider call
+          // waited for GitHub. Preserve that newer lifecycle state and merge
+          // only the diagnostics produced by this tracker-state request.
+          const latestRun =
+            (await this.store.loadRun(
+              run.runId,
+              this.projectConfig.projectId
+            )) ?? run;
+          const nowIso = this.now().toISOString();
+          const diagnosticRun: OrchestratorRunRecord = {
+            ...latestRun,
+            trackerItemId: canonicalItemId,
+            issueState: result.state ?? latestRun.issueState,
+            updatedAt: nowIso,
+            lastEvent:
+              input.request.type === "transition-request"
+                ? "tracker-transition"
+                : "tracker-state-read",
+            lastEventAt: nowIso,
+            rateLimits: result.rateLimits ?? latestRun.rateLimits ?? null,
+            lastError: result.ok
+              ? latestRun.lastError
+              : (result.error ?? latestRun.lastError),
+          };
+          await this.persistTrackerStateDiagnostics(
+            diagnosticRun,
+            input.request,
+            result
+          );
+          return diagnosticRun;
+        });
         const transitionCommentRateLimits =
           await this.publishConfirmedTransitionComment({
             run: persistedRun,
@@ -569,21 +602,25 @@ export class OrchestratorService {
           outcome: "failed",
           rateLimits,
         };
-        const nowIso = this.now().toISOString();
-        await this.store.saveRun({
-          ...run,
-          trackerItemId: canonicalItemId,
-          updatedAt: nowIso,
-          lastEvent: "tracker-transition-failed",
-          lastEventAt: nowIso,
-          rateLimits: rateLimits ?? run.rateLimits ?? null,
-          lastError: result.error,
+        await this.runSerialized(async () => {
+          const latestRun =
+            (await this.store.loadRun(
+              run.runId,
+              this.projectConfig.projectId
+            )) ?? run;
+          const nowIso = this.now().toISOString();
+          const failedRun: OrchestratorRunRecord = {
+            ...latestRun,
+            trackerItemId: canonicalItemId,
+            updatedAt: nowIso,
+            lastEvent: "tracker-transition-failed",
+            lastEventAt: nowIso,
+            rateLimits: rateLimits ?? latestRun.rateLimits ?? null,
+            lastError: result.error,
+          };
+          await this.store.saveRun(failedRun);
+          await this.appendTrackerStateEvent(failedRun, input.request, result);
         });
-        await this.appendTrackerStateEvent(
-          { ...run, trackerItemId: canonicalItemId },
-          input.request,
-          result
-        );
         return result;
       }
     });
@@ -649,6 +686,7 @@ export class OrchestratorService {
     ) {
       return null;
     }
+    const transitionRequest = input.request;
 
     let outcome: "created" | "unchanged" | "failed" = "failed";
     let error: string | null = null;
@@ -674,54 +712,63 @@ export class OrchestratorService {
       rateLimits = extractTrackerRateLimitsFromError(cause) ?? rateLimits;
     }
 
-    const nowIso = this.now().toISOString();
-    const diagnosticRun: OrchestratorRunRecord = {
-      ...input.run,
-      updatedAt: nowIso,
-      lastEvent:
-        error === null
-          ? "tracker-transition-comment"
-          : "tracker-transition-comment-failed",
-      lastEventAt: nowIso,
-      lastError:
-        error === null
-          ? input.run.lastError
-          : `tracker_transition_comment_failed: ${error}`,
-      transitionComment: {
-        status: outcome,
+    await this.runSerialized(async () => {
+      // Comment provider I/O is deliberately outside the reconcile lock.
+      // Reload inside the lock before persisting its diagnostics so a
+      // concurrent reconciliation lifecycle update cannot be overwritten.
+      const latestRun =
+        (await this.store.loadRun(
+          input.run.runId,
+          this.projectConfig.projectId
+        )) ?? input.run;
+      const nowIso = this.now().toISOString();
+      const diagnosticRun: OrchestratorRunRecord = {
+        ...latestRun,
         updatedAt: nowIso,
-        error,
-      },
-      rateLimits,
-    };
-    try {
-      await this.store.saveRun(diagnosticRun);
-    } catch (cause) {
-      this.reportDiagnosticWriteFailure(input.run, "saveRun", cause);
-    }
-
-    try {
-      await this.store.appendRunEvent(input.run.runId, {
-        at: nowIso,
-        event: "tracker.transition-comment",
-        projectId: input.run.projectId,
-        runId: input.run.runId,
-        tracker: {
-          adapter: this.projectConfig.tracker.adapter,
+        lastEvent:
+          error === null
+            ? "tracker-transition-comment"
+            : "tracker-transition-comment-failed",
+        lastEventAt: nowIso,
+        lastError:
+          error === null
+            ? latestRun.lastError
+            : `tracker_transition_comment_failed: ${error}`,
+        transitionComment: {
+          status: outcome,
+          updatedAt: nowIso,
+          error,
         },
-        issue: {
-          identifier: input.run.issueIdentifier,
-          id: input.run.issueSubjectId,
-        },
-        expectedState: input.request.expectedState,
-        targetState: input.request.targetState,
-        outcome,
-        error,
-        rateLimits,
-      });
-    } catch (cause) {
-      this.reportDiagnosticWriteFailure(input.run, "appendRunEvent", cause);
-    }
+        rateLimits: rateLimits ?? latestRun.rateLimits ?? null,
+      };
+      try {
+        await this.store.saveRun(diagnosticRun);
+      } catch (cause) {
+        this.reportDiagnosticWriteFailure(input.run, "saveRun", cause);
+      }
+      try {
+        await this.store.appendRunEvent(input.run.runId, {
+          at: nowIso,
+          event: "tracker.transition-comment",
+          projectId: input.run.projectId,
+          runId: input.run.runId,
+          tracker: {
+            adapter: this.projectConfig.tracker.adapter,
+          },
+          issue: {
+            identifier: input.run.issueIdentifier,
+            id: input.run.issueSubjectId,
+          },
+          expectedState: transitionRequest.expectedState,
+          targetState: transitionRequest.targetState,
+          outcome,
+          error,
+          rateLimits: rateLimits ?? latestRun.rateLimits ?? null,
+        });
+      } catch (cause) {
+        this.reportDiagnosticWriteFailure(input.run, "appendRunEvent", cause);
+      }
+    });
     return rateLimits;
   }
 
@@ -1892,6 +1939,23 @@ export class OrchestratorService {
     const previous = this.reconcilePromise;
     let release!: () => void;
     this.reconcilePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  private async runTrackerStateSerialized<T>(
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = this.trackerStatePromise;
+    let release!: () => void;
+    this.trackerStatePromise = new Promise<void>((resolve) => {
       release = resolve;
     });
 

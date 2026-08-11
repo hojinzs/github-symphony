@@ -769,7 +769,8 @@ export async function requestGithubProjectItemState(
   },
   fetchImpl: FetchLike = fetch
 ): Promise<TrackerStateResult> {
-  const queueKey = `${fingerprintGitHubToken(config.token)}:${config.projectId}`;
+  // Rate-limit budget is shared by all projects using this token.
+  const queueKey = fingerprintGitHubToken(config.token);
   const depth = transitionQueueDepths.get(queueKey) ?? 0;
   if (depth >= MAX_TRANSITION_QUEUE_DEPTH) {
     return {
@@ -829,8 +830,7 @@ export async function upsertGithubTransitionComment(
   },
   fetchImpl: FetchLike = fetch
 ): Promise<TrackerCommentWriteResult> {
-  const queueKey =
-    fingerprintGitHubToken(config.token) + ":" + config.projectId;
+  const queueKey = fingerprintGitHubToken(config.token);
   const depth = transitionQueueDepths.get(queueKey) ?? 0;
   if (depth >= MAX_TRANSITION_QUEUE_DEPTH) {
     throw new GitHubTrackerQueryError("tracker_transition_queue_full");
