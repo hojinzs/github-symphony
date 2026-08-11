@@ -87,6 +87,16 @@ const cachedProjectFields = new Map<
   Promise<Array<GraphQLProjectFieldConfiguration | null>>
 >();
 
+type ProjectStatusFieldMetadata = {
+  fieldId: string;
+  options: Array<{ id: string; name: string }>;
+};
+
+const cachedProjectStatusFields = new Map<
+  string,
+  Promise<ProjectStatusFieldMetadata>
+>();
+
 type GraphQLFieldValue =
   | {
       __typename: "ProjectV2ItemFieldSingleSelectValue";
@@ -294,7 +304,7 @@ type GraphQLExactProjectItemNode = {
   id: string;
   project: { id: string } | null;
   content: { id: string } | null;
-  fieldValues: { nodes: Array<GraphQLFieldValue | null> | null } | null;
+  fieldValueByName: GraphQLFieldValue | null;
 };
 
 type GraphQLExactProjectItemResponse = {
@@ -938,21 +948,45 @@ async function executeGithubProjectItemStateRequest(
     });
   }
 
-  const statusField = await resolveStatusFieldConfiguration(
+  let statusField = await resolveStatusFieldConfiguration(
     cycleConfig,
     input.request.targetState,
     fetchImpl
   );
   latestRateLimits = statusField.rateLimits ?? latestRateLimits;
-  const mutation = await executeTransitionMutationWithRetry(
-    cycleConfig,
-    {
-      itemId: input.itemId,
-      fieldId: statusField.fieldId,
-      optionId: statusField.optionId,
-    },
-    fetchImpl
-  );
+  let mutation;
+  try {
+    mutation = await executeTransitionMutationWithRetry(
+      cycleConfig,
+      {
+        itemId: input.itemId,
+        fieldId: statusField.fieldId,
+        optionId: statusField.optionId,
+      },
+      fetchImpl
+    );
+  } catch (error) {
+    if (!isStaleStatusFieldMetadataError(error)) {
+      throw error;
+    }
+    invalidateProjectStatusFieldMetadata(cycleConfig);
+    statusField = await resolveStatusFieldConfiguration(
+      cycleConfig,
+      input.request.targetState,
+      fetchImpl,
+      { forceRefresh: true }
+    );
+    latestRateLimits = statusField.rateLimits ?? latestRateLimits;
+    mutation = await executeTransitionMutationWithRetry(
+      cycleConfig,
+      {
+        itemId: input.itemId,
+        fieldId: statusField.fieldId,
+        optionId: statusField.optionId,
+      },
+      fetchImpl
+    );
+  }
   latestRateLimits = mutation.rateLimits ?? latestRateLimits;
 
   const readback = await readExactProjectItemState(
@@ -1016,7 +1050,12 @@ async function readExactProjectItemState(
     await executeGraphQLQueryWithMetadata<GraphQLExactProjectItemResponse>(
       config,
       EXACT_PROJECT_ITEM_STATE_QUERY,
-      { itemId: input.itemId },
+      {
+        itemId: input.itemId,
+        stateFieldName:
+          config.lifecycle?.stateFieldName ??
+          DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+      },
       fetchImpl
     );
   const node = result.data.node;
@@ -1038,7 +1077,7 @@ async function readExactProjectItemState(
 
   return {
     state: requireProjectItemState(
-      extractFieldValues(exactNode.fieldValues?.nodes ?? []),
+      extractFieldValues([exactNode.fieldValueByName]),
       config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE,
       input.itemId
     ),
@@ -1049,43 +1088,125 @@ async function readExactProjectItemState(
 async function resolveStatusFieldConfiguration(
   config: GitHubTrackerConfig,
   targetState: string,
-  fetchImpl: FetchLike
+  fetchImpl: FetchLike,
+  options: { forceRefresh?: boolean } = {}
 ): Promise<{
   fieldId: string;
   optionId: string;
   rateLimits: GitHubRateLimitPayload | null;
 }> {
-  const result =
-    await executeGraphQLQueryWithMetadata<GraphQLProjectFieldsResponse>(
-      config,
-      PROJECT_FIELDS_QUERY,
-      { projectId: config.projectId },
-      fetchImpl
-    );
   const fieldName =
     config.lifecycle?.stateFieldName ??
     DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName;
-  const field = (result.data.node?.fields?.nodes ?? [])
-    .filter(isSingleSelectProjectField)
-    .find((candidate) => candidate.name === fieldName);
-  if (!field || !field.id) {
-    throw new GitHubTrackerQueryError(
-      `tracker_status_field_not_found: ${fieldName}`
-    );
-  }
-  const option = (field.options ?? []).find(
+  const resolved = await getProjectStatusFieldMetadata(
+    config,
+    fieldName,
+    fetchImpl,
+    options.forceRefresh === true
+  );
+  const option = resolved.metadata.options.find(
     (candidate) => candidate && statesEqual(candidate.name, targetState)
   );
   if (!option?.id) {
+    if (!options.forceRefresh) {
+      invalidateProjectStatusFieldMetadata(config, fieldName);
+      return resolveStatusFieldConfiguration(config, targetState, fetchImpl, {
+        forceRefresh: true,
+      });
+    }
     throw new GitHubTrackerQueryError(
       `tracker_target_state_not_found: ${targetState}`
     );
   }
   return {
-    fieldId: field.id,
+    fieldId: resolved.metadata.fieldId,
     optionId: option.id,
-    rateLimits: result.rateLimits,
+    rateLimits: resolved.rateLimits,
   };
+}
+
+async function getProjectStatusFieldMetadata(
+  config: GitHubTrackerConfig,
+  fieldName: string,
+  fetchImpl: FetchLike,
+  forceRefresh: boolean
+): Promise<{
+  metadata: ProjectStatusFieldMetadata;
+  rateLimits: GitHubRateLimitPayload | null;
+}> {
+  const cacheKey = projectStatusFieldCacheKey(config, fieldName);
+  if (forceRefresh) {
+    cachedProjectStatusFields.delete(cacheKey);
+  }
+  let pending = cachedProjectStatusFields.get(cacheKey);
+  if (!pending) {
+    pending = executeGraphQLQueryWithMetadata<GraphQLProjectFieldsResponse>(
+      config,
+      PROJECT_FIELDS_QUERY,
+      { projectId: config.projectId },
+      fetchImpl
+    ).then((result) => {
+      const field = (result.data.node?.fields?.nodes ?? [])
+        .filter(isSingleSelectProjectField)
+        .find((candidate) => candidate.name === fieldName);
+      if (!field?.id) {
+        throw new GitHubTrackerQueryError(
+          `tracker_status_field_not_found: ${fieldName}`
+        );
+      }
+      return {
+        fieldId: field.id,
+        options: (field.options ?? []).flatMap((option) =>
+          option?.id && option.name ? [option] : []
+        ),
+      };
+    });
+    cachedProjectStatusFields.set(cacheKey, pending);
+  }
+  try {
+    return {
+      metadata: await pending,
+      rateLimits: null,
+    };
+  } catch (error) {
+    if (cachedProjectStatusFields.get(cacheKey) === pending) {
+      cachedProjectStatusFields.delete(cacheKey);
+    }
+    throw error;
+  }
+}
+
+function projectStatusFieldCacheKey(
+  config: GitHubTrackerConfig,
+  fieldName?: string
+): string {
+  return JSON.stringify({
+    apiUrl: config.apiUrl ?? DEFAULT_API_URL,
+    projectId: config.projectId,
+    stateFieldName:
+      fieldName ??
+      config.lifecycle?.stateFieldName ??
+      DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+    tokenFingerprint: fingerprintGitHubToken(config.token),
+  });
+}
+
+function invalidateProjectStatusFieldMetadata(
+  config: GitHubTrackerConfig,
+  fieldName?: string
+): void {
+  cachedProjectStatusFields.delete(
+    projectStatusFieldCacheKey(config, fieldName)
+  );
+}
+
+function isStaleStatusFieldMetadataError(error: unknown): boolean {
+  return (
+    error instanceof GitHubTrackerQueryError &&
+    /(?:field|option|single.?select).*(?:invalid|not found)|(?:invalid|not found).*(?:field|option|single.?select)/i.test(
+      error.message
+    )
+  );
 }
 
 async function executeTransitionMutationWithRetry(
@@ -2664,10 +2785,12 @@ export function resetGitHubRateLimitCacheForTests(): void {
   githubGraphQLRateLimitPolicy.reset();
   transitionQueueTails.clear();
   transitionQueueDepths.clear();
+  cachedProjectStatusFields.clear();
 }
 
 export function resetPriorityOptionOrderCacheForTests(): void {
   cachedProjectFields.clear();
+  cachedProjectStatusFields.clear();
 }
 
 const PROJECT_ITEMS_QUERY = `
@@ -2838,7 +2961,7 @@ const PROJECT_FIELDS_QUERY = `
 `;
 
 const EXACT_PROJECT_ITEM_STATE_QUERY = `
-  query ExactProjectItemState($itemId: ID!) {
+  query ExactProjectItemState($itemId: ID!, $stateFieldName: String!) {
     rateLimit {
       cost
       remaining
@@ -2859,24 +2982,22 @@ const EXACT_PROJECT_ITEM_STATE_QUERY = `
             id
           }
         }
-        fieldValues(first: 20) {
-          nodes {
-            __typename
-            ... on ProjectV2ItemFieldSingleSelectValue {
-              name
-              optionId
-              field {
-                ... on ProjectV2SingleSelectField {
-                  name
-                }
+        fieldValueByName(name: $stateFieldName) {
+          __typename
+          ... on ProjectV2ItemFieldSingleSelectValue {
+            name
+            optionId
+            field {
+              ... on ProjectV2SingleSelectField {
+                name
               }
             }
-            ... on ProjectV2ItemFieldTextValue {
-              text
-              field {
-                ... on ProjectV2FieldCommon {
-                  name
-                }
+          }
+          ... on ProjectV2ItemFieldTextValue {
+            text
+            field {
+              ... on ProjectV2FieldCommon {
+                name
               }
             }
           }

@@ -68,15 +68,122 @@ describe("requestGithubProjectItemState", () => {
     expect(results).toHaveLength(5);
     expect(results.every((result) => result.ok)).toBe(true);
     expect(results.every((result) => result.state === "In review")).toBe(true);
-    expect(results.every((result) => result.rateLimits?.cycleCost === 3)).toBe(
-      true
-    );
+    expect(results.map((result) => result.rateLimits?.cycleCost)).toEqual([
+      3, 2, 2, 2, 2,
+    ]);
+    expect(results[0]?.rateLimits?.queryCosts).toEqual({
+      ExactProjectItemState: { requestCount: 2, cost: 2 },
+      ProjectFields: { requestCount: 1, cost: 1 },
+    });
+    for (const result of results.slice(1)) {
+      expect(result.rateLimits?.queryCosts).not.toHaveProperty("ProjectFields");
+    }
     expect(maxInFlight).toBe(1);
-    expect(seenQueries).toHaveLength(20);
+    expect(seenQueries).toHaveLength(16);
     expect(seenQueries.join("\n")).not.toContain("query ProjectItems");
     expect(new Set(seenItemIds)).toEqual(
       new Set(["item-1", "item-2", "item-3", "item-4", "item-5"])
     );
+  });
+
+  it("reads the Status field by name when it falls after the first 20 fields", async () => {
+    const states = new Map([["item-21", "In progress"]]);
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (body.query.includes("query ExactProjectItemState")) {
+          expect(body.query).toContain("fieldValueByName");
+          expect(body.query).not.toContain("fieldValues(first: 20)");
+          expect(body.variables.stateFieldName).toBe("Status");
+        }
+        return graphqlResponse(body.query, body.variables, states);
+      }
+    ) as typeof fetch;
+
+    const result = await requestGithubProjectItemState(
+      config,
+      {
+        issueSubjectId: "issue-21",
+        itemId: "item-21",
+        request: { type: "state-read" },
+      },
+      fetchImpl
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "confirmed",
+      state: "In progress",
+    });
+  });
+
+  it("refreshes stale cached Status metadata after an invalid option mutation", async () => {
+    const states = new Map([["item-1", "In progress"]]);
+    let projectFieldRequests = 0;
+    const fetchImpl = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          query: string;
+          variables: Record<string, string>;
+        };
+        if (body.query.includes("query ProjectFields")) {
+          projectFieldRequests += 1;
+          return jsonResponse({
+            data: {
+              rateLimit: rateLimit(),
+              node: {
+                __typename: "ProjectV2",
+                fields: {
+                  nodes: [
+                    {
+                      __typename: "ProjectV2SingleSelectField",
+                      id: "status-field",
+                      name: "Status",
+                      options: [
+                        {
+                          id: `in-review-${projectFieldRequests}`,
+                          name: "In review",
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          });
+        }
+        if (
+          body.query.includes("mutation UpdateProjectItemState") &&
+          body.variables.optionId === "in-review-1"
+        ) {
+          return jsonResponse({
+            errors: [{ message: "single select option not found" }],
+          });
+        }
+        return graphqlResponse(body.query, body.variables, states);
+      }
+    ) as typeof fetch;
+
+    const result = await requestGithubProjectItemState(
+      config,
+      {
+        issueSubjectId: "issue-1",
+        itemId: "item-1",
+        request: {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "refresh stale metadata",
+        },
+      },
+      fetchImpl
+    );
+
+    expect(result).toMatchObject({ ok: true, state: "In review" });
+    expect(projectFieldRequests).toBe(2);
   });
 
   it("rejects an expected-state mismatch before mutation", async () => {
@@ -231,7 +338,7 @@ describe("requestGithubProjectItemState", () => {
               id: "item-1",
               project: { id: "project-1" },
               content: { id: "pull-request-1" },
-              fieldValues: { nodes: [statusFieldValue("In progress")] },
+              fieldValueByName: statusFieldValue("In progress"),
             },
           },
         });
@@ -302,9 +409,7 @@ function graphqlResponse(
           id: itemId,
           project: { id: "project-1" },
           content: { id: issueId },
-          fieldValues: {
-            nodes: [statusFieldValue(states.get(itemId) ?? "unknown")],
-          },
+          fieldValueByName: statusFieldValue(states.get(itemId) ?? "unknown"),
         },
       },
     });
