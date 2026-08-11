@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 0.7.11
+
+### Patch Changes
+
+- [#551](https://github.com/hojinzs/github-symphony/pull/551) [`e0c45e2`](https://github.com/hojinzs/github-symphony/commit/e0c45e2fac9bc398e537ae5fcbd0270f81e5f5d2) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Record GitHub comment mutation GraphQL costs in poll-cycle observability aggregates ([#492](https://github.com/hojinzs/github-symphony/issues/492)).
+
+- [#550](https://github.com/hojinzs/github-symphony/pull/550) [`902ae09`](https://github.com/hojinzs/github-symphony/commit/902ae091204ff9ee22030507ab884b2b1d8f9f5b) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Safely refresh cached GitHub Project Status metadata after stale field or option IDs, and support Projects whose Status field falls beyond the first 20 fields ([#505](https://github.com/hojinzs/github-symphony/issues/505)).
+
+- [#552](https://github.com/hojinzs/github-symphony/pull/552) [`396bacb`](https://github.com/hojinzs/github-symphony/commit/396bacbbbe61fe547356565936c56cfadff879dc) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep dispatching when a GitHub Project item is missing its configured Status, and report skipped tracker items without degrading the project tick. ([#549](https://github.com/hojinzs/github-symphony/issues/549))
+
+- [#557](https://github.com/hojinzs/github-symphony/pull/557) [`303e4be`](https://github.com/hojinzs/github-symphony/commit/303e4be80a5588c3a5a6f8bb9de4d0d7d41cbf03) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep tracker-state transitions from blocking reconciliation while GitHub provider I/O waits for rate limits, and apply the transition queue backpressure limit per GitHub token ([#504](https://github.com/hojinzs/github-symphony/issues/504)).
+
+- [#547](https://github.com/hojinzs/github-symphony/pull/547) [`bd5efd0`](https://github.com/hojinzs/github-symphony/commit/bd5efd0098e0e18a61c2c86cd46c4c9954a3a8f6) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Report daemon liveness accurately in `repo status`, including stale snapshot and adaptive polling status ([#546](https://github.com/hojinzs/github-symphony/issues/546)).
+
 ## 0.7.10
 
 ### Patch Changes
