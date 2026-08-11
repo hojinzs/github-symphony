@@ -9,6 +9,7 @@ import {
   DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
   TrackerRateLimitError,
+  assertIssueOrchestrationTransition,
   attributeDirtyWorkToIssue,
   buildHookEnv,
   buildIssueIdentityHeader,
@@ -5044,19 +5045,22 @@ function upsertIssueOrchestration(
   const existingRecord =
     issueRecords.find((record) => record.issueId === nextRecord.issueId) ??
     null;
-  const remaining = issueRecords.filter(
-    (record) => record.issueId !== nextRecord.issueId
+  assertIssueOrchestrationTransition(
+    existingRecord?.state ?? null,
+    nextRecord.state
   );
-  return [
-    ...remaining,
-    {
-      ...nextRecord,
-      completedOnce:
-        nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
-      failureRetryCount:
-        nextRecord.failureRetryCount ?? existingRecord?.failureRetryCount ?? 0,
-    },
-  ];
+  const record = {
+    ...nextRecord,
+    completedOnce:
+      nextRecord.completedOnce ?? existingRecord?.completedOnce ?? false,
+    failureRetryCount:
+      nextRecord.failureRetryCount ?? existingRecord?.failureRetryCount ?? 0,
+  };
+  return existingRecord
+    ? issueRecords.map((candidate) =>
+        candidate.issueId === nextRecord.issueId ? record : candidate
+      )
+    : [...issueRecords, record];
 }
 
 function releaseIssueOrchestration(
@@ -5064,17 +5068,19 @@ function releaseIssueOrchestration(
   issueId: string,
   now: Date
 ): IssueOrchestrationRecord[] {
-  return issueRecords.map((record) =>
-    record.issueId === issueId
-      ? {
-          ...record,
-          state: "released",
-          currentRunId: null,
-          retryEntry: null,
-          updatedAt: now.toISOString(),
-        }
-      : record
+  const record = issueRecords.find(
+    (candidate) => candidate.issueId === issueId
   );
+  if (!record) {
+    return issueRecords;
+  }
+  return upsertIssueOrchestration(issueRecords, {
+    ...record,
+    state: "released",
+    currentRunId: null,
+    retryEntry: null,
+    updatedAt: now.toISOString(),
+  });
 }
 
 function isArchivedProjectItem(issue: TrackedIssue): boolean {
