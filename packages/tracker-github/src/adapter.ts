@@ -953,7 +953,6 @@ async function executeGithubProjectItemStateRequest(
     input.request.targetState,
     fetchImpl
   );
-  latestRateLimits = statusField.rateLimits ?? latestRateLimits;
   let mutation;
   try {
     mutation = await executeTransitionMutationWithRetry(
@@ -976,7 +975,6 @@ async function executeGithubProjectItemStateRequest(
       fetchImpl,
       { forceRefresh: true }
     );
-    latestRateLimits = statusField.rateLimits ?? latestRateLimits;
     mutation = await executeTransitionMutationWithRetry(
       cycleConfig,
       {
@@ -1094,7 +1092,6 @@ async function resolveStatusFieldConfiguration(
 ): Promise<{
   fieldId: string;
   optionId: string;
-  rateLimits: GitHubRateLimitPayload | null;
 }> {
   const fieldName =
     config.lifecycle?.stateFieldName ??
@@ -1122,7 +1119,6 @@ async function resolveStatusFieldConfiguration(
   return {
     fieldId: resolved.metadata.fieldId,
     optionId: option.id,
-    rateLimits: resolved.rateLimits,
   };
 }
 
@@ -1133,7 +1129,6 @@ async function getProjectStatusFieldMetadata(
   forceRefresh: boolean
 ): Promise<{
   metadata: ProjectStatusFieldMetadata;
-  rateLimits: GitHubRateLimitPayload | null;
 }> {
   const cacheKey = projectStatusFieldCacheKey(config, fieldName);
   if (forceRefresh) {
@@ -1167,7 +1162,6 @@ async function getProjectStatusFieldMetadata(
   try {
     return {
       metadata: await pending,
-      rateLimits: null,
     };
   } catch (error) {
     if (cachedProjectStatusFields.get(cacheKey) === pending) {
@@ -1202,6 +1196,8 @@ function invalidateProjectStatusFieldMetadata(
 }
 
 function isStaleStatusFieldMetadataError(error: unknown): boolean {
+  // GitHub does not provide a structured stale-ID code for this mutation.
+  // Unknown errors fail normally rather than risking an extra mutation retry.
   return (
     error instanceof GitHubTrackerQueryError &&
     /(?:field|option|single.?select).*(?:invalid|not found|does not belong)|(?:invalid|not found|does not belong).*(?:field|option|single.?select)|could not resolve to a node with the global id/i.test(
