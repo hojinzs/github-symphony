@@ -304,7 +304,14 @@ type GraphQLExactProjectItemNode = {
   __typename: "ProjectV2Item";
   id: string;
   project: { id: string } | null;
-  content: { id: string } | null;
+  content: {
+    id: string;
+    number: number;
+    repository: {
+      name: string;
+      owner: { login: string };
+    };
+  } | null;
   fieldValueByName: GraphQLFieldValue | null;
 };
 
@@ -408,9 +415,24 @@ export function normalizeProjectItem(
 
   const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
   const isArchived = item.isArchived === true;
+  const issueIdentifier = projectItemIssueIdentifier(item);
+  const stateFieldName = lifecycle.stateFieldName?.trim() ?? "";
+  if (!stateFieldName && !isArchived) {
+    throw new GitHubTrackerQueryError(
+      `github_project_state_field_unconfigured: Project item ${item.id} cannot be normalized without lifecycle.stateFieldName.`
+    );
+  }
+  if (getMissingStateSkippedItem(item, lifecycle)) {
+    emitProjectItemStatusMissingEvent({
+      projectId,
+      itemId: item.id,
+      issueIdentifier,
+    });
+    return null;
+  }
   const state = isArchived
     ? ARCHIVED_PROJECT_ITEM_STATE
-    : requireProjectItemState(fieldValues, lifecycle, item.id);
+    : requireProjectItemState(fieldValues, lifecycle, item.id, issueIdentifier);
 
   if (item.content.__typename === "PullRequest") {
     return normalizePullRequestProjectItem(
@@ -561,6 +583,7 @@ export async function fetchProjectIssues(
   let excludedCount = 0;
   let repositoryExcludedCount = 0;
   let latestRateLimits: GitHubRateLimitPayload | null = null;
+  const skippedItems: NonNullable<TrackedIssueList["skippedItems"]> = [];
 
   do {
     const pageResult = await fetchProjectItemsPage(
@@ -613,6 +636,13 @@ export async function fetchProjectIssues(
         latestRateLimits
       );
       if (!normalized) {
+        const skippedItem = getMissingStateSkippedItem(
+          item,
+          config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE
+        );
+        if (skippedItem) {
+          skippedItems.push(skippedItem);
+        }
         return [];
       }
 
@@ -656,6 +686,7 @@ export async function fetchProjectIssues(
     cycleConfig.rateLimitCollector
   );
   (issues as TrackedIssueList).rateLimits = latestRateLimits;
+  (issues as TrackedIssueList).skippedItems = skippedItems;
 
   return issues as GitHubTrackedIssue[] & TrackedIssueList;
 }
@@ -1080,7 +1111,8 @@ async function readExactProjectItemState(
     state: requireProjectItemState(
       extractFieldValues([exactNode.fieldValueByName]),
       config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE,
-      input.itemId
+      input.itemId,
+      exactProjectItemIssueIdentifier(exactNode.content)
     ),
     rateLimits: result.rateLimits,
   };
@@ -2037,7 +2069,8 @@ function extractFieldValues(
 function requireProjectItemState(
   fieldValues: Record<string, string>,
   lifecycle: WorkflowLifecycleConfig,
-  itemId: string
+  itemId: string,
+  issueIdentifier?: string
 ): string {
   const stateFieldName =
     typeof lifecycle.stateFieldName === "string"
@@ -2052,11 +2085,74 @@ function requireProjectItemState(
   const state = fieldValues[stateFieldName];
   if (!state) {
     throw new GitHubTrackerQueryError(
-      `github_project_state_field_missing: Project item ${itemId} did not include configured state field "${stateFieldName}".`
+      `github_project_state_field_missing: Project item ${itemId} did not include configured state field "${stateFieldName}".` +
+        (issueIdentifier ? ` Issue: ${issueIdentifier}.` : "")
     );
   }
 
   return state;
+}
+
+function hasProjectItemState(
+  fieldValues: Record<string, string>,
+  lifecycle: WorkflowLifecycleConfig
+): boolean {
+  const stateFieldName = lifecycle.stateFieldName?.trim() ?? "";
+  return Boolean(stateFieldName && fieldValues[stateFieldName]);
+}
+
+function getMissingStateSkippedItem(
+  item: GraphQLProjectItem,
+  lifecycle: WorkflowLifecycleConfig
+): NonNullable<TrackedIssueList["skippedItems"]>[number] | null {
+  if (
+    item.isArchived === true ||
+    (item.content?.__typename !== "Issue" &&
+      item.content?.__typename !== "PullRequest")
+  ) {
+    return null;
+  }
+
+  const fieldValues = extractFieldValues(item.fieldValues?.nodes ?? []);
+  if (hasProjectItemState(fieldValues, lifecycle)) {
+    return null;
+  }
+
+  return {
+    id: item.id,
+    identifier: projectItemIssueIdentifier(item),
+    reason: `missing ${lifecycle.stateFieldName?.trim() || "configured state"}`,
+  };
+}
+
+function projectItemIssueIdentifier(item: GraphQLProjectItem): string {
+  const content = item.content;
+  if (!content) {
+    return item.id;
+  }
+
+  const repository = content.repository;
+  return `${repository.owner.login}/${repository.name}#${content.number}`;
+}
+
+function emitProjectItemStatusMissingEvent(input: {
+  projectId: string;
+  itemId: string;
+  issueIdentifier: string;
+}): void {
+  console.warn(
+    JSON.stringify({ event: "tracker-project-item-status-missing", ...input })
+  );
+}
+
+function exactProjectItemIssueIdentifier(
+  content: GraphQLExactProjectItemNode["content"]
+): string | undefined {
+  if (!content?.repository?.owner?.login || !content.repository.name) {
+    return undefined;
+  }
+
+  return `${content.repository.owner.login}/${content.repository.name}#${content.number}`;
 }
 
 function normalizeIssueStateLookupNode(
@@ -2075,11 +2171,16 @@ function normalizeIssueStateLookupNode(
 
   const fieldValues = extractFieldValues(projectItem.fieldValues?.nodes ?? []);
   const isArchived = projectItem.isArchived === true;
-  const state = isArchived
-    ? ARCHIVED_PROJECT_ITEM_STATE
-    : requireProjectItemState(fieldValues, lifecycle, projectItem.id);
   const repository = issue.repository;
   const identifier = `${repository.owner.login}/${repository.name}#${issue.number}`;
+  const state = isArchived
+    ? ARCHIVED_PROJECT_ITEM_STATE
+    : requireProjectItemState(
+        fieldValues,
+        lifecycle,
+        projectItem.id,
+        identifier
+      );
   const url =
     issue.url ??
     `${repository.url}/${issue.__typename === "PullRequest" ? "pull" : "issues"}/${issue.number}`;
@@ -3020,9 +3121,23 @@ const EXACT_PROJECT_ITEM_STATE_QUERY = `
         content {
           ... on Issue {
             id
+            number
+            repository {
+              name
+              owner {
+                login
+              }
+            }
           }
           ... on PullRequest {
             id
+            number
+            repository {
+              name
+              owner {
+                login
+              }
+            }
           }
         }
         fieldValueByName(name: $stateFieldName) {

@@ -848,7 +848,13 @@ describe("start command foreground locking", () => {
         tracker: { adapter: "github-project", bindingId: "project-1" },
         health: "running",
         lastTickAt: "2026-03-17T00:00:00.000Z",
-        summary: { dispatched: 1, suppressed: 0, recovered: 0, activeRuns: 1 },
+        summary: {
+          dispatched: 1,
+          suppressed: 0,
+          recovered: 0,
+          skipped: 3,
+          activeRuns: 1,
+        },
         activeRuns: [
           {
             runId: "run-1",
@@ -865,7 +871,13 @@ describe("start command foreground locking", () => {
         tracker: { adapter: "github-project", bindingId: "project-1" },
         health: "idle",
         lastTickAt: "2026-03-17T00:01:00.000Z",
-        summary: { dispatched: 1, suppressed: 0, recovered: 0, activeRuns: 0 },
+        summary: {
+          dispatched: 1,
+          suppressed: 0,
+          recovered: 0,
+          skipped: 3,
+          activeRuns: 0,
+        },
         activeRuns: [],
         retryQueue: [],
         lastError: null,
@@ -888,6 +900,7 @@ describe("start command foreground locking", () => {
 
     expect(stdout.output()).toContain("Worker stderr (acme/platform#1):");
     expect(stdout.output()).toContain("last failure");
+    expect(stdout.output()).toContain("item(s) skipped by the tracker");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

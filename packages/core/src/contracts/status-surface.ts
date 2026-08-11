@@ -211,6 +211,7 @@ export type ProjectStatusSnapshot = {
     dispatched: number;
     suppressed: number;
     recovered: number;
+    skipped?: number;
     activeRuns: number;
   };
   activeRuns: Array<{

@@ -99,6 +99,11 @@ export type TrackedIssue = {
 
 export type TrackedIssueList = TrackedIssue[] & {
   rateLimits?: Record<string, unknown> | null;
+  skippedItems?: Array<{
+    id: string;
+    identifier: string;
+    reason: string;
+  }>;
 };
 
 export type ProjectItemsCache = {

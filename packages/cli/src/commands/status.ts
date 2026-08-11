@@ -90,6 +90,7 @@ function renderLegacyStatus(
   const activeRunsStr = apply(`Active Runs  ${snapshot.summary.activeRuns}`);
   const suppressedStr = apply(`Suppressed   ${snapshot.summary.suppressed}`);
   const recoveredStr = apply(`Recovered    ${snapshot.summary.recovered}`);
+  const skippedStr = apply(`Skipped      ${snapshot.summary.skipped ?? 0}`);
 
   lines.push(
     `  ${dispatchedStr}${" ".repeat(Math.max(0, 20 - stripAnsi(dispatchedStr).length))}${activeRunsStr}`
@@ -97,6 +98,7 @@ function renderLegacyStatus(
   lines.push(
     `  ${suppressedStr}${" ".repeat(Math.max(0, 20 - stripAnsi(suppressedStr).length))}${recoveredStr}`
   );
+  lines.push(`  ${skippedStr}`);
   lines.push("");
 
   // Active runs table

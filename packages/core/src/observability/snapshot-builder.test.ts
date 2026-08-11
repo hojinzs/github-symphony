@@ -338,7 +338,7 @@ describe("buildProjectSnapshot", () => {
     const input: SnapshotInput = {
       project: mockProject(),
       activeRuns: [],
-      summary: { dispatched: 5, suppressed: 2, recovered: 1 },
+      summary: { dispatched: 5, suppressed: 2, recovered: 1, skipped: 3 },
       lastTickAt: "2024-01-01T00:10:00Z",
       lastError: null,
     };
@@ -348,6 +348,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.summary.dispatched).toBe(5);
     expect(snapshot.summary.suppressed).toBe(2);
     expect(snapshot.summary.recovered).toBe(1);
+    expect(snapshot.summary.skipped).toBe(3);
   });
 
   it("surfaces the latest incomplete-turn dirty-workspace recovery", () => {

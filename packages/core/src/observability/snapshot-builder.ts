@@ -22,6 +22,7 @@ export type SnapshotInput = {
     dispatched: number;
     suppressed: number;
     recovered: number;
+    skipped?: number;
   };
   lastTickAt: string;
   lastError: string | null;
@@ -67,6 +68,7 @@ export function buildProjectSnapshot(
       dispatched: summary.dispatched,
       suppressed: summary.suppressed,
       recovered: summary.recovered,
+      skipped: summary.skipped ?? 0,
       activeRuns: activeRuns.length,
     },
     activeRuns: activeRuns.map((run) => ({

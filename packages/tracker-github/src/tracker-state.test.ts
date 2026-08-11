@@ -497,6 +497,41 @@ describe("requestGithubProjectItemState", () => {
       )
     ).rejects.toThrow("tracker_item_authorization_mismatch");
   });
+
+  it("identifies the issue when strict exact-item state readback is missing Status", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        data: {
+          rateLimit: rateLimit(),
+          node: {
+            __typename: "ProjectV2Item",
+            id: "item-1",
+            project: { id: "project-1" },
+            content: {
+              id: "issue-1",
+              number: 1,
+              repository: { name: "platform", owner: { login: "acme" } },
+            },
+            fieldValues: { nodes: [] },
+          },
+        },
+      })
+    ) as typeof fetch;
+
+    await expect(
+      requestGithubProjectItemState(
+        config,
+        {
+          issueSubjectId: "issue-1",
+          itemId: "item-1",
+          request: { type: "state-read" },
+        },
+        fetchImpl
+      )
+    ).rejects.toThrow(
+      'github_project_state_field_missing: Project item item-1 did not include configured state field "Status". Issue: acme/platform#1.'
+    );
+  });
 });
 
 function graphqlResponse(
@@ -514,7 +549,11 @@ function graphqlResponse(
           __typename: "ProjectV2Item",
           id: itemId,
           project: { id: "project-1" },
-          content: { id: issueId },
+          content: {
+            id: issueId,
+            number: Number(itemId.replace("item-", "")),
+            repository: { name: "platform", owner: { login: "acme" } },
+          },
           fieldValueByName: statusFieldValue(states.get(itemId) ?? "unknown"),
         },
       },

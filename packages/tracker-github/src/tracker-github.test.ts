@@ -391,7 +391,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issue?.metadata).toEqual({ Status: "Ready" });
   });
 
-  it("fails loudly when a Project item omits the configured state field", () => {
+  it("skips and emits an event when a Project item omits the configured state field", () => {
     const item = makeProjectItem({
       itemId: "item-missing-state",
       issueId: "issue-1",
@@ -401,15 +401,76 @@ describe("resolveTrackerAdapter", () => {
     });
     item.fieldValues = { nodes: [] };
 
-    expect(() =>
-      normalizeGithubProjectItem(
-        "project-123",
-        item,
-        DEFAULT_WORKFLOW_LIFECYCLE
-      )
-    ).toThrow(
-      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status".'
-    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      expect(
+        normalizeGithubProjectItem(
+          "project-123",
+          item,
+          DEFAULT_WORKFLOW_LIFECYCLE
+        )
+      ).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        JSON.stringify({
+          event: "tracker-project-item-status-missing",
+          projectId: "project-123",
+          itemId: "item-missing-state",
+          issueIdentifier: "acme/platform#1",
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("continues listing other items when one Project item omits Status", async () => {
+    const missing = makeProjectItem({
+      itemId: "item-missing-state",
+      issueId: "issue-missing-state",
+      number: 1,
+      title: "Missing state metadata",
+      assignees: [],
+    });
+    missing.fieldValues = { nodes: [] };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: { projectId: "project-123" },
+      });
+      const issues = await adapter.listIssues(makeProjectConfig(), {
+        token: "dependencies-token",
+        fetchImpl: async () =>
+          makeJsonResponse(
+            makeProjectItemsPayload([
+              missing,
+              makeProjectItem({
+                itemId: "item-ready",
+                issueId: "issue-ready",
+                number: 2,
+                title: "Ready issue",
+                assignees: [],
+                state: "Ready",
+              }),
+            ])
+          ),
+      });
+
+      expect(issues.map((issue) => issue.identifier)).toEqual([
+        "acme/platform#2",
+      ]);
+      expect(issues.skippedItems).toEqual([
+        {
+          id: "item-missing-state",
+          identifier: "acme/platform#1",
+          reason: "missing Status",
+        },
+      ]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("fails loudly when lifecycle.stateFieldName is empty", () => {
@@ -428,6 +489,23 @@ describe("resolveTrackerAdapter", () => {
     ).toThrow(
       "github_project_state_field_unconfigured: Project item item-unconfigured-state cannot be normalized without lifecycle.stateFieldName."
     );
+  });
+
+  it("normalizes archived items when lifecycle.stateFieldName is empty", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-archived-unconfigured-state",
+        issueId: "issue-1",
+        number: 1,
+        title: "Archived unconfigured state metadata",
+        assignees: [],
+        isArchived: true,
+      }),
+      { ...DEFAULT_WORKFLOW_LIFECYCLE, stateFieldName: "" }
+    );
+
+    expect(issue?.state).toBe("Archived");
   });
 
   it("normalizes PullRequest Project item content instead of dropping it", () => {
@@ -4761,7 +4839,7 @@ describe("resolveTrackerAdapter", () => {
           }),
       })
     ).rejects.toThrow(
-      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status".'
+      'github_project_state_field_missing: Project item item-missing-state did not include configured state field "Status". Issue: acme/platform#1.'
     );
   });
 

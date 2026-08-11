@@ -762,6 +762,39 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("dispatches ready issues when a tracker item is skipped", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-skipped-item-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithItems(repository, [
+          { id: "issue-missing", identifier: "acme/platform#2", state: "" },
+          { id: "issue-ready", identifier: "acme/platform#1", state: "Todo" },
+        ])
+      ),
+      spawnImpl: vi.fn().mockReturnValue({ pid: 4103, unref: vi.fn() }) as never,
+      stderr: stderr as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.health).not.toBe("degraded");
+    expect(snapshot.summary).toMatchObject({ dispatched: 1, skipped: 1 });
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("acme/platform#2 (missing Status)")
+    );
+  });
+
   it("preserves dirty persisted issue workspaces when dispatching a retry", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

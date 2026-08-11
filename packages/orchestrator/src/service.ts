@@ -1078,6 +1078,7 @@ export class OrchestratorService {
     let dispatched = 0;
     let suppressed = 0;
     let recovered = 0;
+    let skipped = 0;
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     let rateLimits: Record<string, unknown> | null = null;
     let trackerRateLimits: Record<string, unknown> | null = null;
@@ -1135,6 +1136,13 @@ export class OrchestratorService {
         tenant,
         candidateTrackerDependencies
       );
+      const skippedItems = (issues as TrackedIssueList).skippedItems ?? [];
+      skipped = skippedItems.length;
+      if (skippedItems.length > 0) {
+        this.writeStderr(
+          `[orchestrator] skipped ${skippedItems.length} item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
+        );
+      }
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
       // `canonicalIssues`로 맵을 무조건 시딩하므로 기존 두 번째 역순 머지
       // 루프는 불필요하다. 시딩이 조건부가 되면 우선순위를 다시 검토해야 한다.
@@ -1712,7 +1720,7 @@ export class OrchestratorService {
       project: tenant,
       activeRuns: latestRuns,
       allRuns: allTenantRuns,
-      summary: { dispatched, suppressed, recovered },
+      summary: { dispatched, suppressed, recovered, skipped },
       lastTickAt: now.toISOString(),
       lastError,
       rateLimits,
