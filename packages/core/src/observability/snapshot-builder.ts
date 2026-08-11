@@ -27,6 +27,7 @@ export type SnapshotInput = {
   lastTickAt: string;
   lastError: string | null;
   rateLimits?: Record<string, unknown> | null;
+  effectivePollIntervalMs?: number;
   dispatchSuppressedUntil?: string | null;
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
 };
@@ -48,6 +49,7 @@ export function buildProjectSnapshot(
     lastTickAt,
     lastError,
     rateLimits,
+    effectivePollIntervalMs,
     dispatchSuppressedUntil,
     issueWorkspaces,
   } = input;
@@ -107,6 +109,9 @@ export function buildProjectSnapshot(
     lastError,
     codexTotals: aggregateTokenUsage(allRuns ?? activeRuns, lastTickAt),
     rateLimits: rateLimits ?? null,
+    ...(effectivePollIntervalMs === undefined
+      ? {}
+      : { effectivePollIntervalMs }),
     dispatchSuppressedUntil: dispatchSuppressedUntil ?? null,
   };
 }

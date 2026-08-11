@@ -404,6 +404,41 @@ describe("status command", () => {
     ).toHaveBeenCalledWith(30_000, { limit: 5_000, remaining: 0 });
   });
 
+  it("uses the daemon's recorded tracker polling interval for stale detection", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify({
+        ...JSON.parse(await readFile(join(configDir, "status.json"), "utf8")),
+        effectivePollIntervalMs: 300_000,
+        rateLimits: { source: "codex", limit: 5_000, remaining: 5_000 },
+      }) + "\n",
+      "utf8"
+    );
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:02:00.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("(stale)");
+    expect(
+      daemonProcessMocks.resolveAdaptivePollIntervalMs
+    ).not.toHaveBeenCalled();
+  });
+
   it("adds daemonRunning to JSON output", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);

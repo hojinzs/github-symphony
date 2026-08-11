@@ -60,8 +60,11 @@ type RuntimeStatus = {
 
 async function resolveStaleThresholdMs(
   workspaceDir: string,
-  rateLimits: Record<string, unknown> | null | undefined
+  snapshot: ProjectStatusSnapshot
 ): Promise<number> {
+  if (snapshot.effectivePollIntervalMs !== undefined) {
+    return snapshot.effectivePollIntervalMs * 3;
+  }
   try {
     const resolution = await workflowConfigStore.load(
       join(workspaceDir, "WORKFLOW.md")
@@ -69,14 +72,14 @@ async function resolveStaleThresholdMs(
     return (
       resolveAdaptivePollIntervalMs(
         resolution.workflow.polling.intervalMs,
-        rateLimits ?? null
+        snapshot.rateLimits ?? null
       ) * 3
     );
   } catch {
     return (
       resolveAdaptivePollIntervalMs(
         DEFAULT_POLL_INTERVAL_MS,
-        rateLimits ?? null
+        snapshot.rateLimits ?? null
       ) * 3
     );
   }
@@ -106,7 +109,7 @@ async function resolveRuntimeStatus(options: {
   }
   const staleThresholdMs = await resolveStaleThresholdMs(
     options.workspaceDir,
-    options.snapshot.rateLimits
+    options.snapshot
   );
   return {
     daemonRunning: true,

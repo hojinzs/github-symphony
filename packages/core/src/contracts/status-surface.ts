@@ -252,6 +252,8 @@ export type ProjectStatusSnapshot = {
     secondsRunning: number;
   };
   rateLimits?: Record<string, unknown> | null;
+  /** Effective tracker reconciliation interval used for the next daemon tick. */
+  effectivePollIntervalMs?: number;
   dispatchSuppressedUntil?: string | null;
   lastError: string | null;
 };

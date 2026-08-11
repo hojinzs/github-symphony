@@ -4709,8 +4709,9 @@ Prefer focused changes.
     const constrainedService = await createServiceWithRemaining("constrained", {
       value: 2000,
     });
-    await constrainedService.runOnce();
+    const constrainedSnapshot = await constrainedService.runOnce();
     expect(constrainedService.getEffectivePollIntervalMs()).toBe(37_500);
+    expect(constrainedSnapshot.effectivePollIntervalMs).toBe(37_500);
 
     const lowService = await createServiceWithRemaining("low", {
       value: 500,
@@ -4724,8 +4725,9 @@ Prefer focused changes.
       exhaustedRemaining,
       60_000
     );
-    await exhaustedService.runOnce();
+    const exhaustedSnapshot = await exhaustedService.runOnce();
     expect(exhaustedService.getEffectivePollIntervalMs()).toBe(600_000);
+    expect(exhaustedSnapshot.effectivePollIntervalMs).toBe(600_000);
 
     exhaustedRemaining.value = 4000;
     await exhaustedService.runOnce();
