@@ -461,6 +461,8 @@ describe("status command", () => {
   it("includes daemonRunning when JSON status has no snapshot", async () => {
     const configDir = await createConfigFixture();
     await rm(join(configDir, "status.json"));
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
     const stdout = captureWrites(process.stdout);
 
     try {
@@ -476,12 +478,49 @@ describe("status command", () => {
 
     expect(process.exitCode).toBe(1);
     expect(JSON.parse(stdout.output())).toEqual({
-      daemonRunning: false,
+      daemonRunning: true,
       error: {
         code: "status_snapshot_unavailable",
         message: "Unable to read status snapshot.",
       },
     });
+  });
+
+  it("preserves live daemon liveness in non-TTY watch JSON without a snapshot", async () => {
+    const configDir = await createConfigFixture();
+    await rm(join(configDir, "status.json"));
+    await writeDaemonPid(configDir);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(
+      process.stdout,
+      "isTTY"
+    );
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      void statusCommand(["--watch"], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+      await vi.waitFor(() => {
+        expect(JSON.parse(stdout.output())).toEqual({ daemonRunning: true });
+      });
+      process.emit("SIGTERM", "SIGTERM");
+    } finally {
+      stdout.restore();
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdout, "isTTY", isTTYDescriptor);
+      } else {
+        delete (process.stdout as { isTTY?: boolean }).isTTY;
+      }
+    }
   });
 
   it("renders project tokens from the flat runtime status snapshot", async () => {

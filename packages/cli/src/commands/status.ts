@@ -98,8 +98,11 @@ async function resolveRuntimeStatus(options: {
   snapshot: ProjectStatusSnapshot | null;
 }): Promise<RuntimeStatus> {
   const liveness = await resolveDaemonLiveness(options);
-  if (!liveness.running || !options.snapshot) {
+  if (!liveness.running) {
     return { daemonRunning: false, lastTickStale: false };
+  }
+  if (!options.snapshot) {
+    return { daemonRunning: true, lastTickStale: false };
   }
   const staleThresholdMs = await resolveStaleThresholdMs(
     options.workspaceDir,
