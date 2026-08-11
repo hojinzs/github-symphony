@@ -224,6 +224,38 @@ describe("status command", () => {
     });
   });
 
+  it("recognizes a live foreground daemon when the PID file is malformed", async () => {
+    const configDir = await createConfigFixture();
+    await writeFile(
+      join(configDir, "projects", "tenant-a", "daemon.pid"),
+      "partially-written-pid-record\n",
+      "utf8"
+    );
+    await writeProjectLock(configDir);
+    daemonProcessMocks.getProcessIdentity.mockReturnValue(null);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:00:30.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: true,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({
+      health: "running",
+      daemonRunning: true,
+    });
+  });
+
   it("renders a stopped banner for a stale PID", async () => {
     const configDir = await createConfigFixture();
     await writeDaemonPid(configDir, { pid: 999_999 });

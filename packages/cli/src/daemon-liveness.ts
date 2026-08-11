@@ -59,11 +59,28 @@ export async function resolveDaemonLiveness(options: {
 
   const pidRecord = parseDaemonPidRecord(pidContents);
   if (!pidRecord) {
+    const expectedCwd = resolve(options.workspaceDir);
+    const lockTarget = await resolveProjectLockDaemon(
+      options.configDir,
+      options.projectId,
+      expectedCwd
+    );
+    if (lockTarget) {
+      return {
+        running: true,
+        target: lockTarget,
+        source: "project-lock",
+        expectedCwd,
+        pidPath,
+        recordedPid: lockTarget.pid,
+      };
+    }
     return {
       running: false,
       reason: "invalid-pid",
       pidPath,
       pidContents,
+      expectedCwd,
     };
   }
 
