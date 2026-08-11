@@ -295,6 +295,15 @@ async function syncExistingIssueWorkspaceRepository(
         );
       }
 
+      try {
+        await migrateShallowRepository(repositoryDirectory);
+      } catch (error) {
+        throw createIssueWorkspacePreservedError(
+          repositoryDirectory,
+          `could not be migrated from a shallow checkout: ${formatCommandError(error, "git fetch --unshallow failed")}`
+        );
+      }
+
       if (dirtyStatus.trim() && input.allowDirty) {
         onDirtyAllowed?.(true);
         return repositoryDirectory;
@@ -304,15 +313,6 @@ async function syncExistingIssueWorkspaceRepository(
         throw createIssueWorkspacePreservedError(
           repositoryDirectory,
           `has uncommitted changes: ${summarizeGitStatus(dirtyStatus)}`
-        );
-      }
-
-      try {
-        await migrateShallowRepository(repositoryDirectory);
-      } catch (error) {
-        throw createIssueWorkspacePreservedError(
-          repositoryDirectory,
-          `could not be migrated from a shallow checkout: ${formatCommandError(error, "git fetch --unshallow failed")}`
         );
       }
 

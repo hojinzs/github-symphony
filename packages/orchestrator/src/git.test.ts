@@ -427,10 +427,11 @@ describe("cloneRepositoryForRun", () => {
     ).toBe("# pull request workflow v2\n");
   });
 
-  it("skips pull request checkout when dirty recovery preserves an existing workspace", async () => {
+  it("migrates a dirty shallow workspace before preserving it for recovery", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
     const repository = await createRepositoryFixture(tempRoot);
     const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
 
     execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
     await writeFile(
@@ -442,14 +443,10 @@ describe("cloneRepositoryForRun", () => {
     execSync(`git -C "${repository.path}" commit -m "Update PR workflow v1"`);
     execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
 
-    const repositoryDirectory = await ensureIssueWorkspaceRepository({
-      repository,
-      issueWorkspacePath,
-      existingWorkspace: false,
-      pullRequestBranch: {
-        headRefName: "feature/pr-branch",
-      },
-    });
+    await mkdir(issueWorkspacePath, { recursive: true });
+    execSync(
+      `git clone --depth 1 --branch feature/pr-branch "file://${repository.cloneUrl}" "${repositoryDirectory}"`
+    );
     await writeFile(
       join(repositoryDirectory, "WORKFLOW.md"),
       "# partial recovery work\n",
@@ -478,6 +475,11 @@ describe("cloneRepositoryForRun", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
+    expect(
+      execSync(`git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("false");
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
     ).toBe("# partial recovery work\n");
