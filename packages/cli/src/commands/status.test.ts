@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,11 +8,16 @@ import type { CliProjectConfig } from "../config.js";
 const daemonProcessMocks = vi.hoisted(() => ({
   getProcessCwd: vi.fn(),
   getProcessIdentity: vi.fn(),
+  resolveAdaptivePollIntervalMs: vi.fn(
+    (basePollIntervalMs: number) => basePollIntervalMs
+  ),
 }));
 
 vi.mock("@gh-symphony/orchestrator", () => ({
   getProcessCwd: daemonProcessMocks.getProcessCwd,
   getProcessIdentity: daemonProcessMocks.getProcessIdentity,
+  resolveAdaptivePollIntervalMs:
+    daemonProcessMocks.resolveAdaptivePollIntervalMs,
 }));
 
 function captureWrites(stream: NodeJS.WriteStream): {
@@ -168,6 +173,10 @@ async function writeProjectLock(
 beforeEach(() => {
   daemonProcessMocks.getProcessCwd.mockReset();
   daemonProcessMocks.getProcessIdentity.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockImplementation(
+    (basePollIntervalMs: number) => basePollIntervalMs
+  );
   daemonProcessMocks.getProcessCwd.mockReturnValue(join("/tmp", "tenant-a"));
   daemonProcessMocks.getProcessIdentity.mockReturnValue("live-daemon");
 });
@@ -175,6 +184,7 @@ beforeEach(() => {
 afterEach(() => {
   daemonProcessMocks.getProcessCwd.mockReset();
   daemonProcessMocks.getProcessIdentity.mockReset();
+  daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReset();
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
@@ -357,6 +367,41 @@ describe("status command", () => {
     expect(stdout.output()).toContain("● Health    running");
     expect(stdout.output()).not.toContain("stopped");
     expect(stdout.output()).not.toContain("stale");
+  });
+
+  it("uses the adaptive rate-limit poll interval for stale detection", async () => {
+    const configDir = await createConfigFixture();
+    await writeDaemonPid(configDir);
+    await writeFile(
+      join(configDir, "status.json"),
+      JSON.stringify({
+        ...JSON.parse(await readFile(join(configDir, "status.json"), "utf8")),
+        rateLimits: { limit: 5_000, remaining: 0 },
+      }) + "\n",
+      "utf8"
+    );
+    daemonProcessMocks.resolveAdaptivePollIntervalMs.mockReturnValue(300_000);
+    vi.spyOn(process, "kill").mockImplementation(() => true);
+    vi.spyOn(Date, "now").mockReturnValue(
+      new Date("2026-03-30T11:02:00.000Z").getTime()
+    );
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).not.toContain("(stale)");
+    expect(
+      daemonProcessMocks.resolveAdaptivePollIntervalMs
+    ).toHaveBeenCalledWith(30_000, { limit: 5_000, remaining: 0 });
   });
 
   it("adds daemonRunning to JSON output", async () => {

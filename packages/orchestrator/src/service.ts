@@ -4581,7 +4581,7 @@ function readNonNegativeNumber(value: unknown): number {
     : 0;
 }
 
-function resolveAdaptivePollIntervalMs(
+export function resolveAdaptivePollIntervalMs(
   basePollIntervalMs: number,
   rateLimits: Record<string, unknown> | null
 ): number {

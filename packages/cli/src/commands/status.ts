@@ -18,6 +18,7 @@ import { clearScreen, showCursor, hideCursor } from "../ansi.js";
 import { renderDashboard } from "../dashboard/renderer.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
+import { resolveAdaptivePollIntervalMs } from "@gh-symphony/orchestrator";
 
 const workflowConfigStore = new WorkflowConfigStore();
 
@@ -57,14 +58,27 @@ type RuntimeStatus = {
   lastTickStale: boolean;
 };
 
-async function resolveStaleThresholdMs(workspaceDir: string): Promise<number> {
+async function resolveStaleThresholdMs(
+  workspaceDir: string,
+  rateLimits: Record<string, unknown> | null | undefined
+): Promise<number> {
   try {
     const resolution = await workflowConfigStore.load(
       join(workspaceDir, "WORKFLOW.md")
     );
-    return resolution.workflow.polling.intervalMs * 3;
+    return (
+      resolveAdaptivePollIntervalMs(
+        resolution.workflow.polling.intervalMs,
+        rateLimits ?? null
+      ) * 3
+    );
   } catch {
-    return DEFAULT_POLL_INTERVAL_MS * 3;
+    return (
+      resolveAdaptivePollIntervalMs(
+        DEFAULT_POLL_INTERVAL_MS,
+        rateLimits ?? null
+      ) * 3
+    );
   }
 }
 
@@ -84,12 +98,19 @@ async function resolveRuntimeStatus(options: {
   snapshot: ProjectStatusSnapshot;
 }): Promise<RuntimeStatus> {
   const liveness = await resolveDaemonLiveness(options);
-  const staleThresholdMs = await resolveStaleThresholdMs(options.workspaceDir);
+  if (!liveness.running) {
+    return { daemonRunning: false, lastTickStale: false };
+  }
+  const staleThresholdMs = await resolveStaleThresholdMs(
+    options.workspaceDir,
+    options.snapshot.rateLimits
+  );
   return {
-    daemonRunning: liveness.running,
-    lastTickStale:
-      liveness.running &&
-      isLastTickStale(options.snapshot.lastTickAt, staleThresholdMs),
+    daemonRunning: true,
+    lastTickStale: isLastTickStale(
+      options.snapshot.lastTickAt,
+      staleThresholdMs
+    ),
   };
 }
 
