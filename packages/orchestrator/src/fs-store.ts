@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -11,6 +11,7 @@ import {
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  normalizeOrchestratorProjectConfig,
   parseRecentEvents,
   redactObservabilitySecrets,
   type ProjectStatusSnapshot,
@@ -81,14 +82,14 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
           )
         : null);
 
-    return config ? normalizeProjectConfig(config) : null;
+    return config ? normalizeOrchestratorProjectConfig(config) : null;
   }
 
   async saveProjectConfig(config: OrchestratorProjectConfig): Promise<void> {
     await this.ensureProjectDirectory(config.projectId);
     await writeJsonFile(
       join(this.projectDir(config.projectId), "project.json"),
-      normalizeProjectConfig(config)
+      normalizeOrchestratorProjectConfig(config)
     );
   }
 
@@ -505,27 +506,6 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     const mirrorPath = join(this.resolvedEventsMirrorRoot, relativePath);
     return mirrorPath === primaryPath ? null : mirrorPath;
   }
-}
-
-function normalizeProjectConfig(
-  config: OrchestratorProjectConfig
-): OrchestratorProjectConfig {
-  const workflowSource = config.workflowSource ?? { type: "repo" };
-
-  if (workflowSource.type === "external") {
-    if (!workflowSource.path) {
-      throw new Error("External workflow source requires a path.");
-    }
-    if (!isAbsolute(workflowSource.path)) {
-      throw new Error("External workflow source path must be absolute.");
-    }
-  }
-
-  return {
-    ...config,
-    workflowSource,
-    populateStrategy: config.populateStrategy ?? "clone",
-  };
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {

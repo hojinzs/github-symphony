@@ -120,7 +120,28 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
         tracker: { adapter: "file", bindingId: "file-project-1" },
         workflowSource: workflowSource as never,
       })
-    ).rejects.toThrow("External workflow source");
+    ).rejects.toThrow("external workflow source");
+  });
+
+  it.each([
+    ["workflow source type", { type: "externel" }],
+    ["populate strategy", "copy"],
+  ])("rejects an unsupported %s", async (_label, value) => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await expect(
+      store.saveProjectConfig({
+        projectId: "project-1",
+        slug: "project-1",
+        workspaceDir: "/tmp/workspaces/project-1",
+        repository: { owner: "acme", name: "repo" },
+        tracker: { adapter: "file", bindingId: "file-project-1" },
+        ...(typeof value === "string"
+          ? { populateStrategy: value as never }
+          : { workflowSource: value as never }),
+      })
+    ).rejects.toThrow("project-1");
   });
 
   it("loads only issue workspace directories from the project runtime root", async () => {

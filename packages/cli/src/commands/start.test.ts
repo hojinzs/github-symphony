@@ -37,6 +37,7 @@ const loadProjectState = vi.fn();
 const startControlPlaneServer = vi.fn();
 const HTTP_API_TOKEN = "test-http-api-token";
 const serviceDependencies: Array<Record<string, unknown>> = [];
+const serviceProjectConfigs: unknown[] = [];
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
   runGhAuthLogin: vi.fn(),
@@ -63,9 +64,10 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   OrchestratorService: class {
     constructor(
       _store: unknown,
-      _projectConfig: unknown,
+      projectConfig: unknown,
       dependencies: Record<string, unknown> = {}
     ) {
+      serviceProjectConfigs.push(projectConfig);
       serviceDependencies.push(dependencies);
     }
     run = orchestratorMocks.run;
@@ -184,6 +186,7 @@ beforeEach(() => {
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = HTTP_API_TOKEN;
   serviceDependencies.length = 0;
+  serviceProjectConfigs.length = 0;
 });
 
 function createSpawnedChild(pid: number): EventEmitter & {
@@ -352,6 +355,36 @@ describe("start command foreground locking", () => {
     await startModule.default([], baseOptions(configDir));
 
     expect(process.env.GITHUB_GRAPHQL_TOKEN).toBe("validated-token");
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("normalizes legacy project config before constructing the orchestrator", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const lock = {
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    };
+    acquireProjectLock.mockResolvedValue(lock);
+    run.mockImplementation(async () => {
+      process.emit("SIGINT");
+    });
+    const exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation(
+        ((_code?: number) => undefined) as (code?: number) => never
+      );
+
+    await startModule.default([], baseOptions(configDir));
+
+    expect(serviceProjectConfigs.at(-1)).toMatchObject({
+      workflowSource: { type: "repo" },
+      populateStrategy: "clone",
+    });
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

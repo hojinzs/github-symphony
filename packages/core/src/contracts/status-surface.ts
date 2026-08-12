@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
 import type {
   WorkflowDefinition,
@@ -43,6 +44,76 @@ export type OrchestratorProjectConfig = {
   /** Standalone project directory, when configuration is managed externally. */
   projectDir?: string;
 };
+
+/**
+ * Materializes standalone-project defaults and rejects malformed persisted
+ * configuration before it reaches an orchestrator service.
+ */
+export function normalizeOrchestratorProjectConfig(
+  config: OrchestratorProjectConfig
+): OrchestratorProjectConfig {
+  const workflowSource = normalizeWorkflowSource(config);
+  const populateStrategy = normalizePopulateStrategy(config);
+
+  return {
+    ...config,
+    workflowSource,
+    populateStrategy,
+  };
+}
+
+function normalizeWorkflowSource(
+  config: OrchestratorProjectConfig
+): WorkflowSource {
+  const workflowSource = config.workflowSource as unknown;
+  if (workflowSource === undefined) {
+    return { type: "repo" };
+  }
+  if (!isRecord(workflowSource)) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} has unsupported workflow source ${JSON.stringify(workflowSource)}.`
+    );
+  }
+  if (workflowSource.type === "repo") {
+    return { type: "repo" };
+  }
+  if (workflowSource.type !== "external") {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} has unsupported workflow source type ${JSON.stringify(workflowSource.type)}.`
+    );
+  }
+  if (typeof workflowSource.path !== "string" || !workflowSource.path) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} external workflow source requires a path.`
+    );
+  }
+  if (!isAbsolute(workflowSource.path)) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} external workflow source path ${JSON.stringify(workflowSource.path)} must be absolute.`
+    );
+  }
+
+  return { type: "external", path: workflowSource.path };
+}
+
+function normalizePopulateStrategy(
+  config: OrchestratorProjectConfig
+): PopulateStrategy {
+  const populateStrategy = config.populateStrategy;
+  if (populateStrategy === undefined) {
+    return "clone";
+  }
+  if (populateStrategy === "clone" || populateStrategy === "worktree-cache") {
+    return populateStrategy;
+  }
+  throw new Error(
+    `Project ${JSON.stringify(config.projectId)} has unsupported populate strategy ${JSON.stringify(populateStrategy)}.`
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 export type RetryKind = "continuation" | "failure" | "recovery";
 
