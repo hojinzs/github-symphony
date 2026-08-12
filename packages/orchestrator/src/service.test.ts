@@ -11743,7 +11743,9 @@ Prefer focused changes.
           ): Promise<WorkflowResolution>;
         }
       ).loadProjectWorkflowUncached(projectConfig, repository);
-      expect(projectResolution.workflow.tracker.projectId).toBe("project-env-id");
+      expect(projectResolution.workflow.tracker.projectId).toBe(
+        "project-env-id"
+      );
     } finally {
       if (originalProjectId === undefined) {
         delete process.env.PROJECT_ENV_WORKFLOW_ID;
@@ -11753,12 +11755,56 @@ Prefer focused changes.
     }
   });
 
-  it("warns for project .env permissions other than 0600 without rejecting it", async () => {
+  it("warns once for group-readable project .env files without rejecting them", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-project-env-permissions-")
     );
-    const repository = await createRepositoryFixture(tempRoot, "acme", "platform");
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const envPath = join(store.projectDir(projectConfig.projectId), ".env");
+    await writeFile(envPath, "PROJECT_ENV_VALUE=loaded\n", "utf8");
+    await chmod(envPath, 0o644);
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+    const service = new OrchestratorService(store, projectConfig, { stderr });
+
+    const resolveProjectEnvironment = (
+      service as unknown as {
+        resolveProjectEnvironment(
+          tenant: OrchestratorProjectConfig
+        ): NodeJS.ProcessEnv;
+      }
+    ).resolveProjectEnvironment.bind(service);
+    const environment = resolveProjectEnvironment(projectConfig);
+    resolveProjectEnvironment(projectConfig);
+
+    expect(environment.PROJECT_ENV_VALUE).toBe("loaded");
+    expect(stderr.write).toHaveBeenCalledTimes(1);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("should use 0600 permissions")
+    );
+
+    await chmod(envPath, 0o400);
+    resolveProjectEnvironment(projectConfig);
+    expect(stderr.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads project .env once when building worker execution env", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-project-env-execution-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
@@ -11770,16 +11816,15 @@ Prefer focused changes.
 
     const environment = (
       service as unknown as {
-        resolveProjectEnvironment(
-          tenant: OrchestratorProjectConfig
-        ): NodeJS.ProcessEnv;
+        buildProjectExecutionEnv(
+          tenant: OrchestratorProjectConfig,
+          env: Record<string, string | undefined>
+        ): Record<string, string>;
       }
-    ).resolveProjectEnvironment(projectConfig);
+    ).buildProjectExecutionEnv(projectConfig, {});
 
     expect(environment.PROJECT_ENV_VALUE).toBe("loaded");
-    expect(stderr.write).toHaveBeenCalledWith(
-      expect.stringContaining("should use 0600 permissions")
-    );
+    expect(stderr.write).toHaveBeenCalledTimes(1);
   });
 
   it("applies allowlisted project .env to approved script hooks, with symphony context precedence", async () => {

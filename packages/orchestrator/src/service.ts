@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { isAbsolute, join } from "node:path";
@@ -355,6 +355,7 @@ export class OrchestratorService {
     Record<string, unknown>
   >();
   private readonly issueCommentCaches = new Map<string, IssueCommentCache>();
+  private readonly warnedProjectEnvPermissions = new Map<string, number>();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -3752,7 +3753,10 @@ export class OrchestratorService {
             "Repository WORKFLOW.md could not be loaded.",
         };
       } else {
-        const hookEnv = this.buildProjectExecutionEnv(tenant, buildHookEnv(context));
+        const hookEnv = this.buildProjectExecutionEnv(
+          tenant,
+          buildHookEnv(context)
+        );
         result = await executeWorkspaceHook({
           kind,
           hooks: workflowResolution.workflow.hooks,
@@ -3803,10 +3807,19 @@ export class OrchestratorService {
   private readProjectEnv(
     tenant: OrchestratorProjectConfig
   ): Record<string, string> {
-    const projectDirectory = tenant.projectDir ?? this.store.projectDir(tenant.projectId);
+    const projectDirectory =
+      tenant.projectDir ?? this.store.projectDir(tenant.projectId);
     const envPath = join(projectDirectory, ".env");
     try {
-      if (existsSync(envPath) && (statSync(envPath).mode & 0o777) !== 0o600) {
+      const envStat = statSync(envPath, { throwIfNoEntry: false });
+      const mode =
+        envStat?.mode === undefined ? undefined : envStat.mode & 0o777;
+      if (
+        mode !== undefined &&
+        (mode & 0o077) !== 0 &&
+        this.warnedProjectEnvPermissions.get(envPath) !== mode
+      ) {
+        this.warnedProjectEnvPermissions.set(envPath, mode);
         (this.dependencies.stderr ?? process.stderr).write(
           `[warn] Project env for ${tenant.projectId} at ${envPath} should use 0600 permissions.\n`
         );
@@ -3835,9 +3848,9 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     env: Record<string, string | undefined>
   ): Record<string, string> {
-    const projectEnvironment = this.resolveProjectEnvironment(tenant);
+    const projectEnv = this.readProjectEnv(tenant);
     const inheritedEnv = Object.fromEntries(
-      Object.entries(projectEnvironment).filter(
+      Object.entries(process.env).filter(
         (entry): entry is [string, string] =>
           typeof entry[1] === "string" && shouldInheritProcessEnvKey(entry[0])
       )
@@ -3849,7 +3862,7 @@ export class OrchestratorService {
     );
 
     return {
-      ...this.readProjectEnv(tenant),
+      ...projectEnv,
       ...inheritedEnv,
       ...explicitEnv,
     };
