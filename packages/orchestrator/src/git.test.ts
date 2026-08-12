@@ -16,6 +16,8 @@ import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
   ensureIssueWorkspaceRepository,
+  removeIssueWorkspaceWorktree,
+  renderIssueBranchName,
   releaseRepositoryLock,
   syncRepositoryForRun,
 } from "./git.js";
@@ -775,6 +777,97 @@ describe("cloneRepositoryForRun", () => {
     });
   });
 });
+
+describe("worktree-cache issue workspaces", () => {
+  it("populates, reuses, and removes a project-scoped worktree", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "issue-1");
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#1",
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("symphony/project-one/acme-platform-1");
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+        populateStrategy: "worktree-cache",
+      })
+    ).resolves.toBe(repositoryDirectory);
+
+    await removeIssueWorkspaceWorktree({ repository, repositoryDirectory });
+    await expect(access(repositoryDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("namespaces identical issue identifiers by project and preserves failed reuse", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const firstWorkspace = join(tempRoot, "workspaces", "first");
+    const secondWorkspace = join(tempRoot, "workspaces", "second");
+    const invalidWorkspace = join(tempRoot, "workspaces", "invalid");
+
+    const first = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: firstWorkspace,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#7",
+    });
+    const second = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: secondWorkspace,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-two",
+      issueIdentifier: "acme/platform#7",
+    });
+    expect(readGitBranch(first)).toBe("symphony/project-one/acme-platform-7");
+    expect(readGitBranch(second)).toBe("symphony/project-two/acme-platform-7");
+
+    await mkdir(join(invalidWorkspace, "repository"), { recursive: true });
+    await writeFile(join(invalidWorkspace, "repository", "keep"), "preserve");
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath: invalidWorkspace,
+        existingWorkspace: true,
+        populateStrategy: "worktree-cache",
+      })
+    ).rejects.toThrow(/was preserved/);
+    await expect(readFile(join(invalidWorkspace, "repository", "keep"), "utf8")).resolves.toBe("preserve");
+  });
+
+  it("supports a front matter branch template", () => {
+    expect(
+      renderIssueBranchName({
+        template: "agents/{project_slug}/{sanitized_issue_id}",
+        projectSlug: "project one",
+        issueIdentifier: "acme/repo#42",
+      })
+    ).toBe("agents/project-one/acme-repo-42");
+  });
+});
+
+function readGitBranch(repositoryDirectory: string): string {
+  return execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+    encoding: "utf8",
+  }).trim();
+}
 
 describe("sanitizeRepositoryCloneUrl", () => {
   it("removes embedded credentials before Git can persist the remote", () => {

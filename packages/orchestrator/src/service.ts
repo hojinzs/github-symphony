@@ -62,6 +62,7 @@ import {
   loadRepositoryWorkflow,
   quarantineIssueWorkspace,
   readGitCurrentBranch,
+  removeIssueWorkspaceWorktree,
 } from "./git.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { getProcessStartIdentity } from "./lock.js";
@@ -2348,6 +2349,22 @@ export class OrchestratorService {
       }
     }
 
+    const workflowForPopulate = await this.loadProjectWorkflow(
+      tenant,
+      issue.repository
+    );
+    if (!isUsableWorkflowResolution(workflowForPopulate)) {
+      throw new Error(
+        workflowForPopulate.validationError ?? "Invalid repository WORKFLOW.md"
+      );
+    }
+    const repositoryExtension = workflowForPopulate.workflow.repository;
+    const branchTemplate = isRecord(repositoryExtension)
+      ? readOptionalStringValue(repositoryExtension.branch_template)
+      : null;
+    const baseBranch = isRecord(repositoryExtension)
+      ? readOptionalStringValue(repositoryExtension.base_branch)
+      : null;
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
@@ -2356,6 +2373,11 @@ export class OrchestratorService {
       pullRequestBranch,
       allowDirtyExistingWorkspace:
         recovery?.kind === "incomplete-turn-dirty-workspace",
+      populateStrategy: tenant.populateStrategy,
+      projectSlug: tenant.slug,
+      issueIdentifier: issue.identifier,
+      branchTemplate,
+      baseBranch,
     });
 
     if (!existingWorkspaceRecord || workspaceQuarantined) {
@@ -2404,7 +2426,7 @@ export class OrchestratorService {
       }
     }
 
-    const workflow = await this.loadProjectWorkflow(tenant, issue.repository);
+    const workflow = workflowForPopulate;
     if (!isUsableWorkflowResolution(workflow)) {
       throw new Error(
         workflow.validationError ?? "Invalid repository WORKFLOW.md"
@@ -4393,6 +4415,20 @@ export class OrchestratorService {
       workflowResolution
     );
 
+    if (tenant.populateStrategy === "worktree-cache") {
+      try {
+        await removeIssueWorkspaceWorktree({
+          repository: issue.repository,
+          repositoryDirectory: workspaceRecord.repositoryPath,
+        });
+      } catch (error) {
+        const removalError = this.formatErrorMessage(error);
+        this.writeStderr(
+          `[orchestrator] failed to remove worktree for ${issue.identifier}: ${removalError}\n`
+        );
+      }
+    }
+
     // Hook failures are observable but do not block removal per spec 9.4.
     try {
       await (this.dependencies.rmImpl ?? rm)(workspaceRecord.workspacePath, {
@@ -4522,6 +4558,10 @@ function hasTokenUsage(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readOptionalStringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function validateTrackerStateRequest(

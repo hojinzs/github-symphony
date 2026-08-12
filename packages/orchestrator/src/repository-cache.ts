@@ -57,37 +57,78 @@ export async function ensureGlobalBareRepositoryCache(input: {
 
   const ownerToken = await acquireRepositoryLock(lockDirectory);
   try {
-    const now = input.now ?? new Date();
-    if (!(await isBareRepository(bareDirectory))) {
-      await recreateBareRepository(bareDirectory, cloneUrl, now);
-      return bareDirectory;
-    }
-
-    const requiredRefExists = input.requiredRef
-      ? await hasRef(bareDirectory, input.requiredRef)
-      : true;
-    if (!(await hasOriginRemote(bareDirectory))) {
-      await recreateBareRepository(bareDirectory, cloneUrl, now);
-      return bareDirectory;
-    }
-    if (!(await isFetchFresh(bareDirectory, now)) || !requiredRefExists) {
-      await runGitCommand([
-        "-C",
-        bareDirectory,
-        "fetch",
-        "--prune",
-        "--tags",
-        "origin",
-        "+refs/heads/*:refs/heads/*",
-      ]);
-      await writeLastFetchMarker(bareDirectory, now);
-      await runGitCommand(["-C", bareDirectory, "gc", "--auto"]);
-    }
-
-    return bareDirectory;
+    return ensureBareRepositoryCacheUnderLock({
+      ...input,
+      bareDirectory,
+      cloneUrl,
+    });
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }
+}
+
+/** Runs a cache operation while holding the repository-wide bare-cache lock. */
+export async function withGlobalBareRepositoryCache<T>(
+  input: {
+    repository: RepositoryRef;
+    requiredRef?: string;
+    configDir?: string;
+    now?: Date;
+  },
+  operation: (bareDirectory: string) => Promise<T>
+): Promise<T> {
+  const bareDirectory = globalBareRepositoryDirectory(input);
+  const lockDirectory = globalBareRepositoryLockDirectory(input);
+  const cloneUrl = sanitizeRepositoryCloneUrl(input.repository.cloneUrl);
+  await mkdir(dirname(bareDirectory), { recursive: true });
+  const ownerToken = await acquireRepositoryLock(lockDirectory);
+  try {
+    await ensureBareRepositoryCacheUnderLock({
+      ...input,
+      bareDirectory,
+      cloneUrl,
+    });
+    return await operation(bareDirectory);
+  } finally {
+    await releaseRepositoryLock(lockDirectory, ownerToken);
+  }
+}
+
+async function ensureBareRepositoryCacheUnderLock(input: {
+  repository: RepositoryRef;
+  requiredRef?: string;
+  now?: Date;
+  bareDirectory: string;
+  cloneUrl: string;
+}): Promise<string> {
+  const now = input.now ?? new Date();
+  if (!(await isBareRepository(input.bareDirectory))) {
+    await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    return input.bareDirectory;
+  }
+
+  const requiredRefExists = input.requiredRef
+    ? await hasRef(input.bareDirectory, input.requiredRef)
+    : true;
+  if (!(await hasOriginRemote(input.bareDirectory))) {
+    await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    return input.bareDirectory;
+  }
+  if (!(await isFetchFresh(input.bareDirectory, now)) || !requiredRefExists) {
+    await runGitCommand([
+      "-C",
+      input.bareDirectory,
+      "fetch",
+      "--prune",
+      "--tags",
+      "origin",
+      "+refs/heads/*:refs/heads/*",
+    ]);
+    await writeLastFetchMarker(input.bareDirectory, now);
+    await runGitCommand(["-C", input.bareDirectory, "gc", "--auto"]);
+  }
+
+  return input.bareDirectory;
 }
 
 async function recreateBareRepository(
