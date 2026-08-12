@@ -233,6 +233,99 @@ describe("cloneRepositoryForRun", () => {
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
     ).toBe("# pull request workflow\n");
+    expect(
+      execSync(
+        `git -C "${repositoryDirectory}" merge-base origin/main feature/pr-branch`,
+        { encoding: "utf8" }
+      ).trim()
+    ).not.toBe("");
+    expect(
+      execSync(
+        `git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("false");
+  });
+
+  it("migrates a reused shallow checkout before checking out a pull request branch", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
+
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(join(repository.path, "feature.txt"), "feature\n", "utf8");
+    execSync(`git -C "${repository.path}" add feature.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Add feature"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    await mkdir(issueWorkspacePath, { recursive: true });
+    execSync(
+      `git clone --depth 1 "file://${repository.cloneUrl}" "${repositoryDirectory}"`
+    );
+    expect(
+      execSync(
+        `git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("true");
+
+    await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: true,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+
+    expect(
+      execSync(
+        `git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`,
+        { encoding: "utf8" }
+      ).trim()
+    ).toBe("false");
+    expect(
+      execSync(
+        `git -C "${repositoryDirectory}" merge-base origin/main feature/pr-branch`,
+        { encoding: "utf8" }
+      ).trim()
+    ).not.toBe("");
+  });
+
+  it("rebases a pull request branch onto an advanced base without add/add conflicts", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(join(repository.path, "feature.txt"), "feature\n", "utf8");
+    execSync(`git -C "${repository.path}" add feature.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Add feature"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    execSync(`git -C "${repository.path}" checkout main`);
+    await writeFile(join(repository.path, "base.txt"), "base\n", "utf8");
+    execSync(`git -C "${repository.path}" add base.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Advance base"`);
+    execSync(`git -C "${repository.path}" push origin main`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      pullRequestBranch: {
+        headRefName: "feature/pr-branch",
+      },
+    });
+    execSync(`git -C "${repositoryDirectory}" config user.name "Test User"`);
+    execSync(`git -C "${repositoryDirectory}" config user.email "test@example.com"`);
+
+    expect(() =>
+      execSync(`git -C "${repositoryDirectory}" rebase origin/main`)
+    ).not.toThrow();
+    await expect(access(join(repositoryDirectory, "base.txt"))).resolves.toBeUndefined();
+    await expect(access(join(repositoryDirectory, "feature.txt"))).resolves.toBeUndefined();
   });
 
   it("keeps pull request branch workspaces reusable on the second cycle", async () => {
@@ -334,10 +427,11 @@ describe("cloneRepositoryForRun", () => {
     ).toBe("# pull request workflow v2\n");
   });
 
-  it("skips pull request checkout when dirty recovery preserves an existing workspace", async () => {
+  it("migrates a dirty shallow workspace before preserving it for recovery", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-pr-"));
     const repository = await createRepositoryFixture(tempRoot);
     const issueWorkspacePath = join(tempRoot, "workspaces", "acme_platform_2");
+    const repositoryDirectory = join(issueWorkspacePath, "repository");
 
     execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
     await writeFile(
@@ -349,14 +443,10 @@ describe("cloneRepositoryForRun", () => {
     execSync(`git -C "${repository.path}" commit -m "Update PR workflow v1"`);
     execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
 
-    const repositoryDirectory = await ensureIssueWorkspaceRepository({
-      repository,
-      issueWorkspacePath,
-      existingWorkspace: false,
-      pullRequestBranch: {
-        headRefName: "feature/pr-branch",
-      },
-    });
+    await mkdir(issueWorkspacePath, { recursive: true });
+    execSync(
+      `git clone --depth 1 --branch feature/pr-branch "file://${repository.cloneUrl}" "${repositoryDirectory}"`
+    );
     await writeFile(
       join(repositoryDirectory, "WORKFLOW.md"),
       "# partial recovery work\n",
@@ -385,6 +475,11 @@ describe("cloneRepositoryForRun", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
+    expect(
+      execSync(`git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("false");
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
     ).toBe("# partial recovery work\n");
@@ -437,7 +532,7 @@ async function createRepositoryFixture(tempRoot: string) {
   const originPath = join(tempRoot, "origin.git");
   const workingPath = join(tempRoot, "working");
 
-  execSync(`git init --bare "${originPath}"`);
+  execSync(`git init --initial-branch=main --bare "${originPath}"`);
   execSync(`git clone "${originPath}" "${workingPath}"`);
   execSync(`git -C "${workingPath}" config user.name "Test User"`);
   execSync(`git -C "${workingPath}" config user.email "test@example.com"`);

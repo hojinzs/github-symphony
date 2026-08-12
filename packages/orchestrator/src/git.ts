@@ -61,6 +61,7 @@ export async function syncRepositoryForRun(input: {
 
     if (hasGit) {
       try {
+        await migrateShallowRepository(repositoryDirectory);
         const beforeHead = await readGitHead(repositoryDirectory);
         await runCommand("git", [
           "-C",
@@ -91,8 +92,7 @@ export async function syncRepositoryForRun(input: {
     try {
       await runCommand("git", [
         "clone",
-        "--depth",
-        "1",
+        "--filter=blob:none",
         input.repository.cloneUrl,
         tempRepositoryDirectory,
       ]);
@@ -295,6 +295,15 @@ async function syncExistingIssueWorkspaceRepository(
         );
       }
 
+      try {
+        await migrateShallowRepository(repositoryDirectory);
+      } catch (error) {
+        throw createIssueWorkspacePreservedError(
+          repositoryDirectory,
+          `could not be migrated from a shallow checkout: ${formatCommandError(error, "git fetch --unshallow failed")}`
+        );
+      }
+
       if (dirtyStatus.trim() && input.allowDirty) {
         onDirtyAllowed?.(true);
         return repositoryDirectory;
@@ -346,8 +355,7 @@ async function syncExistingIssueWorkspaceRepository(
     try {
       await runCommand("git", [
         "clone",
-        "--depth",
-        "1",
+        "--filter=blob:none",
         input.repository.cloneUrl,
         tempRepositoryDirectory,
       ]);
@@ -387,8 +395,7 @@ async function checkoutPullRequestBranch(
       "fetch",
       "origin",
       `+refs/heads/${branchName}:${remoteRef}`,
-      "--depth",
-      "1",
+      "--filter=blob:none",
     ]);
   } catch (error) {
     throw new Error(
@@ -440,6 +447,30 @@ async function checkoutPullRequestBranch(
       `Cannot checkout pull request branch ${branchName}: git branch --set-upstream-to failed (${formatCommandError(error, "git branch --set-upstream-to failed")}).`
     );
   }
+}
+
+async function migrateShallowRepository(
+  repositoryDirectory: string
+): Promise<void> {
+  const isShallow = await runCommandCapture("git", [
+    "-C",
+    repositoryDirectory,
+    "rev-parse",
+    "--is-shallow-repository",
+  ]);
+
+  if (isShallow.trim() !== "true") {
+    return;
+  }
+
+  await runCommand("git", [
+    "-C",
+    repositoryDirectory,
+    "fetch",
+    "--unshallow",
+    "--filter=blob:none",
+    "origin",
+  ]);
 }
 
 function createIssueWorkspacePreservedError(
