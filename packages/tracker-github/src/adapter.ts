@@ -1558,8 +1558,8 @@ async function upsertIssueCommentWithCache(
       return "updated";
     }
     if (current.status === "found") {
-      await cache.set(cacheKey, current.entry);
       if (current.entry.body === input.body) {
+        await cache.set(cacheKey, current.entry);
         return "unchanged";
       }
 
@@ -1617,8 +1617,8 @@ async function upsertIssueCommentWithCache(
     );
   }
 
-  await cache.set(cacheKey, current.entry);
   if (current.entry.body === input.body) {
+    await cache.set(cacheKey, current.entry);
     return "unchanged";
   }
 

@@ -1267,6 +1267,121 @@ describe("resolveTrackerAdapter", () => {
     expect(mutationBody.variables.subjectId).toBe("issue-1");
   });
 
+  it("creates an advisory comment through REST and persists its ETag", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const marker = "<!-- gh-symphony:advisory -->";
+    const body = `${marker}\ncreated body`;
+    const cache: IssueCommentCache = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              node: {
+                __typename: "Issue",
+                comments: {
+                  nodes: [],
+                  pageInfo: { endCursor: null, hasNextPage: false },
+                },
+              },
+            },
+          })
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 42, body }), {
+          status: 201,
+          headers: { etag: '"comment-v1"' },
+        })
+      );
+
+    await expect(
+      adapter.upsertIssueComment?.(
+        makeProjectConfig(),
+        makeTrackedIssue(),
+        { marker, body },
+        { token: "test-token", fetchImpl, issueCommentCache: cache }
+      )
+    ).resolves.toMatchObject({ outcome: "created", rateLimits: null });
+
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+      "https://api.github.com/repos/acme/platform/issues/1/comments"
+    );
+    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    expect(cache.set).toHaveBeenCalledTimes(1);
+    expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
+      commentId: 42,
+      etag: '"comment-v1"',
+      body,
+    });
+  });
+
+  it("updates a cached advisory comment through REST with one cache write", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123" },
+    });
+    const marker = "<!-- gh-symphony:advisory -->";
+    const body = `${marker}\nupdated body`;
+    const cache: IssueCommentCache = {
+      get: vi.fn(async () => ({
+        commentId: 42,
+        etag: '"comment-v1"',
+        body: `${marker}\nold body`,
+      })),
+      set: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 42, body: `${marker}\nold body` }), {
+          headers: { etag: '"comment-v1"' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 42, body }), {
+          headers: { etag: '"comment-v2"' },
+        })
+      );
+
+    await expect(
+      adapter.upsertIssueComment?.(
+        makeProjectConfig(),
+        makeTrackedIssue(),
+        { marker, body },
+        { token: "test-token", fetchImpl, issueCommentCache: cache }
+      )
+    ).resolves.toMatchObject({ outcome: "updated", rateLimits: null });
+
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+      "https://api.github.com/repos/acme/platform/issues/comments/42"
+    );
+    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ body }),
+    });
+    expect(cache.set).toHaveBeenCalledTimes(1);
+    expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
+      commentId: 42,
+      etag: '"comment-v2"',
+      body,
+    });
+  });
+
   it("does not update advisory comments when the existing body is unchanged", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -1502,6 +1617,7 @@ describe("resolveTrackerAdapter", () => {
         body,
       })
     );
+    expect(cache.set).toHaveBeenCalledTimes(1);
   });
 
   it("re-discovers an advisory comment when the cached REST id is stale", async () => {
