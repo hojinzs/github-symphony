@@ -11664,6 +11664,116 @@ Prefer focused changes.
     ).resolves.toBe("from-project-env\n");
   });
 
+  it("resolves workflow $VAR values from project .env with host precedence", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const originalProjectId = process.env.PROJECT_ENV_WORKFLOW_ID;
+    process.env.PROJECT_ENV_WORKFLOW_ID = "host-project-id";
+
+    try {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-workflow-project-env-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform",
+        {
+          rawWorkflow: `---
+tracker:
+  kind: github-project
+  project_id: $PROJECT_ENV_WORKFLOW_ID
+  state_field: Status
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+  blocker_check_states:
+    - Todo
+polling:
+  interval_ms: 30000
+workspace:
+  root: .runtime/symphony-workspaces
+agent:
+  max_concurrent_agents: 10
+  max_retry_backoff_ms: 30000
+  retry_base_delay_ms: 1000
+codex:
+  command: codex app-server
+  read_timeout_ms: 5000
+  stall_timeout_ms: 300000
+  turn_timeout_ms: 3600000
+---
+Prefer focused changes.
+`,
+        }
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      await writeFile(
+        join(store.projectDir(projectConfig.projectId), ".env"),
+        "PROJECT_ENV_WORKFLOW_ID=project-env-id\\n",
+        "utf8"
+      );
+
+      const service = new OrchestratorService(store, projectConfig);
+      const resolution = await (
+        service as unknown as {
+          loadProjectWorkflowUncached(
+            tenant: OrchestratorProjectConfig,
+            repository: RepositoryRef
+          ): Promise<WorkflowResolution>;
+        }
+      ).loadProjectWorkflowUncached(projectConfig, repository);
+
+      expect(resolution.workflow.tracker.projectId).toBe("host-project-id");
+
+      delete process.env.PROJECT_ENV_WORKFLOW_ID;
+      const projectResolution = await (
+        service as unknown as {
+          loadProjectWorkflowUncached(
+            tenant: OrchestratorProjectConfig,
+            repository: RepositoryRef
+          ): Promise<WorkflowResolution>;
+        }
+      ).loadProjectWorkflowUncached(projectConfig, repository);
+      expect(projectResolution.workflow.tracker.projectId).toBe("project-env-id");
+    } finally {
+      if (originalProjectId === undefined) {
+        delete process.env.PROJECT_ENV_WORKFLOW_ID;
+      } else {
+        process.env.PROJECT_ENV_WORKFLOW_ID = originalProjectId;
+      }
+    }
+  });
+
+  it("warns for project .env permissions other than 0600 without rejecting it", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-project-env-permissions-")
+    );
+    const repository = await createRepositoryFixture(tempRoot, "acme", "platform");
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const envPath = join(store.projectDir(projectConfig.projectId), ".env");
+    await writeFile(envPath, "PROJECT_ENV_VALUE=loaded\\n", "utf8");
+    await chmod(envPath, 0o644);
+    const stderr = { write: vi.fn().mockReturnValue(true) };
+    const service = new OrchestratorService(store, projectConfig, { stderr });
+
+    const environment = (
+      service as unknown as {
+        resolveProjectEnvironment(projectId: string): NodeJS.ProcessEnv;
+      }
+    ).resolveProjectEnvironment(projectConfig.projectId);
+
+    expect(environment.PROJECT_ENV_VALUE).toBe("loaded");
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("should use 0600 permissions")
+    );
+  });
+
   it("applies allowlisted project .env to approved script hooks, with symphony context precedence", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalStagingApiHost = process.env.STAGING_API_HOST;

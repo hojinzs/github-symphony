@@ -7,6 +7,7 @@ import type { WorkflowResolution } from "../contracts/status-surface.js";
 
 type WorkflowCacheEntry = {
   fingerprint: string;
+  envSignature: string;
   workflow: ParsedWorkflow;
   loadedAt: string;
 };
@@ -25,8 +26,17 @@ export class WorkflowConfigStore {
     const fingerprint = `${fileStat.mtimeMs}:${fileStat.size}:${createHash("sha256")
       .update(markdown)
       .digest("hex")}`;
+    const envSignature = JSON.stringify(
+      Object.entries(env).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
 
-    if (cached && cached.fingerprint === fingerprint) {
+    if (
+      cached &&
+      cached.fingerprint === fingerprint &&
+      cached.envSignature === envSignature
+    ) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
         isValid: true,
         usedLastKnownGood: false,
@@ -38,6 +48,7 @@ export class WorkflowConfigStore {
       const workflow = parseWorkflowMarkdown(markdown, env);
       this.cache.set(workflowPath, {
         fingerprint,
+        envSignature,
         workflow,
         loadedAt: new Date().toISOString(),
       });

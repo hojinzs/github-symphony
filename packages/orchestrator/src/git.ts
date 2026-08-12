@@ -223,17 +223,19 @@ export async function quarantineIssueWorkspace(
 
 export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
-  _repository: RepositoryRef
+  _repository: RepositoryRef,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<WorkflowResolution> {
-  return loadWorkflowFile(join(repositoryDirectory, "WORKFLOW.md"));
+  return loadWorkflowFile(join(repositoryDirectory, "WORKFLOW.md"), env);
 }
 
 /** Load a workflow from an explicitly selected file without repository lookup. */
 export async function loadWorkflowFile(
-  workflowPath: string
+  workflowPath: string,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<WorkflowResolution> {
   try {
-    return await workflowConfigStore.load(workflowPath);
+    return await workflowConfigStore.load(workflowPath, env);
   } catch (error) {
     if (isMissingFileError(error)) {
       return createDefaultWorkflowResolution();
