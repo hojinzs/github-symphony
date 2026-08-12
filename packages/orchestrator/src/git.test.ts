@@ -9,7 +9,7 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -50,15 +50,32 @@ describe("global bare repository cache", () => {
     );
     const repository = await createRepositoryFixture(tempRoot);
     const configDir = join(tempRoot, "config");
+    const lockDirectory = globalBareRepositoryLockDirectory({
+      repository,
+      configDir,
+    });
+    await mkdir(dirname(lockDirectory), { recursive: true });
+    const ownerToken = await acquireRepositoryLock(lockDirectory);
 
-    const [first, second] = await Promise.all([
-      ensureGlobalBareRepositoryCache({ repository, configDir }),
-      ensureGlobalBareRepositoryCache({ repository, configDir }),
+    const first = ensureGlobalBareRepositoryCache({ repository, configDir });
+    const second = ensureGlobalBareRepositoryCache({ repository, configDir });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await expect(
+      stat(globalBareRepositoryDirectory({ repository, configDir }))
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    await releaseRepositoryLock(lockDirectory, ownerToken);
+    const [firstDirectory, secondDirectory] = await Promise.all([
+      first,
+      second,
     ]);
 
-    expect(first).toBe(second);
+    expect(firstDirectory).toBe(secondDirectory);
     expect(
-      execSync(`git -C "${first}" rev-parse --is-bare-repository`, {
+      execSync(`git -C "${firstDirectory}" rev-parse --is-bare-repository`, {
         encoding: "utf8",
       }).trim()
     ).toBe("true");
