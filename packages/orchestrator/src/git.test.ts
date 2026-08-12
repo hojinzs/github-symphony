@@ -127,7 +127,7 @@ describe("global bare repository cache", () => {
       repository,
       configDir,
       now: new Date(now.getTime() + 31_000),
-      requiredRef: "refs/remotes/origin/feature/cache-ref",
+      requiredRef: "refs/heads/feature/cache-ref",
     });
     expect(
       execSync(
@@ -811,6 +811,16 @@ describe("worktree-cache issue workspaces", () => {
     await expect(access(repositoryDirectory)).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath: join(tempRoot, "workspaces", "issue-1-revived"),
+        existingWorkspace: false,
+        populateStrategy: "worktree-cache",
+        projectSlug: "project-one",
+        issueIdentifier: "acme/platform#1",
+      })
+    ).resolves.toBe(join(tempRoot, "workspaces", "issue-1-revived", "repository"));
   });
 
   it("namespaces identical issue identifiers by project and preserves failed reuse", async () => {
@@ -884,6 +894,50 @@ describe("worktree-cache issue workspaces", () => {
     );
     await expect(readFile(join(repositoryDirectory, "local.txt"), "utf8")).resolves.toBe(
       "preserve"
+    );
+  });
+
+  it("repopulates after cleanup when a workspace record outlives its directory", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "revived");
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: true,
+        populateStrategy: "worktree-cache",
+        projectSlug: "project-one",
+        issueIdentifier: "acme/platform#10",
+      })
+    ).resolves.toBe(join(issueWorkspacePath, "repository"));
+  });
+
+  it("uses origin's default branch when no base branch is configured", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const originPath = join(tempRoot, "origin.git");
+    const workingPath = join(tempRoot, "working");
+    execSync(`git init --initial-branch=master --bare "${originPath}"`);
+    execSync(`git clone "${originPath}" "${workingPath}"`);
+    execSync(`git -C "${workingPath}" config user.name "Test User"`);
+    execSync(`git -C "${workingPath}" config user.email "test@example.com"`);
+    await writeFile(join(workingPath, "README.md"), "master\n");
+    execSync(`git -C "${workingPath}" add README.md`);
+    execSync(`git -C "${workingPath}" commit -m "Initial commit"`);
+    execSync(`git -C "${workingPath}" push origin master`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository: { owner: "acme", name: "master-repo", cloneUrl: originPath },
+      issueWorkspacePath: join(tempRoot, "workspaces", "master"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/master-repo#1",
+    });
+
+    await expect(readFile(join(repositoryDirectory, "README.md"), "utf8")).resolves.toBe(
+      "master\n"
     );
   });
 

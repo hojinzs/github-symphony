@@ -171,7 +171,18 @@ export async function removeIssueWorkspaceWorktree(input: {
   repositoryDirectory: string;
 }): Promise<void> {
   await withGlobalBareRepositoryCache({ repository: input.repository }, async (bare) => {
+    const branch = (
+      await runGitCommandCapture([
+        "-C",
+        input.repositoryDirectory,
+        "branch",
+        "--show-current",
+      ])
+    ).trim();
     await runGitCommand(["-C", bare, "worktree", "remove", "--force", input.repositoryDirectory]);
+    if (branch) {
+      await runGitCommand(["-C", bare, "branch", "-D", branch]);
+    }
     await runGitCommand(["-C", bare, "worktree", "prune"]);
   });
 }
@@ -187,10 +198,10 @@ async function ensureIssueWorkspaceWorktree(input: {
   baseBranch?: string | null;
 }): Promise<string> {
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
-  if (input.existingWorkspace || (await pathExists(join(repositoryDirectory, ".git")))) {
-    if (await pathExists(join(repositoryDirectory, ".git"))) {
-      return repositoryDirectory;
-    }
+  if (await pathExists(join(repositoryDirectory, ".git"))) {
+    return repositoryDirectory;
+  }
+  if (input.existingWorkspace && (await pathExists(repositoryDirectory))) {
     throw createIssueWorkspacePreservedError(
       repositoryDirectory,
       "exists but is not a git worktree"
@@ -202,14 +213,24 @@ async function ensureIssueWorkspaceWorktree(input: {
     projectSlug: input.projectSlug ?? "project",
     issueIdentifier: input.issueIdentifier ?? "issue",
   });
-  const baseBranch = input.pullRequestBranch?.headRefName ?? input.baseBranch ?? "main";
-  const baseRef = `refs/remotes/origin/${baseBranch}`;
   const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
   await mkdir(input.issueWorkspacePath, { recursive: true });
   try {
     return await withGlobalBareRepositoryCache(
-      { repository: input.repository, requiredRef: baseRef },
+      {
+        repository: input.repository,
+        requiredRef: input.pullRequestBranch
+          ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
+          : input.baseBranch
+            ? `refs/remotes/origin/${input.baseBranch}`
+            : undefined,
+      },
       async (bare) => {
+        const baseBranch =
+          input.pullRequestBranch?.headRefName ??
+          input.baseBranch ??
+          (await readOriginDefaultBranch(bare));
+        const baseRef = `refs/remotes/origin/${baseBranch}`;
         await runGitCommand(["-C", bare, "worktree", "prune"]);
         await runGitCommand([
           "-C",
@@ -230,6 +251,22 @@ async function ensureIssueWorkspaceWorktree(input: {
     }
     throw error;
   }
+}
+
+async function readOriginDefaultBranch(bareDirectory: string): Promise<string> {
+  const ref = (
+    await runGitCommandCapture([
+      "-C",
+      bareDirectory,
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ])
+  ).trim();
+  if (!ref.startsWith("origin/")) {
+    throw new Error(`Could not determine origin default branch from ${ref}.`);
+  }
+  return ref.slice("origin/".length);
 }
 
 export function renderIssueBranchName(input: {

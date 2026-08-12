@@ -107,8 +107,11 @@ async function ensureBareRepositoryCacheUnderLock(input: {
     return input.bareDirectory;
   }
 
-  const requiredRefExists = input.requiredRef
-    ? await hasRef(input.bareDirectory, input.requiredRef)
+  const requiredRef = input.requiredRef
+    ? normalizeRequiredRef(input.requiredRef)
+    : undefined;
+  const requiredRefExists = requiredRef
+    ? await hasRef(input.bareDirectory, requiredRef)
     : true;
   if (!(await hasOriginRemote(input.bareDirectory))) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
@@ -146,6 +149,19 @@ async function fetchOriginBranches(bareDirectory: string): Promise<void> {
     "origin",
     "+refs/heads/*:refs/remotes/origin/*",
   ]);
+  await runGitCommand(["-C", bareDirectory, "remote", "set-head", "origin", "--auto"]);
+}
+
+/**
+ * The clone path historically requests local `refs/heads/*` names. The shared
+ * bare cache intentionally keeps fetched branches under `origin/*` so active
+ * worktree branches cannot be pruned; accept the former contract at this
+ * boundary rather than making callers aware of the cache layout.
+ */
+function normalizeRequiredRef(ref: string): string {
+  return ref.startsWith("refs/heads/")
+    ? `refs/remotes/origin/${ref.slice("refs/heads/".length)}`
+    : ref;
 }
 
 async function hasOriginRemote(directory: string): Promise<boolean> {

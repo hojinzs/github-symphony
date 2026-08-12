@@ -1046,6 +1046,47 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("passes worktree-cache settings into issue populate", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-settings-"));
+    const repository = await createRepositoryFixture(tempRoot, "acme", "platform");
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      (await readFile(join(repository.path, "WORKFLOW.md"), "utf8")).replace(
+        "hooks:",
+        "repository:\n  branch_template: agents/{project_slug}/{sanitized_issue_id}\n  base_branch: ' develop '\nhooks:"
+      )
+    );
+    execSync(`git -C ${shell(repository.path)} add WORKFLOW.md`);
+    execSync(`git -C ${shell(repository.path)} commit -m worktree-settings`);
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      populateStrategy: "worktree-cache" as const,
+    };
+    await store.saveProjectConfig(projectConfig);
+    const populateSpy = vi
+      .spyOn(gitModule, "ensureIssueWorkspaceRepository")
+      .mockResolvedValue(repository.path);
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi.fn().mockReturnValue({ pid: 4105, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(populateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        populateStrategy: "worktree-cache",
+        projectSlug: "tenant-1",
+        issueIdentifier: "acme/platform#1",
+        branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+        baseBranch: "develop",
+      })
+    );
+  });
+
   it("preserves dirty persisted issue workspaces when dispatching a retry", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -2674,8 +2715,14 @@ Retry inconclusive work.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(tempRoot, repository);
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      populateStrategy: "worktree-cache" as const,
+    };
     await store.saveProjectConfig(projectConfig);
+    const removeSpy = vi
+      .spyOn(gitModule, "removeIssueWorkspaceWorktree")
+      .mockResolvedValue();
 
     const workspaceKey = deriveIssueWorkspaceKey(
       {
@@ -2784,6 +2831,13 @@ Retry inconclusive work.
     const savedStatus = await store.loadProjectStatus("tenant-1");
     await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
     expect(workspaceRecord?.status).toBe("removed");
+    expect(removeSpy).toHaveBeenCalledWith({
+      repository: expect.objectContaining({
+        owner: repository.owner,
+        name: repository.name,
+      }),
+      repositoryDirectory: repositoryPath,
+    });
     expect(savedStatus?.recovery).toBeNull();
     expect(preservedRun?.recovery).toMatchObject({
       kind: "incomplete-turn-dirty-workspace",

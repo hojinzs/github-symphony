@@ -4561,7 +4561,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readOptionalStringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function validateTrackerStateRequest(
