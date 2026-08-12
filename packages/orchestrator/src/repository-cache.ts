@@ -30,6 +30,17 @@ export function globalBareRepositoryDirectory(input: {
   );
 }
 
+export function globalBareRepositoryLockDirectory(input: {
+  repository: Pick<RepositoryRef, "owner" | "name">;
+  configDir?: string;
+}): string {
+  return join(
+    resolveGlobalRepositoryCacheRoot(input.configDir),
+    input.repository.owner,
+    `${input.repository.name}.lock`
+  );
+}
+
 export async function ensureGlobalBareRepositoryCache(input: {
   repository: RepositoryRef;
   requiredRef?: string;
@@ -37,7 +48,7 @@ export async function ensureGlobalBareRepositoryCache(input: {
   now?: Date;
 }): Promise<string> {
   const bareDirectory = globalBareRepositoryDirectory(input);
-  const lockDirectory = `${bareDirectory}.lock`;
+  const lockDirectory = globalBareRepositoryLockDirectory(input);
   await mkdir(dirname(bareDirectory), { recursive: true });
 
   const ownerToken = await acquireRepositoryLock(lockDirectory);

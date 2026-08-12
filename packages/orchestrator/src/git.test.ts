@@ -22,6 +22,7 @@ import {
 import {
   ensureGlobalBareRepositoryCache,
   globalBareRepositoryDirectory,
+  globalBareRepositoryLockDirectory,
 } from "./repository-cache.js";
 
 const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
@@ -60,7 +61,9 @@ describe("global bare repository cache", () => {
         encoding: "utf8",
       }).trim()
     ).toBe("true");
-    await expect(stat(`${first}.lock`)).rejects.toMatchObject({
+    await expect(
+      stat(globalBareRepositoryLockDirectory({ repository, configDir }))
+    ).rejects.toMatchObject({
       code: "ENOENT",
     });
   });
@@ -122,7 +125,10 @@ describe("global bare repository cache", () => {
       repository,
       configDir,
     });
-    const lockDirectory = `${bareDirectory}.lock`;
+    const lockDirectory = globalBareRepositoryLockDirectory({
+      repository,
+      configDir,
+    });
     await mkdir(lockDirectory, { recursive: true });
     const staleAt = new Date(Date.now() - 31 * 60 * 1000);
     await utimes(lockDirectory, staleAt, staleAt);
