@@ -5,6 +5,8 @@ import {
   mkdir,
   readFile,
   rm,
+  stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +19,102 @@ import {
   releaseRepositoryLock,
   syncRepositoryForRun,
 } from "./git.js";
+import {
+  ensureGlobalBareRepositoryCache,
+  globalBareRepositoryDirectory,
+} from "./repository-cache.js";
+
+describe("global bare repository cache", () => {
+  it("serializes concurrent cache initialization for the same repository", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const configDir = join(tempRoot, "config");
+
+    const [first, second] = await Promise.all([
+      ensureGlobalBareRepositoryCache({ repository, configDir }),
+      ensureGlobalBareRepositoryCache({ repository, configDir }),
+    ]);
+
+    expect(first).toBe(second);
+    expect(
+      execSync(`git -C "${first}" rev-parse --is-bare-repository`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("true");
+    await expect(stat(`${first}.lock`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("skips a fresh fetch but fetches when a required ref is missing", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const configDir = join(tempRoot, "config");
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now,
+    });
+    const originalHead = execSync(`git -C "${bareDirectory}" rev-parse HEAD`, {
+      encoding: "utf8",
+    }).trim();
+
+    await writeFile(join(repository.path, "fresh.txt"), "fresh\n");
+    execSync(`git -C "${repository.path}" add fresh.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Add fresh commit"`);
+    execSync(`git -C "${repository.path}" push origin HEAD`);
+    await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now: new Date(now.getTime() + 30_000),
+    });
+    expect(
+      execSync(`git -C "${bareDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(originalHead);
+
+    execSync(`git -C "${repository.path}" checkout -b feature/cache-ref`);
+    execSync(`git -C "${repository.path}" push origin feature/cache-ref`);
+    await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now: new Date(now.getTime() + 31_000),
+      requiredRef: "refs/heads/feature/cache-ref",
+    });
+    expect(
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/feature/cache-ref`,
+        { encoding: "utf8" }
+      )
+    ).toContain("refs/heads/feature/cache-ref");
+  });
+
+  it("reclaims stale cache locks using repository lock semantics", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const configDir = join(tempRoot, "config");
+    const bareDirectory = globalBareRepositoryDirectory({
+      repository,
+      configDir,
+    });
+    const lockDirectory = `${bareDirectory}.lock`;
+    await mkdir(lockDirectory, { recursive: true });
+    const staleAt = new Date(Date.now() - 31 * 60 * 1000);
+    await utimes(lockDirectory, staleAt, staleAt);
+
+    await expect(
+      ensureGlobalBareRepositoryCache({ repository, configDir })
+    ).resolves.toBe(bareDirectory);
+  });
+});
 
 describe("cloneRepositoryForRun", () => {
   it("serializes concurrent cache clones for the same repository", async () => {
@@ -319,13 +417,19 @@ describe("cloneRepositoryForRun", () => {
       },
     });
     execSync(`git -C "${repositoryDirectory}" config user.name "Test User"`);
-    execSync(`git -C "${repositoryDirectory}" config user.email "test@example.com"`);
+    execSync(
+      `git -C "${repositoryDirectory}" config user.email "test@example.com"`
+    );
 
     expect(() =>
       execSync(`git -C "${repositoryDirectory}" rebase origin/main`)
     ).not.toThrow();
-    await expect(access(join(repositoryDirectory, "base.txt"))).resolves.toBeUndefined();
-    await expect(access(join(repositoryDirectory, "feature.txt"))).resolves.toBeUndefined();
+    await expect(
+      access(join(repositoryDirectory, "base.txt"))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(repositoryDirectory, "feature.txt"))
+    ).resolves.toBeUndefined();
   });
 
   it("keeps pull request branch workspaces reusable on the second cycle", async () => {
@@ -476,9 +580,12 @@ describe("cloneRepositoryForRun", () => {
     ).resolves.toBe(repositoryDirectory);
 
     expect(
-      execSync(`git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`, {
-        encoding: "utf8",
-      }).trim()
+      execSync(
+        `git -C "${repositoryDirectory}" rev-parse --is-shallow-repository`,
+        {
+          encoding: "utf8",
+        }
+      ).trim()
     ).toBe("false");
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")

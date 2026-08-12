@@ -18,6 +18,7 @@ import {
   type RepositoryRef,
   type WorkflowResolution,
 } from "@gh-symphony/core";
+import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 
 const workflowConfigStore = new WorkflowConfigStore();
 const LOCK_RETRY_MS = 100;
@@ -36,6 +37,7 @@ export type PullRequestBranchCheckoutTarget = {
 export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
+  requiredRef?: string;
 }): Promise<string> {
   const result = await syncRepositoryForRun(input);
   return result.repositoryDirectory;
@@ -44,6 +46,7 @@ export async function cloneRepositoryForRun(input: {
 export async function syncRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
+  requiredRef?: string;
 }): Promise<RepositorySyncResult> {
   await mkdir(input.targetDirectory, { recursive: true });
   const repositoryDirectory = join(input.targetDirectory, "repository");
@@ -90,9 +93,15 @@ export async function syncRepositoryForRun(input: {
     await rm(tempRepositoryDirectory, { recursive: true, force: true });
 
     try {
+      const bareRepositoryDirectory = await ensureGlobalBareRepositoryCache({
+        repository: input.repository,
+        requiredRef: input.requiredRef,
+      });
       await runCommand("git", [
         "clone",
         "--filter=blob:none",
+        "--reference-if-able",
+        bareRepositoryDirectory,
         input.repository.cloneUrl,
         tempRepositoryDirectory,
       ]);
@@ -129,6 +138,9 @@ export async function ensureIssueWorkspaceRepository(input: {
     : await cloneRepositoryForRun({
         repository: input.repository,
         targetDirectory: input.issueWorkspacePath,
+        requiredRef: input.pullRequestBranch
+          ? `refs/heads/${input.pullRequestBranch.headRefName}`
+          : undefined,
       });
 
   if (input.pullRequestBranch && !dirtyExistingWorkspaceAllowed) {
@@ -230,6 +242,10 @@ export async function loadWorkflowFile(
       error instanceof Error ? error.message : "workflow_parse_error"
     );
   }
+}
+
+export function runGitCommand(args: string[]): Promise<void> {
+  return runCommand("git", args);
 }
 
 function runCommand(command: string, args: string[]): Promise<void> {
@@ -535,6 +551,10 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export function runGitCommandCapture(args: string[]): Promise<string> {
+  return runCommandCapture("git", args);
 }
 
 function runCommandCapture(command: string, args: string[]): Promise<string> {
