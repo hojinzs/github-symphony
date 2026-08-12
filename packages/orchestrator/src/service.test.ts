@@ -11664,7 +11664,7 @@ Prefer focused changes.
     ).resolves.toBe("from-project-env\n");
   });
 
-  it("resolves workflow $VAR values from project .env with host precedence", async () => {
+  it("resolves standalone project .env $VAR values with host precedence", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const originalProjectId = process.env.PROJECT_ENV_WORKFLOW_ID;
     process.env.PROJECT_ENV_WORKFLOW_ID = "host-project-id";
@@ -11708,10 +11708,16 @@ Prefer focused changes.
         }
       );
       const store = new OrchestratorFsStore(tempRoot);
-      const projectConfig = createProjectConfig(tempRoot, repository);
+      const standaloneProjectDir = await mkdtemp(
+        join(tmpdir(), "orchestrator-standalone-project-env-")
+      );
+      const projectConfig = {
+        ...createProjectConfig(tempRoot, repository),
+        projectDir: standaloneProjectDir,
+      };
       await store.saveProjectConfig(projectConfig);
       await writeFile(
-        join(store.projectDir(projectConfig.projectId), ".env"),
+        join(standaloneProjectDir, ".env"),
         "PROJECT_ENV_WORKFLOW_ID=project-env-id\n",
         "utf8"
       );
@@ -11764,9 +11770,11 @@ Prefer focused changes.
 
     const environment = (
       service as unknown as {
-        resolveProjectEnvironment(projectId: string): NodeJS.ProcessEnv;
+        resolveProjectEnvironment(
+          tenant: OrchestratorProjectConfig
+        ): NodeJS.ProcessEnv;
       }
-    ).resolveProjectEnvironment(projectConfig.projectId);
+    ).resolveProjectEnvironment(projectConfig);
 
     expect(environment.PROJECT_ENV_VALUE).toBe("loaded");
     expect(stderr.write).toHaveBeenCalledWith(
