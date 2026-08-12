@@ -10,6 +10,14 @@ import {
 
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
+const originalStdinIsTty = Object.getOwnPropertyDescriptor(
+  process.stdin,
+  "isTTY"
+);
+const originalStdoutIsTty = Object.getOwnPropertyDescriptor(
+  process.stdout,
+  "isTTY"
+);
 
 vi.mock("@clack/prompts", async () => {
   const actual =
@@ -28,7 +36,10 @@ const {
   resolveManagedProjectConfig,
 } = await import("./project-selection.js");
 
-function createProject(projectId: string, displayName?: string): CliProjectConfig {
+function createProject(
+  projectId: string,
+  displayName?: string
+): CliProjectConfig {
   return {
     projectId,
     slug: projectId,
@@ -71,6 +82,12 @@ afterEach(() => {
   selectMock.mockReset();
   cancelMock.mockReset();
   vi.restoreAllMocks();
+  if (originalStdinIsTty) {
+    Object.defineProperty(process.stdin, "isTTY", originalStdinIsTty);
+  }
+  if (originalStdoutIsTty) {
+    Object.defineProperty(process.stdout, "isTTY", originalStdoutIsTty);
+  }
   process.exitCode = undefined;
 });
 
@@ -85,10 +102,10 @@ describe("resolveManagedProjectConfig", () => {
   });
 
   it("uses the active project in non-interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture([
-      createProject("tenant-a"),
-      createProject("tenant-b"),
-    ], "tenant-b");
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
     setTty(false, false);
 
     const project = await resolveManagedProjectConfig({ configDir });
@@ -117,12 +134,10 @@ describe("resolveManagedProjectConfig", () => {
   });
 
   it("prompts and resolves the selected project in interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture(
-      [
-        createProject("tenant-a", "Alpha"),
-        createProject("tenant-b", "Beta"),
-      ]
-    );
+    const configDir = await createConfigFixture([
+      createProject("tenant-a", "Alpha"),
+      createProject("tenant-b", "Beta"),
+    ]);
     setTty(true, true);
     selectMock.mockResolvedValue("tenant-b");
 

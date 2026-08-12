@@ -263,7 +263,7 @@ const handler = async (
     return;
   }
   if (subcommand === "start") {
-    await startCommand(args.slice(1), options);
+    await startCommand(args.slice(1), { ...options, invocation: "project" });
     return;
   }
   if (subcommand === "status") {

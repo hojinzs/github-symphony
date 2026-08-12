@@ -235,7 +235,7 @@ describe("lifecycle command integration", () => {
     );
   });
 
-  it("prompts for project selection when run omits --project-id in interactive multi-project mode", async () => {
+  it("uses the active project when run omits --project-id in multi-project mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -243,26 +243,25 @@ describe("lifecycle command integration", () => {
         createTenant("tenant-b", "beta", "api"),
       ],
     });
-    selectMock.mockResolvedValue("tenant-b");
-    setTty(true, true);
+    setTty(false, false);
 
-    await runModule.default(["beta/api#42"], baseOptions(configDir));
+    await runModule.default(["acme/platform#42"], baseOptions(configDir));
 
-    expect(selectMock).toHaveBeenCalled();
+    expect(selectMock).not.toHaveBeenCalled();
     expect(orchestratorRunCli).toHaveBeenCalledWith([
       "run-issue",
       "--runtime-root",
       configDir,
       "--project-id",
-      "tenant-b",
+      "tenant-a",
       "--issue",
-      "beta/api#42",
+      "acme/platform#42",
     ]);
   });
 
-  it("preserves the cancel exit code when interactive project selection is aborted", async () => {
+  it("preserves the cancel exit code when no active project selection is aborted", async () => {
     const configDir = await createConfigFixture({
-      activeProject: "tenant-a",
+      activeProject: null,
       projects: [
         createTenant("tenant-a", "acme", "platform"),
         createTenant("tenant-b", "beta", "api"),
@@ -286,7 +285,7 @@ describe("lifecycle command integration", () => {
     expect(process.exitCode).toBe(130);
   });
 
-  it("requires explicit --project-id in non-interactive multi-project mode", async () => {
+  it("uses the active project in non-interactive multi-project mode", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [
@@ -295,18 +294,18 @@ describe("lifecycle command integration", () => {
       ],
     });
     setTty(false, false);
-    const stderr = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-
     await runModule.default(["acme/platform#7"], baseOptions(configDir));
 
-    expect(orchestratorRunCli).not.toHaveBeenCalled();
-    const output = stderr.mock.calls.map((call) => String(call[0])).join("");
-    expect(output).toContain(
-      "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime."
-    );
-    expect(process.exitCode).toBe(1);
+    expect(orchestratorRunCli).toHaveBeenCalledWith([
+      "run-issue",
+      "--runtime-root",
+      configDir,
+      "--project-id",
+      "tenant-a",
+      "--issue",
+      "acme/platform#7",
+    ]);
+    expect(process.exitCode).toBeUndefined();
   });
 
   it("rejects removed project selection flags in daemon mode", async () => {
@@ -635,7 +634,7 @@ function createTenant(
 }
 
 async function createConfigFixture(input: {
-  activeProject: string;
+  activeProject: string | null;
   projects: CliProjectConfig[];
 }): Promise<string> {
   const configDir = await mkdtemp(join(tmpdir(), "cli-lifecycle-"));
@@ -644,7 +643,7 @@ async function createConfigFixture(input: {
     JSON.stringify(
       {
         activeProject: input.activeProject,
-        token: `${input.activeProject}-token`,
+        token: input.activeProject ? `${input.activeProject}-token` : undefined,
         projects: input.projects.map((project) => project.projectId),
       },
       null,

@@ -816,7 +816,7 @@ describe("start command foreground locking", () => {
     expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
   });
 
-  it("starts an external project daemon from its project directory", async () => {
+  it("starts the active external project daemon from its project directory", async () => {
     const configDir = await createConfigFixture({
       activeProject: "standalone",
       projects: [
@@ -828,6 +828,7 @@ describe("start command foreground locking", () => {
             path: "/tmp/standalone-project/WORKFLOW.md",
           },
         },
+        createProject("other-project", "beta", "api"),
       ],
     });
 

@@ -79,9 +79,12 @@ function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
-function displayGhAuthError(error: GitHubAuthError): void {
+function displayGhAuthError(
+  error: GitHubAuthError,
+  retryCommand = REPO_START_COMMAND
+): void {
   const remediation = formatGhAuthRemediation(error, {
-    retryCommand: REPO_START_COMMAND,
+    retryCommand,
   });
   process.stderr.write(`${remediation.title}: ${remediation.message}\n`);
   process.stderr.write(`${remediation.hint}\n`);
@@ -108,6 +111,7 @@ function displayGitHubAuthSuccess(auth: {
 
 async function resolveRepoStartGitHubAuth(input: {
   allowInteractiveRemediation: boolean;
+  retryCommand: string;
 }): Promise<RepoStartAuthPreflightResult> {
   try {
     const auth = await resolveGitHubAuth();
@@ -119,10 +123,10 @@ async function resolveRepoStartGitHubAuth(input: {
       throw error;
     }
 
-    displayGhAuthError(error);
+    displayGhAuthError(error, input.retryCommand);
 
     const remediation = formatGhAuthRemediation(error, {
-      retryCommand: REPO_START_COMMAND,
+      retryCommand: input.retryCommand,
     });
     const canRemediate =
       input.allowInteractiveRemediation &&
@@ -160,7 +164,7 @@ async function resolveRepoStartGitHubAuth(input: {
       return { ok: true, githubAuthSource: auth.source };
     } catch (retryError) {
       if (retryError instanceof GitHubAuthError) {
-        displayGhAuthError(retryError);
+        displayGhAuthError(retryError, input.retryCommand);
         process.exitCode = 1;
         return { ok: false };
       }
@@ -171,11 +175,12 @@ async function resolveRepoStartGitHubAuth(input: {
 
 async function preflightRepoStartAuth(
   projectConfig: OrchestratorProjectConfig,
-  input: { daemon: boolean }
+  input: { daemon: boolean; retryCommand: string }
 ): Promise<RepoStartAuthPreflightResult> {
   if (projectConfig.tracker.adapter === "github-project") {
     return resolveRepoStartGitHubAuth({
       allowInteractiveRemediation: !input.daemon,
+      retryCommand: input.retryCommand,
     });
   }
 
@@ -184,7 +189,7 @@ async function preflightRepoStartAuth(
       return { ok: true };
     }
     process.stderr.write(
-      "Linear authentication is required. Set LINEAR_API_KEY in the environment before running 'gh-symphony repo start'.\n"
+      `Linear authentication is required. Set LINEAR_API_KEY in the environment before running '${input.retryCommand}'.\n`
     );
     process.exitCode = 1;
     return { ok: false };
@@ -936,6 +941,10 @@ const handler = async (
 
   const authPreflight = await preflightRepoStartAuth(projectConfig, {
     daemon: parsed.daemon,
+    retryCommand:
+      options.invocation === "project"
+        ? "gh-symphony project start"
+        : REPO_START_COMMAND,
   });
   if (!authPreflight.ok) {
     return;
