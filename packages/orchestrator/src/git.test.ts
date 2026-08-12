@@ -24,6 +24,7 @@ import {
   globalBareRepositoryDirectory,
   globalBareRepositoryLockDirectory,
 } from "./repository-cache.js";
+import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
 const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
 let testConfigDir: string;
@@ -101,6 +102,8 @@ describe("global bare repository cache", () => {
 
     execSync(`git -C "${repository.path}" checkout -b feature/cache-ref`);
     execSync(`git -C "${repository.path}" push origin feature/cache-ref`);
+    execSync(`git -C "${repository.path}" tag cache-v1`);
+    execSync(`git -C "${repository.path}" push origin cache-v1`);
     await ensureGlobalBareRepositoryCache({
       repository,
       configDir,
@@ -113,6 +116,14 @@ describe("global bare repository cache", () => {
         { encoding: "utf8" }
       )
     ).toContain("refs/heads/feature/cache-ref");
+    expect(
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/tags/cache-v1`,
+        {
+          encoding: "utf8",
+        }
+      )
+    ).toContain("refs/tags/cache-v1");
   });
 
   it("reclaims stale cache locks using repository lock semantics", async () => {
@@ -136,6 +147,53 @@ describe("global bare repository cache", () => {
     await expect(
       ensureGlobalBareRepositoryCache({ repository, configDir })
     ).resolves.toBe(bareDirectory);
+  });
+
+  it("recreates a cache with a missing origin remote under its lock", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const repository = await createRepositoryFixture(tempRoot);
+    const configDir = join(tempRoot, "config");
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+    });
+    execSync(`git -C "${bareDirectory}" remote remove origin`);
+
+    await ensureGlobalBareRepositoryCache({ repository, configDir });
+
+    expect(
+      execSync(`git -C "${bareDirectory}" remote get-url origin`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(repository.cloneUrl);
+  });
+
+  it("does not persist clone URL credentials in the bare cache remote", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const fixture = await createRepositoryFixture(tempRoot);
+    const repository = {
+      ...fixture,
+      cloneUrl: `file://x-access-token:secret-token@localhost${fixture.cloneUrl}`,
+    };
+    const bareDirectory = await ensureGlobalBareRepositoryCache({ repository });
+
+    const origin = execSync(`git -C "${bareDirectory}" remote get-url origin`, {
+      encoding: "utf8",
+    }).trim();
+    expect(origin).not.toContain("secret-token");
+    expect(origin).not.toContain("x-access-token@");
+  });
+
+  it("rejects unsafe repository path segments", () => {
+    expect(() =>
+      globalBareRepositoryDirectory({
+        repository: { owner: "../outside", name: "platform" },
+      })
+    ).toThrow(/Invalid repository owner/);
   });
 });
 
@@ -181,6 +239,49 @@ describe("cloneRepositoryForRun", () => {
     expect(
       await readFile(join(clonedDirectory, "WORKFLOW.md"), "utf8")
     ).toContain('project_id: "PVT_test"');
+  });
+
+  it("keeps new workspaces usable after the global cache is removed", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const targetDirectory = join(tempRoot, "workspace");
+    const repositoryDirectory = await cloneRepositoryForRun({
+      repository,
+      targetDirectory,
+    });
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+
+    await expect(
+      access(join(repositoryDirectory, ".git", "objects", "info", "alternates"))
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await rm(bareDirectory, { recursive: true, force: true });
+    expect(
+      execSync(`git -C "${repositoryDirectory}" log --oneline -1`, {
+        encoding: "utf8",
+      })
+    ).toContain("Add workflow");
+  });
+
+  it("does not persist clone URL credentials in a workspace remote", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
+    const fixture = await createRepositoryFixture(tempRoot);
+    const repository = {
+      ...fixture,
+      cloneUrl: `file://x-access-token:secret-token@localhost${fixture.cloneUrl}`,
+    };
+    const repositoryDirectory = await cloneRepositoryForRun({
+      repository,
+      targetDirectory: join(tempRoot, "workspace"),
+    });
+
+    const origin = execSync(
+      `git -C "${repositoryDirectory}" remote get-url origin`,
+      { encoding: "utf8" }
+    ).trim();
+    expect(origin).not.toContain("secret-token");
+    expect(origin).not.toContain("x-access-token@");
   });
 
   it("reports whether a cached repository pull changed HEAD", async () => {
@@ -655,6 +756,16 @@ describe("cloneRepositoryForRun", () => {
     await expect(access(lockDirectory)).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+});
+
+describe("sanitizeRepositoryCloneUrl", () => {
+  it("removes embedded credentials before Git can persist the remote", () => {
+    expect(
+      sanitizeRepositoryCloneUrl(
+        "https://x-access-token:secret-token@github.com/acme/platform.git"
+      )
+    ).toBe("https://github.com/acme/platform.git");
   });
 });
 

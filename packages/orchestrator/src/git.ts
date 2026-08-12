@@ -19,6 +19,7 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
+import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
 const workflowConfigStore = new WorkflowConfigStore();
 const LOCK_RETRY_MS = 100;
@@ -102,7 +103,8 @@ export async function syncRepositoryForRun(input: {
         "--filter=blob:none",
         "--reference-if-able",
         bareRepositoryDirectory,
-        input.repository.cloneUrl,
+        "--dissociate",
+        sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
         tempRepositoryDirectory,
       ]);
       await rename(tempRepositoryDirectory, repositoryDirectory);
@@ -377,7 +379,7 @@ async function syncExistingIssueWorkspaceRepository(
       await runCommand("git", [
         "clone",
         "--filter=blob:none",
-        input.repository.cloneUrl,
+        sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
         tempRepositoryDirectory,
       ]);
       await rename(tempRepositoryDirectory, repositoryDirectory);
