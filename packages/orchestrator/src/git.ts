@@ -211,8 +211,13 @@ export async function loadRepositoryWorkflow(
   repositoryDirectory: string,
   _repository: RepositoryRef
 ): Promise<WorkflowResolution> {
-  const workflowPath = join(repositoryDirectory, "WORKFLOW.md");
+  return loadWorkflowFile(join(repositoryDirectory, "WORKFLOW.md"));
+}
 
+/** Load a workflow from an explicitly selected file without repository lookup. */
+export async function loadWorkflowFile(
+  workflowPath: string
+): Promise<WorkflowResolution> {
   try {
     return await workflowConfigStore.load(workflowPath);
   } catch (error) {

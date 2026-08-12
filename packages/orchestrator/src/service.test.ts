@@ -11373,6 +11373,157 @@ Workspace prompt.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
+  it("loads only an external workflow and warns when it shadows the repository workflow", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
+      "utf8"
+    );
+    await writeFile(
+      join(repository.path, "WORKFLOW.md"),
+      "---\ninvalid: [\n---\n",
+      "utf8"
+    );
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4309,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(snapshot.summary.dispatched).toBe(1);
+    expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(externalWorkflowPath);
+    expect(snapshot.warnings).toEqual([
+      `External workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
+    ]);
+  });
+
+  it("reloads the configured external workflow and preserves repo mode behavior", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-reload-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { codexCommand: "codex --model repo" }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
+      "utf8"
+    );
+    const service = new OrchestratorService(store, projectConfig);
+    const loadWorkflow = (
+      service as unknown as {
+        loadProjectWorkflow: (
+          tenant: OrchestratorProjectConfig,
+          repository: RepositoryRef
+        ) => Promise<WorkflowResolution>;
+      }
+    ).loadProjectWorkflow.bind(service);
+
+    await expect(
+      loadWorkflow(projectConfig, repository)
+    ).resolves.toMatchObject({
+      workflowPath: externalWorkflowPath,
+      agentCommand: "codex --model repo",
+    });
+    await writeFile(
+      externalWorkflowPath,
+      (await readFile(externalWorkflowPath, "utf8")).replace(
+        "codex --model repo",
+        "codex --model external-reloaded"
+      ),
+      "utf8"
+    );
+
+    await expect(
+      loadWorkflow(projectConfig, repository)
+    ).resolves.toMatchObject({
+      workflowPath: externalWorkflowPath,
+      agentCommand: "codex --model external-reloaded",
+    });
+  });
+
+  it("reports missing_workflow_file for a missing external workflow", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-missing-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    const service = new OrchestratorService(store, projectConfig);
+    const loadWorkflow = (
+      service as unknown as {
+        loadProjectWorkflow: (
+          tenant: OrchestratorProjectConfig,
+          repository: RepositoryRef
+        ) => Promise<WorkflowResolution>;
+      }
+    ).loadProjectWorkflow.bind(service);
+
+    await expect(
+      loadWorkflow(projectConfig, repository)
+    ).resolves.toMatchObject({
+      workflowPath: null,
+      isValid: false,
+      validationError: "missing_workflow_file",
+    });
+  });
+
   it("uses repo WORKFLOW.md when it is valid", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-repo-wf-"));
@@ -11400,6 +11551,7 @@ Workspace prompt.
     // Repo WORKFLOW.md defines Todo as active, issue is in "Todo" → dispatched
     expect(result.summary.dispatched).toBe(1);
     expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(result.warnings).toEqual([]);
   });
 
   it("loads project .env for repository script hooks during workspace creation", async () => {

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
@@ -58,6 +58,7 @@ import {
 import {
   ensureIssueWorkspaceRepository,
   inspectIssueWorkspaceDirtyStatus,
+  loadWorkflowFile,
   loadRepositoryWorkflow,
   quarantineIssueWorkspace,
   readGitCurrentBranch,
@@ -1778,6 +1779,7 @@ export class OrchestratorService {
         dispatchRateLimits
       ),
       issueWorkspaces,
+      warnings: await this.resolveWorkflowWarnings(tenant),
     });
     await this.store.saveProjectStatus({
       ...status,
@@ -2207,13 +2209,35 @@ export class OrchestratorService {
       repository.owner,
       repository.name
     );
-    const repositoryDirectory =
-      this.resolveWorkflowRepositoryDirectory(repository);
-    const resolution = await loadRepositoryWorkflow(
-      repositoryDirectory,
-      repository
-    );
+    const resolution =
+      tenant.workflowSource?.type === "external"
+        ? await loadWorkflowFile(tenant.workflowSource.path)
+        : await loadRepositoryWorkflow(
+            this.resolveWorkflowRepositoryDirectory(repository),
+            repository
+          );
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
+  }
+
+  private async resolveWorkflowWarnings(
+    tenant: OrchestratorProjectConfig
+  ): Promise<string[]> {
+    if (tenant.workflowSource?.type !== "external") {
+      return [];
+    }
+
+    const repositoryWorkflowPath = join(
+      this.resolveWorkflowRepositoryDirectory(tenant.repository),
+      "WORKFLOW.md"
+    );
+    try {
+      await access(repositoryWorkflowPath);
+      return [
+        `External workflow source ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
+      ];
+    } catch {
+      return [];
+    }
   }
 
   private async startRun(
