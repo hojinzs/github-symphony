@@ -13,7 +13,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveIssueWorkspaceKey,
   resolveIssueWorkspaceDirectory,
@@ -36,6 +36,13 @@ describe("OrchestratorService", () => {
   const originalAllowWorkflowHooks = process.env.SYMPHONY_ALLOW_WORKFLOW_HOOKS;
   const originalConvergenceLockTtlMs =
     process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS;
+  const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+  let testConfigDir: string;
+
+  beforeEach(async () => {
+    testConfigDir = await mkdtemp(join(tmpdir(), "orchestrator-config-"));
+    process.env.GH_SYMPHONY_CONFIG_DIR = testConfigDir;
+  });
 
   it("clamps polling intervals to prevent spins and excessive sleeps", () => {
     expect(clampPollInterval(0)).toBe(1_000);
@@ -61,6 +68,15 @@ describe("OrchestratorService", () => {
       process.env.SYMPHONY_CONVERGENCE_LOCK_TTL_MS =
         originalConvergenceLockTtlMs;
     }
+    if (originalConfigDir === undefined) {
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
+    } else {
+      process.env.GH_SYMPHONY_CONFIG_DIR = originalConfigDir;
+    }
+  });
+
+  afterEach(async () => {
+    await rm(testConfigDir, { recursive: true, force: true });
   });
 
   it("passes runtime assignedOnly into tracker dependencies", () => {
