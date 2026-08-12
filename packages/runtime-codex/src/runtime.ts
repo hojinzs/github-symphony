@@ -557,8 +557,11 @@ export function buildCodexRuntimePlan(
         linearGraphqlUrl: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
       })
     : undefined;
+  const builtinTools = [githubTool, linearTool].filter(
+    (tool): tool is RuntimeToolDefinition => tool !== undefined
+  );
   const builtins = Object.fromEntries(
-    [githubTool, linearTool]
+    builtinTools
       .filter((tool): tool is RuntimeToolDefinition => tool !== undefined)
       .map((tool) => [tool.name, tool])
   );
@@ -572,8 +575,8 @@ export function buildCodexRuntimePlan(
   if (!config.enableLinearGraphqlTool) {
     delete servers.linear_graphql;
   }
-  const tools = Object.entries(servers).map(([name, server]) =>
-    createMcpToolDefinition(name, server)
+  const tools = Object.entries(servers).map(
+    ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
   );
   const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
 
@@ -634,7 +637,7 @@ export function buildCodexRuntimePlan(
       ...orchestratorRunEnv,
       ...agentEnv,
       ...gitCredentialHelper,
-      ...Object.assign({}, ...tools.map((tool) => tool.env)),
+      ...Object.assign({}, ...builtinTools.map((tool) => tool.env)),
     },
     tools,
   };

@@ -419,7 +419,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     });
   });
 
-  it("prepares non-strict MCP config argv without writing workspace .mcp.json", async () => {
+  it("enforces strict MCP config for an untrusted workspace sidecar", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
     const runtimeRoot = join(workspaceRoot, "runtime");
     tempRoots.push(workspaceRoot);
@@ -459,7 +459,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     const mcpConfigPath = join(runtimeRoot, "mcp.json");
     expect(calls[0]?.args).toContain("--mcp-config");
     expect(calls[0]?.args).toContain(mcpConfigPath);
-    expect(calls[0]?.args).not.toContain("--strict-mcp-config");
+    expect(calls[0]?.args).toContain("--strict-mcp-config");
     expect(await readFile(mcpConfigPath, "utf8")).toContain("github_graphql");
     await expect(
       readFile(join(workspaceRoot, ".mcp.json"), "utf8")

@@ -3,10 +3,9 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
-import { composeMcpServers } from "@gh-symphony/core";
+import { composeMcpServers, readMcpConfig } from "@gh-symphony/core";
 
 export type ClaudeMcpTokenEnvironment = {
-  [key: string]: string | undefined;
   GITHUB_GRAPHQL_TOKEN?: string;
   GITHUB_GRAPHQL_API_URL?: string;
   GITHUB_TOKEN_BROKER_URL?: string;
@@ -37,17 +36,22 @@ export async function composeClaudeMcpConfig(
     workspaceRoot,
     symphonyTokenEnv
   );
+  const trustRepoConfig =
+    symphonyTokenEnv.SYMPHONY_TRUST_REPO_CONFIG === "true";
   const mcpServers = composeMcpServers({
     repositoryDir: workspaceRoot,
     projectDir: symphonyTokenEnv.SYMPHONY_PROJECT_DIR,
-    trustRepoConfig: symphonyTokenEnv.SYMPHONY_TRUST_REPO_CONFIG === "true",
+    trustRepoConfig,
     env: symphonyTokenEnv,
     builtins: createSymphonyMcpServers(symphonyTokenEnv),
   });
   if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
     delete mcpServers.linear_graphql;
   }
-  const mergedConfig = { mcpServers };
+  const repositoryConfig = trustRepoConfig
+    ? readMcpConfig(join(workspaceRoot, ".mcp.json"))
+    : undefined;
+  const mergedConfig = { ...repositoryConfig, mcpServers };
 
   await ensureSecureConfigParent(dirname(finalPath));
   await chmodExistingSecretFile(finalPath);
@@ -59,9 +63,10 @@ export async function composeClaudeMcpConfig(
 
   return {
     finalPath,
-    extraArgv: strictMode
-      ? ["--strict-mcp-config", "--mcp-config", finalPath]
-      : ["--mcp-config", finalPath],
+    extraArgv:
+      strictMode || !trustRepoConfig
+        ? ["--strict-mcp-config", "--mcp-config", finalPath]
+        : ["--mcp-config", finalPath],
     cleanupPath: finalPath,
   };
 }

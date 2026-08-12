@@ -130,4 +130,66 @@ describe("composeMcpServers", () => {
       })
     ).toMatchObject({ valid: { env: { TOKEN: "from-project" } } });
   });
+
+  it("resolves host environment values even with caller-provided env", async () => {
+    const { repo, project, home } = await fixture();
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          host: { command: "tool", env: { TOKEN: "$MCP_HOST_TOKEN" } },
+          mixed: { command: "tool", env: { TOKEN: "${mcpMixedToken}" } },
+        },
+      })
+    );
+    process.env.MCP_HOST_TOKEN = "from-host";
+    process.env.mcpMixedToken = "from-mixed-host";
+    try {
+      expect(
+        composeMcpServers({
+          repositoryDir: repo,
+          projectDir: project,
+          homeDir: home,
+          env: { CODEX_HOME: "/tmp/codex" },
+        })
+      ).toMatchObject({
+        host: { env: { TOKEN: "from-host" } },
+        mixed: { env: { TOKEN: "from-mixed-host" } },
+      });
+    } finally {
+      delete process.env.MCP_HOST_TOKEN;
+      delete process.env.mcpMixedToken;
+    }
+  });
+
+  it("rejects malformed server args and env shapes", async () => {
+    const { repo, project, home } = await fixture();
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: { invalid: { command: "tool", args: "--serve" } },
+      })
+    );
+    expect(() =>
+      composeMcpServers({
+        repositoryDir: repo,
+        projectDir: project,
+        homeDir: home,
+      })
+    ).toThrow("args as an array of strings");
+
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: { invalid: { command: "tool", env: "TOKEN=value" } },
+      })
+    );
+    expect(() =>
+      composeMcpServers({
+        repositoryDir: repo,
+        projectDir: project,
+        homeDir: home,
+      })
+    ).toThrow("env as an object");
+  });
 });

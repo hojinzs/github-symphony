@@ -27,7 +27,8 @@ export function composeMcpServers(
 ): Record<string, McpServerDefinition> {
   const projectDir = options.projectDir;
   const env = {
-    ...(options.env ?? process.env),
+    ...process.env,
+    ...options.env,
     ...(projectDir ? readEnvFile(join(projectDir, ".env")) : {}),
   };
   const layers = [
@@ -48,6 +49,20 @@ function readMcpServers(
   path: string,
   env: Record<string, string | undefined>
 ): Record<string, McpServerDefinition> {
+  const config = readMcpConfig(path);
+  if (config === undefined) return {};
+  const servers = isRecord(config.mcpServers) ? config.mcpServers : {};
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, value]) => [
+      name,
+      resolveServer(name, value, env, path),
+    ])
+  );
+}
+
+export function readMcpConfig(
+  path: string
+): Record<string, unknown> | undefined {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
@@ -61,14 +76,7 @@ function readMcpServers(
   } catch {
     throw new McpConfigError(`Invalid MCP config JSON: ${path}`);
   }
-  const servers =
-    isRecord(parsed) && isRecord(parsed.mcpServers) ? parsed.mcpServers : {};
-  return Object.fromEntries(
-    Object.entries(servers).map(([name, value]) => [
-      name,
-      resolveServer(name, value, env, path),
-    ])
-  );
+  return isRecord(parsed) ? parsed : {};
 }
 
 function resolveServer(
@@ -81,18 +89,35 @@ function resolveServer(
     throw new McpConfigError(`Invalid MCP server "${name}" in ${path}`);
   }
   const server = { ...value } as McpServerDefinition;
-  if (!isRecord(server.env)) return server;
+  if (
+    server.args !== undefined &&
+    (!Array.isArray(server.args) ||
+      !server.args.every((arg) => typeof arg === "string"))
+  ) {
+    throw new McpConfigError(
+      `MCP server "${name}" in ${path} must define args as an array of strings.`
+    );
+  }
+  if (server.env === undefined) return server;
+  if (!isRecord(server.env)) {
+    throw new McpConfigError(
+      `MCP server "${name}" in ${path} must define env as an object.`
+    );
+  }
   server.env = Object.fromEntries(
     Object.entries(server.env).map(([key, variable]) => {
       if (
         typeof variable !== "string" ||
-        !/^\$[A-Z_][A-Z0-9_]*$/.test(variable)
+        !/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(variable)
       ) {
         throw new McpConfigError(
           `MCP server "${name}" in ${path} must reference env.${key} as $VAR; literal values are not allowed.`
         );
       }
-      const resolved = env[variable.slice(1)];
+      const variableName = variable.startsWith("${")
+        ? variable.slice(2, -1)
+        : variable.slice(1);
+      const resolved = env[variableName];
       if (resolved === undefined)
         throw new McpConfigError(
           `MCP server "${name}" in ${path} references unset environment variable ${variable}.`
