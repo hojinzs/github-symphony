@@ -351,7 +351,8 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
       runId: this.preparedSession.runId,
       sessionId: invalidatedSessionId,
       replacementSessionId,
-      reason: "claude resume session was rejected because no conversation was found",
+      reason:
+        "claude resume session was rejected because no conversation was found",
     });
 
     const retryArgv = buildClaudePrintArgv(
@@ -693,6 +694,8 @@ function buildClaudeMcpTokenEnvironment(options: {
     LINEAR_AUTHORIZATION: source.LINEAR_AUTHORIZATION,
     LINEAR_GRAPHQL_URL: source.LINEAR_GRAPHQL_URL,
     SYMPHONY_TRACKER_KIND: source.SYMPHONY_TRACKER_KIND,
+    SYMPHONY_PROJECT_DIR: source.SYMPHONY_PROJECT_DIR,
+    SYMPHONY_TRUST_REPO_CONFIG: source.SYMPHONY_TRUST_REPO_CONFIG,
     WORKSPACE_RUNTIME_DIR:
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
   };

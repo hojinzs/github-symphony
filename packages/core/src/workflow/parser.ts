@@ -638,6 +638,12 @@ function parseRuntimeConfig(
           "strict_mcp_config",
           "runtime.isolation.strict_mcp_config"
         ) ?? false,
+      trustRepoConfig:
+        readOptionalBoolean(
+          isolation,
+          "trust_repo_config",
+          "runtime.isolation.trust_repo_config"
+        ) ?? false,
     },
     auth: {
       env: readOptionalString(auth, "env", env),

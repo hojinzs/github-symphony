@@ -88,6 +88,7 @@ export type WorkflowRuntimeKind =
 export type WorkflowRuntimeIsolationConfig = {
   bare: boolean;
   strictMcpConfig: boolean;
+  trustRepoConfig: boolean;
 };
 
 export type WorkflowRuntimeAuthConfig = {
