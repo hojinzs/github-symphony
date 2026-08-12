@@ -4153,19 +4153,7 @@ Prefer focused changes.
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
-    const issueRecords: IssueOrchestrationRecord[] = [
-      {
-        issueId: "issue-1",
-        identifier: "acme/platform#1",
-        workspaceKey: "acme_platform_1",
-        completedOnce: false,
-        failureRetryCount: 0,
-        state: "running",
-        currentRunId: null,
-        retryEntry: null,
-        updatedAt: "2026-03-08T00:00:00.000Z",
-      },
-    ];
+    const issueRecords: IssueOrchestrationRecord[] = [];
     await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
     const baseRun = {
       projectId: "tenant-1",
@@ -4240,6 +4228,7 @@ Prefer focused changes.
       [deadRun, liveRun],
       new Date("2026-03-08T00:01:00.000Z")
     );
+    expect(selectedRecords[0]?.state).toBe("running");
     expect(selectedRecords[0]?.currentRunId).toBe("run-z-live");
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.currentRunId
