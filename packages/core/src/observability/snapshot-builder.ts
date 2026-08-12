@@ -30,6 +30,7 @@ export type SnapshotInput = {
   effectivePollIntervalMs?: number;
   dispatchSuppressedUntil?: string | null;
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
+  warnings?: string[];
 };
 
 /**
@@ -52,6 +53,7 @@ export function buildProjectSnapshot(
     effectivePollIntervalMs,
     dispatchSuppressedUntil,
     issueWorkspaces,
+    warnings,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
@@ -65,6 +67,7 @@ export function buildProjectSnapshot(
       settings: project.tracker.settings,
     },
     lastTickAt,
+    warnings: warnings ?? [],
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
     summary: {
       dispatched: summary.dispatched,

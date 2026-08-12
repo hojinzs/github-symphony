@@ -50,6 +50,12 @@ export type WorkflowWorkspaceConfig = {
   root: string | null;
 };
 
+/**
+ * Repository-specific front matter is an optional extension. Its schema is
+ * owned by the extension consumer, so core preserves the decoded object.
+ */
+export type WorkflowRepositoryExtension = Record<string, unknown> | null;
+
 export type WorkflowAgentConfig = {
   maxConcurrentAgents: number;
   maxRetryBackoffMs: number;
@@ -115,6 +121,7 @@ export type WorkflowDefinition = {
   polling: {
     intervalMs: number;
   };
+  repository: WorkflowRepositoryExtension;
   workspace: WorkflowWorkspaceConfig;
   hooks: WorkflowHooksConfig;
   agent: WorkflowAgentConfig;
@@ -204,6 +211,7 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
   polling: {
     intervalMs: DEFAULT_POLL_INTERVAL_MS,
   },
+  repository: null,
   workspace: DEFAULT_WORKFLOW_WORKSPACE,
   hooks: DEFAULT_WORKFLOW_HOOKS,
   agent: DEFAULT_WORKFLOW_AGENT,

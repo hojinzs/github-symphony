@@ -289,6 +289,8 @@ export type ProjectStatusSnapshot = {
     settings?: Record<string, OrchestratorTrackerSettingValue>;
   };
   lastTickAt: string;
+  /** Non-fatal configuration conditions that operators should review. */
+  warnings?: string[];
   health: "idle" | "running" | "degraded";
   summary: {
     dispatched: number;
