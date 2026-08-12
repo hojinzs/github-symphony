@@ -1,8 +1,9 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
+import { composeMcpServers, readMcpConfig } from "@gh-symphony/core";
 
 export type ClaudeMcpTokenEnvironment = {
   GITHUB_GRAPHQL_TOKEN?: string;
@@ -16,6 +17,8 @@ export type ClaudeMcpTokenEnvironment = {
   LINEAR_GRAPHQL_URL?: string;
   SYMPHONY_TRACKER_KIND?: string;
   WORKSPACE_RUNTIME_DIR?: string;
+  SYMPHONY_PROJECT_DIR?: string;
+  SYMPHONY_TRUST_REPO_CONFIG?: string;
 };
 
 export type ClaudeMcpCompositionResult = {
@@ -24,22 +27,31 @@ export type ClaudeMcpCompositionResult = {
   cleanupPath?: string;
 };
 
-type McpConfig = Record<string, unknown> & {
-  mcpServers?: Record<string, unknown>;
-};
-
 export async function composeClaudeMcpConfig(
   workspaceRoot: string,
   strictMode: boolean,
   symphonyTokenEnv: ClaudeMcpTokenEnvironment = {}
 ): Promise<ClaudeMcpCompositionResult> {
-  const workspaceMcpPath = join(workspaceRoot, ".mcp.json");
   const finalPath = resolveRuntimeMcpConfigPath(
     workspaceRoot,
     symphonyTokenEnv
   );
-  const baseConfig = await readBaseMcpConfig(workspaceMcpPath);
-  const mergedConfig = mergeSymphonyMcpServers(baseConfig, symphonyTokenEnv);
+  const trustRepoConfig =
+    symphonyTokenEnv.SYMPHONY_TRUST_REPO_CONFIG === "true";
+  const mcpServers = composeMcpServers({
+    repositoryDir: workspaceRoot,
+    projectDir: symphonyTokenEnv.SYMPHONY_PROJECT_DIR,
+    trustRepoConfig,
+    env: symphonyTokenEnv,
+    builtins: createSymphonyMcpServers(symphonyTokenEnv),
+  });
+  if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
+    delete mcpServers.linear_graphql;
+  }
+  const repositoryConfig = trustRepoConfig
+    ? readMcpConfig(join(workspaceRoot, ".mcp.json"))
+    : undefined;
+  const mergedConfig = { ...repositoryConfig, mcpServers };
 
   await ensureSecureConfigParent(dirname(finalPath));
   await chmodExistingSecretFile(finalPath);
@@ -51,9 +63,10 @@ export async function composeClaudeMcpConfig(
 
   return {
     finalPath,
-    extraArgv: strictMode
-      ? ["--strict-mcp-config", "--mcp-config", finalPath]
-      : ["--mcp-config", finalPath],
+    extraArgv:
+      strictMode || !trustRepoConfig
+        ? ["--strict-mcp-config", "--mcp-config", finalPath]
+        : ["--mcp-config", finalPath],
     cleanupPath: finalPath,
   };
 }
@@ -93,30 +106,16 @@ async function chmodExistingSecretFile(path: string): Promise<void> {
   }
 }
 
-async function readBaseMcpConfig(workspaceMcpPath: string): Promise<McpConfig> {
-  try {
-    const raw = await readFile(workspaceMcpPath, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    return isRecord(parsed) ? parsed : { mcpServers: {} };
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return { mcpServers: {} };
-    }
-
-    throw error;
-  }
-}
-
-function mergeSymphonyMcpServers(
-  baseConfig: McpConfig,
+function createSymphonyMcpServers(
   env: ClaudeMcpTokenEnvironment
-): McpConfig {
-  const mcpServers = isRecord(baseConfig.mcpServers)
-    ? baseConfig.mcpServers
-    : {};
-
-  const mergedServers: Record<string, unknown> = {
-    ...mcpServers,
+): Record<
+  string,
+  { command: string; args: string[]; env: Record<string, string> }
+> {
+  const mergedServers: Record<
+    string,
+    { command: string; args: string[]; env: Record<string, string> }
+  > = {
     github_graphql: createGitHubGraphQLMcpServerEntry({
       githubToken: env.GITHUB_GRAPHQL_TOKEN,
       githubGraphqlApiUrl: env.GITHUB_GRAPHQL_API_URL,
@@ -135,10 +134,7 @@ function mergeSymphonyMcpServers(
     delete mergedServers.linear_graphql;
   }
 
-  return {
-    ...baseConfig,
-    mcpServers: mergedServers,
-  };
+  return mergedServers;
 }
 
 function resolveRuntimeMcpConfigPath(
@@ -157,10 +153,6 @@ function resolveRuntimeMcpConfigPath(
     );
 
   return join(runtimeDir, "mcp.json");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

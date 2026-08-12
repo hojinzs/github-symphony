@@ -49,7 +49,11 @@ describe("composeClaudeMcpConfig", () => {
 
     expect(result).toEqual({
       finalPath: join(runtimeRoot, "mcp.json"),
-      extraArgv: ["--mcp-config", join(runtimeRoot, "mcp.json")],
+      extraArgv: [
+        "--strict-mcp-config",
+        "--mcp-config",
+        join(runtimeRoot, "mcp.json"),
+      ],
       cleanupPath: join(runtimeRoot, "mcp.json"),
     });
     expect(await readJson(result.finalPath)).toEqual({
@@ -102,7 +106,7 @@ describe("composeClaudeMcpConfig", () => {
             github_graphql: {
               command: "old",
               env: {
-                GITHUB_GRAPHQL_TOKEN: "old-token",
+                GITHUB_GRAPHQL_TOKEN: "$OLD_TOKEN",
               },
             },
           },
@@ -114,8 +118,10 @@ describe("composeClaudeMcpConfig", () => {
 
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       GITHUB_GRAPHQL_TOKEN: "token-2",
+      OLD_TOKEN: "old-token",
       GITHUB_PROJECT_ID: "project-1",
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
     });
 
     expect(result).toEqual({
@@ -203,7 +209,7 @@ describe("composeClaudeMcpConfig", () => {
           linear_graphql: {
             command: "old",
             env: {
-              LINEAR_API_KEY: "old-secret",
+              LINEAR_API_KEY: "$OLD_LINEAR_TOKEN",
             },
           },
         },
@@ -211,7 +217,10 @@ describe("composeClaudeMcpConfig", () => {
       "utf8"
     );
 
-    const result = await composeClaudeMcpConfig(workspaceRoot, false, {});
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
+      OLD_LINEAR_TOKEN: "old-secret",
+    });
     const config = await readJson(result.finalPath);
 
     expect(config.mcpServers).toEqual({
@@ -252,6 +261,7 @@ describe("composeClaudeMcpConfig", () => {
     const result = await composeClaudeMcpConfig(workspaceRoot, true, {
       GITHUB_GRAPHQL_TOKEN: "token-3",
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
     });
 
     expect(result).toEqual({
@@ -282,13 +292,65 @@ describe("composeClaudeMcpConfig", () => {
     });
   });
 
+  it("enforces strict MCP config when repository sidecars are untrusted", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    await writeFile(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({ mcpServers: { untrusted: { command: "unsafe" } } })
+    );
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+    });
+
+    expect(result.extraArgv).toEqual([
+      "--strict-mcp-config",
+      "--mcp-config",
+      join(runtimeRoot, "mcp.json"),
+    ]);
+    expect(await readJson(result.finalPath)).toEqual({
+      mcpServers: {
+        github_graphql: expect.any(Object),
+      },
+    });
+  });
+
+  it("resolves project sidecar env from the host environment", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const projectRoot = await createTempWorkspace();
+    const runtimeRoot = join(workspaceRoot, "runtime");
+    await writeFile(
+      join(projectRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          vendor: { command: "vendor-mcp", env: { TOKEN: "$MCP_HOST_TOKEN" } },
+        },
+      })
+    );
+    process.env.MCP_HOST_TOKEN = "host-secret";
+    try {
+      const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+        SYMPHONY_PROJECT_DIR: projectRoot,
+        WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      });
+      expect(await readJson(result.finalPath)).toMatchObject({
+        mcpServers: { vendor: { env: { TOKEN: "host-secret" } } },
+      });
+    } finally {
+      delete process.env.MCP_HOST_TOKEN;
+    }
+  });
+
   it("throws when the workspace .mcp.json contains invalid JSON", async () => {
     const workspaceRoot = await createTempWorkspace();
     await writeFile(join(workspaceRoot, ".mcp.json"), "{ invalid", "utf8");
 
     await expect(
-      composeClaudeMcpConfig(workspaceRoot, false, {})
-    ).rejects.toThrow(SyntaxError);
+      composeClaudeMcpConfig(workspaceRoot, false, {
+        SYMPHONY_TRUST_REPO_CONFIG: "true",
+      })
+    ).rejects.toThrow("Invalid MCP config JSON");
   });
 
   it("treats a non-object mcpServers value as empty", async () => {
@@ -359,6 +421,7 @@ describe("composeClaudeMcpConfig", () => {
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
       GITHUB_GRAPHQL_TOKEN: "token-clean",
       WORKSPACE_RUNTIME_DIR: runtimeRoot,
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
     });
     const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
       cwd: workspaceRoot,

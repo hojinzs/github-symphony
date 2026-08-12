@@ -544,6 +544,7 @@ Prompt body.
       isolation: {
         bare: true,
         strictMcpConfig: true,
+        trustRepoConfig: false,
       },
       auth: {
         env: "ANTHROPIC_API_KEY",

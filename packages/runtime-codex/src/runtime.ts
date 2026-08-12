@@ -8,6 +8,7 @@ import {
   readAgentCredentialCache,
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
+  composeMcpServers,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -29,7 +30,7 @@ const DIRECT_AGENT_ENV_KEYS = [
 ] as const;
 
 export type RuntimeToolDefinition = {
-  name: "github_graphql" | "linear_graphql";
+  name: string;
   description: string;
   command: string;
   args: string[];
@@ -66,6 +67,8 @@ export type CodexRuntimeConfig = {
   orchestratorUrl?: string;
   orchestratorRunId?: string;
   orchestratorToken?: string;
+  projectDirectory?: string;
+  trustRepoConfig?: boolean;
 };
 
 export type CodexRuntimePlan = {
@@ -218,6 +221,25 @@ export function createLinearGraphQLToolDefinition(
       },
       required: ["query"],
       additionalProperties: false,
+    },
+  };
+}
+
+export function createMcpToolDefinition(
+  name: string,
+  server: { command: string; args?: string[]; env?: Record<string, string> }
+): RuntimeToolDefinition {
+  return {
+    name,
+    description: `Execute the configured ${name} MCP server.`,
+    command: server.command,
+    args: server.args ?? [],
+    env: server.env ?? {},
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+      additionalProperties: true,
     },
   };
 }
@@ -530,17 +552,32 @@ export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
   const githubTool = createGitHubGraphQLToolDefinition(config);
-  const tools = [
-    githubTool,
-    ...(config.enableLinearGraphqlTool
-      ? [
-          createLinearGraphQLToolDefinition({
-            linearGraphqlUrl:
-              config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
-          }),
-        ]
-      : []),
-  ];
+  const linearTool = config.enableLinearGraphqlTool
+    ? createLinearGraphQLToolDefinition({
+        linearGraphqlUrl: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
+      })
+    : undefined;
+  const builtinTools = [githubTool, linearTool].filter(
+    (tool): tool is RuntimeToolDefinition => tool !== undefined
+  );
+  const builtins = Object.fromEntries(
+    builtinTools
+      .filter((tool): tool is RuntimeToolDefinition => tool !== undefined)
+      .map((tool) => [tool.name, tool])
+  );
+  const servers = composeMcpServers({
+    repositoryDir: config.workingDirectory,
+    projectDir: config.projectDirectory,
+    trustRepoConfig: config.trustRepoConfig,
+    env: config.extraEnv,
+    builtins,
+  });
+  if (!config.enableLinearGraphqlTool) {
+    delete servers.linear_graphql;
+  }
+  const tools = Object.entries(servers).map(
+    ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
+  );
   const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
 
   const agentCommand = parseAgentCommand(
@@ -600,7 +637,7 @@ export function buildCodexRuntimePlan(
       ...orchestratorRunEnv,
       ...agentEnv,
       ...gitCredentialHelper,
-      ...Object.assign({}, ...tools.map((tool) => tool.env)),
+      ...Object.assign({}, ...builtinTools.map((tool) => tool.env)),
     },
     tools,
   };

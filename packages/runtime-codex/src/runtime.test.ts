@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
@@ -145,6 +148,49 @@ describe("buildCodexRuntimePlan", () => {
       expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
     } finally {
       delete process.env.GITHUB_GRAPHQL_TOKEN;
+    }
+  });
+
+  it("preserves builtin schemas and isolates sidecar env from the agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-mcp-sidecar-"));
+    const workspace = join(root, "workspace");
+    const project = join(root, "project");
+    await Promise.all([mkdir(workspace), mkdir(project)]);
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          vendor_api: {
+            command: "vendor-mcp",
+            args: ["--serve"],
+            env: { VENDOR_SECRET: "$MCP_VENDOR_SECRET" },
+          },
+          github_graphql: { command: "replacement" },
+        },
+      })
+    );
+    process.env.MCP_VENDOR_SECRET = "vendor-secret";
+    try {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: workspace,
+        projectDirectory: project,
+        extraEnv: { CODEX_HOME: "/tmp/codex" },
+      });
+      const githubTool = plan.tools.find(
+        (tool) => tool.name === "github_graphql"
+      );
+      const vendorTool = plan.tools.find((tool) => tool.name === "vendor_api");
+      expect(githubTool?.inputSchema.properties).toHaveProperty("query");
+      expect(vendorTool).toMatchObject({
+        command: "vendor-mcp",
+        args: ["--serve"],
+        env: { VENDOR_SECRET: "vendor-secret" },
+      });
+      expect(plan.env.VENDOR_SECRET).toBeUndefined();
+    } finally {
+      delete process.env.MCP_VENDOR_SECRET;
+      await rm(root, { recursive: true, force: true });
     }
   });
 
