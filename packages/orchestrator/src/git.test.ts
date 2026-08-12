@@ -4,6 +4,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  rename,
   rm,
   stat,
   utimes,
@@ -807,10 +808,25 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
-    await removeIssueWorkspaceWorktree({ repository, repositoryDirectory });
+    execSync(
+      `git -C "${repositoryDirectory}" checkout -b symphony/issue-1-agent-work`
+    );
+    await removeIssueWorkspaceWorktree({
+      repository,
+      repositoryDirectory,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#1",
+    });
     await expect(access(repositoryDirectory)).rejects.toMatchObject({
       code: "ENOENT",
     });
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+    expect(
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/issue-1-agent-work`,
+        { encoding: "utf8" }
+      )
+    ).toContain("refs/heads/symphony/issue-1-agent-work");
     await expect(
       ensureIssueWorkspaceRepository({
         repository,
@@ -820,7 +836,9 @@ describe("worktree-cache issue workspaces", () => {
         projectSlug: "project-one",
         issueIdentifier: "acme/platform#1",
       })
-    ).resolves.toBe(join(tempRoot, "workspaces", "issue-1-revived", "repository"));
+    ).resolves.toBe(
+      join(tempRoot, "workspaces", "issue-1-revived", "repository")
+    );
   });
 
   it("namespaces identical issue identifiers by project and preserves failed reuse", async () => {
@@ -859,7 +877,9 @@ describe("worktree-cache issue workspaces", () => {
         populateStrategy: "worktree-cache",
       })
     ).rejects.toThrow(/was preserved/);
-    await expect(readFile(join(invalidWorkspace, "repository", "keep"), "utf8")).resolves.toBe("preserve");
+    await expect(
+      readFile(join(invalidWorkspace, "repository", "keep"), "utf8")
+    ).resolves.toBe("preserve");
   });
 
   it("keeps existing recovered worktrees and their branches on cache refresh", async () => {
@@ -892,9 +912,9 @@ describe("worktree-cache issue workspaces", () => {
     expect(readGitBranch(repositoryDirectory)).toBe(
       "symphony/project-one/acme-platform-8"
     );
-    await expect(readFile(join(repositoryDirectory, "local.txt"), "utf8")).resolves.toBe(
-      "preserve"
-    );
+    await expect(
+      readFile(join(repositoryDirectory, "local.txt"), "utf8")
+    ).resolves.toBe("preserve");
   });
 
   it("repopulates after cleanup when a workspace record outlives its directory", async () => {
@@ -912,6 +932,29 @@ describe("worktree-cache issue workspaces", () => {
         issueIdentifier: "acme/platform#10",
       })
     ).resolves.toBe(join(issueWorkspacePath, "repository"));
+  });
+
+  it("recovers a quarantined workspace whose owned branch remains in the cache", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "quarantined");
+    const input = {
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache" as const,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#11",
+    };
+    await ensureIssueWorkspaceRepository(input);
+
+    await rename(issueWorkspacePath, `${issueWorkspacePath}.quarantine`);
+
+    const recoveredDirectory = await ensureIssueWorkspaceRepository(input);
+    expect(recoveredDirectory).toBe(join(issueWorkspacePath, "repository"));
+    expect(readGitBranch(recoveredDirectory)).toBe(
+      "symphony/project-one/acme-platform-11"
+    );
   });
 
   it("uses origin's default branch when no base branch is configured", async () => {
@@ -936,9 +979,9 @@ describe("worktree-cache issue workspaces", () => {
       issueIdentifier: "acme/master-repo#1",
     });
 
-    await expect(readFile(join(repositoryDirectory, "README.md"), "utf8")).resolves.toBe(
-      "master\n"
-    );
+    await expect(
+      readFile(join(repositoryDirectory, "README.md"), "utf8")
+    ).resolves.toBe("master\n");
   });
 
   it("creates a project-scoped branch from a pull request checkout target", async () => {
@@ -964,9 +1007,9 @@ describe("worktree-cache issue workspaces", () => {
     expect(readGitBranch(repositoryDirectory)).toBe(
       "symphony/project-one/acme-platform-9"
     );
-    await expect(readFile(join(repositoryDirectory, "pr.txt"), "utf8")).resolves.toBe(
-      "pull request\n"
-    );
+    await expect(
+      readFile(join(repositoryDirectory, "pr.txt"), "utf8")
+    ).resolves.toBe("pull request\n");
   });
 
   it("supports a front matter branch template", () => {

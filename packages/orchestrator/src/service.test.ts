@@ -1048,8 +1048,14 @@ describe("OrchestratorService", () => {
 
   it("passes worktree-cache settings into issue populate", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-settings-"));
-    const repository = await createRepositoryFixture(tempRoot, "acme", "platform");
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-worktree-settings-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
     await writeFile(
       join(repository.path, "WORKFLOW.md"),
       (await readFile(join(repository.path, "WORKFLOW.md"), "utf8")).replace(
@@ -1070,7 +1076,9 @@ describe("OrchestratorService", () => {
       .mockResolvedValue(repository.path);
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
-      spawnImpl: vi.fn().mockReturnValue({ pid: 4105, unref: vi.fn() }) as never,
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 4105, unref: vi.fn() }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 
@@ -2837,6 +2845,9 @@ Retry inconclusive work.
         name: repository.name,
       }),
       repositoryDirectory: repositoryPath,
+      projectSlug: "tenant-1",
+      issueIdentifier: "acme/platform#1",
+      branchTemplate: null,
     });
     expect(savedStatus?.recovery).toBeNull();
     expect(preservedRun?.recovery).toMatchObject({

@@ -4417,9 +4417,22 @@ export class OrchestratorService {
 
     if (tenant.populateStrategy === "worktree-cache") {
       try {
+        const cleanupWorkflow =
+          workflowResolution ??
+          (await this.loadProjectWorkflow(tenant, issue.repository));
+        const repositoryExtension =
+          isUsableWorkflowResolution(cleanupWorkflow) &&
+          isRecord(cleanupWorkflow.workflow.repository)
+            ? cleanupWorkflow.workflow.repository
+            : null;
         await removeIssueWorkspaceWorktree({
           repository: issue.repository,
           repositoryDirectory: workspaceRecord.repositoryPath,
+          projectSlug: tenant.slug,
+          issueIdentifier: issue.identifier,
+          branchTemplate: repositoryExtension
+            ? readOptionalStringValue(repositoryExtension.branch_template)
+            : null,
         });
       } catch (error) {
         const removalError = this.formatErrorMessage(error);

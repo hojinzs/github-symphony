@@ -169,22 +169,30 @@ export async function ensureIssueWorkspaceRepository(input: {
 export async function removeIssueWorkspaceWorktree(input: {
   repository: RepositoryRef;
   repositoryDirectory: string;
+  projectSlug: string;
+  issueIdentifier: string;
+  branchTemplate?: string | null;
 }): Promise<void> {
-  await withGlobalBareRepositoryCache({ repository: input.repository }, async (bare) => {
-    const branch = (
-      await runGitCommandCapture([
-        "-C",
-        input.repositoryDirectory,
-        "branch",
-        "--show-current",
-      ])
-    ).trim();
-    await runGitCommand(["-C", bare, "worktree", "remove", "--force", input.repositoryDirectory]);
-    if (branch) {
-      await runGitCommand(["-C", bare, "branch", "-D", branch]);
-    }
-    await runGitCommand(["-C", bare, "worktree", "prune"]);
+  const branch = renderIssueBranchName({
+    template: input.branchTemplate,
+    projectSlug: input.projectSlug,
+    issueIdentifier: input.issueIdentifier,
   });
+  await withGlobalBareRepositoryCache(
+    { repository: input.repository },
+    async (bare) => {
+      await runGitCommand([
+        "-C",
+        bare,
+        "worktree",
+        "remove",
+        "--force",
+        input.repositoryDirectory,
+      ]);
+      await runGitCommand(["-C", bare, "branch", "-D", branch]);
+      await runGitCommand(["-C", bare, "worktree", "prune"]);
+    }
+  );
 }
 
 async function ensureIssueWorkspaceWorktree(input: {
@@ -237,7 +245,7 @@ async function ensureIssueWorkspaceWorktree(input: {
           bare,
           "worktree",
           "add",
-          "-b",
+          "-B",
           branch,
           repositoryDirectory,
           baseRef,
@@ -276,12 +284,15 @@ export function renderIssueBranchName(input: {
 }): string {
   const projectSlug = sanitizeBranchSegment(input.projectSlug);
   const issueId = sanitizeBranchSegment(input.issueIdentifier);
-  const template = input.template?.trim() || "symphony/{project_slug}/{sanitized_issue_id}";
+  const template =
+    input.template?.trim() || "symphony/{project_slug}/{sanitized_issue_id}";
   const branch = template
     .replaceAll("{project_slug}", projectSlug)
     .replaceAll("{sanitized_issue_id}", issueId);
   if (!branch || branch.includes("{") || branch.includes("}")) {
-    throw new Error(`Invalid issue worktree branch template ${JSON.stringify(template)}.`);
+    throw new Error(
+      `Invalid issue worktree branch template ${JSON.stringify(template)}.`
+    );
   }
   return branch;
 }
@@ -292,7 +303,9 @@ function sanitizeBranchSegment(value: string): string {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!sanitized) {
-    throw new Error(`Cannot derive a worktree branch segment from ${JSON.stringify(value)}.`);
+    throw new Error(
+      `Cannot derive a worktree branch segment from ${JSON.stringify(value)}.`
+    );
   }
   return sanitized;
 }
