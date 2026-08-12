@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,26 +100,34 @@ Worker prompt.
       "utf8"
     );
 
-    const result = await runWorkerProcess({
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
-        CLAUDE_STUB_LOG_DIR: logDir,
-        CLAUDE_STUB_SCENARIO: "success",
-        ANTHROPIC_API_KEY: "stub-anthropic-key",
-        GITHUB_GRAPHQL_TOKEN: "stub-token",
-        GITHUB_PROJECT_ID: "stub-project",
-        WORKING_DIRECTORY: workspace,
-        WORKSPACE_RUNTIME_DIR: runtimeRoot,
-        SYMPHONY_WORKFLOW_PATH: workflowPath,
-        SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
-        SYMPHONY_RUN_ID: "run-worker-claude",
-        SYMPHONY_ISSUE_ID: "issue-worker-claude",
-        SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
-        SYMPHONY_ISSUE_STATE: "In progress",
-      },
-    });
+    const leaseServer = await createTurnLeaseServer();
+    let result: Awaited<ReturnType<typeof runWorkerProcess>>;
+    try {
+      result = await runWorkerProcess({
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${resolve(repoRoot, "test/e2e/stubs")}:${process.env.PATH ?? ""}`,
+          CLAUDE_STUB_LOG_DIR: logDir,
+          CLAUDE_STUB_SCENARIO: "success",
+          ANTHROPIC_API_KEY: "stub-anthropic-key",
+          GITHUB_GRAPHQL_TOKEN: "stub-token",
+          GITHUB_PROJECT_ID: "stub-project",
+          WORKING_DIRECTORY: workspace,
+          WORKSPACE_RUNTIME_DIR: runtimeRoot,
+          SYMPHONY_WORKFLOW_PATH: workflowPath,
+          SYMPHONY_RENDERED_PROMPT: "Handle worker runtime adapter issue.",
+          SYMPHONY_RUN_ID: "run-worker-claude",
+          SYMPHONY_ISSUE_ID: "issue-worker-claude",
+          SYMPHONY_ISSUE_IDENTIFIER: "test-owner/test-repo#254",
+          SYMPHONY_ISSUE_STATE: "In progress",
+          SYMPHONY_ORCHESTRATOR_URL: leaseServer.url,
+          SYMPHONY_ORCHESTRATOR_TOKEN: "stub-orchestrator-token",
+        },
+      });
+    } finally {
+      await leaseServer.close();
+    }
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Claude runtime preflight");
@@ -443,6 +453,42 @@ function runWorkerProcess(options: {
       resolveResult({ exitCode, signal, stderr });
     });
   });
+}
+
+async function createTurnLeaseServer(): Promise<{
+  url: string;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (
+      request.method === "POST" &&
+      request.url === "/api/v1/worker-turn-lease"
+    ) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({ acquired: true, expiresAt: "2026-04-26T01:00:00.000Z" })
+      );
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise<void>((resolveServer, rejectServer) => {
+    server.once("error", rejectServer);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", rejectServer);
+      resolveServer();
+    });
+  });
+  const address = server.address() as AddressInfo;
+
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolveServer, rejectServer) => {
+        server.close((error) => (error ? rejectServer(error) : resolveServer()));
+      }),
+  };
 }
 
 function valueAfter(argv: readonly string[], flag: string): string | undefined {

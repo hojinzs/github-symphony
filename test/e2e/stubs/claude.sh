@@ -13,7 +13,8 @@ set -euo pipefail
 #   retry-then-success, inter-run-recover, rate-limit, and
 #   session-invalid-on-resume.
 # - exit modes: success scenarios exit 0. CLAUDE_STUB_EXIT_MODE=process-error
-#   or the first rejected resume in session-invalid-on-resume exits non-zero.
+#   or the first rejected resume in session-invalid-on-resume emits Claude
+#   Code's terminal structured error result and exits non-zero.
 # - observability: each invocation appends argv/stdin/session metadata to
 #   ${CLAUDE_STUB_LOG_DIR:-$PWD/.claude-stub}/invocations.ndjson.
 
@@ -133,7 +134,12 @@ fs.appendFileSync(process.env.INVOCATIONS_FILE, JSON.stringify(record) + "\n");
 invalid_marker="$log_dir/session-invalid-resume-rejected"
 if [[ "$scenario" == "session-invalid-on-resume" && -n "$resume_id" && ! -f "$invalid_marker" ]]; then
   printf '1\n' > "$invalid_marker"
-  printf 'resume session %s rejected with HTTP 404\n' "$resume_id" >&2
+  # Claude Code print mode reports a rejected resume as a terminal stream-json
+  # result. Keep this fixture aligned with the observed CLI protocol so the
+  # adapter E2E exercises structured rejection detection rather than the
+  # removed stderr/HTTP-status heuristic.
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"%s","errors":["No conversation found with session ID: %s"]}\n' "$resume_id" "$resume_id"
+  printf 'No conversation found with session ID: %s\n' "$resume_id" >&2
   exit 1
 fi
 

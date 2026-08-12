@@ -351,7 +351,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
       runId: this.preparedSession.runId,
       sessionId: invalidatedSessionId,
       replacementSessionId,
-      reason: "claude resume session was rejected with a 4xx response",
+      reason: "claude resume session was rejected because no conversation was found",
     });
 
     const retryArgv = buildClaudePrintArgv(
@@ -465,7 +465,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
     return (
       session === this.preparedSession?.session &&
       session?.mode === "resume" &&
-      isResumeRejectedWith4xx(result)
+      isResumeRejected(session, result)
     );
   }
 
@@ -630,17 +630,34 @@ function findSessionId(value: unknown, depth = 0): string | null {
   return null;
 }
 
-function isResumeRejectedWith4xx(result: ClaudeSpawnTurnResult): boolean {
+function isResumeRejected(
+  session: ClaudeRuntimeSessionOptions,
+  result: ClaudeSpawnTurnResult
+): boolean {
   if (result.result !== "process-error") {
     return false;
   }
 
-  // Claude print currently surfaces rejected resume sessions through stderr text
-  // rather than a structured error field, so fallback detection is intentionally
-  // constrained to resume-related lines that include an HTTP 4xx code.
+  // Claude Code 2.1.227 emits a terminal stream-json result for a missing
+  // resume session: `{ subtype: "error_during_execution", is_error: true,
+  // session_id, errors }`. Use that protocol record rather than duplicating the
+  // human-readable stderr diagnostic. `errors` identifies this as a rejected
+  // session instead of another process error that happens after --resume.
   return result.records.some((record) => {
-    const text = record.line.toLowerCase();
-    return text.includes("resume") && /\b4\d\d\b/.test(text);
+    const message = record.message;
+    const errors = message?.errors;
+    return (
+      message?.type === "result" &&
+      message.subtype === "error_during_execution" &&
+      message.is_error === true &&
+      message.session_id === session.sessionId &&
+      Array.isArray(errors) &&
+      errors.some(
+        (error) =>
+          typeof error === "string" &&
+          error.startsWith("No conversation found with session ID:")
+      )
+    );
   });
 }
 
