@@ -1403,7 +1403,7 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      "Stop with: gh-symphony repo stop\n"
+      `Stop with: ${options.invocation === "project" ? "gh-symphony project stop" : "gh-symphony repo stop"}\n`
   );
   if (httpPort !== undefined || webPort !== undefined) {
     process.stdout.write(`HTTP API bearer token: ${httpApiToken}\n`);

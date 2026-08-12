@@ -2,7 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
@@ -2233,6 +2233,11 @@ export class OrchestratorService {
       this.resolveWorkflowRepositoryDirectory(tenant.repository),
       "WORKFLOW.md"
     );
+    if (
+      resolve(tenant.workflowSource.path) === resolve(repositoryWorkflowPath)
+    ) {
+      return [];
+    }
     try {
       await access(repositoryWorkflowPath);
       return [

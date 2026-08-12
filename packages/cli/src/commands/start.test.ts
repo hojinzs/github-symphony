@@ -832,7 +832,15 @@ describe("start command foreground locking", () => {
       ],
     });
 
-    await startModule.default(["--daemon"], baseOptions(configDir));
+    const stdout = captureWrites(process.stdout);
+    try {
+      await startModule.default(["--daemon"], {
+        ...baseOptions(configDir),
+        invocation: "project",
+      });
+    } finally {
+      stdout.restore();
+    }
 
     expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
       cwd: "/tmp/standalone-project",
@@ -848,6 +856,7 @@ describe("start command foreground locking", () => {
       )
     ) as { cwd: string };
     expect(pidRecord.cwd).toBe("/tmp/standalone-project");
+    expect(stdout.output()).toContain("Stop with: gh-symphony project stop");
   });
 
   it("does not leave a PID file when daemon spawn fails", async () => {
