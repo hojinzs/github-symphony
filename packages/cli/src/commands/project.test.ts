@@ -1,9 +1,10 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadGlobalConfig, loadProjectConfig } from "../config.js";
 import { registerStandaloneProject } from "./project.js";
+import projectCommand from "./project.js";
 
 const workflow = `---
 tracker:
@@ -53,5 +54,30 @@ describe("registerStandaloneProject", () => {
     await expect(registerStandaloneProject(second, { configDir })).rejects.toThrow(
       "Tracker mapping overlaps registered project(s)"
     );
+  });
+
+  it("lists registered standalone projects", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8");
+    const project = await registerStandaloneProject(projectDir, { configDir });
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+
+    await projectCommand(["list"], {
+      configDir,
+      configDirOverride: true,
+      verbose: false,
+      json: true,
+      noColor: true,
+    });
+
+    spy.mockRestore();
+    expect(JSON.parse(writes.join(""))).toEqual([
+      expect.objectContaining({ projectId: project.projectId, projectDir }),
+    ]);
   });
 });

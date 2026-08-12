@@ -816,6 +816,35 @@ describe("start command foreground locking", () => {
     expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
   });
 
+  it("starts an external project daemon from its project directory", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "standalone",
+      projects: [
+        {
+          ...createProject("standalone", "acme", "platform"),
+          projectDir: "/tmp/standalone-project",
+          workflowSource: {
+            type: "external",
+            path: "/tmp/standalone-project/WORKFLOW.md",
+          },
+        },
+      ],
+    });
+
+    await startModule.default(["--daemon"], baseOptions(configDir));
+
+    expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
+      cwd: "/tmp/standalone-project",
+    });
+    const pidRecord = JSON.parse(
+      await readFile(
+        join(configDir, "projects", "standalone", "daemon.pid"),
+        "utf8"
+      )
+    ) as { cwd: string };
+    expect(pidRecord.cwd).toBe("/tmp/standalone-project");
+  });
+
   it("does not leave a PID file when daemon spawn fails", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-start-spawn-"));
     await configModule.saveGlobalConfig(configDir, {

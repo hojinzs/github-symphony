@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import * as p from "@clack/prompts";
 import {
   parseWorkflowMarkdown,
   type OrchestratorTrackerSettingValue,
@@ -61,9 +62,13 @@ export async function registerStandaloneProject(
     );
   }
   if (overlap.length > 0) {
-    process.stderr.write(
-      `Warning: tracker mapping overlaps registered project(s): ${overlap.join(", ")}.\n`
-    );
+    const confirmed = await p.confirm({
+      message: `Tracker mapping overlaps registered project(s): ${overlap.join(", ")}. Register anyway?`,
+      initialValue: false,
+    });
+    if (p.isCancel(confirmed) || !confirmed) {
+      throw new Error("Standalone project registration cancelled because tracker mappings overlap.");
+    }
   }
 
   await saveProjectConfig(options.configDir, projectId, config);
@@ -94,7 +99,9 @@ function mappingFor(config: CliProjectConfig): Mapping {
     adapter: config.tracker.adapter,
     bindingId: config.tracker.bindingId,
     states: (config.tracker.settings?.activeStates as string | undefined)?.split("\n").filter(Boolean) ?? [],
-    labels: Array.isArray(labels) ? labels.filter((value): value is string => typeof value === "string") : [],
+    labels: Array.isArray(labels)
+      ? labels.filter((value): value is string => typeof value === "string")
+      : [],
   };
 }
 
@@ -112,6 +119,9 @@ function trackerSettings(workflow: ReturnType<typeof parseWorkflowMarkdown>, rep
     ...(workflow.tracker.projectId ? { projectId: workflow.tracker.projectId } : {}),
     ...(workflow.tracker.projectSlug ? { projectSlug: workflow.tracker.projectSlug } : {}),
     ...(workflow.tracker.kind === "linear" ? { activeStates: workflow.tracker.activeStates.join("\n") } : {}),
+    ...(workflow.tracker.pickupLabels.include.length > 0
+      ? { pickupLabels: workflow.tracker.pickupLabels.include }
+      : {}),
     repository: `${repository.owner}/${repository.name}`,
   };
 }

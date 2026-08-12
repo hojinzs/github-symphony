@@ -267,6 +267,13 @@ function renderLegacyStatus(
     lines.push("");
   }
 
+  for (const warning of snapshot.warnings ?? []) {
+    lines.push(apply(yellow(`  ⚠ ${warning}`)));
+  }
+  if ((snapshot.warnings?.length ?? 0) > 0) {
+    lines.push("");
+  }
+
   // Token usage
   if (snapshot.codexTotals) {
     const tokenDelta = resolveProjectTokenDelta(snapshot);
