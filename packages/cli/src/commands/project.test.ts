@@ -1,0 +1,57 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { loadGlobalConfig, loadProjectConfig } from "../config.js";
+import { registerStandaloneProject } from "./project.js";
+
+const workflow = `---
+tracker:
+  kind: github-project
+  project_id: PVT_example
+codex:
+  command: codex app-server
+repository:
+  slug: acme/platform
+workspace:
+  root: .runners
+---
+Implement the issue.`;
+
+describe("registerStandaloneProject", () => {
+  it("persists an external workflow project and makes it active", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8");
+
+    const project = await registerStandaloneProject(projectDir, { configDir });
+
+    await expect(loadProjectConfig(configDir, project.projectId)).resolves.toMatchObject({
+      repository: { owner: "acme", name: "platform" },
+      workflowSource: { type: "external", path: join(projectDir, "WORKFLOW.md") },
+      projectDir,
+      workspaceDir: join(projectDir, ".runners"),
+      populateStrategy: "worktree-cache",
+    });
+    await expect(loadGlobalConfig(configDir)).resolves.toEqual({
+      activeProject: project.projectId,
+      projects: [project.projectId],
+    });
+  });
+
+  it("rejects an overlapping mapping without interactive confirmation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const first = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    const second = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await Promise.all([
+      writeFile(join(first, "WORKFLOW.md"), workflow, "utf8"),
+      writeFile(join(second, "WORKFLOW.md"), workflow, "utf8"),
+      mkdir(join(first, ".runners"), { recursive: true }),
+    ]);
+    await registerStandaloneProject(first, { configDir });
+
+    await expect(registerStandaloneProject(second, { configDir })).rejects.toThrow(
+      "Tracker mapping overlaps registered project(s)"
+    );
+  });
+});

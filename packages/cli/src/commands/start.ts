@@ -951,7 +951,8 @@ const handler = async (
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
-      httpApiToken
+      httpApiToken,
+      projectConfig.projectDir
     );
     return;
   }
@@ -1322,7 +1323,8 @@ async function startDaemon(
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
-  httpApiToken = resolveHttpApiToken()
+  httpApiToken = resolveHttpApiToken(),
+  projectDir?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1344,7 +1346,7 @@ async function startDaemon(
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],
     {
-      cwd: process.cwd(),
+      cwd: projectDir ?? process.cwd(),
       env: {
         ...process.env,
         GH_SYMPHONY_CONFIG_DIR: options.configDir,
@@ -1366,7 +1368,7 @@ async function startDaemon(
       pid: child.pid,
       startedAt: new Date().toISOString(),
       processIdentity: getProcessIdentity(child.pid),
-      cwd: process.cwd(),
+      cwd: projectDir ?? process.cwd(),
     });
     child.unref();
   } catch (error) {
