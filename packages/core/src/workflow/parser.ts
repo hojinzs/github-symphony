@@ -135,6 +135,7 @@ export function parseWorkflowMarkdown(
         readOptionalIntegerLike(polling, "interval_ms") ??
         DEFAULT_POLL_INTERVAL_MS,
     },
+    repository: readOptionalExtensionObject(frontMatter, "repository"),
     workspace: {
       root: readOptionalString(workspace, "root", env),
     },
@@ -705,6 +706,16 @@ function readOptionalRuntimeObject(
     return null;
   }
   return readObject(input, "runtime");
+}
+
+function readOptionalExtensionObject(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string
+): Record<string, unknown> | null {
+  if (input[key] === undefined || input[key] === null) {
+    return null;
+  }
+  return readObject(input, key) as Record<string, unknown>;
 }
 
 function readRequiredObject(

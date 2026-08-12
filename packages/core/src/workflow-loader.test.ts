@@ -50,6 +50,10 @@ codex:
   turn_timeout_ms: 3600000
 custom_extension:
   enabled: true
+repository:
+  owner: acme
+  name: platform
+  extension_flag: true
 ---
 Prefer focused changes.
 `;
@@ -73,6 +77,11 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
     expect(workflow.lifecycle.planningStates).toEqual([]);
     expect(workflow.polling.intervalMs).toBe(30000);
+    expect(workflow.repository).toEqual({
+      owner: "acme",
+      name: "platform",
+      extension_flag: true,
+    });
     expect(workflow.agent.maxFailureRetries).toBe(6);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
   });
