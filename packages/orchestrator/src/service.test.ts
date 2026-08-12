@@ -11712,7 +11712,7 @@ Prefer focused changes.
       await store.saveProjectConfig(projectConfig);
       await writeFile(
         join(store.projectDir(projectConfig.projectId), ".env"),
-        "PROJECT_ENV_WORKFLOW_ID=project-env-id\\n",
+        "PROJECT_ENV_WORKFLOW_ID=project-env-id\n",
         "utf8"
       );
 
@@ -11757,7 +11757,7 @@ Prefer focused changes.
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
     const envPath = join(store.projectDir(projectConfig.projectId), ".env");
-    await writeFile(envPath, "PROJECT_ENV_VALUE=loaded\\n", "utf8");
+    await writeFile(envPath, "PROJECT_ENV_VALUE=loaded\n", "utf8");
     await chmod(envPath, 0o644);
     const stderr = { write: vi.fn().mockReturnValue(true) };
     const service = new OrchestratorService(store, projectConfig, { stderr });
