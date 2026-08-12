@@ -1,5 +1,15 @@
 # @gh-symphony/cli
 
+## 0.7.13
+
+### Patch Changes
+
+- [#548](https://github.com/hojinzs/github-symphony/pull/548) [`1064dbe`](https://github.com/hojinzs/github-symphony/commit/1064dbe89a31e2ec3a43d01ab2e19992501fde06) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Recover advisory comment reconciliation safely from corrupt cache files and preserve entries without ETags ([#496](https://github.com/hojinzs/github-symphony/issues/496)).
+
+- [#555](https://github.com/hojinzs/github-symphony/pull/555) [`8f59a9e`](https://github.com/hojinzs/github-symphony/commit/8f59a9e191e223e7c73ad4da20876aeb3a22d853) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Validate issue orchestration lifecycle transitions to expose invalid runtime state changes immediately ([#553](https://github.com/hojinzs/github-symphony/issues/553)).
+
+- [#572](https://github.com/hojinzs/github-symphony/pull/572) [`9917f96`](https://github.com/hojinzs/github-symphony/commit/9917f96fcddf9cbef72b87b9f3bbd3a3dab5c5ba) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Use Claude stream-json results instead of stderr regex matching when a resumed session is rejected ([#554](https://github.com/hojinzs/github-symphony/issues/554)).
+
 ## 0.7.12
 
 ### Patch Changes
