@@ -1,5 +1,11 @@
 # @gh-symphony/cli
 
+## 0.7.12
+
+### Patch Changes
+
+- [#573](https://github.com/hojinzs/github-symphony/pull/573) [`422c84a`](https://github.com/hojinzs/github-symphony/commit/422c84a1094ff4fe51b29f7d528f1159cd04e73c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Use blobless worker checkouts and migrate legacy shallow workspaces so Land rebases retain a merge base ([#559](https://github.com/hojinzs/github-symphony/issues/559)).
+
 ## 0.7.11
 
 ### Patch Changes
