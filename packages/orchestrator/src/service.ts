@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { createWriteStream, mkdirSync } from "node:fs";
+import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { isAbsolute, join } from "node:path";
@@ -355,6 +355,7 @@ export class OrchestratorService {
     Record<string, unknown>
   >();
   private readonly issueCommentCaches = new Map<string, IssueCommentCache>();
+  private readonly warnedProjectEnvPermissions = new Map<string, number>();
   private workflowResolutionCache: Map<
     string,
     Promise<WorkflowResolution>
@@ -2209,12 +2210,14 @@ export class OrchestratorService {
       repository.owner,
       repository.name
     );
+    const environment = this.resolveProjectEnvironment(tenant);
     const resolution =
       tenant.workflowSource?.type === "external"
-        ? await loadWorkflowFile(tenant.workflowSource.path)
+        ? await loadWorkflowFile(tenant.workflowSource.path, environment)
         : await loadRepositoryWorkflow(
             this.resolveWorkflowRepositoryDirectory(repository),
-            repository
+            repository,
+            environment
           );
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
@@ -2508,7 +2511,7 @@ export class OrchestratorService {
       ["-lc", resolveWorkerCommand()],
       {
         cwd: process.cwd(),
-        env: this.buildProjectExecutionEnv(tenant.projectId, {
+        env: this.buildProjectExecutionEnv(tenant, {
           CODEX_PROJECT_ID: tenant.projectId,
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
@@ -3751,7 +3754,7 @@ export class OrchestratorService {
         };
       } else {
         const hookEnv = this.buildProjectExecutionEnv(
-          tenant.projectId,
+          tenant,
           buildHookEnv(context)
         );
         result = await executeWorkspaceHook({
@@ -3801,24 +3804,51 @@ export class OrchestratorService {
     return result;
   }
 
-  private readProjectEnv(projectId: string): Record<string, string> {
-    const envPath = join(this.store.projectDir(projectId), ".env");
+  private readProjectEnv(
+    tenant: OrchestratorProjectConfig
+  ): Record<string, string> {
+    const projectDirectory =
+      tenant.projectDir ?? this.store.projectDir(tenant.projectId);
+    const envPath = join(projectDirectory, ".env");
     try {
+      const envStat = statSync(envPath, { throwIfNoEntry: false });
+      const mode =
+        envStat?.mode === undefined ? undefined : envStat.mode & 0o777;
+      if (
+        mode !== undefined &&
+        (mode & 0o077) !== 0 &&
+        this.warnedProjectEnvPermissions.get(envPath) !== mode
+      ) {
+        this.warnedProjectEnvPermissions.set(envPath, mode);
+        (this.dependencies.stderr ?? process.stderr).write(
+          `[warn] Project env for ${tenant.projectId} at ${envPath} should use 0600 permissions.\n`
+        );
+      }
       return readEnvFile(envPath);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown error occurred.";
       (this.dependencies.stderr ?? process.stderr).write(
-        `[warn] Failed to load project env for ${projectId} from ${envPath}: ${message}\n`
+        `[warn] Failed to load project env for ${tenant.projectId} from ${envPath}: ${message}\n`
       );
       return {};
     }
   }
 
+  private resolveProjectEnvironment(
+    tenant: OrchestratorProjectConfig
+  ): NodeJS.ProcessEnv {
+    return {
+      ...this.readProjectEnv(tenant),
+      ...process.env,
+    };
+  }
+
   private buildProjectExecutionEnv(
-    projectId: string,
+    tenant: OrchestratorProjectConfig,
     env: Record<string, string | undefined>
   ): Record<string, string> {
+    const projectEnv = this.readProjectEnv(tenant);
     const inheritedEnv = Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] =>
@@ -3832,7 +3862,7 @@ export class OrchestratorService {
     );
 
     return {
-      ...this.readProjectEnv(projectId),
+      ...projectEnv,
       ...inheritedEnv,
       ...explicitEnv,
     };
