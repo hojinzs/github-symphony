@@ -13,6 +13,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { getProcessIdentity } from "@gh-symphony/orchestrator";
+import { normalizeOrchestratorProjectConfig } from "@gh-symphony/core";
 import type {
   OrchestratorProjectConfig,
   OrchestratorTrackerSettingValue,
@@ -182,9 +183,14 @@ export async function loadProjectConfig(
   configDir: string,
   projectId: string
 ): Promise<CliProjectConfig | null> {
-  return readJsonFile<CliProjectConfig>(
+  const config = await readJsonFile<CliProjectConfig>(
     projectConfigPath(configDir, projectId)
   );
+  return config
+    ? (normalizeOrchestratorProjectConfig(
+        config as OrchestratorProjectConfig
+      ) as CliProjectConfig)
+    : null;
 }
 
 export async function saveProjectConfig(
@@ -193,7 +199,12 @@ export async function saveProjectConfig(
   config: CliProjectConfig
 ): Promise<void> {
   await withConfigLock(configDir, () =>
-    writeJsonFile(projectConfigPath(configDir, projectId), config)
+    writeJsonFile(
+      projectConfigPath(configDir, projectId),
+      normalizeOrchestratorProjectConfig(
+        config as OrchestratorProjectConfig
+      ) as CliProjectConfig
+    )
   );
 }
 

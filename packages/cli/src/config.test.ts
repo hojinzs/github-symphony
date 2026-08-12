@@ -13,9 +13,11 @@ import {
   DEFAULT_CONFIG_DIR,
   REPO_RUNTIME_DIR,
   loadGlobalConfig,
+  loadProjectConfig,
   parseDaemonPidRecord,
   resolveConfigDir,
   saveGlobalConfig,
+  saveProjectConfig,
   updateGlobalConfig,
 } from "./config.js";
 
@@ -76,6 +78,43 @@ describe("resolveConfigDir", () => {
 });
 
 describe("config persistence", () => {
+  it("normalizes legacy project configs and rejects invalid standalone values", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-project-config-"));
+    const projectId = "project-1";
+    const projectDir = join(configDir, "projects", projectId);
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "project.json"),
+      JSON.stringify({
+        projectId,
+        slug: projectId,
+        workspaceDir: "/tmp/project-1",
+        tracker: { adapter: "file", bindingId: "project-1" },
+      }),
+      "utf8"
+    );
+
+    await expect(
+      loadProjectConfig(configDir, projectId)
+    ).resolves.toMatchObject({
+      workflowSource: { type: "repo" },
+      populateStrategy: "clone",
+    });
+
+    await expect(
+      saveProjectConfig(configDir, projectId, {
+        projectId,
+        slug: projectId,
+        workspaceDir: "/tmp/project-1",
+        tracker: { adapter: "file", bindingId: "project-1" },
+        workflowSource: {
+          type: "external",
+          path: "relative/WORKFLOW.md",
+        },
+      })
+    ).rejects.toThrow('Project "project-1" external workflow source path');
+  });
+
   it("serializes concurrent load-modify-save updates", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
     await saveGlobalConfig(configDir, {

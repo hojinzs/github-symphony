@@ -11,6 +11,7 @@ import {
   type OrchestratorRunRecord,
   type OrchestratorStateStore,
   type OrchestratorProjectConfig,
+  normalizeOrchestratorProjectConfig,
   parseRecentEvents,
   redactObservabilitySecrets,
   type ProjectStatusSnapshot,
@@ -71,7 +72,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   async loadProjectConfig(
     projectId?: string
   ): Promise<OrchestratorProjectConfig | null> {
-    return (
+    const config =
       (await readJsonFile<OrchestratorProjectConfig>(
         join(this.projectDir(projectId), "project.json")
       )) ??
@@ -79,15 +80,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         ? await readJsonFile<OrchestratorProjectConfig>(
             join(this.legacyProjectDir(), "project.json")
           )
-        : null)
-    );
+        : null);
+
+    return config ? normalizeOrchestratorProjectConfig(config) : null;
   }
 
   async saveProjectConfig(config: OrchestratorProjectConfig): Promise<void> {
     await this.ensureProjectDirectory(config.projectId);
     await writeJsonFile(
       join(this.projectDir(config.projectId), "project.json"),
-      config
+      normalizeOrchestratorProjectConfig(config)
     );
   }
 
