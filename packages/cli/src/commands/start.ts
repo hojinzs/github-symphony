@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
@@ -69,6 +69,7 @@ function logLine(icon: string, msg: string): void {
 }
 
 const REPO_START_COMMAND = "gh-symphony repo start";
+const DAEMON_PROJECT_ID_ENV = "GH_SYMPHONY_DAEMON_PROJECT_ID";
 
 type RepoStartAuthPreflightResult =
   | { ok: true; githubAuthSource?: GitHubAuthSource }
@@ -903,7 +904,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: undefined,
+    requestedProjectId: process.env[DAEMON_PROJECT_ID_ENV],
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -952,7 +953,8 @@ const handler = async (
       parsed.assignedOnly === true,
       parsed.bindAll,
       httpApiToken,
-      projectConfig.projectDir
+      projectConfig.projectDir,
+      projectId
     );
     return;
   }
@@ -1324,7 +1326,8 @@ async function startDaemon(
   assignedOnly = false,
   bindAll = false,
   httpApiToken = resolveHttpApiToken(),
-  projectDir?: string
+  projectDir?: string,
+  selectedProjectId?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1349,7 +1352,10 @@ async function startDaemon(
       cwd: projectDir ?? process.cwd(),
       env: {
         ...process.env,
-        GH_SYMPHONY_CONFIG_DIR: options.configDir,
+        GH_SYMPHONY_CONFIG_DIR: resolve(options.configDir),
+        ...(selectedProjectId
+          ? { [DAEMON_PROJECT_ID_ENV]: selectedProjectId }
+          : {}),
         [HTTP_API_TOKEN_ENV]: httpApiToken,
       },
       detached: true,

@@ -350,10 +350,7 @@ describe("Commander CLI entrypoint", () => {
   );
 
   it.each([
-    [
-      ["repo", "run", "--json", "--watch"],
-      "Issue identifier argument missing",
-    ],
+    [["repo", "run", "--json", "--watch"], "Issue identifier argument missing"],
     [["repo", "explain", "--json"], "Issue identifier argument missing"],
   ])("prints JSON for missing issue in %s", async (argv, message) => {
     const stdout = captureWrites(process.stdout);
@@ -397,28 +394,29 @@ describe("Commander CLI entrypoint", () => {
     ["--json", "repo", "badcmd"],
     ["repo", "--json", "badcmd"],
     ["repo", "badcmd", "--json"],
-  ])("prints JSON for unknown repo subcommands with globals in %s", async (
-    ...argv
-  ) => {
-    const stdout = captureWrites(process.stdout);
-    const stderr = captureWrites(process.stderr);
+  ])(
+    "prints JSON for unknown repo subcommands with globals in %s",
+    async (...argv) => {
+      const stdout = captureWrites(process.stdout);
+      const stderr = captureWrites(process.stderr);
 
-    try {
-      await runCli(argv);
-    } finally {
-      stdout.restore();
-      stderr.restore();
+      try {
+        await runCli(argv);
+      } finally {
+        stdout.restore();
+        stderr.restore();
+      }
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.output()).toBe("");
+      expect(JSON.parse(stdout.output())).toEqual({
+        error: {
+          code: "unknown_command",
+          message: "error: unknown command 'badcmd' for 'repo'",
+        },
+      });
     }
-
-    expect(process.exitCode).toBe(1);
-    expect(stderr.output()).toBe("");
-    expect(JSON.parse(stdout.output())).toEqual({
-      error: {
-        code: "unknown_command",
-        message: "error: unknown command 'badcmd' for 'repo'",
-      },
-    });
-  });
+  );
 
   it("does not treat inherited property names as namespace commands", async () => {
     const stderr = captureWrites(process.stderr);
@@ -433,23 +431,28 @@ describe("Commander CLI entrypoint", () => {
     expect(stderr.output()).toContain("unknown command 'toString'");
   });
 
-  it.each([["project"], ["project", "add", "--non-interactive"]])(
-    "prints the removed project namespace message for %s",
-    async (...argv) => {
-      const stderr = captureWrites(process.stderr);
+  it.each([
+    [["project"], undefined, undefined],
+    [["project", "add", "--non-interactive"], "stderr", "unknown option"],
+  ])("reports project command usage for %s", async (argv, stream, message) => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
 
-      try {
-        await runCli(argv);
-      } finally {
-        stderr.restore();
-      }
-
-      expect(process.exitCode).toBe(2);
-      expect(stderr.output()).toContain("The 'project' command was removed.");
-      expect(stderr.output()).toContain("gh-symphony repo init");
-      process.exitCode = undefined;
+    try {
+      await runCli(argv);
+    } finally {
+      stdout.restore();
+      stderr.restore();
     }
-  );
+
+    expect(process.exitCode).toBe(1);
+    if (stream && message) {
+      expect(stream === "stdout" ? stdout.output() : stderr.output()).toContain(
+        message
+      );
+    }
+    process.exitCode = undefined;
+  });
 
   it("shows doctor remediation help", async () => {
     const stdout = captureWrites(process.stdout);

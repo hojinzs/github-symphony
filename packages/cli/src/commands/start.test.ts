@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import * as configModule from "../config.js";
@@ -835,6 +835,10 @@ describe("start command foreground locking", () => {
 
     expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
       cwd: "/tmp/standalone-project",
+      env: expect.objectContaining({
+        GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
+        GH_SYMPHONY_DAEMON_PROJECT_ID: "standalone",
+      }),
     });
     const pidRecord = JSON.parse(
       await readFile(
