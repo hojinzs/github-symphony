@@ -115,15 +115,7 @@ async function ensureBareRepositoryCacheUnderLock(input: {
     return input.bareDirectory;
   }
   if (!(await isFetchFresh(input.bareDirectory, now)) || !requiredRefExists) {
-    await runGitCommand([
-      "-C",
-      input.bareDirectory,
-      "fetch",
-      "--prune",
-      "--tags",
-      "origin",
-      "+refs/heads/*:refs/heads/*",
-    ]);
+    await fetchOriginBranches(input.bareDirectory);
     await writeLastFetchMarker(input.bareDirectory, now);
     await runGitCommand(["-C", input.bareDirectory, "gc", "--auto"]);
   }
@@ -137,9 +129,23 @@ async function recreateBareRepository(
   now: Date
 ): Promise<void> {
   await rm(bareDirectory, { recursive: true, force: true });
-  await runGitCommand(["clone", "--bare", cloneUrl, bareDirectory]);
+  await runGitCommand(["init", "--bare", bareDirectory]);
+  await runGitCommand(["-C", bareDirectory, "remote", "add", "origin", cloneUrl]);
+  await fetchOriginBranches(bareDirectory);
   await writeLastFetchMarker(bareDirectory, now);
   await runGitCommand(["-C", bareDirectory, "gc", "--auto"]);
+}
+
+async function fetchOriginBranches(bareDirectory: string): Promise<void> {
+  await runGitCommand([
+    "-C",
+    bareDirectory,
+    "fetch",
+    "--prune",
+    "--tags",
+    "origin",
+    "+refs/heads/*:refs/remotes/origin/*",
+  ]);
 }
 
 async function hasOriginRemote(directory: string): Promise<boolean> {

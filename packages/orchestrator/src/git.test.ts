@@ -127,14 +127,14 @@ describe("global bare repository cache", () => {
       repository,
       configDir,
       now: new Date(now.getTime() + 31_000),
-      requiredRef: "refs/heads/feature/cache-ref",
+      requiredRef: "refs/remotes/origin/feature/cache-ref",
     });
     expect(
       execSync(
-        `git -C "${bareDirectory}" show-ref --verify refs/heads/feature/cache-ref`,
+        `git -C "${bareDirectory}" show-ref --verify refs/remotes/origin/feature/cache-ref`,
         { encoding: "utf8" }
       )
-    ).toContain("refs/heads/feature/cache-ref");
+    ).toContain("refs/remotes/origin/feature/cache-ref");
     expect(
       execSync(
         `git -C "${bareDirectory}" show-ref --verify refs/tags/cache-v1`,
@@ -850,6 +850,69 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).rejects.toThrow(/was preserved/);
     await expect(readFile(join(invalidWorkspace, "repository", "keep"), "utf8")).resolves.toBe("preserve");
+  });
+
+  it("keeps existing recovered worktrees and their branches on cache refresh", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "recovered");
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#8",
+    });
+    await writeFile(join(repositoryDirectory, "local.txt"), "preserve");
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath,
+        existingWorkspace: false,
+        populateStrategy: "worktree-cache",
+      })
+    ).resolves.toBe(repositoryDirectory);
+    await ensureGlobalBareRepositoryCache({
+      repository,
+      now: new Date(Date.now() + 61_000),
+    });
+
+    expect(readGitBranch(repositoryDirectory)).toBe(
+      "symphony/project-one/acme-platform-8"
+    );
+    await expect(readFile(join(repositoryDirectory, "local.txt"), "utf8")).resolves.toBe(
+      "preserve"
+    );
+  });
+
+  it("creates a project-scoped branch from a pull request checkout target", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const issueWorkspacePath = join(tempRoot, "workspaces", "pr-target");
+    execSync(`git -C "${repository.path}" checkout -b feature/pr-branch`);
+    await writeFile(join(repository.path, "pr.txt"), "pull request\n");
+    execSync(`git -C "${repository.path}" add pr.txt`);
+    execSync(`git -C "${repository.path}" commit -m "Add PR commit"`);
+    execSync(`git -C "${repository.path}" push origin feature/pr-branch`);
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#9",
+      pullRequestBranch: { headRefName: "feature/pr-branch" },
+    });
+
+    expect(readGitBranch(repositoryDirectory)).toBe(
+      "symphony/project-one/acme-platform-9"
+    );
+    await expect(readFile(join(repositoryDirectory, "pr.txt"), "utf8")).resolves.toBe(
+      "pull request\n"
+    );
   });
 
   it("supports a front matter branch template", () => {

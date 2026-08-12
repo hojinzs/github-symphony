@@ -180,13 +180,14 @@ async function ensureIssueWorkspaceWorktree(input: {
   repository: RepositoryRef;
   issueWorkspacePath: string;
   existingWorkspace: boolean;
+  pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
   projectSlug?: string;
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
 }): Promise<string> {
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
-  if (input.existingWorkspace) {
+  if (input.existingWorkspace || (await pathExists(join(repositoryDirectory, ".git")))) {
     if (await pathExists(join(repositoryDirectory, ".git"))) {
       return repositoryDirectory;
     }
@@ -201,11 +202,13 @@ async function ensureIssueWorkspaceWorktree(input: {
     projectSlug: input.projectSlug ?? "project",
     issueIdentifier: input.issueIdentifier ?? "issue",
   });
-  const baseBranch = input.baseBranch ?? "main";
+  const baseBranch = input.pullRequestBranch?.headRefName ?? input.baseBranch ?? "main";
+  const baseRef = `refs/remotes/origin/${baseBranch}`;
+  const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
   await mkdir(input.issueWorkspacePath, { recursive: true });
   try {
     return await withGlobalBareRepositoryCache(
-      { repository: input.repository, requiredRef: `refs/heads/${baseBranch}` },
+      { repository: input.repository, requiredRef: baseRef },
       async (bare) => {
         await runGitCommand(["-C", bare, "worktree", "prune"]);
         await runGitCommand([
@@ -216,13 +219,15 @@ async function ensureIssueWorkspaceWorktree(input: {
           "-b",
           branch,
           repositoryDirectory,
-          `refs/heads/${baseBranch}`,
+          baseRef,
         ]);
         return repositoryDirectory;
       }
     );
   } catch (error) {
-    await rm(repositoryDirectory, { recursive: true, force: true });
+    if (!repositoryDirectoryExisted) {
+      await rm(repositoryDirectory, { recursive: true, force: true });
+    }
     throw error;
   }
 }
