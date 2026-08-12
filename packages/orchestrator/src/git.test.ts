@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
@@ -23,6 +23,23 @@ import {
   ensureGlobalBareRepositoryCache,
   globalBareRepositoryDirectory,
 } from "./repository-cache.js";
+
+const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+let testConfigDir: string;
+
+beforeEach(async () => {
+  testConfigDir = await mkdtemp(join(tmpdir(), "orchestrator-config-"));
+  process.env.GH_SYMPHONY_CONFIG_DIR = testConfigDir;
+});
+
+afterEach(async () => {
+  await rm(testConfigDir, { recursive: true, force: true });
+  if (originalConfigDir === undefined) {
+    delete process.env.GH_SYMPHONY_CONFIG_DIR;
+  } else {
+    process.env.GH_SYMPHONY_CONFIG_DIR = originalConfigDir;
+  }
+});
 
 describe("global bare repository cache", () => {
   it("serializes concurrent cache initialization for the same repository", async () => {
