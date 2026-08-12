@@ -57,6 +57,72 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     }
   });
 
+  it("defaults legacy project configs to repository workflows and cloning", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const projectDir = store.projectDir("project-1");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "project.json"),
+      JSON.stringify({
+        projectId: "project-1",
+        slug: "project-1",
+        workspaceDir: "/tmp/workspaces/project-1",
+        repository: { owner: "acme", name: "repo" },
+        tracker: { adapter: "file", bindingId: "file-project-1" },
+      }),
+      "utf8"
+    );
+
+    await expect(store.loadProjectConfig("project-1")).resolves.toEqual(
+      expect.objectContaining({
+        workflowSource: { type: "repo" },
+        populateStrategy: "clone",
+      })
+    );
+  });
+
+  it("round-trips standalone project configuration", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const config = {
+      projectId: "project-1",
+      slug: "project-1",
+      workspaceDir: "/tmp/workspaces/project-1",
+      repository: { owner: "acme", name: "repo" },
+      tracker: { adapter: "file" as const, bindingId: "file-project-1" },
+      workflowSource: {
+        type: "external" as const,
+        path: "/projects/project-1/WORKFLOW.md",
+      },
+      populateStrategy: "worktree-cache" as const,
+      projectDir: "/projects/project-1",
+    };
+
+    await store.saveProjectConfig(config);
+
+    await expect(store.loadProjectConfig("project-1")).resolves.toEqual(config);
+  });
+
+  it.each([
+    [{ type: "external" }],
+    [{ type: "external", path: "projects/project-1/WORKFLOW.md" }],
+  ])("rejects invalid external workflow source %j", async (workflowSource) => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+
+    await expect(
+      store.saveProjectConfig({
+        projectId: "project-1",
+        slug: "project-1",
+        workspaceDir: "/tmp/workspaces/project-1",
+        repository: { owner: "acme", name: "repo" },
+        tracker: { adapter: "file", bindingId: "file-project-1" },
+        workflowSource: workflowSource as never,
+      })
+    ).rejects.toThrow("External workflow source");
+  });
+
   it("loads only issue workspace directories from the project runtime root", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);

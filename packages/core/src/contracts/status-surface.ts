@@ -24,12 +24,24 @@ export type OrchestratorTrackerConfig = {
   settings?: Record<string, OrchestratorTrackerSettingValue>;
 };
 
+export type WorkflowSource =
+  | { type: "repo" }
+  | { type: "external"; path: string };
+
+export type PopulateStrategy = "clone" | "worktree-cache";
+
 export type OrchestratorProjectConfig = {
   projectId: string;
   slug: string;
   workspaceDir: string;
   repository: RepositoryRef;
   tracker: OrchestratorTrackerConfig;
+  /** Defaults to the repository-local workflow for legacy project configs. */
+  workflowSource?: WorkflowSource;
+  /** Defaults to cloning for legacy project configs. */
+  populateStrategy?: PopulateStrategy;
+  /** Standalone project directory, when configuration is managed externally. */
+  projectDir?: string;
 };
 
 export type RetryKind = "continuation" | "failure" | "recovery";

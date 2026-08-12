@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, open, rm, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   deriveIssueWorkspaceKeyFromIdentifier,
   isFileMissing,
@@ -71,7 +71,7 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
   async loadProjectConfig(
     projectId?: string
   ): Promise<OrchestratorProjectConfig | null> {
-    return (
+    const config =
       (await readJsonFile<OrchestratorProjectConfig>(
         join(this.projectDir(projectId), "project.json")
       )) ??
@@ -79,15 +79,16 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
         ? await readJsonFile<OrchestratorProjectConfig>(
             join(this.legacyProjectDir(), "project.json")
           )
-        : null)
-    );
+        : null);
+
+    return config ? normalizeProjectConfig(config) : null;
   }
 
   async saveProjectConfig(config: OrchestratorProjectConfig): Promise<void> {
     await this.ensureProjectDirectory(config.projectId);
     await writeJsonFile(
       join(this.projectDir(config.projectId), "project.json"),
-      config
+      normalizeProjectConfig(config)
     );
   }
 
@@ -504,6 +505,27 @@ export class OrchestratorFsStore implements OrchestratorStateStore {
     const mirrorPath = join(this.resolvedEventsMirrorRoot, relativePath);
     return mirrorPath === primaryPath ? null : mirrorPath;
   }
+}
+
+function normalizeProjectConfig(
+  config: OrchestratorProjectConfig
+): OrchestratorProjectConfig {
+  const workflowSource = config.workflowSource ?? { type: "repo" };
+
+  if (workflowSource.type === "external") {
+    if (!workflowSource.path) {
+      throw new Error("External workflow source requires a path.");
+    }
+    if (!isAbsolute(workflowSource.path)) {
+      throw new Error("External workflow source path must be absolute.");
+    }
+  }
+
+  return {
+    ...config,
+    workflowSource,
+    populateStrategy: config.populateStrategy ?? "clone",
+  };
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {
