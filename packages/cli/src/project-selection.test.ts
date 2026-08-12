@@ -84,7 +84,20 @@ describe("resolveManagedProjectConfig", () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it("requires explicit project selection in non-interactive multi-project mode", async () => {
+  it("uses the active project in non-interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture([
+      createProject("tenant-a"),
+      createProject("tenant-b"),
+    ], "tenant-b");
+    setTty(false, false);
+
+    const project = await resolveManagedProjectConfig({ configDir });
+
+    expect(project?.projectId).toBe("tenant-b");
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it("requires interactive selection when multiple projects have no active project", async () => {
     const configDir = await createConfigFixture([
       createProject("tenant-a"),
       createProject("tenant-b"),
@@ -108,8 +121,7 @@ describe("resolveManagedProjectConfig", () => {
       [
         createProject("tenant-a", "Alpha"),
         createProject("tenant-b", "Beta"),
-      ],
-      "tenant-a"
+      ]
     );
     setTty(true, true);
     selectMock.mockResolvedValue("tenant-b");
@@ -122,7 +134,6 @@ describe("resolveManagedProjectConfig", () => {
         options: expect.arrayContaining([
           expect.objectContaining({
             value: "tenant-a",
-            hint: "current",
           }),
           expect.objectContaining({
             value: "tenant-b",

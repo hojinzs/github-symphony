@@ -149,6 +149,10 @@ export async function resolveManagedProjectConfig(
     return loadProjectConfig(input.configDir, projectIds[0]!);
   }
 
+  if (global?.activeProject) {
+    return loadProjectConfig(input.configDir, global.activeProject);
+  }
+
   if (!isInteractiveTerminal()) {
     writeCliError({
       code: "missing_repository_runtime_config",
