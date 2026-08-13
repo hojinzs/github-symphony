@@ -66,11 +66,13 @@ for project in project-alpha project-beta; do
 done
 alpha_id=$(node -e "console.log(require(\"$CONFIG_DIR/config.json\").projects[0])")
 beta_id=$(node -e "console.log(require(\"$CONFIG_DIR/config.json\").projects[1])")
+run_pids=""
 for project_id in "$alpha_id" "$beta_id"; do
   fixture="$ALPHA_FIXTURE"
   if [ "$project_id" = "$beta_id" ]; then fixture="$BETA_FIXTURE"; fi
   node -e "const fs=require(\"fs\"); const path=\"$CONFIG_DIR/projects/$project_id/project.json\"; const config=require(path); config.repository.cloneUrl=\"/e2e/repos/test-owner/test-repo\"; config.tracker.settings.issuesPath=\"$fixture\"; fs.writeFileSync(path, JSON.stringify(config, null, 2)+\"\\n\")"
   GH_SYMPHONY_CONFIG_DIR="$CONFIG_DIR" node /app/packages/orchestrator/dist/index.js run-once --runtime-root "$CONFIG_DIR" --project-id "$project_id" > "/tmp/$project_id.json" 2>&1 &
+  run_pids="$run_pids $!"
   for _ in $(seq 1 20); do
     if grep -q "\"dispatched\": 1" "/tmp/$project_id.json"; then break; fi
     sleep 1
@@ -100,5 +102,6 @@ alpha_branch=$(git -C "$CONFIG_DIR/projects/$alpha_id/test-owner_test-repo_101/r
 beta_branch=$(git -C "$CONFIG_DIR/projects/$beta_id/test-owner_test-repo_102/repository" branch --show-current)
 test "$alpha_branch" != "$beta_branch"
 find "$CONFIG_DIR/projects" -path "*/runs/*/worker.log" -type f | grep -q .
+for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
 echo "standalone-project Docker E2E passed"
 '
