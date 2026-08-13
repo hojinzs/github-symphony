@@ -131,7 +131,15 @@ async function recreateBareRepository(
   cloneUrl: string,
   now: Date
 ): Promise<void> {
-  await rm(bareDirectory, { recursive: true, force: true });
+  // A concurrent Git process can leave transient entries while a corrupt cache
+  // is being replaced. Retry the recursive removal under the cache lock so a
+  // fresh cache initialization does not fail with ENOTEMPTY.
+  await rm(bareDirectory, {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 100,
+  });
   await runGitCommand(["init", "--bare", bareDirectory]);
   await runGitCommand(["-C", bareDirectory, "remote", "add", "origin", cloneUrl]);
   await fetchOriginBranches(bareDirectory);
