@@ -1,5 +1,25 @@
 # @gh-symphony/cli
 
+## 0.7.14
+
+### Patch Changes
+
+- [#584](https://github.com/hojinzs/github-symphony/pull/584) [`2d8ed18`](https://github.com/hojinzs/github-symphony/commit/2d8ed183d910d4371dbf502f022b0624c71ab7f5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reuse a locked global bare repository cache for new issue workspaces, with 60-second fetch freshness and missing-ref refreshes. ([#564](https://github.com/hojinzs/github-symphony/issues/564))
+
+- [#581](https://github.com/hojinzs/github-symphony/pull/581) [`262b8bf`](https://github.com/hojinzs/github-symphony/commit/262b8bfeaf33afd10556c4b51aa805287441e35c) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Validate standalone project configuration consistently when CLI-managed projects are loaded or saved, including [#562](https://github.com/hojinzs/github-symphony/issues/562) workflow-source defaults.
+
+- [#586](https://github.com/hojinzs/github-symphony/pull/586) [`358c5d4`](https://github.com/hojinzs/github-symphony/commit/358c5d42388e2e5f60c209bf078f057f9204b8e9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Compose layered MCP sidecars safely for Claude and Codex runtimes ([#568](https://github.com/hojinzs/github-symphony/issues/568)).
+
+  When `runtime.isolation.trust_repo_config` is `false` (the default), Claude
+  disables MCP auto-discovery to prevent untrusted repository commands from
+  running. Move trusted user-wide servers to `~/.gh-symphony/mcp.json`, or set
+  `runtime.isolation.trust_repo_config: true` to explicitly load a repository
+  sidecar.
+
+- [#583](https://github.com/hojinzs/github-symphony/pull/583) [`751212c`](https://github.com/hojinzs/github-symphony/commit/751212c0b2f2c3fce8c5f494137d77441ffdb501) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Resolve declared external workflow sources without loading repository policy, and surface a warning when an external workflow shadows the checkout `WORKFLOW.md` ([#563](https://github.com/hojinzs/github-symphony/issues/563)).
+
+- [#585](https://github.com/hojinzs/github-symphony/pull/585) [`ca9eff2`](https://github.com/hojinzs/github-symphony/commit/ca9eff20cf0d47daebe14bf91d2f6a1f4a01d9b8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Resolve standalone project workflow environment variables from the project's `.env` file ([#566](https://github.com/hojinzs/github-symphony/issues/566)).
+
 ## 0.7.13
 
 ### Patch Changes
