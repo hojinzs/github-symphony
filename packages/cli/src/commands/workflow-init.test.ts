@@ -330,9 +330,9 @@ describe("init command config output", () => {
     );
 
     expect(process.exitCode).toBeUndefined();
-    expect(stdout.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain(
-      '"projectId":"symphony-0c79b11b75ea"'
-    );
+    expect(
+      stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
+    ).toContain('"projectId":"symphony-0c79b11b75ea"');
     expect(p.log.info).toHaveBeenCalledWith(
       expect.stringContaining("Claude runtime preflight")
     );
@@ -375,12 +375,7 @@ describe("init command config output", () => {
     vi.mocked(p.select).mockClear();
 
     await initCommand(
-      [
-        "--tracker",
-        "linear",
-        "--linear-project-slug",
-        "symphony-0c79b11b75ea",
-      ],
+      ["--tracker", "linear", "--linear-project-slug", "symphony-0c79b11b75ea"],
       {
         configDir: await mkdtemp(join(tmpdir(), "cli-init-linear-int-")),
         verbose: false,
@@ -1118,7 +1113,7 @@ describe("init ecosystem generation", () => {
     const referenceWorkflow = await readFile(
       join(
         cwd,
-        ".codex",
+        ".agent",
         "skills",
         "gh-symphony",
         "references",
@@ -1127,13 +1122,13 @@ describe("init ecosystem generation", () => {
       "utf8"
     );
     const skill = await readFile(
-      join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
+      join(cwd, ".agent", "skills", "gh-symphony", "SKILL.md"),
       "utf8"
     );
     const implementPosture = await readFile(
       join(
         cwd,
-        ".codex",
+        ".agent",
         "skills",
         "gh-symphony",
         "references",
@@ -1404,7 +1399,7 @@ describe("init ecosystem generation", () => {
     });
 
     const skill = await readFile(
-      join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"),
+      join(cwd, ".agent", "skills", "gh-symphony", "SKILL.md"),
       "utf8"
     );
     expect(skill.startsWith("---\n")).toBe(true);
@@ -1413,7 +1408,7 @@ describe("init ecosystem generation", () => {
     expect(skill).toContain("gh-symphony");
     await expect(
       readFile(
-        join(cwd, ".codex", "skills", "gh-symphony", "references", "README.md"),
+        join(cwd, ".agent", "skills", "gh-symphony", "references", "README.md"),
         "utf8"
       )
     ).resolves.toContain("# /gh-symphony references");
@@ -1461,7 +1456,7 @@ describe("init ecosystem generation", () => {
 
     for (const skillName of skillNames) {
       const skill = await readFile(
-        join(cwd, ".codex", "skills", skillName, "SKILL.md"),
+        join(cwd, ".agent", "skills", skillName, "SKILL.md"),
         "utf8"
       );
       expect(skill.startsWith("---\n")).toBe(true);
@@ -1483,7 +1478,7 @@ describe("init ecosystem generation", () => {
         readFile(
           join(
             cwd,
-            ".codex",
+            ".agent",
             "skills",
             "gh-symphony",
             "references",
@@ -1509,7 +1504,7 @@ describe("init ecosystem generation", () => {
     });
 
     await expect(
-      readFile(join(cwd, ".codex", "skills", "gh-symphony", "SKILL.md"), "utf8")
+      readFile(join(cwd, ".agent", "skills", "gh-symphony", "SKILL.md"), "utf8")
     ).rejects.toThrow();
 
     expect(result.skillsDir).toBeNull();

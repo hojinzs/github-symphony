@@ -26,34 +26,34 @@ function createSkillTemplate(name: string, content: string): SkillTemplate {
 
 describe("skill-writer", () => {
   describe("resolveSkillsDir", () => {
-    it("resolves claude-code runtime to .claude/skills", () => {
+    it("resolves claude-code runtime to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "claude-code");
-      expect(result).toBe(join("/repo", ".claude", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
-    it("resolves claude-print runtime to .claude/skills", () => {
+    it("resolves claude-print runtime to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "claude-print");
-      expect(result).toBe(join("/repo", ".claude", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
-    it("resolves codex runtime to .codex/skills", () => {
+    it("resolves codex runtime to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "codex");
-      expect(result).toBe(join("/repo", ".codex", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
-    it("resolves codex-app-server runtime to .codex/skills", () => {
+    it("resolves codex-app-server runtime to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "codex-app-server");
-      expect(result).toBe(join("/repo", ".codex", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
-    it("resolves codex agent command to .codex/skills", () => {
+    it("resolves codex agent command to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "bash -lc codex app-server");
-      expect(result).toBe(join("/repo", ".codex", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
-    it("resolves claude-code agent command to .claude/skills", () => {
+    it("resolves claude-code agent command to the project skill layer", () => {
       const result = resolveSkillsDir("/repo", "bash -lc claude-code");
-      expect(result).toBe(join("/repo", ".claude", "skills"));
+      expect(result).toBe(join("/repo", ".agent", "skills"));
     });
 
     it("does not resolve substring-only runtime names to skill dirs", () => {
@@ -272,7 +272,7 @@ describe("skill-writer", () => {
       const result = await writeAllSkills(tempDir, "codex", templates, context);
 
       expect(result.written).toHaveLength(1);
-      expect(result.written[0]).toContain(".codex/skills");
+      expect(result.written[0]).toContain(".agent/skills");
     });
 
     it("returns empty arrays for unknown runtime", async () => {
@@ -369,7 +369,7 @@ describe("skill-writer", () => {
       expect(generate).toHaveBeenCalledTimes(1);
       await expect(
         readFile(
-          join(tempDir, ".codex", "skills", "sample", "SKILL.md"),
+          join(tempDir, ".agent", "skills", "sample", "SKILL.md"),
           "utf8"
         )
       ).resolves.toContain("name: sample");
