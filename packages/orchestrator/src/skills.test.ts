@@ -108,17 +108,81 @@ describe("layered runtime skills", () => {
     expect(resolveRuntimeSkillsDirectory("/worktree", "claude -p")).toBe(
       "/worktree/.claude/skills"
     );
+    expect(
+      resolveRuntimeSkillsDirectory("/worktree", "/usr/local/bin/codex app-server")
+    ).toBe("/worktree/.codex/skills");
   });
 
-  it("excludes injected runtime skills from the worktree git status", async () => {
+  it("excludes injected runtime skills from a linked worktree git status", async () => {
     const root = await createRoot();
-    await execFileAsync("git", ["init", root]);
-    await excludeRuntimeSkillsFromGit(root, "codex app-server");
-    await writeSkill(join(root, ".codex", "skills"), "injected", "skill");
+    const bare = join(root, "cache.git");
+    const seed = join(root, "seed");
+    const worktree = join(root, "worktree");
+    await execFileAsync("git", ["init", "-q", "-b", "main", seed]);
+    await execFileAsync("git", ["-C", seed, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", seed, "config", "user.name", "Test User"]);
+    await writeFile(join(seed, "README.md"), "seed", "utf8");
+    await execFileAsync("git", ["-C", seed, "add", "README.md"]);
+    await execFileAsync("git", ["-C", seed, "commit", "-qm", "seed"]);
+    await execFileAsync("git", ["init", "-q", "--bare", bare]);
+    await execFileAsync("git", ["-C", seed, "remote", "add", "origin", bare]);
+    await execFileAsync("git", ["-C", seed, "push", "-q", "origin", "main"]);
+    await execFileAsync("git", ["--git-dir", bare, "worktree", "add", "-q", worktree, "main"]);
+    await excludeRuntimeSkillsFromGit(worktree, "codex app-server");
+    await writeSkill(join(worktree, ".codex", "skills"), "injected", "skill");
 
     const { stdout } = await execFileAsync("git", [
       "-C",
-      root,
+      worktree,
+      "status",
+      "--short",
+    ]);
+    expect(stdout).toBe("");
+  });
+
+  it("preserves tracked runtime skills while refreshing injected skills", async () => {
+    const root = await createRoot();
+    const global = join(root, "global");
+    const project = join(root, "project");
+    const repository = join(root, "repository");
+    await execFileAsync("git", ["init", "-q", repository]);
+    await execFileAsync("git", ["-C", repository, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", repository, "config", "user.name", "Test User"]);
+    await writeSkill(
+      join(repository, ".codex", "skills"),
+      "committed",
+      "repository skill"
+    );
+    await execFileAsync("git", ["-C", repository, "add", "."]);
+    await execFileAsync("git", ["-C", repository, "commit", "-qm", "skills"]);
+    await writeSkill(global, "injected", "first");
+    await excludeRuntimeSkillsFromGit(repository, "codex app-server");
+
+    const input = {
+      globalSkillsDirectory: global,
+      projectDirectory: project,
+      repositoryDirectory: repository,
+      agentCommand: "codex app-server",
+    };
+    await injectLayeredSkills(input);
+    await writeSkill(global, "injected", "second");
+    await injectLayeredSkills(input);
+
+    await expect(
+      readFile(
+        join(repository, ".codex", "skills", "committed", "SKILL.md"),
+        "utf8"
+      )
+    ).resolves.toBe("repository skill");
+    await expect(
+      readFile(
+        join(repository, ".codex", "skills", "injected", "SKILL.md"),
+        "utf8"
+      )
+    ).resolves.toBe("second");
+    const { stdout } = await execFileAsync("git", [
+      "-C",
+      repository,
       "status",
       "--short",
     ]);

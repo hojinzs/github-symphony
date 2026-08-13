@@ -2450,7 +2450,8 @@ export class OrchestratorService {
 
     // Run before_run hook before spawning the worker
     await injectLayeredSkills({
-      projectDirectory: this.store.projectDir(tenant.projectId),
+      projectDirectory:
+        tenant.projectDir ?? this.store.projectDir(tenant.projectId),
       repositoryDirectory,
       agentCommand,
     });
