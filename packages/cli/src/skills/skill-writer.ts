@@ -27,12 +27,8 @@ export function resolveSkillsDir(
   repoRoot: string,
   runtime: string
 ): string | null {
-  const normalizedRuntime = normalizeRuntimeForSkills(runtime);
-  if (normalizedRuntime === "claude-code") {
-    return join(repoRoot, ".claude", "skills");
-  }
-  if (normalizedRuntime === "codex") {
-    return join(repoRoot, ".codex", "skills");
+  if (normalizeRuntimeForSkills(runtime)) {
+    return join(repoRoot, ".agent", "skills");
   }
   return null;
 }

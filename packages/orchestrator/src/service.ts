@@ -64,6 +64,7 @@ import {
   readGitCurrentBranch,
   removeIssueWorkspaceWorktree,
 } from "./git.js";
+import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { getProcessStartIdentity } from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
@@ -2379,6 +2380,10 @@ export class OrchestratorService {
       branchTemplate,
       baseBranch,
     });
+    const agentCommand = resolveWorkflowRuntimeCommand(
+      workflowForPopulate.workflow
+    );
+    await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
 
     if (!existingWorkspaceRecord || workspaceQuarantined) {
       const workspaceRecord: IssueWorkspaceRecord = {
@@ -2444,6 +2449,11 @@ export class OrchestratorService {
     );
 
     // Run before_run hook before spawning the worker
+    await injectLayeredSkills({
+      projectDirectory: this.store.projectDir(tenant.projectId),
+      repositoryDirectory,
+      agentCommand,
+    });
     await this.runHook(
       "before_run",
       tenant,
