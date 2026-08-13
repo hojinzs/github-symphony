@@ -18,7 +18,10 @@ import {
   type RepositoryRef,
   type WorkflowResolution,
 } from "@gh-symphony/core";
-import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
+import {
+  ensureGlobalBareRepositoryCache,
+  withGlobalBareRepositoryCache,
+} from "./repository-cache.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
 const workflowConfigStore = new WorkflowConfigStore();
@@ -124,7 +127,15 @@ export async function ensureIssueWorkspaceRepository(input: {
   existingWorkspace: boolean;
   pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
   allowDirtyExistingWorkspace?: boolean;
+  populateStrategy?: "clone" | "worktree-cache";
+  projectSlug?: string;
+  issueIdentifier?: string;
+  branchTemplate?: string | null;
+  baseBranch?: string | null;
 }): Promise<string> {
+  if (input.populateStrategy === "worktree-cache") {
+    return ensureIssueWorkspaceWorktree(input);
+  }
   let dirtyExistingWorkspaceAllowed = false;
   const repositoryDirectory = input.existingWorkspace
     ? await syncExistingIssueWorkspaceRepository(
@@ -153,6 +164,183 @@ export async function ensureIssueWorkspaceRepository(input: {
   }
 
   return repositoryDirectory;
+}
+
+export async function removeIssueWorkspaceWorktree(input: {
+  repository: RepositoryRef;
+  repositoryDirectory: string;
+  projectSlug: string;
+  issueIdentifier: string;
+  branchTemplate?: string | null;
+}): Promise<void> {
+  const branch = renderIssueBranchName({
+    template: input.branchTemplate,
+    projectSlug: input.projectSlug,
+    issueIdentifier: input.issueIdentifier,
+  });
+  await withGlobalBareRepositoryCache(
+    { repository: input.repository },
+    async (bare) => {
+      await ignoreMissingWorktree(
+        runGitCommand([
+          "-C",
+          bare,
+          "worktree",
+          "remove",
+          "--force",
+          input.repositoryDirectory,
+        ])
+      );
+      await ignoreMissingBranch(
+        runGitCommand(["-C", bare, "branch", "-D", branch])
+      );
+      await runGitCommand(["-C", bare, "worktree", "prune"]);
+    }
+  );
+}
+
+async function ensureIssueWorkspaceWorktree(input: {
+  repository: RepositoryRef;
+  issueWorkspacePath: string;
+  existingWorkspace: boolean;
+  pullRequestBranch?: PullRequestBranchCheckoutTarget | null;
+  projectSlug?: string;
+  issueIdentifier?: string;
+  branchTemplate?: string | null;
+  baseBranch?: string | null;
+}): Promise<string> {
+  const repositoryDirectory = join(input.issueWorkspacePath, "repository");
+  if (await pathExists(join(repositoryDirectory, ".git"))) {
+    return repositoryDirectory;
+  }
+  if (input.existingWorkspace && (await pathExists(repositoryDirectory))) {
+    throw createIssueWorkspacePreservedError(
+      repositoryDirectory,
+      "exists but is not a git worktree"
+    );
+  }
+  if (!input.projectSlug || !input.issueIdentifier) {
+    throw new Error(
+      "worktree-cache populate requires projectSlug and issueIdentifier."
+    );
+  }
+
+  const branch = renderIssueBranchName({
+    template: input.branchTemplate,
+    projectSlug: input.projectSlug,
+    issueIdentifier: input.issueIdentifier,
+  });
+  const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
+  await mkdir(input.issueWorkspacePath, { recursive: true });
+  try {
+    return await withGlobalBareRepositoryCache(
+      {
+        repository: input.repository,
+        requiredRef: input.pullRequestBranch
+          ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
+          : input.baseBranch
+            ? `refs/remotes/origin/${input.baseBranch}`
+            : undefined,
+      },
+      async (bare) => {
+        const baseBranch =
+          input.pullRequestBranch?.headRefName ??
+          input.baseBranch ??
+          (await readOriginDefaultBranch(bare));
+        const baseRef = `refs/remotes/origin/${baseBranch}`;
+        await runGitCommand(["-C", bare, "worktree", "prune"]);
+        await runGitCommand([
+          "-C",
+          bare,
+          "worktree",
+          "add",
+          "-B",
+          branch,
+          repositoryDirectory,
+          baseRef,
+        ]);
+        return repositoryDirectory;
+      }
+    );
+  } catch (error) {
+    if (!repositoryDirectoryExisted) {
+      await rm(repositoryDirectory, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
+
+async function ignoreMissingWorktree(command: Promise<void>): Promise<void> {
+  try {
+    await command;
+  } catch (error) {
+    if (!hasGitError(error, "is not a working tree")) {
+      throw error;
+    }
+  }
+}
+
+async function ignoreMissingBranch(command: Promise<void>): Promise<void> {
+  try {
+    await command;
+  } catch (error) {
+    if (!hasGitError(error, "not found")) {
+      throw error;
+    }
+  }
+}
+
+function hasGitError(error: unknown, message: string): boolean {
+  return error instanceof Error && error.message.includes(message);
+}
+
+async function readOriginDefaultBranch(bareDirectory: string): Promise<string> {
+  const ref = (
+    await runGitCommandCapture([
+      "-C",
+      bareDirectory,
+      "symbolic-ref",
+      "--short",
+      "refs/remotes/origin/HEAD",
+    ])
+  ).trim();
+  if (!ref.startsWith("origin/")) {
+    throw new Error(`Could not determine origin default branch from ${ref}.`);
+  }
+  return ref.slice("origin/".length);
+}
+
+export function renderIssueBranchName(input: {
+  template?: string | null;
+  projectSlug: string;
+  issueIdentifier: string;
+}): string {
+  const projectSlug = sanitizeBranchSegment(input.projectSlug);
+  const issueId = sanitizeBranchSegment(input.issueIdentifier);
+  const template =
+    input.template?.trim() || "symphony/{project_slug}/{sanitized_issue_id}";
+  const branch = template
+    .replaceAll("{project_slug}", projectSlug)
+    .replaceAll("{sanitized_issue_id}", issueId);
+  if (!branch || branch.includes("{") || branch.includes("}")) {
+    throw new Error(
+      `Invalid issue worktree branch template ${JSON.stringify(template)}.`
+    );
+  }
+  return branch;
+}
+
+function sanitizeBranchSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!sanitized) {
+    throw new Error(
+      `Cannot derive a worktree branch segment from ${JSON.stringify(value)}.`
+    );
+  }
+  return sanitized;
 }
 
 export type IssueWorkspaceDirtyStatus = {
