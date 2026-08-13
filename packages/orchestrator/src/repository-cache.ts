@@ -140,6 +140,11 @@ async function recreateBareRepository(
     maxRetries: 3,
     retryDelay: 100,
   });
+  // The parent is normally created before taking the lock, but another
+  // lifecycle cleanup can remove an empty cache hierarchy while a caller is
+  // waiting. Recreate it after acquiring the lock so `git init` never races a
+  // missing parent directory.
+  await mkdir(dirname(bareDirectory), { recursive: true });
   await runGitCommand(["init", "--bare", bareDirectory]);
   await runGitCommand(["-C", bareDirectory, "remote", "add", "origin", cloneUrl]);
   await fetchOriginBranches(bareDirectory);
