@@ -164,6 +164,23 @@ async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
   console.error(`[stub-worker] scenario=${SCENARIO} runId=${RUN_ID}`);
+  // The Docker image compiles this standalone worker without workspace module
+  // resolution, so load the already-built core package at runtime.
+  const { composeMcpServers } = (await import(
+    "/app/packages/core/dist/index.js"
+  )) as {
+    composeMcpServers: (options: {
+      repositoryDir: string;
+      projectDir?: string;
+    }) => Record<string, unknown>;
+  };
+  const mcpServers = composeMcpServers({
+    repositoryDir: process.env.WORKING_DIRECTORY ?? process.cwd(),
+    projectDir: process.env.SYMPHONY_PROJECT_DIR,
+  });
+  console.error(
+    `[stub-worker] mcp_servers=${Object.keys(mcpServers).sort().join(",")}`
+  );
 
   // Starting phase
   status = "starting";

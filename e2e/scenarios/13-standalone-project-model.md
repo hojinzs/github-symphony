@@ -15,10 +15,12 @@ local seed repository를 참조하는 `project-alpha`, `project-beta`를 만든�
 
 ## Expected
 
-- 두 프로젝트가 같은 `~/.gh-symphony/repos/test-owner/test-repo.git` bare cache를 공유한다.
-- 각각은 자기 label 이슈만 dispatch하고 `symphony/project-alpha/*`,
-  `symphony/project-beta/*`의 서로 다른 브랜치에서 실행한다.
-- project skill/MCP 주입 뒤 `git status --porcelain`은 비어 있으며 worker log가 생성된다.
+- 두 프로젝트가 같은 `<config-dir>/repos/test-owner/test-repo.git` bare cache 하나를 공유한다.
+- 같은 통합 fixture에서 각각은 자기 label 이슈만 dispatch하고
+  `symphony/project-alpha/test-owner-test-repo-101`,
+  `symphony/project-beta/test-owner-test-repo-102`의 서로 다른 브랜치에서 실행한다.
+- project skill 주입 뒤 `git status --porcelain`은 비어 있고, worker가 project MCP server를
+  compose한 뒤 두 worker 모두 `status=completed`를 기록한다.
 
 ## Cleanup
 

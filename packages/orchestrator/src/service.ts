@@ -2554,7 +2554,8 @@ export class OrchestratorService {
           PROJECT_ID: tenant.projectId,
           WORKING_DIRECTORY: repositoryDirectory,
           WORKSPACE_RUNTIME_DIR: workspaceRuntimeDir,
-          SYMPHONY_PROJECT_DIR: this.store.projectDir(tenant.projectId),
+          SYMPHONY_PROJECT_DIR:
+            tenant.projectDir ?? this.store.projectDir(tenant.projectId),
           SYMPHONY_TRUST_REPO_CONFIG: String(
             workflow.workflow.runtime?.isolation.trustRepoConfig === true
           ),

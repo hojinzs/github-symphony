@@ -25,6 +25,36 @@ function parseIssueNumber(identifier: string): number {
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
+function filterIssuesByPickupLabels(
+  issues: TrackedIssue[],
+  project: OrchestratorProjectConfig
+): TrackedIssue[] {
+  const pickupLabels = project.tracker.settings?.pickupLabels;
+  if (
+    !pickupLabels ||
+    typeof pickupLabels !== "object" ||
+    Array.isArray(pickupLabels)
+  ) {
+    return issues;
+  }
+  const config = pickupLabels as Record<string, unknown>;
+  const readLabels = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((label): label is string => typeof label === "string")
+      : [];
+  const include = readLabels(config.include);
+  const exclude = new Set(readLabels(config.exclude));
+  if (include.length === 0 && exclude.size === 0) return issues;
+
+  return issues.filter((issue) => {
+    const labels = new Set(issue.labels);
+    return (
+      ![...exclude].some((label) => labels.has(label)) &&
+      (include.length === 0 || include.some((label) => labels.has(label)))
+    );
+  });
+}
+
 function isValidIssueShape(entry: unknown): entry is TrackedIssue {
   if (!entry || typeof entry !== "object") return false;
   const e = entry as Record<string, unknown>;
@@ -101,7 +131,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
           );
         }
       }
-      return valid;
+      return filterIssuesByPickupLabels(valid, project);
     } catch (err) {
       if (
         err instanceof Error &&

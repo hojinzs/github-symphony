@@ -1,7 +1,8 @@
 # ADR: Single-Repository Orchestrator Model 로 전환
 
 - **Date**: 2026-05-04
-- **Status**: Superseded by standalone-project refinement
+- **Status**: Superseded by
+  [`2026-08-13_standalone-project-instance-boundary.md`](./2026-08-13_standalone-project-instance-boundary.md)
 - **Related Spec**: `docs/symphony-spec.md` §3.1, §5.1
 - **Reference Implementation**: <https://github.com/openai/symphony> (elixir)
 - **Related ADRs**:

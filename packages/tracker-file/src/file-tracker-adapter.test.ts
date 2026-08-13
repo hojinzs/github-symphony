@@ -79,6 +79,26 @@ describe("fileTrackerAdapter", () => {
       expect(issues[0].state).toBe("Ready");
     });
 
+    it("filters issues using configured pickup labels", async () => {
+      const issuesPath = join(testDir, "issues.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          { ...sampleIssue, labels: ["alpha"] },
+          { ...sampleIssue, id: "issue-2", labels: ["beta"] },
+        ])
+      );
+      const project = makeProject(issuesPath);
+      project.tracker.settings = {
+        ...project.tracker.settings,
+        pickupLabels: { include: ["alpha"], exclude: ["beta"] },
+      };
+
+      await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
+        expect.objectContaining({ id: "issue-1" }),
+      ]);
+    });
+
     it("returns empty array when file does not exist", async () => {
       const project = makeProject(join(testDir, "nonexistent.json"));
       const issues = await fileTrackerAdapter.listIssues(project);
