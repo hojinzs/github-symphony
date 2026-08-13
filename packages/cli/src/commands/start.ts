@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createServer,
@@ -69,6 +69,7 @@ function logLine(icon: string, msg: string): void {
 }
 
 const REPO_START_COMMAND = "gh-symphony repo start";
+const DAEMON_PROJECT_ID_ENV = "GH_SYMPHONY_DAEMON_PROJECT_ID";
 
 type RepoStartAuthPreflightResult =
   | { ok: true; githubAuthSource?: GitHubAuthSource }
@@ -78,9 +79,12 @@ function isInteractiveTerminal(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
 }
 
-function displayGhAuthError(error: GitHubAuthError): void {
+function displayGhAuthError(
+  error: GitHubAuthError,
+  retryCommand = REPO_START_COMMAND
+): void {
   const remediation = formatGhAuthRemediation(error, {
-    retryCommand: REPO_START_COMMAND,
+    retryCommand,
   });
   process.stderr.write(`${remediation.title}: ${remediation.message}\n`);
   process.stderr.write(`${remediation.hint}\n`);
@@ -107,6 +111,7 @@ function displayGitHubAuthSuccess(auth: {
 
 async function resolveRepoStartGitHubAuth(input: {
   allowInteractiveRemediation: boolean;
+  retryCommand: string;
 }): Promise<RepoStartAuthPreflightResult> {
   try {
     const auth = await resolveGitHubAuth();
@@ -118,10 +123,10 @@ async function resolveRepoStartGitHubAuth(input: {
       throw error;
     }
 
-    displayGhAuthError(error);
+    displayGhAuthError(error, input.retryCommand);
 
     const remediation = formatGhAuthRemediation(error, {
-      retryCommand: REPO_START_COMMAND,
+      retryCommand: input.retryCommand,
     });
     const canRemediate =
       input.allowInteractiveRemediation &&
@@ -159,7 +164,7 @@ async function resolveRepoStartGitHubAuth(input: {
       return { ok: true, githubAuthSource: auth.source };
     } catch (retryError) {
       if (retryError instanceof GitHubAuthError) {
-        displayGhAuthError(retryError);
+        displayGhAuthError(retryError, input.retryCommand);
         process.exitCode = 1;
         return { ok: false };
       }
@@ -170,11 +175,12 @@ async function resolveRepoStartGitHubAuth(input: {
 
 async function preflightRepoStartAuth(
   projectConfig: OrchestratorProjectConfig,
-  input: { daemon: boolean }
+  input: { daemon: boolean; retryCommand: string }
 ): Promise<RepoStartAuthPreflightResult> {
   if (projectConfig.tracker.adapter === "github-project") {
     return resolveRepoStartGitHubAuth({
       allowInteractiveRemediation: !input.daemon,
+      retryCommand: input.retryCommand,
     });
   }
 
@@ -183,7 +189,7 @@ async function preflightRepoStartAuth(
       return { ok: true };
     }
     process.stderr.write(
-      "Linear authentication is required. Set LINEAR_API_KEY in the environment before running 'gh-symphony repo start'.\n"
+      `Linear authentication is required. Set LINEAR_API_KEY in the environment before running '${input.retryCommand}'.\n`
     );
     process.exitCode = 1;
     return { ok: false };
@@ -903,7 +909,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: undefined,
+    requestedProjectId: process.env[DAEMON_PROJECT_ID_ENV],
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();
@@ -935,6 +941,10 @@ const handler = async (
 
   const authPreflight = await preflightRepoStartAuth(projectConfig, {
     daemon: parsed.daemon,
+    retryCommand:
+      options.invocation === "project"
+        ? "gh-symphony project start"
+        : REPO_START_COMMAND,
   });
   if (!authPreflight.ok) {
     return;
@@ -951,7 +961,9 @@ const handler = async (
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
-      httpApiToken
+      httpApiToken,
+      projectConfig.projectDir,
+      projectId
     );
     return;
   }
@@ -1322,7 +1334,9 @@ async function startDaemon(
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
-  httpApiToken = resolveHttpApiToken()
+  httpApiToken = resolveHttpApiToken(),
+  projectDir?: string,
+  selectedProjectId?: string
 ): Promise<void> {
   const logPath = orchestratorLogPath(options.configDir, projectId);
   await mkdir(dirname(logPath), { recursive: true });
@@ -1344,10 +1358,13 @@ async function startDaemon(
       ...(logLevel ? ["--log-level", logLevel] : []),
     ],
     {
-      cwd: process.cwd(),
+      cwd: projectDir ?? process.cwd(),
       env: {
         ...process.env,
-        GH_SYMPHONY_CONFIG_DIR: options.configDir,
+        GH_SYMPHONY_CONFIG_DIR: resolve(options.configDir),
+        ...(selectedProjectId
+          ? { [DAEMON_PROJECT_ID_ENV]: selectedProjectId }
+          : {}),
         [HTTP_API_TOKEN_ENV]: httpApiToken,
       },
       detached: true,
@@ -1366,7 +1383,7 @@ async function startDaemon(
       pid: child.pid,
       startedAt: new Date().toISOString(),
       processIdentity: getProcessIdentity(child.pid),
-      cwd: process.cwd(),
+      cwd: projectDir ?? process.cwd(),
     });
     child.unref();
   } catch (error) {
@@ -1386,7 +1403,7 @@ async function startDaemon(
   process.stdout.write(
     `Orchestrator started in background (PID: ${child.pid}).\n` +
       `Logs: ${logPath}\n` +
-      "Stop with: gh-symphony repo stop\n"
+      `Stop with: ${options.invocation === "project" ? "gh-symphony project stop" : "gh-symphony repo stop"}\n`
   );
   if (httpPort !== undefined || webPort !== undefined) {
     process.stdout.write(`HTTP API bearer token: ${httpApiToken}\n`);

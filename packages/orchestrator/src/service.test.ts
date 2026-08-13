@@ -11442,6 +11442,38 @@ Workspace prompt.
     ]);
   });
 
+  it("does not warn when an external workflow is the resolved repository workflow", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-same-path-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(process.cwd(), "WORKFLOW.md");
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, {
+        ...repository,
+        path: undefined,
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.warnings).toEqual([]);
+  });
+
   it("reloads the configured external workflow and preserves repo mode behavior", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

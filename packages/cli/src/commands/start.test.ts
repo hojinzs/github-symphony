@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
 import * as configModule from "../config.js";
@@ -814,6 +814,49 @@ describe("start command foreground locking", () => {
       cwd: process.cwd(),
     });
     expect(Date.parse(pidRecord.startedAt)).not.toBeNaN();
+  });
+
+  it("starts the active external project daemon from its project directory", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "standalone",
+      projects: [
+        {
+          ...createProject("standalone", "acme", "platform"),
+          projectDir: "/tmp/standalone-project",
+          workflowSource: {
+            type: "external",
+            path: "/tmp/standalone-project/WORKFLOW.md",
+          },
+        },
+        createProject("other-project", "beta", "api"),
+      ],
+    });
+
+    const stdout = captureWrites(process.stdout);
+    try {
+      await startModule.default(["--daemon"], {
+        ...baseOptions(configDir),
+        invocation: "project",
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
+      cwd: "/tmp/standalone-project",
+      env: expect.objectContaining({
+        GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
+        GH_SYMPHONY_DAEMON_PROJECT_ID: "standalone",
+      }),
+    });
+    const pidRecord = JSON.parse(
+      await readFile(
+        join(configDir, "projects", "standalone", "daemon.pid"),
+        "utf8"
+      )
+    ) as { cwd: string };
+    expect(pidRecord.cwd).toBe("/tmp/standalone-project");
+    expect(stdout.output()).toContain("Stop with: gh-symphony project stop");
   });
 
   it("does not leave a PID file when daemon spawn fails", async () => {

@@ -21,6 +21,7 @@ export type GlobalOptions = {
   verbose: boolean;
   json: boolean;
   noColor: boolean;
+  invocation?: "project";
 };
 
 export type CommandHandler = (
@@ -34,6 +35,7 @@ type LoaderKey =
   | "doctor"
   | "upgrade"
   | "repo"
+  | "project"
   | "config"
   | "version";
 
@@ -84,6 +86,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     doctor: () => import("./commands/doctor.js"),
     upgrade: () => import("./commands/upgrade.js"),
     repo: () => import("./commands/repo.js"),
+    project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
     version: () => import("./commands/version.js"),
   };
@@ -512,19 +515,44 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     markInvoked
   );
 
+  const project = addGlobalOptions(
+    program.command("project").description("Manage standalone projects")
+  );
   addGlobalOptions(
-    program
-      .command("project")
-      .description("Removed project namespace")
-      .argument("[args...]", "Removed project command arguments")
-      .allowUnknownOption(true)
-      .allowExcessArguments(true)
-  ).action(async function (this: Command) {
+    project
+      .command("add")
+      .argument("<projectDir>", "Standalone project directory")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command, projectDir: string) {
     markInvoked();
-    await createRemovedCommandHandler(
-      "The 'project' command was removed. The orchestrator is now per-repository. Run 'gh-symphony repo init' in the target repository."
-    )([], resolveGlobalOptions(this.optsWithGlobals<CliOptionValues>()));
+    await invokeHandler(
+      "project",
+      ["add", projectDir],
+      this.optsWithGlobals<CliOptionValues>()
+    );
   });
+  addGlobalOptions(project.command("list").allowExcessArguments(false)).action(
+    async function (this: Command) {
+      markInvoked();
+      await invokeHandler(
+        "project",
+        ["list"],
+        this.optsWithGlobals<CliOptionValues>()
+      );
+    }
+  );
+  for (const name of ["start", "status", "stop"] as const) {
+    addGlobalOptions(
+      project.command(name).allowUnknownOption(true).allowExcessArguments(true)
+    ).action(async function (this: Command) {
+      markInvoked();
+      await invokeHandler(
+        "project",
+        [name, ...this.args],
+        this.optsWithGlobals<CliOptionValues>()
+      );
+    });
+  }
 
   const repo = addGlobalOptions(
     program

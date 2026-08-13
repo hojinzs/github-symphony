@@ -10,6 +10,14 @@ import {
 
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
+const originalStdinIsTty = Object.getOwnPropertyDescriptor(
+  process.stdin,
+  "isTTY"
+);
+const originalStdoutIsTty = Object.getOwnPropertyDescriptor(
+  process.stdout,
+  "isTTY"
+);
 
 vi.mock("@clack/prompts", async () => {
   const actual =
@@ -28,7 +36,10 @@ const {
   resolveManagedProjectConfig,
 } = await import("./project-selection.js");
 
-function createProject(projectId: string, displayName?: string): CliProjectConfig {
+function createProject(
+  projectId: string,
+  displayName?: string
+): CliProjectConfig {
   return {
     projectId,
     slug: projectId,
@@ -71,6 +82,12 @@ afterEach(() => {
   selectMock.mockReset();
   cancelMock.mockReset();
   vi.restoreAllMocks();
+  if (originalStdinIsTty) {
+    Object.defineProperty(process.stdin, "isTTY", originalStdinIsTty);
+  }
+  if (originalStdoutIsTty) {
+    Object.defineProperty(process.stdout, "isTTY", originalStdoutIsTty);
+  }
   process.exitCode = undefined;
 });
 
@@ -84,7 +101,20 @@ describe("resolveManagedProjectConfig", () => {
     expect(selectMock).not.toHaveBeenCalled();
   });
 
-  it("requires explicit project selection in non-interactive multi-project mode", async () => {
+  it("uses the active project in non-interactive multi-project mode", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("tenant-a"), createProject("tenant-b")],
+      "tenant-b"
+    );
+    setTty(false, false);
+
+    const project = await resolveManagedProjectConfig({ configDir });
+
+    expect(project?.projectId).toBe("tenant-b");
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it("requires interactive selection when multiple projects have no active project", async () => {
     const configDir = await createConfigFixture([
       createProject("tenant-a"),
       createProject("tenant-b"),
@@ -104,13 +134,10 @@ describe("resolveManagedProjectConfig", () => {
   });
 
   it("prompts and resolves the selected project in interactive multi-project mode", async () => {
-    const configDir = await createConfigFixture(
-      [
-        createProject("tenant-a", "Alpha"),
-        createProject("tenant-b", "Beta"),
-      ],
-      "tenant-a"
-    );
+    const configDir = await createConfigFixture([
+      createProject("tenant-a", "Alpha"),
+      createProject("tenant-b", "Beta"),
+    ]);
     setTty(true, true);
     selectMock.mockResolvedValue("tenant-b");
 
@@ -122,7 +149,6 @@ describe("resolveManagedProjectConfig", () => {
         options: expect.arrayContaining([
           expect.objectContaining({
             value: "tenant-a",
-            hint: "current",
           }),
           expect.objectContaining({
             value: "tenant-b",
