@@ -820,6 +820,14 @@ describe("worktree-cache issue workspaces", () => {
     await expect(access(repositoryDirectory)).rejects.toMatchObject({
       code: "ENOENT",
     });
+    await expect(
+      removeIssueWorkspaceWorktree({
+        repository,
+        repositoryDirectory,
+        projectSlug: "project-one",
+        issueIdentifier: "acme/platform#1",
+      })
+    ).resolves.toBeUndefined();
     const bareDirectory = globalBareRepositoryDirectory({ repository });
     expect(
       execSync(
@@ -838,6 +846,22 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).resolves.toBe(
       join(tempRoot, "workspaces", "issue-1-revived", "repository")
+    );
+  });
+
+  it("requires a project-scoped identity for fresh worktree population", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+
+    await expect(
+      ensureIssueWorkspaceRepository({
+        repository,
+        issueWorkspacePath: join(tempRoot, "workspaces", "missing-identity"),
+        existingWorkspace: false,
+        populateStrategy: "worktree-cache",
+      })
+    ).rejects.toThrow(
+      "worktree-cache populate requires projectSlug and issueIdentifier"
     );
   });
 

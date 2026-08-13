@@ -181,15 +181,19 @@ export async function removeIssueWorkspaceWorktree(input: {
   await withGlobalBareRepositoryCache(
     { repository: input.repository },
     async (bare) => {
-      await runGitCommand([
-        "-C",
-        bare,
-        "worktree",
-        "remove",
-        "--force",
-        input.repositoryDirectory,
-      ]);
-      await runGitCommand(["-C", bare, "branch", "-D", branch]);
+      await ignoreMissingWorktree(
+        runGitCommand([
+          "-C",
+          bare,
+          "worktree",
+          "remove",
+          "--force",
+          input.repositoryDirectory,
+        ])
+      );
+      await ignoreMissingBranch(
+        runGitCommand(["-C", bare, "branch", "-D", branch])
+      );
       await runGitCommand(["-C", bare, "worktree", "prune"]);
     }
   );
@@ -215,11 +219,16 @@ async function ensureIssueWorkspaceWorktree(input: {
       "exists but is not a git worktree"
     );
   }
+  if (!input.projectSlug || !input.issueIdentifier) {
+    throw new Error(
+      "worktree-cache populate requires projectSlug and issueIdentifier."
+    );
+  }
 
   const branch = renderIssueBranchName({
     template: input.branchTemplate,
-    projectSlug: input.projectSlug ?? "project",
-    issueIdentifier: input.issueIdentifier ?? "issue",
+    projectSlug: input.projectSlug,
+    issueIdentifier: input.issueIdentifier,
   });
   const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
   await mkdir(input.issueWorkspacePath, { recursive: true });
@@ -259,6 +268,30 @@ async function ensureIssueWorkspaceWorktree(input: {
     }
     throw error;
   }
+}
+
+async function ignoreMissingWorktree(command: Promise<void>): Promise<void> {
+  try {
+    await command;
+  } catch (error) {
+    if (!hasGitError(error, "is not a working tree")) {
+      throw error;
+    }
+  }
+}
+
+async function ignoreMissingBranch(command: Promise<void>): Promise<void> {
+  try {
+    await command;
+  } catch (error) {
+    if (!hasGitError(error, "not found")) {
+      throw error;
+    }
+  }
+}
+
+function hasGitError(error: unknown, message: string): boolean {
+  return error instanceof Error && error.message.includes(message);
 }
 
 async function readOriginDefaultBranch(bareDirectory: string): Promise<string> {
