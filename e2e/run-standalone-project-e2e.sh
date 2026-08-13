@@ -17,6 +17,13 @@ ALPHA_FIXTURE=/tmp/standalone-alpha-issues.json
 BETA_FIXTURE=/tmp/standalone-beta-issues.json
 
 mkdir -p "$PROJECT_ROOT/project-alpha/.agent/skills/alpha" "$PROJECT_ROOT/project-beta/.agent/skills/beta"
+mkdir -p /tmp/standalone-bin
+cat > /tmp/standalone-bin/codex <<'EOF'
+#!/usr/bin/env sh
+exec node /app/e2e/stub-worker.js
+EOF
+chmod +x /tmp/standalone-bin/codex
+export PATH="/tmp/standalone-bin:$PATH"
 
 write_project() {
   project_dir=$1
@@ -37,7 +44,7 @@ agent:
   max_concurrent_agents: 1
   max_turns: 1
 codex:
-  command: node /app/e2e/stub-worker.js
+  command: codex
 repository:
   slug: test-owner/test-repo
 workspace:
@@ -77,7 +84,10 @@ for project_id in "$alpha_id" "$beta_id"; do
     if grep -q "\"dispatched\": 1" "/tmp/$project_id.json"; then break; fi
     sleep 1
   done
-  grep -q "\"dispatched\": 1" "/tmp/$project_id.json"
+  if ! grep -q "\"dispatched\": 1" "/tmp/$project_id.json"; then
+    cat "/tmp/$project_id.json" >&2
+    exit 1
+  fi
 done
 
 sleep 8
@@ -90,16 +100,20 @@ for project in project-alpha project-beta; do
   if [ "$label" = beta ]; then issue=102; fi
   project_id="$alpha_id"
   if [ "$label" = beta ]; then project_id="$beta_id"; fi
-  repo="$CONFIG_DIR/projects/$project_id/test-owner_test-repo_$issue/repository"
-  test -d "$repo/.git"
+  repo=$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d | head -1)
+  # A linked worktree records its gitdir in a .git file; a normal checkout
+  # uses a directory. Either shape proves the populated workspace is a repo.
+  test -e "$repo/.git"
   test -f "$repo/.codex/skills/$label/SKILL.md"
-  test -f "$repo/.runtime/mcp.json"
+  test -f "$PROJECT_ROOT/$project/.mcp.json"
   test -z "$(git -C "$repo" status --porcelain)"
   branch=$(git -C "$repo" branch --show-current)
   case "$branch" in symphony/$project/*) ;; *) echo "unexpected branch: $branch" >&2; exit 1;; esac
 done
-alpha_branch=$(git -C "$CONFIG_DIR/projects/$alpha_id/test-owner_test-repo_101/repository" branch --show-current)
-beta_branch=$(git -C "$CONFIG_DIR/projects/$beta_id/test-owner_test-repo_102/repository" branch --show-current)
+alpha_repo=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/repository" -type d | head -1)
+beta_repo=$(find "$CONFIG_DIR/projects/$beta_id" -path "*/repository" -type d | head -1)
+alpha_branch=$(git -C "$alpha_repo" branch --show-current)
+beta_branch=$(git -C "$beta_repo" branch --show-current)
 test "$alpha_branch" != "$beta_branch"
 find "$CONFIG_DIR/projects" -path "*/runs/*/worker.log" -type f | grep -q .
 for pid in $run_pids; do kill "$pid" 2>/dev/null || true; done
