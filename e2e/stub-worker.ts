@@ -9,8 +9,10 @@
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  */
 
+import { existsSync } from "node:fs";
 import { writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ── Environment ──────────────────────────────────────────────────
 
@@ -46,6 +48,25 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     slow: { startMs: 2000, runMs: 30000 },
     "transition-race": { startMs: 2000, runMs: Infinity },
   };
+
+function resolveCoreModuleUrl(): string {
+  const workerPath = process.argv[1];
+  if (!workerPath) {
+    throw new Error("stub_worker_path_unavailable");
+  }
+  const workerDir = dirname(resolve(workerPath));
+  for (const root of [
+    workerDir,
+    resolve(workerDir, ".."),
+    resolve(workerDir, "../.."),
+  ]) {
+    const corePath = join(root, "packages/core/dist/index.js");
+    if (existsSync(corePath)) {
+      return pathToFileURL(corePath).href;
+    }
+  }
+  throw new Error(`stub_core_module_not_found:${workerPath}`);
+}
 
 const ORCHESTRATOR_URL = process.env.SYMPHONY_ORCHESTRATOR_URL ?? "";
 const ORCHESTRATOR_TOKEN = process.env.SYMPHONY_ORCHESTRATOR_TOKEN ?? "";
@@ -164,11 +185,16 @@ async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
   console.error(`[stub-worker] scenario=${SCENARIO} runId=${RUN_ID}`);
-  // The Docker image compiles this standalone worker without workspace module
-  // resolution, so load the already-built core package at runtime.
-  const { composeMcpServers } = (await import(
-    "/app/packages/core/dist/index.js"
-  )) as {
+  // Record the starting event before loading the runtime dependency so a
+  // resolution failure remains observable in both local and Docker E2E runs.
+  status = "starting";
+  lastEventAt = new Date().toISOString();
+  console.error(`[stub-worker] status=starting`);
+  emitOrchestratorEvent("starting");
+
+  // Local and Docker builds emit the worker into different directories; find
+  // the built core package relative to the emitted worker rather than /app.
+  const { composeMcpServers } = (await import(resolveCoreModuleUrl())) as {
     composeMcpServers: (options: {
       repositoryDir: string;
       projectDir?: string;
@@ -182,11 +208,6 @@ async function run() {
     `[stub-worker] mcp_servers=${Object.keys(mcpServers).sort().join(",")}`
   );
 
-  // Starting phase
-  status = "starting";
-  lastEventAt = new Date().toISOString();
-  console.error(`[stub-worker] status=starting`);
-  emitOrchestratorEvent("starting");
   await sleep(durations.startMs);
 
   // Running phase

@@ -92,6 +92,41 @@ async function writeIssueEntries(
   await writeFile(issuesPath, `${JSON.stringify(entries, null, 2)}\n`);
 }
 
+async function readValidIssues(
+  project: OrchestratorProjectConfig
+): Promise<TrackedIssue[]> {
+  const issuesPath = requireTrackerSetting(project, "issuesPath");
+  try {
+    const entries = await readIssueEntries(issuesPath);
+    const valid: TrackedIssue[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      if (isValidIssueShape(entries[i])) {
+        valid.push(entries[i] as TrackedIssue);
+      } else {
+        process.stderr.write(
+          `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`
+        );
+      }
+    }
+    return valid;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return [];
+    }
+    if (err instanceof SyntaxError) {
+      throw new Error(
+        `[tracker-file] Failed to parse issues JSON at ${issuesPath}: ${err.message}`,
+        { cause: err }
+      );
+    }
+    throw err;
+  }
+}
+
 function buildTrackerStateResult(
   request: TrackerStateRequest,
   result: Pick<TrackerStateResult, "ok" | "outcome" | "state" | "error">
@@ -112,42 +147,7 @@ function buildTrackerStateResult(
 
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project) {
-    const issuesPath = requireTrackerSetting(project, "issuesPath");
-    try {
-      const raw = await readFile(issuesPath, "utf-8");
-      const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        throw new Error(
-          `Expected an array of issues in ${issuesPath}, got ${typeof parsed}`
-        );
-      }
-      const valid: TrackedIssue[] = [];
-      for (let i = 0; i < parsed.length; i++) {
-        if (isValidIssueShape(parsed[i])) {
-          valid.push(parsed[i]);
-        } else {
-          process.stderr.write(
-            `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`
-          );
-        }
-      }
-      return filterIssuesByPickupLabels(valid, project);
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        "code" in err &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        return [];
-      }
-      if (err instanceof SyntaxError) {
-        throw new Error(
-          `[tracker-file] Failed to parse issues JSON at ${issuesPath}: ${err.message}`,
-          { cause: err }
-        );
-      }
-      throw err;
-    }
+    return filterIssuesByPickupLabels(await readValidIssues(project), project);
   },
 
   async listIssuesByStates(project, states) {
@@ -155,7 +155,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
-    const issues = await this.listIssues(project);
+    const issues = await readValidIssues(project);
     const normalizedStates = new Set(
       states.map((state) => state.trim().toLowerCase())
     );
@@ -169,7 +169,7 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
-    const issues = await this.listIssues(project);
+    const issues = await readValidIssues(project);
     const ids = new Set(issueIds);
     return issues.filter((issue) => ids.has(issue.id));
   },

@@ -187,6 +187,32 @@ describe("fileTrackerAdapter", () => {
       expect(issues[0]?.id).toBe("issue-2");
       expect(issues[0]?.state).toBe("Done");
     });
+
+    it("does not apply pickup labels to state or recovery lookups", async () => {
+      const issuesPath = join(testDir, "issues.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          { ...sampleIssue, id: "alpha", labels: ["alpha"] },
+          { ...sampleIssue, id: "beta", labels: ["beta"] },
+        ])
+      );
+      const project = makeProject(issuesPath);
+      project.tracker.settings = {
+        ...project.tracker.settings,
+        pickupLabels: { include: ["alpha"] },
+      };
+
+      await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
+        expect.objectContaining({ id: "alpha" }),
+      ]);
+      await expect(
+        fileTrackerAdapter.listIssuesByStates(project, ["Ready"])
+      ).resolves.toHaveLength(2);
+      await expect(
+        fileTrackerAdapter.fetchIssueStatesByIds(project, ["alpha", "beta"])
+      ).resolves.toHaveLength(2);
+    });
   });
 
   describe("buildWorkerEnvironment", () => {

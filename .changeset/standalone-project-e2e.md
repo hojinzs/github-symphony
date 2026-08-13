@@ -2,5 +2,5 @@
 "@gh-symphony/cli": minor
 ---
 
-Document and verify standalone project registration, isolated worktree
-population, and project-scoped branch namespaces. (#570)
+Add standalone project lifecycle coverage, including project-scoped `.env`,
+MCP, worktree, and branch isolation for CLI users. (#570)

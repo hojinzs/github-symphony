@@ -110,8 +110,10 @@ for project in project-alpha project-beta; do
   branch=$(git -C "$repo" branch --show-current)
   expected="symphony/$project/test-owner-test-repo-$issue"
   test "$branch" = "$expected"
-  find "$CONFIG_DIR/projects/$project_id" -path "*/runs/*/worker.log" -type f -exec grep -q "\\[stub-worker\\] mcp_servers=$label" {} +
-  find "$CONFIG_DIR/projects/$project_id" -path "*/runs/*/worker.log" -type f -exec grep -q "\\[stub-worker\\] status=completed" {} +
+  logs=$(find "$CONFIG_DIR/projects/$project_id" -path "*/runs/*/worker.log" -type f -print)
+  test -n "$logs"
+  grep -q "\\[stub-worker\\] mcp_servers=$label" $logs
+  grep -q "\\[stub-worker\\] status=completed" $logs
 done
 alpha_repo=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/repository" -type d | head -1)
 beta_repo=$(find "$CONFIG_DIR/projects/$beta_id" -path "*/repository" -type d | head -1)
