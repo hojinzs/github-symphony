@@ -1,7 +1,7 @@
 # Spec: Standalone 프로젝트 모델 — 리포 비종속 실행 단위와 수퍼바이저 토폴로지
 
 - **Date**: 2026-08-11
-- **Status**: Draft
+- **Status**: Shipped
 - **Symphony Layers**: Policy (WORKFLOW.md 외부화), Configuration (프로젝트 매니페스트·MCP·스킬 레이어), Coordination (수퍼바이저 토폴로지, 등록 검증), Execution (worktree populate, 스킬/MCP 주입), Observability (상태 집계, 그림자 경고)
 - **Related ADRs**:
   - `docs/adr/2026-05-04_single-repo-orchestrator.md` — "1 repo = 1 instance" 채택. 본 설계는 이를 **"1 project = 1 instance"로 정밀화**한다(리포 1 : 프로젝트 N 허용). 확정 시 후속 ADR로 관계를 명시할 것.
