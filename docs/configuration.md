@@ -6,6 +6,19 @@ committed `WORKFLOW.md` settings for workflow policy, and use environment
 variables for host-specific authentication, Enterprise endpoints, local paths,
 and operational overrides.
 
+## Standalone Projects
+
+`gh-symphony project add <project-dir>` registers a project folder as an
+independent orchestration instance. The folder owns `WORKFLOW.md`, optional
+`.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository remains
+unmodified. `WORKFLOW.md` must declare `repository.slug`. Each issue is
+populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
+using a worktree. Branches default to
+`symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
+one repository without branch collisions. The project `.env` is loaded first
+for project hooks and workers, then host process values override it; keep it
+mode `0600` and do not commit it.
+
 ## Environment Loading Order
 
 Worker and hook environments are merged in this order, with later values taking
@@ -17,10 +30,10 @@ precedence:
 | 2        | Orchestrator process environment | CLI, orchestrator, worker, runtime adapters       |
 | 3        | Symphony-injected context        | Worker identity, issue metadata, runtime settings |
 
-The project `.env` file lives at
-`~/.gh-symphony/projects/<project-id>/.env`, or
-`<config-dir>/projects/<project-id>/.env` when `--config <dir>` or
-`GH_SYMPHONY_CONFIG_DIR` selects another config directory.
+For standalone projects, the project `.env` lives in the registered external
+project folder. For registry-backed or repo-embedded projects it lives at
+`<config-dir>/projects/<project-id>/.env` (or the default config directory
+when no `--config <dir>`/`GH_SYMPHONY_CONFIG_DIR` override is set).
 
 ## Auth And API Endpoints
 

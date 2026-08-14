@@ -28,7 +28,7 @@
 | [2026-05-10-cli-restructure-design.md](designs/2026-05-10-cli-restructure-design.md)                                         | Coordination, Configuration                                   | Shipped           |
 | [2026-05-10-cli-restructure-issues.md](designs/2026-05-10-cli-restructure-issues.md)                                         | Coordination, Configuration                                   | Completed (플랜)  |
 | [2026-07-06-github-project-repo-dispatch-filter-design.md](designs/2026-07-06-github-project-repo-dispatch-filter-design.md) | Integration, Coordination, Observability                      | Shipped (PR #435) |
-| [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability | Draft             |
+| [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability | Shipped           |
 | [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability            | Draft             |
 | [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (플랜)                                                        | Active            |
 

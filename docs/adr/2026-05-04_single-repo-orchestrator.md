@@ -1,7 +1,8 @@
 # ADR: Single-Repository Orchestrator Model 로 전환
 
 - **Date**: 2026-05-04
-- **Status**: Proposed
+- **Status**: Superseded by
+  [`2026-08-13_standalone-project-instance-boundary.md`](./2026-08-13_standalone-project-instance-boundary.md)
 - **Related Spec**: `docs/symphony-spec.md` §3.1, §5.1
 - **Reference Implementation**: <https://github.com/openai/symphony> (elixir)
 - **Related ADRs**:
@@ -35,6 +36,13 @@ upstream `docs/symphony-spec.md` §3.1, §5.1 은 **단일 리포지토리 + rep
 ## Decision
 
 orchestrator 를 **단일-리포 watch** 모델로 전환한다.
+
+> **2026-08-13 refinement:** the instance boundary is **one project**, not
+> one repository. A project owns policy and its tracker mapping; several
+> projects may safely reference one repository when their mappings are
+> disjoint. The shared bare cache remains repository-scoped, while project
+> slugs namespace worktree branches. This repository-local extension keeps the
+> upstream single-workflow orchestrator model intact per instance.
 
 ### 핵심 모델
 
@@ -85,13 +93,13 @@ $ cd ~/work/repo-b && gh-symphony repo start --web 4681
 
 ## Implementation Plan
 
-| Phase | 범위 | 비고 |
-|---|---|---|
-| **P1 — Contract** | `packages/core/src/contracts/status-surface.ts:15-21` `repositories[]→repository`. `state-store.ts:11-40` 의 `projectId` 옵션화. `workspace/identity.ts:12-14,43-60` 의 `projectId` 제거 + `deriveWorkspaceKey(identifier)` 통합 (ADR `2026-03-16` 채택). | 타입 시스템이 다음 phase 견인. |
-| **P2 — Service core** | `packages/orchestrator/src/service.ts:825,868-946,2527-2638` 정책 집계 로직 단순화 (`min(repos.x) → repository.x`). `fs-store.ts:43-188,297-346` 디스크 레이아웃 변경. | `service.test.ts` fixture 갱신 동반. |
-| **P3 — CLI / migration** | `packages/cli/src/commands/{init,start,project,repo}.ts` cwd 기반. 기존 `.runtime/projects/<projectId>/...` 자동 promote 스크립트 (단일 projectId 발견 시). | breaking change 최소화. |
-| **P4 — Control plane** | `packages/control-plane/src/server.ts`, `packages/dashboard/src/store.ts:33-47` 의 `projectId` 라우팅 제거. SPA route 일부 단순화. | UI 회귀 테스트. |
-| **P5 — Tests / e2e** | `service.test.ts` 64 suite fixture 일괄 갱신. `e2e/seed/config.json` 검증. | 명세 부합 확인. |
+| Phase                    | 범위                                                                                                                                                                                                                                                      | 비고                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| **P1 — Contract**        | `packages/core/src/contracts/status-surface.ts:15-21` `repositories[]→repository`. `state-store.ts:11-40` 의 `projectId` 옵션화. `workspace/identity.ts:12-14,43-60` 의 `projectId` 제거 + `deriveWorkspaceKey(identifier)` 통합 (ADR `2026-03-16` 채택). | 타입 시스템이 다음 phase 견인.       |
+| **P2 — Service core**    | `packages/orchestrator/src/service.ts:825,868-946,2527-2638` 정책 집계 로직 단순화 (`min(repos.x) → repository.x`). `fs-store.ts:43-188,297-346` 디스크 레이아웃 변경.                                                                                    | `service.test.ts` fixture 갱신 동반. |
+| **P3 — CLI / migration** | `packages/cli/src/commands/{init,start,project,repo}.ts` cwd 기반. 기존 `.runtime/projects/<projectId>/...` 자동 promote 스크립트 (단일 projectId 발견 시).                                                                                               | breaking change 최소화.              |
+| **P4 — Control plane**   | `packages/control-plane/src/server.ts`, `packages/dashboard/src/store.ts:33-47` 의 `projectId` 라우팅 제거. SPA route 일부 단순화.                                                                                                                        | UI 회귀 테스트.                      |
+| **P5 — Tests / e2e**     | `service.test.ts` 64 suite fixture 일괄 갱신. `e2e/seed/config.json` 검증.                                                                                                                                                                                | 명세 부합 확인.                      |
 
 각 Phase 는 독립 PR. P1 통과 후 P2 부터 본격 변경.
 

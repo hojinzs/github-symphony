@@ -8,6 +8,7 @@
     "cli": "node packages/cli/dist/index.js --config .runtime",
     "e2e:init": "bash e2e/seed/init-local.sh",
     "e2e:start": "cd .runtime/e2e/work/test-repo && GH_SYMPHONY_HTTP_TOKEN=\"${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}\" GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=\"$(pwd)/../../../../e2e/fixtures/issues.json\" SYMPHONY_WORKER_COMMAND=\"node $(pwd)/../../../../e2e/dist/stub-worker.js\" node ../../../../packages/cli/dist/index.js repo start --http 4680",
+    "e2e:standalone-project": "bash e2e/run-standalone-project-e2e.sh",
     "e2e:claude": "bash test/e2e/claude/run-docker-e2e.sh",
     "dev:orchestrator": "pnpm --filter @gh-symphony/orchestrator dev",
     "dev:worker": "pnpm --filter @gh-symphony/worker dev",

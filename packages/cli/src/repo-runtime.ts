@@ -102,7 +102,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     repository: `${repository.owner}/${repository.name}`,
   };
   if (
-    trackerAdapter === "linear" &&
+    (trackerAdapter === "linear" || trackerAdapter === "file") &&
     (workflow.tracker.pickupLabels.include.length > 0 ||
       workflow.tracker.pickupLabels.exclude.length > 0)
   ) {
