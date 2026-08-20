@@ -113,11 +113,31 @@ async function ensureBareRepositoryCacheUnderLock(input: {
   const requiredRefExists = requiredRef
     ? await hasRef(input.bareDirectory, requiredRef)
     : true;
-  if (!(await hasOriginRemote(input.bareDirectory))) {
+  const originUrl = await readOriginRemoteUrl(input.bareDirectory);
+  if (originUrl === null) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
     return input.bareDirectory;
   }
-  if (!(await isFetchFresh(input.bareDirectory, now)) || !requiredRefExists) {
+  // The cache is keyed by owner/name, so a repository that moved hosts,
+  // switched protocols, or was re-pointed at a fork would otherwise keep
+  // serving the previous remote forever. Re-point it and refetch immediately
+  // instead of trusting the fetch TTL.
+  const originChanged = originUrl !== input.cloneUrl;
+  if (originChanged) {
+    await runGitCommand([
+      "-C",
+      input.bareDirectory,
+      "remote",
+      "set-url",
+      "origin",
+      input.cloneUrl,
+    ]);
+  }
+  if (
+    originChanged ||
+    !(await isFetchFresh(input.bareDirectory, now)) ||
+    !requiredRefExists
+  ) {
     await fetchOriginBranches(input.bareDirectory);
     await writeLastFetchMarker(input.bareDirectory, now);
     await runGitCommand(["-C", input.bareDirectory, "gc", "--auto"]);
@@ -146,7 +166,14 @@ async function recreateBareRepository(
   // missing parent directory.
   await mkdir(dirname(bareDirectory), { recursive: true });
   await runGitCommand(["init", "--bare", bareDirectory]);
-  await runGitCommand(["-C", bareDirectory, "remote", "add", "origin", cloneUrl]);
+  await runGitCommand([
+    "-C",
+    bareDirectory,
+    "remote",
+    "add",
+    "origin",
+    cloneUrl,
+  ]);
   await fetchOriginBranches(bareDirectory);
   await writeLastFetchMarker(bareDirectory, now);
   await runGitCommand(["-C", bareDirectory, "gc", "--auto"]);
@@ -162,7 +189,14 @@ async function fetchOriginBranches(bareDirectory: string): Promise<void> {
     "origin",
     "+refs/heads/*:refs/remotes/origin/*",
   ]);
-  await runGitCommand(["-C", bareDirectory, "remote", "set-head", "origin", "--auto"]);
+  await runGitCommand([
+    "-C",
+    bareDirectory,
+    "remote",
+    "set-head",
+    "origin",
+    "--auto",
+  ]);
 }
 
 /**
@@ -177,12 +211,19 @@ function normalizeRequiredRef(ref: string): string {
     : ref;
 }
 
-async function hasOriginRemote(directory: string): Promise<boolean> {
+async function readOriginRemoteUrl(directory: string): Promise<string | null> {
   try {
-    await runGitCommand(["-C", directory, "remote", "get-url", "origin"]);
-    return true;
+    return (
+      await runGitCommandCapture([
+        "-C",
+        directory,
+        "remote",
+        "get-url",
+        "origin",
+      ])
+    ).trim();
   } catch {
-    return false;
+    return null;
   }
 }
 
