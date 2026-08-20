@@ -1,5 +1,20 @@
 # @gh-symphony/cli
 
+## 0.8.0
+
+### Minor Changes
+
+- [#595](https://github.com/hojinzs/github-symphony/pull/595) [`3fa7733`](https://github.com/hojinzs/github-symphony/commit/3fa773369fddceb025f8dfb3c8338fad7fdb9607) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add standalone project lifecycle coverage, including project-scoped `.env`,
+  MCP, worktree, and branch isolation for CLI users. ([#570](https://github.com/hojinzs/github-symphony/issues/570))
+
+### Patch Changes
+
+- [#590](https://github.com/hojinzs/github-symphony/pull/590) [`665039d`](https://github.com/hojinzs/github-symphony/commit/665039dd8d4a3484d9c69f9fb5a7fb52d4bc7659) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Populate `worktree-cache` project workspaces from the shared clone cache with project-scoped branches, including safe worktree cleanup. ([#565](https://github.com/hojinzs/github-symphony/issues/565))
+
+- [#594](https://github.com/hojinzs/github-symphony/pull/594) [`77b52f9`](https://github.com/hojinzs/github-symphony/commit/77b52f9a82b28d6448b435c838b3dcbaa8cab4c8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Inject layered global and project skills into each worker worktree attempt ([#567](https://github.com/hojinzs/github-symphony/issues/567)).
+
+- [#587](https://github.com/hojinzs/github-symphony/pull/587) [`f34a881`](https://github.com/hojinzs/github-symphony/commit/f34a881a512535f1081e874b25c2b76d9cc589b4) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add standalone project registration and project-directory daemon startup for [#569](https://github.com/hojinzs/github-symphony/issues/569).
+
 ## 0.7.14
 
 ### Patch Changes
