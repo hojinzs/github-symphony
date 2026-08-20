@@ -2684,6 +2684,9 @@ function resolveRestApiUrl(apiUrl: string | undefined, path: string): string {
 
   if (pathSegments.at(-1) === "graphql") {
     pathSegments.pop();
+    if (pathSegments.at(-1) === "api") {
+      pathSegments.push("v3");
+    }
   }
 
   parsed.pathname =
