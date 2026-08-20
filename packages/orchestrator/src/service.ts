@@ -63,7 +63,9 @@ import {
   quarantineIssueWorkspace,
   readGitCurrentBranch,
   removeIssueWorkspaceWorktree,
+  runGitCommand,
 } from "./git.js";
+import { globalBareRepositoryDirectory } from "./repository-cache.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import { OrchestratorFsStore } from "./fs-store.js";
 import { getProcessStartIdentity } from "./lock.js";
@@ -2232,22 +2234,71 @@ export class OrchestratorService {
       return [];
     }
 
-    const repositoryWorkflowPath = join(
-      this.resolveWorkflowRepositoryDirectory(tenant.repository),
-      "WORKFLOW.md"
+    const localRepositoryDirectory = this.resolveLocalRepositoryDirectory(
+      tenant.repository
     );
-    if (
-      resolve(tenant.workflowSource.path) === resolve(repositoryWorkflowPath)
-    ) {
-      return [];
+    if (localRepositoryDirectory) {
+      const repositoryWorkflowPath = join(
+        localRepositoryDirectory,
+        "WORKFLOW.md"
+      );
+      if (
+        resolve(tenant.workflowSource.path) === resolve(repositoryWorkflowPath)
+      ) {
+        return [];
+      }
+      try {
+        await access(repositoryWorkflowPath);
+        return [
+          `External workflow source ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
+        ];
+      } catch {
+        return [];
+      }
     }
+
+    // A remote repository is never checked out to resolve policy in standalone
+    // mode, and the working directory the operator happened to start from is
+    // not the repository. The shared bare cache is the only copy of the
+    // repository on this host, so read the committed file from there.
+    return (await this.repositoryCacheContainsWorkflow(tenant.repository))
+      ? [
+          `External workflow source ${tenant.workflowSource.path} shadows WORKFLOW.md committed to ${tenant.repository.owner}/${tenant.repository.name}.`,
+        ]
+      : [];
+  }
+
+  private resolveLocalRepositoryDirectory(
+    repository: RepositoryRef
+  ): string | null {
+    return (
+      repository.path ?? this.resolveLocalCloneUrlPath(repository.cloneUrl)
+    );
+  }
+
+  private async repositoryCacheContainsWorkflow(
+    repository: RepositoryRef
+  ): Promise<boolean> {
+    let bareDirectory: string;
     try {
-      await access(repositoryWorkflowPath);
-      return [
-        `External workflow source ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
-      ];
+      bareDirectory = globalBareRepositoryDirectory({ repository });
     } catch {
-      return [];
+      return false;
+    }
+
+    try {
+      // Reads the default branch of the cache populate already maintains; no
+      // fetch and no cache lock, so a status tick never contends with a run.
+      await runGitCommand([
+        "-C",
+        bareDirectory,
+        "cat-file",
+        "-e",
+        "origin/HEAD:WORKFLOW.md",
+      ]);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -2297,9 +2348,8 @@ export class OrchestratorService {
           ));
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
-    const projectDir = this.store.projectDir(tenant.projectId);
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      projectDir,
+      this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
     const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
@@ -2367,6 +2417,13 @@ export class OrchestratorService {
     const baseBranch = isRecord(repositoryExtension)
       ? readOptionalStringValue(repositoryExtension.base_branch)
       : null;
+    // An external workspace root lives outside the 0700 state directory, so
+    // create it with the same restricted mode. `mkdir` leaves the permissions
+    // of a directory the operator already created untouched.
+    await mkdir(this.resolveIssueWorkspaceRoot(tenant), {
+      recursive: true,
+      mode: 0o700,
+    });
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository: issue.repository,
       issueWorkspacePath,
@@ -2913,7 +2970,7 @@ export class OrchestratorService {
 
     if (run.issueWorkspaceKey) {
       const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-        this.store.projectDir(tenant.projectId),
+        this.resolveIssueWorkspaceRoot(tenant),
         run.issueWorkspaceKey
       );
 
@@ -3588,7 +3645,7 @@ export class OrchestratorService {
         run.issueIdentifier
       );
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
-      this.store.projectDir(tenant.projectId),
+      this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
@@ -3634,7 +3691,7 @@ export class OrchestratorService {
     const workspaceKey = latestRun.issueWorkspaceKey ?? preferredWorkspaceKey;
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
       issueWorkspacePath: resolveIssueWorkspaceDirectory(
-        this.store.projectDir(tenant.projectId),
+        this.resolveIssueWorkspaceRoot(tenant),
         workspaceKey
       ),
     });
@@ -3673,7 +3730,7 @@ export class OrchestratorService {
       );
     const dirtyStatus = await inspectIssueWorkspaceDirtyStatus({
       issueWorkspacePath: resolveIssueWorkspaceDirectory(
-        this.store.projectDir(tenant.projectId),
+        this.resolveIssueWorkspaceRoot(tenant),
         workspaceKey
       ),
     });
@@ -4236,6 +4293,18 @@ export class OrchestratorService {
 
   private workflowCacheKey(repository: RepositoryRef): string {
     return `${repository.owner}/${repository.name}:${this.normalizeRepositoryCloneUrl(repository.cloneUrl)}`;
+  }
+
+  /**
+   * Per-issue workspaces live under the project's configured `workspace.root`
+   * (spec 9.1). Standalone projects carry that root as `workspaceDir`; the
+   * repo-embedded layout still keeps workspaces beside the project state,
+   * where `workspaceDir` means the repository checkout instead.
+   */
+  private resolveIssueWorkspaceRoot(tenant: OrchestratorProjectConfig): string {
+    return tenant.workflowSource?.type === "external" && tenant.workspaceDir
+      ? resolve(tenant.workspaceDir)
+      : this.store.projectDir(tenant.projectId);
   }
 
   private resolveWorkflowRepositoryDirectory(
