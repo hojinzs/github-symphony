@@ -71,6 +71,10 @@ describe("Commander CLI entrypoint", () => {
         resolveGlobalOptions({ configDir: "/tmp/from-config-dir" })
           .configDirOverride
       ).toBe(true);
+      // An explicit --config is exported to the environment so child processes
+      // and the shared bare-clone cache resolve the same directory. Clear it
+      // again before asserting the unset-environment defaults.
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
       expect(resolveGlobalOptions({}).configDirOverride).toBe(false);
       expect(resolveGlobalOptions({}).configDirSource).toBe("default");
 
@@ -433,7 +437,7 @@ describe("Commander CLI entrypoint", () => {
 
   it.each([
     [["project"], undefined, undefined],
-    [["project", "add", "--non-interactive"], "stderr", "unknown option"],
+    [["project", "add", "./somewhere"], "stderr", "unknown command 'add'"],
   ])("reports project command usage for %s", async (argv, stream, message) => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
@@ -471,5 +475,34 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--bundle");
     expect(output).toContain("--issue");
     expect(output).toContain("remediation");
+  });
+});
+
+describe("config directory export", () => {
+  const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+
+  afterEach(() => {
+    if (originalConfigDir === undefined) {
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
+    } else {
+      process.env.GH_SYMPHONY_CONFIG_DIR = originalConfigDir;
+    }
+  });
+
+  it("exports an explicit --config directory so the bare cache honors it", () => {
+    delete process.env.GH_SYMPHONY_CONFIG_DIR;
+
+    const options = resolveGlobalOptions({ config: "/tmp/symphony-config" });
+
+    expect(options.configDir).toBe("/tmp/symphony-config");
+    expect(process.env.GH_SYMPHONY_CONFIG_DIR).toBe("/tmp/symphony-config");
+  });
+
+  it("leaves the environment untouched when no override is given", () => {
+    delete process.env.GH_SYMPHONY_CONFIG_DIR;
+
+    resolveGlobalOptions({});
+
+    expect(process.env.GH_SYMPHONY_CONFIG_DIR).toBeUndefined();
   });
 });

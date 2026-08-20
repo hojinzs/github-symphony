@@ -120,7 +120,8 @@ function resolveProjectTokenDelta(snapshot: ProjectStatusSnapshot): number {
 function renderLegacyStatus(
   snapshot: ProjectStatusSnapshot,
   noColor: boolean,
-  runtimeStatus: RuntimeStatus
+  runtimeStatus: RuntimeStatus,
+  startCommandName = "gh-symphony repo start"
 ): string {
   const apply = noColor ? (s: string) => stripAnsi(s) : (s: string) => s;
 
@@ -302,7 +303,7 @@ const handler = async (
     writeCliError({
       code: "invalid_arguments",
       message: parsed.error,
-      usage: "Usage: gh-symphony repo status [--watch]",
+      usage: `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} status [--watch]`,
       json: options.json,
       exitCode: 2,
     });
@@ -311,7 +312,7 @@ const handler = async (
 
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: undefined,
+    requestedProjectId: options.projectId,
     json: options.json,
   });
   if (!projectConfig) {
@@ -416,7 +417,14 @@ const handler = async (
       );
     } else {
       process.stdout.write(
-        renderLegacyStatus(snapshot, options.noColor, runtimeStatus) + "\n"
+        renderLegacyStatus(
+          snapshot,
+          options.noColor,
+          runtimeStatus,
+          options.invocation === "project"
+            ? "gh-symphony project start"
+            : "gh-symphony repo start"
+        ) + "\n"
       );
     }
   } else {

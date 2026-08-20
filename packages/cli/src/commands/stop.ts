@@ -42,14 +42,16 @@ const handler = async (
   const parsed = parseStopArgs(args);
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
-    process.stderr.write("Usage: gh-symphony repo stop [--force]\n");
+    process.stderr.write(
+      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} stop [--force]\n`
+    );
     process.exitCode = 2;
     return;
   }
   const resolvedForce = parsed.force;
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: undefined,
+    requestedProjectId: options.projectId,
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();

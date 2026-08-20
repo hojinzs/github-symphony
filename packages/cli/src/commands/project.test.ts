@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { loadGlobalConfig, loadProjectConfig } from "../config.js";
-import { registerStandaloneProject } from "./project.js";
+import { loadProjectConfig } from "../config.js";
+import { deriveStandaloneProject, standaloneProjectId } from "./project.js";
 import projectCommand from "./project.js";
 
 const workflow = `---
@@ -34,13 +34,13 @@ repository:
 ---
 Implement the issue.`;
 
-describe("registerStandaloneProject", () => {
-  it("persists an external workflow project and makes it active", async () => {
+describe("deriveStandaloneProject", () => {
+  it("derives an external workflow project from its folder", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
     await writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8");
 
-    const project = await registerStandaloneProject(projectDir, { configDir });
+    const project = await deriveStandaloneProject(projectDir, { configDir });
 
     await expect(
       loadProjectConfig(configDir, project.projectId)
@@ -54,10 +54,71 @@ describe("registerStandaloneProject", () => {
       workspaceDir: join(projectDir, ".runners"),
       populateStrategy: "worktree-cache",
     });
-    await expect(loadGlobalConfig(configDir)).resolves.toEqual({
-      activeProject: project.projectId,
-      projects: [project.projectId],
+    expect(project.projectId).toBe(standaloneProjectId(projectDir));
+  });
+
+  it("derives a clone URL override from the repository extension", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(
+      join(projectDir, "WORKFLOW.md"),
+      workflow.replace(
+        "repository:\n  slug: acme/platform",
+        "repository:\n  slug: acme/platform\n  clone_url: /srv/mirrors/platform.git"
+      ),
+      "utf8"
+    );
+
+    const project = await deriveStandaloneProject(projectDir, { configDir });
+
+    expect(project.repository).toMatchObject({
+      owner: "acme",
+      name: "platform",
+      cloneUrl: "/srv/mirrors/platform.git",
     });
+  });
+
+  it("re-derives the stored config when the workflow changes", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8");
+    await deriveStandaloneProject(projectDir, { configDir });
+
+    await writeFile(
+      join(projectDir, "WORKFLOW.md"),
+      workflow.replace("PVT_example", "PVT_changed"),
+      "utf8"
+    );
+    const project = await deriveStandaloneProject(projectDir, { configDir });
+
+    await expect(
+      loadProjectConfig(configDir, project.projectId)
+    ).resolves.toMatchObject({
+      tracker: { bindingId: "PVT_changed" },
+    });
+  });
+
+  it("explains that a folder without WORKFLOW.md is not a project", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-empty-"));
+
+    await expect(
+      deriveStandaloneProject(projectDir, { configDir })
+    ).rejects.toThrow("No WORKFLOW.md in");
+  });
+
+  it("points a repo-embedded workflow at repo start", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await writeFile(
+      join(projectDir, "WORKFLOW.md"),
+      workflow.replace("repository:\n  slug: acme/platform\n", ""),
+      "utf8"
+    );
+
+    await expect(
+      deriveStandaloneProject(projectDir, { configDir })
+    ).rejects.toThrow("gh-symphony repo start");
   });
 
   it("rejects an overlapping mapping without interactive confirmation", async () => {
@@ -69,11 +130,11 @@ describe("registerStandaloneProject", () => {
       writeFile(join(second, "WORKFLOW.md"), workflow, "utf8"),
       mkdir(join(first, ".runners"), { recursive: true }),
     ]);
-    await registerStandaloneProject(first, { configDir });
+    await deriveStandaloneProject(first, { configDir });
 
     await expect(
-      registerStandaloneProject(second, { configDir })
-    ).rejects.toThrow("Tracker mapping overlaps registered project(s)");
+      deriveStandaloneProject(second, { configDir })
+    ).rejects.toThrow("Tracker mapping overlaps project(s)");
   });
 
   it("preserves Linear label filters and normalizes overlapping states", async () => {
@@ -89,7 +150,7 @@ describe("registerStandaloneProject", () => {
       ),
     ]);
 
-    const project = await registerStandaloneProject(first, { configDir });
+    const project = await deriveStandaloneProject(first, { configDir });
 
     await expect(
       loadProjectConfig(configDir, project.projectId)
@@ -101,15 +162,15 @@ describe("registerStandaloneProject", () => {
       },
     });
     await expect(
-      registerStandaloneProject(second, { configDir })
-    ).rejects.toThrow("Tracker mapping overlaps registered project(s)");
+      deriveStandaloneProject(second, { configDir })
+    ).rejects.toThrow("Tracker mapping overlaps project(s)");
   });
 
-  it("lists registered standalone projects", async () => {
+  it("lists standalone projects that have been derived", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const projectDir = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
     await writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8");
-    const project = await registerStandaloneProject(projectDir, { configDir });
+    const project = await deriveStandaloneProject(projectDir, { configDir });
     const writes: string[] = [];
     const spy = vi
       .spyOn(process.stdout, "write")

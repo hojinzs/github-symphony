@@ -895,7 +895,7 @@ const handler = async (
   if (parsed.error) {
     process.stderr.write(`${parsed.error}\n`);
     process.stderr.write(
-      "Usage: gh-symphony repo start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]] [--bind-all]\n"
+      `Usage: gh-symphony ${options.invocation === "project" ? "project" : "repo"} start [--daemon] [--once] [--assigned-only] [--http [port]] [--web [port]] [--bind-all]${options.invocation === "project" ? " [--project-dir <path>]" : ""}\n`
     );
     process.exitCode = 2;
     return;
@@ -909,7 +909,7 @@ const handler = async (
   }
   const projectConfig = await resolveManagedProjectConfig({
     configDir: options.configDir,
-    requestedProjectId: process.env[DAEMON_PROJECT_ID_ENV],
+    requestedProjectId: options.projectId ?? process.env[DAEMON_PROJECT_ID_ENV],
   });
   if (!projectConfig) {
     handleMissingManagedProjectConfig();

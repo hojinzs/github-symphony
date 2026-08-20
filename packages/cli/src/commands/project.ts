@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import {
@@ -12,12 +12,11 @@ import startCommand from "./start.js";
 import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 import {
-  loadGlobalConfig,
   loadProjectConfig,
-  saveGlobalConfig,
   saveProjectConfig,
   type CliProjectConfig,
 } from "../config.js";
+import { resolveDaemonLiveness } from "../daemon-liveness.js";
 
 type PickupLabels = { include: string[]; exclude: string[] };
 
@@ -28,13 +27,26 @@ type Mapping = {
   labels: PickupLabels;
 };
 
-export async function registerStandaloneProject(
+/**
+ * The project folder is the source of truth: every field below is derived from
+ * it, so the stored config is a cache that each start refreshes rather than a
+ * registration the operator has to perform first.
+ */
+export async function deriveStandaloneProject(
   projectDirInput: string,
   options: Pick<GlobalOptions, "configDir">
 ): Promise<CliProjectConfig> {
   const projectDir = resolve(projectDirInput);
   const workflowPath = resolve(projectDir, "WORKFLOW.md");
-  const workflow = parseWorkflowMarkdown(await readFile(workflowPath, "utf8"));
+  let markdown: string;
+  try {
+    markdown = await readFile(workflowPath, "utf8");
+  } catch {
+    throw new Error(
+      `No WORKFLOW.md in ${projectDir}. Run this command from a standalone project folder or pass --project-dir <path>.`
+    );
+  }
+  const workflow = parseWorkflowMarkdown(markdown);
   const repository = parseRepository(workflow.repository);
   const adapter = workflow.tracker.kind ?? "github-project";
   const bindingId =
@@ -68,49 +80,140 @@ export async function registerStandaloneProject(
   };
 
   const overlap = await findOverlappingProjects(options.configDir, config);
+  const running = overlap.filter((entry) => entry.running);
+  const describe = (entries: OverlappingProject[]): string =>
+    entries.map((entry) => entry.label).join(", ");
+  if (running.length > 0) {
+    // A live instance with an overlapping mapping would dispatch the same
+    // issues, so this is refused outright rather than confirmed away.
+    throw new Error(
+      `Tracker mapping overlaps running project(s): ${describe(running)}. Stop them or make the mappings disjoint with tracker.pickup_labels.`
+    );
+  }
   if (overlap.length > 0 && !process.stdin.isTTY) {
     throw new Error(
-      `Tracker mapping overlaps registered project(s): ${overlap.join(", ")}. Re-run interactively to confirm.`
+      `Tracker mapping overlaps project(s): ${describe(overlap)}. Re-run interactively to confirm.`
     );
   }
   if (overlap.length > 0) {
     const confirmed = await p.confirm({
-      message: `Tracker mapping overlaps registered project(s): ${overlap.join(", ")}. Register anyway?`,
+      message: `Tracker mapping overlaps project(s): ${describe(overlap)}. Continue anyway?`,
       initialValue: false,
     });
     if (p.isCancel(confirmed) || !confirmed) {
       throw new Error(
-        "Standalone project registration cancelled because tracker mappings overlap."
+        "Standalone project start cancelled because tracker mappings overlap."
       );
     }
   }
 
   await saveProjectConfig(options.configDir, projectId, config);
-  const global = await loadGlobalConfig(options.configDir);
-  await saveGlobalConfig(options.configDir, {
-    activeProject: projectId,
-    projects: [...new Set([...(global?.projects ?? []), projectId])],
-  });
   return config;
 }
 
+/**
+ * The identifier is a pure function of the folder path, so a project can be
+ * addressed without reading its configuration first.
+ */
+export function standaloneProjectId(projectDirInput: string): string {
+  return projectIdentifier(resolve(projectDirInput));
+}
+
+async function listStandaloneProjects(
+  configDir: string
+): Promise<CliProjectConfig[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(resolve(configDir, "projects"));
+  } catch {
+    return [];
+  }
+
+  const configs = await Promise.all(
+    entries.map((projectId) => loadProjectConfig(configDir, projectId))
+  );
+  return configs.filter(
+    (config): config is CliProjectConfig =>
+      config?.workflowSource?.type === "external"
+  );
+}
+
+/** Splits `--project-dir <path>` out of the flags forwarded to the runtime. */
+function extractProjectDir(args: string[]): {
+  projectDir: string | null;
+  forwarded: string[];
+  error?: string;
+} {
+  const forwarded: string[] = [];
+  let projectDir: string | null = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--project-dir") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("-")) {
+        return {
+          projectDir: null,
+          forwarded,
+          error: "Option '--project-dir' requires a directory path",
+        };
+      }
+      projectDir = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--project-dir=")) {
+      const value = arg.slice("--project-dir=".length);
+      if (!value) {
+        return {
+          projectDir: null,
+          forwarded,
+          error: "Option '--project-dir' requires a directory path",
+        };
+      }
+      projectDir = value;
+      continue;
+    }
+    forwarded.push(arg);
+  }
+  return { projectDir, forwarded };
+}
+
+type OverlappingProject = {
+  projectId: string;
+  label: string;
+  running: boolean;
+};
+
+/**
+ * Runs on every start rather than once at registration, so an edited
+ * `pickup_labels` cannot leave two projects competing for the same issues, and
+ * so a conflict with an already running instance is detectable.
+ */
 async function findOverlappingProjects(
   configDir: string,
   candidate: CliProjectConfig
-): Promise<string[]> {
-  const global = await loadGlobalConfig(configDir);
+): Promise<OverlappingProject[]> {
   const candidateMapping = mappingFor(candidate);
-  const overlaps: string[] = [];
-  for (const id of global?.projects ?? []) {
-    const existing = await loadProjectConfig(configDir, id);
-    if (!existing || existing.projectId === candidate.projectId) continue;
+  const overlaps: OverlappingProject[] = [];
+  for (const existing of await listStandaloneProjects(configDir)) {
+    if (existing.projectId === candidate.projectId) continue;
     if (
       existing.repository?.owner !== candidate.repository?.owner ||
       existing.repository?.name !== candidate.repository?.name
     )
       continue;
-    if (mappingsOverlap(candidateMapping, mappingFor(existing)))
-      overlaps.push(id);
+    if (!mappingsOverlap(candidateMapping, mappingFor(existing))) continue;
+
+    const liveness = await resolveDaemonLiveness({
+      configDir,
+      projectId: existing.projectId,
+      workspaceDir: existing.workspaceDir,
+    });
+    overlaps.push({
+      projectId: existing.projectId,
+      label: existing.projectDir ?? existing.projectId,
+      running: liveness.running,
+    });
   }
   return overlaps;
 }
@@ -208,6 +311,11 @@ function trackerSettings(
       ? { pickupLabels: workflow.tracker.pickupLabels }
       : {}),
     repository: `${repository.owner}/${repository.name}`,
+    ...(workflow.tracker.kind === "file" &&
+    process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+      ? // E2E-only escape hatch, mirroring the repo-embedded runtime.
+        { issuesPath: process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH }
+      : {}),
   };
 }
 
@@ -221,10 +329,18 @@ function parseRepository(value: Record<string, unknown> | null): RepositoryRef {
   const [owner, name] = spec?.split("/") ?? [];
   if (!owner || !name || name.includes("/")) {
     throw new Error(
-      'WORKFLOW.md repository extension requires "slug: owner/name".'
+      'WORKFLOW.md repository extension requires "slug: owner/name". Repositories that embed their own workflow are started with "gh-symphony repo start".'
     );
   }
-  return { owner, name, cloneUrl: `https://github.com/${owner}/${name}.git` };
+  // `clone_url` lets a project point at a mirror, a GHES host, or a local path
+  // while keeping owner/name as the tracker and cache identity.
+  const cloneUrl =
+    typeof value?.clone_url === "string" && value.clone_url
+      ? value.clone_url
+      : typeof value?.cloneUrl === "string" && value.cloneUrl
+        ? value.cloneUrl
+        : `https://github.com/${owner}/${name}.git`;
+  return { owner, name, cloneUrl };
 }
 
 function projectIdentifier(projectDir: string): string {
@@ -238,45 +354,80 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
+const USAGE =
+  "Usage: gh-symphony project <list|start|status|stop> [--project-dir <path>] [runtime options]\n";
+
 const handler = async (
   args: string[],
   options: GlobalOptions
 ): Promise<void> => {
-  const [subcommand, projectDir] = args;
-  if (subcommand === "add" && projectDir && args.length === 2) {
-    const project = await registerStandaloneProject(projectDir, options);
-    process.stdout.write(
-      `Standalone project registered: ${project.projectId}\n`
-    );
+  const [subcommand, ...rest] = args;
+
+  if (subcommand === "list" && rest.length === 0) {
+    const projects = await listStandaloneProjects(options.configDir);
+    process.stdout.write(JSON.stringify(projects, null, 2) + "\n");
     return;
   }
-  if (subcommand === "list" && args.length === 1) {
-    const global = await loadGlobalConfig(options.configDir);
-    const projects = await Promise.all(
-      (global?.projects ?? []).map((id) =>
-        loadProjectConfig(options.configDir, id)
-      )
-    );
-    process.stdout.write(
-      JSON.stringify(projects.filter(Boolean), null, 2) + "\n"
-    );
+
+  if (
+    subcommand === "start" ||
+    subcommand === "status" ||
+    subcommand === "stop"
+  ) {
+    const { projectDir, forwarded, error } = extractProjectDir(rest);
+    if (error) {
+      process.stderr.write(`${error}\n${USAGE}`);
+      process.exitCode = 2;
+      return;
+    }
+
+    const resolvedProjectDir = resolve(projectDir ?? process.cwd());
+    if (subcommand === "start") {
+      // Re-derive on every start so an edited WORKFLOW.md takes effect without
+      // a separate registration step.
+      const project = await deriveStandaloneProject(
+        resolvedProjectDir,
+        options
+      );
+      await startCommand(forwarded, {
+        ...options,
+        invocation: "project",
+        projectId: project.projectId,
+      });
+      return;
+    }
+
+    // Status and stop only need to address the runtime, which the folder path
+    // identifies on its own — a removed or broken WORKFLOW.md must not block
+    // stopping a running daemon.
+    const projectId = standaloneProjectId(resolvedProjectDir);
+    const project = await loadProjectConfig(options.configDir, projectId);
+    if (!project) {
+      const known = await listStandaloneProjects(options.configDir);
+      process.stderr.write(
+        `No standalone project runtime for ${resolvedProjectDir}.\n` +
+          (known.length > 0
+            ? `Started projects: ${known.map((entry) => entry.projectDir ?? entry.projectId).join(", ")}\n`
+            : "Run 'gh-symphony project start' from a project folder first.\n")
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const runtimeOptions = {
+      ...options,
+      invocation: "project" as const,
+      projectId,
+    };
+    if (subcommand === "status") {
+      await statusCommand(forwarded, runtimeOptions);
+      return;
+    }
+    await stopCommand(forwarded, runtimeOptions);
     return;
   }
-  if (subcommand === "start") {
-    await startCommand(args.slice(1), { ...options, invocation: "project" });
-    return;
-  }
-  if (subcommand === "status") {
-    await statusCommand(args.slice(1), options);
-    return;
-  }
-  if (subcommand === "stop") {
-    await stopCommand(args.slice(1), options);
-    return;
-  }
-  process.stderr.write(
-    "Usage: gh-symphony project <add <projectDir>|list|start|status|stop>\n"
-  );
+
+  process.stderr.write(USAGE);
   process.exitCode = 2;
 };
 
