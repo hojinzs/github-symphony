@@ -5480,6 +5480,86 @@ describe("detectTransferRebindRequired", () => {
   });
 });
 
+describe("pickup label filtering", () => {
+  const adapter = resolveTrackerAdapter({
+    adapter: "github-project",
+    bindingId: "project-123",
+  });
+  const payload = makeProjectItemsPayload([
+    makeProjectItem({
+      itemId: "item-1",
+      issueId: "issue-1",
+      number: 1,
+      title: "Alpha work",
+      assignees: [],
+      labels: ["alpha"],
+    }),
+    makeProjectItem({
+      itemId: "item-2",
+      issueId: "issue-2",
+      number: 2,
+      title: "Beta work",
+      assignees: [],
+      labels: ["beta"],
+    }),
+    makeProjectItem({
+      itemId: "item-3",
+      issueId: "issue-3",
+      number: 3,
+      title: "Unlabeled work",
+      assignees: [],
+    }),
+  ]);
+
+  it("lists only issues matching the configured pickup labels", async () => {
+    const config = makeProjectConfig();
+    config.tracker.settings = {
+      ...config.tracker.settings,
+      pickupLabels: { include: ["alpha"], exclude: ["beta"] },
+    } as never;
+
+    const issues = await adapter.listIssues(config, {
+      token: "dependencies-token",
+      fetchImpl: vi.fn(async () => makeJsonResponse(payload)),
+    });
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+  });
+
+  it("keeps every issue when no pickup labels are configured", async () => {
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      fetchImpl: vi.fn(async () => makeJsonResponse(payload)),
+    });
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+      "acme/platform#2",
+      "acme/platform#3",
+    ]);
+  });
+
+  it("preserves rate limit metadata on the filtered list", async () => {
+    const config = makeProjectConfig();
+    config.tracker.settings = {
+      ...config.tracker.settings,
+      pickupLabels: { include: ["alpha"], exclude: [] },
+    } as never;
+
+    const issues = await adapter.listIssues(config, {
+      token: "dependencies-token",
+      fetchImpl: vi.fn(async () => makeJsonResponse(payload)),
+    });
+
+    expect(issues.map((issue) => issue.identifier)).toEqual([
+      "acme/platform#1",
+    ]);
+    expect("rateLimits" in issues).toBe(true);
+  });
+});
+
 function makeProjectItem(input: {
   itemId: string;
   issueId: string;
