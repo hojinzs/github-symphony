@@ -1,82 +1,84 @@
-# Standalone 프로젝트 모델 — Issue Breakdown Plan
+# Standalone Project Model — Issue Breakdown Plan
 
-> **Source spec:** `docs/designs/2026-08-11-standalone-project-model-design.md` (커밋 `d994c6e`)
+> **Source spec:** `docs/designs/2026-08-11-standalone-project-model-design.md` (commit `d994c6e`)
 > **Repository:** `hojinzs/github-symphony`
-> **Status:** Active — gh-symphony 개밥먹기로 실행 (Project #14, 초기 상태 Backlog, Ready 승격은 사람)
-> **구성:** 에픽 1 + 구현 이슈 9. 각 이슈 본문은 `gh issue create --body-file -`에 바로 사용 가능.
+> **Status:** Active — executed by dogfooding gh-symphony (Project #14, initial state Backlog, promotion to Ready is done by a human)
+> **Composition:** 1 epic + 9 implementation issues. Each issue body can be used directly with `gh issue create --body-file -`.
 
-설계 문서가 단일 진실 소스다. 각 이슈에는 워커가 문서 전체를 읽지 않아도 되도록 해당 슬라이스를 임베드한다.
+The design document is the single source of truth. Each issue embeds its relevant slice so workers do not have to read the entire document.
 
 ## Dependency graph
 
 ```
-┌─ #1 D2 core: ProjectConfig 확장 ──────────── (기반 — 전부 이것에 의존)
+┌─ #1 D2 core: ProjectConfig extension ──────────── (foundation — everything depends on this)
 │
-├──┬─ #2 D3: 워크플로우 소스 해석 + 그림자 경고
-│  └─ #3 D4a: bare 클론 캐시 모듈 (락·TTL fetch)     ← #2와 병렬 가능
+├──┬─ #2 D3: workflow source resolution + shadow warning
+│  └─ #3 D4a: bare clone cache module (lock + TTL fetch)     ← can run in parallel with #2
 │         │
-│         └─ #4 D4b+D8: worktree populate + 브랜치 템플릿 + 정리 수명주기
+│         └─ #4 D4b+D8: worktree populate + branch template + cleanup lifecycle
 │                │
-│                └─ #6 D5: 스킬 레이어 병합 주입 + git exclude
+│                └─ #6 D5: layered skill merge injection + git exclude
 │
-├─ #5 D9: 프로젝트 .env 재배치 + $VAR 소스 확장      ← #2~4와 병렬 가능
-├─ #7 D6: MCP 레이어링 (.mcp.json 사이드카)          ← #1 후 병렬 가능
+├─ #5 D9: project .env relocation + $VAR source expansion      ← can run in parallel with #2–4
+├─ #7 D6: MCP layering (.mcp.json sidecar)          ← can run in parallel after #1
 │
-└─ #8 CLI: project add / 프로젝트 폴더 기동 + 서로소 검증   ← #2 후
+└─ #8 CLI: project add / project-folder startup + disjointness validation   ← after #2
       │
-      └─ #9 클로저: Docker E2E + docs + changeset + ADR    ← 전부 후
+      └─ #9 closure: Docker E2E + docs + changeset + ADR    ← after everything
 ```
 
 ## Verification gates
 
-모든 이슈의 PR은 다음을 통과해야 한다:
+Every issue's PR must pass:
 
 ```bash
 pnpm lint && pnpm test && pnpm typecheck && pnpm build
 ```
 
-CLAUDE.md 규약: 작업 완료 후 반드시 TC를 작성하고 실행해 검증한다. 단위 테스트로 부족한 통합 동작은 Docker E2E(AGENT_TEST.md)로 검증한다 — E2E 통합 검증은 #9가 담당하되, 각 이슈도 자기 범위의 단위/통합 TC를 포함한다.
+CLAUDE.md convention: after completing work, test cases must be written and executed for verification. Integration behavior that unit tests cannot cover is verified with black-box tests in the Docker E2E environment (AGENT_TEST.md) — E2E integration verification is owned by #9, but each issue also includes unit/integration TCs for its own scope.
 
 ---
 
-## Epic — Standalone 프로젝트 모델 구현
+## Epic — Standalone project model implementation
 
 **Title:** `epic: standalone project model (repo-decoupled projects)`
 **Labels:** `epic`
-**초기 상태:** Backlog (트래킹 전용 — Ready로 승격하지 않는다)
+**Initial state:** Backlog (tracking only — do not promote to Ready)
 
 ```markdown
-## 개요
+## Overview
 
-오케스트레이션 정책(WORKFLOW.md·스킬·MCP·env)의 저장 위치를 소스 리포지토리에서 분리하는
-standalone 프로젝트 모델 구현. 설계: `docs/designs/2026-08-11-standalone-project-model-design.md` (D1~D9).
+Implement the standalone project model, which decouples the storage location of
+orchestration policy (WORKFLOW.md, skills, MCP, env) from the source repository.
+Design: `docs/designs/2026-08-11-standalone-project-model-design.md` (D1–D9).
 
-한 문장: 프로젝트 폴더(WORKFLOW.md + .mcp.json + .env + .agent/skills)가 실행 단위가 되고,
-리포는 Symphony가 도는지 모른다 (repo-unaware). 리포 1 : 프로젝트 N.
+In one sentence: the project folder (WORKFLOW.md + .mcp.json + .env + .agent/skills) becomes
+the execution unit, and the repository does not know Symphony is running (repo-unaware).
+1 repo : N projects.
 
-## 하위 이슈
+## Sub-issues
 
-- [ ] #1 feat(core): OrchestratorProjectConfig 확장
-- [ ] #2 feat(orchestrator): 워크플로우 소스 해석
-- [ ] #3 feat(orchestrator): bare 클론 캐시
-- [ ] #4 feat(orchestrator): worktree populate + 브랜치 네임스페이스
-- [ ] #5 feat(orchestrator): 프로젝트 .env 재배치
-- [ ] #6 feat(worker): 스킬 레이어 주입
-- [ ] #7 feat(core,runtime): MCP 레이어 합성
-- [ ] #8 feat(cli): standalone 프로젝트 등록·기동
+- [ ] #1 feat(core): extend OrchestratorProjectConfig
+- [ ] #2 feat(orchestrator): workflow source resolution
+- [ ] #3 feat(orchestrator): bare clone cache
+- [ ] #4 feat(orchestrator): worktree populate + branch namespace
+- [ ] #5 feat(orchestrator): project .env relocation
+- [ ] #6 feat(worker): layered skill injection
+- [ ] #7 feat(core,runtime): MCP layer composition
+- [ ] #8 feat(cli): standalone project registration and startup
 - [ ] #9 test(e2e): E2E + docs + changeset + ADR
 
-(발행 후 실제 이슈 번호로 갱신)
+(Update with actual issue numbers after publishing)
 
-## 순서
+## Order
 
-#1 → {#2, #3, #5, #7 병렬} → #4 → #6, #2 → #8 → #9
+#1 → {#2, #3, #5, #7 in parallel} → #4 → #6, #2 → #8 → #9
 
-## 완료 기준
+## Definition of done
 
-- Docker E2E: 프로젝트 폴더 생성 → 등록 → run-once → worktree populate → 스킬/MCP 주입 → 워커 실행까지 블랙박스 통과
-- 기존 repo-embedded 모드 회귀 없음
-- "1 project = 1 instance" 후속 ADR 병합
+- Docker E2E: black-box pass from project folder creation → registration → run-once → worktree populate → skill/MCP injection → worker execution
+- No regression in the existing repo-embedded mode
+- Follow-up "1 project = 1 instance" ADR merged
 ```
 
 ---
@@ -84,33 +86,34 @@ standalone 프로젝트 모델 구현. 설계: `docs/designs/2026-08-11-standalo
 ## Issue #1 — feat(core): extend OrchestratorProjectConfig for standalone projects
 
 **Labels:** `core`, `enhancement`
-**Depends on:** 없음 (기반)
+**Depends on:** none (foundation)
 **Effort:** S
 
 ```markdown
-Part of epic #<EPIC>. 설계: docs/designs/2026-08-11-standalone-project-model-design.md — D2.
+Part of epic #<EPIC>. Design: docs/designs/2026-08-11-standalone-project-model-design.md — D2.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-"프로젝트"를 리포와 독립된 일급 실행 단위로 만든다. 새 개념을 만들지 않고 기존
-`OrchestratorProjectConfig`(packages/core/src/contracts/status-surface.ts)를 확장한다.
-프로젝트 폴더가 진실 소스, 오케스트레이터의 config.json은 등록/파생 상태다.
+Make a "project" a first-class execution unit independent of the repository. Instead of
+inventing a new concept, extend the existing
+`OrchestratorProjectConfig` (packages/core/src/contracts/status-surface.ts).
+The project folder is the source of truth; the orchestrator's config.json is registration/derived state.
 
-## 작업 범위
+## Scope of work
 
-- [ ] `OrchestratorProjectConfig`에 필드 추가:
-  - `workflowSource: { type: "repo" } | { type: "external"; path: string }` (기본: 기존 동작 = repo)
-  - `populateStrategy?: "clone" | "worktree-cache"` (기본: "clone" = 기존 동작)
-  - `projectDir?: string` (standalone 프로젝트 폴더 경로)
-- [ ] fs-store(`packages/orchestrator/src/fs-store.ts`) 영속화 라운드트립 + 하위 호환 (기존 config.json 필드 없음 = repo/clone 기본값)
-- [ ] CLI `CliProjectConfig`(packages/cli/src/config.ts) 파생 타입 정합
-- [ ] 검증: external인데 path 부재/비절대경로 → 명시 에러
+- [ ] Add fields to `OrchestratorProjectConfig`:
+  - `workflowSource: { type: "repo" } | { type: "external"; path: string }` (default: existing behavior = repo)
+  - `populateStrategy?: "clone" | "worktree-cache"` (default: "clone" = existing behavior)
+  - `projectDir?: string` (path to the standalone project folder)
+- [ ] fs-store (`packages/orchestrator/src/fs-store.ts`) persistence round-trip + backward compatibility (existing config.json without the fields = repo/clone defaults)
+- [ ] Align the CLI `CliProjectConfig` derived type (packages/cli/src/config.ts)
+- [ ] Validation: external with missing/non-absolute path → explicit error
 
 ## Acceptance Criteria
 
-- 기존 config.json(신규 필드 없음)을 로드하면 동작 변화 없음 (하위 호환 TC)
-- 신규 필드 저장→로드 라운드트립 TC
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Loading an existing config.json (without the new fields) causes no behavior change (backward-compat TC)
+- Save→load round-trip TC for the new fields
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -122,28 +125,31 @@ Part of epic #<EPIC>. 설계: docs/designs/2026-08-11-standalone-project-model-d
 **Effort:** M
 
 ```markdown
-Part of epic #<EPIC>. 설계: D3 (+ D1).
+Part of epic #<EPIC>. Design: D3 (+ D1).
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-워크플로우 소스는 우선순위 경쟁이 아니라 모드 선언이다: `workflowSource.type === "external"`이면
-프로젝트 폴더의 WORKFLOW.md만 읽고 리포 내부는 조회하지 않는다. "repo"면 기존 동작(체크아웃 내 탐색).
-외부 파일 로딩은 업스트림 스펙 §5.1 우선순위 1번("explicit runtime setting")이라 conforming.
-보안 근거: hooks.\*는 호스트에서 셸을 실행하므로 리포 커밋 권한자가 운영자 머신 셸을 얻으면 안 된다.
+The workflow source is a mode declaration, not a priority contest: when
+`workflowSource.type === "external"`, only the project folder's WORKFLOW.md is read and the
+repository interior is never consulted. When "repo", the existing behavior (lookup within the
+checkout) applies. Loading an external file is conforming — it is priority 1 of upstream spec
+§5.1 ("explicit runtime setting").
+Security rationale: hooks.\* execute a shell on the host, so someone with repo commit access
+must not be able to obtain a shell on the operator's machine.
 
-## 작업 범위
+## Scope of work
 
-- [ ] 워크플로우 해석 경로(orchestrator의 WorkflowResolution 로딩)에 `workflowSource` 분기 추가
-- [ ] external 모드: `<projectDir>/WORKFLOW.md` 로드, 부재 시 `missing_workflow_file` 에러 (스펙 §5.1 로더 규약 유지)
-- [ ] external 모드의 동적 리로드: watch 대상을 외부 파일로 (스펙 §6.2)
-- [ ] **그림자 경고**: external 모드인데 리포 체크아웃에도 WORKFLOW.md가 존재하면 status surface에 경고 노출 (Observability)
-- [ ] front matter `repository` 확장 키 파싱 (D1 — 스펙 §5.3 확장 규칙; 미지 키 무시 호환 유지)
+- [ ] Add a `workflowSource` branch to the workflow resolution path (the orchestrator's WorkflowResolution loading)
+- [ ] External mode: load `<projectDir>/WORKFLOW.md`; if absent, `missing_workflow_file` error (preserve the spec §5.1 loader contract)
+- [ ] Dynamic reload in external mode: watch target becomes the external file (spec §6.2)
+- [ ] **Shadow warning**: in external mode, if WORKFLOW.md also exists in the repo checkout, surface a warning on the status surface (Observability)
+- [ ] Parse the `repository` front matter extension key (D1 — spec §5.3 extension rules; keep unknown-key-ignore compatibility)
 
 ## Acceptance Criteria
 
-- external 모드에서 리포 내 WORKFLOW.md가 절대 읽히지 않음을 증명하는 TC
-- 그림자 상황 경고 TC / repo 모드 회귀 없음 TC
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- TC proving the in-repo WORKFLOW.md is never read in external mode
+- Shadow-situation warning TC / no-regression TC for repo mode
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -155,28 +161,29 @@ Part of epic #<EPIC>. 설계: D3 (+ D1).
 **Effort:** M
 
 ```markdown
-Part of epic #<EPIC>. 설계: D4 + "클론 캐시 운영 상세" 섹션.
+Part of epic #<EPIC>. Design: D4 + the "Clone cache operational details" section.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-리포 클론을 전역 캐시 `~/.gh-symphony/repos/<owner>/<repo>.git`(bare)에 한 번만 둔다.
-같은 리포를 공유하는 프로젝트들은 서로 다른 프로세스이므로(D7) 조율은 파일 락뿐이다.
-기존 `packages/orchestrator/src/git.ts`의 mkdir 락 패턴·상수(재시도 100ms, stale 30분, 타임아웃 2분)를 재사용한다.
+Repo clones are kept exactly once in a global cache `~/.gh-symphony/repos/<owner>/<repo>.git` (bare).
+Projects sharing the same repo are separate processes (D7), so file locks are the only coordination
+mechanism. Reuse the mkdir lock pattern and constants from the existing
+`packages/orchestrator/src/git.ts` (retry 100ms, stale 30 minutes, timeout 2 minutes).
 
-## 작업 범위
+## Scope of work
 
-- [ ] bare 캐시 모듈: 최초 `clone --bare`, 락(`<repo>.lock` mkdir 방식) 아래 직렬화
-- [ ] TTL fetch: 마지막 fetch 60초 이내면 스킵 (bare 내 타임스탬프 마커, 락 아래 판정). 필요한 ref 부재 시 TTL 무시하고 fetch
-- [ ] fetch 후 `git gc --auto`
-- [ ] 인증: 기존 credential 경로(gh auth / credential helper) 그대로, 토큰을 캐시·워크스페이스에 기록하지 않음
-- [ ] 캐시 홈은 `DEFAULT_CONFIG_DIR`(`~/.gh-symphony`) 기준, `GH_SYMPHONY_CONFIG_DIR` 오버라이드 존중
+- [ ] Bare cache module: initial `clone --bare`, serialized under a lock (`<repo>.lock` mkdir style)
+- [ ] TTL fetch: skip if the last fetch was within 60 seconds (timestamp marker inside the bare repo, evaluated under the lock). If a required ref is missing, ignore the TTL and fetch
+- [ ] `git gc --auto` after fetch
+- [ ] Auth: keep the existing credential path (gh auth / credential helper) as-is; never write tokens into the cache or workspaces
+- [ ] The cache home is based on `DEFAULT_CONFIG_DIR` (`~/.gh-symphony`), honoring the `GH_SYMPHONY_CONFIG_DIR` override
 
 ## Acceptance Criteria
 
-- 동시 fetch 직렬화 TC (두 호출이 락으로 순차 실행)
-- TTL 스킵/ref 부재 시 강제 fetch TC
-- stale 락 회수 TC (기존 git.ts 락 시맨틱과 동일)
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Concurrent fetch serialization TC (two calls execute sequentially via the lock)
+- TTL skip / forced fetch on missing ref TC
+- Stale lock reclamation TC (identical to the existing git.ts lock semantics)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -188,31 +195,33 @@ Part of epic #<EPIC>. 설계: D4 + "클론 캐시 운영 상세" 섹션.
 **Effort:** L
 
 ```markdown
-Part of epic #<EPIC>. 설계: D4·D8 + "클론 캐시 운영 상세" 섹션.
+Part of epic #<EPIC>. Design: D4, D8 + the "Clone cache operational details" section.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-이슈 workspace populate를 풀클론(`syncRepositoryForRun`) 대신 bare 캐시에서 worktree로 딴다.
-`populateStrategy === "worktree-cache"`일 때만 — "clone"(기존) 경로는 그대로 유지 (롤아웃 분리).
-git은 같은 브랜치의 이중 체크아웃을 거부하므로 브랜치 유일성이 git 레벨에서 강제된다 →
-브랜치 템플릿 `symphony/<project-slug>/<sanitized-issue-id>` 필수 (front matter 오버라이드 허용).
+Populate the issue workspace as a worktree from the bare cache instead of a full clone
+(`syncRepositoryForRun`). Only when `populateStrategy === "worktree-cache"` — the "clone"
+(existing) path stays intact (rollout separation).
+git refuses double checkouts of the same branch, so branch uniqueness is enforced at the git
+level → the branch template `symphony/<project-slug>/<sanitized-issue-id>` is mandatory
+(front matter override allowed).
 
-## 작업 범위
+## Scope of work
 
-- [ ] populate: bare 확보(#3) → TTL fetch → `git worktree add -b <branch> <workspace-path> origin/<base>` (락 아래)
-- [ ] 브랜치 템플릿 기본값 + front matter 오버라이드 키
-- [ ] 실패 시맨틱 (스펙 §9.3): attempt 에러, 신규 워크스페이스는 부분 생성물 제거 가능, 재사용 워크스페이스는 파괴적 리셋 금지
-- [ ] 정리: startup terminal cleanup(스펙 §8.6) 지점에 `before_remove` 훅 → `git worktree remove` → 락 아래 `git worktree prune` 연결
-- [ ] 고아 GC: populate 시 락 아래 `git worktree prune` 1회
-- [ ] 전략 스위치: `populateStrategy`에 따라 기존 clone 경로/신규 worktree 경로 선택
+- [ ] Populate: ensure bare (#3) → TTL fetch → `git worktree add -b <branch> <workspace-path> origin/<base>` (under the lock)
+- [ ] Branch template default + front matter override key
+- [ ] Failure semantics (spec §9.3): attempt error; a new workspace may have partial artifacts removed; a reused workspace must not be destructively reset
+- [ ] Cleanup: at the startup terminal cleanup point (spec §8.6), chain `before_remove` hook → `git worktree remove` → `git worktree prune` under the lock
+- [ ] Orphan GC: one `git worktree prune` under the lock at populate time
+- [ ] Strategy switch: select the existing clone path / new worktree path based on `populateStrategy`
 
 ## Acceptance Criteria
 
-- worktree populate 성공/재사용/실패 시맨틱 TC
-- 같은 리포 두 프로젝트가 같은 이슈 번호로 populate해도 브랜치 충돌 없음 TC (슬러그 네임스페이스)
-- terminal cleanup 시 worktree 제거·prune TC
-- `populateStrategy: "clone"` 회귀 없음 TC
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Worktree populate success/reuse/failure semantics TC
+- TC proving no branch collision when two projects on the same repo populate the same issue number (slug namespace)
+- Worktree removal + prune on terminal cleanup TC
+- No-regression TC for `populateStrategy: "clone"`
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -224,28 +233,29 @@ git은 같은 브랜치의 이중 체크아웃을 거부하므로 브랜치 유�
 **Effort:** S
 
 ```markdown
-Part of epic #<EPIC>. 설계: D9.
+Part of epic #<EPIC>. Design: D9.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-프로젝트 env는 `<projectDir>/.env`(dotenv, 0600)로 선언한다. front matter `env` 키는 만들지 않는다.
-`readProjectEnv`(packages/orchestrator/src/service.ts)가 이미 프로젝트 디렉토리 `.env`를 워커 env에
-병합 중이므로, standalone 프로젝트에서는 읽기 위치를 프로젝트 폴더로 재지정하는 작업이다.
-우선순위 현행 유지: 명시 env > 호스트 process env > 프로젝트 .env.
+Project env is declared in `<projectDir>/.env` (dotenv, 0600). No front matter `env` key is introduced.
+`readProjectEnv` (packages/orchestrator/src/service.ts) already merges the project directory's `.env`
+into the worker env, so for standalone projects the work is repointing the read location to the
+project folder.
+Priority stays as-is: explicit env > host process env > project .env.
 
-## 작업 범위
+## Scope of work
 
-- [ ] standalone 프로젝트(`projectDir` 존재)의 `.env` 읽기 위치를 프로젝트 폴더로
-- [ ] `$VAR` 해석 소스 확장: front matter(§6.1)와 MCP 합성의 `$VAR`가 "호스트 process env + 프로젝트 .env"에서 해석
-- [ ] `.env` 파일 권한 검사: 0600 아니면 경고 (읽기는 거부하지 않음 — 운영 편의)
-- [ ] 에이전트 자동 전달 금지 유지: `SAFE_RUNTIME_ENV_KEYS` allowlist(runtime-codex) 변경 없음
+- [ ] For standalone projects (`projectDir` present), read `.env` from the project folder
+- [ ] Expand the `$VAR` resolution source: `$VAR` in front matter (§6.1) and MCP composition resolves from "host process env + project .env"
+- [ ] `.env` file permission check: warn if not 0600 (do not refuse to read — operational convenience)
+- [ ] Keep the no-automatic-passthrough-to-agent rule: no change to the `SAFE_RUNTIME_ENV_KEYS` allowlist (runtime-codex)
 
 ## Acceptance Criteria
 
-- standalone/.env 로딩 및 우선순위 TC (스프레드 순서 그대로)
-- `$VAR` 해석이 프로젝트 .env 값을 집는 TC + 호스트 env가 이기는 TC
-- 에이전트 env에 프로젝트 .env 키가 새지 않는 TC
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Standalone `.env` loading and priority TC (spread order unchanged)
+- TC where `$VAR` resolution picks up the project .env value + TC where host env wins
+- TC proving project .env keys do not leak into the agent env
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -257,29 +267,30 @@ Part of epic #<EPIC>. 설계: D9.
 **Effort:** M
 
 ```markdown
-Part of epic #<EPIC>. 설계: D5.
+Part of epic #<EPIC>. Design: D5.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-스킬은 리포에 커밋하지 않고 워커 실행 환경에 주입한다:
-전역(`~/.gh-symphony/skills`) → 프로젝트(`<projectDir>/.agent/skills`) 레이어를 병합(이름 충돌 시
-프로젝트 승리)해 **매 attempt 전(before_run 지점)** worktree의 런타임 네이티브 경로
-(`.claude/skills` / `.codex/skills`)에 **복사**한다. 링크 금지(격리·샌드박스·스냅샷 관측 사유).
-git 은폐: worktree별 `.git/info/exclude`에 스킬 경로 등록 (repo-unaware 유지).
+Skills are not committed to the repo; they are injected into the worker execution environment:
+the global (`~/.gh-symphony/skills`) → project (`<projectDir>/.agent/skills`) layers are merged
+(project wins on name conflict) and **copied** into the worktree's runtime-native path
+(`.claude/skills` / `.codex/skills`) **before every attempt (at the before_run point)**.
+Links are forbidden (isolation, sandboxing, and snapshot-observability reasons).
+git concealment: register the skill paths in each worktree's `.git/info/exclude` (preserving repo-unaware).
 
-## 작업 범위
+## Scope of work
 
-- [ ] 레이어 병합 복사 모듈 (전역→프로젝트, nearest wins, 매 attempt 전체 재복사)
-- [ ] populate(#4) 시 `.git/info/exclude`에 스킬 경로 등록
-- [ ] 생성형 스킬(packages/cli/src/skills/templates)의 렌더링 시점을 프로젝트 생성/수정 시점으로 이동 — 렌더링 결과가 프로젝트 스킬 레이어에 저장, 주입 로직은 "병합해서 복사"만
-- [ ] codex 런타임 스킬 발견 경로 검증 (cwd 기준인지 — 설계 Open Question 3) 후 배치 확정
+- [ ] Layer-merge copy module (global→project, nearest wins, full re-copy before every attempt)
+- [ ] Register skill paths in `.git/info/exclude` at populate time (#4)
+- [ ] Move the rendering point of generated skills (packages/cli/src/skills/templates) to project creation/modification time — rendered output is stored in the project skill layer; injection logic only "merges and copies"
+- [ ] Verify the codex runtime skill discovery path (whether it is cwd-based — design Open Question 3), then finalize placement
 
 ## Acceptance Criteria
 
-- 병합 규칙 TC (충돌 시 프로젝트 승리, 전역 단독, 프로젝트 단독)
-- 재시도 attempt에서 수정된 스킬이 반영되는 TC (재복사)
-- 주입된 스킬이 `git status`에 나타나지 않는 TC (exclude)
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Merge rule TCs (project wins on conflict, global only, project only)
+- TC where a skill modified between attempts is reflected on retry (re-copy)
+- TC where injected skills do not appear in `git status` (exclude)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -291,31 +302,32 @@ git 은폐: worktree별 `.git/info/exclude`에 스킬 경로 등록 (repo-unawar
 **Effort:** M~L
 
 ```markdown
-Part of epic #<EPIC>. 설계: D6.
+Part of epic #<EPIC>. Design: D6.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-MCP 서버 선언을 레이어화한다: Symphony 내장(예약 이름 `github_graphql`/`linear_graphql`, 항상 승리) >
-프로젝트 `<projectDir>/.mcp.json` > 전역 `~/.gh-symphony/mcp.json` > 리포 `.mcp.json`
-(standalone에서 리포 레이어는 기본 off, `trust_repo_config` 옵트인 — MCP 엔트리는 호스트 실행
-명령이므로 D3와 같은 보안 논리). 선언 shape는 표준 `mcpServers`. 시크릿은 리터럴 금지, `$VAR`만.
-합성은 기존 `mcp-compose.ts` 패턴: 매 attempt, worktree 밖 runtime 디렉토리, 0600.
+Layer the MCP server declarations: Symphony built-ins (reserved names `github_graphql`/`linear_graphql`, always win) >
+project `<projectDir>/.mcp.json` > global `~/.gh-symphony/mcp.json` > repo `.mcp.json`
+(in standalone mode the repo layer is off by default, opt-in via `trust_repo_config` — MCP entries
+are host-executed commands, so the same security logic as D3 applies). The declaration shape is the
+standard `mcpServers`. Secrets: literals forbidden, `$VAR` only.
+Composition follows the existing `mcp-compose.ts` pattern: every attempt, in the runtime directory outside the worktree, 0600.
 
-## 작업 범위
+## Scope of work
 
-- [ ] core에 런타임 중립 MCP 레이어 병합 로직 (예약 이름 보호 포함)
-- [ ] claude 어댑터: `composeClaudeMcpConfig`(packages/runtime-claude/src/mcp-compose.ts)에 프로젝트/전역 레이어 주입, 리포 레이어 옵트인 게이트
-- [ ] codex 어댑터: 병합 결과를 `RuntimeToolDefinition` 등록으로 번역 (packages/runtime-codex/src/runtime.ts)
-- [ ] 리터럴 토큰 검증: `.mcp.json` env 값이 `$VAR` 형식이 아니면 로드 거부 + 명시 에러
-- [ ] `$VAR` 해석 소스는 #5와 정합 (호스트 env + 프로젝트 .env)
+- [ ] Runtime-neutral MCP layer merge logic in core (including reserved-name protection)
+- [ ] claude adapter: inject the project/global layers into `composeClaudeMcpConfig` (packages/runtime-claude/src/mcp-compose.ts), with an opt-in gate for the repo layer
+- [ ] codex adapter: translate the merge result into `RuntimeToolDefinition` registration (packages/runtime-codex/src/runtime.ts)
+- [ ] Literal token validation: refuse to load `.mcp.json` if an env value is not in `$VAR` form + explicit error
+- [ ] `$VAR` resolution source consistent with #5 (host env + project .env)
 
 ## Acceptance Criteria
 
-- 레이어 우선순위 TC (내장 예약 이름을 프로젝트가 그림자 못 침)
-- 리포 레이어 기본 off / 옵트인 on TC
-- 리터럴 토큰 거부 TC
-- 합성 파일 0600·worktree 밖 위치 TC (기존 시맨틱 유지)
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- Layer priority TC (a project cannot shadow built-in reserved names)
+- Repo layer default-off / opt-in on TC
+- Literal token rejection TC
+- Composed file 0600 + outside-worktree location TC (existing semantics preserved)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -327,27 +339,28 @@ MCP 서버 선언을 레이어화한다: Symphony 내장(예약 이름 `github_g
 **Effort:** M
 
 ```markdown
-Part of epic #<EPIC>. 설계: D2·D7(등록 검증 부분)·목표 디렉토리 구조.
+Part of epic #<EPIC>. Design: D2, D7 (registration validation part), and the target directory structure.
 
-## 배경 (설계 슬라이스)
+## Background (design slice)
 
-standalone 프로젝트를 CLI로 등록·기동한다. 수퍼바이저 상세는 별도 스펙이지만, 프로젝트 폴더 기반
-등록과 단일 프로젝트 기동은 CLI 몫이다. 등록 시 같은 리포+트래커를 공유하는 기존 프로젝트와의
-트래커 매핑 서로소 검증(경고)을 수행한다 — 겹치면 두 오케스트레이터가 같은 이슈를 집는다.
+Register and start standalone projects via the CLI. Supervisor details are a separate spec, but
+project-folder-based registration and single-project startup belong to the CLI. At registration
+time, perform tracker-mapping disjointness validation (warning) against existing projects sharing
+the same repo+tracker — if they overlap, two orchestrators will pick up the same issue.
 
-## 작업 범위
+## Scope of work
 
-- [ ] `gh-symphony project add <projectDir>`: WORKFLOW.md front matter 파싱 → `OrchestratorProjectConfig`(external source) 생성·등록 (`~/.gh-symphony/projects/<id>/project.json`)
-- [ ] 등록 검증: front matter 파싱·dispatch preflight(스펙 §6.3) + 기존 등록 프로젝트와 트래커 매핑 겹침 검사 (겹침 = 경고 + 확인 요구)
-- [ ] 기동: 기존 start 경로가 `workflowSource: external` 프로젝트를 프로젝트 폴더 기준으로 실행 (cwd 리포 전제 제거)
-- [ ] `project list`/`status`에 standalone 프로젝트 표시 (그림자 경고 포함, #2 연동)
+- [ ] `gh-symphony project add <projectDir>`: parse WORKFLOW.md front matter → create and register `OrchestratorProjectConfig` (external source) (`~/.gh-symphony/projects/<id>/project.json`)
+- [ ] Registration validation: front matter parsing + dispatch preflight (spec §6.3) + tracker-mapping overlap check against already-registered projects (overlap = warning + confirmation required)
+- [ ] Startup: the existing start path runs `workflowSource: external` projects based on the project folder (removing the cwd-is-repo assumption)
+- [ ] Show standalone projects in `project list`/`status` (including shadow warnings, wired to #2)
 
 ## Acceptance Criteria
 
-- add→list→start→stop 라운드트립 TC
-- 트래커 매핑 겹침 경고 TC
-- repo-embedded 기존 플로우(`repo init`/`repo start`) 회귀 없음 TC
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- add→list→start→stop round-trip TC
+- Tracker-mapping overlap warning TC
+- No-regression TC for the existing repo-embedded flow (`repo init`/`repo start`)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```
 
 ---
@@ -355,25 +368,25 @@ standalone 프로젝트를 CLI로 등록·기동한다. 수퍼바이저 상세�
 ## Issue #9 — test(e2e): standalone project model end-to-end + docs + changeset + ADR
 
 **Labels:** `test`, `documentation`
-**Depends on:** #1~#8 전부
+**Depends on:** all of #1–#8
 **Effort:** M
 
 ```markdown
-Part of epic #<EPIC>. 설계: 전체 (클로저).
+Part of epic #<EPIC>. Design: entire document (closure).
 
-## 작업 범위
+## Scope of work
 
-- [ ] Docker E2E (AGENT_TEST.md 규약): 프로젝트 폴더 생성(WORKFLOW.md/.mcp.json/.env/.agent/skills) →
-      `project add` → `run-once` → bare 캐시 생성 → worktree populate(브랜치 네임스페이스 확인) →
-      스킬/MCP 주입 확인(git status 청정 포함) → 워커 실행까지 블랙박스 검증
-- [ ] 같은 리포 위 프로젝트 2개 병행 시나리오 (서로소 매핑, 브랜치 격리)
-- [ ] `docs/configuration.md` 갱신: standalone 모드, 프로젝트 폴더 규약, populate 전략, 브랜치 템플릿, .env
-- [ ] changeset 작성 (`@gh-symphony/*` minor)
-- [ ] 후속 ADR: `2026-05-04_single-repo-orchestrator.md`("1 repo = 1 instance")를 "1 project = 1 instance"로 정밀화하는 결정 기록
-- [ ] 설계 문서 Status: Draft → Shipped 갱신
+- [ ] Docker E2E (AGENT_TEST.md conventions): create project folder (WORKFLOW.md/.mcp.json/.env/.agent/skills) →
+      `project add` → `run-once` → bare cache creation → worktree populate (verify branch namespace) →
+      verify skill/MCP injection (including clean git status) → black-box verification through worker execution
+- [ ] Scenario with 2 projects running concurrently on the same repo (disjoint mappings, branch isolation)
+- [ ] Update `docs/configuration.md`: standalone mode, project folder conventions, populate strategy, branch template, .env
+- [ ] Write a changeset (`@gh-symphony/*` minor)
+- [ ] Follow-up ADR: a decision record refining `2026-05-04_single-repo-orchestrator.md` ("1 repo = 1 instance") to "1 project = 1 instance"
+- [ ] Update the design document Status: Draft → Shipped
 
 ## Acceptance Criteria
 
-- E2E 블랙박스 통과 (신규 standalone + 기존 repo-embedded 양쪽)
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 통과
+- E2E black-box pass (both new standalone and existing repo-embedded)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` passes
 ```

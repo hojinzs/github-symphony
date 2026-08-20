@@ -16,12 +16,14 @@ Evaluate untriaged backlog items by analyzing their descriptions and the codebas
 Run these checks **in order** before proceeding:
 
 1. **gh CLI authentication**: Run `gh auth status`. If not authenticated, stop and instruct:
+
    ```
    GitHub CLI is not authenticated. Please run:
    $ gh auth login
    ```
 
 2. **Project scope permission**: Attempt a lightweight project API call. If permission error, stop and instruct:
+
    ```
    The GitHub CLI token lacks the "project" scope. Please run:
    $ gh auth refresh -s project
@@ -37,6 +39,7 @@ Run these checks **in order** before proceeding:
 ### Step 1: Parse Configuration
 
 Read `PROJECT_MANAGE.md` and extract:
+
 - **Frontmatter**: project_number, project_node_id, owner, backlog_status, backlog_status_id, field_ids, priority_options, size_options
 - **Body**: Priority definitions, Size definitions, Estimate convention
 
@@ -45,6 +48,7 @@ Read `PROJECT_MANAGE.md` and extract:
 Run `gh issue list --state open --limit 200 --json number,title,body,labels,assignees,createdAt,updatedAt,projectItems`.
 
 Filter to only items where:
+
 - `projectItems[].status.name` matches `backlog_status` (use the name from frontmatter)
 - GitHub issue `state` is `OPEN`
 
@@ -55,9 +59,11 @@ Do **not** use `gh project item-list` — project item counts can exceed the lim
 From the filtered backlog items, identify those **missing any of** Priority, Size, or Estimate.
 
 If all backlog items are already triaged, inform the user:
+
 ```
 All backlog items are already triaged. Nothing to do.
 ```
+
 And then skip to Step 6 (blocking analysis) since relationships may still need updating.
 
 ### Step 4: Analyze and Evaluate
@@ -84,7 +90,7 @@ Present all evaluations in a table for user review:
 ```
 | #  | Title                              | Priority | Size | Estimate | Rationale                                    |
 |----|-------------------------------------|----------|------|----------|----------------------------------------------|
-| #26 | blockedBy BlockerRef 변경          | P0       | S    | 2d       | Active bug: cross-project blocker permanent block. Data already fetched in GraphQL. |
+| #26 | Change blockedBy BlockerRef          | P0       | S    | 2d       | Active bug: cross-project blocker permanent block. Data already fetched in GraphQL. |
 | #27 | Issue-Centric State Model          | P1       | XL   | 8d       | Spec 3-section compliance. service.ts 1362-line core refactor. |
 ```
 
@@ -131,11 +137,11 @@ Present the dependency map. Annotate each issue with its **current Status** so t
 Blocking Dependency Map:
 
 #30 [In Progress] large-scale auth refactor (P1, XL)
- └── blocks → #26 [Backlog] blockedBy BlockerRef 변경 (P0, S)
+ └── blocks → #26 [Backlog] Change blockedBy BlockerRef (P0, S)
 
-#22 [Backlog] Commander.js 마이그레이션 (P2, L)
+#22 [Backlog] Commander.js migration (P2, L)
  ├── blocks → #23 [Backlog] interactive project selection (P2, S)
- └── blocks → #24 [Backlog] project add 간소화 (P2, S)
+ └── blocks → #24 [Backlog] Simplify project add (P2, S)
 
 #27 [Backlog] Issue-Centric State Model (P1, XL)
  └── blocks → #25 [Backlog] GET /api/v1/<issue_identifier> (P1, M)
@@ -165,16 +171,16 @@ Phase 0 (in-flight, awaiting completion):
   #30 [In Progress] large-scale auth refactor  XL  ← must complete first
 
 Phase 1 (unblocked after Phase 0):
-  #26 [P0] blockedBy BlockerRef 변경  S  2d
+  #26 [P0] Change blockedBy BlockerRef  S  2d
 
 Phase 2 (no blockers, can start now):
   Track A: #27 [P1] Issue-Centric State Model  XL  8d
-  Track B: #22 [P2] Commander.js 마이그레이션  L   5d
+  Track B: #22 [P2] Commander.js migration  L   5d
 
 Phase 3 (unblocked after Phase 2):
   Track A: #25 [P1] GET /api/v1/<issue_identifier>  M  3d
   Track B: #23 [P2] interactive project selection  S  2d
-           #24 [P2] project add 간소화  S  1d
+           #24 [P2] Simplify project add  S  1d
 
 Total backlog: 6 issues, 21d estimated
 Critical path: #30 (in-flight) → #26 → ...

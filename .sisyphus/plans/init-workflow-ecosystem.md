@@ -2,8 +2,8 @@
 
 ## TL;DR
 
-> **Summary**: `gh-symphony init`을 확장하여 최소 WORKFLOW.md 외에 context.yaml (GitHub Project 메타데이터), 6개 에이전트 스킬 (gh-symphony, gh-project, commit, push, pull, land), reference-workflow.md를 자동 생성. CLI는 데이터 수집, AI 에이전트는 워크플로우 설계라는 분업 구조.
-> **Deliverables**: context.yaml 생성기, 환경 감지 모듈, 스킬 템플릿 인프라 + 6개 스킬, reference-workflow.md 생성기, 강화된 WORKFLOW.md, init 명령어 통합
+> **Summary**: Extend `gh-symphony init` so that, beyond the minimal WORKFLOW.md, it automatically generates context.yaml (GitHub Project metadata), 6 agent skills (gh-symphony, gh-project, commit, push, pull, land), and reference-workflow.md. Division of labor: the CLI collects data, the AI agent designs the workflow.
+> **Deliverables**: context.yaml generator, environment detection module, skill template infrastructure + 6 skills, reference-workflow.md generator, enhanced WORKFLOW.md, init command integration
 > **Effort**: Large
 > **Parallel**: YES — 3 waves
 > **Critical Path**: Environment Detection → Context.yaml Generator → Init Integration
@@ -12,79 +12,79 @@
 
 ### Original Request
 
-OpenAI Elixir Symphony의 WORKFLOW.md (~400줄)를 참고하여, `gh-symphony init`이 사용자의 워크플로우 설계 리소스를 최소화하도록 풍성한 에코시스템을 자동 생성하게 만든다. 현재는 ~15줄짜리 기본 WORKFLOW.md만 생성.
+Referencing OpenAI Elixir Symphony's WORKFLOW.md (~400 lines), make `gh-symphony init` automatically generate a rich ecosystem so that the user's workflow-design effort is minimized. Currently it only generates a ~15-line basic WORKFLOW.md.
 
 ### Interview Summary
 
-| 결정                | 선택                                                             |
-| ------------------- | ---------------------------------------------------------------- |
-| init 출력물         | context.yaml + skills + 최소 WORKFLOW.md + reference-workflow.md |
-| 스킬 granularity    | 단일 `/gh-symphony` (상태 감지 후 질문)                          |
-| Reference 소스      | CLI 번들 + 런타임별 변형                                         |
-| 템플릿 엔진         | 우회 ({{retry_context}} 패턴), 향후 개선                         |
-| GitHub Project 통신 | `/gh-project` 스킬로 init 시 기본 제공                           |
-| Related Skills      | commit, push, pull, land — init이 일괄 등록                      |
-| Init 재실행         | context.yaml은 덮어쓰기, skills는 존재 시 스킵                   |
+| Decision                     | Choice                                                              |
+| ---------------------------- | ------------------------------------------------------------------- |
+| init outputs                 | context.yaml + skills + minimal WORKFLOW.md + reference-workflow.md |
+| Skill granularity            | Single `/gh-symphony` (detects state, then asks questions)          |
+| Reference source             | Bundled with the CLI + per-runtime variants                         |
+| Template engine              | Work around it ({{retry_context}} pattern), improve later           |
+| GitHub Project communication | Provided by default at init via the `/gh-project` skill             |
+| Related Skills               | commit, push, pull, land — init registers them all at once          |
+| Init re-run                  | context.yaml is overwritten, skills are skipped if they exist       |
 
 ### Metis Review (gaps addressed)
 
-1. **Field ID 유실**: `getProjectDetail()` 반환값에서 `option.name`만 추출하고 `.id`를 버림 → context.yaml 생성 시 반드시 ID 플럼빙 필요
-2. **Parser 호환성**: 강화된 WORKFLOW.md는 8개 지원 변수만 사용해야 함 (`issue.*` 7개 + `attempt`) — `renderPrompt()` strict mode가 미지원 변수에 throw
-3. **YAML 특수문자**: `Won't Do`, `In Progress (Blocked)` 등 → context.yaml 생성 시 quoting 필수
-4. **Idempotency**: init 재실행 시 context.yaml 덮어쓰기, skill 파일은 존재 확인 후 스킵
-5. **런타임 분기**: 선택된 런타임(codex/claude-code)에 해당하는 스킬 디렉토리만 생성, 양쪽 동시 생성 금지
-6. **Scope guard**: CLI가 "풍성한" WORKFLOW.md를 생성하지 않음 — 그건 AI 에이전트의 역할. CLI는 최소+기능 WORKFLOW.md만.
+1. **Field ID loss**: `getProjectDetail()`'s return value has only `option.name` extracted while `.id` is discarded → ID plumbing is mandatory when generating context.yaml
+2. **Parser compatibility**: the enhanced WORKFLOW.md must use only the 8 supported variables (`issue.*` ×7 + `attempt`) — `renderPrompt()` strict mode throws on unsupported variables
+3. **YAML special characters**: `Won't Do`, `In Progress (Blocked)`, etc. → quoting is mandatory when generating context.yaml
+4. **Idempotency**: on init re-run, overwrite context.yaml; check for existing skill files and skip them
+5. **Runtime branching**: create only the skill directory matching the selected runtime (codex/claude-code); never create both at once
+6. **Scope guard**: the CLI does not generate the "rich" WORKFLOW.md — that is the AI agent's job. The CLI generates only a minimal+functional WORKFLOW.md.
 
 ## Work Objectives
 
 ### Core Objective
 
-`gh-symphony init` 실행 시 에이전트가 정밀한 워크플로우를 설계할 수 있는 완전한 에코시스템을 자동 생성한다.
+When `gh-symphony init` runs, automatically generate a complete ecosystem that enables the agent to design a precise workflow.
 
 ### Deliverables
 
-1. `.gh-symphony/context.yaml` — GitHub Project 메타데이터 (field ID, option ID 포함)
-2. `.gh-symphony/reference-workflow.md` — 주석 달린 참조 템플릿 (런타임별)
-3. `WORKFLOW.md` — 강화된 최소 워크플로우 (즉시 실행 가능)
-4. `.claude/skills/` 또는 `.codex/skills/` — 6개 에이전트 스킬
-5. 환경 감지 모듈 (패키지 매니저, 테스트 프레임워크, CI)
+1. `.gh-symphony/context.yaml` — GitHub Project metadata (including field IDs and option IDs)
+2. `.gh-symphony/reference-workflow.md` — annotated reference template (per runtime)
+3. `WORKFLOW.md` — enhanced minimal workflow (immediately runnable)
+4. `.claude/skills/` or `.codex/skills/` — 6 agent skills
+5. Environment detection module (package manager, test framework, CI)
 
 ### Definition of Done (verifiable conditions with commands)
 
-- `pnpm --filter @gh-symphony/cli test` — 모든 테스트 통과
-- `pnpm typecheck` — 타입 검사 통과
-- `pnpm lint` — 린트 통과
-- `pnpm build` — 빌드 성공
-- init 실행 시 6개 파일 + 6개 스킬 + WORKFLOW.md + reference-workflow.md 생성 확인
+- `pnpm --filter @gh-symphony/cli test` — all tests pass
+- `pnpm typecheck` — type check passes
+- `pnpm lint` — lint passes
+- `pnpm build` — build succeeds
+- On init run, verify that 6 files + 6 skills + WORKFLOW.md + reference-workflow.md are generated
 
 ### Must Have
 
-- context.yaml에 field ID, option ID 포함 (GitHub Project mutation에 필요)
-- 환경 감지: 패키지 매니저, 테스트 커맨드, CI 플랫폼
-- 6개 스킬: gh-symphony, gh-project, commit, push, pull, land
-- reference-workflow.md: Elixir WORKFLOW.md 수준의 구조를 GitHub Project 버전으로
-- 강화된 WORKFLOW.md: status map + 기본 guardrails + workpad 템플릿
-- --skip-skills, --skip-context 플래그 지원
-- YAML 특수문자 안전한 quoting
-- 스킬 파일 존재 시 덮어쓰기 스킵 (idempotency)
+- context.yaml includes field IDs and option IDs (needed for GitHub Project mutations)
+- Environment detection: package manager, test command, CI platform
+- 6 skills: gh-symphony, gh-project, commit, push, pull, land
+- reference-workflow.md: the Elixir WORKFLOW.md-level structure translated into a GitHub Project version
+- Enhanced WORKFLOW.md: status map + basic guardrails + workpad template
+- Support for --skip-skills, --skip-context flags
+- YAML special-character-safe quoting
+- Skip overwriting when skill files exist (idempotency)
 
 ### Must NOT Have (guardrails, AI slop patterns, scope boundaries)
 
-- `packages/core/`, `packages/orchestrator/`, `packages/worker/` 변경 금지
-- CLI가 400줄짜리 "풍성한" WORKFLOW.md 직접 생성 금지 — 그건 AI 에이전트의 역할
-- context.yaml에 토큰/시크릿 저장 금지 (커밋 가능해야 함)
-- 양쪽 런타임 스킬 동시 생성 금지 (선택된 런타임만)
-- 새 `{{custom_variable}}` 패턴을 WORKFLOW.md prompt body에 추가 금지 (core PromptVariables 변경 필요하므로 scope 밖)
-- 새 템플릿 엔진/라이브러리 도입 금지 — 기존 string array 패턴 사용
-- init 중 interactive 스킬 커스터마이즈 금지 — 기본값으로 생성, 사용자가 나중에 수정
-- GraphQL mutation 금지 — context.yaml은 에이전트가 사용할 ID 저장용, init이 mutation하지 않음
+- No changes to `packages/core/`, `packages/orchestrator/`, `packages/worker/`
+- The CLI must not directly generate a 400-line "rich" WORKFLOW.md — that is the AI agent's job
+- No tokens/secrets stored in context.yaml (it must be committable)
+- Never generate skills for both runtimes at once (only the selected runtime)
+- No new `{{custom_variable}}` patterns added to the WORKFLOW.md prompt body (out of scope since it requires changing core PromptVariables)
+- No new template engines/libraries — use the existing string array pattern
+- No interactive skill customization during init — generate with defaults, users edit later
+- No GraphQL mutations — context.yaml stores IDs for the agent to use; init does not mutate
 
 ## Verification Strategy
 
 > ZERO HUMAN INTERVENTION — all verification is agent-executed.
 
-- Test decision: Tests-after (기존 테스트 패턴 따름) — Vitest
-- QA policy: 모든 태스크에 agent-executed QA 시나리오 포함
+- Test decision: Tests-after (following the existing test patterns) — Vitest
+- QA policy: every task includes agent-executed QA scenarios
 - Evidence: .sisyphus/evidence/task-{N}-{slug}.{ext}
 - Round-trip test: generateWorkflowMarkdown → parseWorkflowMarkdown → renderPrompt (strict mode)
 
@@ -136,18 +136,18 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 1. Environment Detection Module
 
   **What to do**:
-  `packages/cli/src/detection/environment-detector.ts` 생성. 현재 디렉토리를 스캔하여 프로젝트 환경을 자동 감지하는 모듈.
+  Create `packages/cli/src/detection/environment-detector.ts`. A module that scans the current directory and auto-detects the project environment.
 
-  감지 대상:
-  - 패키지 매니저: `pnpm-lock.yaml` → pnpm, `package-lock.json` → npm, `yarn.lock` → yarn, `bun.lock` / `bun.lockb` → bun
-  - 테스트 커맨드: `package.json`의 `scripts.test` 파싱 (없으면 null)
-  - 빌드 커맨드: `package.json`의 `scripts.build` 파싱 (없으면 null)
-  - 린트 커맨드: `package.json`의 `scripts.lint` 파싱 (없으면 null)
-  - CI 플랫폼: `.github/workflows/` 존재 → `github-actions`
-  - 모노레포: `pnpm-workspace.yaml` 또는 `lerna.json` 또는 package.json의 `workspaces` 존재
-  - 기존 스킬: `.claude/skills/` 또는 `.codex/skills/` 디렉토리 스캔
+  Detection targets:
+  - Package manager: `pnpm-lock.yaml` → pnpm, `package-lock.json` → npm, `yarn.lock` → yarn, `bun.lock` / `bun.lockb` → bun
+  - Test command: parse `scripts.test` from `package.json` (null if absent)
+  - Build command: parse `scripts.build` from `package.json` (null if absent)
+  - Lint command: parse `scripts.lint` from `package.json` (null if absent)
+  - CI platform: `.github/workflows/` exists → `github-actions`
+  - Monorepo: `pnpm-workspace.yaml` or `lerna.json` or `workspaces` in package.json exists
+  - Existing skills: scan the `.claude/skills/` or `.codex/skills/` directories
 
-  출력 타입:
+  Output type:
 
   ```typescript
   type DetectedEnvironment = {
@@ -158,51 +158,51 @@ Wave 3 (Integration — 1 task, depends on all above):
     lintCommand: string | null;
     ciPlatform: "github-actions" | null;
     monorepo: boolean;
-    existingSkills: string[]; // 기존 스킬 디렉토리 이름 목록
+    existingSkills: string[]; // list of existing skill directory names
   };
   ```
 
-  파일 시스템 접근은 `fs/promises`의 `access`, `readFile` 사용. 파일 없으면 graceful fallback (null/false).
+  Filesystem access uses `access`, `readFile` from `fs/promises`. Graceful fallback (null/false) when a file is missing.
 
   **Must NOT do**:
-  - 네트워크 요청 금지
-  - 디렉토리 트리 전체 탐색 금지 (알려진 경로만 체크)
-  - 외부 의존성 추가 금지
+  - No network requests
+  - No full directory tree traversal (check only known paths)
+  - No new external dependencies
 
   **Recommended Agent Profile**:
-  - Category: `quick` — Reason: 단일 파일, 파일 존재 여부 체크 로직, ~100줄
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `quick` — Reason: single file, file-existence check logic, ~100 lines
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [2, 8] | Blocked By: []
 
   **References**:
-  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:6-21` — regex 패턴 매칭 패턴 참고
-  - Pattern: `packages/cli/src/config.ts:136-146` — `readJsonFile` graceful error handling 패턴
-  - Type: `packages/cli/package.json` — 의존성 확인 (외부 의존성 추가 금지)
+  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:6-21` — reference for the regex pattern-matching pattern
+  - Pattern: `packages/cli/src/config.ts:136-146` — `readJsonFile` graceful error handling pattern
+  - Type: `packages/cli/package.json` — check dependencies (no new external dependencies)
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/detection/environment-detector.test.ts` 통과
-  - [ ] pnpm 프로젝트에서 `packageManager: "pnpm"` 감지
-  - [ ] npm/yarn/bun lockfile별 올바른 감지
-  - [ ] lockfile 없는 경우 `packageManager: null`
-  - [ ] package.json scripts에서 test/build/lint 커맨드 추출
-  - [ ] .github/workflows/ 존재 시 `ciPlatform: "github-actions"`
-  - [ ] `pnpm typecheck` 통과 (strict mode)
+  - [ ] `npx vitest run packages/cli/src/detection/environment-detector.test.ts` passes
+  - [ ] Detects `packageManager: "pnpm"` in a pnpm project
+  - [ ] Correct detection for each of the npm/yarn/bun lockfiles
+  - [ ] `packageManager: null` when no lockfile exists
+  - [ ] Extracts test/build/lint commands from package.json scripts
+  - [ ] `ciPlatform: "github-actions"` when .github/workflows/ exists
+  - [ ] `pnpm typecheck` passes (strict mode)
 
   **QA Scenarios**:
 
   ```
-  Scenario: pnpm 모노레포 감지
+  Scenario: pnpm monorepo detection
     Tool: Bash
-    Steps: temp dir에 pnpm-lock.yaml + pnpm-workspace.yaml + package.json(scripts.test="vitest") 생성 → detectEnvironment() 호출
+    Steps: create pnpm-lock.yaml + pnpm-workspace.yaml + package.json(scripts.test="vitest") in a temp dir → call detectEnvironment()
     Expected: { packageManager: "pnpm", monorepo: true, testCommand: "vitest" }
     Evidence: .sisyphus/evidence/task-1-env-detect.txt
 
-  Scenario: 빈 디렉토리 감지
+  Scenario: empty directory detection
     Tool: Bash
-    Steps: 빈 temp dir에서 detectEnvironment() 호출
-    Expected: 모든 필드 null/false/[] — throw 없음
+    Steps: call detectEnvironment() in an empty temp dir
+    Expected: all fields null/false/[] — no throw
     Evidence: .sisyphus/evidence/task-1-env-detect-empty.txt
   ```
 
@@ -213,11 +213,11 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 2. Context.yaml Schema and Generator
 
   **What to do**:
-  `packages/cli/src/context/` 디렉토리에 두 파일 생성:
-  1. `context-types.ts` — ContextYaml 타입 정의
-  2. `generate-context-yaml.ts` — context.yaml 문자열 생성 + 파일 쓰기
+  Create two files in the `packages/cli/src/context/` directory:
+  1. `context-types.ts` — ContextYaml type definition
+  2. `generate-context-yaml.ts` — build the context.yaml string + write the file
 
-  **타입 정의** (`context-types.ts`):
+  **Type definition** (`context-types.ts`):
 
   ```typescript
   type ContextYaml = {
@@ -250,7 +250,7 @@ Wave 3 (Integration — 1 task, depends on all above):
       name: string;
       clone_url: string;
     }>;
-    detected_environment: DetectedEnvironment; // Task 1의 타입
+    detected_environment: DetectedEnvironment; // type from Task 1
     runtime: {
       agent: string; // "codex" | "claude-code" | "custom"
       agent_command: string;
@@ -258,54 +258,54 @@ Wave 3 (Integration — 1 task, depends on all above):
   };
   ```
 
-  **생성 함수** (`generate-context-yaml.ts`):
-  - 입력: `ProjectDetail` + `StatusFieldOption[]` (ID 포함) + `DetectedEnvironment` + runtime 정보
-  - 출력: YAML 문자열 (순수 문자열 빌드, yaml 라이브러리 없음)
-  - YAML quoting: 값에 `:`, `#`, `'`, `"`, `[`, `]`, `{`, `}` 포함 시 `"..."` 감싸기
-  - 파일 쓰기: `writeContextYaml(outputDir, context)` — `mkdir -p` + atomic write (tmp+rename)
-  - 핵심: `getProjectDetail()` 반환값에서 `statusField.id`, `option.id`, `option.color` 를 **그대로 전달** — 현재 `init.ts:176`에서 `option.name`만 추출하는 것과 달리 모든 ID를 보존
+  **Generator function** (`generate-context-yaml.ts`):
+  - Input: `ProjectDetail` + `StatusFieldOption[]` (including IDs) + `DetectedEnvironment` + runtime info
+  - Output: YAML string (pure string building, no yaml library)
+  - YAML quoting: wrap values in `"..."` when they contain `:`, `#`, `'`, `"`, `[`, `]`, `{`, `}`
+  - File write: `writeContextYaml(outputDir, context)` — `mkdir -p` + atomic write (tmp+rename)
+  - Key point: pass `statusField.id`, `option.id`, `option.color` from the `getProjectDetail()` return value **through as-is** — unlike the current `init.ts:176`, which extracts only `option.name`, preserve all IDs
 
   **Must NOT do**:
-  - yaml 외부 라이브러리 추가 금지 (기존 core parser도 자체 YAML 파서 사용)
-  - 토큰/시크릿을 context.yaml에 포함 금지
-  - context.yaml에 `gh-symphony init`이 아닌 다른 명령에서 쓰는 필드 추가 금지
+  - No external yaml library (the existing core parser also uses its own YAML parser)
+  - No tokens/secrets included in context.yaml
+  - No fields added to context.yaml that are used by commands other than `gh-symphony init`
 
   **Recommended Agent Profile**:
-  - Category: `quick` — Reason: 타입 정의 + YAML 문자열 빌드, ~150줄
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `quick` — Reason: type definition + YAML string building, ~150 lines
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
-  **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [8] | Blocked By: [1 (타입 import만)]
+  **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [8] | Blocked By: [1 (type import only)]
 
   **References**:
-  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:23-80` — string array 빌드 + join 패턴
-  - Pattern: `packages/cli/src/config.ts:148-153` — atomic write (tmp + rename) 패턴
-  - API: `packages/cli/src/github/client.ts:28-33` — `StatusFieldOption` 타입 (id, name, color)
-  - API: `packages/cli/src/github/client.ts:35-39` — `ProjectStatusField` 타입 (id, name, options)
-  - API: `packages/cli/src/github/client.ts:54-61` — `ProjectDetail` 타입 (statusFields, textFields, linkedRepositories)
-  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:29-39` — `inferStateRole()` 호출하여 role/confidence 채우기
+  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:23-80` — string array build + join pattern
+  - Pattern: `packages/cli/src/config.ts:148-153` — atomic write (tmp + rename) pattern
+  - API: `packages/cli/src/github/client.ts:28-33` — `StatusFieldOption` type (id, name, color)
+  - API: `packages/cli/src/github/client.ts:35-39` — `ProjectStatusField` type (id, name, options)
+  - API: `packages/cli/src/github/client.ts:54-61` — `ProjectDetail` type (statusFields, textFields, linkedRepositories)
+  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:29-39` — call `inferStateRole()` to fill role/confidence
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/context/generate-context-yaml.test.ts` 통과
-  - [ ] 생성된 YAML이 field ID, option ID를 포함
-  - [ ] 특수문자 포함 컬럼명 (`Won't Do`, `In Progress (Blocked)`) 안전하게 quoting
-  - [ ] 토큰이 출력에 포함되지 않음
-  - [ ] `schema_version: 1` 포함
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/context/generate-context-yaml.test.ts` passes
+  - [ ] The generated YAML includes field IDs and option IDs
+  - [ ] Column names containing special characters (`Won't Do`, `In Progress (Blocked)`) are safely quoted
+  - [ ] No token appears in the output
+  - [ ] Includes `schema_version: 1`
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: 정상 context.yaml 생성
+  Scenario: normal context.yaml generation
     Tool: Bash
-    Steps: mock ProjectDetail (3 columns, 2 repos, 1 text field) → generateContextYaml() → 파일 읽기 → 구조 검증
-    Expected: project.id, status_field.columns[].id, repositories[].clone_url 모두 존재
+    Steps: mock ProjectDetail (3 columns, 2 repos, 1 text field) → generateContextYaml() → read the file → validate structure
+    Expected: project.id, status_field.columns[].id, repositories[].clone_url all present
     Evidence: .sisyphus/evidence/task-2-context-yaml.txt
 
-  Scenario: 특수문자 quoting
+  Scenario: special character quoting
     Tool: Bash
-    Steps: column name "Won't Do" + "In Progress (Blocked)" → generateContextYaml() → YAML 파싱 검증
-    Expected: 값이 double-quote로 감싸짐, 파싱 시 원본 문자열 복원
+    Steps: column names "Won't Do" + "In Progress (Blocked)" → generateContextYaml() → validate YAML parsing
+    Expected: values wrapped in double quotes, original strings restored on parse
     Evidence: .sisyphus/evidence/task-2-context-yaml-special.txt
   ```
 
@@ -316,18 +316,18 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 3. Skill Writer Infrastructure
 
   **What to do**:
-  `packages/cli/src/skills/` 디렉토리에 스킬 파일 쓰기 인프라 생성:
-  1. `types.ts` — 스킬 템플릿 타입 정의
-  2. `skill-writer.ts` — 스킬 파일을 디스크에 쓰는 유틸리티
+  Create the skill file writing infrastructure in the `packages/cli/src/skills/` directory:
+  1. `types.ts` — skill template type definitions
+  2. `skill-writer.ts` — utility that writes skill files to disk
 
-  **타입** (`types.ts`):
+  **Types** (`types.ts`):
 
   ```typescript
   type SkillRuntime = "claude-code" | "codex";
 
   type SkillTemplate = {
     name: string; // e.g., "gh-symphony"
-    fileName: string; // e.g., "SKILL.md" 또는 "gh-symphony.md"
+    fileName: string; // e.g., "SKILL.md" or "gh-symphony.md"
     generate: (context: SkillTemplateContext) => string;
   };
 
@@ -337,31 +337,31 @@ Wave 3 (Integration — 1 task, depends on all above):
     projectTitle: string;
     repositories: Array<{ owner: string; name: string }>;
     statusColumns: Array<{
-      id: string; // option ID (GitHub Project mutation에 필요)
+      id: string; // option ID (needed for GitHub Project mutations)
       name: string;
       role: "active" | "wait" | "terminal" | null;
     }>;
-    statusFieldId: string; // field ID (GitHub Project mutation에 필요)
-    contextYamlPath: string; // 상대 경로
-    referenceWorkflowPath: string; // 상대 경로
+    statusFieldId: string; // field ID (needed for GitHub Project mutations)
+    contextYamlPath: string; // relative path
+    referenceWorkflowPath: string; // relative path
   };
   ```
 
-  **Note**: `statusColumns`에 `id` 포함 필수 — Task 6의 gh-project 스킬이 Column ID Quick Reference 테이블을 동적 생성하는 데 필요. `statusFieldId`는 `gh project item-edit --field-id` 명령어에 필요.
+  **Note**: `statusColumns` must include `id` — needed for Task 6's gh-project skill to dynamically generate the Column ID Quick Reference table. `statusFieldId` is needed for the `gh project item-edit --field-id` command.
 
   **Writer** (`skill-writer.ts`):
-  - `resolveSkillsDir(repoRoot, runtime)` → `claude-code` → `.claude/skills/`, `codex` → `.codex/skills/`. `runtime`이 이 두 값이 아닌 경우 (custom 등) `null` 반환 → 호출자가 스킬 생성 스킵 판단.
-  - `writeSkillFile(skillsDir, template, context, options?)` → 개별 스킬 파일 쓰기
-    - 디렉토리 없으면 `mkdir -p`
-    - 파일 존재 시 기본 스킵 (options.overwrite=true면 덮어쓰기)
+  - `resolveSkillsDir(repoRoot, runtime)` → `claude-code` → `.claude/skills/`, `codex` → `.codex/skills/`. When `runtime` is neither of these two values (custom, etc.), return `null` → the caller decides to skip skill generation.
+  - `writeSkillFile(skillsDir, template, context, options?)` → writes an individual skill file
+    - `mkdir -p` if the directory does not exist
+    - Skip by default if the file exists (overwrite when options.overwrite=true)
     - atomic write (tmp + rename)
-  - `writeAllSkills(repoRoot, runtime, templates[], context)` → 모든 스킬 일괄 쓰기
-    - 반환: `{ written: string[], skipped: string[] }` — 사용자에게 결과 표시용
+  - `writeAllSkills(repoRoot, runtime, templates[], context)` → writes all skills in one pass
+    - Returns: `{ written: string[], skipped: string[] }` — for displaying the result to the user
 
-  **스킬 디렉토리 구조**:
+  **Skill directory structure**:
 
   ```
-  .claude/skills/           (claude-code 런타임)
+  .claude/skills/           (claude-code runtime)
     gh-symphony/SKILL.md
     gh-project/SKILL.md
     commit/SKILL.md
@@ -369,7 +369,7 @@ Wave 3 (Integration — 1 task, depends on all above):
     pull/SKILL.md
     land/SKILL.md
 
-  .codex/skills/            (codex 런타임)
+  .codex/skills/            (codex runtime)
     gh-symphony/SKILL.md
     gh-project/SKILL.md
     commit/SKILL.md
@@ -379,44 +379,44 @@ Wave 3 (Integration — 1 task, depends on all above):
   ```
 
   **Must NOT do**:
-  - 양쪽 런타임 디렉토리 동시 생성 금지
-  - 기존 스킬 파일 무조건 덮어쓰기 금지 (기본=스킵)
-  - 스킬 내용(템플릿)은 이 태스크에서 작성하지 않음 — 인프라만
+  - Never create both runtime directories at once
+  - Never unconditionally overwrite existing skill files (default=skip)
+  - Skill content (templates) is not written in this task — infrastructure only
 
   **Recommended Agent Profile**:
-  - Category: `quick` — Reason: 파일 I/O 유틸리티, ~100줄
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `quick` — Reason: file I/O utility, ~100 lines
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [6, 7, 8] | Blocked By: []
 
   **References**:
-  - Pattern: `packages/cli/src/config.ts:148-153` — atomic write 패턴 (tmp + rename)
-  - Pattern: `packages/cli/src/config.ts:43-48` — `tenantConfigDir()` 경로 빌드 패턴
-  - Test: `packages/cli/src/commands/init.test.ts:11` — `mkdtemp()` temp dir 패턴
+  - Pattern: `packages/cli/src/config.ts:148-153` — atomic write pattern (tmp + rename)
+  - Pattern: `packages/cli/src/config.ts:43-48` — `tenantConfigDir()` path building pattern
+  - Test: `packages/cli/src/commands/init.test.ts:11` — `mkdtemp()` temp dir pattern
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/skills/skill-writer.test.ts` 통과
-  - [ ] claude-code 런타임 → `.claude/skills/` 에 파일 생성
-  - [ ] codex 런타임 → `.codex/skills/` 에 파일 생성
-  - [ ] custom 런타임 → `resolveSkillsDir()` 가 `null` 반환, `writeAllSkills()`가 graceful skip
-  - [ ] 기존 파일 존재 시 스킵 + skipped 배열에 포함
-  - [ ] overwrite=true 시 덮어쓰기
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/skills/skill-writer.test.ts` passes
+  - [ ] claude-code runtime → files created in `.claude/skills/`
+  - [ ] codex runtime → files created in `.codex/skills/`
+  - [ ] custom runtime → `resolveSkillsDir()` returns `null`, `writeAllSkills()` skips gracefully
+  - [ ] When an existing file is present, skip + include it in the skipped array
+  - [ ] Overwrite when overwrite=true
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: 스킬 파일 쓰기 (claude-code)
+  Scenario: write skill file (claude-code)
     Tool: Bash
-    Steps: temp dir에 mock template으로 writeSkillFile() 호출 (runtime="claude-code")
-    Expected: .claude/skills/test-skill/SKILL.md 파일 존재, 내용 일치
+    Steps: call writeSkillFile() with a mock template in a temp dir (runtime="claude-code")
+    Expected: .claude/skills/test-skill/SKILL.md file exists, content matches
     Evidence: .sisyphus/evidence/task-3-skill-write.txt
 
-  Scenario: 기존 파일 스킵
+  Scenario: skip existing file
     Tool: Bash
-    Steps: 이미 존재하는 스킬 파일 → writeSkillFile() 호출 (overwrite=false)
-    Expected: 파일 내용 변경 없음, skipped 배열에 포함
+    Steps: an already-existing skill file → call writeSkillFile() (overwrite=false)
+    Expected: file content unchanged, included in the skipped array
     Evidence: .sisyphus/evidence/task-3-skill-skip.txt
   ```
 
@@ -427,9 +427,9 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 4. Reference Workflow Generator
 
   **What to do**:
-  `packages/cli/src/workflow/generate-reference-workflow.ts` 생성. Elixir Symphony WORKFLOW.md를 GitHub Project 버전으로 번역한 주석 달린 참조 템플릿을 생성하는 함수.
+  Create `packages/cli/src/workflow/generate-reference-workflow.ts`. A function that generates an annotated reference template translating the Elixir Symphony WORKFLOW.md into a GitHub Project version.
 
-  **함수 시그니처**:
+  **Function signature**:
 
   ```typescript
   type ReferenceWorkflowInput = {
@@ -446,22 +446,22 @@ Wave 3 (Integration — 1 task, depends on all above):
   function generateReferenceWorkflow(input: ReferenceWorkflowInput): string;
   ```
 
-  **출력 구조** (주석 달린 완전한 WORKFLOW.md 참조):
+  **Output structure** (annotated complete WORKFLOW.md reference):
 
   ```markdown
   # Reference WORKFLOW.md — gh-symphony
 
-  # 이 파일은 WORKFLOW.md 작성 시 참고용 참조 템플릿입니다.
+  # This file is a reference template to consult when writing WORKFLOW.md.
 
-  # /gh-symphony 스킬을 통해 AI 에이전트가 이 파일을 참고하여 WORKFLOW.md를 설계합니다.
+  # The AI agent consults this file via the /gh-symphony skill to design WORKFLOW.md.
 
-  # 직접 수정하지 마세요.
+  # Do not edit this file directly.
 
   ---
 
-  # ═══ FRONT MATTER 필드 참조 ═══
+  # ═══ FRONT MATTER FIELD REFERENCE ═══
 
-  # 아래는 gh-symphony 파서가 지원하는 모든 front matter 필드입니다.
+  # Below are all the front matter fields supported by the gh-symphony parser.
 
   github_project_id: {projectId}
   allowed_repositories:
@@ -474,16 +474,16 @@ Wave 3 (Integration — 1 task, depends on all above):
   terminal_states: [...]
   blocker_check_states: [...]
 
-  # blocked_by_field: "Blocked By" # 텍스트 필드명 (선택)
+  # blocked_by_field: "Blocked By" # text field name (optional)
 
   runtime:
-  agent_command: {런타임별 명령어}
+  agent_command: {runtime-specific command}
   max_turns: 20
   read_timeout_ms: 5000
   turn_timeout_ms: 3600000
 
   hooks:
-  after_create: | # {패키지매니저별 기본 스크립트}
+  after_create: | # {package-manager-specific default script}
   before_run: null
   after_run: null
   before_remove: null
@@ -497,102 +497,102 @@ Wave 3 (Integration — 1 task, depends on all above):
 
   ---
 
-  # ═══ PROMPT BODY 참조 ═══
+  # ═══ PROMPT BODY REFERENCE ═══
 
-  # 아래는 Elixir Symphony를 GitHub Project 버전으로 번역한 참조입니다.
+  # Below is a reference translating Elixir Symphony into a GitHub Project version.
 
   ## Status Map
 
-  {status column별 상세 행동 가이드}
+  {detailed behavior guide per status column}
 
   ## Default Posture
 
-  {13개 행동 원칙}
+  {13 behavior principles}
 
   ## Related Skills
 
-  {gh-project, commit, push, pull, land 설명}
+  {descriptions of gh-project, commit, push, pull, land}
 
   ## Step 0: Determine current state and route
 
-  {상태별 라우팅}
+  {routing per state}
 
   ## Step 1: Start/continue execution
 
-  {실행 셋업, workpad 생성}
+  {execution setup, workpad creation}
 
   ## Step 2: Execution phase
 
-  {구현, 테스트, PR 생성}
+  {implementation, tests, PR creation}
 
   ## Step 3: Human Review and merge handling
 
-  {리뷰 대기, merge 플로우}
+  {review wait, merge flow}
 
   ## Step 4: Rework handling
 
-  {재작업 정책}
+  {rework policy}
 
   ## PR Feedback Sweep Protocol
 
-  {PR 피드백 처리}
+  {PR feedback handling}
 
   ## Completion Bar
 
-  {Human Review 전 체크리스트}
+  {checklist before Human Review}
 
   ## Guardrails
 
-  {안전 규칙}
+  {safety rules}
 
   ## Workpad Template
 
-  {워크패드 마크다운 구조}
+  {workpad markdown structure}
   ```
 
-  런타임별 차이:
-  - **codex**: `agent_command: bash -lc codex app-server`, sandbox 설정 코멘트
-  - **claude-code**: `agent_command: bash -lc claude-code`, 다른 sandbox 가이드
+  Per-runtime differences:
+  - **codex**: `agent_command: bash -lc codex app-server`, sandbox settings comment
+  - **claude-code**: `agent_command: bash -lc claude-code`, different sandbox guidance
 
   **Must NOT do**:
-  - 이 파일이 실행 가능한 WORKFLOW.md가 되어선 안 됨 — 참조용
-  - `{{template_variable}}` 사용 금지 (이 파일은 렌더링 대상이 아님, 참조 문서)
-  - 대신 `{placeholder}` 중괄호 하나로 주석/예시 표시
+  - This file must not become an executable WORKFLOW.md — it is for reference
+  - No `{{template_variable}}` usage (this file is not a render target, it is a reference document)
+  - Instead, use single-brace `{placeholder}` to mark comments/examples
 
   **Recommended Agent Profile**:
-  - Category: `unspecified-low` — Reason: 큰 문자열 템플릿 작성, 콘텐츠 설계 필요
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `unspecified-low` — Reason: large string template authoring, content design required
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [8] | Blocked By: []
 
   **References**:
-  - External: Elixir Symphony WORKFLOW.md — https://github.com/openai/symphony/blob/main/elixir/WORKFLOW.md (주요 구조 참고)
-  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:17-21` — 마크다운 생성 패턴
-  - Schema: `packages/core/src/workflow/config.ts:34-48` — ParsedWorkflow/WorkflowDefinition 필드 목록 (지원하는 front matter 필드의 정확한 목록)
-  - Schema: `packages/core/src/workflow/parser.ts:63-148` — 파서가 읽는 모든 필드 (front matter 참조의 정확한 소스)
+  - External: Elixir Symphony WORKFLOW.md — https://github.com/openai/symphony/blob/main/elixir/WORKFLOW.md (reference for the main structure)
+  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:17-21` — markdown generation pattern
+  - Schema: `packages/core/src/workflow/config.ts:34-48` — ParsedWorkflow/WorkflowDefinition field list (the exact list of supported front matter fields)
+  - Schema: `packages/core/src/workflow/parser.ts:63-148` — all fields the parser reads (the exact source for the front matter reference)
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/workflow/generate-reference-workflow.test.ts` 통과
-  - [ ] 출력에 모든 지원 front matter 필드가 주석과 함께 포함
-  - [ ] codex vs claude-code 런타임별 agent_command 차이 반영
-  - [ ] Status Map에 입력된 컬럼별 상세 행동 가이드 포함
-  - [ ] `{{...}}` 패턴이 출력에 없음 (이중 중괄호 금지)
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/workflow/generate-reference-workflow.test.ts` passes
+  - [ ] The output includes every supported front matter field with comments
+  - [ ] Reflects the agent_command difference between the codex and claude-code runtimes
+  - [ ] The Status Map includes the detailed behavior guide for each input column
+  - [ ] No `{{...}}` pattern in the output (double braces forbidden)
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: codex 런타임 참조 생성
+  Scenario: codex runtime reference generation
     Tool: Bash
-    Steps: 3개 status column + codex 런타임 → generateReferenceWorkflow() → 출력 검증
-    Expected: agent_command이 "codex" 포함, 모든 섹션 헤더 존재
+    Steps: 3 status columns + codex runtime → generateReferenceWorkflow() → validate the output
+    Expected: agent_command contains "codex", all section headers present
     Evidence: .sisyphus/evidence/task-4-ref-workflow-codex.txt
 
-  Scenario: claude-code 런타임 참조 생성
+  Scenario: claude-code runtime reference generation
     Tool: Bash
-    Steps: 동일 입력 + claude-code 런타임 → 출력 검증
-    Expected: agent_command이 "claude-code" 포함, codex와 다른 내용
+    Steps: same input + claude-code runtime → validate the output
+    Expected: agent_command contains "claude-code", content differs from codex
     Evidence: .sisyphus/evidence/task-4-ref-workflow-claude.txt
   ```
 
@@ -603,9 +603,9 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 5. Enhanced WORKFLOW.md Prompt Body
 
   **What to do**:
-  `packages/cli/src/workflow/generate-workflow-md.ts`의 `buildPromptBody()` 함수를 확장하여 현재 6줄짜리 generic instructions를 더 풍성하게 만든다.
+  Extend the `buildPromptBody()` function in `packages/cli/src/workflow/generate-workflow-md.ts` to make the current 6-line generic instructions richer.
 
-  **현재** (`generate-workflow-md.ts:93-115`):
+  **Current** (`generate-workflow-md.ts:93-115`):
 
   ```
   ## Status Map
@@ -615,18 +615,18 @@ Wave 3 (Integration — 1 task, depends on all above):
   You are an AI coding agent working on issue {{issue.identifier}}...
   1. Read the issue description...
   2. Explore the codebase...
-  (6단계)
+  (6 steps)
   ```
 
-  **변경 후** (추가 섹션):
+  **After the change** (added sections):
 
   ```markdown
   ## Status Map
 
-  - **Todo** [active] — 에이전트가 즉시 작업 시작
-  - **In Progress** [active] — 구현 진행 중
-  - **Review** [wait] — PR 생성 완료, 사람 리뷰 대기
-  - **Done** [terminal] — 완료, 에이전트 종료
+  - **Todo** [active] — agent starts work immediately
+  - **In Progress** [active] — implementation in progress
+  - **Review** [wait] — PR created, waiting for human review
+  - **Done** [terminal] — complete, agent exits
 
   ## Agent Instructions
 
@@ -641,28 +641,28 @@ Wave 3 (Integration — 1 task, depends on all above):
 
   ### Default Posture
 
-  1. 이것은 무인 오케스트레이션 세션입니다. 사람에게 후속 작업을 요청하지 마세요.
-  2. 진짜 블로커(필수 권한/시크릿 누락)일 때만 조기 중단하세요.
-  3. 최종 메시지에는 완료된 작업과 블로커만 보고하세요. "다음 단계"를 포함하지 마세요.
+  1. This is an unattended orchestration session. Do not ask a human for follow-up work.
+  2. Stop early only for a genuine blocker (missing required permission/secret).
+  3. In the final message, report only completed work and blockers. Do not include "next steps".
 
   ### Workflow
 
-  1. 이슈 설명을 읽고 요구사항을 이해하세요.
-  2. 코드베이스를 탐색하여 관련 코드 구조를 파악하세요.
-  3. 프로젝트의 코딩 컨벤션을 따라 변경을 구현하세요.
-  4. 변경 사항을 커버하는 테스트를 작성하거나 업데이트하세요.
-  5. 모든 기존 테스트가 통과하는지 확인하세요.
-  6. 변경 사항에 대한 명확한 설명과 함께 PR을 생성하세요.
+  1. Read the issue description and understand the requirements.
+  2. Explore the codebase and identify the relevant code structure.
+  3. Implement the change following the project's coding conventions.
+  4. Write or update tests covering the change.
+  5. Verify that all existing tests pass.
+  6. Create a PR with a clear description of the change.
 
   ### Guardrails
 
-  - 이슈 본문을 계획이나 진행 추적 목적으로 수정하지 마세요.
-  - terminal 상태인 이슈에 대해서는 아무것도 하지 말고 종료하세요.
-  - 범위 밖 개선사항을 발견하면 현재 범위를 확장하지 말고 별도 이슈를 생성하세요.
+  - Do not edit the issue body for planning or progress-tracking purposes.
+  - For issues in a terminal state, do nothing and exit.
+  - If you find out-of-scope improvements, do not expand the current scope; create a separate issue.
 
   ### Workpad Template
 
-  이슈 코멘트에 아래 구조의 워크패드를 생성하여 진행 상황을 추적하세요:
+  Create a workpad with the structure below as an issue comment to track progress:
 
   \`\`\`md
 
@@ -670,65 +670,65 @@ Wave 3 (Integration — 1 task, depends on all above):
 
   ### Plan
 
-  - [ ] 1. 작업 항목
+  - [ ] 1. Work item
 
   ### Acceptance Criteria
 
-  - [ ] 기준 1
+  - [ ] Criterion 1
 
   ### Validation
 
-  - [ ] 테스트: `명령어`
+  - [ ] Test: `command`
 
   ### Notes
 
-  - 진행 메모
+  - Progress notes
     \`\`\`
   ```
 
-  **핵심 제약**: 사용하는 변수는 반드시 `issue.identifier`, `issue.title`, `issue.repository`, `issue.state`, `issue.description`만 — 이 8개(`issue.*` 7개 + `attempt`)는 `PromptVariables`에 정의된 것만 사용.
+  **Key constraint**: the variables used must be only `issue.identifier`, `issue.title`, `issue.repository`, `issue.state`, `issue.description` — use only what is defined in `PromptVariables`, i.e. these 8 (`issue.*` ×7 + `attempt`).
 
   **Must NOT do**:
-  - `{{issue.labels}}`, `{{retry_context}}` 등 core에 없는 변수 사용 금지
-  - 400줄짜리 Elixir 수준의 상세 워크플로우 생성 금지 — 그건 AI 스킬의 역할
-  - 기존 `GenerateWorkflowInput` 타입 변경 최소화
+  - No variables absent from core, such as `{{issue.labels}}`, `{{retry_context}}`
+  - No generating a 400-line Elixir-level detailed workflow — that is the AI skill's job
+  - Minimize changes to the existing `GenerateWorkflowInput` type
 
   **Recommended Agent Profile**:
-  - Category: `quick` — Reason: 기존 함수 확장, 문자열 변경
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `quick` — Reason: extends an existing function, string changes
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 1 | Blocks: [8] | Blocked By: []
 
   **References**:
-  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:93-115` — 현재 buildPromptBody() (수정 대상)
-  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:134-146` — generateStatusMap() (role별 설명 추가 가능)
-  - Test: `packages/cli/src/workflow/generate-workflow-md.test.ts` — 기존 테스트 (backward compat 확인)
-  - Constraint: `packages/core/src/workflow/render.ts:9-18` — PromptIssueVariables (사용 가능한 변수 목록)
-  - Constraint: `packages/core/src/workflow/render.ts:80-112` — renderPrompt() strict mode (미지원 변수 throw)
+  - Pattern: `packages/cli/src/workflow/generate-workflow-md.ts:93-115` — current buildPromptBody() (the modification target)
+  - Pattern: `packages/cli/src/mapping/smart-defaults.ts:134-146` — generateStatusMap() (per-role descriptions can be added)
+  - Test: `packages/cli/src/workflow/generate-workflow-md.test.ts` — existing tests (check backward compat)
+  - Constraint: `packages/core/src/workflow/render.ts:9-18` — PromptIssueVariables (list of available variables)
+  - Constraint: `packages/core/src/workflow/render.ts:80-112` — renderPrompt() strict mode (throws on unsupported variables)
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/workflow/generate-workflow-md.test.ts` 통과
-  - [ ] 기존 테스트 변경 없이 통과 (backward compatibility)
-  - [ ] 생성된 WORKFLOW.md → `parseWorkflowMarkdown()` 정상 파싱
-  - [ ] 파싱된 promptTemplate → `renderPrompt(template, testVars, { strict: true })` throw 없음
-  - [ ] Status Map에 role별 한 줄 설명 포함
-  - [ ] Default Posture, Guardrails, Workpad Template 섹션 포함
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/workflow/generate-workflow-md.test.ts` passes
+  - [ ] Existing tests pass without changes (backward compatibility)
+  - [ ] Generated WORKFLOW.md → parses cleanly via `parseWorkflowMarkdown()`
+  - [ ] Parsed promptTemplate → `renderPrompt(template, testVars, { strict: true })` does not throw
+  - [ ] The Status Map includes a one-line description per role
+  - [ ] Includes the Default Posture, Guardrails, and Workpad Template sections
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: Round-trip 테스트 (strict mode)
+  Scenario: Round-trip test (strict mode)
     Tool: Bash
     Steps: generateWorkflowMarkdown(input) → parseWorkflowMarkdown(md) → renderPrompt(parsed.promptTemplate, mockVars, {strict:true})
-    Expected: throw 없음, 모든 {{변수}} 치환됨
+    Expected: no throw, all {{variables}} substituted
     Evidence: .sisyphus/evidence/task-5-roundtrip.txt
 
   Scenario: Backward compatibility
     Tool: Bash
-    Steps: 기존 테스트 fixtures로 generateWorkflowMarkdown() → 이전 출력 구조 포함 여부 확인
-    Expected: 기존 "Agent Instructions" 섹션 구조 유지
+    Steps: generateWorkflowMarkdown() with existing test fixtures → check whether the previous output structure is included
+    Expected: existing "Agent Instructions" section structure preserved
     Evidence: .sisyphus/evidence/task-5-backward-compat.txt
   ```
 
@@ -739,86 +739,86 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 6. Core Skill Templates (gh-symphony + gh-project)
 
   **What to do**:
-  `packages/cli/src/skills/templates/` 디렉토리에 두 개의 핵심 스킬 템플릿 생성:
+  Create two core skill templates in the `packages/cli/src/skills/templates/` directory:
 
-  **6a. `gh-symphony.ts`** — 메인 워크플로우 설계/개선 스킬:
+  **6a. `gh-symphony.ts`** — main workflow design/refinement skill:
 
   ```typescript
   export function generateGhSymphonySkill(ctx: SkillTemplateContext): string;
   ```
 
-  스킬 내용:
-  - Trigger: 사용자가 WORKFLOW.md를 생성/개선하고 싶을 때
-  - Mode detection: WORKFLOW.md 존재 여부로 design/refine 자동 판별 → 사용자에게 질문
-  - Context files: `.gh-symphony/context.yaml` (필수), `.gh-symphony/reference-workflow.md` (필수), `WORKFLOW.md` (있으면 refine)
-  - Design 모드: context.yaml 읽기 → 레포 구조 분석 → reference-workflow.md 참고 → 사용자에게 핵심 결정 질문 → WORKFLOW.md 생성
-  - Refine 모드: 현재 WORKFLOW.md vs reference 비교 → 누락 섹션 식별 → 개선 제안 → 적용
-  - Validate 모드: 파서 호환성 체크, 필수 섹션 존재 확인
-  - 반드시 포함할 섹션 목록 (Status map, Default posture, Execution flow, PR feedback, Guardrails 등)
-  - 지원되는 front matter 필드 목록 (파서 스키마에서 추출)
-  - 사용 가능한 template variables 목록 (8개: issue.\* + attempt)
-  - Related skills 참조 (gh-project, commit, push, pull, land)
+  Skill content:
+  - Trigger: when the user wants to create/improve WORKFLOW.md
+  - Mode detection: auto-detect design/refine based on whether WORKFLOW.md exists → ask the user
+  - Context files: `.gh-symphony/context.yaml` (required), `.gh-symphony/reference-workflow.md` (required), `WORKFLOW.md` (refine if present)
+  - Design mode: read context.yaml → analyze the repo structure → consult reference-workflow.md → ask the user the key decision questions → generate WORKFLOW.md
+  - Refine mode: compare the current WORKFLOW.md vs the reference → identify missing sections → propose improvements → apply
+  - Validate mode: check parser compatibility, verify required sections exist
+  - List of sections that must be included (Status map, Default posture, Execution flow, PR feedback, Guardrails, etc.)
+  - List of supported front matter fields (extracted from the parser schema)
+  - List of available template variables (8: issue.\* + attempt)
+  - Related skills references (gh-project, commit, push, pull, land)
 
-  **6b. `gh-project.ts`** — GitHub Project 통신 스킬:
+  **6b. `gh-project.ts`** — GitHub Project communication skill:
 
   ```typescript
   export function generateGhProjectSkill(ctx: SkillTemplateContext): string;
   ```
 
-  스킬 내용:
-  - Purpose: GitHub Project v2 보드와 통신하여 이슈 상태 관리
-  - Prerequisites: `gh` CLI 인증 완료, `.gh-symphony/context.yaml` 존재
+  Skill content:
+  - Purpose: manage issue state by communicating with the GitHub Project v2 board
+  - Prerequisites: `gh` CLI authenticated, `.gh-symphony/context.yaml` exists
   - Operations:
-    - 이슈 상태 변경: `gh project item-edit` 명령어 + context.yaml의 field ID / option ID 참조
-    - 워크패드 코멘트: `gh issue comment` 생성, `gh api` PATCH 업데이트
-    - 후속 이슈 생성: `gh issue create` 명령어
-    - 라벨 관리: `gh issue edit --add-label`
-  - Column ID Quick Reference: `ctx.statusColumns`에서 동적 생성 (name → role → option ID 테이블)
-  - Rules: WORKFLOW.md의 status map 흐름 준수, terminal state 전이 전 completion bar 확인
+    - Change issue state: `gh project item-edit` command + reference the field ID / option ID from context.yaml
+    - Workpad comments: create with `gh issue comment`, update with `gh api` PATCH
+    - Create follow-up issues: `gh issue create` command
+    - Label management: `gh issue edit --add-label`
+  - Column ID Quick Reference: dynamically generated from `ctx.statusColumns` (name → role → option ID table)
+  - Rules: follow the WORKFLOW.md status map flow, verify the completion bar before transitioning to a terminal state
 
   **Must NOT do**:
-  - 스킬 내용에 `{{template_variable}}` 사용 금지 (이건 WORKFLOW.md용, 스킬 파일은 정적 마크다운)
-  - 스킬 파일에 토큰/시크릿 하드코딩 금지
-  - 실제 GraphQL mutation 코드 작성 금지 — `gh` CLI 명령어 예시만
-  - 스킬 파일에 Python/JS 코드 블록 금지 — 마크다운 + 쉘 명령 예시만
+  - No `{{template_variable}}` in skill content (that is for WORKFLOW.md; skill files are static markdown)
+  - No hardcoded tokens/secrets in skill files
+  - No writing actual GraphQL mutation code — `gh` CLI command examples only
+  - No Python/JS code blocks in skill files — markdown + shell command examples only
 
   **Recommended Agent Profile**:
-  - Category: `unspecified-low` — Reason: 콘텐츠 설계 필요, Elixir 참조 번역, ~200줄씩
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `unspecified-low` — Reason: content design required, translating the Elixir reference, ~200 lines each
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 2 | Blocks: [8] | Blocked By: [3]
 
   **References**:
-  - External: Elixir Symphony WORKFLOW.md — https://github.com/openai/symphony/blob/main/elixir/WORKFLOW.md (Default posture, Status map, Steps 0-4, Guardrails, Workpad template 구조 참고)
-  - Type: `packages/cli/src/skills/types.ts` — SkillTemplate, SkillTemplateContext (Task 3에서 생성)
-  - Schema: `packages/core/src/workflow/config.ts:34-48` — ParsedWorkflow 필드 목록
-  - Schema: `packages/core/src/workflow/render.ts:9-18` — PromptIssueVariables (사용 가능 변수)
-  - API: `packages/cli/src/github/client.ts:28-33` — StatusFieldOption 타입 (스킬에서 참조할 ID 구조)
+  - External: Elixir Symphony WORKFLOW.md — https://github.com/openai/symphony/blob/main/elixir/WORKFLOW.md (reference for the Default posture, Status map, Steps 0-4, Guardrails, Workpad template structure)
+  - Type: `packages/cli/src/skills/types.ts` — SkillTemplate, SkillTemplateContext (created in Task 3)
+  - Schema: `packages/core/src/workflow/config.ts:34-48` — ParsedWorkflow field list
+  - Schema: `packages/core/src/workflow/render.ts:9-18` — PromptIssueVariables (available variables)
+  - API: `packages/cli/src/github/client.ts:28-33` — StatusFieldOption type (the ID structure the skill references)
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/skills/templates/gh-symphony.test.ts` 통과
-  - [ ] `npx vitest run packages/cli/src/skills/templates/gh-project.test.ts` 통과
-  - [ ] gh-symphony 스킬에 "Mode detection", "Design 모드", "Refine 모드" 섹션 포함
-  - [ ] gh-symphony 스킬에 context.yaml, reference-workflow.md 경로 참조
-  - [ ] gh-project 스킬에 `gh project item-edit` 명령어 예시 포함
-  - [ ] gh-project 스킬에 context.yaml의 Column ID Quick Reference 테이블 동적 생성
-  - [ ] 스킬 출력에 `{{...}}` 이중 중괄호 패턴 없음
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/skills/templates/gh-symphony.test.ts` passes
+  - [ ] `npx vitest run packages/cli/src/skills/templates/gh-project.test.ts` passes
+  - [ ] The gh-symphony skill includes "Mode detection", "Design mode", and "Refine mode" sections
+  - [ ] The gh-symphony skill references the context.yaml and reference-workflow.md paths
+  - [ ] The gh-project skill includes `gh project item-edit` command examples
+  - [ ] The gh-project skill dynamically generates the Column ID Quick Reference table from context.yaml
+  - [ ] No `{{...}}` double-brace patterns in the skill output
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: gh-symphony 스킬 생성
+  Scenario: gh-symphony skill generation
     Tool: Bash
-    Steps: mock context (3 columns, 2 repos) → generateGhSymphonySkill() → 출력 검증
-    Expected: "Mode detection", "Design", "Refine", "Related Skills" 섹션 모두 존재
+    Steps: mock context (3 columns, 2 repos) → generateGhSymphonySkill() → validate the output
+    Expected: "Mode detection", "Design", "Refine", "Related Skills" sections all present
     Evidence: .sisyphus/evidence/task-6-gh-symphony-skill.txt
 
-  Scenario: gh-project 스킬의 Column ID 테이블
+  Scenario: gh-project skill's Column ID table
     Tool: Bash
-    Steps: mock columns with IDs → generateGhProjectSkill() → 테이블 파싱
-    Expected: 각 column의 name, role, option_id가 테이블 행으로 존재
+    Steps: mock columns with IDs → generateGhProjectSkill() → parse the table
+    Expected: each column's name, role, option_id present as a table row
     Evidence: .sisyphus/evidence/task-6-gh-project-skill.txt
   ```
 
@@ -829,36 +829,36 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 7. Workflow Skill Templates (commit, push, pull, land)
 
   **What to do**:
-  `packages/cli/src/skills/templates/` 디렉토리에 4개의 워크플로우 스킬 템플릿 생성:
+  Create 4 workflow skill templates in the `packages/cli/src/skills/templates/` directory:
 
   **7a. `commit.ts`**:
-  - 논리적 단위로 커밋 분리
-  - Conventional commit 형식: `<type>(<scope>): <description>`
+  - Split commits into logical units
+  - Conventional commit format: `<type>(<scope>): <description>`
   - types: feat, fix, refactor, test, docs, chore
-  - 테스트 깨지는 중간 커밋 금지
-  - 임시 디버그 코드 커밋 금지
+  - No intermediate commits that break tests
+  - No committing temporary debug code
 
   **7b. `push.ts`**:
-  - 푸시 전 로컬 테스트/린트 통과 확인
+  - Verify local tests/lint pass before pushing
   - `git push origin <branch> [-u]`
-  - 실패 시: pull → resolve → push 재시도
-  - Force push 금지 (--force-with-lease만 허용, 사유 기록)
-  - 결과를 workpad에 기록
+  - On failure: pull → resolve → retry the push
+  - No force push (only --force-with-lease allowed, with the reason recorded)
+  - Record the result in the workpad
 
   **7c. `pull.ts`**:
   - `git fetch origin main` → `git merge origin/main`
-  - 충돌 시: 해결 → 테스트 → 커밋
-  - pull skill evidence 기록 (source, result, HEAD SHA)
-  - 머지 후 테스트 재실행
+  - On conflict: resolve → test → commit
+  - Record pull skill evidence (source, result, HEAD SHA)
+  - Re-run tests after the merge
 
   **7d. `land.ts`**:
-  - PR이 approved 상태인지 확인
-  - CI checks 전부 green인지 확인
-  - Branch가 base와 up-to-date인지 확인
-  - 모두 통과 시 `gh pr merge` (프로젝트 정책에 따라 --squash/--merge/--rebase)
-  - 머지 성공 → 이슈 상태 Done 전이 (gh-project 스킬 참조)
-  - 머지 실패 → workpad 기록 + 재시도
-  - `gh pr merge` 직접 호출 대신 이 스킬의 플로우를 따르도록 안내
+  - Verify the PR is in approved state
+  - Verify all CI checks are green
+  - Verify the branch is up-to-date with base
+  - If all pass, `gh pr merge` (--squash/--merge/--rebase per project policy)
+  - On merge success → transition the issue state to Done (see the gh-project skill)
+  - On merge failure → record in the workpad + retry
+  - Guide agents to follow this skill's flow instead of calling `gh pr merge` directly
 
   **7e. `index.ts`** — barrel export:
 
@@ -873,49 +873,49 @@ Wave 3 (Integration — 1 task, depends on all above):
   export const ALL_SKILL_TEMPLATES: SkillTemplate[] = [...];
   ```
 
-  각 함수 시그니처: `(ctx: SkillTemplateContext) => string`
-  이 4개 스킬은 context-independent (프로젝트 메타데이터에 의존하지 않는 범용 스킬이지만, SkillTemplateContext를 받아 runtime 정보 등을 활용할 수 있음).
+  Each function signature: `(ctx: SkillTemplateContext) => string`
+  These 4 skills are context-independent (general-purpose skills that do not depend on project metadata, but they take SkillTemplateContext so they can use runtime info, etc.).
 
   **Must NOT do**:
-  - 프로젝트 특화 로직 금지 (이 4개는 범용 스킬)
-  - 실행 가능한 스크립트 생성 금지 — 마크다운 가이드만
-  - gh-project 스킬의 역할(상태 전이) 중복 금지 — land에서는 "gh-project 스킬 참조"로 위임
+  - No project-specific logic (these 4 are general-purpose skills)
+  - No generating executable scripts — markdown guides only
+  - No duplicating the gh-project skill's role (state transitions) — land delegates via "see the gh-project skill"
 
   **Recommended Agent Profile**:
-  - Category: `quick` — Reason: 4개 모두 비교적 짧은 마크다운 템플릿 (~50줄씩)
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `quick` — Reason: all 4 are relatively short markdown templates (~50 lines each)
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: YES | Wave 2 | Blocks: [8] | Blocked By: [3]
 
   **References**:
-  - External: Elixir Symphony WORKFLOW.md "Related skills" 섹션 — commit, push, pull, land 스킬 참조
+  - External: Elixir Symphony WORKFLOW.md "Related skills" section — references the commit, push, pull, land skills
   - Type: `packages/cli/src/skills/types.ts` — SkillTemplate, SkillTemplateContext (Task 3)
-  - Pattern: `packages/cli/src/skills/templates/gh-symphony.ts` — 동일 디렉토리의 형제 스킬 (Task 6)
+  - Pattern: `packages/cli/src/skills/templates/gh-symphony.ts` — sibling skill in the same directory (Task 6)
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/skills/templates/commit.test.ts` 통과
-  - [ ] `npx vitest run packages/cli/src/skills/templates/push.test.ts` 통과
-  - [ ] `npx vitest run packages/cli/src/skills/templates/pull.test.ts` 통과
-  - [ ] `npx vitest run packages/cli/src/skills/templates/land.test.ts` 통과
-  - [ ] 각 스킬에 "## Flow" 또는 "## Rules" 섹션 포함
-  - [ ] land 스킬이 "gh-project 스킬 참조"로 상태 전이 위임
-  - [ ] barrel export `ALL_SKILL_TEMPLATES`에 6개 모두 포함
-  - [ ] `pnpm typecheck` 통과
+  - [ ] `npx vitest run packages/cli/src/skills/templates/commit.test.ts` passes
+  - [ ] `npx vitest run packages/cli/src/skills/templates/push.test.ts` passes
+  - [ ] `npx vitest run packages/cli/src/skills/templates/pull.test.ts` passes
+  - [ ] `npx vitest run packages/cli/src/skills/templates/land.test.ts` passes
+  - [ ] Each skill includes a "## Flow" or "## Rules" section
+  - [ ] The land skill delegates state transitions via "see the gh-project skill"
+  - [ ] The barrel export `ALL_SKILL_TEMPLATES` includes all 6
+  - [ ] `pnpm typecheck` passes
 
   **QA Scenarios**:
 
   ```
-  Scenario: 전체 스킬 생성 + barrel export
+  Scenario: generate all skills + barrel export
     Tool: Bash
-    Steps: ALL_SKILL_TEMPLATES.map(t => t.generate(mockCtx)) → 6개 출력 검증
-    Expected: 6개 스킬 모두 비어있지 않은 마크다운 문자열 반환
+    Steps: ALL_SKILL_TEMPLATES.map(t => t.generate(mockCtx)) → validate the 6 outputs
+    Expected: all 6 skills return non-empty markdown strings
     Evidence: .sisyphus/evidence/task-7-all-skills.txt
 
-  Scenario: land 스킬 gh-project 참조
+  Scenario: land skill gh-project reference
     Tool: Bash
-    Steps: generateLandSkill(mockCtx) → "gh-project" 문자열 존재 확인
-    Expected: "gh-project" 스킬 참조 포함
+    Steps: generateLandSkill(mockCtx) → check the string "gh-project" exists
+    Expected: includes a reference to the "gh-project" skill
     Evidence: .sisyphus/evidence/task-7-land-ref.txt
   ```
 
@@ -926,11 +926,11 @@ Wave 3 (Integration — 1 task, depends on all above):
 - [x] 8. Wire Workflow Ecosystem into Init Command
 
   **What to do**:
-  `packages/cli/src/commands/init.ts`를 수정하여 Task 1-7의 모듈을 통합. init 실행 시 전체 에코시스템을 생성하도록 배선.
+  Modify `packages/cli/src/commands/init.ts` to integrate the modules from Tasks 1-7. Wire init so it generates the full ecosystem on run.
 
-  **변경 사항**:
+  **Changes**:
 
-  **8a. 새 플래그 추가** (`parseInitFlags`):
+  **8a. Add new flags** (`parseInitFlags`):
 
   ```typescript
   type InitFlags = {
@@ -943,112 +943,112 @@ Wave 3 (Integration — 1 task, depends on all above):
   };
   ```
 
-  `--skip-skills`: 스킬 파일 생성 스킵
-  `--skip-context`: context.yaml 생성 스킵
+  `--skip-skills`: skip generating skill files
+  `--skip-context`: skip generating context.yaml
 
-  **런타임과 스킬 생성 규칙**:
-  - `codex` → `.codex/skills/`에 6개 스킬 생성
-  - `claude-code` → `.claude/skills/`에 6개 스킬 생성
-  - `custom` → 스킬 생성 스킵 (알려진 스킬 디렉토리 없음). context.yaml + reference-workflow.md는 생성.
+  **Runtime and skill generation rules**:
+  - `codex` → generate the 6 skills in `.codex/skills/`
+  - `claude-code` → generate the 6 skills in `.claude/skills/`
+  - `custom` → skip skill generation (no known skill directory). context.yaml + reference-workflow.md are still generated.
 
-  **8b. `runNonInteractive()` 확장**:
-  기존 WORKFLOW.md 생성 후 추가:
-  1. `detectEnvironment(cwd)` 호출 → 환경 감지
-  2. `generateContextYaml(projectDetail, statusField, env, runtime)` → `.gh-symphony/context.yaml` 쓰기
-  3. `generateReferenceWorkflow(input)` → `.gh-symphony/reference-workflow.md` 쓰기
-  4. `writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, context)` → 스킬 파일 쓰기
-  5. 결과 출력: 생성된 파일 목록 + 스킵된 스킬 목록
+  **8b. Extend `runNonInteractive()`**:
+  After the existing WORKFLOW.md generation, add:
+  1. Call `detectEnvironment(cwd)` → detect the environment
+  2. `generateContextYaml(projectDetail, statusField, env, runtime)` → write `.gh-symphony/context.yaml`
+  3. `generateReferenceWorkflow(input)` → write `.gh-symphony/reference-workflow.md`
+  4. `writeAllSkills(cwd, runtime, ALL_SKILL_TEMPLATES, context)` → write the skill files
+  5. Print results: list of generated files + list of skipped skills
 
-  **8c. `runInteractiveStandalone()` 확장**:
-  기존 Step 4 후, WORKFLOW.md 쓰기 전에:
-  1. 런타임 선택 프롬프트 추가 (codex/claude-code/custom) — `tenant add`의 `tenantAddInteractive()` (tenant.ts:401-420)와 동일한 패턴. custom 선택 시 `p.text()`로 커스텀 명령어 입력받음.
-  2. 런타임 값 흐름:
-     - `runtime` (string: "codex" | "claude-code" | "custom") → WORKFLOW.md 생성의 `runtime` 필드에 전달 → `resolveAgentCommand(runtime)` 또는 custom 명령어 사용
-     - `runtime` → context.yaml의 `runtime.agent` 필드에 저장. custom인 경우 `runtime.agent: "custom"`, `runtime.agent_command: "사용자가 입력한 명령어"`
-     - `runtime` → `resolveSkillsDir(cwd, runtime)`: codex/claude-code면 스킬 생성, custom이면 null 반환 → 스킬 생성 스킵, `p.log.warn("Custom 런타임은 스킬 자동 생성을 지원하지 않습니다.")`
-  3. 환경 감지 → context.yaml → reference-workflow.md → 스킬 쓰기
-  4. outro 메시지 업데이트: 생성된 파일 목록 안내
+  **8c. Extend `runInteractiveStandalone()`**:
+  After the existing Step 4, before writing WORKFLOW.md:
+  1. Add a runtime selection prompt (codex/claude-code/custom) — same pattern as `tenant add`'s `tenantAddInteractive()` (tenant.ts:401-420). When custom is selected, take the custom command via `p.text()`.
+  2. Runtime value flow:
+     - `runtime` (string: "codex" | "claude-code" | "custom") → passed to the `runtime` field of WORKFLOW.md generation → use `resolveAgentCommand(runtime)` or the custom command
+     - `runtime` → stored in context.yaml's `runtime.agent` field. For custom: `runtime.agent: "custom"`, `runtime.agent_command: "the command the user entered"`
+     - `runtime` → `resolveSkillsDir(cwd, runtime)`: generate skills for codex/claude-code; for custom it returns null → skip skill generation, `p.log.warn("The custom runtime does not support automatic skill generation.")`
+  3. Environment detection → context.yaml → reference-workflow.md → write skills
+  4. Update the outro message: announce the list of generated files
 
-  **8d. `runInteractiveFromTenant()` 확장**:
-  기존 WORKFLOW.md 생성 후:
-  1. tenant config에서 runtime 추출
-  2. 나머지 동일 (context.yaml + reference + skills)
+  **8d. Extend `runInteractiveFromTenant()`**:
+  After the existing WORKFLOW.md generation:
+  1. Extract the runtime from the tenant config
+  2. The rest is identical (context.yaml + reference + skills)
 
-  **8e. `writeConfig()` 변경 없음** (scope 한정):
-  `writeConfig()`은 `tenant.ts`에서도 import되며 `configDir` (테넌트 설정 디렉토리)만 받는다. 에코시스템 파일 (context.yaml, skills, reference-workflow.md)은 **레포 루트**에 쓰여야 하므로, `writeConfig()`에는 추가하지 않는다.
-  대신 `runNonInteractive()`, `runInteractiveStandalone()`, `runInteractiveFromTenant()` 각 함수에 직접 에코시스템 생성 로직을 추가한다. 레포 루트는 `process.cwd()` (init은 항상 레포 내에서 실행하는 것이 전제). `tenant add`에서는 에코시스템 파일을 생성하지 않는다 — 그건 `init`의 역할.
+  **8e. No changes to `writeConfig()`** (scope limitation):
+  `writeConfig()` is also imported by `tenant.ts` and only receives `configDir` (the tenant config directory). The ecosystem files (context.yaml, skills, reference-workflow.md) must be written to the **repo root**, so do not add them to `writeConfig()`.
+  Instead, add the ecosystem generation logic directly to each of `runNonInteractive()`, `runInteractiveStandalone()`, and `runInteractiveFromTenant()`. The repo root is `process.cwd()` (the premise is that init is always run inside the repo). `tenant add` does not generate ecosystem files — that is `init`'s job.
 
-  **Field ID 플럼빙** (Metis 지적):
-  현재 `init.ts:176`에서 `statusField.options.map(o => o.name)`으로 이름만 추출.
-  → `statusField` 전체 객체 (`ProjectStatusField` with `.id`, `.options[].id`)를 context.yaml 생성기에 전달.
+  **Field ID plumbing** (Metis's point):
+  Currently `init.ts:176` extracts only names via `statusField.options.map(o => o.name)`.
+  → Pass the entire `statusField` object (`ProjectStatusField` with `.id`, `.options[].id`) to the context.yaml generator.
 
-  **Idempotency 처리**:
-  - `.gh-symphony/context.yaml`: 항상 덮어쓰기 (최신 프로젝트 데이터 반영)
-  - `.gh-symphony/reference-workflow.md`: 항상 덮어쓰기
-  - `WORKFLOW.md`: 기존 init 동작 유지 (항상 덮어쓰기)
-  - 스킬 파일: 존재 시 스킵 (skill-writer의 기본 동작)
+  **Idempotency handling**:
+  - `.gh-symphony/context.yaml`: always overwrite (reflect the latest project data)
+  - `.gh-symphony/reference-workflow.md`: always overwrite
+  - `WORKFLOW.md`: keep the existing init behavior (always overwrite)
+  - Skill files: skip when they exist (skill-writer's default behavior)
 
   **Must NOT do**:
-  - 기존 init 플로우의 핵심 동작 변경 금지 (WORKFLOW.md 생성은 그대로)
-  - tenant.ts의 import 경로 변경 금지 (writeConfig, generateTenantId, abortIfCancelled)
-  - 기존 테스트 삭제 금지 — 확장만
+  - No changing the core behavior of the existing init flow (WORKFLOW.md generation stays as-is)
+  - No changing tenant.ts import paths (writeConfig, generateTenantId, abortIfCancelled)
+  - No deleting existing tests — extend only
 
   **Recommended Agent Profile**:
-  - Category: `unspecified-high` — Reason: 기존 코드 수정, 다수 모듈 통합, 기존 테스트와의 호환성 보장
-  - Skills: [] — 특별한 스킬 불필요
-  - Omitted: [`playwright`] — 브라우저 불필요
+  - Category: `unspecified-high` — Reason: modifies existing code, integrates many modules, must guarantee compatibility with existing tests
+  - Skills: [] — no special skills needed
+  - Omitted: [`playwright`] — no browser needed
 
   **Parallelization**: Can Parallel: NO | Wave 3 | Blocks: [F1-F4] | Blocked By: [1, 2, 3, 4, 5, 6, 7]
 
   **References**:
-  - Modify: `packages/cli/src/commands/init.ts:60-86` — parseInitFlags (새 플래그 추가)
-  - Modify: `packages/cli/src/commands/init.ts:108-224` — runNonInteractive (에코시스템 생성 추가)
-  - Modify: `packages/cli/src/commands/init.ts:325-503` — runInteractiveStandalone (런타임 프롬프트 + 에코시스템)
-  - Modify: `packages/cli/src/commands/init.ts:244-321` — runInteractiveFromTenant (에코시스템 추가)
-  - Note: `writeConfig()` (init.ts:570-647)는 수정하지 않음 — tenant.ts에서도 사용되며, 에코시스템은 init 전용
+  - Modify: `packages/cli/src/commands/init.ts:60-86` — parseInitFlags (add new flags)
+  - Modify: `packages/cli/src/commands/init.ts:108-224` — runNonInteractive (add ecosystem generation)
+  - Modify: `packages/cli/src/commands/init.ts:325-503` — runInteractiveStandalone (runtime prompt + ecosystem)
+  - Modify: `packages/cli/src/commands/init.ts:244-321` — runInteractiveFromTenant (add ecosystem)
+  - Note: `writeConfig()` (init.ts:570-647) is not modified — it is also used by tenant.ts, and the ecosystem is init-only
   - Import: `packages/cli/src/detection/environment-detector.ts` — detectEnvironment (Task 1)
   - Import: `packages/cli/src/context/generate-context-yaml.ts` — generateContextYaml, writeContextYaml (Task 2)
   - Import: `packages/cli/src/workflow/generate-reference-workflow.ts` — generateReferenceWorkflow (Task 4)
   - Import: `packages/cli/src/skills/templates/index.ts` — ALL_SKILL_TEMPLATES (Task 7)
   - Import: `packages/cli/src/skills/skill-writer.ts` — writeAllSkills (Task 3)
-  - Test: `packages/cli/src/commands/init.test.ts` — 기존 3개 테스트 유지 + 새 통합 테스트 추가
+  - Test: `packages/cli/src/commands/init.test.ts` — keep the existing 3 tests + add new integration tests
 
   **Acceptance Criteria**:
-  - [ ] `npx vitest run packages/cli/src/commands/init.test.ts` 통과 (기존 + 신규)
-  - [ ] 기존 3개 테스트 변경 없이 통과
-  - [ ] non-interactive init 실행 → context.yaml + reference-workflow.md + 6 스킬 + WORKFLOW.md 생성
-  - [ ] `--skip-skills` 플래그 → 스킬 파일 미생성, 나머지는 생성
-  - [ ] `--skip-context` 플래그 → context.yaml 미생성, 나머지는 생성
-  - [ ] context.yaml에 statusField.id, option.id 포함 (field ID 플럼빙 확인)
-  - [ ] 기존 스킬 파일 존재 시 스킵 (재실행 idempotency)
-  - [ ] `pnpm --filter @gh-symphony/cli test` 전체 통과
-  - [ ] `pnpm typecheck && pnpm lint && pnpm build` 통과
+  - [ ] `npx vitest run packages/cli/src/commands/init.test.ts` passes (existing + new)
+  - [ ] The existing 3 tests pass without changes
+  - [ ] Non-interactive init run → generates context.yaml + reference-workflow.md + 6 skills + WORKFLOW.md
+  - [ ] `--skip-skills` flag → skill files not generated, everything else generated
+  - [ ] `--skip-context` flag → context.yaml not generated, everything else generated
+  - [ ] context.yaml includes statusField.id, option.id (field ID plumbing verified)
+  - [ ] Existing skill files are skipped when present (re-run idempotency)
+  - [ ] Full `pnpm --filter @gh-symphony/cli test` passes
+  - [ ] `pnpm typecheck && pnpm lint && pnpm build` pass
 
   **QA Scenarios**:
 
   ```
-  Scenario: 전체 에코시스템 생성 (non-interactive)
+  Scenario: full ecosystem generation (non-interactive)
     Tool: Bash
     Steps: temp configDir + temp repoDir → runNonInteractive(flags, options) with mock fetch
-    Expected: repoDir에 WORKFLOW.md, .gh-symphony/context.yaml, .gh-symphony/reference-workflow.md 존재. .claude/skills/ 또는 .codex/skills/에 6개 스킬 존재.
+    Expected: WORKFLOW.md, .gh-symphony/context.yaml, .gh-symphony/reference-workflow.md exist in repoDir. 6 skills exist in .claude/skills/ or .codex/skills/.
     Evidence: .sisyphus/evidence/task-8-full-ecosystem.txt
 
-  Scenario: --skip-skills 플래그
+  Scenario: --skip-skills flag
     Tool: Bash
-    Steps: --skip-skills 추가하여 실행
-    Expected: 스킬 디렉토리 미생성, context.yaml과 WORKFLOW.md는 생성
+    Steps: run with --skip-skills added
+    Expected: skill directory not generated; context.yaml and WORKFLOW.md are generated
     Evidence: .sisyphus/evidence/task-8-skip-skills.txt
 
-  Scenario: 재실행 idempotency
+  Scenario: re-run idempotency
     Tool: Bash
-    Steps: 에코시스템 생성 → 스킬 파일 하나 수정 → init 재실행
-    Expected: context.yaml 갱신됨, 수정된 스킬 파일 보존됨 (덮어쓰기 안 됨)
+    Steps: generate the ecosystem → modify one skill file → re-run init
+    Expected: context.yaml refreshed, the modified skill file preserved (not overwritten)
     Evidence: .sisyphus/evidence/task-8-idempotency.txt
 
-  Scenario: field ID 플럼빙
+  Scenario: field ID plumbing
     Tool: Bash
-    Steps: mock ProjectDetail with field IDs → init → context.yaml 파싱 → ID 존재 확인
-    Expected: status_field.id, status_field.columns[].id 모두 비어있지 않음
+    Steps: mock ProjectDetail with field IDs → init → parse context.yaml → verify the IDs exist
+    Expected: status_field.id and status_field.columns[].id all non-empty
     Evidence: .sisyphus/evidence/task-8-field-ids.txt
   ```
 
@@ -1058,38 +1058,38 @@ Wave 3 (Integration — 1 task, depends on all above):
 
 - [x] F1. Plan Compliance Audit — oracle
 
-  **What to do**: Must NOT Have 규칙 준수 검증
+  **What to do**: Verify compliance with the Must NOT Have rules
   **Recommended Agent Profile**:
-  - Category: `deep` — Reason: 전체 코드베이스 스캔 필요
+  - Category: `deep` — Reason: full codebase scan required
   - Skills: [] | Omitted: [`playwright`]
 
   **QA Scenarios**:
 
   ```
-  Scenario: core/orchestrator/worker 패키지 무변경 확인
+  Scenario: verify no changes to the core/orchestrator/worker packages
     Tool: Bash
     Steps: git diff --name-only HEAD~8..HEAD | grep -E '^packages/(core|orchestrator|worker)/'
-    Expected: 출력 없음 (0 lines)
+    Expected: no output (0 lines)
     Evidence: .sisyphus/evidence/f1-no-core-changes.txt
 
-  Scenario: 새 {{variable}} 패턴 없음 확인
+  Scenario: verify no new {{variable}} patterns
     Tool: ast-grep
-    Steps: ast_grep_search(pattern="renderPrompt($TEMPLATE, $VARS)", lang="typescript") → PromptVariables 타입과 대조
-    Expected: renderPrompt 호출에서 사용하는 변수가 기존 8개(issue.* + attempt)만
+    Steps: ast_grep_search(pattern="renderPrompt($TEMPLATE, $VARS)", lang="typescript") → cross-check against the PromptVariables type
+    Expected: variables used in renderPrompt calls are only the existing 8 (issue.* + attempt)
     Evidence: .sisyphus/evidence/f1-no-new-vars.txt
 
-  Scenario: context.yaml에 토큰 미포함
+  Scenario: no tokens included in context.yaml
     Tool: Bash (grep)
     Steps: grep -ri "token\|secret\|password\|ghp_\|gho_" packages/cli/src/context/
-    Expected: context.yaml 생성 코드에 토큰 관련 값 쓰기 없음
+    Expected: the context.yaml generation code writes no token-related values
     Evidence: .sisyphus/evidence/f1-no-secrets.txt
   ```
 
 - [x] F2. Code Quality Review — unspecified-high
 
-  **What to do**: 코드 품질 + 기존 패턴 일관성 검증
+  **What to do**: Verify code quality + consistency with existing patterns
   **Recommended Agent Profile**:
-  - Category: `unspecified-high` — Reason: 전체 CLI 패키지 품질 검증
+  - Category: `unspecified-high` — Reason: quality verification across the whole CLI package
   - Skills: [] | Omitted: [`playwright`]
 
   **QA Scenarios**:
@@ -1098,77 +1098,77 @@ Wave 3 (Integration — 1 task, depends on all above):
   Scenario: TypeScript + Lint + Build
     Tool: Bash
     Steps: pnpm typecheck && pnpm lint && pnpm build
-    Expected: exit code 0, 에러 없음
+    Expected: exit code 0, no errors
     Evidence: .sisyphus/evidence/f2-build-pass.txt
 
-  Scenario: 전체 테스트 스위트
+  Scenario: full test suite
     Tool: Bash
     Steps: pnpm --filter @gh-symphony/cli test
-    Expected: 모든 테스트 통과 (기존 + 신규)
+    Expected: all tests pass (existing + new)
     Evidence: .sisyphus/evidence/f2-test-pass.txt
 
-  Scenario: atomic write 패턴 준수
+  Scenario: atomic write pattern compliance
     Tool: ast-grep
-    Steps: 새 파일에서 writeFile 호출 검색 → tmp+rename 패턴 사용 여부 확인
-    Expected: 직접 writeFile(최종경로) 없음 — 모두 tmp+rename 또는 기존 유틸리티 사용
+    Steps: search for writeFile calls in the new files → check whether the tmp+rename pattern is used
+    Expected: no direct writeFile(final path) — all use tmp+rename or existing utilities
     Evidence: .sisyphus/evidence/f2-atomic-write.txt
   ```
 
 - [x] F3. Integration QA — unspecified-high
 
-  **What to do**: 실제 init 실행 시뮬레이션으로 전체 에코시스템 검증
+  **What to do**: Verify the full ecosystem by simulating an actual init run
   **Recommended Agent Profile**:
-  - Category: `unspecified-high` — Reason: 통합 테스트 수준의 검증
+  - Category: `unspecified-high` — Reason: integration-test-level verification
   - Skills: [] | Omitted: [`playwright`]
 
   **QA Scenarios**:
 
   ```
-  Scenario: 전체 에코시스템 파일 존재 확인
+  Scenario: verify all ecosystem files exist
     Tool: Bash
-    Steps: npx vitest run packages/cli/src/commands/init.test.ts → 통합 테스트가 생성한 temp dir의 파일 트리 검증
-    Expected: WORKFLOW.md, .gh-symphony/context.yaml, .gh-symphony/reference-workflow.md, .claude/skills/ 또는 .codex/skills/ 하위 6개 디렉토리 존재
+    Steps: npx vitest run packages/cli/src/commands/init.test.ts → verify the file tree of the temp dir created by the integration test
+    Expected: WORKFLOW.md, .gh-symphony/context.yaml, .gh-symphony/reference-workflow.md, and the 6 directories under .claude/skills/ or .codex/skills/ exist
     Evidence: .sisyphus/evidence/f3-ecosystem-files.txt
 
   Scenario: WORKFLOW.md round-trip (strict mode)
     Tool: Bash
-    Steps: 생성된 WORKFLOW.md를 parseWorkflowMarkdown() → renderPrompt(promptTemplate, mockVars, {strict:true}) 호출하는 테스트 실행
-    Expected: throw 없음
+    Steps: run the test that calls parseWorkflowMarkdown() on the generated WORKFLOW.md → renderPrompt(promptTemplate, mockVars, {strict:true})
+    Expected: no throw
     Evidence: .sisyphus/evidence/f3-roundtrip.txt
 
-  Scenario: idempotency 검증
+  Scenario: idempotency verification
     Tool: Bash
-    Steps: init 2회 실행 → 두 번째 실행 후 스킬 파일 내용이 첫 번째와 동일한지 (덮어쓰기 안 됨)
-    Expected: skipped 배열에 6개 스킬 포함
+    Steps: run init twice → after the second run, check the skill file contents are identical to the first (not overwritten)
+    Expected: the skipped array includes the 6 skills
     Evidence: .sisyphus/evidence/f3-idempotency.txt
   ```
 
 - [x] F4. Scope Fidelity Check — deep
 
-  **What to do**: 브레인스토밍 세션 결정사항이 구현에 정확히 반영되었는지 검증
+  **What to do**: Verify that the brainstorming session decisions are accurately reflected in the implementation
   **Recommended Agent Profile**:
-  - Category: `deep` — Reason: 요구사항 대비 구현 매핑 검증
+  - Category: `deep` — Reason: verifying the implementation mapping against requirements
   - Skills: [] | Omitted: [`playwright`]
 
   **QA Scenarios**:
 
   ```
-  Scenario: 런타임별 스킬 디렉토리 분리
+  Scenario: per-runtime skill directory separation
     Tool: Bash
-    Steps: codex 런타임으로 init → .codex/skills/ 존재 + .claude/skills/ 미존재 확인. claude-code로 init → 반대 확인.
-    Expected: 선택된 런타임의 디렉토리만 존재
+    Steps: init with the codex runtime → verify .codex/skills/ exists + .claude/skills/ does not. Init with claude-code → verify the reverse.
+    Expected: only the selected runtime's directory exists
     Evidence: .sisyphus/evidence/f4-runtime-separation.txt
 
-  Scenario: context.yaml field ID 포함
+  Scenario: context.yaml field ID inclusion
     Tool: Bash
-    Steps: 생성된 context.yaml에서 status_field.id, status_field.columns[].id 값 추출
-    Expected: 모든 ID가 비어있지 않은 문자열
+    Steps: extract the status_field.id, status_field.columns[].id values from the generated context.yaml
+    Expected: all IDs are non-empty strings
     Evidence: .sisyphus/evidence/f4-field-ids.txt
 
-  Scenario: custom 런타임 스킬 스킵
+  Scenario: custom runtime skill skip
     Tool: Bash
-    Steps: custom 런타임으로 init → 스킬 디렉토리 미존재 확인 + context.yaml은 존재 확인
-    Expected: .claude/skills/ 와 .codex/skills/ 모두 미존재, .gh-symphony/context.yaml 존재
+    Steps: init with the custom runtime → verify the skill directory does not exist + context.yaml does exist
+    Expected: neither .claude/skills/ nor .codex/skills/ exists, .gh-symphony/context.yaml exists
     Evidence: .sisyphus/evidence/f4-custom-skip.txt
   ```
 
@@ -1187,11 +1187,11 @@ Commit 8: feat(cli): wire workflow ecosystem into init command
 
 ## Success Criteria
 
-- init 실행 시 모든 에코시스템 파일 생성 (context.yaml, reference-workflow.md, WORKFLOW.md, 6 skills)
-- 생성된 WORKFLOW.md가 core parser로 정상 파싱
-- 생성된 WORKFLOW.md가 renderPrompt strict mode 통과
-- context.yaml에 field ID + option ID 포함
-- 환경 감지: pnpm/npm/yarn/bun 구분 + 테스트 명령 추출
-- 스킬 파일이 런타임별 올바른 디렉토리에 생성
-- init 재실행 시 idempotent (context.yaml 갱신, skills 보존)
-- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` 전부 통과
+- On init run, all ecosystem files are generated (context.yaml, reference-workflow.md, WORKFLOW.md, 6 skills)
+- The generated WORKFLOW.md parses cleanly with the core parser
+- The generated WORKFLOW.md passes renderPrompt strict mode
+- context.yaml includes field IDs + option IDs
+- Environment detection: distinguishes pnpm/npm/yarn/bun + extracts the test command
+- Skill files are generated in the correct per-runtime directory
+- Init re-runs are idempotent (context.yaml refreshed, skills preserved)
+- `pnpm lint && pnpm test && pnpm typecheck && pnpm build` all pass

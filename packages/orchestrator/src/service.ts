@@ -1196,8 +1196,9 @@ export class OrchestratorService {
         );
       }
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
-      // `canonicalIssues`로 맵을 무조건 시딩하므로 기존 두 번째 역순 머지
-      // 루프는 불필요하다. 시딩이 조건부가 되면 우선순위를 다시 검토해야 한다.
+      // The map is unconditionally seeded from `canonicalIssues`, so the old
+      // second reverse-order merge loop is unnecessary. If seeding ever
+      // becomes conditional, revisit the precedence here.
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         canonicalIssues.map((issue) => [issue.identifier, issue])
       );

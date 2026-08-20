@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-> **Summary**: `gh-symphony`의 `WORKFLOW.md` 계약을 upstream Symphony SPEC의 repository contract에 맞춘다. 핵심은 worker를 제거하는 것이 아니라, `WORKFLOW.md` schema/generator/parser/validation/loading을 `tracker`, `polling`, `workspace`, `hooks`, `agent`, `codex` 중심으로 재정렬하고, repo root `WORKFLOW.md`가 없거나 core schema가 invalid면 orchestrator와 worker가 모두 거부하도록 만드는 것이다.
+> **Summary**: Align `gh-symphony`'s `WORKFLOW.md` contract with the repository contract of the upstream Symphony SPEC. The core is not removing the worker, but realigning the `WORKFLOW.md` schema/generator/parser/validation/loading around `tracker`, `polling`, `workspace`, `hooks`, `agent`, `codex`, and making both the orchestrator and the worker refuse to run when the repo root `WORKFLOW.md` is missing or the core schema is invalid.
 > **Deliverables**: spec-conformant parser/config, spec-conformant `gh-symphony init` generator, strict repo-owned workflow gating, extension policy, hook semantics alignment, migration tests/docs.
 > **Effort**: Large
 > **Parallel**: Limited — foundation first, then enforcement and docs
@@ -12,33 +12,33 @@
 
 ### Original Request
 
-`gh-symphony init`이 만들어내는 `WORKFLOW.md`를 upstream Symphony SPEC과 upstream `WORKFLOW.md` 의미에 맞추고 싶다. 또한 orchestrator와 worker가 `WORKFLOW.md`가 없거나 규격에 맞지 않으면 실행을 거부해야 한다. 단, extension은 SPEC이 허용하는 범위 내에서 허용한다.
+I want to align the `WORKFLOW.md` produced by `gh-symphony init` with the upstream Symphony SPEC and the upstream `WORKFLOW.md` semantics. In addition, the orchestrator and the worker must refuse to run when `WORKFLOW.md` is missing or does not match the spec. However, extensions are allowed within the bounds the SPEC permits.
 
 ### Corrected Assumptions
 
-1. **맞음**: `WORKFLOW.md`는 repo-owned canonical contract여야 한다.
-2. **맞음**: missing/invalid `WORKFLOW.md`는 dispatch/run gate에서 거부해야 한다.
-3. **정정 필요**: extension은 금지 대상이 아니라 허용 대상이다. SPEC은 unknown keys를 forward compatibility를 위해 허용한다.
-4. **정정 필요**: worker 중간 레이어는 자체로 SPEC 위반이 아니다. 현재 주요 불일치는 process topology보다 `WORKFLOW.md` schema mismatch다.
-5. **정정 필요**: `codex.command`는 raw command여야 하며, `bash -lc` wrapping은 runtime 책임이다. `WORKFLOW.md` 안에 `bash -lc codex app-server`를 저장하면 upstream 의미와 다시 어긋난다.
+1. **Correct**: `WORKFLOW.md` must be the repo-owned canonical contract.
+2. **Correct**: a missing/invalid `WORKFLOW.md` must be rejected at the dispatch/run gate.
+3. **Needs correction**: extensions are not forbidden — they are allowed. The SPEC permits unknown keys for forward compatibility.
+4. **Needs correction**: the worker intermediate layer is not a SPEC violation in itself. The main mismatch today is the `WORKFLOW.md` schema mismatch rather than process topology.
+5. **Needs correction**: `codex.command` must be a raw command, and `bash -lc` wrapping is the runtime's responsibility. Storing `bash -lc codex app-server` inside `WORKFLOW.md` would diverge from the upstream semantics again.
 
 ### Current Problem Statement
 
-현재 구현은 다음과 같은 GitHub Symphony 전용 schema를 canonical처럼 사용한다.
+The current implementation uses the following GitHub Symphony-specific schema as if it were canonical.
 
 - top-level: `github_project_id`, `allowed_repositories`, `lifecycle`, `runtime`, `scheduler`, `retry`, `max_concurrent_by_state`
 - runtime command: `runtime.agent_command`
 - polling: `scheduler.poll_interval_ms`
 - states: `lifecycle.active_states`, `lifecycle.terminal_states`
-- fallback behavior: repo `WORKFLOW.md`가 없으면 tenant `WORKFLOW.md`, 그것도 없으면 hardcoded default
+- fallback behavior: if the repo `WORKFLOW.md` is missing, use the tenant `WORKFLOW.md`; if that is missing too, use the hardcoded default
 
-이 구조는 upstream SPEC의 Section 5 repository contract와 호환되지 않는다.
+This structure is incompatible with the Section 5 repository contract of the upstream SPEC.
 
 ## Work Objectives
 
 ### Core Objective
 
-`gh-symphony`가 upstream Symphony SPEC의 repository contract를 primary contract로 사용하도록 재정렬한다. repository root `WORKFLOW.md`를 strict source of truth로 사용하고, orchestrator/worker 모두 core schema invalid 상태를 거부한다.
+Realign `gh-symphony` to use the upstream Symphony SPEC's repository contract as the primary contract. Use the repository root `WORKFLOW.md` as the strict source of truth, and have both the orchestrator and the worker reject an invalid core schema state.
 
 ### Deliverables
 

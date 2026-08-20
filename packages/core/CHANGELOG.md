@@ -51,4 +51,4 @@
 
 ### Patch Changes
 
-- 대규모 수정
+- Large-scale changes

@@ -1,31 +1,31 @@
 # AGENT_TEST.md
 
-AI Agent가 코드 변경 후 E2E 블랙박스 테스트를 수행하기 위한 가이드.
-로컬 실행(Docker 없이)과 Docker 격리 환경 두 가지 방식을 지원한다.
+A guide for AI agents to run E2E black-box tests after code changes.
+Two modes are supported: local execution (without Docker) and a Docker-isolated environment.
 
-## 테스트 계층
+## Test Layers
 
-| 계층 | 도구 | 실행 시점 |
-|---|---|---|
-| Unit Test | `pnpm test` (Vitest) | 코드 변경 직후 |
-| Type Check | `pnpm typecheck` | 코드 변경 직후 |
-| Lint | `pnpm lint` | 코드 변경 직후 |
-| **E2E Test (Local)** | pnpm cli + Stub Worker | 통합 동작을 빠르게 검증할 때 |
-| **E2E Test (Docker)** | Docker + CLI | 완전 격리된 환경에서 검증할 때 |
+| Layer                 | Tool                   | When to run                                   |
+| --------------------- | ---------------------- | --------------------------------------------- |
+| Unit Test             | `pnpm test` (Vitest)   | Immediately after code changes                |
+| Type Check            | `pnpm typecheck`       | Immediately after code changes                |
+| Lint                  | `pnpm lint`            | Immediately after code changes                |
+| **E2E Test (Local)**  | pnpm cli + Stub Worker | For quickly verifying integration behavior    |
+| **E2E Test (Docker)** | Docker + CLI           | For verifying in a fully isolated environment |
 
-## 필수 검증 (모든 코드 변경 후)
+## Required Verification (after every code change)
 
 ```bash
 pnpm lint && pnpm test && pnpm typecheck && pnpm build
 ```
 
-이 네 가지가 모두 통과해야 작업 완료로 간주한다.
+All four must pass before the work is considered complete.
 
-## Local E2E 테스트 (Docker 없이)
+## Local E2E Tests (without Docker)
 
-Docker 없이 로컬에서 바로 E2E 테스트를 실행하는 방법. 모든 상태는 `.runtime/`에 저장된다.
+How to run E2E tests directly on the local machine without Docker. All state is stored under `.runtime/`.
 
-### 아키텍처
+### Architecture
 
 ```
 pnpm e2e:start
@@ -39,41 +39,42 @@ pnpm e2e:start
 │  Dashboard :4680     File Tracker                │
 │  /api/v1/state       (e2e/fixtures/issues.json)  │
 │                                                  │
-│  .runtime/           (프로젝트 루트, gitignored)  │
+│  .runtime/           (project root, gitignored)  │
 │    └─ e2e/                                      │
 │       ├─ repos/      (seed git repo)             │
-│       ├─ fixtures/   (로컬 경로 fixture 사본)      │
+│       ├─ fixtures/   (local-path fixture copies) │
 │       └─ work/test-repo/.runtime/orchestrator    │
 └─────────────────────────────────────────────────┘
 ```
 
-### 초기 설정 (최초 1회)
+### Initial Setup (once)
 
 ```bash
-pnpm build          # 전체 빌드
-pnpm e2e:init       # .runtime/ 구조 생성, stub worker 컴파일, seed repo 생성
+pnpm build          # Build everything
+pnpm e2e:init       # Create .runtime/ structure, compile stub worker, create seed repo
 ```
 
-`e2e:init`이 수행하는 작업:
-1. `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js` 컴파일
-2. `.runtime/e2e/repos/test-owner/test-repo` seed git repo 생성 (WORKFLOW.md 포함)
-3. `.runtime/e2e/work/test-repo`로 clone 후 `repo init`으로 단일 `repository` 프로젝트 설정
-4. `e2e/fixtures/issues.json` 빈 배열로 초기화
+What `e2e:init` does:
 
-### 실행
+1. Compiles `e2e/stub-worker.ts` → `e2e/dist/stub-worker.js`
+2. Creates the `.runtime/e2e/repos/test-owner/test-repo` seed git repo (including WORKFLOW.md)
+3. Clones into `.runtime/e2e/work/test-repo` and configures a single `repository` project via `repo init`
+4. Initializes `e2e/fixtures/issues.json` to an empty array
+
+### Run
 
 ```bash
-# 1. 이슈 주입 (로컬 fixture 사용 — cloneUrl이 로컬 경로로 치환됨)
+# 1. Inject an issue (use the local fixture — cloneUrl is rewritten to a local path)
 cp .runtime/e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 
-# 2. 오케스트레이터 시작 (포그라운드, Ctrl+C로 종료)
+# 2. Start the orchestrator (foreground, stop with Ctrl+C)
 export GH_SYMPHONY_HTTP_TOKEN=e2e-http-token
 pnpm e2e:start
 ```
 
-> **주의**: `e2e/fixtures/happy-path.json`(원본)이 아니라 `.runtime/e2e/fixtures/happy-path.json`(로컬용)을 사용해야 한다. 원본 fixture의 `cloneUrl`은 Docker 컨테이너 내부 경로를 가리킨다.
+> **Note**: Use `.runtime/e2e/fixtures/happy-path.json` (the local copy), not `e2e/fixtures/happy-path.json` (the original). The original fixture's `cloneUrl` points to a path inside the Docker container.
 
-다른 시나리오로 실행:
+Run with other scenarios:
 
 ```bash
 STUB_SCENARIO=fail pnpm e2e:start
@@ -81,14 +82,14 @@ STUB_SCENARIO=stall pnpm e2e:start
 STUB_SCENARIO=slow pnpm e2e:start
 ```
 
-### 상태 관찰 (별도 터미널)
+### Observing State (separate terminal)
 
 ```bash
-# 프로젝트 전체 상태
+# Full project state
 curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   http://localhost:4680/api/v1/state | jq .
 
-# 핵심 필드만
+# Key fields only
 curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   http://localhost:4680/api/v1/state | jq '{
   health,
@@ -98,40 +99,40 @@ curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   lastError
 }'
 
-# Reconciliation 수동 트리거
+# Manually trigger reconciliation
 curl -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   -X POST http://localhost:4680/api/v1/refresh
 ```
 
-### 이벤트 및 로그 확인
+### Checking Events and Logs
 
 ```bash
-# 이벤트 로그 (구조화된 NDJSON)
+# Event log (structured NDJSON)
 cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson | jq .
 
-# Worker 로그 (stderr 캡처)
+# Worker log (stderr capture)
 cat .runtime/e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log
 ```
 
-### 이슈 제거 (retry 중단)
+### Removing Issues (to stop retries)
 
 ```bash
 echo "[]" > e2e/fixtures/issues.json
 ```
 
-### 정리
+### Cleanup
 
 ```bash
 rm -rf .runtime
 ```
 
-`.runtime/`은 gitignored이므로 언제든 삭제하고 `pnpm e2e:init`으로 재생성할 수 있다.
+`.runtime/` is gitignored, so it can be deleted at any time and recreated with `pnpm e2e:init`.
 
 ---
 
-## Docker E2E 테스트 환경
+## Docker E2E Test Environment
 
-### 아키텍처
+### Architecture
 
 ```
 AI Agent
@@ -145,46 +146,46 @@ AI Agent
 │  Docker Container (symphony-e2e)                  │
 │                                                   │
 │  Orchestrator ──spawn──→ Stub Worker              │
-│       │                   (Codex 대체)            │
+│       │                   (replaces Codex)        │
 │  Dashboard :4680        /api/v1/state           │
 │  File Tracker                                     │
 │  (/e2e/fixtures/issues.json)                      │
 │                                                   │
 │  /e2e/repos/ (pre-seeded local git repo)          │
-│  /e2e/work (tmpfs, 컨테이너 종료 시 소멸)         │
+│  /e2e/work (tmpfs, destroyed when the container stops) │
 │    └─ test-repo/.runtime/orchestrator             │
 │                                                   │
-│  :4680 dashboard API (외부 노출)                  │
+│  :4680 dashboard API (exposed externally)         │
 └──────────────────────────────────────────────────┘
 ```
 
-- **File Tracker** (`@gh-symphony/tracker-file`): GitHub API 없이 JSON 파일에서 이슈를 읽음
-- **Stub Worker** (`e2e/stub-worker.ts`): Codex AI 없이 Worker 동작을 시뮬레이션
-- **격리**: clone된 work repo와 repo-local orchestrator 상태는 `/e2e/work` tmpfs에 저장되어 컨테이너 종료 시 소멸. 로컬 `.runtime/`에 아무 영향 없음
-- **이벤트 미러링(선택)**: `docker-compose.e2e.events.yml` override를 함께 쓰면 `events.ndjson`이 호스트 `./evidence/`에도 복제됨
-- **골든 패스**: 컨테이너 entrypoint는 `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all` 순서로 단일-리포 런타임을 기동한다.
-- **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH`는 이 Docker/로컬 E2E의 `kind: file` 워크플로에서만 mounted fixture를 `repo init` 결과에 연결하기 위한 테스트 전용 환경변수다.
+- **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API
+- **Stub Worker** (`e2e/stub-worker.ts`): simulates worker behavior without the Codex AI
+- **Isolation**: the cloned work repo and repo-local orchestrator state live in the `/e2e/work` tmpfs and are destroyed when the container stops. The local `.runtime/` is unaffected
+- **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
+- **Golden path**: the container entrypoint boots the single-repo runtime in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all`.
+- **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used solely by the `kind: file` workflows of this Docker/local E2E setup to connect the mounted fixture to the `repo init` result.
 
-### Stub Worker 시나리오
+### Stub Worker Scenarios
 
-`STUB_SCENARIO` 환경변수로 worker 동작을 제어:
+Control worker behavior with the `STUB_SCENARIO` environment variable:
 
-| Scenario | 동작 |
-|---|---|
-| `happy` (기본) | starting(2s) → running(5s) → completed, exit 0 |
-| `fail` | starting(2s) → running(3s) → failed, exit 1 |
-| `stall` | starting(2s) → running(무한), SIGTERM 대기 |
-| `slow` | starting(2s) → running(30s) → completed, exit 0 |
+| Scenario          | Behavior                                           |
+| ----------------- | -------------------------------------------------- |
+| `happy` (default) | starting(2s) → running(5s) → completed, exit 0     |
+| `fail`            | starting(2s) → running(3s) → failed, exit 1        |
+| `stall`           | starting(2s) → running(forever), waits for SIGTERM |
+| `slow`            | starting(2s) → running(30s) → completed, exit 0    |
 
-`docker-compose.e2e.yml`는 `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`를 사용하므로, 쉘 환경변수로 시나리오를 선택할 수 있다.
+`docker-compose.e2e.yml` uses `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`, so the scenario can be selected via a shell environment variable.
 
 ```bash
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 ```
 
-## E2E 테스트 실행 방법
+## How to Run E2E Tests
 
-### 1. 환경 기동
+### 1. Start the environment
 
 ```bash
 echo "[]" > e2e/fixtures/issues.json
@@ -194,13 +195,13 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/healthz
 ```
 
-### 2. 이슈 주입
+### 2. Inject issues
 
 ```bash
-# 사전 정의된 fixture 사용
+# Use a predefined fixture
 cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 
-# 또는 직접 작성
+# Or write one directly
 cat > e2e/fixtures/issues.json << 'EOF'
 [{
   "id": "issue-1",
@@ -231,23 +232,23 @@ cat > e2e/fixtures/issues.json << 'EOF'
 EOF
 ```
 
-### 3. Reconciliation 트리거
+### 3. Trigger reconciliation
 
 ```bash
 curl -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   -X POST http://localhost:4680/api/v1/refresh
 ```
 
-> 컨테이너의 entrypoint가 이미 `cli start`(지속 폴링)를 실행 중이므로, `docker exec run-once`는 사용하지 않는다. 두 인스턴스가 같은 state 파일을 경합하여 예측 불가능한 동작이 발생한다.
+> The container's entrypoint is already running `cli start` (continuous polling), so do not use `docker exec run-once`. Two instances would contend over the same state files, causing unpredictable behavior.
 
-### 4. 상태 관찰
+### 4. Observe state
 
 ```bash
-# 프로젝트 전체 상태
+# Full project state
 curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   http://localhost:4680/api/v1/state | jq .
 
-# 핵심 필드만
+# Key fields only
 curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
   http://localhost:4680/api/v1/state | jq '{
   health,
@@ -258,57 +259,58 @@ curl -s -H "Authorization: Bearer ${GH_SYMPHONY_HTTP_TOKEN}" \
 }'
 ```
 
-### 5. 이슈 제거 (retry 중단)
+### 5. Remove issues (to stop retries)
 
 ```bash
 echo "[]" > e2e/fixtures/issues.json
 ```
 
-Stub worker는 이슈 상태를 변경하지 않으므로, 완료 후 이슈를 제거해야 retry 루프가 멈춘다.
+The stub worker does not change issue state, so issues must be removed after completion to stop the retry loop.
 
 ## Claude Stub Docker E2E
 
-Claude print runtime의 process spawn, stream-json NDJSON parsing, MCP 합성,
-`claude-session.json` persistence, `--resume` / `--fork-session` argv 주입은
-stub `claude` 바이너리로 Docker 안에서 검증한다.
+The Claude print runtime's process spawn, stream-json NDJSON parsing, MCP composition,
+`claude-session.json` persistence, and `--resume` / `--fork-session` argv injection are
+verified inside Docker with a stub `claude` binary.
 
 ```bash
 pnpm e2e:claude
 ```
 
-이 명령은 두 Docker 경로를 병행 실행한다.
+This command runs two Docker paths in parallel.
 
-| 경로 | 검증 |
-|---|---|
-| `docker-compose.e2e.yml` | 기존 Codex stub worker regression |
-| `test/e2e/claude/docker-compose.yml` | Claude stub binary blackbox spec |
+| Path                                 | Verifies                              |
+| ------------------------------------ | ------------------------------------- |
+| `docker-compose.e2e.yml`             | Existing Codex stub worker regression |
+| `test/e2e/claude/docker-compose.yml` | Claude stub binary blackbox spec      |
 
-Claude stub 계약은 `test/e2e/stubs/claude.sh` 파일 상단 주석에 고정되어
-있다. spec는 stub의 `invocations.ndjson`, `claude-session.json`, 그리고
-run `events.ndjson`를 직접 읽어 다음을 검증한다.
+The Claude stub contract is pinned in the comment at the top of
+`test/e2e/stubs/claude.sh`. The spec directly reads the stub's
+`invocations.ndjson`, `claude-session.json`, and the run's `events.ndjson`
+to verify the following.
 
-- 단일 이슈 `Ready → In progress → In review` 전이
-- intra-run continuation에서 `--resume <sessionId>` 포함 및 `--fork-session` 미포함
-- inter-run recover에서 `--resume <prevId> --fork-session` 포함, 새 session id 저장, `parentRunId` 링크 보존
-- resume session rejection에서 `session_invalidated` event 기록
+- Single-issue `Ready → In progress → In review` transition
+- Intra-run continuation includes `--resume <sessionId>` and excludes `--fork-session`
+- Inter-run recover includes `--resume <prevId> --fork-session`, stores a new session id, and preserves the `parentRunId` link
+- Resume session rejection records a `session_invalidated` event
 
-### 6. 로그 확인
+### 6. Check logs
 
 ```bash
-# Orchestrator 로그
+# Orchestrator logs
 docker logs symphony-e2e
 
-# 이벤트 로그 (구조화된 NDJSON, 기본 tmpfs)
+# Event log (structured NDJSON, tmpfs by default)
 docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
 
-# 호스트 미러 로그 (events override 활성화 시)
+# Host mirror log (when the events override is enabled)
 tail -f evidence/runs/*/events.ndjson
 
-# Worker 로그 (stderr만 캡처됨)
+# Worker log (only stderr is captured)
 docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
 ```
 
-### 7. 정리
+### 7. Cleanup
 
 ```bash
 docker compose -f docker-compose.e2e.yml down
@@ -316,7 +318,7 @@ echo "[]" > e2e/fixtures/issues.json
 rm -rf evidence
 ```
 
-## 핵심 동작 이해
+## Understanding Key Behavior
 
 ### Worker Lifecycle in E2E
 
@@ -332,57 +334,70 @@ idle → [inject issue + refresh]
      → idle
 ```
 
-- Orchestrator는 worker가 exit하면 이슈 상태를 확인하여 retry 종류를 결정
-  - 이슈가 여전히 active state → `continuation` retry
-  - 이슈가 없거나 terminal state → `failure` retry
-- Stub worker는 이슈 상태를 변경하지 않으므로, 이 동작이 정상임
+- When a worker exits, the orchestrator checks the issue state to decide the retry kind
+  - Issue still in an active state → `continuation` retry
+  - Issue missing or in a terminal state → `failure` retry
+- The stub worker does not change issue state, so this behavior is expected
 
-### 사전 정의된 Fixture
+### Predefined Fixtures
 
-| 파일 | 용도 |
-|---|---|
-| `e2e/fixtures/happy-path.json` | 단일 이슈 (state: Ready) |
-| `e2e/fixtures/multi-issue.json` | 3개 이슈 (동시성 테스트, concurrency_limit=2) |
-| `e2e/fixtures/blocked-issue.json` | blockedBy가 있는 이슈 |
+| File                              | Purpose                                          |
+| --------------------------------- | ------------------------------------------------ |
+| `e2e/fixtures/happy-path.json`    | Single issue (state: Ready)                      |
+| `e2e/fixtures/multi-issue.json`   | 3 issues (concurrency test, concurrency_limit=2) |
+| `e2e/fixtures/blocked-issue.json` | Issue with blockedBy                             |
 
-### 사전 정의된 시나리오 문서
+### Predefined Scenario Documents
 
-| 파일 | 시나리오 |
-|---|---|
-| `e2e/scenarios/01-happy-path.md` | 이슈 dispatch → worker 완료 → lifecycle 관찰 |
-| `e2e/scenarios/02-multi-issue.md` | 동시성 제한 확인 |
-| `e2e/scenarios/03-stall-detection.md` | stall → SIGTERM → retry |
-| `e2e/scenarios/04-fail-retry.md` | 실패 → 재시도 스케줄링 |
-| `e2e/scenarios/08-evidence-permissions.md` | 이벤트 미러 evidence 파일 권한 및 cleanup 검증 |
-| `e2e/scenarios/09-linear-sandbox.md` | Linear sandbox `Todo → In Progress → Human Review/Done` 및 reconciliation edge case 검증 |
-| `e2e/scenarios/10-orchestrator-tracker-state.md` | run-scoped tracker API authorization, durable rejection 및 exact-item 동시성 검증 |
+| File                                                      | Scenario                                                                                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `e2e/scenarios/01-happy-path.md`                          | Issue dispatch → worker completion → lifecycle observation                                                                |
+| `e2e/scenarios/02-multi-issue.md`                         | Verify concurrency limit                                                                                                  |
+| `e2e/scenarios/03-stall-detection.md`                     | stall → SIGTERM → retry                                                                                                   |
+| `e2e/scenarios/04-fail-retry.md`                          | Failure → retry scheduling                                                                                                |
+| `e2e/scenarios/05-before-remove-hook-failure.md`          | Verify a `before_remove` hook failure does not block workspace cleanup                                                    |
+| `e2e/scenarios/06-retry-title-preservation.md`            | Issue title preservation during retry/recovery                                                                            |
+| `e2e/scenarios/06-unbounded-failure-retry.md`             | Retries continue after 3+ worker failures                                                                                 |
+| `e2e/scenarios/06-worker-failure-lifecycle-regression.md` | Worker failure lifecycle regression verification                                                                          |
+| `e2e/scenarios/07-release-missing-retry.md`               | Release a missing retry queue instead of restarting                                                                       |
+| `e2e/scenarios/08-evidence-permissions.md`                | Verify event-mirror evidence file permissions and cleanup                                                                 |
+| `e2e/scenarios/09-linear-sandbox.md`                      | Verify Linear sandbox `Todo → In Progress → Human Review/Done` and reconciliation edge cases                              |
+| `e2e/scenarios/10-http-auth-hardening.md`                 | Verify HTTP localhost default binding, bearer auth gating, and state redaction                                            |
+| `e2e/scenarios/10-orchestrator-tracker-state.md`          | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
+| `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                         |
+| `e2e/scenarios/12-transition-comment-race.md`             | Verify orchestrator-owned transition comments survive reconciliation races                                                |
+| `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
 
-## TC 작성 가이드
+## TC Writing Guide
 
-E2E 테스트 케이스는 다음 구조를 따른다:
+E2E test cases follow this structure:
 
 ```markdown
-# TC-XX: 제목
+# TC-XX: Title
 
 ## Setup
-컨테이너 기동, fixture 준비
+
+Start the container, prepare fixtures
 
 ## Steps
-1. 이슈 주입
-2. refresh 트리거
-3. 상태 폴링 (기대값 포함)
-4. 추가 조작 (이슈 제거 등)
+
+1. Inject issues
+2. Trigger refresh
+3. Poll state (with expected values)
+4. Additional actions (removing issues, etc.)
 
 ## Expected
-기대하는 동작과 상태 전이
+
+Expected behavior and state transitions
 
 ## Cleanup
-컨테이너 중지, fixture 초기화
+
+Stop the container, reset fixtures
 ```
 
-### TC 작성 시 주의사항
+### Notes on Writing TCs
 
-- **타이밍**: workspace 준비(git clone)에 3-5초, worker 실행에 시나리오별 시간이 필요함
-- **폴링 간격**: 1초 간격으로 상태를 폴링하되, 최대 대기 시간을 설정
-- **이슈 제거**: worker 완료 관찰 후 반드시 이슈를 제거해야 retry 루프 방지
-- **STUB_SCENARIO**: 시나리오에 맞는 worker 동작을 선택 (예: `STUB_SCENARIO=fail docker compose ...`)
+- **Timing**: workspace preparation (git clone) takes 3-5 seconds; worker execution takes scenario-dependent time
+- **Polling interval**: poll state at 1-second intervals, but set a maximum wait time
+- **Issue removal**: after observing worker completion, always remove issues to avoid retry loops
+- **STUB_SCENARIO**: pick the worker behavior matching the scenario (e.g. `STUB_SCENARIO=fail docker compose ...`)

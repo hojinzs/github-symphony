@@ -1,13 +1,13 @@
-# ADR: `claude -p` runtime 지원 추가 (multi-runtime 추상화)
+# ADR: Add `claude -p` runtime support (multi-runtime abstraction)
 
 - **Date**: 2026-04-15
 - **Status**: Proposed
 - **Revisions**:
   - 2026-04-15 r1 — initial draft
-  - 2026-04-15 r2 — permission preset 3종 + legacy 역매핑 추가
-  - 2026-04-15 r3 — Codex 리뷰 반영, v1 범위로 슬림 재작성 (범위 축소 내역은 §11 참조)
-  - 2026-04-15 r4 — 선(先)결정 5건 반영: `tool-github-graphql` 중립 패키지 분리(P1 선행), MCP 합성 hybrid, session 계층별 처리(intra-run resume / inter-run fork), broker contract에 `expires_at?` 추가, isolation knob(`--bare`/`--strict-mcp-config`) opt-in화. 자세한 변경 포인트는 §11 의 "r4 신규 결정" 참조.
-  - 2026-04-15 r5 — ACP 지원 ADR 을 별도 분리하되 schema break 최소화를 위한 선행 훅 3건 반영: P1 event naming freeze 명시(§4.2.3), session file schema 에 `protocol` 필드 additive 추가(§4.2.1), naming debt 3건 추가(§9). 근거: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md`. 자세한 변경 포인트는 §11 의 "r5 신규 결정" 참조.
+  - 2026-04-15 r2 — added 3 permission presets + legacy reverse mapping
+  - 2026-04-15 r3 — incorporated Codex review, slimmed rewrite to v1 scope (see §11 for the scope reduction details)
+  - 2026-04-15 r4 — incorporated 5 up-front decisions: split out the neutral `tool-github-graphql` package (precedes P1), hybrid MCP composition, per-layer session handling (intra-run resume / inter-run fork), added `expires_at?` to the broker contract, made the isolation knobs (`--bare`/`--strict-mcp-config`) opt-in. See "r4 new decisions" in §11 for the detailed change points.
+  - 2026-04-15 r5 — split ACP support into a separate ADR while incorporating 3 up-front hooks to minimize schema breaks: explicit P1 event naming freeze (§4.2.3), additive `protocol` field in the session file schema (§4.2.1), 3 additional naming debt items (§9). Rationale: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md`. See "r5 new decisions" in §11 for the detailed change points.
 - **Related Spec**: `docs/symphony-spec.md` §5 (Workflow), §10 (Runtime Events), §13 (Runtime Snapshot)
 - **References**:
   - Anthropic Claude Code CLI reference: https://code.claude.com/docs/en/cli-reference
@@ -18,170 +18,171 @@
 
 ## 1. Context
 
-현재 구현은 AI coding agent 런타임으로 **Codex app-server (JSON-RPC daemon)** 하나만 실행한다. `packages/worker/src/index.ts:555 runCodexClientProtocol`이 `thread/start` → multi `turn/*` → `shutdown` 루프를 전제로 하고, `packages/runtime-codex/src/runtime.ts:136`이 기본 명령을 `codex app-server`로 박아 둔다. 저장소 곳곳의 `"claude-code"` 문자열은 authoring / skill 디렉터리 경로만 인지하는 수준이고 실제 실행 경로는 없다.
+The current implementation runs only one AI coding agent runtime: the **Codex app-server (JSON-RPC daemon)**. `packages/worker/src/index.ts:555 runCodexClientProtocol` assumes a `thread/start` → multiple `turn/*` → `shutdown` loop, and `packages/runtime-codex/src/runtime.ts:136` hardcodes the default command to `codex app-server`. The `"claude-code"` strings scattered across the repository only refer to authoring / skill directory paths; there is no actual execution path.
 
-Anthropic `claude -p` (non-interactive CLI) 런타임을 추가 지원하려면 command 교체만으로는 부족하다. 프로세스 수명주기, credential 모델, MCP 연결 방식, WORKFLOW.md 노출 방식이 모두 다르다.
+Adding support for the Anthropic `claude -p` (non-interactive CLI) runtime takes more than swapping the command. The process lifecycle, credential model, MCP wiring, and how WORKFLOW.md is exposed all differ.
 
-본 ADR은 **"현재 Codex 경험을 Claude로도 동일하게 사용할 수 있게 한다"** 는 한 가지 성공조건만 목표로 한다. 권한 추상화, 자동 allowlist 생성, legacy 역매핑 등은 의도적으로 범위에서 제외한다 (§11 참조).
+This ADR targets exactly one success condition: **"make the current Codex experience equally usable with Claude."** Permission abstraction, automatic allowlist generation, legacy reverse mapping, and the like are deliberately excluded from scope (see §11).
 
-## 2. Upstream Spec과의 관계
+## 2. Relationship to the Upstream Spec
 
-`docs/symphony-spec.md`는 **수정하지 않는다**. 본 ADR 내용은 repo-local divergence로 취급한다.
+`docs/symphony-spec.md` is **not modified**. The contents of this ADR are treated as a repo-local divergence.
 
-spec / contract에 이미 박혀 있는 codex 심볼(`OrchestratorChannelCodexUpdateEvent`, `codexTotals`, `codex_totals`, `WorkflowCodexConfig`, `DEFAULT_CODEX_COMMAND` 등)은 본 ADR에서 이름을 바꾸지 않는다. Claude 런타임 데이터도 당분간 이 이름 아래 흐르는 것을 감수한다. 이름 정리는 별도 follow-up ADR에서 다룬다.
+Codex symbols already baked into the spec / contracts (`OrchestratorChannelCodexUpdateEvent`, `codexTotals`, `codex_totals`, `WorkflowCodexConfig`, `DEFAULT_CODEX_COMMAND`, etc.) are not renamed in this ADR. We accept that Claude runtime data will flow under these names for the time being. Renaming cleanup is handled in a separate follow-up ADR.
 
-## 3. `claude -p` 공식 계약 (2026-04-15 문서 확인)
+## 3. Official `claude -p` Contract (docs verified 2026-04-15)
 
-### 3.1 기본 argv (default, 항상 포함)
+### 3.1 Base argv (default, always included)
 
-| Flag | 이유 |
-|---|---|
-| `-p` / `--print` | non-interactive 실행 |
-| `--output-format stream-json` + `--input-format stream-json` | NDJSON 이벤트 / 멀티 메시지 주입 |
-| `--include-partial-messages` + `--verbose` | delta token 이벤트 포함 |
-| `--permission-mode bypassPermissions` | 현행 Codex `danger-full-access`와 기능적 등가. isolated workspace 전제 (§4.4) |
-| `--session-id <uuid>` / `--resume <id>` / `--fork-session` | 턴/런 간 세션 관리 (§4.2) |
+| Flag                                                         | Reason                                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `-p` / `--print`                                             | non-interactive execution                                                                               |
+| `--output-format stream-json` + `--input-format stream-json` | NDJSON events / multi-message injection                                                                 |
+| `--include-partial-messages` + `--verbose`                   | include delta token events                                                                              |
+| `--permission-mode bypassPermissions`                        | functionally equivalent to the current Codex `danger-full-access`. Assumes an isolated workspace (§4.4) |
+| `--session-id <uuid>` / `--resume <id>` / `--fork-session`   | session management across turns/runs (§4.2)                                                             |
 
-### 3.2 Isolation opt-in 플래그 (§4.8)
+### 3.2 Isolation opt-in flags (§4.8)
 
-기본 argv 에는 포함되지 않고 WORKFLOW.md `runtime.isolation` 에서 선택하는 플래그.
+Flags not included in the base argv, selected via `runtime.isolation` in WORKFLOW.md.
 
-| Flag | 효과 | 기본 | 선택 방법 |
-|---|---|---|---|
-| `--bare` | hooks / skills / plugins / auto memory (`CLAUDE.md`) 자동 discovery 스킵 | **off** | `runtime.isolation.bare: true` |
-| `--strict-mcp-config --mcp-config <f>` | 모든 MCP auto-discovery 차단, `<f>` 만 로드 | **off** | `runtime.isolation.strict_mcp_config: true` |
+| Flag                                   | Effect                                                                       | Default | How to select                               |
+| -------------------------------------- | ---------------------------------------------------------------------------- | ------- | ------------------------------------------- |
+| `--bare`                               | skips auto-discovery of hooks / skills / plugins / auto memory (`CLAUDE.md`) | **off** | `runtime.isolation.bare: true`              |
+| `--strict-mcp-config --mcp-config <f>` | blocks all MCP auto-discovery, loads only `<f>`                              | **off** | `runtime.isolation.strict_mcp_config: true` |
 
-### 3.3 주요 제약
+### 3.3 Key constraints
 
-- **Slash skill 비가용**: 공식 문서 원문 — *"User-invoked skills like `/commit` and built-in commands are only available in interactive mode."* `-p` 모드에서는 `.claude/skills/*` 가 user-invocable slash command로 호출되지 않는다. `--bare` 여부와 무관한 CLI 제약.
-- **OAuth/keychain**: `--bare` on 일 때(그리고 `apiKeyHelper` 미설정 시)는 `ANTHROPIC_API_KEY` 필수. `--bare` off 에서는 로컬 Claude Code 로그인도 사용 가능.
-- **One-shot per invocation**: Codex app-server 같은 장기 JSON-RPC daemon이 아니다. 매 턴마다 새 프로세스 (§4.2).
+- **Slash skills unavailable**: verbatim from the official docs — _"User-invoked skills like `/commit` and built-in commands are only available in interactive mode."_ In `-p` mode, `.claude/skills/*` cannot be invoked as user-invocable slash commands. This is a CLI constraint independent of `--bare`.
+- **OAuth/keychain**: with `--bare` on (and no `apiKeyHelper` configured), `ANTHROPIC_API_KEY` is required. With `--bare` off, a local Claude Code login can also be used.
+- **One-shot per invocation**: not a long-lived JSON-RPC daemon like the Codex app-server. A new process per turn (§4.2).
 
 ## 4. Decision
 
-### 4.1 단계적 도입
+### 4.1 Phased introduction
 
-| Phase | 범위 | 완료 조건 |
-|---|---|---|
-| **P1.0 — 선행 분리** | `packages/tool-github-graphql/` 신설. 현 `packages/runtime-codex/src/github-graphql-tool.ts` / `github-graphql-mcp-server.ts` 및 테스트 이동. `runtime-codex` 가 새 패키지를 dependency 로 참조. | import path 외 기능 변경 없음. Codex regression 없음. |
-| **P1 — Adapter 추상화** | `packages/core`에 `AgentRuntimeAdapter` 인터페이스 도입(spawn-loop 계약 포함), 기존 `runtime-codex`를 해당 인터페이스 뒤로 이식. worker는 어댑터만 의존. worker 가 보는 agent event 이름을 런타임 중립 집합으로 정규화 (§4.2.3). | 기능 변경 없음. Codex regression 없음. worker 소스에 Codex wire name (`turn/completed`, `dynamic_tool_call_request`, `item/tool/requestUserInput`) 잔존 0건. |
-| **P2 — `runtime-claude` 신설** | `packages/runtime-claude` 추가. `claude -p` one-shot invocation 루프로 `AgentRuntimeAdapter` 구현. credential 소비 분기(§4.3), MCP 합성(§4.6.2), session 관리(§4.2), `doctor` / `init` preflight 확장(§4.5). | stub `claude` 바이너리로 Docker E2E 1개 이슈 처리 완료. |
-| **P3 — `runtime.kind` front-matter** | WORKFLOW.md에 `runtime:` 블록 도입 (§5.2). 기존 `codex:` 블록은 하위호환 유지. | runtime 선택이 1급 설정으로 승격. |
+| Phase                                | Scope                                                                                                                                                                                                                                                                                    | Completion criteria                                                                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **P1.0 — Preliminary split**         | Create `packages/tool-github-graphql/`. Move the current `packages/runtime-codex/src/github-graphql-tool.ts` / `github-graphql-mcp-server.ts` and their tests. `runtime-codex` references the new package as a dependency.                                                               | No functional change beyond import paths. No Codex regression.                                                                                                                 |
+| **P1 — Adapter abstraction**         | Introduce an `AgentRuntimeAdapter` interface in `packages/core` (including the spawn-loop contract), port the existing `runtime-codex` behind that interface. The worker depends only on the adapter. Normalize the agent event names the worker sees to a runtime-neutral set (§4.2.3). | No functional change. No Codex regression. Zero remaining Codex wire names (`turn/completed`, `dynamic_tool_call_request`, `item/tool/requestUserInput`) in the worker source. |
+| **P2 — New `runtime-claude`**        | Add `packages/runtime-claude`. Implement `AgentRuntimeAdapter` with a `claude -p` one-shot invocation loop. Credential consumption branching (§4.3), MCP composition (§4.6.2), session management (§4.2), `doctor` / `init` preflight extensions (§4.5).                                 | One issue handled end-to-end in Docker E2E with a stub `claude` binary.                                                                                                        |
+| **P3 — `runtime.kind` front-matter** | Introduce a `runtime:` block in WORKFLOW.md (§5.2). The existing `codex:` block remains backward compatible.                                                                                                                                                                             | Runtime selection promoted to a first-class setting.                                                                                                                           |
 
-### 4.2 Worker 프로세스 모델 분기
+### 4.2 Worker process model branching
 
-- **Codex app-server**: 기존 `runCodexClientProtocol` 유지.
+- **Codex app-server**: keep the existing `runCodexClientProtocol`.
 - **Claude `-p`**: **one-shot per Symphony turn**.
-  1. 첫 턴: `--session-id <generated-uuid>` 고정 발급, session id 저장 (§4.2.1).
-  2. 같은 run 내 turn 재시도 (**intra-run retry**): `--resume <session-id>`. 직전 실패 context 유지로 같은 실수 반복 방지.
-  3. orchestrator 의 run 재dispatch (**inter-run recover**): 이전 run 의 session id 를 읽고 `--resume <session-id> --fork-session` 으로 새 session 발급. 누적 오염 끊고 cache 비용 리셋.
-  4. `--output-format stream-json --include-partial-messages --verbose` 로 NDJSON 이벤트 수신.
-  5. exit code + 최종 event 로 turn 결과 판정 (§4.2.2).
+  1. First turn: issue a fixed `--session-id <generated-uuid>`, persist the session id (§4.2.1).
+  2. Turn retry within the same run (**intra-run retry**): `--resume <session-id>`. Preserving the context of the immediately preceding failure prevents repeating the same mistake.
+  3. Orchestrator run re-dispatch (**inter-run recover**): read the previous run's session id and issue a new session with `--resume <session-id> --fork-session`. Cuts off accumulated contamination and resets cache cost.
+  4. Receive NDJSON events via `--output-format stream-json --include-partial-messages --verbose`.
+  5. Determine the turn result from the exit code + final event (§4.2.2).
 
-기존 `thread-resume.ts`, `turn-limits.ts`, `convergence-detection.ts`는 P1 adapter 인터페이스에 맞춰 **"프로세스 spawn 루프"** 로 재해석한다.
+The existing `thread-resume.ts`, `turn-limits.ts`, and `convergence-detection.ts` are reinterpreted as a **"process spawn loop"** to fit the P1 adapter interface.
 
-#### 4.2.1 Session id 저장
+#### 4.2.1 Session id persistence
 
-- 경로: `.runtime/orchestrator/runs/<run-id>/claude-session.json`
-- 내용: `{ protocol: "claude-print", sessionId: string, createdAt: ISO8601, parentRunId?: string, protocolState?: Record<string, unknown> }`.
-  - `protocol` 필드를 명시해 두면 향후 ACP 등 추가 프로토콜 지원 시 공용 session schema (파일 통합은 §9 naming debt 참조) 로 additive 전환 가능.
-  - `parentRunId` 는 inter-run recover 시 이전 run 링크용.
-  - `protocolState` 는 런타임별 opaque metadata 슬롯 (resume token, capability negotiation 결과 등).
-- 읽기 실패 / 세션 만료(`--resume` 4xx) 시 fallback: 새 `--session-id` 발급(fork 없이), `parentRunId` 로 링크 유지. run event 에 `session_invalidated` 를 로깅.
+- Path: `.runtime/orchestrator/runs/<run-id>/claude-session.json`
+- Contents: `{ protocol: "claude-print", sessionId: string, createdAt: ISO8601, parentRunId?: string, protocolState?: Record<string, unknown> }`.
+  - Making the `protocol` field explicit allows an additive transition to a shared session schema (see the §9 naming debt for file consolidation) when additional protocols such as ACP are supported in the future.
+  - `parentRunId` links to the previous run during inter-run recover.
+  - `protocolState` is a runtime-specific opaque metadata slot (resume tokens, capability negotiation results, etc.).
+- Fallback on read failure / session expiry (`--resume` 4xx): issue a new `--session-id` (without fork), keep the link via `parentRunId`. Log `session_invalidated` in the run events.
 
-#### 4.2.2 Exit code 규칙
+#### 4.2.2 Exit code rules
 
-| Claude exit | 최종 `result` event | 해석 | 다음 행동 |
-|---|---|---|---|
-| 0 | `success` | turn 성공 | run continuation 정책 적용 |
-| 0 | `error_*` | turn 내 application-level 실패 | `turn/failed` emit, retry 규칙 위임 |
-| non-0 | (없음 / SIGTERM) | process-level 실패 (API error, rate limit, misconfig) | transient 여부 판별 후 retry 또는 run 실패 |
+| Claude exit | Final `result` event | Interpretation                                           | Next action                                             |
+| ----------- | -------------------- | -------------------------------------------------------- | ------------------------------------------------------- |
+| 0           | `success`            | turn succeeded                                           | apply run continuation policy                           |
+| 0           | `error_*`            | application-level failure within the turn                | emit `turn/failed`, delegate to retry rules             |
+| non-0       | (none / SIGTERM)     | process-level failure (API error, rate limit, misconfig) | determine whether transient, then retry or fail the run |
 
-구체 이벤트 이름별 매핑 테이블은 구현 이슈(#6)에서 확정.
+The concrete per-event-name mapping table is finalized in implementation issue (#6).
 
 #### 4.2.3 Event naming freeze (P1 merge gate)
 
-worker 가 의존하는 agent event 이름을 런타임 중립 집합으로 고정한다. 각 어댑터 (`runtime-codex`, 후속 `runtime-claude`) 가 자기 wire protocol 이벤트를 이 이름으로 매핑한다. worker 는 이 집합 외 이름을 알지 못한다.
+The agent event names the worker depends on are frozen as a runtime-neutral set. Each adapter (`runtime-codex`, later `runtime-claude`) maps its own wire protocol events to these names. The worker knows no names outside this set.
 
-| Neutral event | Codex 원본 | claude-print 원본 (P2) | 비고 |
-|---|---|---|---|
-| `agent.turnStarted` | `turn/started` | `message_start` / first `content_block_delta` | turn 경계 시작 |
-| `agent.turnCompleted` | `turn/completed` | `result` (stop_reason != error) | usage payload 동반 |
-| `agent.toolCallRequested` | `dynamic_tool_call_request` | `tool_use` content block | tool bridge 진입점 |
-| `agent.inputRequired` | `item/tool/requestUserInput` | (N/A — Anthropic `-p` 는 미발생) | Symphony 정책상 즉시 실패 처리 |
-| `agent.rateLimit` | `turn/rate_limit` | `result.usage.rate_limit` | backoff 판단용 |
-| `agent.messageDelta` | `item/message/delta` | `content_block_delta` | 토큰 스트림 (로그/옵저버빌리티) |
-| `agent.error` | `error` / non-0 exit | `error` / non-0 exit | §4.2.2 분류 규칙 적용 |
+| Neutral event             | Codex original               | claude-print original (P2)                    | Notes                                 |
+| ------------------------- | ---------------------------- | --------------------------------------------- | ------------------------------------- |
+| `agent.turnStarted`       | `turn/started`               | `message_start` / first `content_block_delta` | start of a turn boundary              |
+| `agent.turnCompleted`     | `turn/completed`             | `result` (stop_reason != error)               | accompanied by a usage payload        |
+| `agent.toolCallRequested` | `dynamic_tool_call_request`  | `tool_use` content block                      | tool bridge entry point               |
+| `agent.inputRequired`     | `item/tool/requestUserInput` | (N/A — Anthropic `-p` does not emit it)       | immediate failure per Symphony policy |
+| `agent.rateLimit`         | `turn/rate_limit`            | `result.usage.rate_limit`                     | for backoff decisions                 |
+| `agent.messageDelta`      | `item/message/delta`         | `content_block_delta`                         | token stream (logging/observability)  |
+| `agent.error`             | `error` / non-0 exit         | `error` / non-0 exit                          | classification rules of §4.2.2 apply  |
 
-구체 payload schema 는 구현 이슈에서 확정. **이 표의 이름 집합은 P1 merge gate** — worker 소스 grep 에 Codex wire name 이 남아 있으면 P1 미완 상태로 간주.
+The concrete payload schema is finalized in the implementation issue. **The name set in this table is the P1 merge gate** — if a grep of the worker source still finds Codex wire names, P1 is considered incomplete.
 
-근거: 본 집합은 `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` §3 의 `AgentEvent` 제안과 정합. ACP 지원 ADR 진입 시 동일 이름으로 mapping 한 줄 추가만 하면 되도록 의도된 shape.
+Rationale: this set is consistent with the `AgentEvent` proposal in `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` §3. The shape is intentional so that when the ACP support ADR lands, adding a single mapping line under the same names is all that is needed.
 
-### 4.3 Credential 모델
+### 4.3 Credential model
 
-- `AgentRuntimeAdapter` 에 `resolveCredentials(brokerResponse): RuntimeEnv` 슬롯을 둔다.
-- **Broker contract 확장 (additive)**: 응답 schema 를 `{ env: Record<string, string>, expires_at?: string (ISO8601) }` 로 확장. `expires_at` 미지정이면 lifetime 재사용으로 폴백 (legacy broker 호환).
-- **소비 측 분기** — broker 응답에서 런타임이 자기 필요한 env key 만 추출:
-  - Codex: `OPENAI_API_KEY`, `OPENAI_BASE_URL` 등 기존 소비 로직 유지.
-  - Claude: `ANTHROPIC_API_KEY`. 없으면 preflight 단계에서 명확한 에러.
-- **캐시**: 현 `agentCredentialCachePath` 파일에 `expires_at` 포함 payload 저장. `TOKEN_REUSE_WINDOW_MS` 직전이면 재사용, 만료되면 broker 재호출.
-- Codex 전용 자산(`CODEX_HOME` 스테이징)은 그대로 유지.
+- `AgentRuntimeAdapter` gets a `resolveCredentials(brokerResponse): RuntimeEnv` slot.
+- **Broker contract extension (additive)**: extend the response schema to `{ env: Record<string, string>, expires_at?: string (ISO8601) }`. If `expires_at` is unspecified, fall back to lifetime reuse (legacy broker compatible).
+- **Consumer-side branching** — each runtime extracts only the env keys it needs from the broker response:
+  - Codex: keep the existing consumption logic for `OPENAI_API_KEY`, `OPENAI_BASE_URL`, etc.
+  - Claude: `ANTHROPIC_API_KEY`. If absent, a clear error at the preflight stage.
+- **Cache**: store an `expires_at`-bearing payload in the current `agentCredentialCachePath` file. Reuse if within `TOKEN_REUSE_WINDOW_MS` of expiry; re-call the broker once expired.
+- Codex-specific assets (`CODEX_HOME` staging) remain as-is.
 
-### 4.4 Permission 모델 (v1 단일 프리셋)
+### 4.4 Permission model (single v1 preset)
 
-v1은 **`permissive` 동작만 지원**한다. Claude는 `--permission-mode bypassPermissions`, Codex는 기존 `approval_policy: never` + `thread_sandbox: danger-full-access` (현재 `packages/worker/src/codex-policy.ts:18-24` 기본값 그대로).
+v1 supports **only `permissive` behavior**. Claude uses `--permission-mode bypassPermissions`; Codex keeps the existing `approval_policy: never` + `thread_sandbox: danger-full-access` (the current defaults in `packages/worker/src/codex-policy.ts:18-24`, unchanged).
 
-선택 근거:
+Rationale for this choice:
 
-1. **Symphony 워커는 "human 개입 = 실패"로 동작한다** (`packages/worker/src/index.ts:891-920`에서 `turnParams.inputRequired === true` 시 즉시 SIGTERM + run failure). 따라서 Codex의 `on-request` / Claude의 `default`·`acceptEdits` 처럼 "사람에게 물어보는" 모드는 orchestrator 맥락에서 의미가 없다.
-2. 현재 Codex 경험이 이미 `danger-full-access`다. Claude 도입이 곧 퇴행이 되면 안 된다.
-3. Symphony는 per-issue `.runtime/symphony-workspaces/<id>/` throwaway clone + Docker E2E 전제로 운영된다. Anthropic 문서가 `bypassPermissions` 권장 조건으로 제시하는 "isolated environments" 를 충족한다.
+1. **Symphony workers treat "human intervention = failure"** (in `packages/worker/src/index.ts:891-920`, `turnParams.inputRequired === true` triggers immediate SIGTERM + run failure). Therefore modes that "ask a human" — Codex `on-request` / Claude `default` and `acceptEdits` — are meaningless in the orchestrator context.
+2. The current Codex experience is already `danger-full-access`. Introducing Claude must not amount to a regression.
+3. Symphony operates on the premise of per-issue `.runtime/symphony-workspaces/<id>/` throwaway clones + Docker E2E. This satisfies the "isolated environments" condition the Anthropic docs give for recommending `bypassPermissions`.
 
-권한을 좁히고 싶은 사용자는 **`runtime.kind: custom`** 으로 argv를 직접 기입한다. 정식 preset(예: strict-ci / safe-edits)은 실수요가 쌓인 뒤 별도 ADR에서 다룬다.
+Users who want to narrow permissions write the argv themselves via **`runtime.kind: custom`**. Formal presets (e.g. strict-ci / safe-edits) are handled in a separate ADR once real demand accumulates.
 
-**문서화 고정 문구** — WORKFLOW.md generator가 Claude 런타임 선택 시 자동 삽입:
+**Fixed documentation wording** — automatically inserted by the WORKFLOW.md generator when the Claude runtime is selected:
 
 > **Permissive preset requires an isolated workspace.** Symphony runs each issue in `.runtime/symphony-workspaces/<workspace-id>/`, a throwaway clone. If you disable workspace isolation or mount host paths into worker containers, do not use this runtime in production.
 
-### 4.5 Preflight readiness (v1 필수)
+### 4.5 Preflight readiness (required for v1)
 
-실행 중 blocker 코멘트만으로는 "시작 전에 깨지는" 흔한 케이스를 막을 수 없다. 따라서 다음을 **v1 필수**로 포함한다.
+Blocker comments during execution alone cannot prevent the common cases that "break before starting." Therefore the following is included as **required for v1**.
 
-- `doctor` 확장 (`packages/cli/src/commands/doctor.ts:1011` 분기 확장):
-  - `claude` 바이너리 존재 / 버전.
-  - `ANTHROPIC_API_KEY` 설정 여부 또는 credential broker 도달성 (Claude 선택 시에만).
-  - 워크스페이스 루트 `.mcp.json` 의 읽기 가능성 (없어도 OK, 읽기 실패는 warn).
-  - `gh` 인증 상태 (Codex와 공통).
-- `init` 은 runtime 선택 직후 위 항목을 로컬에서 한 번 실행해 사람 읽기 쉬운 오류를 출력한다.
-- 워커는 시작 시점에도 같은 체크를 수행하고, 실패 시 exit code + log 로 명시 (blocker 코멘트 이전 단계).
+- `doctor` extension (extend the branch at `packages/cli/src/commands/doctor.ts:1011`):
+  - `claude` binary presence / version.
+  - Whether `ANTHROPIC_API_KEY` is set, or credential broker reachability (only when Claude is selected).
+  - Readability of `.mcp.json` at the workspace root (absence is OK, read failure is a warn).
+  - `gh` authentication status (shared with Codex).
+- `init` runs the checks above once locally, right after runtime selection, and prints human-readable errors.
+- The worker performs the same checks at startup as well and, on failure, signals explicitly via exit code + log (a stage before blocker comments).
 
-### 4.6 GitHub GraphQL tool — 중립 패키지 + MCP 합성
+### 4.6 GitHub GraphQL tool — neutral package + MCP composition
 
-#### 4.6.1 중립 패키지로 재배치 (P1.0 선행)
+#### 4.6.1 Relocation into a neutral package (precedes P1.0)
 
-현 `packages/runtime-codex/src/github-graphql-tool.ts` 와 `github-graphql-mcp-server.ts` 는 **런타임 중립 자산**이다 (Codex 관련 로직 없음, 단순 GraphQL 래퍼 + MCP stdio server). P1.0 선행 이슈에서 `packages/tool-github-graphql/` 패키지로 이동. 두 런타임 어댑터는 새 패키지를 dependency 로 참조.
+The current `packages/runtime-codex/src/github-graphql-tool.ts` and `github-graphql-mcp-server.ts` are **runtime-neutral assets** (no Codex-related logic; a simple GraphQL wrapper + MCP stdio server). In the P1.0 preliminary issue, move them into a `packages/tool-github-graphql/` package. Both runtime adapters reference the new package as a dependency.
 
-근거: `runtime-claude` 가 `runtime-codex` 에 의존하는 import 그래프는 어댑터 추상화의 취지를 훼손한다.
+Rationale: an import graph where `runtime-claude` depends on `runtime-codex` undermines the purpose of the adapter abstraction.
 
-#### 4.6.2 MCP config 합성 (Claude 전용)
+#### 4.6.2 MCP config composition (Claude only)
 
-Worker 초기화 단계에서 symphony-required MCP (`github_graphql`) 를 사용자 `.mcp.json` 과 병합한다. 병합 결과는 체크아웃 루트를 오염시키지 않도록 항상 worker runtime directory 의 ephemeral 파일에 기록한다. `runtime.isolation.strict_mcp_config` 는 auto-discovery 차단 여부만 제어한다:
+During worker initialization, the symphony-required MCP (`github_graphql`) is merged with the user's `.mcp.json`. The merge result is always written to an ephemeral file in the worker runtime directory so the checkout root is not polluted. `runtime.isolation.strict_mcp_config` only controls whether auto-discovery is blocked:
 
-| `strict_mcp_config` | 병합 결과 위치 | argv 추가 |
-|---|---|---|
-| **false (default)** | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--mcp-config <path>` |
-| true | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--strict-mcp-config --mcp-config <path>` |
+| `strict_mcp_config` | Merge result location                        | argv addition                             |
+| ------------------- | -------------------------------------------- | ----------------------------------------- |
+| **false (default)** | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--mcp-config <path>`                     |
+| true                | `WORKSPACE_RUNTIME_DIR/mcp.json` (ephemeral) | `--strict-mcp-config --mcp-config <path>` |
 
-병합 규칙:
-- Base: 워크스페이스 루트 `.mcp.json` 이 있으면 그 내용, 없으면 `{ mcpServers: {} }`.
-- Overwrite: `mcpServers.github_graphql` 키를 symphony-managed 값으로 덮어씀 (command path / env / token 을 런타임 값으로 결정).
-- User-authored 다른 키는 보존.
+Merge rules:
 
-Codex 런타임은 기존 `CODEX_HOME` 스테이징을 유지하고 MCP 합성을 거치지 않는다.
+- Base: the contents of `.mcp.json` at the workspace root if present, otherwise `{ mcpServers: {} }`.
+- Overwrite: the `mcpServers.github_graphql` key is overwritten with the symphony-managed value (command path / env / token decided at runtime).
+- Other user-authored keys are preserved.
 
-### 4.7 Prompt 분기
+The Codex runtime keeps its existing `CODEX_HOME` staging and does not go through MCP composition.
 
-`generate-workflow-md.ts`는 Claude 런타임 선택 시 prompt body 상단에 아래 섹션을 삽입한다.
+### 4.7 Prompt branching
+
+When the Claude runtime is selected, `generate-workflow-md.ts` inserts the following section at the top of the prompt body.
 
 ```md
 ### Runtime Constraints
@@ -192,31 +193,32 @@ Codex 런타임은 기존 `CODEX_HOME` 스테이징을 유지하고 MCP 합성�
 4. If a required permission or tool is unavailable, post a blocker comment on the issue and exit. Do not wait for human input.
 ```
 
-Codex 런타임 prompt는 현행 유지.
+The Codex runtime prompt stays as-is.
 
 ### 4.8 Isolation knobs (opt-in)
 
-운영자 개인 환경(`~/.claude/`, 커스텀 MCP) 및 팀 자산(`CLAUDE.md`, `.claude/skills/`) 의 worker 노출 여부는 **팀 정책**이지 프레임워크 default 가 아니다. 두 knob 으로 노출:
+Whether the operator's personal environment (`~/.claude/`, custom MCPs) and team assets (`CLAUDE.md`, `.claude/skills/`) are exposed to workers is a **team policy**, not a framework default. Exposed via two knobs:
 
-| Knob | off (default) — Claude Code 네이티브 | on — 격리 |
-|---|---|---|
-| `runtime.isolation.bare` | `CLAUDE.md` 자동 주입, skills/hooks/plugins discovery 활성 | argv 에 `--bare` 추가 — discovery 모두 스킵 |
-| `runtime.isolation.strict_mcp_config` | 사용자 `.mcp.json` + `~/.claude` MCP 모두 로드. Symphony MCP 는 `--mcp-config <ephemeral>` 로 공급 (§4.6.2) | argv 에 `--strict-mcp-config --mcp-config <ephemeral>` 추가. Symphony-merged ephemeral 만 로드 |
+| Knob                                  | off (default) — Claude Code native                                                                                         | on — isolated                                                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `runtime.isolation.bare`              | `CLAUDE.md` auto-injected, skills/hooks/plugins discovery active                                                           | adds `--bare` to argv — skips all discovery                                                                    |
+| `runtime.isolation.strict_mcp_config` | loads both the user `.mcp.json` and `~/.claude` MCPs. The Symphony MCP is supplied via `--mcp-config <ephemeral>` (§4.6.2) | adds `--strict-mcp-config --mcp-config <ephemeral>` to argv. Only the Symphony-merged ephemeral file is loaded |
 
-Default 근거:
-- `bypassPermissions` 를 v1 default 로 놓은 §4.4 와 동일 철학: "넓게 시작, 좁힐 팀이 명시 opt-in".
-- 팀이 `CLAUDE.md`, `.claude/skills/` 를 쓸 때 그걸 의도적으로 무시하는 것이 더 큰 surprise.
-- 멀티 테넌트 / CI 환경에서 격리가 필요한 팀은 2줄 opt-in 으로 전환.
+Rationale for the defaults:
 
-Trade-off 고지 — WORKFLOW.md generator 가 Claude 런타임 선택 시 주석으로 삽입:
+- Same philosophy as making `bypassPermissions` the v1 default in §4.4: "start broad; teams that want to narrow opt in explicitly."
+- When a team uses `CLAUDE.md` and `.claude/skills/`, deliberately ignoring them is the bigger surprise.
+- Teams that need isolation in multi-tenant / CI environments can switch with a two-line opt-in.
+
+Trade-off disclosure — inserted as a comment by the WORKFLOW.md generator when the Claude runtime is selected:
 
 > Isolation is off by default — the agent will pick up your `CLAUDE.md`, project skills, and personal MCPs from `~/.claude/`. Turn isolation on when running in multi-operator CI, shared infrastructure, or when reproducibility across machines matters.
 
 ## 5. WORKFLOW.md schema (v1)
 
-### 5.1 단기 호환 (P1-P2)
+### 5.1 Short-term compatibility (P1-P2)
 
-기존 `codex:` 블록 재사용. 명령 문자열만 교체.
+Reuse the existing `codex:` block. Only the command string is replaced.
 
 ```yaml
 codex:
@@ -230,15 +232,15 @@ codex:
   stall_timeout_ms: 900000
 ```
 
-Parser 변경 없음. Isolation flag (`--bare` / `--strict-mcp-config`) 는 필요 시 수동 추가.
+No parser changes. Isolation flags (`--bare` / `--strict-mcp-config`) are added manually when needed.
 
-### 5.2 정식 (P3)
+### 5.2 Formal (P3)
 
-`runtime:` 블록 도입. 구 `codex:` 블록은 deprecated alias 로 유지.
+Introduce the `runtime:` block. The old `codex:` block is kept as a deprecated alias.
 
 ```yaml
 runtime:
-  kind: claude-print            # codex-app-server | claude-print | custom
+  kind: claude-print # codex-app-server | claude-print | custom
   command: claude
   args:
     - -p
@@ -251,8 +253,8 @@ runtime:
     - --permission-mode
     - bypassPermissions
   isolation:
-    bare: false                  # true 시 --bare 자동 추가
-    strict_mcp_config: false     # true 시 --strict-mcp-config + ephemeral --mcp-config 자동 주입
+    bare: false # when true, --bare is added automatically
+    strict_mcp_config: false # when true, --strict-mcp-config + an ephemeral --mcp-config are injected automatically
   auth:
     env: ANTHROPIC_API_KEY
   timeouts:
@@ -261,156 +263,160 @@ runtime:
     stall_timeout_ms: 900000
 ```
 
-Parser는 `runtime:` 우선, 없으면 기존 `codex:` 로 폴백. **legacy → preset 역추론은 하지 않는다**. 구 설정은 구 설정 그대로 해석한다.
+The parser prefers `runtime:`, falling back to the existing `codex:` block if absent. **No legacy → preset reverse inference.** Old configuration is interpreted as-is.
 
-Session resume 동작(§4.2)은 **schema 에 노출하지 않는다**. intra-run `--resume` / inter-run `--fork-session` 은 프레임워크 default. 실수요 발생 시 후속 ADR.
+Session resume behavior (§4.2) is **not exposed in the schema**. Intra-run `--resume` / inter-run `--fork-session` are framework defaults. A follow-up ADR if real demand emerges.
 
 ## 6. User stories
 
-- As a repository maintainer, WORKFLOW.md만 편집해서 Codex ↔ Claude 런타임을 전환할 수 있다.
-- As a team lead, `.mcp.json` / `CLAUDE.md` / `.claude/skills/` 를 커밋하면 worker 가 그대로 활용한다. 격리가 필요하면 `runtime.isolation` 2줄로 켠다.
-- As an orchestrator operator, 런타임 종류와 무관하게 같은 run lifecycle / session id / `lastEventAt` / token usage 를 본다.
-- As a new Claude user, `gh-symphony init` 또는 `gh-symphony doctor` 가 **시작 전에** 필요한 준비물(바이너리, API 키, gh 인증)을 한 번에 알려준다.
-- As a retry/recovery flow, worker 가 intra-run 은 `--resume` 으로 context 유지, inter-run recover 는 `--fork-session` 으로 누적 오염 끊는다.
+- As a repository maintainer, I can switch between the Codex and Claude runtimes by editing only WORKFLOW.md.
+- As a team lead, when I commit `.mcp.json` / `CLAUDE.md` / `.claude/skills/`, the worker uses them as-is. When I need isolation, I turn it on with two lines of `runtime.isolation`.
+- As an orchestrator operator, I see the same run lifecycle / session id / `lastEventAt` / token usage regardless of runtime kind.
+- As a new Claude user, `gh-symphony init` or `gh-symphony doctor` tells me everything I need (binary, API key, gh auth) at once, **before starting**.
+- As a retry/recovery flow, the worker preserves context intra-run with `--resume`, and cuts off accumulated contamination for inter-run recover with `--fork-session`.
 
 ## 7. Test plan
 
-- Unit: `AgentRuntimeAdapter` 인터페이스 정합성, `runtime-claude` 의 argv 조립 (isolation off/on 분기 포함), session id 저장/복구.
-- Unit: `parseWorkflowMarkdown` 이 `runtime.kind=claude-print` + `runtime.isolation` 블록 허용하고 legacy `codex:` 블록과 공존.
-- Unit: Claude NDJSON 이벤트 → `OrchestratorChannelEvent` 정규화 + exit code 분류 (§4.2.2).
-- Unit: MCP 합성 — (a) user `.mcp.json` 없는 경우, (b) 있는 경우, (c) `strict_mcp_config=true` 일 때 ephemeral 경로 생성.
-- Unit: credential — broker 응답 `{env, expires_at?}` 캐시 hit/miss, Claude 는 `ANTHROPIC_API_KEY` 만 추출.
-- Unit: `doctor` 가 missing binary / missing `ANTHROPIC_API_KEY` / gh 미인증을 각각 사람 읽기 쉬운 메시지로 보고.
-- Integration: stub `claude` 바이너리(Bash shim)로 worker 가 `Ready → In progress → In review` 전이.
-- E2E (Docker): `AGENT_TEST.md` 환경에서 Claude stub 으로 한 이슈를 end-to-end 처리, intra-run retry 경로에서 `--resume` 유지 / inter-run recover 경로에서 `--fork-session` 동작.
-- Regression: 기존 Codex 경로 변동 없음 (P1.0 + P1 merge gate).
+- Unit: `AgentRuntimeAdapter` interface conformance, `runtime-claude` argv assembly (including the isolation off/on branches), session id save/restore.
+- Unit: `parseWorkflowMarkdown` accepts `runtime.kind=claude-print` + the `runtime.isolation` block and coexists with the legacy `codex:` block.
+- Unit: Claude NDJSON events → `OrchestratorChannelEvent` normalization + exit code classification (§4.2.2).
+- Unit: MCP composition — (a) no user `.mcp.json`, (b) present, (c) ephemeral path creation when `strict_mcp_config=true`.
+- Unit: credentials — broker response `{env, expires_at?}` cache hit/miss, Claude extracts only `ANTHROPIC_API_KEY`.
+- Unit: `doctor` reports missing binary / missing `ANTHROPIC_API_KEY` / unauthenticated gh, each as a human-readable message.
+- Integration: with a stub `claude` binary (Bash shim), the worker transitions `Ready → In progress → In review`.
+- E2E (Docker): in the `AGENT_TEST.md` environment, process one issue end-to-end with the Claude stub; `--resume` is preserved on the intra-run retry path / `--fork-session` behaves on the inter-run recover path.
+- Regression: no change to the existing Codex path (P1.0 + P1 merge gate).
 
 ## 8. Open questions
 
-r4 에서 해소된 항목:
+Items resolved in r4:
 
-- ~~`.gh-symphony/claude-mcp.json` 생성 주체~~ → **해소**: Symphony 전용 파일 만들지 않음. 워크스페이스 루트 `.mcp.json` 을 base 로 삼아 worker 가 합성 (§4.6.2).
-- ~~`--fork-session` 기본값~~ → **해소**: intra-run retry = `--resume` (fork 없음), inter-run recover = `--resume + --fork-session`. schema 노출 없음 (§4.2).
-- ~~API key 회전 정책~~ → **해소**: broker response 에 `expires_at?` 추가, 캐시 hit/miss 로 rotation (§4.3).
-- ~~Isolation default~~ → **해소**: `--bare` / `--strict-mcp-config` 모두 default off, knob opt-in (§4.8).
+- ~~Who generates `.gh-symphony/claude-mcp.json`~~ → **Resolved**: no Symphony-specific file is created. The worker composes using the workspace root `.mcp.json` as the base (§4.6.2).
+- ~~`--fork-session` default~~ → **Resolved**: intra-run retry = `--resume` (no fork), inter-run recover = `--resume + --fork-session`. Not exposed in the schema (§4.2).
+- ~~API key rotation policy~~ → **Resolved**: `expires_at?` added to the broker response; rotation via cache hit/miss (§4.3).
+- ~~Isolation default~~ → **Resolved**: both `--bare` / `--strict-mcp-config` default off, knob opt-in (§4.8).
 
-잔여:
-1. stream-json 이벤트 이름별 정규화 테이블 구체안 (구현 이슈 #6 본문에서 확정).
-2. stub `claude` Bash shim 입출력 계약 (구현 이슈 #9 본문에서 확정).
+Remaining:
+
+1. Concrete normalization table per stream-json event name (finalized in the body of implementation issue #6).
+2. Stub `claude` Bash shim input/output contract (finalized in the body of implementation issue #9).
 
 ## 9. Naming debt / follow-up (deferred)
 
-본 ADR 범위 외. 별도 ADR에서 다룬다.
+Out of scope for this ADR. Handled in a separate ADR.
 
-- `OrchestratorChannelCodexUpdateEvent` / `codex_update` 이벤트 타입
-- `codexTotals` / `codex_session_logs` status surface 필드
+- `OrchestratorChannelCodexUpdateEvent` / `codex_update` event type
+- `codexTotals` / `codex_session_logs` status surface fields
 - `WorkflowCodexConfig` / `DEFAULT_CODEX_COMMAND`
-- `symphony-spec.md §4.1.8 codex_totals` — upstream spec 문서이므로 수정 금지. 해석상 "active runtime의 aggregate"로 본다.
-- `AgentRuntimeAdapter` → `AgentProtocolClient` 리네이밍. ACP 지원 ADR 진입 시점에 재검토. claude-print 단독 지원 상황에선 "runtime" 네이밍이 여전히 자연스럽다.
-- `packages/runtime-codex`, `packages/runtime-claude` → `packages/protocol-*` 재배치. ACP 가 "runtime" 이 아닌 표준 프로토콜이라는 맥락이 생기면 의미가 생긴다. 그 전에는 작업 비용 대비 효용 낮음.
-- `.runtime/orchestrator/runs/<run-id>/claude-session.json` → 런타임 중립 `agent-session.json` 파일명 통합. §4.2.1 의 `protocol` 필드가 discriminator 가 되도록 설계되어 있어 additive 통합 가능.
+- `symphony-spec.md §4.1.8 codex_totals` — an upstream spec document, so modification is prohibited. Interpreted as "the aggregate of the active runtime."
+- Rename `AgentRuntimeAdapter` → `AgentProtocolClient`. Re-evaluate when the ACP support ADR lands. While only claude-print is supported, the "runtime" naming still feels natural.
+- Relocate `packages/runtime-codex`, `packages/runtime-claude` → `packages/protocol-*`. This becomes meaningful once the context arises that ACP is a standard protocol rather than a "runtime." Before that, the effort outweighs the benefit.
+- `.runtime/orchestrator/runs/<run-id>/claude-session.json` → consolidate into a runtime-neutral `agent-session.json` filename. The `protocol` field of §4.2.1 is designed to serve as the discriminator, so additive consolidation is possible.
 
 ## 10. Consequences
 
 ### Positive
-- 런타임 추상화 + `tool-github-graphql` 분리로 Bun, Rust 등 추가 런타임도 동일 계약으로 꽂을 수 있다.
-- Isolation knob 2개가 "재현성 vs 팀 자산 활용" 트레이드오프를 팀 정책 차원에서 결정 가능하게 한다.
-- `init` + `doctor` 의 preflight readiness 가 "blocker 코멘트 이후" 대응을 "로컬 오류 메시지" 로 전방 배치한다.
-- Credential broker contract 확장이 additive 라 기존 배포 깨지 않음.
+
+- The runtime abstraction + the `tool-github-graphql` split let additional runtimes such as Bun or Rust plug in under the same contract.
+- The two isolation knobs make the "reproducibility vs. leveraging team assets" trade-off decidable at the team-policy level.
+- The `init` + `doctor` preflight readiness moves the response from "after a blocker comment" forward to "a local error message."
+- The credential broker contract extension is additive, so existing deployments do not break.
 
 ### Negative
-- worker multi-turn 루프가 "프로세스 spawn 루프" 로 재설계되어야 하므로 P1 선행이 필수. P1 없이 P2 에 진입하면 변경 폭이 위험하게 커진다.
-- Claude 쪽은 `--bare` off 일 때 OAuth/keychain 활용 가능하지만 on 이면 `ANTHROPIC_API_KEY` 필수 — 두 경로 모두 테스트 필요.
-- `codex_*` 네이밍이 당분간 Claude 런타임 데이터에도 사용되어 일시적 의미 debt 가 남는다.
-- `permissive` 단일 모드가 v1 의 전부이므로, 보안 강화를 원하는 팀은 `custom` 으로 직접 argv 를 관리해야 한다.
-- Default isolation off 는 "Claude Code 네이티브 경험" 을 제공하지만 운영자 환경 간 재현성이 팀 정책에 의존한다. 팀이 isolation on 을 명시적으로 켜야 reproducibility 가 보장됨.
+
+- The worker multi-turn loop must be redesigned as a "process spawn loop," so P1 must come first. Entering P2 without P1 makes the change footprint dangerously large.
+- On the Claude side, OAuth/keychain can be used with `--bare` off, but with it on, `ANTHROPIC_API_KEY` is required — both paths need testing.
+- The `codex_*` naming will also carry Claude runtime data for the time being, leaving temporary semantic debt.
+- Since the single `permissive` mode is all of v1, teams that want to tighten security must manage the argv themselves via `custom`.
+- Default isolation off provides "the Claude Code native experience," but reproducibility across operator environments depends on team policy. Teams must explicitly turn isolation on for reproducibility to be guaranteed.
 
 ### Neutral
-- Symphony upstream spec은 변경하지 않고, 본 ADR을 repo-local extension으로 공식화한다.
+
+- The Symphony upstream spec is not changed; this ADR is formalized as a repo-local extension.
 
 ---
 
-## 11. 이전 revision 에서 제외 / 유지 / 추가한 항목
+## 11. Items excluded / retained / added relative to earlier revisions
 
-### 11.0 r5 신규 결정
+### 11.0 r5 new decisions
 
-ACP 지원은 별도 ADR 로 분리 결정. 본 ADR 범위는 claude-print 유지하되 **ACP 도입 시 schema break 가 최소가 되도록** 다음을 선행 반영.
+ACP support was decided to be split into a separate ADR. This ADR's scope stays with claude-print, but the following is incorporated up front **so that schema breaks are minimal when ACP is introduced**.
 
-근거 문서: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` (ChatGPT 설계 협의, 2026-04-15 아카이브).
+Rationale document: `moncher-stack-wiki/research/github-symphony-acp-support.ko.md` (ChatGPT design consultation, archived 2026-04-15).
 
-- **P1 event naming freeze 명시** (§4.1 P1 완료 조건, §4.2.3) — worker 가 보는 agent event 이름을 런타임 중립 집합 (`agent.turnStarted` / `agent.turnCompleted` / `agent.toolCallRequested` / `agent.inputRequired` / `agent.rateLimit` / `agent.messageDelta` / `agent.error`) 으로 고정. Research §3 의 `AgentEvent` 제안과 정합. P1 merge gate.
-- **Session file schema 에 `protocol` + `protocolState?` additive 추가** (§4.2.1) — 향후 ACP 세션 통합 시 discriminator + opaque slot 으로 활용. 기능 변경 없음.
-- **Naming debt 3건 추가** (§9) — adapter 리네이밍 (`AgentRuntimeAdapter` → `AgentProtocolClient`), 패키지 재배치 (`runtime-*` → `protocol-*`), session file 파일명 통합. 모두 ACP 지원 ADR 에서 재검토.
+- **Explicit P1 event naming freeze** (§4.1 P1 completion criteria, §4.2.3) — the agent event names the worker sees are frozen as a runtime-neutral set (`agent.turnStarted` / `agent.turnCompleted` / `agent.toolCallRequested` / `agent.inputRequired` / `agent.rateLimit` / `agent.messageDelta` / `agent.error`). Consistent with the `AgentEvent` proposal in Research §3. P1 merge gate.
+- **Additive `protocol` + `protocolState?` in the session file schema** (§4.2.1) — used as a discriminator + opaque slot when consolidating ACP sessions in the future. No functional change.
+- **3 additional naming debt items** (§9) — adapter rename (`AgentRuntimeAdapter` → `AgentProtocolClient`), package relocation (`runtime-*` → `protocol-*`), session filename consolidation. All re-evaluated in the ACP support ADR.
 
-명시적으로 **수용하지 않은** Research 제안:
+Research proposals explicitly **not accepted**:
 
-- `AgentCapability` union (`tool` / `fs` / `terminal` / `approval`) 전면 도입 — claude-print 는 MCP + `bypassPermissions` 로 동등 기능을 확보하므로 v1 에선 과한 추상화. ACP 지원 ADR 에서 필요성 재검토.
-- WORKFLOW.md 의 `capabilities:` 블록 — 같은 이유로 v1 불필요. 실 knob 수요가 생길 때 추가.
-- `protocol-*` 패키지 리네이밍 — 네이밍 debt 로만 기록, 실제 코드는 유지 (§9).
+- Full introduction of the `AgentCapability` union (`tool` / `fs` / `terminal` / `approval`) — claude-print achieves equivalent capability via MCP + `bypassPermissions`, so this is over-abstraction for v1. Necessity re-evaluated in the ACP support ADR.
+- The `capabilities:` block in WORKFLOW.md — unnecessary for v1 for the same reason. Added when real knob demand arises.
+- The `protocol-*` package rename — recorded only as naming debt; the actual code stays (§9).
 
-### 11.1 r4 신규 결정
+### 11.1 r4 new decisions
 
-- **`tool-github-graphql` 중립 패키지 분리** (§4.1 P1.0, §4.6.1) — runtime-claude 가 runtime-codex 에 import 의존하는 그래프 회피.
-- **MCP 합성 hybrid** (§4.6.2) — 사용자 `.mcp.json` 을 base 로, `strict_mcp_config` 값에 따라 워크스페이스 mutation 또는 ephemeral 로 분기. `.gh-symphony/claude-mcp.json` 같은 Symphony 전용 파일은 만들지 않음.
-- **Session 계층별 처리** (§4.2) — intra-run retry 는 `--resume`, inter-run recover 는 `--resume + --fork-session`. schema 미노출.
-- **Broker response `expires_at?` 추가** (§4.3) — additive. legacy broker 폴백 보장.
-- **Isolation knobs `runtime.isolation.bare` / `strict_mcp_config`** (§3.2, §4.8, §5.2) — 둘 다 default off. 팀이 opt-in.
+- **Split out the neutral `tool-github-graphql` package** (§4.1 P1.0, §4.6.1) — avoids an import graph where runtime-claude depends on runtime-codex.
+- **Hybrid MCP composition** (§4.6.2) — using the user's `.mcp.json` as the base, branch between workspace mutation and ephemeral output depending on the `strict_mcp_config` value. No Symphony-specific file such as `.gh-symphony/claude-mcp.json` is created.
+- **Per-layer session handling** (§4.2) — intra-run retry uses `--resume`, inter-run recover uses `--resume + --fork-session`. Not exposed in the schema.
+- **Broker response `expires_at?` added** (§4.3) — additive. Legacy broker fallback guaranteed.
+- **Isolation knobs `runtime.isolation.bare` / `strict_mcp_config`** (§3.2, §4.8, §5.2) — both default off. Teams opt in.
 
-### 11.2 r3 에서 제외한 항목 (r4/r5 유지)
+### 11.2 Items excluded in r3 (still excluded in r4/r5)
 
-r3 재작성 시점에 Codex 리뷰 및 사용자 원칙("심플해야 한다") 을 반영해 다음을 **v1 범위 밖**으로 이동했다. r4 / r5 에서도 그대로 유효.
+At the time of the r3 rewrite, reflecting the Codex review and the user principle ("it must be simple"), the following were moved **out of v1 scope**. Still valid as-is in r4 / r5.
 
-#### 제외 1: Permission preset 추상화 (`permissive` / `safe-edits` / `strict-ci` / `custom`)
+#### Exclusion 1: Permission preset abstraction (`permissive` / `safe-edits` / `strict-ci` / `custom`)
 
-- **r2에 있던 내용**: `runtime.permission.preset` 필드와 3-preset 표. Claude `acceptEdits` / `dontAsk` 와 Codex `on-request` / `workspace-write` / `read-only` 를 같은 preset 이름 아래 묶는 설계.
-- **제외 사유**:
-  1. Symphony 워커는 `packages/worker/src/index.ts:891-920` 에서 "user input 요청 시 즉시 SIGTERM + 실패" 로 동작한다. 따라서 `on-request` / `acceptEdits` 같은 "사람에게 물어보는" 모드는 orchestrator 맥락에서 의미가 없고, Codex 쪽 `safe-edits` / `strict-ci` 는 **사실상 실행 불능**이다. 같은 이름으로 포장하면 사용자에게 거짓 대칭을 약속하게 된다.
-  2. v1 성공조건 ("Codex 경험을 Claude로 그대로") 을 달성하는 데 `permissive` 하나로 충분하다.
-- **v1 처리**: `permissive` 동작만 지원. 좁히고 싶으면 `runtime.kind: custom` 으로 argv 직접 기입 (§4.4).
-- **후속**: 실수요가 쌓이면 별도 ADR. 그때는 preset 이름을 **런타임별로 다르게** 두고 공통 추상화를 포기할 가능성이 높다.
+- **What r2 had**: a `runtime.permission.preset` field and a 3-preset table. A design that grouped Claude `acceptEdits` / `dontAsk` and Codex `on-request` / `workspace-write` / `read-only` under the same preset names.
+- **Reasons for exclusion**:
+  1. Symphony workers behave as "immediate SIGTERM + failure on user input request" in `packages/worker/src/index.ts:891-920`. Therefore "ask a human" modes such as `on-request` / `acceptEdits` are meaningless in the orchestrator context, and the Codex-side `safe-edits` / `strict-ci` are **effectively inoperable**. Packaging them under the same names would promise users a false symmetry.
+  2. The single `permissive` is sufficient to meet the v1 success condition ("the Codex experience, as-is, with Claude").
+- **v1 handling**: only `permissive` behavior is supported. To narrow, write the argv directly via `runtime.kind: custom` (§4.4).
+- **Follow-up**: a separate ADR once real demand accumulates. At that point it is likely the preset names will be kept **different per runtime**, abandoning the shared abstraction.
 
-#### 제외 2: `runtime.permission.extra_allow` / `extra_deny`
+#### Exclusion 2: `runtime.permission.extra_allow` / `extra_deny`
 
-- **r2에 있던 내용**: 프로젝트별 allowlist 확장 / deny 룰 확장을 YAML 에서 선언.
-- **제외 사유**: preset 추상화가 빠지면서 붙일 자리가 없다. `extra_deny` 는 Codex 쪽 대응 개념이 없어 런타임별 기능 차이가 발생한다.
-- **v1 처리**: `custom` argv 에 직접 `--allowedTools` / `--disallowedTools` 기입.
-- **후속**: preset ADR 과 함께 재검토.
+- **What r2 had**: declaring per-project allowlist extensions / deny rule extensions in YAML.
+- **Reasons for exclusion**: with the preset abstraction gone, there is nowhere to attach it. `extra_deny` has no corresponding concept on the Codex side, creating a per-runtime feature gap.
+- **v1 handling**: write `--allowedTools` / `--disallowedTools` directly in the `custom` argv.
+- **Follow-up**: re-evaluate together with the preset ADR.
 
-#### 제외 3: `safe-edits` 자동 allowlist 생성 (detectEnvironment 기반)
+#### Exclusion 3: Automatic `safe-edits` allowlist generation (based on detectEnvironment)
 
-- **r2에 있던 내용**: `detectEnvironment` 결과로 `Bash(<packageManager> *)`, `Bash(<testCommand prefix> *)` 등을 자동 생성.
-- **제외 사유**: 실제 탐지기(`packages/cli/src/detection/environment-detector.ts`) 는 `package.json` 의 `scripts` raw 문자열과 package manager 정도만 안다. Monorepo, Makefile, justfile, Docker 기반 테스트, shell wrapper 에서는 오탐 / 누락이 잦다. preset 자체가 빠진 이상 부속 기능도 함께 제외한다.
-- **v1 처리**: 없음.
-- **후속**: preset ADR 에서 재검토. 자동 생성보다는 `init` 시 스캐폴드 파일을 열어 사용자가 직접 편집하는 쪽이 현실적일 수 있다.
+- **What r2 had**: automatically generating `Bash(<packageManager> *)`, `Bash(<testCommand prefix> *)`, etc. from `detectEnvironment` results.
+- **Reasons for exclusion**: the actual detector (`packages/cli/src/detection/environment-detector.ts`) only knows the raw `scripts` strings in `package.json` and the package manager. False positives / omissions are frequent with monorepos, Makefiles, justfiles, Docker-based tests, and shell wrappers. With the preset itself gone, the accessory feature goes too.
+- **v1 handling**: none.
+- **Follow-up**: re-evaluate in the preset ADR. Rather than auto-generation, opening a scaffold file at `init` time for the user to edit directly may be more realistic.
 
-#### 제외 4: Legacy `codex:` 설정 → preset 역매핑
+#### Exclusion 4: Legacy `codex:` config → preset reverse mapping
 
-- **r2에 있던 내용**: 구 WORKFLOW.md 의 `thread_sandbox: danger-full-access` 같은 값을 보고 `permissive` preset 으로 자동 라벨링.
-- **제외 사유**: 현재 `codex:` 블록은 `command` / `approval_policy` / `thread_sandbox` / `turn_sandbox_policy` / 타임아웃이 각각 독립 필드다. 이 중 하나만 보고 preset 라벨을 붙이면 실제보다 안전해 보이거나 더 엄격해 보이는 **오해를 부를 수 있다**. preset 자체가 v1 에 없으므로 역매핑도 불필요.
-- **v1 처리**: parser 는 `runtime:` 블록 있으면 우선, 없으면 `codex:` 블록 그대로 해석. 라벨 추론 없음.
-- **후속**: preset ADR 도입 시 다시 검토. `doctor` 가 "legacy 설정 감지, 명시 preset 을 추가하세요" 경고만 띄우는 선이 안전하다.
+- **What r2 had**: automatically labeling old WORKFLOW.md values such as `thread_sandbox: danger-full-access` as the `permissive` preset.
+- **Reasons for exclusion**: the current `codex:` block has `command` / `approval_policy` / `thread_sandbox` / `turn_sandbox_policy` / timeouts as independent fields. Attaching a preset label based on just one of them **could mislead**, making the setup look safer or stricter than it actually is. Since presets themselves are absent from v1, reverse mapping is also unnecessary.
+- **v1 handling**: the parser prefers the `runtime:` block if present, otherwise interprets the `codex:` block as-is. No label inference.
+- **Follow-up**: revisit when the preset ADR is introduced. A safe line is for `doctor` to only emit a "legacy configuration detected, please add an explicit preset" warning.
 
-#### 제외 5: `--exclude-dynamic-system-prompt-sections`
+#### Exclusion 5: `--exclude-dynamic-system-prompt-sections`
 
-- **r1에 있던 내용**: 다수 이슈 병렬 처리 시 prompt cache hit rate 향상을 위해 해당 플래그를 기본 argv 에 포함하는 안.
-- **제외 사유**: v1 성공조건과 무관한 성능 최적화. 구체 운영 가이드 (설정 경로, 측정 방법) 도 미정의 상태였다.
-- **v1 처리**: 없음.
-- **후속**: 토큰 비용이 실제로 문제되면 별도 최적화 ADR 에서.
+- **What r1 had**: a proposal to include this flag in the base argv to improve the prompt cache hit rate when processing many issues in parallel.
+- **Reasons for exclusion**: a performance optimization unrelated to the v1 success condition. Concrete operational guidance (config path, measurement method) was also undefined.
+- **v1 handling**: none.
+- **Follow-up**: in a separate optimization ADR if token cost actually becomes a problem.
 
-#### 제외 6: `max-turns` 의미 정의 상세
+#### Exclusion 6: Detailed semantics of `max-turns`
 
-- **r1에 있던 내용**: Claude `--max-turns` (invocation 내부 loop) vs Symphony `agent.max_turns` (continuation 횟수) 매핑 규칙.
-- **제외 사유**: v1 에서는 Claude `--max-turns` 를 설정하지 않고 Claude 기본값에 위임한다. Symphony `agent.max_turns` 는 기존 의미 그대로(프로세스 재호출 횟수 상한) 사용. 매핑 규칙을 지금 못박을 필요가 없다.
-- **v1 처리**: Claude argv 에 `--max-turns` 포함하지 않음.
-- **후속**: 실제 runaway 사례가 나오면 그때 정의.
+- **What r1 had**: mapping rules between Claude `--max-turns` (the loop inside an invocation) and Symphony `agent.max_turns` (the number of continuations).
+- **Reasons for exclusion**: in v1 we do not set Claude `--max-turns` and delegate to Claude's default. Symphony `agent.max_turns` keeps its existing meaning (upper bound on process re-invocations). There is no need to pin down the mapping rules now.
+- **v1 handling**: `--max-turns` is not included in the Claude argv.
+- **Follow-up**: define it when an actual runaway case occurs.
 
-### 11.3 유지된 핵심 항목 (r3 → r5)
+### 11.3 Core items retained (r3 → r5)
 
-- runtime adapter 추상화 (§4.1 P1) — 핵심.
-- `runtime-claude` 패키지 (§4.1 P2) — 핵심.
-- `runtime.kind` front-matter (§4.1 P3, §5.2) — 핵심.
-- `doctor` preflight readiness (§4.5) — v1 필수.
-- `permissive` 동작 단일 지원 (§4.4).
-- prompt body 에 slash command 금지 안내 (§4.7).
-- credential broker (§4.3) — r4 에서 contract 명시화.
-- GitHub GraphQL MCP 재사용 (§4.6) — r4 에서 중립 패키지 재배치 + 합성 분기로 확장.
+- Runtime adapter abstraction (§4.1 P1) — core.
+- `runtime-claude` package (§4.1 P2) — core.
+- `runtime.kind` front-matter (§4.1 P3, §5.2) — core.
+- `doctor` preflight readiness (§4.5) — required for v1.
+- Single supported `permissive` behavior (§4.4).
+- Slash-command prohibition notice in the prompt body (§4.7).
+- Credential broker (§4.3) — contract made explicit in r4.
+- GitHub GraphQL MCP reuse (§4.6) — extended in r4 with the neutral package relocation + composition branching.

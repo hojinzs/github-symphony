@@ -16,12 +16,14 @@ Display a comprehensive overview of all issues on the GitHub Project board, grou
 Run these checks **in order** before proceeding:
 
 1. **gh CLI authentication**: Run `gh auth status`. If not authenticated, stop and instruct:
+
    ```
    GitHub CLI is not authenticated. Please run:
    $ gh auth login
    ```
 
 2. **Project scope permission**: Attempt a lightweight project API call. If permission error, stop and instruct:
+
    ```
    The GitHub CLI token lacks the "project" scope. Please run:
    $ gh auth refresh -s project
@@ -37,6 +39,7 @@ Run these checks **in order** before proceeding:
 ### Step 1: Parse Configuration
 
 Read `PROJECT_MANAGE.md` frontmatter to get:
+
 - `project_number`, `owner` — for querying the project
 - `status_options` — for ordering status columns correctly
 - `backlog_status` — to identify which items are in backlog
@@ -46,6 +49,7 @@ Read `PROJECT_MANAGE.md` frontmatter to get:
 Run `gh project item-list <project_number> --owner <owner> --format json --limit 100` to get all items with their fields.
 
 For each item, extract:
+
 - Title, number, issue URL
 - Status (which column)
 - Priority (P0/P1/P2 or unset)
@@ -79,20 +83,21 @@ Format:
 
 ```
 ## In Progress (2)
-  #26 [P0] blockedBy BlockerRef 변경        S   2d  assignee  ← ready
+  #26 [P0] Change blockedBy BlockerRef        S   2d  assignee  ← ready
 
 ## Backlog (5)
   #27 [P1] Issue-Centric State Model       XL   8d  assignee  ← ready
   #25 [P1] GET /api/v1/<issue_identifier>   M   3d  assignee  ⊘ blocked by #27
-  #22 [P2] Commander.js 마이그레이션        L   5d  assignee  ← ready
+  #22 [P2] Commander.js migration        L   5d  assignee  ← ready
   #23 [P2] interactive project selection    S   2d  assignee  ⊘ blocked by #22
-  #24 [P2] project add 간소화              S   1d  assignee  ⊘ blocked by #22
+  #24 [P2] Simplify project add              S   1d  assignee  ⊘ blocked by #22
 
 ## Done (10)
   (show count only, or list with --all flag)
 ```
 
 Status indicators:
+
 - `← ready` — No unresolved blockers, can be started
 - `⊘ blocked by #N` — Has unresolved blocking issues
 - `⊘ blocked by #N (Done)` — Blocker is marked done but relationship not yet removed (stale)

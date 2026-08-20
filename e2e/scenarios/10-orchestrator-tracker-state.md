@@ -5,26 +5,26 @@
 1. `echo "[]" > e2e/fixtures/issues.json`
 2. `mkdir -p evidence`
 3. `docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d --build`
-4. `/healthz`가 성공할 때까지 대기한다.
+4. Wait until `/healthz` succeeds.
 
 ## Steps
 
-1. `e2e/fixtures/happy-path.json`을 `e2e/fixtures/issues.json`에 복사한다.
-2. `POST /api/v1/refresh`를 호출하고 active run의 `runId`를 조회한다.
-3. run ID 없이 `POST /api/v1/tracker-state`에 `{"type":"state-read"}`를 보내 완전한 `TrackerStateResult` shape의 `400`을 확인한다.
-4. 현재 run ID만 사용하고 worker에 주입된 `SYMPHONY_ORCHESTRATOR_TOKEN`을 생략해 `401`, `tracker_state_authentication_failed`를 확인한다.
-5. worker 프로세스 환경에서 token을 읽고 `X-Symphony-Orchestrator-Token`으로 전달하되, `X-Symphony-Run-Id`에 존재하지 않는 run을 넣어 `403`, `run_not_found`를 확인한다.
-6. 현재 run ID와 token으로 요청해 file tracker가 provider transition을 지원하지 않음을 나타내는 `403`, `tracker_state_requests_unsupported`를 확인한다.
-7. `events.ndjson`에서 인증을 통과한 현재 run 요청의 `tracker.state` durable rejection event를 확인한다.
-8. GitHub adapter unit integration TC에서 다섯 transition을 동시에 보내 각 요청이 canonical item ID만 조회하고 provider 호출 최대 동시성이 1인지 확인한다.
+1. Copy `e2e/fixtures/happy-path.json` to `e2e/fixtures/issues.json`.
+2. Call `POST /api/v1/refresh` and look up the active run's `runId`.
+3. Send `{"type":"state-read"}` to `POST /api/v1/tracker-state` without a run ID and verify a `400` with the complete `TrackerStateResult` shape.
+4. Use only the current run ID while omitting the `SYMPHONY_ORCHESTRATOR_TOKEN` injected into the worker, and verify `401`, `tracker_state_authentication_failed`.
+5. Read the token from the worker process environment and pass it via `X-Symphony-Orchestrator-Token`, but put a non-existent run in `X-Symphony-Run-Id`, and verify `403`, `run_not_found`.
+6. Request with the current run ID and token, and verify `403`, `tracker_state_requests_unsupported`, indicating the file tracker does not support provider transitions.
+7. In `events.ndjson`, verify the `tracker.state` durable rejection event for the authenticated current-run request.
+8. In the GitHub adapter unit integration TC, send five transitions concurrently and verify each request queries only the canonical item ID and that the maximum provider call concurrency is 1.
 
 ## Expected
 
-- HTTP API가 process-secret 인증을 통과하고 `SYMPHONY_RUN_ID`에 해당하는 current run만 승인한다.
-- 상태 API에 노출된 run ID만으로는 tracker read/mutation을 호출할 수 없다.
-- 지원되지 않거나 stale한 요청은 성공으로 오인되지 않고 진단 가능한 결과/event를 남긴다.
-- worker 실패 경로에서 lifecycle comment/workpad를 허용하는 confirmed 응답이 반환되지 않는다.
-- GitHub adapter 동시성 TC는 board-wide item query 없이 exact-item read → mutation → exact-item readback만 수행한다.
+- The HTTP API passes process-secret authentication and authorizes only the current run matching `SYMPHONY_RUN_ID`.
+- The run IDs exposed by the state API alone cannot invoke tracker reads/mutations.
+- Unsupported or stale requests are not mistaken for success and leave diagnosable results/events.
+- On the worker failure path, no confirmed response is returned that would allow lifecycle comments/workpads.
+- The GitHub adapter concurrency TC performs only exact-item read → mutation → exact-item readback, with no board-wide item query.
 
 ## Cleanup
 

@@ -30,7 +30,8 @@ After completing any spec or implementation task, the agent MUST verify:
 
 1. Whether the resulting design or code still conforms to [docs/symphony-spec.md](docs/symphony-spec.md).
 2. Whether any part of the work intentionally diverges from the upstream spec.
-3. **TC 작성 및 테스트 실행**: 작업 완료 후 간단한 TC(Test Case)를 작성하고, 테스트를 실행하여 검증해야 한다. 단위 테스트(`pnpm test`)는 필수이며, 통합 동작 검증이 필요한 경우 Docker E2E 환경에서 블랙박스 테스트를 수행한다. 구체적인 테스트 방법은 [AGENT_TEST.md](AGENT_TEST.md)를 참고한다.
+3. **Write TCs and run tests**: After completing work, write simple test cases and run the tests to verify. Unit tests (`pnpm test`) are mandatory; when integration behavior needs verification, run black-box tests in the Docker E2E environment. See [AGENT_TEST.md](AGENT_TEST.md) for the concrete testing procedure.
+4. **Update living documents**: When behavior, the CLI surface, or the package structure changes, update the related living documents in the same change — user-facing commands and usage in `README.md` and `packages/cli/README.md`, layer/package mapping in the matching slice of `docs/architecture.md`, configuration and environment variables in `docs/configuration.md`, and new E2E scenarios in the scenario table of `AGENT_TEST.md`. Document placement follows [docs/README.md](docs/README.md).
 
 If a divergence exists:
 

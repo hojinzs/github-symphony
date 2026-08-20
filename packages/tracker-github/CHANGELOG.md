@@ -67,7 +67,7 @@
 
 ### Patch Changes
 
-- 대규모 수정
+- Large-scale changes
 
 - Updated dependencies []:
   - @gh-symphony/core@0.0.2

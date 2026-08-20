@@ -129,7 +129,7 @@ This step is entered only when the Step 0 _Ready-return rework guard_ classified
    - Create a new `## Workpad — {{issue.identifier}} — Cycle N` comment using the Workpad Template (see _Workpad Lifecycle_). N is the next cycle number after the most recent workpad on the issue (1 if none).
    - Determine the base branch: `main` by default. If the issue body explicitly references an Epic working branch, use that; otherwise stay on `main`.
    - Create a `feat/<issue-number>-<short-description>` branch from the base branch (unless the resume check above adopted one).
-   - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, 변경 지점 다이어그램, 여기부터 보세요, 위험 & 롤백, 변경 파일 — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
+   - Push the branch and create a **Draft PR** targeting the same base branch using the `/gh-pr-writeup` skill to scaffold the body (TL;DR, change-point diagram, start-here guide, risks & rollback, changed files — finalized in Step 2.8). Include `## Issues — Closed #<issue-number>` so GitHub auto-links.
    - Record the Draft PR URL and base branch in the workpad.
 5. Prepare the `🔁 Status: Ready → In progress` body, pass it as `comment_body` to `/gh-project`, and append the matching workpad `### Status Transitions` line only after confirmed readback. If the request does not return confirmed readback for `In progress`, record the failure and stop without publishing a status comment.
 6. Proceed to Step 2.
@@ -179,7 +179,7 @@ Entered from one of:
    - Record the Changeset file path in the workpad `### Validation` section.
 
 8. **Mandatory handoff gate.** The moment Steps 5–7 are satisfied, in **this same turn**:
-   1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 sections are current.
+   1. Run `/gh-pr-writeup` to refresh the PR body so TL;DR · change-point diagram · start-here guide · risks & rollback · changed files · `## Issues — Closed #<N>` · post-merge/human validation sections are current.
    2. Complete the current workpad's Completion Bar, final Validation results, and Progress Log entry, including the exact handoff reason, before its lifecycle transition.
    3. Mark the Draft PR ready: `gh pr ready <pr-number>`.
    4. Prepare the `🔁 Status: In progress → In review` body and include it as `comment_body` in the `/gh-project` request.
@@ -223,6 +223,7 @@ This step performs no code edits, commits, or pushes itself — only the workpad
 
 ### Guardrails
 
+- Write everything you publish — PR titles and bodies, commit messages, workpad comments, status transition comments, and any new issues — in English, regardless of the language the issue was written in.
 - Do not edit the issue body for planning or progress tracking.
 - If the issue is in a terminal state, do nothing and exit.
 - If you find out-of-scope improvements, open a separate issue rather than expanding the current scope.
@@ -297,10 +298,10 @@ Used for all cycles. Land-cycle workpads keep Plan/Validation/Progress Log fille
 ### Plan
 
 <!-- one item per turn (Step 2.3). LAST item is always the handoff.
-     Out-of-scope items go under 위임 below, never here. -->
+     Out-of-scope items go under Delegation below, never here. -->
 
 - [ ] 1. {task item}
-- [ ] N. 마무리: 원본 이슈 재검증 · Completion Bar 통과 · changeset (필요 시) · PR ready · In review 전이
+- [ ] N. Wrap-up: re-verify the original issue · pass the Completion Bar · changeset (if needed) · PR ready · transition to In review
 
 ### Rework / PR Feedback
 
@@ -332,11 +333,11 @@ Used for all cycles. Land-cycle workpads keep Plan/Validation/Progress Log fille
 - Docker E2E evidence: `{path or N/A}`
 - Merge commit (Land cycle only): `{SHA}`
 
-### 위임 (out-of-scope / human / post-merge)
+### Delegation (out-of-scope / human / post-merge)
 
 <!-- items from {{issue.description}} that the agent does NOT do: deploy,
      external URL smoke test, manual UX. Mirror into the PR body's
-     머지 후/사람 확인 section. NOT blockers, NOT Plan checkboxes. -->
+     post-merge/human validation section. NOT blockers, NOT Plan checkboxes. -->
 
 - {none | item}
 
@@ -358,7 +359,7 @@ All skills referenced by this workflow live under `.codex/skills/<name>/SKILL.md
 
 - **`/gh-project`** — request run-scoped state reads/transitions from the orchestrator. The orchestrator owns canonical item identity, provider quota, mutation, retry/backoff, and exact-item readback; comments/workpad updates follow confirmed success only (Posture 8).
 - **`/gh-pr-writeup`** — scaffold or refresh the PR body. Two modes:
-  - _Initial Draft_ (Step 1): create a new Draft PR with TL;DR · 변경 지점 다이어그램 · 여기부터 보세요 · 위험 & 롤백 · 변경 파일 · `## Issues — Closed #<N>` · 머지 후/사람 확인 placeholders.
+  - _Initial Draft_ (Step 1): create a new Draft PR with TL;DR · change-point diagram · start-here guide · risks & rollback · changed files · `## Issues — Closed #<N>` · post-merge/human validation placeholders.
   - _Refresh_ (Step 2.8): update the same PR body before `gh pr ready`.
 - **`/commit`** — produce logical-unit commits in conventional commit format.
 - **`/push`** — push the feature branch to origin; updates the Draft PR automatically.

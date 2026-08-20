@@ -30,6 +30,8 @@ status_options:
 
 # Project Management Conventions
 
+All issues, PRs, and comments are written in English (title and body).
+
 ## Issue Template
 
 ### Required Sections
@@ -54,21 +56,21 @@ Link the original issue as the parent.
 
 ## Priority Definitions
 
-| Priority | Definition | Examples |
-|----------|------------|----------|
-| **P0** | Active bugs, blocks other work | Runtime crash, data loss |
-| **P1** | Spec compliance, core architecture | Spec deviation fix, contract change |
-| **P2** | DX/UX improvements, non-critical refactoring | CLI UX polish, code cleanup |
+| Priority | Definition                                   | Examples                            |
+| -------- | -------------------------------------------- | ----------------------------------- |
+| **P0**   | Active bugs, blocks other work               | Runtime crash, data loss            |
+| **P1**   | Spec compliance, core architecture           | Spec deviation fix, contract change |
+| **P2**   | DX/UX improvements, non-critical refactoring | CLI UX polish, code cleanup         |
 
 ## Size Definitions
 
-| Size | Scope | Criteria |
-|------|-------|----------|
-| **XS** | Single file | < 50 lines changed |
-| **S** | 2–3 files | < 200 lines |
-| **M** | Multiple files | Single package scope |
-| **L** | Multiple packages | Includes interface changes |
-| **XL** | Architecture-level | Large-scale refactoring |
+| Size   | Scope              | Criteria                   |
+| ------ | ------------------ | -------------------------- |
+| **XS** | Single file        | < 50 lines changed         |
+| **S**  | 2–3 files          | < 200 lines                |
+| **M**  | Multiple files     | Single package scope       |
+| **L**  | Multiple packages  | Includes interface changes |
+| **XL** | Architecture-level | Large-scale refactoring    |
 
 ## Estimate Convention
 

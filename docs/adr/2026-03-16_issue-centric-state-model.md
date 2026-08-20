@@ -1,89 +1,89 @@
-# ADR: Issue-Centric State Model로 전환
+# ADR: Transition to an Issue-Centric State Model
 
 - **Date**: 2026-03-16
 - **Status**: Proposed
 - **Related Issues**: Symphony Spec Sections 4.2, 7.1, 7.2
 - **Related Spec**: `docs/symphony-spec.md`
 
-## 요약
+## Summary
 
-현재 구현은 **Run을 일급 엔티티**로 삼고 Lease 테이블로 issue 단위 중복 방지를 보조하는 구조이다.
-Symphony 스펙은 **Issue를 일급 엔티티**로 삼고, issue당 명시적 orchestration state를 두며,
-run attempt는 issue 하위의 종속 개념으로 정의한다.
+The current implementation treats the **Run as the first-class entity** and relies on a Lease table as an auxiliary mechanism to prevent duplicate work per issue.
+The Symphony spec treats the **Issue as the first-class entity**, defines an explicit orchestration state per issue,
+and defines run attempts as subordinate concepts under an issue.
 
-이 ADR은 세 가지 연관된 편차를 하나의 아키텍처 전환으로 해소하는 방안을 제안한다:
+This ADR proposes resolving three related divergences through a single architectural transition:
 
-1. **Workspace Key 도출 방식** (Section 4.2, 9.5)
-2. **Issue Orchestration States** (Section 7.1)
-3. **Run Attempt Lifecycle Phases** (Section 7.2)
+1. **Workspace key derivation** (Sections 4.2, 9.5)
+2. **Issue orchestration states** (Section 7.1)
+3. **Run attempt lifecycle phases** (Section 7.2)
 
 ---
 
-## 1. 현재 상태 (Before)
+## 1. Current State (Before)
 
-### 1.1 데이터 모델
+### 1.1 Data Model
 
 ```
-OrchestratorRunRecord (주체)
-├── runId                    ← 기본 키
+OrchestratorRunRecord (primary)
+├── runId                    ← primary key
 ├── status: pending | starting | running | retrying | succeeded | failed | suppressed
 ├── executionPhase: planning | human-review | implementation | awaiting-merge | completed
-├── issueId, issueIdentifier ← issue 참조 (역방향)
-├── issueWorkspaceKey        ← SHA-256 해시 16자
+├── issueId, issueIdentifier ← issue reference (reverse direction)
+├── issueWorkspaceKey        ← 16-character SHA-256 hash
 └── processId, port, attempt, nextRetryAt, ...
 
-ProjectLeaseRecord (보조)
-├── leaseKey: issue.id       ← issue 단위 중복 방지
-├── runId                    ← 현재 run 참조
+ProjectLeaseRecord (auxiliary)
+├── leaseKey: issue.id       ← per-issue duplicate prevention
+├── runId                    ← reference to the current run
 ├── status: active | released
 └── updatedAt
 ```
 
-**세 가지 키 체계가 공존:**
+**Three key schemes coexist:**
 
-| 용도 | 키 | 도출 방식 |
-|------|-----|----------|
-| Run 식별 | `runId` | 타임스탬프 기반 생성 |
-| Issue claim (lease) | `issue.id` (node ID) | GitHub API |
-| Workspace 디렉토리 | SHA-256 16자 | `SHA-256(projectId:adapter:issueSubjectId)` |
+| Purpose             | Key                  | Derivation                                  |
+| ------------------- | -------------------- | ------------------------------------------- |
+| Run identification  | `runId`              | Timestamp-based generation                  |
+| Issue claim (lease) | `issue.id` (node ID) | GitHub API                                  |
+| Workspace directory | 16-character SHA-256 | `SHA-256(projectId:adapter:issueSubjectId)` |
 
-### 1.2 상태 판별 방식
+### 1.2 State Determination
 
-issue의 현재 orchestration state를 알려면 **lease + run을 교차 조회**해야 한다:
+To know an issue's current orchestration state, you must **cross-reference the lease and the run**:
 
 ```typescript
-// Unclaimed: lease가 없거나 released
-!leases.some(l => l.leaseKey === key && l.status === "active")
+// Unclaimed: no lease, or lease released
+!leases.some((l) => l.leaseKey === key && l.status === "active");
 
-// Claimed+Running: lease active + run.processId가 살아있음
-lease.status === "active" && isProcessRunning(run.processId)
+// Claimed+Running: lease active + run.processId is alive
+lease.status === "active" && isProcessRunning(run.processId);
 
 // RetryQueued: lease active + run.status === "retrying"
-lease.status === "active" && run.status === "retrying" && run.nextRetryAt
+lease.status === "active" && run.status === "retrying" && run.nextRetryAt;
 
 // Released: lease.status === "released"
 ```
 
-명시적 상태 필드가 없으므로 상태가 분산되어 있고, 판별 로직이 service.ts 전체에 퍼져 있다.
+Because there is no explicit state field, the state is scattered, and the determination logic is spread across all of service.ts.
 
 ### 1.3 Run Attempt Phase vs Workflow Execution Phase
 
-현재 `WorkflowExecutionPhase`는 tracker state에서 파생된 **워크플로우 수준** 개념이다:
+The current `WorkflowExecutionPhase` is a **workflow-level** concept derived from the tracker state:
 
 ```
 planning → human-review → implementation → awaiting-merge → completed
 ```
 
-스펙 7.2의 Run Attempt Phase는 **기술적 실행 단계**이다:
+The Run Attempt Phase in spec 7.2 is a **technical execution stage**:
 
 ```
 PreparingWorkspace → BuildingPrompt → LaunchingAgentProcess → InitializingSession
 → StreamingTurn → Finishing → Succeeded | Failed | TimedOut | Stalled | CanceledByReconciliation
 ```
 
-이 둘은 **직교하는 개념**이지만, 현재 구현에는 스펙 7.2에 해당하는 기술적 실행 단계가 존재하지 않는다.
+These two are **orthogonal concepts**, but the current implementation has no equivalent of the technical execution stages in spec 7.2.
 
-### 1.4 Before: 전체 흐름 (Tracker Polling → Terminate)
+### 1.4 Before: Full Flow (Tracker Polling → Terminate)
 
 ```mermaid
 flowchart TD
@@ -165,50 +165,51 @@ flowchart TD
     W_EXIT_FAIL --> EXIT
 ```
 
-**문제점:**
-- Run이 주체이므로 issue 상태를 알려면 lease + run을 모두 조회해야 함
-- `executionPhase`가 워크플로우 단계(planning/implementation)만 추적, 기술적 단계(workspace 준비/프롬프트 빌드/스트리밍) 없음
-- Workspace key가 해시여서 디렉토리 → issue 역추적 불가
-- Retry 시 새 RunRecord를 생성하고 이전 run을 `failed`로 마킹 → run 이력이 복잡해짐
+**Problems:**
+
+- Because the Run is the primary entity, both the lease and the run must be queried to know an issue's state
+- `executionPhase` only tracks workflow stages (planning/implementation); there are no technical stages (workspace preparation / prompt building / streaming)
+- The workspace key is a hash, so a directory cannot be traced back to an issue
+- On retry, a new RunRecord is created and the previous run is marked `failed` → run history becomes complicated
 
 ---
 
-## 2. 제안 상태 (After)
+## 2. Proposed State (After)
 
-### 2.1 데이터 모델
+### 2.1 Data Model
 
 ```
-IssueOrchestrationRecord (주체)
-├── issueId                  ← 기본 키 (node ID, 불변)
-├── identifier               ← 사람 읽기용 ("acme/platform#123")
+IssueOrchestrationRecord (primary)
+├── issueId                  ← primary key (node ID, immutable)
+├── identifier               ← human-readable ("acme/platform#123")
 ├── state: unclaimed | claimed | running | retry_queued | released
-├── workspaceKey             ← identifier에서 도출 (사람이 읽을 수 있음)
-├── currentRunId             ← running일 때 참조
-├── retryEntry               ← retry_queued일 때 {attempt, dueAt, error}
+├── workspaceKey             ← derived from the identifier (human-readable)
+├── currentRunId             ← referenced while running
+├── retryEntry               ← {attempt, dueAt, error} while retry_queued
 └── updatedAt
 
-OrchestratorRunRecord (종속, issue 하위)
-├── runId                    ← 기본 키
-├── issueId                  ← 소속 issue 참조
+OrchestratorRunRecord (subordinate, under the issue)
+├── runId                    ← primary key
+├── issueId                  ← owning issue reference
 ├── runPhase: preparing_workspace | building_prompt | streaming_turn | ... | failed
-├── executionPhase           ← 유지 (GitHub 확장, 워크플로우 단계)
+├── executionPhase           ← retained (GitHub extension, workflow stage)
 └── attempt, tokenUsage, ...
 ```
 
-**키 체계 정리:**
+**Cleaned-up key scheme:**
 
-| 용도 | 키 | 도출 방식 |
-|------|-----|----------|
-| Issue 식별 (내부) | `issue.id` (node ID) | GitHub API (불변) |
-| Issue 식별 (표시) | `issue.identifier` | `"acme/platform#123"` |
-| Workspace 디렉토리 | identifier 치환 | `acme_platform_123` (스펙 4.2) |
-| Run 식별 | `runId` | 타임스탬프 기반 (변경 없음) |
+| Purpose                         | Key                     | Derivation                     |
+| ------------------------------- | ----------------------- | ------------------------------ |
+| Issue identification (internal) | `issue.id` (node ID)    | GitHub API (immutable)         |
+| Issue identification (display)  | `issue.identifier`      | `"acme/platform#123"`          |
+| Workspace directory             | identifier substitution | `acme_platform_123` (spec 4.2) |
+| Run identification              | `runId`                 | Timestamp-based (unchanged)    |
 
-### 2.2 상태 모델: 2-Layer
+### 2.2 State Model: 2-Layer
 
-**Layer 1: Issue Orchestration State (스펙 7.1)**
+**Layer 1: Issue Orchestration State (spec 7.1)**
 
-issue 단위 claim 관리. 현재의 Lease 테이블을 대체한다.
+Per-issue claim management. Replaces the current Lease table.
 
 ```
 Unclaimed ──→ Claimed ──→ Running ──→ RetryQueued ──→ Released
@@ -217,18 +218,18 @@ Unclaimed ──→ Claimed ──→ Running ──→ RetryQueued ──→ Re
                           (retry dispatch)
 ```
 
-| 전이 | 트리거 | 현재 구현 대응 |
-|------|--------|---------------|
-| Unclaimed → Claimed | dispatch 결정 | `upsertLease(active)` |
-| Claimed → Running | worker spawn 성공 | `saveRun(running)` |
-| Running → RetryQueued | worker exit | `saveRun(retrying)` |
-| RetryQueued → Running | retry timer fired | `restartRun()` |
-| Running → Released | terminal state / max attempts | `releaseLease()` |
-| RetryQueued → Released | issue no longer eligible | `releaseLease()` |
+| Transition             | Trigger                       | Current implementation equivalent |
+| ---------------------- | ----------------------------- | --------------------------------- |
+| Unclaimed → Claimed    | dispatch decision             | `upsertLease(active)`             |
+| Claimed → Running      | worker spawn succeeded        | `saveRun(running)`                |
+| Running → RetryQueued  | worker exit                   | `saveRun(retrying)`               |
+| RetryQueued → Running  | retry timer fired             | `restartRun()`                    |
+| Running → Released     | terminal state / max attempts | `releaseLease()`                  |
+| RetryQueued → Released | issue no longer eligible      | `releaseLease()`                  |
 
-**Layer 2: Run Attempt Phase (스펙 7.2)**
+**Layer 2: Run Attempt Phase (spec 7.2)**
 
-단일 run 실행의 기술적 진행 단계. **신규 추가.**
+Technical progress stages of a single run execution. **Newly added.**
 
 ```
 preparing_workspace → building_prompt → launching_agent → initializing_session
@@ -239,70 +240,78 @@ preparing_workspace → building_prompt → launching_agent → initializing_ses
                                       ↘ canceled_by_reconciliation
 ```
 
-| Phase | 발생 시점 (코드 위치) |
-|-------|---------------------|
-| `preparing_workspace` | `ensureIssueWorkspaceRepository()` 진입 |
-| `building_prompt` | `renderPrompt()` 진입 |
-| `launching_agent` | `spawn()` 호출 |
-| `initializing_session` | Worker: `initialize` JSON-RPC 전송 |
-| `streaming_turn` | Worker: `turn/start` JSON-RPC 전송 |
-| `finishing` | Worker: multi-turn loop 종료, 정리 중 |
-| `succeeded` | Worker exit(0) |
-| `failed` | Worker exit(non-zero) |
-| `timed_out` | `waitForTurnWithTimeout()` 초과 |
-| `stalled` | Orchestrator: stuck worker detection (30min) |
-| `canceled_by_reconciliation` | Orchestrator: suppression |
+| Phase                        | When it occurs (code location)                |
+| ---------------------------- | --------------------------------------------- |
+| `preparing_workspace`        | Entering `ensureIssueWorkspaceRepository()`   |
+| `building_prompt`            | Entering `renderPrompt()`                     |
+| `launching_agent`            | `spawn()` call                                |
+| `initializing_session`       | Worker: sends `initialize` JSON-RPC           |
+| `streaming_turn`             | Worker: sends `turn/start` JSON-RPC           |
+| `finishing`                  | Worker: multi-turn loop finished, cleaning up |
+| `succeeded`                  | Worker exit(0)                                |
+| `failed`                     | Worker exit(non-zero)                         |
+| `timed_out`                  | `waitForTurnWithTimeout()` exceeded           |
+| `stalled`                    | Orchestrator: stuck worker detection (30min)  |
+| `canceled_by_reconciliation` | Orchestrator: suppression                     |
 
-**Layer 3: Workflow Execution Phase (GitHub 확장, 유지)**
+**Layer 3: Workflow Execution Phase (GitHub extension, retained)**
 
-tracker state에서 파생되는 워크플로우 수준 단계. 스펙에 없는 GitHub-specific 확장.
+Workflow-level stages derived from the tracker state. A GitHub-specific extension not present in the spec.
 
 ```
 planning → human-review → implementation → awaiting-merge → completed
 ```
 
-**세 레이어의 관계:**
+**Relationship between the three layers:**
 
 ```
 Issue "acme/platform#42"
-├── orchestrationState: running           ← Layer 1 (스펙 7.1)
-├── workspaceKey: acme_platform_42        ← 스펙 4.2
+├── orchestrationState: running           ← Layer 1 (spec 7.1)
+├── workspaceKey: acme_platform_42        ← spec 4.2
 │
 └── Run "run-abc-123"
-    ├── runPhase: streaming_turn          ← Layer 2 (스펙 7.2, 신규)
-    └── executionPhase: implementation    ← Layer 3 (GitHub 확장, 유지)
+    ├── runPhase: streaming_turn          ← Layer 2 (spec 7.2, new)
+    └── executionPhase: implementation    ← Layer 3 (GitHub extension, retained)
 ```
 
-### 2.3 Workspace Key 도출
+### 2.3 Workspace Key Derivation
 
-**변경 전:**
+**Before:**
+
 ```typescript
-// identity.ts — SHA-256 해시
-const input = [identity.projectId, identity.adapter, identity.issueSubjectId].join(":");
+// identity.ts — SHA-256 hash
+const input = [
+  identity.projectId,
+  identity.adapter,
+  identity.issueSubjectId,
+].join(":");
 return createHash("sha256").update(input).digest("hex").slice(0, 16);
-// 결과: "a1b2c3d4e5f6g7h8" (의미 불명)
+// Result: "a1b2c3d4e5f6g7h8" (meaning unknown)
 ```
 
-**변경 후:**
+**After:**
+
 ```typescript
-// identity.ts — 스펙 4.2 준수
+// identity.ts — spec 4.2 compliant
 export function deriveWorkspaceKey(identifier: string): string {
   return identifier.replace(/[^A-Za-z0-9._-]/g, "_");
 }
-// "acme/platform#123" → "acme_platform_123" (사람이 읽을 수 있음)
+// "acme/platform#123" → "acme_platform_123" (human-readable)
 ```
 
-디렉토리 구조:
+Directory structure:
+
 ```
 workspaces/<projectId>/issues/acme_platform_123/repository/
 ```
 
-**Issue transfer 대응:**
-- identifier가 바뀌면 workspace key도 바뀜 → 새 workspace 생성
-- 이전 workspace는 cleanup 대상
-- 드문 케이스이며, `after_create` hook이 새 workspace를 재구성
+**Handling issue transfers:**
 
-### 2.4 After: 전체 흐름 (Tracker Polling → Terminate)
+- If the identifier changes, the workspace key changes too → a new workspace is created
+- The previous workspace becomes a cleanup target
+- This is a rare case, and the `after_create` hook rebuilds the new workspace
+
+### 2.4 After: Full Flow (Tracker Polling → Terminate)
 
 ```mermaid
 flowchart TD
@@ -323,7 +332,7 @@ flowchart TD
 
         FOR_ISSUE -->|state: retry_queued| CHECK_DUE{"retryEntry.dueAt <= now?"}
         CHECK_DUE -->|no| SKIP[Skip, wait]
-        CHECK_DUE -->|yes| REDISPATCH["issue.state → claimed<br/>→ startRun() 진입"]
+        CHECK_DUE -->|yes| REDISPATCH["issue.state → claimed<br/>→ enter startRun()"]
 
         POLL_WORKER --> FETCH_TRACKER
         STALL --> FETCH_TRACKER
@@ -388,12 +397,12 @@ flowchart TD
 
 ---
 
-## 3. 변경 상세
+## 3. Change Details
 
-### 3.1 신규 타입 정의
+### 3.1 New Type Definitions
 
 ```typescript
-// packages/core/src/contracts/issue-orchestration.ts (신규)
+// packages/core/src/contracts/issue-orchestration.ts (new)
 
 export type IssueOrchestrationState =
   | "unclaimed"
@@ -418,7 +427,7 @@ export type IssueOrchestrationRecord = {
 ```
 
 ```typescript
-// packages/core/src/contracts/run-attempt-phase.ts (신규)
+// packages/core/src/contracts/run-attempt-phase.ts (new)
 
 export const RUN_ATTEMPT_PHASES = [
   "preparing_workspace",
@@ -437,29 +446,29 @@ export const RUN_ATTEMPT_PHASES = [
 export type RunAttemptPhase = (typeof RUN_ATTEMPT_PHASES)[number];
 ```
 
-### 3.2 OrchestratorRunRecord 변경
+### 3.2 OrchestratorRunRecord Changes
 
 ```typescript
 // packages/core/src/contracts/status-surface.ts
 
 export type OrchestratorRunRecord = {
-  // ... 기존 필드 유지
-  runPhase: RunAttemptPhase;                       // 추가 (스펙 7.2)
-  executionPhase: WorkflowExecutionPhase | null;   // 유지 (GitHub 확장)
+  // ... existing fields retained
+  runPhase: RunAttemptPhase; // added (spec 7.2)
+  executionPhase: WorkflowExecutionPhase | null; // retained (GitHub extension)
 };
 ```
 
-### 3.3 Workspace Key 변경
+### 3.3 Workspace Key Changes
 
 ```typescript
 // packages/core/src/workspace/identity.ts
 
-// 스펙 4.2: identifier에서 도출
+// Spec 4.2: derived from the identifier
 export function deriveWorkspaceKey(identifier: string): string {
   return identifier.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
-// 마이그레이션 지원: 기존 SHA-256 방식
+// Migration support: existing SHA-256 approach
 export function deriveIssueWorkspaceKeyLegacy(
   identity: IssueSubjectIdentity
 ): string {
@@ -472,42 +481,47 @@ export function deriveIssueWorkspaceKeyLegacy(
 }
 ```
 
-### 3.4 Store 인터페이스 변경
+### 3.4 Store Interface Changes
 
 ```typescript
 // packages/core/src/contracts/state-store.ts
 
 export type OrchestratorStateStore = {
-  // 기존 run 관련 메서드 유지
+  // Existing run-related methods retained
   saveRun(run: OrchestratorRunRecord): Promise<void>;
   loadRun(runId: string): Promise<OrchestratorRunRecord | null>;
   loadAllRuns(): Promise<OrchestratorRunRecord[]>;
   appendRunEvent(runId: string, event: OrchestratorEvent): Promise<void>;
 
-  // Lease 메서드 → Issue Orchestration으로 교체
-  // 제거: loadProjectLeases(), saveProjectLeases()
-  // 추가:
-  loadIssueOrchestrations(projectId: string): Promise<IssueOrchestrationRecord[]>;
+  // Lease methods → replaced with Issue Orchestration
+  // Removed: loadProjectLeases(), saveProjectLeases()
+  // Added:
+  loadIssueOrchestrations(
+    projectId: string
+  ): Promise<IssueOrchestrationRecord[]>;
   saveIssueOrchestration(record: IssueOrchestrationRecord): Promise<void>;
-  saveIssueOrchestrations(projectId: string, records: IssueOrchestrationRecord[]): Promise<void>;
+  saveIssueOrchestrations(
+    projectId: string,
+    records: IssueOrchestrationRecord[]
+  ): Promise<void>;
 
-  // 기존 workspace/status 메서드 유지
+  // Existing workspace/status methods retained
 };
 ```
 
-### 3.5 파일시스템 레이아웃 변경
+### 3.5 Filesystem Layout Changes
 
 ```
 .runtime/orchestrator/
 ├── workspaces/<projectId>/
-│   ├── issues.json                    ← leases.json 대체 (IssueOrchestrationRecord[])
+│   ├── issues.json                    ← replaces leases.json (IssueOrchestrationRecord[])
 │   ├── issues/
-│   │   ├── acme_platform_42/          ← SHA-256 해시 대신 읽을 수 있는 키
+│   │   ├── acme_platform_42/          ← readable key instead of a SHA-256 hash
 │   │   │   └── repository/
 │   │   └── acme_platform_43/
 │   └── config.json
 ├── runs/<run-id>/
-│   ├── run.json                       ← runPhase 필드 추가
+│   ├── run.json                       ← runPhase field added
 │   ├── events.ndjson
 │   └── workspace-runtime/
 └── projects/<projectId>/status.json
@@ -515,59 +529,61 @@ export type OrchestratorStateStore = {
 
 ---
 
-## 4. 영향 범위
+## 4. Impact Scope
 
-### 4.1 변경 대상 파일
+### 4.1 Files to Change
 
-| 파일 | 변경 내용 | 규모 |
-|------|----------|------|
-| `packages/core/src/contracts/issue-orchestration.ts` | **신규** — IssueOrchestrationRecord 타입 | Small |
-| `packages/core/src/contracts/run-attempt-phase.ts` | **신규** — RunAttemptPhase 타입 | Small |
-| `packages/core/src/contracts/status-surface.ts` | `OrchestratorRunRecord`에 `runPhase` 추가 | Small |
-| `packages/core/src/contracts/state-store.ts` | lease → issue orchestration 메서드 교체 | Medium |
-| `packages/core/src/workspace/identity.ts` | workspace key 도출 방식 변경 + legacy 유지 | Small |
-| `packages/orchestrator/src/service.ts` | **핵심** — lease 로직 전면 교체, runPhase 전이 추가 | Large |
-| `packages/orchestrator/src/fs-store.ts` | `leases.json` → `issues.json`, runPhase 저장 | Medium |
-| `packages/worker/src/index.ts` | runPhase 전이 보고 (state API) | Medium |
-| `packages/worker/src/state-server.ts` | `WorkerRuntimeState`에 `runPhase` 추가 | Small |
-| `packages/worker/src/execution-phase.ts` | 유지 (WorkflowExecutionPhase 로직 변경 없음) | None |
-| 테스트 파일 전체 | fixture 업데이트 | Medium |
+| File                                                 | Change                                                               | Size   |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ------ |
+| `packages/core/src/contracts/issue-orchestration.ts` | **New** — IssueOrchestrationRecord type                              | Small  |
+| `packages/core/src/contracts/run-attempt-phase.ts`   | **New** — RunAttemptPhase type                                       | Small  |
+| `packages/core/src/contracts/status-surface.ts`      | Add `runPhase` to `OrchestratorRunRecord`                            | Small  |
+| `packages/core/src/contracts/state-store.ts`         | Replace lease methods with issue orchestration methods               | Medium |
+| `packages/core/src/workspace/identity.ts`            | Change workspace key derivation + keep legacy                        | Small  |
+| `packages/orchestrator/src/service.ts`               | **Core** — full replacement of lease logic, add runPhase transitions | Large  |
+| `packages/orchestrator/src/fs-store.ts`              | `leases.json` → `issues.json`, persist runPhase                      | Medium |
+| `packages/worker/src/index.ts`                       | Report runPhase transitions (state API)                              | Medium |
+| `packages/worker/src/state-server.ts`                | Add `runPhase` to `WorkerRuntimeState`                               | Small  |
+| `packages/worker/src/execution-phase.ts`             | Retained (no change to WorkflowExecutionPhase logic)                 | None   |
+| All test files                                       | Fixture updates                                                      | Medium |
 
-### 4.2 변경하지 않는 것
+### 4.2 What Does Not Change
 
-- `WorkflowExecutionPhase` — GitHub 확장으로 유지
-- `OrchestratorRunStatus` — run 최종 결과 (succeeded/failed 등) 유지
-- Workspace safety invariants — 경로 탈출 방지 그대로
-- Worker multi-turn protocol — JSON-RPC 흐름 변경 없음
-- Hook 실행 로직 — after_create, before_run, after_run 그대로
+- `WorkflowExecutionPhase` — retained as a GitHub extension
+- `OrchestratorRunStatus` — final run outcome (succeeded/failed etc.) retained
+- Workspace safety invariants — path escape prevention unchanged
+- Worker multi-turn protocol — JSON-RPC flow unchanged
+- Hook execution logic — after_create, before_run, after_run unchanged
 
-### 4.3 마이그레이션 전략
+### 4.3 Migration Strategy
 
 **Workspace Key:**
-- 새 issue는 스펙 방식 (identifier 치환)으로 생성
-- 기존 workspace는 `IssueWorkspaceRecord.workspaceKey`로 탐색 (legacy 함수 유지)
-- `loadIssueWorkspace()` 시 legacy key → 신규 key로 자동 마이그레이션
+
+- New issues use the spec approach (identifier substitution)
+- Existing workspaces are looked up via `IssueWorkspaceRecord.workspaceKey` (legacy function retained)
+- On `loadIssueWorkspace()`, automatic migration from the legacy key to the new key
 
 **Lease → Issue Orchestration:**
-- 기존 `leases.json`에서 `issues.json`으로 변환하는 일회성 마이그레이션
-- `lease.status === "active"` → 해당 run의 상태에 따라 `running` 또는 `retry_queued`
-- `lease.status === "released"` → 레코드 제거 (unclaimed과 동일)
+
+- One-time migration converting the existing `leases.json` to `issues.json`
+- `lease.status === "active"` → `running` or `retry_queued` depending on the state of the corresponding run
+- `lease.status === "released"` → record removed (equivalent to unclaimed)
 
 ---
 
-## 5. 결정 기록
+## 5. Decision Record
 
-### 선택한 방안
+### Chosen Option
 
-스펙 준수를 우선으로, Issue를 일급 엔티티로 전환한다.
+Prioritize spec compliance and transition to the Issue as the first-class entity.
 
-### 대안: 현재 모델 유지 + 편의 함수 추가
+### Alternative: Keep the Current Model + Add Convenience Functions
 
-Lease + Run 교차 조회를 감싸는 `getIssueOrchestrationState()` 헬퍼만 추가하는 방안.
-장점은 변경 범위가 작지만, 스펙과의 모델 괴리가 계속 남고 HTTP API 구현 시 매번 변환이 필요하다.
+Only add a `getIssueOrchestrationState()` helper that wraps the lease + run cross-lookup.
+The advantage is a small change footprint, but the model divergence from the spec persists, and every HTTP API implementation would need to convert each time.
 
-### 대안: Workspace Key만 SHA-256 유지
+### Alternative: Keep SHA-256 Only for the Workspace Key
 
-Issue transfer 안전성을 위해 workspace key만 SHA-256을 유지하는 방안.
-가능하지만, 스펙 4.2를 명시적으로 위반하며 디버깅 시 디렉토리 → issue 역추적이 불가하다.
-GitHub에서 issue transfer는 드문 케이스이므로 스펙 준수의 가치가 더 크다고 판단했다.
+Keep SHA-256 only for the workspace key, for issue-transfer safety.
+Feasible, but it explicitly violates spec 4.2 and makes directory-to-issue back-tracing impossible when debugging.
+Since issue transfer is a rare case on GitHub, we judged spec compliance to be worth more.

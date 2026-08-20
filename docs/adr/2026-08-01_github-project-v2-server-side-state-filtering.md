@@ -1,4 +1,4 @@
-# ADR: GitHub Project V2 서버사이드 상태 필터와 per-tick cache 계약
+# ADR: GitHub Project V2 server-side state filtering and the per-tick cache contract
 
 - **Date**: 2026-08-01
 - **Status**: Accepted
@@ -13,173 +13,188 @@
 
 ## Context
 
-2026-03-19 ADR은 GitHub Project V2 GraphQL API가 project item을 상태로
-query-time filtering할 수 없다는 전제 아래 다음 두 결정을 함께 내렸다.
+The 2026-03-19 ADR made the following two decisions together, under the
+premise that the GitHub Project V2 GraphQL API cannot filter project items
+by state at query time.
 
-1. `listIssuesByStates()`가 전체 project item을 조회한 뒤 로컬에서 상태를
-   필터링한다.
-2. 같은 poll tick 안의 중복 전체 조회를 줄이기 위해 `projectItemsCache`를
-   공유한다.
+1. `listIssuesByStates()` fetches all project items and then filters by
+   state locally.
+2. A shared `projectItemsCache` reduces duplicate full fetches within the
+   same poll tick.
 
-2026-07-19 live schema introspection에서 `ProjectV2.items`에 `query: String`
-인자가 존재함을 확인했고, 실제 보드에서도 다음 표현식이 동작했다.
+Live schema introspection on 2026-07-19 confirmed that `ProjectV2.items` has
+a `query: String` argument, and the following expressions worked on a real
+board.
 
 - `status:Ready`
 - `status:Ready,"In progress"`
 - `-status:Done`
 - `is:open`, `is:issue`
 
-따라서 “서버사이드 필터가 불가능하다”는 전제는 더 이상 유효하지 않다.
-완료 상태가 누적된 보드에서 전체 item을 매 poll마다 페이지네이션하는 것은
-불필요한 GraphQL 요청을 만든다.
+Therefore the premise that "server-side filtering is impossible" is no
+longer valid. On a board with accumulated completed states, paginating
+through every item on each poll creates unnecessary GraphQL requests.
 
-다만 `status:NoSuchState` 같은 긍정 필터는 오류가 아니라 빈 결과를
-반환한다. 상태 옵션의 이름이 바뀌면 정상적인 0건과 configuration drift를
-구분할 수 없어 dispatch가 조용히 중단될 수 있다. 또한 candidate listing과
-startup terminal cleanup은 필요한 상태 집합이 서로 다르므로 동일한 필터
-snapshot을 항상 공유할 수도 없다.
+However, a positive filter such as `status:NoSuchState` returns an empty
+result rather than an error. If a state option is renamed, a legitimate
+zero-result cannot be distinguished from configuration drift, and dispatch
+can silently stall. In addition, candidate listing and startup terminal
+cleanup need different state sets, so the same filter snapshot cannot always
+be shared between them.
 
 ## Affected Symphony Layers
 
-| Layer         | 영향     | 설명                                                                        |
-| ------------- | -------- | --------------------------------------------------------------------------- |
-| Policy        | Yes      | candidate 조회에 안전한 부정 필터를 우선하는 원칙을 정한다.                 |
-| Integration   | Yes      | GitHub Project V2 adapter의 `items(query:)`와 cache identity를 정의한다.    |
-| Configuration | No       | 기존 workflow lifecycle 설정을 입력으로 사용하며 새 설정을 추가하지 않는다. |
-| Coordination  | No       | poll, cleanup, reconciliation 순서와 dispatch 판정은 바꾸지 않는다.         |
-| Execution     | No       | worker lifecycle과 workspace 실행 계약은 바꾸지 않는다.                     |
-| Observability | Indirect | 필터 query와 전후 item 수를 기존 tracker event로 관찰한다.                  |
+| Layer         | Impact   | Description                                                                         |
+| ------------- | -------- | ----------------------------------------------------------------------------------- |
+| Policy        | Yes      | Establishes the principle of preferring safe negative filters for candidate reads.  |
+| Integration   | Yes      | Defines the GitHub Project V2 adapter's `items(query:)` and cache identity.         |
+| Configuration | No       | Uses the existing workflow lifecycle config as input; adds no new configuration.    |
+| Coordination  | No       | Does not change poll, cleanup, or reconciliation ordering or dispatch decisions.    |
+| Execution     | No       | Does not change the worker lifecycle or workspace execution contract.               |
+| Observability | Indirect | Observes the filter query and before/after item counts via existing tracker events. |
 
-이 결정은 GitHub tracker에 한정된 repository-local 구현 선택이다. upstream
-Symphony spec의 candidate fetch, terminal-state fetch, normalized output 계약은
-변경하지 않는다.
+This decision is a repository-local implementation choice confined to the
+GitHub tracker. The upstream Symphony spec's candidate fetch, terminal-state
+fetch, and normalized output contracts are unchanged.
 
 ## Decision
 
-### 1. Candidate listing에 서버사이드 필터를 채택한다
+### 1. Adopt server-side filtering for candidate listing
 
-`listIssues()`의 candidate snapshot은 `ProjectV2.items(query:)`로 terminal
-상태를 서버에서 제외한다. 반환된 item에는 기존 content type, assignee,
-repository 필터와 최종 lifecycle 판정을 계속 적용한다. 서버 필터는 전송량과
-페이지 수를 줄이는 사전 필터이며 dispatch 적격성의 유일한 판정자가 아니다.
+The candidate snapshot in `listIssues()` excludes terminal states on the
+server via `ProjectV2.items(query:)`. The existing content type, assignee,
+and repository filters, plus the final lifecycle decision, continue to apply
+to the returned items. The server filter is a pre-filter that reduces
+transfer volume and page count; it is not the sole arbiter of dispatch
+eligibility.
 
-현재 GitHub query 문법의 상태 qualifier는 `status:`이므로 workflow의
-`stateFieldName`이 대소문자를 무시하고 `Status`일 때만 서버 필터를 적용한다.
-사용자 정의 상태 필드에는 검증되지 않은 query를 만들지 않고 unfiltered
-fetch로 안전하게 fallback한다. terminal 상태가 비어 있을 때도 query를
-생성하지 않는다.
+Since the state qualifier in the current GitHub query syntax is `status:`,
+the server filter is applied only when the workflow's `stateFieldName` is
+`Status`, compared case-insensitively. For custom state fields, we do not
+build an unvalidated query and instead safely fall back to an unfiltered
+fetch. No query is generated when the terminal state set is empty either.
 
-### 2. 상태 표현식은 부정 필터를 기본으로 한다
+### 2. State expressions default to negative filters
 
-표현식은 다음 형태로 만든다.
+Expressions are built in the following form.
 
 ```text
 -status:Done,"Won't do"
 ```
 
-원칙은 다음과 같다.
+The principles are:
 
-- workflow의 terminal 상태만 제외한다.
-- 공백이나 특수문자가 있는 값은 quote하고 `\`와 `"`를 escape한다.
-- 상태 이름은 trim하고 대소문자 기준으로 중복을 제거한다.
-- 같은 상태가 active와 terminal에 동시에 있으면 query를 보내기 전에
-  fail-loud한다.
-- terminal 상태가 rename되어 filter가 더 이상 일치하지 않으면 item을 더
-  많이 가져오는 쪽으로 실패한다. 이후 로컬 lifecycle 판정이 dispatch를
-  방어한다.
+- Exclude only the workflow's terminal states.
+- Quote values containing whitespace or special characters and escape `\`
+  and `"`.
+- Trim state names and deduplicate them case-sensitively.
+- If the same state appears in both active and terminal sets, fail loud
+  before sending the query.
+- If a terminal state is renamed so the filter no longer matches, fail in
+  the direction of fetching more items. The subsequent local lifecycle
+  decision defends dispatch.
 
-긍정 allowlist인 `status:Ready,"In progress"`는 기본 전략으로 사용하지
-않는다. 옵션 rename 또는 존재하지 않는 상태가 오류 없이 빈 결과가 되어
-전체 dispatch를 멈출 수 있기 때문이다. 향후 긍정 필터가 필요해지면 Project
-field option을 먼저 조회해 이름을 검증하고 불일치 시 fail-loud하는 별도
-결정이 필요하다.
+The positive allowlist `status:Ready,"In progress"` is not used as the
+default strategy, because an option rename or a nonexistent state becomes an
+empty result without an error and can halt all dispatch. If positive
+filtering becomes necessary in the future, a separate decision is required
+that first queries the Project field options to validate the names and
+fails loud on a mismatch.
 
-### 3. `projectItemsCache`는 per-tick snapshot cache로 유지한다
+### 3. Keep `projectItemsCache` as a per-tick snapshot cache
 
-cache의 lifetime은 기존 결정대로 단일 poll tick이다. 다음 tick에는 새
-cache를 만들어 stale project snapshot을 재사용하지 않는다. startup cleanup과
-이후 loop tick도 서로 다른 cache를 사용한다.
+The cache lifetime remains a single poll tick, per the existing decision. A
+new cache is created for the next tick so a stale project snapshot is never
+reused. Startup cleanup and subsequent loop ticks also use different caches.
 
-cache entry는 “Project 전체 item”이 아니라 **동일한 server filter mode와
-normalization 입력으로 만든 snapshot**을 뜻한다. 따라서 key에는 최소한 다음
-결과 차원을 구분할 수 있는 입력이 포함되어야 한다.
+A cache entry means not "all Project items" but a **snapshot produced with
+the same server filter mode and normalization inputs**. Therefore the key
+must include at minimum the inputs that distinguish the following result
+dimensions.
 
-- Project와 GraphQL endpoint, 인증 주체
-- server-side state filter를 결정하는 workflow lifecycle
-- 정규화된 terminal-state server filter 활성 여부(query가 `null`이면 동일)
-- repository와 assignee scope
-- priority normalization 설정
-- timeout 등 fetch 결과/동작을 구분해야 하는 adapter 입력
+- The Project, GraphQL endpoint, and authentication principal
+- The workflow lifecycle that determines the server-side state filter
+- Whether the normalized terminal-state server filter is active (identical
+  when the query is `null`)
+- Repository and assignee scope
+- Priority normalization settings
+- Adapter inputs that must distinguish fetch results/behavior, such as
+  timeouts
 
-filtered candidate snapshot과 unfiltered state-lookup snapshot은 서로 다른
-cache entry다. query 또는 normalization 차원이 다른 호출끼리는 한 entry를
-공유하지 않는다. 같은 tick 안에서 key가 완전히 같은 호출만 in-flight promise와
-결과를 재사용한다.
+The filtered candidate snapshot and the unfiltered state-lookup snapshot are
+distinct cache entries. Calls that differ in query or normalization
+dimensions do not share an entry. Within the same tick, only calls whose
+keys are fully identical reuse the in-flight promise and result.
 
-### 4. `listIssuesByStates()`는 full fetch와 로컬 필터를 유지한다
+### 4. `listIssuesByStates()` keeps the full fetch and local filter
 
-`listIssuesByStates(project, states)`의 원칙은 여전히 유효하다. 이 operation은
-upstream spec §8.6의 startup terminal workspace cleanup처럼 요청받은 terminal
-상태 자체를 찾아야 한다. candidate용 `-status:<terminal>` snapshot을 재사용하면
-필요한 item이 이미 제외되어 correctness를 깨뜨린다.
+The principle of `listIssuesByStates(project, states)` remains valid. This
+operation must find the requested terminal states themselves, as in upstream
+spec §8.6's startup terminal workspace cleanup. Reusing the candidate
+`-status:<terminal>` snapshot would break correctness because the needed
+items are already excluded.
 
-이 경로는 workflow lifecycle을 normalization 입력으로 유지하되,
-terminal-state server filter만 비활성화해 unfiltered snapshot을 조회한다. 그런
-다음 요청받은 상태 이름을 trim 및 case-insensitive 비교로 로컬 필터링한다.
-임의의 요청 상태를 긍정 query로 바꾸지 않는 이유는 다음과 같다.
+This path keeps the workflow lifecycle as a normalization input but disables
+only the terminal-state server filter, fetching an unfiltered snapshot. It
+then locally filters the requested state names with trimmed,
+case-insensitive comparison. The reasons for not turning arbitrary requested
+states into a positive query are:
 
-- 존재하지 않거나 rename된 상태가 빈 결과로 성공하는 silent failure를
-  피한다.
-- adapter operation이 요청받은 임의 상태 집합을 정확하게 처리한다.
-- startup cleanup의 보수적인 correctness가 candidate 조회 비용 최적화보다
-  우선한다.
+- Avoid the silent failure where a nonexistent or renamed state succeeds
+  with an empty result.
+- The adapter operation handles the arbitrary requested state set exactly.
+- The conservative correctness of startup cleanup takes precedence over
+  candidate read cost optimization.
 
-따라서 같은 tick의 `listIssues()`와 `listIssuesByStates()`가 항상 단일 fetch를
-공유한다는 2026-03-19 ADR의 결과 설명은 폐기한다. candidate filtering이
-활성화된 경우 두 operation은 의도적으로 filtered/unfiltered entry를 각각
-사용한다.
+Accordingly, the 2026-03-19 ADR's consequence statement that `listIssues()`
+and `listIssuesByStates()` in the same tick always share a single fetch is
+retired. When candidate filtering is active, the two operations deliberately
+use the filtered and unfiltered entries respectively.
 
 ## Consequences
 
 ### Positive
 
-- Done 같은 terminal item이 누적되어도 candidate 조회 페이지 수가 전체 보드
-  크기에 선형으로 증가하지 않는다.
-- 부정 필터는 새 active/wait 상태를 기본적으로 포함하므로 상태 추가에
-  fail-open한다.
-- per-tick cache는 같은 query의 중복과 동시 fetch를 계속 제거한다.
-- startup cleanup은 terminal item을 누락하지 않고 기존 의미를 유지한다.
+- Even as terminal items such as Done accumulate, the candidate fetch page
+  count does not grow linearly with total board size.
+- Negative filters include new active/wait states by default, so they fail
+  open on state additions.
+- The per-tick cache continues to eliminate duplicates and concurrent
+  fetches of the same query.
+- Startup cleanup keeps its existing semantics without missing terminal
+  items.
 
 ### Negative
 
-- 한 tick 안에서도 candidate와 arbitrary-state 조회에는 서로 다른 GraphQL
-  fetch가 필요할 수 있다.
-- GitHub의 query parser와 `status:` qualifier는 외부 API 계약이므로 schema 및
-  실보드 동작을 회귀 검증해야 한다.
-- 잘못된 부정 상태 이름은 비용 최적화를 약화시키지만 오류로 드러나지 않을
-  수 있다. 로컬 lifecycle 판정은 안전성을 보존하지만 observability 확인이
-  필요하다.
+- Even within a single tick, candidate and arbitrary-state reads may require
+  separate GraphQL fetches.
+- GitHub's query parser and the `status:` qualifier are an external API
+  contract, so schema and real-board behavior must be regression-verified.
+- An incorrect negative state name weakens the cost optimization but may not
+  surface as an error. The local lifecycle decision preserves safety, but
+  observability checks are needed.
 
 ### Neutral
 
-- `fetchIssueStatesByIds()`의 `nodes(ids:)` 기반 active-run reconciliation은
-  project item candidate cache의 대상이 아니며 이 결정으로 바뀌지 않는다.
-- 이 ADR은 #500의 runtime 동작과 #515의 explicit state lookup 보정을
-  문서화한다. 새 configuration 변경을 요구하지 않는다.
+- The `nodes(ids:)`-based active-run reconciliation in
+  `fetchIssueStatesByIds()` is not subject to the project item candidate
+  cache and is unchanged by this decision.
+- This ADR documents the runtime behavior of #500 and the explicit state
+  lookup correction of #515. It requires no new configuration changes.
 
 ## Validation
 
-다음 계약을 TC로 유지한다.
+Maintain the following contracts as TCs.
 
-1. `Status` lifecycle이면 terminal 상태를 quote한 부정 query를
-   `ProjectV2.items(query:)`에 전달한다.
-2. 사용자 정의 state field 또는 terminal 상태가 없으면 unfiltered fetch로
-   fallback한다.
-3. active/terminal 상태가 겹치면 GraphQL 호출 전에 실패한다.
-4. 같은 query key는 per-tick cache를 공유하고, filtered/unfiltered lifecycle은
-   cache key를 공유하지 않는다.
-5. `listIssuesByStates()`는 server filter 없이 전체 snapshot에서 요청 상태를
-   로컬 필터링한다.
+1. With a `Status` lifecycle, a negative query with quoted terminal states
+   is passed to `ProjectV2.items(query:)`.
+2. With a custom state field or no terminal states, fall back to an
+   unfiltered fetch.
+3. If active/terminal states overlap, fail before the GraphQL call.
+4. The same query key shares the per-tick cache, and filtered/unfiltered
+   lifecycles do not share a cache key.
+5. `listIssuesByStates()` locally filters the requested states from a full
+   snapshot without a server filter.
 
-이 계약은 `packages/tracker-github/src/tracker-github.test.ts`의 Project item
-filtering 및 shared cache TC로 검증한다.
+These contracts are verified by the Project item filtering and shared cache
+TCs in `packages/tracker-github/src/tracker-github.test.ts`.

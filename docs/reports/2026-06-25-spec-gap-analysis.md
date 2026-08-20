@@ -4,8 +4,9 @@ Date: 2026-06-25
 Last verified against commit: `a5c494c37d32`
 Spec version: Draft v1 (`docs/symphony-spec.md`)
 Implementation: GitHub Symphony (pnpm monorepo, TypeScript)
-Status: Retired (2026-08-10) — living implementation map 유지를 중단하고 2026-06-25 검증
-시점의 스냅샷으로 보존한다. 이후의 스펙 정합성 판단은 코드와 ADR을 직접 근거로 삼는다.
+Status: Retired (2026-08-10) — maintenance as a living implementation map has stopped;
+preserved as a snapshot as of the 2026-06-25 verification. Subsequent spec-conformance
+judgments should be grounded directly in the code and ADRs.
 
 > Historical note: the previous 2026-03-17 revision predated several shipped packages
 > and marked now-implemented work as missing or critical. It was maintained as a

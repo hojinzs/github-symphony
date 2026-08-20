@@ -44,20 +44,20 @@ Issue #236 originated as a request for **label-based priority fallback**. The pr
 - **N4** — No multi-source merge, weighting, or precedence resolution between labels and project fields.
 - **N5** — No edits to `docs/symphony-spec.md`.
 - **N6** — No new priority concept for non-GitHub trackers (Linear, file). This ADR is GitHub Project V2-scoped; other adapters keep their existing behavior.
-- **N7** — No interactive Project/label *creation*; setup never invents labels or fields that do not exist.
+- **N7** — No interactive Project/label _creation_; setup never invents labels or fields that do not exist.
 
 ## 4. Affected Symphony Layers
 
 Per the six layers in `AGENTS.md`:
 
-| Layer | Affected? | What changes |
-|---|---|---|
-| **Policy** | Yes | `WORKFLOW.md` becomes the single explicit source of priority intent; no implicit team heuristics. |
-| **Configuration** | Yes | New `tracker.priority` block parsing + validation in `packages/core` (parser, config types). |
-| **Coordination** | Indirect | `sortCandidatesForDispatch` is unchanged; it now consumes an explicitly-derived `priority`. |
-| **Execution** | No | Worker filesystem/agent lifecycle unaffected. |
-| **Integration** | Yes | `packages/tracker-github` adapter gains explicit `project-field` and `labels` resolution; tracker-specific code stays here. |
-| **Observability** | Yes | New structured events (label-conflict collapse, unmapped value) + doctor drift checks. |
+| Layer             | Affected? | What changes                                                                                                                |
+| ----------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Policy**        | Yes       | `WORKFLOW.md` becomes the single explicit source of priority intent; no implicit team heuristics.                           |
+| **Configuration** | Yes       | New `tracker.priority` block parsing + validation in `packages/core` (parser, config types).                                |
+| **Coordination**  | Indirect  | `sortCandidatesForDispatch` is unchanged; it now consumes an explicitly-derived `priority`.                                 |
+| **Execution**     | No        | Worker filesystem/agent lifecycle unaffected.                                                                               |
+| **Integration**   | Yes       | `packages/tracker-github` adapter gains explicit `project-field` and `labels` resolution; tracker-specific code stays here. |
+| **Observability** | Yes       | New structured events (label-conflict collapse, unmapped value) + doctor drift checks.                                      |
 
 ## 5. Decision
 
@@ -74,8 +74,8 @@ tracker:
   state_field: Status
   priority:
     source: project-field
-    field: Priority            # required; GitHub Project V2 single-select field name (exact)
-    values:                    # required; field option value (display name) -> numeric priority
+    field: Priority # required; GitHub Project V2 single-select field name (exact)
+    values: # required; field option value (display name) -> numeric priority
       Urgent: 0
       High: 1
       Medium: 2
@@ -97,7 +97,7 @@ tracker:
   state_field: Status
   priority:
     source: labels
-    labels:                    # required; label name -> numeric priority
+    labels: # required; label name -> numeric priority
       P0: 0
       P1: 1
       P2: 2
@@ -139,7 +139,7 @@ These are **load-time configuration errors** (the workflow is invalid), distinct
 
 In `packages/tracker-github/src/adapter.ts`, replace the order-derived path with explicit resolution driven by the parsed `tracker.priority` config:
 
-1. **`source: project-field`** — read the issue's selected option for the configured `field`. If the selected option's display value is a key in `values`, `priority = values[value]`. Otherwise `priority = null`. The Project-V2 option *order* is never consulted.
+1. **`source: project-field`** — read the issue's selected option for the configured `field`. If the selected option's display value is a key in `values`, `priority = values[value]`. Otherwise `priority = null`. The Project-V2 option _order_ is never consulted.
 2. **`source: labels`** — collect the issue's labels, intersect with `labels` keys. If the intersection is non-empty, `priority = min` of the mapped values; emit the label-conflict event when the intersection has size > 1 (§8). If empty, `priority = null`.
 3. **`source: disabled` / omitted** — `priority = null` for every issue.
 4. **Unmapped / unknown is always `null`.** No renamed-label, fuzzy, or order-based fallback under any source.
@@ -153,13 +153,13 @@ The dispatch sort is unchanged; it simply receives explicit values.
 
 Doctor / validation MUST surface at least:
 
-| Drift case | Source | Surface |
-|---|---|---|
-| Configured `field` missing from the Project V2 schema | project-field | doctor warn |
-| Configured label names absent from the repository | labels | doctor warn |
-| Project field option exists but is unmapped in `values` | project-field | doctor warn |
-| `values`/`labels` entry references an option/label that does not exist | both | doctor warn |
-| An **active** issue currently holds an unmapped priority value | both | doctor warn + runtime observability event (§8) |
+| Drift case                                                             | Source        | Surface                                        |
+| ---------------------------------------------------------------------- | ------------- | ---------------------------------------------- |
+| Configured `field` missing from the Project V2 schema                  | project-field | doctor warn                                    |
+| Configured label names absent from the repository                      | labels        | doctor warn                                    |
+| Project field option exists but is unmapped in `values`                | project-field | doctor warn                                    |
+| `values`/`labels` entry references an option/label that does not exist | both          | doctor warn                                    |
+| An **active** issue currently holds an unmapped priority value         | both          | doctor warn + runtime observability event (§8) |
 
 Doctor integration (`packages/cli/src/commands/doctor.ts`) follows the existing `DoctorCheckId` + `passCheck/warnCheck` pattern. This ADR proposes a new check id namespace, e.g. `priority_mapping` (exact id finalized in the child issue), reported as `warn` (never `fail`) so doctor stays green-blocking only on hard config errors from §5.5.
 
@@ -251,11 +251,11 @@ tracker:
 
 This ADR is the shared reference for three independent child issues. Each child cites sections by anchor.
 
-| Child | Title | Scope | Primary sections | Packages |
-|---|---|---|---|---|
-| **C1** | Schema & runtime | `tracker.priority` parsing/validation; GitHub adapter explicit resolution; legacy precedence; observability events | §5, §5.5, §6, §8, §10 | `packages/core`, `packages/tracker-github` |
-| **C2** | Init / setup generation UX | `generate-workflow-md`, `setup`, `init` emit explicit block; interactive + non-interactive; stop emitting `priority_field` | §9, §10 | `packages/cli` |
-| **C3** | Drift validation & docs | doctor `priority_mapping` checks; deprecation/conflict warn; user docs + example WORKFLOW.md | §7, §8, §10 | `packages/cli` (doctor), `docs/` |
+| Child  | Title                      | Scope                                                                                                                      | Primary sections      | Packages                                   |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------ |
+| **C1** | Schema & runtime           | `tracker.priority` parsing/validation; GitHub adapter explicit resolution; legacy precedence; observability events         | §5, §5.5, §6, §8, §10 | `packages/core`, `packages/tracker-github` |
+| **C2** | Init / setup generation UX | `generate-workflow-md`, `setup`, `init` emit explicit block; interactive + non-interactive; stop emitting `priority_field` | §9, §10               | `packages/cli`                             |
+| **C3** | Drift validation & docs    | doctor `priority_mapping` checks; deprecation/conflict warn; user docs + example WORKFLOW.md                               | §7, §8, §10           | `packages/cli` (doctor), `docs/`           |
 
 Suggested order: **C1 → (C2 ∥ C3)**. C1 establishes the parsed shape that C2 generates and C3 validates. C2 and C3 are independent once C1's config type lands. Each child ships its own tests (§13) and changeset.
 
@@ -274,7 +274,7 @@ Suggested order: **C1 → (C2 ∥ C3)**. C1 establishes the parsed shape that C2
 
 ## 13. Testing Strategy
 
-Per `AGENTS.md` ("작업 완료 후 반드시 TC를 작성하고 테스트를 실행") and `AGENT_TEST.md`: each child lands unit tests; integration behavior not covered by unit tests is verified via the Docker E2E black-box environment.
+Per `AGENTS.md` ("after completing work, always write TCs and run the tests") and `AGENT_TEST.md`: each child lands unit tests; integration behavior not covered by unit tests is verified via the Docker E2E black-box environment.
 
 - **C1 unit** — `packages/core` parser/config: valid `project-field`/`labels`/`disabled`, all §5.5 rejection cases, legacy precedence. `packages/tracker-github`: `resolvePriority` for project-field and labels including the multi-label `min` rule, unmapped → `null`, event emission. Add cases to `core-conformance.test.ts` where appropriate.
 - **C2 unit** — `generate-workflow-md.test.ts`, `setup.test.ts`, `workflow-init.test.ts`: emitted front-matter is the explicit block; no `priority_field`; non-interactive scaffold/disabled behavior; no invented labels.
@@ -293,7 +293,7 @@ Per `AGENTS.md` ("작업 완료 후 반드시 TC를 작성하고 테스트를 �
 ## 15. Open Questions
 
 - **OQ1** — Exact doctor `DoctorCheckId` value(s): one aggregate `priority_mapping` check vs. per-case ids. Deferred to C3; does not affect C1/C2 contracts.
-- **OQ2** — Final event names/payload schema for §8 against the existing event taxonomy. Deferred to C1; the *observability requirement* is fixed here.
+- **OQ2** — Final event names/payload schema for §8 against the existing event taxonomy. Deferred to C1; the _observability requirement_ is fixed here.
 - **OQ3** — Whether `source: disabled` is the canonical keyword or an alias (`none`) is also accepted. C1 picks one; omission semantics are fixed (= `null` everywhere).
 - **OQ4** — Deprecation window/removal timeline for `priority_field` (separate future ADR; out of scope, N3).
 
