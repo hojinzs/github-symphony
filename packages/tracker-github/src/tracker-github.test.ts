@@ -4284,6 +4284,10 @@ describe("resolveTrackerAdapter", () => {
       "https://github.example/api/v3/user",
     ],
     [
+      "https://github.example/api/graphql/",
+      "https://github.example/api/v3/user",
+    ],
+    [
       "https://github.example/api/v3/graphql",
       "https://github.example/api/v3/user",
     ],
