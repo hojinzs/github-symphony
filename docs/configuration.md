@@ -8,16 +8,38 @@ and operational overrides.
 
 ## Standalone Projects
 
-`gh-symphony project add <project-dir>` registers a project folder as an
-independent orchestration instance. The folder owns `WORKFLOW.md`, optional
-`.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository remains
-unmodified. `WORKFLOW.md` must declare `repository.slug`. Each issue is
+`gh-symphony project start` runs the project folder in the working directory as
+an independent orchestration instance; `--project-dir <path>` names a different
+folder. The folder owns `WORKFLOW.md`, optional `.mcp.json`, `.env`, and
+`.agent/skills/`; the referenced repository remains unmodified. `WORKFLOW.md`
+must declare `repository.slug`, which is also what distinguishes a standalone
+project from a repository that embeds its own workflow. Configuration is derived
+from the folder on every start and cached under
+`<config-dir>/projects/<project-id>/`, where the project id is a stable function
+of the folder path — there is no registration step and no active-project state. Issue workspaces are
+created under the project's `workspace.root` (spec 9.1), resolved relative to
+the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
+directory is created with mode `0700` when it does not exist. Repo-embedded
+projects still keep issue workspaces beside their runtime state and ignore
+`workspace.root`; converging them is tracked in
+[#599](https://github.com/hojinzs/github-symphony/issues/599). Each issue is
 populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
 using a worktree. Branches default to
 `symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
 one repository without branch collisions. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
-mode `0600` and do not commit it.
+mode `0600` and do not commit it. An explicit `--config <dir>` is exported to
+`GH_SYMPHONY_CONFIG_DIR` for the process, so the bare cache and spawned workers
+use the same directory as the rest of the CLI state. The cache is keyed by
+`<owner>/<name>`; when a project's clone URL changes, the cache re-points
+`origin` and refetches on the next populate.
+
+When a standalone project targets a repository that also commits its own
+`WORKFLOW.md`, the status surface reports a shadow warning naming the
+repository. The repository file is never executed — only the registered project
+policy is. The check reads the shared bare cache rather than the working
+directory, so it reflects the repository as of the cache's last fetch and
+catches up on the next issue populate.
 
 ## Skill Layering
 

@@ -8,10 +8,11 @@ local seed repository, in a one-shot container that bypasses the entrypoint. Eac
 
 ## Steps
 
-1. Register both projects into a single registry with `gh-symphony project add`.
-2. Prepare two file-tracker issues whose label mappings are disjoint.
-3. Run the orchestrator `run-once` for each project ID.
-4. Inspect the bare cache, worktree, branch, MCP/skill injection, `git status`, and worker log.
+1. Prepare two file-tracker issues whose label mappings are disjoint.
+2. Start both projects at once by running `gh-symphony project start` from inside each
+   project folder — no registration step and no shared active-project state.
+3. Inspect the bare cache, worktree location, branch, MCP/skill injection, `git status`,
+   and worker log.
 
 ## Expected
 
@@ -20,6 +21,8 @@ local seed repository, in a one-shot container that bypasses the entrypoint. Eac
   runs on distinct branches:
   `symphony/project-alpha/test-owner-test-repo-101` and
   `symphony/project-beta/test-owner-test-repo-102`.
+- Issue workspaces are created under each project folder's `workspace.root`
+  (`.runtime/workspaces`), not inside the runtime state directory.
 - After project skill injection, `git status --porcelain` is empty, the workers compose the
   project MCP server, and both workers record `status=completed`.
 
