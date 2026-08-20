@@ -368,6 +368,20 @@ gh-symphony repo start --once        # Run one orchestration tick for this repos
 gh-symphony repo stop                # Stop this repository
 ```
 
+### Standalone Projects
+
+A standalone project is a project folder registered as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
+
+```bash
+gh-symphony project add <projectDir>   # Register a project folder (validates WORKFLOW.md, rejects overlapping tracker mappings)
+gh-symphony project list               # List registered standalone projects as JSON
+gh-symphony project start              # Start orchestration for the active standalone project (same flags as repo start)
+gh-symphony project status             # Show standalone project status
+gh-symphony project stop               # Stop the standalone project daemon
+```
+
+`project start` accepts the same flags as `repo start` (`--once`, `--daemon`, `--web`, `--http`, and so on). Registration refuses tracker mappings that overlap an already-registered project for the same repository unless you confirm interactively. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+
 ### Official Container Deployment
 
 The official image is designed for headless orchestration and defaults to:

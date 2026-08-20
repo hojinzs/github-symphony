@@ -28,13 +28,13 @@ npx vitest run packages/core/src/workflow/workflow-loader.test.ts
 
 Before shipping: `pnpm lint && pnpm test && pnpm typecheck && pnpm build`
 
-**작업 완료 후 반드시 TC를 작성하고 테스트를 실행하여 검증해야 한다.** 단위 테스트로 충분하지 않은 통합 동작은 Docker E2E 환경에서 블랙박스 테스트로 검증한다. 구체적인 방법은 [AGENT_TEST.md](AGENT_TEST.md) 참조.
+**After completing work, always write test cases and run the tests to verify.** Integration behavior that unit tests cannot cover is verified with black-box tests in the Docker E2E environment. See [AGENT_TEST.md](AGENT_TEST.md) for the concrete procedure.
 
 ## Architecture
 
 ### Six Symphony Layers
 
-All work must be classified against these layers (per `AGENT.md`):
+All work must be classified against these layers (per `AGENTS.md`):
 
 1. **Policy** — `WORKFLOW.md` prompt and team rules (repo-defined, per-repository)
 2. **Configuration** — Workflow config parsing and validation
@@ -46,20 +46,28 @@ All work must be classified against these layers (per `AGENT.md`):
 ### Package Dependency Graph
 
 ```
-orchestrator ──→ core, tracker-github
-worker ──────→ core, runtime-codex, tracker-github, extension-github-workflow
-runtime-codex ─→ core
-tracker-github ─→ core
-extension-github-workflow ─→ core
+cli (published entrypoint; bundles the rest via devDependencies)
+orchestrator ──→ core, runtime-claude, runtime-codex, tracker-file, tracker-github, tracker-linear
+worker ────────→ core, extension-github-workflow, runtime-claude, runtime-codex, tool-github-graphql, tracker-github
+control-plane ─→ core, dashboard
+runtime-{claude,codex} ─→ core, tool-github-graphql, tool-linear-graphql
+tracker-{github,linear,file} ─→ core (+tool-github-graphql for github)
+extension-github-workflow, dashboard, tool-github-graphql ─→ core
 ```
+
+The full component-to-package map, sliced by Symphony layer, lives in [docs/architecture.md](docs/architecture.md) — keep it updated when moving code across packages or layers.
 
 ### Key Packages
 
-- **`packages/core`** — Domain types, contracts (`OrchestratorStateStore`, `OrchestratorTrackerAdapter`), workflow lifecycle (`WorkflowExecutionPhase`: planning → human-review → implementation → awaiting-merge → completed), orchestration records, observability snapshots. No external dependencies.
-- **`packages/orchestrator`** — CLI entrypoint, `OrchestratorService` dispatch loop, filesystem-backed state store (`OrchestratorFsStore`), status HTTP server (default `:4680`). Commands: `run`, `run-once`, `dispatch`, `run-issue`, `recover`, `status`.
-- **`packages/worker`** — Runs a single issue; serves `/api/v1/state`; integrates with Codex runtime; manages approval workflow and after-create hooks.
-- **`packages/runtime-codex`** — Codex AI runtime integration (launcher, session, git-credential-helper, github-graphql tool).
-- **`packages/tracker-github`** — `GitHubTrackerAdapter` implementing `OrchestratorTrackerAdapter` contract.
+- **`packages/core`** — Domain types, contracts (`OrchestratorStateStore`, `OrchestratorTrackerAdapter`), workflow loading/config, lifecycle (`WorkflowExecutionPhase`: planning → human-review → implementation → awaiting-merge → completed), MCP config composition, observability snapshots. No external dependencies.
+- **`packages/cli`** — `gh-symphony` published entrypoint: `setup`, `doctor`, `workflow`, `config`, `repo` (init/start/stop/status/run/logs/recover/explain), and `project` (standalone project add/list/start/status/stop).
+- **`packages/orchestrator`** — `OrchestratorService` dispatch loop, filesystem-backed state store (`OrchestratorFsStore`), shared bare clone cache + worktree populate, layered skill injection, leases/retries/recovery.
+- **`packages/worker`** — Runs a single issue; serves `/api/v1/state`; drives a runtime adapter; manages approval workflow and hooks.
+- **`packages/runtime-codex` / `packages/runtime-claude`** — Agent runtime adapters (Codex app-server protocol; Claude print mode).
+- **`packages/tracker-github` / `-linear` / `-file`** — Tracker adapters implementing `OrchestratorTrackerAdapter` (file is E2E-only).
+- **`packages/control-plane` / `packages/dashboard`** — Operator HTTP API (bearer-authenticated, default `:4680`) and browser dashboard.
+- **`packages/tool-github-graphql` / `-linear-graphql`** — Runtime-neutral GraphQL MCP tools.
+- **`packages/extension-github-workflow`** — GitHub-specific planning/approval/PR-reporting extensions.
 
 ### Key Contracts (in core)
 
@@ -70,10 +78,15 @@ extension-github-workflow ─→ core
 ### Runtime State
 
 Filesystem state lives under `.runtime/orchestrator/`:
+
 - `workspaces/<id>/config.json` — workspace metadata
 - `workspaces/<id>/leases.json` — issue-phase leases
 - `runs/<run-id>/run.json` — run snapshots
 - `runs/<run-id>/events.ndjson` — structured events
+
+## Releases
+
+The single publish unit is `@gh-symphony/cli`. Behavior-changing PRs must add a changeset (`.changeset/*.md`, package `"@gh-symphony/cli"`); the changeset-release bot PR publishes to npm on merge. Docs-only changes need no changeset.
 
 ## Code Conventions
 

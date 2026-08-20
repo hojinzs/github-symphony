@@ -336,6 +336,18 @@ gh-symphony repo recover                 # Recover stalled runs
 gh-symphony repo recover --dry-run       # Preview what would be recovered
 ```
 
+### Standalone Projects
+
+Register a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository.
+
+```bash
+gh-symphony project add <projectDir>     # Register (validates WORKFLOW.md, rejects overlapping tracker mappings)
+gh-symphony project list                 # List registered standalone projects
+gh-symphony project start                # Same flags as repo start (--once, --daemon, --web, --http)
+gh-symphony project status
+gh-symphony project stop
+```
+
 ## Diagnostics
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
@@ -422,6 +434,13 @@ Orchestration:
   repo logs           View orchestrator logs
   repo explain        Explain why an issue is not dispatching
   completion <shell>  Print shell completion for bash/zsh/fish
+
+Standalone Projects:
+  project add <dir>   Register a project folder as an independent orchestration instance
+  project list        List registered standalone projects as JSON
+  project start       Start the active standalone project (same flags as repo start)
+  project status      Show standalone project status
+  project stop        Stop the standalone project daemon
 
 Global Options:
   --config <dir>      Config directory (default: initialized cwd runtime, then ~/.gh-symphony)

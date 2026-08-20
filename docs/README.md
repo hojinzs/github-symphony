@@ -1,46 +1,54 @@
 # docs/
 
-문서 배치 규칙과 인덱스. 새 문서를 추가할 때 아래 분류에 따라 배치한다.
+Document placement rules and index. When adding a new document, place it
+according to the categories below. All internal documents are written in
+English.
 
-## 분류 규칙
+## Placement rules
 
-| 위치             | 성격                                                       | 규칙                                                                                                                                                                              |
-| ---------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/` 루트     | **살아있는 문서** — 현재 동작의 진실을 담고 계속 갱신됨    | 날짜 접두어 없음. 코드가 바뀌면 함께 갱신할 책임이 있음                                                                                                                           |
-| `docs/adr/`      | **결정 기록** — 왜 이렇게 했는가                           | `YYYY-MM-DD_slug.md`. 결정 후 수정하지 않고, 뒤집을 땐 새 ADR로 supersede                                                                                                         |
-| `docs/designs/`  | **구현 전 설계·플랜** — 무엇을 어떻게 만들 것인가 (시점성) | `YYYY-MM-DD-slug.md`. 헤더에 `Status`(Draft → Approved → Shipped/Abandoned)와 `Symphony Layers`(해당 레이어 나열)를 반드시 기재. 출하 후 Status만 갱신하고 본문은 히스토리로 보존 |
-| `docs/reports/`  | **시점성 분석** — 감사, 타당성 조사, RCA                   | `YYYY-MM-DD-slug.md`. 작성 시점의 스냅샷. 본문을 최신화하지 않으며, 후속 조치가 있으면 헤더 상태 줄에만 링크                                                                      |
-| `docs/examples/` | 사용자용 예시 파일                                         | 실제 동작과 일치하게 유지                                                                                                                                                         |
+| Location         | Nature                                                                           | Rules                                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/` root     | **Living documents** — hold the truth of current behavior, updated continuously  | No date prefix. When code changes, the document must change with it                                                                                                                                               |
+| `docs/adr/`      | **Decision records** — why it was done this way                                  | `YYYY-MM-DD_slug.md`. Not edited after the decision; to reverse one, supersede it with a new ADR                                                                                                                  |
+| `docs/designs/`  | **Pre-implementation designs and plans** — what to build and how (point-in-time) | `YYYY-MM-DD-slug.md`. The header must carry `Status` (Draft → Approved → Shipped/Abandoned) and `Symphony Layers` (list the layers involved). After shipping, update only the Status and keep the body as history |
+| `docs/reports/`  | **Point-in-time analysis** — audits, feasibility studies, RCAs                   | `YYYY-MM-DD-slug.md`. A snapshot of when it was written. The body is not kept current; follow-ups link only from the header status line                                                                           |
+| `docs/examples/` | Example files for users                                                          | Keep consistent with actual behavior                                                                                                                                                                              |
 
-`Symphony Layers`는 `AGENTS.md`가 정의하는 6개 레이어 분류(Policy / Configuration / Coordination / Execution / Integration / Observability)를 따른다. 설계는 보통 여러 레이어에 걸치므로 디렉토리가 아니라 헤더 메타데이터로 태깅한다.
+`Symphony Layers` follows the six-layer classification defined by `AGENTS.md`
+(Policy / Configuration / Coordination / Execution / Integration /
+Observability). Designs usually span multiple layers, so they are tagged via
+header metadata rather than directories.
 
-## 살아있는 문서
+## Living documents
 
-- [symphony-spec.md](symphony-spec.md) — 상류 Symphony 스펙 (Draft v1). **읽기 전용, 절대 수정 금지**
-- [configuration.md](configuration.md) — 설정·환경변수 레퍼런스
+- [symphony-spec.md](symphony-spec.md) — upstream Symphony spec (Draft v1). **Read-only, never modify**
+- [architecture.md](architecture.md) — maps spec components (§3.1) and layers (§3.2) to packages. Organized as per-layer slices; PRs that move code across layers/packages update the matching slice
+- [configuration.md](configuration.md) — configuration and environment variable reference (env loading order, standalone projects, skill layering)
 
-단일 패키지에 국한된 아키텍처 문서는 해당 패키지의 `README.md`에 둔다 (예: [packages/control-plane/README.md](../packages/control-plane/README.md)).
+Architecture documentation scoped to a single package lives in that package's
+`README.md` (for example [packages/control-plane/README.md](../packages/control-plane/README.md)).
 
 ## designs/
 
-| 문서                                                                                                                         | 레이어                                                        | 상태              |
+| Document                                                                                                                     | Layers                                                        | Status            |
 | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------- |
 | [2026-05-10-cli-restructure-design.md](designs/2026-05-10-cli-restructure-design.md)                                         | Coordination, Configuration                                   | Shipped           |
-| [2026-05-10-cli-restructure-issues.md](designs/2026-05-10-cli-restructure-issues.md)                                         | Coordination, Configuration                                   | Completed (플랜)  |
+| [2026-05-10-cli-restructure-issues.md](designs/2026-05-10-cli-restructure-issues.md)                                         | Coordination, Configuration                                   | Completed (plan)  |
 | [2026-07-06-github-project-repo-dispatch-filter-design.md](designs/2026-07-06-github-project-repo-dispatch-filter-design.md) | Integration, Coordination, Observability                      | Shipped (PR #435) |
 | [2026-08-11-standalone-project-model-design.md](designs/2026-08-11-standalone-project-model-design.md)                       | Policy, Configuration, Coordination, Execution, Observability | Shipped           |
 | [2026-08-11-agent-bootstrap-plugin-pm-steward-design.md](designs/2026-08-11-agent-bootstrap-plugin-pm-steward-design.md)     | Policy, Configuration, Coordination, Observability            | Draft             |
-| [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (플랜)                                                        | Active            |
+| [2026-08-11-standalone-project-model-issues.md](designs/2026-08-11-standalone-project-model-issues.md)                       | (plan)                                                        | Active            |
 
 ## reports/
 
-| 문서                                                                                                             | 상태                                        |
-| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md) | Concluded — ADR로 승격                      |
-| [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living map 유지 중단, 최종 스냅샷 |
-| [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | 검수 대기 (이슈 미발행)                     |
-| [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                   | 부분 구현 (R1.5 출하)                       |
+| Document                                                                                                         | Status                                              |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| [2026-05-04-single-repo-orchestrator-feasibility.md](reports/2026-05-04-single-repo-orchestrator-feasibility.md) | Concluded — promoted to an ADR                      |
+| [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living-map upkeep stopped, final snapshot |
+| [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | Awaiting review (issues not filed)                  |
+| [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                   | Partially implemented (R1.5 shipped)                |
 
 ## adr/
 
-ADR 목록은 [adr/](adr/) 디렉토리 참조. 최신 결정이 과거 결정을 대체하는 경우 헤더의 `Supersedes`로 연결된다.
+See the [adr/](adr/) directory for the ADR list. When a newer decision replaces
+an older one, they are linked via the `Supersedes` header.

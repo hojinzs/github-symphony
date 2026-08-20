@@ -19,6 +19,26 @@ one repository without branch collisions. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
 mode `0600` and do not commit it.
 
+## Skill Layering
+
+Before each worker attempt the orchestrator injects agent skills into the
+issue worktree, merged from two layers with later layers overriding earlier
+ones by skill directory name:
+
+| Layer   | Source directory               | Notes                                     |
+| ------- | ------------------------------ | ----------------------------------------- |
+| Global  | `~/.gh-symphony/skills/`       | Shared across every project on the host   |
+| Project | `<project-dir>/.agent/skills/` | Standalone project folder (or repository) |
+
+The destination depends on the configured agent command: `.codex/skills/` for
+Codex runtimes and `.claude/skills/` for Claude runtimes; unrecognized
+commands skip injection. Skills already tracked by the repository are never
+overwritten or deleted. Injected entries are recorded in a
+`.gh-symphony-injected-skills.json` manifest inside the destination so a later
+attempt can clean up only what Symphony wrote, and the runtime skills
+directory is appended to the repository's `.git/info/exclude` so injected
+skills never show up as untracked changes.
+
 ## Environment Loading Order
 
 Worker and hook environments are merged in this order, with later values taking
