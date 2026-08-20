@@ -13,6 +13,11 @@ import {
 } from "../ansi.js";
 import type { ProjectStatusSnapshot } from "@gh-symphony/core";
 import { formatRepositoryDisplay } from "../format/repository.js";
+import {
+  createStatusLivenessBanner,
+  renderStatusLivenessBanner,
+  type StatusLivenessRuntime,
+} from "../status-liveness-banner.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -20,11 +25,7 @@ export type DashboardOptions = {
   terminalWidth: number;
   noColor: boolean;
   maxAgents?: number;
-  runtimeStatus?: {
-    daemonRunning: boolean;
-    lastTickLabel: string;
-    lastTickStale: boolean;
-  };
+  runtimeStatus?: StatusLivenessRuntime & { lastTickLabel: string };
   /** Override Date.now() for deterministic testing */
   now?: number;
 };
@@ -233,22 +234,16 @@ function buildSummaryLines(
   const runtimeStatus = options.runtimeStatus;
   const primarySnapshot = snapshots[0];
   if (runtimeStatus && primarySnapshot) {
-    const health = runtimeStatus.daemonRunning
-      ? primarySnapshot.health
-      : "stopped";
-    const healthDot =
-      health === "degraded" || health === "stopped"
-        ? c.red("\u25CF")
-        : c.green("\u25CF");
-    const staleLabel = runtimeStatus.lastTickStale ? c.yellow(" (stale)") : "";
     lines.push(
-      `  ${healthDot} ${c.dim("Health")}  ${c.bold(health)}     ${c.dim("Last tick")}  ${runtimeStatus.lastTickLabel}${staleLabel}`
+      ...renderStatusLivenessBanner(
+        createStatusLivenessBanner(
+          primarySnapshot,
+          runtimeStatus,
+          runtimeStatus.lastTickLabel
+        ),
+        { layout: "dashboard", noColor: options.noColor }
+      )
     );
-    if (!runtimeStatus.daemonRunning) {
-      lines.push(
-        `  ${c.yellow("daemon not running \u2014 run 'gh-symphony repo start'")}  ${c.dim(`Last known state: ${primarySnapshot.health}`)}`
-      );
-    }
   }
 
   return lines;
