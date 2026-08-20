@@ -19,44 +19,18 @@ import { renderDashboard } from "../dashboard/renderer.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 import { resolveAdaptivePollIntervalMs } from "@gh-symphony/orchestrator";
+import {
+  createStatusLivenessBanner,
+  relativeTime,
+  renderStatusLivenessBanner,
+  type StatusLivenessRuntime,
+} from "../status-liveness-banner.js";
+
+export { relativeTime };
 
 const workflowConfigStore = new WorkflowConfigStore();
 
-function healthIcon(
-  health: "idle" | "running" | "degraded" | "stopped"
-): string {
-  switch (health) {
-    case "idle":
-    case "running":
-      return green("●");
-    case "degraded":
-    case "stopped":
-      return red("●");
-  }
-}
-
-export function relativeTime(
-  isoString: string,
-  nowMs: number = Date.now()
-): string {
-  const now = new Date(nowMs);
-  const then = new Date(isoString);
-  const diffMs = now.getTime() - then.getTime();
-  const diffS = Math.floor(diffMs / 1000);
-  const diffM = Math.floor(diffS / 60);
-  const diffH = Math.floor(diffM / 60);
-  const diffD = Math.floor(diffH / 24);
-
-  if (diffS < 60) return `${diffS}s ago`;
-  if (diffM < 60) return `${diffM}m ago`;
-  if (diffH >= 48) return `${diffD}d ago`;
-  return `${diffH}h ago`;
-}
-
-type RuntimeStatus = {
-  daemonRunning: boolean;
-  lastTickStale: boolean;
-};
+type RuntimeStatus = StatusLivenessRuntime;
 
 async function resolveStaleThresholdMs(
   workspaceDir: string,
@@ -167,25 +141,12 @@ function renderLegacyStatus(
   lines.push("");
 
   // Health and last tick
-  const renderedHealth = runtimeStatus.daemonRunning
-    ? snapshot.health
-    : "stopped";
-  const healthStr = apply(
-    `${healthIcon(renderedHealth)} Health    ${renderedHealth}`
-  );
-  const staleLabel = runtimeStatus.lastTickStale
-    ? apply(yellow(" (stale)"))
-    : "";
-  const lastTickStr = apply(`Last tick  ${relativeTime(snapshot.lastTickAt)}`);
   lines.push(
-    `  ${healthStr}${" ".repeat(Math.max(0, 30 - stripAnsi(healthStr).length))}${lastTickStr}${staleLabel}`
+    ...renderStatusLivenessBanner(
+      createStatusLivenessBanner(snapshot, runtimeStatus),
+      { layout: "legacy", noColor }
+    )
   );
-  if (!runtimeStatus.daemonRunning) {
-    lines.push(
-      apply(yellow("  daemon not running — run 'gh-symphony repo start'"))
-    );
-    lines.push(apply(dim(`  Last known state: ${snapshot.health}`)));
-  }
   lines.push("");
 
   // Summary stats
