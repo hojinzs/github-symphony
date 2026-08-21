@@ -222,6 +222,8 @@ This walkthrough shows the default happy path for one repository after `gh-symph
 
 The expected first success is an opened PR for the managed issue. After that, the lifecycle continues through the statuses and handoff rules encoded in the repository `WORKFLOW.md`.
 
+If GitHub reports that the source issue is already closed, or that a linked closing PR is merged, Symphony does not dispatch a worker even when the Project item was accidentally left in an active status. It reconciles that Project item to the first terminal status configured in `WORKFLOW.md` and emits a `tracker-terminal-candidate-reconciled` event.
+
 If the issue does not dispatch, start with:
 
 ```bash
