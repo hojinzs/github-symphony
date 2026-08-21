@@ -1381,6 +1381,15 @@ export class OrchestratorService {
           break;
         }
         if (slotsRemaining <= 0) break;
+        const existingIssueRecord = issueRecords.find(
+          (record) => record.issueId === issue.id
+        );
+        if (
+          existingIssueRecord?.retryEntry &&
+          Date.parse(existingIssueRecord.retryEntry.dueAt) > now.getTime()
+        ) {
+          continue;
+        }
         if (
           await this.isFailureRetrySuppressedIssue(
             tenant,
@@ -1442,7 +1451,7 @@ export class OrchestratorService {
           identifier: issue.identifier,
           workspaceKey: preferredWorkspaceKey,
           state: "claimed",
-          failureRetryCount: 0,
+          failureRetryCount: existingIssueRecord?.failureRetryCount ?? 0,
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -1476,6 +1485,7 @@ export class OrchestratorService {
             },
           });
         } catch (error) {
+          const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
           const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
           if (failedPreparedRun) {
             await this.store.saveRun({
@@ -1483,15 +1493,47 @@ export class OrchestratorService {
               status: "failed",
               completedAt: now.toISOString(),
               updatedAt: now.toISOString(),
-              lastError: `Worker spawn failed: ${this.formatErrorMessage(error)}`,
+              lastError: errorMessage,
             });
           }
-          issueRecords = releaseIssueOrchestration(issueRecords, issue.id, now);
+          const retryAttempt =
+            (existingIssueRecord?.retryEntry?.attempt ?? 1) + 1;
+          const retryPolicy = await this.loadRetryPolicy(
+            tenant,
+            issue.repository
+          );
+          const retryDueAt = (
+            retryPolicy
+              ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+              : new Date(
+                  now.getTime() +
+                    (this.dependencies.retryBackoffMs ??
+                      DEFAULT_RETRY_BACKOFF_MS)
+                )
+          ).toISOString();
+          issueRecords = upsertIssueOrchestration(issueRecords, {
+            issueId: issue.id,
+            identifier: issue.identifier,
+            workspaceKey: preferredWorkspaceKey,
+            state: "released",
+            failureRetryCount:
+              (existingIssueRecord?.failureRetryCount ?? 0) + 1,
+            currentRunId: null,
+            retryEntry: {
+              attempt: retryAttempt,
+              dueAt: retryDueAt,
+              error: errorMessage,
+            },
+            updatedAt: now.toISOString(),
+          });
           await this.store.saveProjectIssueOrchestrations(
             tenant.projectId,
             issueRecords
           );
-          throw error;
+          this.writeStderr(
+            `[orchestrator] dispatch failed for ${issue.identifier}; retry scheduled at ${retryDueAt}: ${this.formatErrorMessage(error)}`
+          );
+          continue;
         }
         issueRecords = upsertIssueOrchestration(issueRecords, {
           issueId: run.issueId,

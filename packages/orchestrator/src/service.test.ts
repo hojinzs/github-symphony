@@ -105,6 +105,127 @@ describe("OrchestratorService", () => {
     expect(dependencies.assignedOnly).toBe(true);
   });
 
+  it("continues dispatching after an earlier candidate fails to start", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dispatch-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+        maxConcurrentAgents: 2,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const listIssues = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        title: "Poison candidate",
+        description: null,
+        state: "Todo",
+        priority: 1,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        url: "https://example.test/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-1" },
+        metadata: {},
+      },
+      {
+        id: "issue-2",
+        identifier: "acme/platform#2",
+        title: "Dispatchable candidate",
+        description: null,
+        state: "Todo",
+        priority: 2,
+        createdAt: "2026-03-08T00:00:01.000Z",
+        updatedAt: "2026-03-08T00:00:01.000Z",
+        url: "https://example.test/acme/platform/issues/2",
+        labels: [],
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-2" },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4100,
+      stderr: null,
+      on: vi.fn(),
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      concurrency: 2,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      writeStderr: vi.fn(),
+    });
+    const startRun = (
+      service as unknown as {
+        startRun: (
+          tenant: OrchestratorProjectConfig,
+          issue: { id: string },
+          options: unknown
+        ) => Promise<OrchestratorRunRecord>;
+      }
+    ).startRun.bind(service);
+    vi.spyOn(service as never, "startRun").mockImplementation(
+      (
+        tenant: OrchestratorProjectConfig,
+        issue: { id: string },
+        options: unknown
+      ) =>
+        issue.id === "issue-1"
+          ? Promise.reject(new Error("checkout failed"))
+          : startRun(tenant, issue, options)
+    );
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(issueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "issue-1",
+          state: "released",
+          failureRetryCount: 1,
+          currentRunId: null,
+          retryEntry: {
+            attempt: 2,
+            dueAt: "2026-03-08T00:00:01.000Z",
+            error: expect.stringContaining("Worker spawn failed:"),
+          },
+        }),
+        expect.objectContaining({
+          issueId: "issue-2",
+          state: "running",
+        }),
+      ])
+    );
+  });
+
   it("rejects a live PID whose worker process identity was reused", () => {
     const service = new OrchestratorService(
       {
