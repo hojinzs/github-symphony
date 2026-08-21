@@ -1,5 +1,40 @@
 # @gh-symphony/cli
 
+## 0.9.0
+
+### Minor Changes
+
+- [#601](https://github.com/hojinzs/github-symphony/pull/601) [`d84ab00`](https://github.com/hojinzs/github-symphony/commit/d84ab00ebd0397726f6cfc04d229789e3b3021b0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix defects found while validating the standalone project model end to end:
+  - GitHub Project tracker now honors `tracker.pickup_labels`. Label-disjoint projects that
+    share one repository previously dispatched each other's issues despite those labels being
+    intended to keep project mappings disjoint.
+  - The shared bare-clone cache re-points `origin` and refetches when a project's clone URL
+    changes, instead of serving the previously cached remote forever.
+  - An explicit `--config <dir>` is exported to the environment so the bare-clone cache and
+    spawned workers use the same directory as the rest of the CLI state.
+  - The standalone shadow warning reads the shared bare cache instead of the process working
+    directory, so it names the repository that actually commits a `WORKFLOW.md` rather than
+    whichever directory the CLI was started from.
+  - `gh-symphony doctor` validates the folder-addressed project `WORKFLOW.md` for standalone
+    projects instead of reporting the repository root file as missing.
+  - Standalone projects create issue workspaces under their `workspace.root` (spec 9.1), resolved
+    relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`, instead of
+    inside the runtime state directory. Repo-embedded projects are unchanged.
+  - **Breaking (unreleased standalone surface):** `gh-symphony project add` is removed. `project
+start|status|stop` now address the project folder itself — the working directory by default, or
+    `--project-dir <path>` — and derive the runtime configuration from its `WORKFLOW.md` on every
+    start, so an edited workflow no longer needs re-registration and no active-project state decides
+    which project runs. Tracker-mapping overlap is validated at start instead of at registration, and
+    an overlap with an already running project is refused outright.
+  - `WORKFLOW.md` accepts `repository.clone_url` to override the derived clone URL for mirrors,
+    Enterprise hosts, or local paths.
+
+### Patch Changes
+
+- [#603](https://github.com/hojinzs/github-symphony/pull/603) [`43aa6dc`](https://github.com/hojinzs/github-symphony/commit/43aa6dc09e3b5ce8bbbb0854825bd800854d48e0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent a failed issue checkout from aborting the remaining dispatch candidates in the same orchestrator tick, and retain retry diagnostics for the failed issue ([#579](https://github.com/hojinzs/github-symphony/issues/579)).
+
+- [#597](https://github.com/hojinzs/github-symphony/pull/597) [`c5493f7`](https://github.com/hojinzs/github-symphony/commit/c5493f7668cb9ee9f2c14b72d13a1d6c9ad9dff7) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Map GitHub Enterprise Server GraphQL endpoints to the correct REST API base for authenticated-user and issue-comment requests ([#497](https://github.com/hojinzs/github-symphony/issues/497)).
+
 ## 0.8.0
 
 ### Minor Changes
