@@ -1066,6 +1066,9 @@ describe("runDoctorDiagnostics", () => {
       summary: expect.stringContaining("repo init"),
       remediation: expect.stringContaining("--project-dir <path>"),
     });
+    expect(
+      report.checks.find((check) => check.id === "managed_project")?.remediation
+    ).not.toContain("run from its project folder");
   });
 
   it("accepts env-token auth when gh CLI is unavailable", async () => {

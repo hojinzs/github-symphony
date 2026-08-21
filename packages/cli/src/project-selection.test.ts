@@ -202,6 +202,7 @@ describe("inspectManagedProjectSelection", () => {
       kind: "multiple_projects_require_selection",
       message: expect.stringContaining("--project-dir <path>"),
     });
+    expect(result.message).toContain("gh-symphony project list");
     expect(result.message).not.toContain("repo init");
   });
 
@@ -232,6 +233,9 @@ describe("inspectManagedProjectSelection", () => {
     expect(result).toMatchObject({
       kind: "active_project_missing",
       projectId: "tenant-a",
+      message:
+        "Active project \"tenant-a\" is configured in config.json but its project config is missing. For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
     });
+    expect(result.message).not.toContain('Active Project "tenant-a"');
   });
 });
