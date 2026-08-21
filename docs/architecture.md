@@ -40,6 +40,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Confirmed tracker transitions are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace and preserves a subsequently reported `succeeded` run instead of rewriting it as suppressed.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`) and worktree populate: `repository-cache.ts`, `git.ts`
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config
@@ -47,7 +48,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 4. Execution — worker and agent subprocess
 
 - Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
-- Multi-turn convergence compares local workspace/HEAD progress and, at the failure threshold, confirms canonical tracker activity through the orchestrator before classifying the run. A confirmed transition out of the active lifecycle completes the worker instead of being overwritten by a stale local-workspace result.
+- Multi-turn convergence compares local workspace/HEAD progress and, at the failure threshold, reads canonical tracker state through `/api/v1/tracker-state`. A confirmed state outside the workflow's active states completes the worker; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter.
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
 - Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 
