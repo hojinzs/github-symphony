@@ -89,6 +89,7 @@ const CONTINUATION_RETRY_DELAY_MS = 1_000;
 const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const WORKER_TURN_LEASE_TTL_MS = 15_000;
+const TRACKER_PROGRESS_EXIT_GRACE_MS = 30_000;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
@@ -115,6 +116,21 @@ export function clampPollInterval(intervalMs: number): number {
   return Math.min(
     MAX_POLL_INTERVAL_MS,
     Math.max(MIN_POLL_INTERVAL_MS, intervalMs)
+  );
+}
+
+export function shouldAwaitTrackerProgressExit(
+  run: OrchestratorRunRecord,
+  issueState: string,
+  now: Date
+): boolean {
+  if (run.issueState !== issueState || !run.trackerProgressConfirmedAt) {
+    return false;
+  }
+  const confirmedAt = Date.parse(run.trackerProgressConfirmedAt);
+  return (
+    Number.isFinite(confirmedAt) &&
+    now.getTime() - confirmedAt < TRACKER_PROGRESS_EXIT_GRACE_MS
   );
 }
 
@@ -583,6 +599,12 @@ export class OrchestratorService {
             lastError: result.ok
               ? latestRun.lastError
               : (result.error ?? latestRun.lastError),
+            trackerProgressConfirmedAt:
+              input.request.type === "transition-request" &&
+              result.ok &&
+              result.outcome === "confirmed"
+                ? nowIso
+                : (latestRun.trackerProgressConfirmedAt ?? null),
           };
           await this.persistTrackerStateDiagnostics(
             diagnosticRun,
@@ -1715,6 +1737,13 @@ export class OrchestratorService {
           (candidate) => candidate.identifier === issue.identifier
         );
         if (resolvedIssue) {
+          continue;
+        }
+
+        if (
+          activeRun &&
+          shouldAwaitTrackerProgressExit(activeRun, issue.state, now)
+        ) {
           continue;
         }
 
@@ -2992,9 +3021,11 @@ export class OrchestratorService {
         run.runtimeSession,
         workerInfo.sessionId,
         workerInfo.threadId,
-        run.status === "running"
-          ? "failed"
-          : (run.runtimeSession?.status ?? null),
+        workerInfo.runPhase === "succeeded"
+          ? "completed"
+          : run.status === "running"
+            ? "failed"
+            : (run.runtimeSession?.status ?? null),
         run.runtimeSession?.startedAt ?? run.startedAt ?? now.toISOString(),
         now.toISOString(),
         workerInfo.exitClassification
@@ -3077,6 +3108,30 @@ export class OrchestratorService {
           state: run.issueState,
         }
       );
+    }
+
+    if (
+      runWithTokens.runPhase === "succeeded" &&
+      runWithTokens.trackerProgressConfirmedAt
+    ) {
+      const completedRun: OrchestratorRunRecord = {
+        ...runWithTokens,
+        status: "succeeded",
+        processId: null,
+        completedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        nextRetryAt: null,
+        retryKind: null,
+        lastError: null,
+      };
+      await this.store.saveRun(completedRun);
+      this.logVerbose(
+        `[run-completed] ${completedRun.runId} status=${completedRun.status}`
+      );
+      return {
+        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+        recovered: false,
+      };
     }
 
     const recovery = await this.classifyIncompleteTurnDirtyWorkspace(

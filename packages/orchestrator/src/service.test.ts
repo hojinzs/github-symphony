@@ -30,7 +30,11 @@ import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
-import { clampPollInterval, OrchestratorService } from "./service.js";
+import {
+  clampPollInterval,
+  OrchestratorService,
+  shouldAwaitTrackerProgressExit,
+} from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
@@ -50,6 +54,35 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(0)).toBe(1_000);
     expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
     expect(clampPollInterval(30_000)).toBe(30_000);
+  });
+
+  it("gives confirmed tracker progress a bounded clean-exit grace", () => {
+    const run = {
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-08-21T00:00:00.000Z",
+    } as OrchestratorRunRecord;
+
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "Done",
+        new Date("2026-08-21T00:00:29.999Z")
+      )
+    ).toBe(true);
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "Done",
+        new Date("2026-08-21T00:00:30.000Z")
+      )
+    ).toBe(false);
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "In review",
+        new Date("2026-08-21T00:00:01.000Z")
+      )
+    ).toBe(false);
   });
 
   afterEach(() => {
@@ -760,7 +793,10 @@ describe("OrchestratorService", () => {
 
     expect(result).toMatchObject({ ok: true, outcome: "confirmed" });
     expect(saveRun).toHaveBeenCalledWith(
-      expect.objectContaining({ issueState: "In review" })
+      expect.objectContaining({
+        issueState: "In review",
+        trackerProgressConfirmedAt: "2026-08-07T09:01:00.000Z",
+      })
     );
     expect(upsertTransitionComment).toHaveBeenCalledOnce();
     expect(appendRunEvent).toHaveBeenCalledWith(

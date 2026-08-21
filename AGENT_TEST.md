@@ -170,18 +170,19 @@ AI Agent
 
 Control worker behavior with the `STUB_SCENARIO` environment variable:
 
-| Scenario          | Behavior                                           |
-| ----------------- | -------------------------------------------------- |
-| `happy` (default) | starting(2s) → running(5s) → completed, exit 0     |
-| `fail`            | starting(2s) → running(3s) → failed, exit 1        |
-| `stall`           | starting(2s) → running(forever), waits for SIGTERM |
-| `slow`            | starting(2s) → running(30s) → completed, exit 0    |
+| Scenario          | Behavior                                                           |
+| ----------------- | ------------------------------------------------------------------ |
+| `happy` (default) | starting(2s) → running(5s) → completed, exit 0                     |
+| `fail`            | starting(2s) → running(3s) → failed, exit 1                        |
+| `stall`           | starting(2s) → running(forever), waits for SIGTERM                 |
+| `slow`            | starting(2s) → running(30s) → completed, exit 0                    |
+| `api-progress`    | confirmed Ready → Done API transition/readback → succeeded, exit 0 |
 
 ### Worker lifecycle regression cases
 
-| Case | Automated coverage | Docker black-box confirmation |
-| ---- | ------------------ | ----------------------------- |
-| API-side lifecycle progress at the convergence threshold | `packages/worker/src/convergence-detection.test.ts` verifies that a confirmed canonical non-actionable readback completes the run while active/unknown readbacks fail closed. | Run the `happy` scenario and confirm the issue reaches the completed state without workspace mutations. |
+| Case                                                     | Automated coverage                                                                                                                                                                                                                              | Docker black-box confirmation                                                                                                                                         |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API-side lifecycle progress at the convergence threshold | `packages/worker/src/convergence-lifecycle.test.ts` replicates the threshold terminal branch with production helpers: confirmed non-actionable readback completes, active state converges, and unavailable readback is an orchestrator failure. | `STUB_SCENARIO=api-progress` verifies confirmed transition/readback and persisted success without workspace mutations; it does not execute the Codex multi-turn loop. |
 
 `docker-compose.e2e.yml` uses `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`, so the scenario can be selected via a shell environment variable.
 
@@ -373,6 +374,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/10-orchestrator-tracker-state.md`          | Verify run-scoped tracker API authorization, durable rejection, and exact-item concurrency                                |
 | `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                         |
 | `e2e/scenarios/12-transition-comment-race.md`             | Verify orchestrator-owned transition comments survive reconciliation races                                                |
+| `e2e/scenarios/13-api-progress-convergence.md`            | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                          |
 | `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
 | `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
 

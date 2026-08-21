@@ -235,6 +235,8 @@ export type OrchestratorRunRecord = {
     updatedAt: string;
     error: string | null;
   } | null;
+  /** Confirmed API lifecycle progress awaiting the worker's clean exit. */
+  trackerProgressConfirmedAt?: string | null;
   /** Recoverable dirty workspace left by an incomplete runtime session. */
   recovery?: IncompleteTurnRecoveryInfo | null;
 };

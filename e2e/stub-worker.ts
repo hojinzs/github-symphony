@@ -7,6 +7,7 @@
  *   stall           — starting(2s) → running(∞), waits for SIGTERM
  *   slow            — starting(2s) → running(30s) → completed, exit 0
  *   transition-race — requests Ready → In review, then stalls for reconciliation
+ *   api-progress    — requests Ready → Done, confirms readback, then completes
  */
 
 import { existsSync } from "node:fs";
@@ -22,13 +23,20 @@ const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
 const ISSUE_STATE = process.env.SYMPHONY_ISSUE_STATE ?? null;
 const WORKSPACE_RUNTIME_DIR =
   process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
-type Scenario = "happy" | "fail" | "stall" | "slow" | "transition-race";
+type Scenario =
+  | "happy"
+  | "fail"
+  | "stall"
+  | "slow"
+  | "transition-race"
+  | "api-progress";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
   "stall",
   "slow",
   "transition-race",
+  "api-progress",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -47,6 +55,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     stall: { startMs: 2000, runMs: Infinity },
     slow: { startMs: 2000, runMs: 30000 },
     "transition-race": { startMs: 2000, runMs: Infinity },
+    "api-progress": { startMs: 2000, runMs: 1000 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -181,6 +190,74 @@ async function requestTransitionForRace(): Promise<void> {
   }
 }
 
+async function requestAndConfirmApiProgress(): Promise<void> {
+  if (!ORCHESTRATOR_URL || !ORCHESTRATOR_TOKEN || !RUN_ID) {
+    throw new Error("stub_worker_orchestrator_context_missing");
+  }
+
+  const expectedState = ISSUE_STATE ?? "Ready";
+  const transitionResponse = await fetch(
+    `${ORCHESTRATOR_URL}/api/v1/tracker-state`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-symphony-run-id": RUN_ID,
+        "x-symphony-orchestrator-token": ORCHESTRATOR_TOKEN,
+      },
+      body: JSON.stringify({
+        type: "transition-request",
+        expected_state: expectedState,
+        target_state: "Done",
+        reason: "E2E API-side lifecycle progress",
+      }),
+    }
+  );
+  const transition = (await transitionResponse.json()) as {
+    ok?: boolean;
+    outcome?: string;
+    state?: string | null;
+  };
+  if (
+    !transitionResponse.ok ||
+    transition.ok !== true ||
+    transition.outcome !== "confirmed" ||
+    transition.state !== "Done"
+  ) {
+    throw new Error(
+      `stub_api_progress_transition_failed:${JSON.stringify(transition)}`
+    );
+  }
+
+  const readResponse = await fetch(`${ORCHESTRATOR_URL}/api/v1/tracker-state`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-symphony-run-id": RUN_ID,
+      "x-symphony-orchestrator-token": ORCHESTRATOR_TOKEN,
+    },
+    body: JSON.stringify({ type: "state-read" }),
+  });
+  const readback = (await readResponse.json()) as {
+    ok?: boolean;
+    outcome?: string;
+    state?: string | null;
+  };
+  console.error(
+    `[stub-worker] api-progress readback status=${readResponse.status} payload=${JSON.stringify(readback)}`
+  );
+  if (
+    !readResponse.ok ||
+    readback.ok !== true ||
+    readback.outcome !== "confirmed" ||
+    readback.state !== "Done"
+  ) {
+    throw new Error(
+      `stub_api_progress_readback_failed:${JSON.stringify(readback)}`
+    );
+  }
+}
+
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
@@ -217,6 +294,9 @@ async function run() {
   emitOrchestratorEvent("running");
   if (SCENARIO === "transition-race") {
     await requestTransitionForRace();
+  }
+  if (SCENARIO === "api-progress") {
+    await requestAndConfirmApiProgress();
   }
   await sleep(durations.runMs);
 
