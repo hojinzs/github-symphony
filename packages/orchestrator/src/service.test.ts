@@ -105,6 +105,149 @@ describe("OrchestratorService", () => {
     expect(dependencies.assignedOnly).toBe(true);
   });
 
+  it("continues dispatching after an earlier candidate fails to start", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dispatch-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+        maxFailureRetries: 3,
+        maxConcurrentAgents: 2,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const listIssues = vi.fn().mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        title: "Poison candidate",
+        description: null,
+        state: "Todo",
+        priority: 1,
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        url: "https://example.test/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-1" },
+        metadata: {},
+      },
+      {
+        id: "issue-2",
+        identifier: "acme/platform#2",
+        title: "Dispatchable candidate",
+        description: null,
+        state: "Todo",
+        priority: 2,
+        createdAt: "2026-03-08T00:00:01.000Z",
+        updatedAt: "2026-03-08T00:00:01.000Z",
+        url: "https://example.test/acme/platform/issues/2",
+        labels: [],
+        blockedBy: [],
+        repository,
+        tracker: { adapter: "github-project", issueId: "issue-2" },
+        metadata: {},
+      },
+    ]);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues,
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4100,
+      stderr: null,
+      on: vi.fn(),
+      unref: vi.fn(),
+    });
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      concurrency: 2,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: spawnImpl as never,
+      now: () => currentTime,
+      writeStderr: vi.fn(),
+    });
+    const startRun = (
+      service as unknown as {
+        startRun: (
+          tenant: OrchestratorProjectConfig,
+          issue: { id: string },
+          options: unknown
+        ) => Promise<OrchestratorRunRecord>;
+      }
+    ).startRun.bind(service);
+    vi.spyOn(service as never, "startRun").mockImplementation(
+      (
+        tenant: OrchestratorProjectConfig,
+        issue: { id: string },
+        options: unknown
+      ) =>
+        issue.id === "issue-1"
+          ? Promise.reject(new Error("checkout failed"))
+          : startRun(tenant, issue, options)
+    );
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toContain("checkout failed");
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(issueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "issue-1",
+          state: "retry_queued",
+          failureRetryCount: 1,
+          currentRunId: null,
+          retryEntry: {
+            attempt: 1,
+            dueAt: "2026-03-08T00:00:01.000Z",
+            error: expect.stringContaining("Worker spawn failed:"),
+          },
+        }),
+        expect.objectContaining({
+          issueId: "issue-2",
+          state: "running",
+        }),
+      ])
+    );
+
+    vi.spyOn(service as never, "isRunProcessRunning").mockReturnValue(true);
+    currentTime = new Date("2026-03-08T00:00:01.000Z");
+    await service.runOnce();
+    currentTime = new Date("2026-03-08T00:00:03.000Z");
+    await service.runOnce();
+    const cappedIssueRecords =
+      await store.loadProjectIssueOrchestrations("tenant-1");
+    expect(cappedIssueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "issue-1",
+          state: "released",
+          failureRetryCount: 3,
+          retryEntry: null,
+        }),
+      ])
+    );
+  });
+
   it("rejects a live PID whose worker process identity was reused", () => {
     const service = new OrchestratorService(
       {
@@ -6522,6 +6665,89 @@ Prefer focused changes.
     });
   });
 
+  it("does not redispatch a run-less failure-suppressed issue with an older completed run", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-runless-failure-suppressed-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: true,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "completed",
+      attempt: 1,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "completed-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "completed-run", "workspace-runtime"),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:01:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:01:00.000Z",
+      lastError: null,
+      nextRetryAt: null,
+      runPhase: "completed",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4106,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:04:00.000Z",
+        })
+      ) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
+    expect(issueRecords[0]).toMatchObject({
+      state: "released",
+      failureRetryCount: 3,
+      currentRunId: null,
+      updatedAt: "2026-03-08T00:05:00.000Z",
+    });
+  });
+
   it("redispatches a max-failure-retry-suppressed issue after the tracker updates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -6591,6 +6817,154 @@ Prefer focused changes.
       fetchImpl: vi.fn().mockResolvedValue(
         createTrackerResponseWithState(repository, "Todo", {
           updatedAt: "2026-03-08T00:06:00.000Z",
+        })
+      ) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(issueRecords[0]).toMatchObject({
+      state: "running",
+      failureRetryCount: 0,
+    });
+    expect(issueRecords[0]?.currentRunId).not.toBeNull();
+  });
+
+  it("starts a fresh dispatch retry chain after tracker reactivation", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-reactivation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:06:00.000Z",
+        })
+      ) as never,
+      spawnImpl: vi.fn() as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+    vi.spyOn(service as never, "startRun").mockRejectedValue(
+      new Error("temporary checkout failure")
+    );
+
+    await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(issueRecords[0]).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
+      currentRunId: null,
+      retryEntry: {
+        attempt: 1,
+        dueAt: "2026-03-08T00:06:01.000Z",
+        error: expect.stringContaining("temporary checkout failure"),
+      },
+    });
+  });
+
+  it("redispatches a failure-suppressed issue after its tracker state changes", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-state-change-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+        activeStates: ["Ready", "Todo"],
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Ready",
+      repository,
+      status: "suppressed",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "suppressed-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "suppressed-run",
+        "workspace-runtime"
+      ),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:05:00.000Z",
+      lastError:
+        "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3.",
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4107,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:04:00.000Z",
         })
       ) as never,
       spawnImpl: spawnImpl as never,

@@ -26,7 +26,7 @@ export const ISSUE_ORCHESTRATION_TRANSITIONS: Record<
   // No orchestrator code writes this; it can appear in legacy or externally
   // authored records and is retained for Record completeness and display-only use.
   unclaimed: ["unclaimed", "claimed"],
-  claimed: ["claimed", "running", "released"],
+  claimed: ["claimed", "running", "retry_queued", "released"],
   running: ["running", "retry_queued", "released"],
   retry_queued: ["retry_queued", "running", "released"],
   released: ["released", "claimed"],
