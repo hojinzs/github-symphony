@@ -25,6 +25,7 @@ export {
 export type { OrchestratorLogLevel };
 export * from "./runtime-factory.js";
 export * from "./explain.js";
+export * from "./repository-cache.js";
 export {
   findGithubProjectIssue,
   resolveTrackerAdapter,

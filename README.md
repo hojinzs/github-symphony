@@ -368,11 +368,16 @@ gh-symphony repo explain owner/repo#123  # Explain why one issue is not dispatch
 gh-symphony repo start               # Start this repository
 gh-symphony repo start --once        # Run one orchestration tick for this repository
 gh-symphony repo stop                # Stop this repository
+gh-symphony cache status             # Inspect shared bare caches, sizes, locks, and worktrees
+gh-symphony cache prune --dry-run    # Preview 30-day cache eviction
+gh-symphony cache prune --max-age-days 30 # Remove old idle caches safely
 ```
 
 ### Standalone Projects
 
 A standalone project is a project folder used as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are created under the project's `workspace.root`, relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
+
+If cache storage is unavailable or lock acquisition times out, workspace population falls back to an isolated direct clone. Cache locks heartbeat during long clone/fetch operations. Cleanup is operator-driven: `cache prune` defaults to entries at least 30 days old and skips every locked cache, linked worktree, or cache whose worktree state cannot be verified.
 
 ```bash
 cd <projectDir> && gh-symphony project start   # Start the project in this folder

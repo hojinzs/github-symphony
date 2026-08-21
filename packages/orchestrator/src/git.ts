@@ -875,6 +875,27 @@ export async function acquireRepositoryLock(
   }
 }
 
+/** Attempts lock acquisition once; maintenance callers use this to skip busy caches. */
+export async function tryAcquireRepositoryLock(
+  lockDirectory: string
+): Promise<string | null> {
+  const ownerToken = `${process.pid}:${randomUUID()}`;
+  try {
+    await mkdir(lockDirectory);
+    await writeFile(
+      join(lockDirectory, "owner"),
+      `${ownerToken}\n${new Date().toISOString()}\n`,
+      "utf8"
+    );
+    return ownerToken;
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function releaseRepositoryLock(
   lockDirectory: string,
   ownerToken: string

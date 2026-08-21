@@ -33,6 +33,12 @@ mode `0600` and do not commit it. An explicit `--config <dir>` is exported to
 use the same directory as the rest of the CLI state. The cache is keyed by
 `<owner>/<name>`; when a project's clone URL changes, the cache re-points
 `origin` and refetches on the next populate.
+Cache operations heartbeat their repository lock once per minute so a healthy
+large clone or fetch is not treated as stale. If the cache directory is
+unavailable or its lock times out, workspace creation uses an isolated direct
+clone. `gh-symphony cache status` inventories cache size and safety state;
+`gh-symphony cache prune` applies an operator-triggered 30-day default age
+policy and skips locked caches, linked worktrees, and unverifiable entries.
 
 When a standalone project targets a repository that also commits its own
 `WORKFLOW.md`, the status surface reports a shadow warning naming the

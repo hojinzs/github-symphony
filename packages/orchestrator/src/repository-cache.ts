@@ -1,4 +1,11 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RepositoryRef } from "@gh-symphony/core";
@@ -8,6 +15,7 @@ import {
   runGitCommand,
   runGitCommandCapture,
   startRepositoryLockHeartbeat,
+  tryAcquireRepositoryLock,
 } from "./git.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
@@ -25,6 +33,24 @@ export class RepositoryCacheUnavailableError extends Error {
     this.name = "RepositoryCacheUnavailableError";
   }
 }
+
+export type RepositoryCacheEntry = {
+  repository: string;
+  directory: string;
+  bytes: number;
+  updatedAt: string;
+  locked: boolean;
+  worktrees: number | null;
+};
+
+export type RepositoryCachePruneResult = {
+  removed: RepositoryCacheEntry[];
+  skipped: Array<
+    RepositoryCacheEntry & { reason: "locked" | "worktrees" | "recent" }
+  >;
+  reclaimedBytes: number;
+  dryRun: boolean;
+};
 
 export function resolveGlobalRepositoryCacheRoot(
   configDir = process.env.GH_SYMPHONY_CONFIG_DIR || DEFAULT_CONFIG_DIR
@@ -53,6 +79,142 @@ export function globalBareRepositoryLockDirectory(input: {
     resolveGlobalRepositoryCacheRoot(input.configDir),
     input.repository.owner,
     `${input.repository.name}.lock`
+  );
+}
+
+export async function inspectGlobalRepositoryCache(
+  input: {
+    configDir?: string;
+  } = {}
+): Promise<RepositoryCacheEntry[]> {
+  const root = resolveGlobalRepositoryCacheRoot(input.configDir);
+  const owners = await safeDirectories(root);
+  const entries: RepositoryCacheEntry[] = [];
+  for (const owner of owners) {
+    for (const name of await safeDirectories(join(root, owner))) {
+      if (!name.endsWith(".git")) continue;
+      const directory = join(root, owner, name);
+      const details = await stat(directory);
+      const lockDirectory = join(root, owner, `${name.slice(0, -4)}.lock`);
+      entries.push({
+        repository: `${owner}/${name.slice(0, -4)}`,
+        directory,
+        bytes: await directorySize(directory),
+        updatedAt: details.mtime.toISOString(),
+        locked: await pathExists(lockDirectory),
+        worktrees: await countLinkedWorktrees(directory),
+      });
+    }
+  }
+  return entries.sort((a, b) => a.repository.localeCompare(b.repository));
+}
+
+export async function pruneGlobalRepositoryCache(input: {
+  configDir?: string;
+  maxAgeMs: number;
+  now?: Date;
+  dryRun?: boolean;
+}): Promise<RepositoryCachePruneResult> {
+  const now = input.now ?? new Date();
+  const result: RepositoryCachePruneResult = {
+    removed: [],
+    skipped: [],
+    reclaimedBytes: 0,
+    dryRun: Boolean(input.dryRun),
+  };
+  for (const entry of await inspectGlobalRepositoryCache(input)) {
+    if (now.getTime() - Date.parse(entry.updatedAt) < input.maxAgeMs) {
+      result.skipped.push({ ...entry, reason: "recent" });
+      continue;
+    }
+    if (entry.locked) {
+      result.skipped.push({ ...entry, reason: "locked" });
+      continue;
+    }
+    if (entry.worktrees !== 0) {
+      result.skipped.push({ ...entry, reason: "worktrees" });
+      continue;
+    }
+    if (!input.dryRun) {
+      const lockDirectory = `${entry.directory.slice(0, -4)}.lock`;
+      const ownerToken = await tryAcquireRepositoryLock(lockDirectory);
+      if (!ownerToken) {
+        result.skipped.push({ ...entry, locked: true, reason: "locked" });
+        continue;
+      }
+      try {
+        if ((await countLinkedWorktrees(entry.directory)) !== 0) {
+          result.skipped.push({ ...entry, reason: "worktrees" });
+          continue;
+        }
+        await rm(entry.directory, { recursive: true, force: true });
+      } finally {
+        await releaseRepositoryLock(lockDirectory, ownerToken);
+      }
+    }
+    result.removed.push(entry);
+    result.reclaimedBytes += entry.bytes;
+  }
+  return result;
+}
+
+async function safeDirectories(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+}
+
+async function directorySize(directory: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    total += entry.isDirectory()
+      ? await directorySize(path)
+      : (await stat(path)).size;
+  }
+  return total;
+}
+
+async function countLinkedWorktrees(directory: string): Promise<number | null> {
+  try {
+    const output = await runGitCommandCapture([
+      "-C",
+      directory,
+      "worktree",
+      "list",
+      "--porcelain",
+    ]);
+    return Math.max(
+      0,
+      output.split("\n").filter((line) => line.startsWith("worktree ")).length -
+        1
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
   );
 }
 

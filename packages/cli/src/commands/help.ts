@@ -19,6 +19,14 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: "Setup",
     entries: [
       {
+        name: "cache status",
+        description: "Inspect the global bare repository cache",
+      },
+      {
+        name: "cache prune",
+        description: "Remove old caches without locks or linked worktrees",
+      },
+      {
         name: "setup",
         description: "Run the one-command first-run setup flow",
       },
