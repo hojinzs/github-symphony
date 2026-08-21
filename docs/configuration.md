@@ -16,7 +16,9 @@ must declare `repository.slug`, which is also what distinguishes a standalone
 project from a repository that embeds its own workflow. Configuration is derived
 from the folder on every start and cached under
 `<config-dir>/projects/<project-id>/`, where the project id is a stable function
-of the folder path — there is no registration step and no active-project state. Issue workspaces are
+of the folder path — there is no registration step and no active-project state.
+The cached `projectDir` is always absolute; persisted relative values are
+rejected instead of being resolved against the daemon working directory. Issue workspaces are
 created under the project's `workspace.root` (spec 9.1), resolved relative to
 the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
 directory is created with mode `0700` when it does not exist. Repo-embedded
@@ -28,7 +30,9 @@ using a worktree. Branches default to
 `symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
 one repository without branch collisions. The project `.env` is loaded first
 for project hooks and workers, then host process values override it; keep it
-mode `0600` and do not commit it. An explicit `--config <dir>` is exported to
+mode `0600` and do not commit it. Workflow reload caching compares a SHA-256
+digest of the effective environment so project and host secret values are not
+retained in plaintext cache metadata. An explicit `--config <dir>` is exported to
 `GH_SYMPHONY_CONFIG_DIR` for the process, so the bare cache and spawned workers
 use the same directory as the rest of the CLI state. The cache is keyed by
 `<owner>/<name>`; when a project's clone URL changes, the cache re-points
