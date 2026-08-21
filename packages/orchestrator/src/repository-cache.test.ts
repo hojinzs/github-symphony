@@ -102,6 +102,11 @@ describe("global bare repository cache", () => {
     });
     const old = new Date("2025-01-01T00:00:00.000Z");
     await utimes(bareDirectory, old, old);
+    await writeFile(
+      join(bareDirectory, ".gh-symphony-last-used"),
+      `${old.toISOString()}\n`,
+      "utf8"
+    );
 
     const entries = await inspectGlobalRepositoryCache({ configDir });
     expect(entries).toMatchObject([
@@ -130,6 +135,38 @@ describe("global bare repository cache", () => {
     });
     expect(locked.skipped[0]?.reason).toBe("locked");
     await access(bareDirectory);
+  });
+
+  it("tracks cache reuse independently from the bare directory mtime", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const root = await mkdtemp(join(tmpdir(), "repository-cache-used-"));
+    const remote = await createRemote(root, "used-remote");
+    const repository = { owner: "acme", name: "platform", cloneUrl: remote };
+    const firstUse = new Date("2026-01-01T00:00:00.000Z");
+    const lastUse = new Date("2026-01-02T00:00:00.000Z");
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now: firstUse,
+    });
+    await utimes(bareDirectory, firstUse, firstUse);
+
+    await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now: lastUse,
+    });
+
+    const entries = await inspectGlobalRepositoryCache({ configDir });
+    expect(entries[0]?.updatedAt).toBe(lastUse.toISOString());
+    const result = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 12 * 60 * 60 * 1000,
+      now: new Date("2026-01-02T06:00:00.000Z"),
+      dryRun: true,
+    });
+    expect(result.removed).toHaveLength(0);
+    expect(result.skipped[0]?.reason).toBe("recent");
   });
 
   it("prevents pruning while a cache reader operation is active", async () => {
@@ -163,7 +200,9 @@ describe("global bare repository cache", () => {
     });
 
     expect(prune.removed).toHaveLength(0);
-    expect(prune.skipped).toMatchObject([{ reason: "locked" }]);
+    expect(prune.skipped).toMatchObject([
+      { bytes: 0, worktrees: null, reason: "locked" },
+    ]);
     releaseReader?.();
     await expect(reader).resolves.toContain("platform.git");
   });

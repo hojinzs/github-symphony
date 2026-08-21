@@ -6,6 +6,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RepositoryRef } from "@gh-symphony/core";
@@ -22,6 +23,7 @@ import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 const FETCH_TTL_MS = 60_000;
 const LAST_FETCH_MARKER = ".gh-symphony-last-fetch";
+const LAST_USED_MARKER = ".gh-symphony-last-used";
 const CACHE_LOCK_HEARTBEAT_MS = 60_000;
 
 export class RepositoryCacheUnavailableError extends Error {
@@ -94,15 +96,17 @@ export async function inspectGlobalRepositoryCache(
     for (const name of await safeDirectories(join(root, owner))) {
       if (!name.endsWith(".git")) continue;
       const directory = join(root, owner, name);
-      const details = await stat(directory);
       const lockDirectory = join(root, owner, `${name.slice(0, -4)}.lock`);
+      const locked = await pathExists(lockDirectory);
+      const details = await safeStat(directory);
+      if (!details) continue;
       entries.push({
         repository: `${owner}/${name.slice(0, -4)}`,
         directory,
-        bytes: await directorySize(directory),
-        updatedAt: details.mtime.toISOString(),
-        locked: await pathExists(lockDirectory),
-        worktrees: await countLinkedWorktrees(directory),
+        bytes: locked ? 0 : await directorySize(directory),
+        updatedAt: await readLastUsedAt(directory, details.mtime),
+        locked,
+        worktrees: locked ? null : await countLinkedWorktrees(directory),
       });
     }
   }
@@ -171,13 +175,48 @@ async function safeDirectories(directory: string): Promise<string[]> {
 
 async function directorySize(directory: string): Promise<number> {
   let total = 0;
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isMissing(error)) return 0;
+    throw error;
+  }
+  for (const entry of entries) {
     const path = join(directory, entry.name);
-    total += entry.isDirectory()
-      ? await directorySize(path)
-      : (await stat(path)).size;
+    if (entry.isDirectory()) {
+      total += await directorySize(path);
+      continue;
+    }
+    const details = await safeStat(path);
+    if (details) total += details.size;
   }
   return total;
+}
+
+async function safeStat(path: string): Promise<Stats | null> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+async function readLastUsedAt(
+  directory: string,
+  fallback: Date
+): Promise<string> {
+  try {
+    const marker = await readFile(join(directory, LAST_USED_MARKER), "utf8");
+    const usedAt = Date.parse(marker.trim());
+    return Number.isFinite(usedAt)
+      ? new Date(usedAt).toISOString()
+      : fallback.toISOString();
+  } catch (error) {
+    if (isMissing(error)) return fallback.toISOString();
+    throw error;
+  }
 }
 
 async function countLinkedWorktrees(directory: string): Promise<number | null> {
@@ -322,6 +361,7 @@ async function ensureBareRepositoryCacheUnderLock(input: {
   const now = input.now ?? new Date();
   if (!(await isBareRepository(input.bareDirectory))) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    await writeLastUsedMarker(input.bareDirectory, now);
     return input.bareDirectory;
   }
 
@@ -334,6 +374,7 @@ async function ensureBareRepositoryCacheUnderLock(input: {
   const originUrl = await readOriginRemoteUrl(input.bareDirectory);
   if (originUrl === null) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    await writeLastUsedMarker(input.bareDirectory, now);
     return input.bareDirectory;
   }
   // The cache is keyed by owner/name, so a repository that moved hosts,
@@ -360,6 +401,8 @@ async function ensureBareRepositoryCacheUnderLock(input: {
     await writeLastFetchMarker(input.bareDirectory, now);
     await runGitCommand(["-C", input.bareDirectory, "gc", "--auto"]);
   }
+
+  await writeLastUsedMarker(input.bareDirectory, now);
 
   return input.bareDirectory;
 }
@@ -509,6 +552,17 @@ async function writeLastFetchMarker(
 ): Promise<void> {
   await writeFile(
     join(directory, LAST_FETCH_MARKER),
+    `${now.toISOString()}\n`,
+    "utf8"
+  );
+}
+
+async function writeLastUsedMarker(
+  directory: string,
+  now: Date
+): Promise<void> {
+  await writeFile(
+    join(directory, LAST_USED_MARKER),
     `${now.toISOString()}\n`,
     "utf8"
   );
