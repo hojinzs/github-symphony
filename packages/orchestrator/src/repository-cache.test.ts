@@ -8,6 +8,7 @@ import {
   globalBareRepositoryLockDirectory,
   inspectGlobalRepositoryCache,
   pruneGlobalRepositoryCache,
+  withGlobalBareRepositoryCache,
 } from "./repository-cache.js";
 
 async function createRemote(root: string, marker: string): Promise<string> {
@@ -129,5 +130,41 @@ describe("global bare repository cache", () => {
     });
     expect(locked.skipped[0]?.reason).toBe("locked");
     await access(bareDirectory);
+  });
+
+  it("prevents pruning while a cache reader operation is active", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const root = await mkdtemp(join(tmpdir(), "repository-cache-reader-"));
+    const remote = await createRemote(root, "reader-remote");
+    const repository = { owner: "acme", name: "platform", cloneUrl: remote };
+    let releaseReader: (() => void) | undefined;
+    const readerStarted = new Promise<void>((resolve) => {
+      releaseReader = resolve;
+    });
+    let notifyReaderStarted: (() => void) | undefined;
+    const readerIsActive = new Promise<void>((resolve) => {
+      notifyReaderStarted = resolve;
+    });
+
+    const reader = withGlobalBareRepositoryCache(
+      { repository, configDir },
+      async (bareDirectory) => {
+        notifyReaderStarted?.();
+        await readerStarted;
+        return bareDirectory;
+      }
+    );
+    await readerIsActive;
+
+    const prune = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 0,
+      now: new Date("2027-01-01T00:00:00.000Z"),
+    });
+
+    expect(prune.removed).toHaveLength(0);
+    expect(prune.skipped).toMatchObject([{ reason: "locked" }]);
+    releaseReader?.();
+    await expect(reader).resolves.toContain("platform.git");
   });
 });

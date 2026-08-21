@@ -20,7 +20,6 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
-  ensureGlobalBareRepositoryCache,
   RepositoryCacheUnavailableError,
   withGlobalBareRepositoryCache,
 } from "./repository-cache.js";
@@ -104,19 +103,23 @@ export async function syncRepositoryForRun(input: {
 
     try {
       try {
-        const bareRepositoryDirectory = await ensureGlobalBareRepositoryCache({
-          repository: input.repository,
-          requiredRef: input.requiredRef,
-        });
-        await runCommand("git", [
-          "clone",
-          "--filter=blob:none",
-          "--reference-if-able",
-          bareRepositoryDirectory,
-          "--dissociate",
-          sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
-          tempRepositoryDirectory,
-        ]);
+        await withGlobalBareRepositoryCache(
+          {
+            repository: input.repository,
+            requiredRef: input.requiredRef,
+          },
+          async (bareRepositoryDirectory) => {
+            await runCommand("git", [
+              "clone",
+              "--filter=blob:none",
+              "--reference-if-able",
+              bareRepositoryDirectory,
+              "--dissociate",
+              sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
+              tempRepositoryDirectory,
+            ]);
+          }
+        );
       } catch (error) {
         if (!(error instanceof RepositoryCacheUnavailableError)) {
           throw error;
