@@ -689,7 +689,7 @@ async function checkWorkflow(
         ? `WORKFLOW.md was not found at the registered project path ${workflowPath}.`
         : "WORKFLOW.md was not found in the repository root.",
       remediation: externalWorkflowPath
-        ? `Restore ${workflowPath} or re-register the project with 'gh-symphony project add'.`
+        ? `Restore ${workflowPath}; the folder's workflow is derived on every 'gh-symphony project start'.`
         : "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
     };
   }

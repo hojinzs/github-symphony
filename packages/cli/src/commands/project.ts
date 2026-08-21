@@ -13,8 +13,9 @@ import statusCommand from "./status.js";
 import stopCommand from "./stop.js";
 import {
   loadProjectConfig,
-  saveProjectConfig,
+  saveProjectConfigWithinLock,
   type CliProjectConfig,
+  withConfigLock,
 } from "../config.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 
@@ -79,35 +80,37 @@ export async function deriveStandaloneProject(
     },
   };
 
-  const overlap = await findOverlappingProjects(options.configDir, config);
-  const running = overlap.filter((entry) => entry.running);
-  const describe = (entries: OverlappingProject[]): string =>
-    entries.map((entry) => entry.label).join(", ");
-  if (running.length > 0) {
-    // A live instance with an overlapping mapping would dispatch the same
-    // issues, so this is refused outright rather than confirmed away.
-    throw new Error(
-      `Tracker mapping overlaps running project(s): ${describe(running)}. Stop them or make the mappings disjoint with tracker.pickup_labels.`
-    );
-  }
-  if (overlap.length > 0 && !process.stdin.isTTY) {
-    throw new Error(
-      `Tracker mapping overlaps project(s): ${describe(overlap)}. Re-run interactively to confirm.`
-    );
-  }
-  if (overlap.length > 0) {
-    const confirmed = await p.confirm({
-      message: `Tracker mapping overlaps project(s): ${describe(overlap)}. Continue anyway?`,
-      initialValue: false,
-    });
-    if (p.isCancel(confirmed) || !confirmed) {
+  await withConfigLock(options.configDir, async () => {
+    const overlap = await findOverlappingProjects(options.configDir, config);
+    const running = overlap.filter((entry) => entry.running);
+    const describe = (entries: OverlappingProject[]): string =>
+      entries.map((entry) => entry.label).join(", ");
+    if (running.length > 0) {
+      // A live instance with an overlapping mapping would dispatch the same
+      // issues, so this is refused outright rather than confirmed away.
       throw new Error(
-        "Standalone project start cancelled because tracker mappings overlap."
+        `Tracker mapping overlaps running project(s): ${describe(running)}. Stop them or make the mappings disjoint with tracker.pickup_labels.`
       );
     }
-  }
+    if (overlap.length > 0 && !process.stdin.isTTY) {
+      throw new Error(
+        `Tracker mapping overlaps project(s): ${describe(overlap)}. Re-run interactively to confirm.`
+      );
+    }
+    if (overlap.length > 0) {
+      const confirmed = await p.confirm({
+        message: `Tracker mapping overlaps project(s): ${describe(overlap)}. Continue anyway?`,
+        initialValue: false,
+      });
+      if (p.isCancel(confirmed) || !confirmed) {
+        throw new Error(
+          "Standalone project start cancelled because tracker mappings overlap."
+        );
+      }
+    }
 
-  await saveProjectConfig(options.configDir, projectId, config);
+    await saveProjectConfigWithinLock(options.configDir, projectId, config);
+  });
   return config;
 }
 

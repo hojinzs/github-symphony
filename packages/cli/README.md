@@ -338,14 +338,16 @@ gh-symphony repo recover --dry-run       # Preview what would be recovered
 
 ### Standalone Projects
 
-Register a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository.
+Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
 
 ```bash
-gh-symphony project add <projectDir>     # Register (validates WORKFLOW.md, rejects overlapping tracker mappings)
-gh-symphony project list                 # List registered standalone projects
-gh-symphony project start                # Same flags as repo start (--once, --daemon, --web, --http)
-gh-symphony project status
+cd <projectDir>
+gh-symphony project start                # Derive WORKFLOW.md and start this folder's project
+gh-symphony project status               # Address this folder's runtime
 gh-symphony project stop
+gh-symphony project start --project-dir <projectDir>
+gh-symphony project list                 # List cached standalone projects
+gh-symphony doctor --project-dir <projectDir>
 ```
 
 ## Diagnostics
@@ -436,11 +438,11 @@ Orchestration:
   completion <shell>  Print shell completion for bash/zsh/fish
 
 Standalone Projects:
-  project add <dir>   Register a project folder as an independent orchestration instance
-  project list        List registered standalone projects as JSON
-  project start       Start the active standalone project (same flags as repo start)
-  project status      Show standalone project status
-  project stop        Stop the standalone project daemon
+  project list        List cached standalone projects as JSON
+  project start       Start the cwd project folder (same flags as repo start)
+  project status      Show the cwd project folder's status
+  project stop        Stop the cwd project folder's daemon
+  --project-dir <dir> Address an explicit standalone project folder
 
 Global Options:
   --config <dir>      Config directory (default: initialized cwd runtime, then ~/.gh-symphony)

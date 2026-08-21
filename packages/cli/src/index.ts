@@ -62,6 +62,7 @@ type CliOptionValues = Partial<
     output?: string;
     project?: string;
     projectId?: string;
+    projectDir?: string;
     prune?: boolean;
     run?: string;
     runtime?: string;
@@ -451,6 +452,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("doctor")
       .description("Run diagnostics and optional first-run remediation")
       .option("--project-id <projectId>", "Project identifier")
+      .option("--project-dir <path>", "Standalone project folder")
       .option(
         "--fix",
         "Apply safe remediation steps and print manual follow-ups"
@@ -471,6 +473,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--project-dir", values.projectDir);
     pushOption(args, "--fix", values.fix);
     pushOption(args, "--smoke", values.smoke);
     pushOption(args, "--bundle", values.bundle);

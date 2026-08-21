@@ -24,6 +24,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     ) as TrackedIssueList;
     if (filtered !== issues) {
       filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
+      filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
     }
     return filtered;
   },

@@ -208,6 +208,20 @@ export async function saveProjectConfig(
   );
 }
 
+/** Writes a project config while the caller already owns the config lock. */
+export async function saveProjectConfigWithinLock(
+  configDir: string,
+  projectId: string,
+  config: CliProjectConfig
+): Promise<void> {
+  await writeJsonFile(
+    projectConfigPath(configDir, projectId),
+    normalizeOrchestratorProjectConfig(
+      config as OrchestratorProjectConfig
+    ) as CliProjectConfig
+  );
+}
+
 export async function loadActiveProjectConfig(
   configDir: string
 ): Promise<CliProjectConfig | null> {
@@ -300,7 +314,7 @@ export function parseDaemonPidRecord(raw: string): DaemonPidRecord | null {
   }
 }
 
-async function withConfigLock<T>(
+export async function withConfigLock<T>(
   configDir: string,
   action: () => Promise<T>
 ): Promise<T> {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveGlobalOptions, runCli } from "./index.js";
+import { standaloneProjectId } from "./commands/project.js";
 import {
   saveGlobalConfig,
   saveProjectConfig,
@@ -474,7 +475,40 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--smoke");
     expect(output).toContain("--bundle");
     expect(output).toContain("--issue");
+    expect(output).toContain("--project-dir");
     expect(output).toContain("remediation");
+  });
+
+  it("forwards doctor --project-dir through the Commander entrypoint", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-doctor-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-doctor-project-"));
+    const projectId = standaloneProjectId(projectDir);
+    await saveProjectConfig(configDir, projectId, {
+      ...createProject(projectId),
+      projectDir,
+      workflowSource: {
+        type: "external",
+        path: join(projectDir, "WORKFLOW.md"),
+      },
+    });
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli([
+        "doctor",
+        "--project-dir",
+        projectDir,
+        "--config",
+        configDir,
+        "--json",
+      ]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({ projectId });
   });
 });
 

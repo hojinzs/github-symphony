@@ -5558,6 +5558,43 @@ describe("pickup label filtering", () => {
     ]);
     expect("rateLimits" in issues).toBe(true);
   });
+
+  it("preserves skipped-item metadata on the filtered list", async () => {
+    const missingState = makeProjectItem({
+      itemId: "item-missing-state",
+      issueId: "issue-missing-state",
+      number: 4,
+      title: "Missing state",
+      assignees: [],
+      labels: ["alpha"],
+    });
+    missingState.fieldValues = { nodes: [] };
+    const config = makeProjectConfig();
+    config.tracker.settings = {
+      ...config.tracker.settings,
+      pickupLabels: { include: ["alpha"], exclude: [] },
+    } as never;
+
+    const issues = await adapter.listIssues(config, {
+      token: "dependencies-token",
+      fetchImpl: vi.fn(async () =>
+        makeJsonResponse(
+          makeProjectItemsPayload([
+            ...payload.data.node.items.nodes,
+            missingState,
+          ])
+        )
+      ),
+    });
+
+    expect(issues.skippedItems).toEqual([
+      {
+        id: "item-missing-state",
+        identifier: "acme/platform#4",
+        reason: "missing Status",
+      },
+    ]);
+  });
 });
 
 function makeProjectItem(input: {

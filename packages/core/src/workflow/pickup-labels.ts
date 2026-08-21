@@ -2,7 +2,7 @@ import type { OrchestratorProjectConfig } from "../contracts/status-surface.js";
 import type { TrackedIssue } from "../contracts/tracker-adapter.js";
 
 /**
- * Candidate listing may be narrowed by `tracker.pickup_labels`, which is how
+ * Workflow policy may narrow candidate listing by `tracker.pickup_labels`, which is how
  * two projects sharing one repository stay disjoint. State lookups and revive
  * paths must stay unfiltered, so this is applied only where candidates are
  * enumerated.

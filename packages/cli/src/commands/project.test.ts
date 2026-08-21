@@ -137,6 +137,28 @@ describe("deriveStandaloneProject", () => {
     ).rejects.toThrow("Tracker mapping overlaps project(s)");
   });
 
+  it("serializes concurrent derivation before validating overlaps", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const first = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    const second = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await Promise.all([
+      writeFile(join(first, "WORKFLOW.md"), workflow, "utf8"),
+      writeFile(join(second, "WORKFLOW.md"), workflow, "utf8"),
+    ]);
+
+    const results = await Promise.allSettled([
+      deriveStandaloneProject(first, { configDir }),
+      deriveStandaloneProject(second, { configDir }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled")
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected")
+    ).toHaveLength(1);
+  });
+
   it("preserves Linear label filters and normalizes overlapping states", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const first = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
