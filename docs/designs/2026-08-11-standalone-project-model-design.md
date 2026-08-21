@@ -216,13 +216,13 @@ Resolved item (2026-08-13): the instance boundary was recorded in
 
 ## Spec Conformance Summary
 
-| Item                          | Classification                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------- |
-| External WORKFLOW.md          | **Conforming** — §5.1 priority 1. Only the soft expectation is documented        |
-| `repository` extension key    | **Conforming** — §5.3 extension rules                                            |
-| .runners via `workspace.root` | **Conforming** — §5.3.3, §9.1                                                    |
-| Built-in worktree populate    | **Conforming** — §9.3 implementation-defined                                     |
-| Skill/MCP injection           | **Extension outside the spec** — the spec has no skill/MCP concepts              |
+| Item                           | Classification                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| External WORKFLOW.md           | **Conforming** — §5.1 priority 1. Only the soft expectation is documented             |
+| `repository` extension key     | **Conforming** — §5.3 extension rules                                                 |
+| .runners via `workspace.root`  | **Conforming** — §5.3.3, §9.1                                                         |
+| Built-in worktree populate     | **Conforming** — §9.3 implementation-defined                                          |
+| Skill/MCP injection            | **Extension outside the spec** — the spec has no skill/MCP concepts                   |
 | Per-project process management | **Extension layer outside the spec** — §2.2 Non-Goals keeps it above the orchestrator |
-| Branch namespace (D8)         | **Outside the spec** — the spec does not prescribe VCS workflows (§9.3)          |
-| Orchestrator changes          | **None** — single-project process preserved                                      |
+| Branch namespace (D8)          | **Outside the spec** — the spec does not prescribe VCS workflows (§9.3)               |
+| Orchestrator changes           | **None** — single-project process preserved                                           |
