@@ -41,6 +41,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
 - Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read defers classification to a later tick instead of manufacturing a failure retry. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
+- Before dispatch, active candidates carrying an adapter-provided terminal fact are converged to the workflow terminal state and suppressed from worker startup.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`) and worktree populate: `repository-cache.ts`, `git.ts`
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config
@@ -54,14 +55,14 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
-- GitHub Project V2: `packages/tracker-github`
+- GitHub Project V2: `packages/tracker-github` (including source issue state and linked-PR metadata kept distinct from Project workflow status)
 - Linear: `packages/tracker-linear`
 - File-based (E2E only): `packages/tracker-file`
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 
 ### 6. Observability — events and status surfaces
 
-- Structured events and snapshot builder: `packages/core/src/observability/`
+- Structured events and snapshot builder: `packages/core/src/observability/`; candidate-level reconciliation also emits `tracker-terminal-candidate-reconciled` from the orchestrator before any run exists.
 - Operator HTTP control plane (bearer auth, redaction): `packages/control-plane`
 - Browser dashboard: `packages/dashboard` — details in [../packages/control-plane/README.md](../packages/control-plane/README.md)
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)

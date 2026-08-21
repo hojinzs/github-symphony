@@ -1250,6 +1250,29 @@ export class OrchestratorService {
         );
       }
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
+      const terminalCandidateIssues = issueIdentifier
+        ? canonicalIssues.filter((issue) =>
+            matchesTargetIssueIdentifier(issue, issueIdentifier)
+          )
+        : canonicalIssues;
+      const terminalCandidateReconciliation =
+        await this.reconcileTerminalCandidates(
+          tenant,
+          trackerAdapter,
+          terminalCandidateIssues,
+          new Set(
+            issueRecords
+              .filter(
+                (record) =>
+                  isIssueOrchestrationClaimedState(record.state) &&
+                  (record.state !== "retry_queued" ||
+                    record.currentRunId !== null)
+              )
+              .map((record) => record.issueId)
+          ),
+          candidateTrackerDependencies,
+          now
+        );
       // The map is unconditionally seeded from `canonicalIssues`, so the old
       // second reverse-order merge loop is unnecessary. If seeding ever
       // becomes conditional, revisit the precedence here.
@@ -1327,7 +1350,15 @@ export class OrchestratorService {
       const {
         candidates: trackedActionableIssues,
         lifecyclesByIssueIdentifier,
-      } = await this.resolveActionableCandidates(tenant, canonicalIssues);
+      } = await this.resolveActionableCandidates(
+        tenant,
+        canonicalIssues.filter(
+          (issue) =>
+            !terminalCandidateReconciliation.suppressedIdentifiers.has(
+              issue.identifier
+            )
+        )
+      );
       const resolveTrackedIssueLifecycle = async (
         issue: TrackedIssue
       ): Promise<WorkflowLifecycleConfig | null> => {
@@ -1374,7 +1405,8 @@ export class OrchestratorService {
       );
       trackerRateLimits = mergeTrackerRateLimits(
         trackerRateLimits,
-        advisoryRateLimits
+        advisoryRateLimits,
+        terminalCandidateReconciliation.rateLimits
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       const concurrency = await this.getProjectConcurrency(tenant);
@@ -1594,14 +1626,13 @@ export class OrchestratorService {
             : await this.loadRetryPolicy(tenant, issue.repository);
           const retryDueAt = retrySuppressed
             ? null
-            : (
-                retryPolicy
-                  ? scheduleRetryAt(now, retryAttempt, retryPolicy)
-                  : new Date(
-                      now.getTime() +
-                        (this.dependencies.retryBackoffMs ??
-                          DEFAULT_RETRY_BACKOFF_MS)
-                    )
+            : (retryPolicy
+                ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+                : new Date(
+                    now.getTime() +
+                      (this.dependencies.retryBackoffMs ??
+                        DEFAULT_RETRY_BACKOFF_MS)
+                  )
               ).toISOString();
           issueRecords = upsertIssueOrchestration(issueRecords, {
             issueId: issue.id,
@@ -2236,6 +2267,114 @@ export class OrchestratorService {
       candidates,
       lifecyclesByIssueIdentifier,
     };
+  }
+
+  private async reconcileTerminalCandidates(
+    tenant: OrchestratorProjectConfig,
+    trackerAdapter: OrchestratorTrackerAdapter,
+    issues: readonly TrackedIssue[],
+    claimedIssueIds: ReadonlySet<string>,
+    trackerDependencies: OrchestratorTrackerDependencies,
+    now: Date
+  ): Promise<{
+    suppressedIdentifiers: Set<string>;
+    rateLimits: Record<string, unknown> | null;
+  }> {
+    const suppressedIdentifiers = new Set<string>();
+    let rateLimits: Record<string, unknown> | null = null;
+
+    if (!trackerAdapter.resolveTerminalFact) {
+      return { suppressedIdentifiers, rateLimits };
+    }
+
+    for (const issue of issues) {
+      if (
+        isArchivedProjectItem(issue) ||
+        issue.metadata.contentType === "PullRequest" ||
+        claimedIssueIds.has(issue.id)
+      ) {
+        continue;
+      }
+
+      const lifecycle = await this.resolveIssueLifecycle(tenant, issue);
+      if (
+        !lifecycle ||
+        isStateTerminal(issue.state, lifecycle) ||
+        !matchesWorkflowState(issue.state, lifecycle.activeStates)
+      ) {
+        continue;
+      }
+
+      const terminalFact = trackerAdapter.resolveTerminalFact(issue);
+      if (!terminalFact) {
+        continue;
+      }
+      suppressedIdentifiers.add(issue.identifier);
+
+      const targetState = lifecycle.terminalStates[0]?.trim() ?? "";
+      let result: TrackerStateResult;
+      if (!targetState) {
+        result = buildTerminalCandidateFailure(
+          issue,
+          targetState,
+          terminalFact.reason,
+          "terminal_state_missing"
+        );
+      } else if (!trackerAdapter.requestState) {
+        result = buildTerminalCandidateFailure(
+          issue,
+          targetState,
+          terminalFact.reason,
+          "tracker_state_requests_unsupported"
+        );
+      } else {
+        try {
+          result = await trackerAdapter.requestState(
+            tenant,
+            {
+              issueSubjectId: issue.id,
+              itemId: issue.tracker.itemId,
+              request: {
+                type: "transition-request",
+                expectedState: issue.state,
+                targetState,
+                reason: terminalFact.reason,
+              },
+            },
+            trackerDependencies
+          );
+        } catch (error) {
+          result = buildTerminalCandidateFailure(
+            issue,
+            targetState,
+            terminalFact.reason,
+            this.formatErrorMessage(error)
+          );
+        }
+      }
+
+      this.rememberTrackerRateLimits(tenant.projectId, result.rateLimits);
+      rateLimits = mergeTrackerRateLimits(rateLimits, result.rateLimits);
+      console.info(
+        JSON.stringify({
+          at: now.toISOString(),
+          event: "tracker-terminal-candidate-reconciled",
+          projectId: tenant.projectId,
+          issueIdentifier: issue.identifier,
+          issueId: issue.id,
+          trackerItemId: issue.tracker.itemId,
+          terminalFact: terminalFact.kind,
+          linkedPullRequest: terminalFact.relatedIdentifier,
+          expectedState: issue.state,
+          targetState,
+          confirmedState: result.state,
+          outcome: result.outcome,
+          error: result.error,
+        })
+      );
+    }
+
+    return { suppressedIdentifiers, rateLimits };
   }
 
   private async resolveIssueLifecycle(
@@ -5509,4 +5648,22 @@ function releaseIssueOrchestration(
 
 function isArchivedProjectItem(issue: TrackedIssue): boolean {
   return issue.metadata.isArchived === true;
+}
+
+function buildTerminalCandidateFailure(
+  issue: TrackedIssue,
+  targetState: string,
+  reason: string,
+  error: string
+): TrackerStateResult {
+  return {
+    ok: false,
+    outcome: "failed",
+    state: issue.state,
+    expectedState: issue.state,
+    targetState: targetState || null,
+    reason,
+    rateLimits: null,
+    error,
+  };
 }

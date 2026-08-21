@@ -145,6 +145,24 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
     return issues.filter((issue) => ids.has(issue.id));
   },
 
+  resolveTerminalFact(issue) {
+    const terminalFact = issue.metadata.terminalFact;
+    if (!terminalFact || typeof terminalFact !== "object") {
+      return null;
+    }
+    const fact = terminalFact as Record<string, unknown>;
+    return typeof fact.kind === "string" && typeof fact.reason === "string"
+      ? {
+          kind: fact.kind,
+          reason: fact.reason,
+          relatedIdentifier:
+            typeof fact.relatedIdentifier === "string"
+              ? fact.relatedIdentifier
+              : null,
+        }
+      : null;
+  },
+
   async requestState(project, input): Promise<TrackerStateResult> {
     const issuesPath = requireTrackerSetting(project, "issuesPath");
     let entries: Record<string, unknown>[];

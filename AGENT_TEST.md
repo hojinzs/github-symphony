@@ -354,6 +354,7 @@ idle → [inject issue + refresh]
 | `e2e/fixtures/multi-issue.json`            | 3 issues (concurrency test, concurrency_limit=2)                |
 | `e2e/fixtures/blocked-issue.json`          | Issue with blockedBy                                            |
 | `e2e/fixtures/dispatch-start-failure.json` | Poison first candidate followed by a healthy dispatch candidate |
+| `e2e/fixtures/terminal-candidate.json`     | Closed source issue left in active Project status               |
 
 ### Predefined Scenario Documents
 
@@ -377,6 +378,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/13-api-progress-convergence.md`            | Verify confirmed API lifecycle progress persists as a successful run without workspace mutations                          |
 | `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
 | `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
+| `e2e/scenarios/15-terminal-candidate-reconciliation.md`   | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                |
 
 ## TC Writing Guide
 

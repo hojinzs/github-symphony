@@ -68,6 +68,8 @@ export type TrackedPullRequestContext = {
 
 export type TrackedIssueMetadata = {
   contentType?: TrackedIssueContentType;
+  /** Source-provider state, distinct from the workflow/project state. */
+  sourceState?: string | null;
   linkedPullRequests?: TrackedPullRequestContext[];
   pullRequest?: TrackedPullRequestContext;
   [key: string]: unknown;
@@ -168,6 +170,12 @@ export type TrackerStateResult = {
   error: string | null;
 };
 
+export type TrackerTerminalFact = {
+  kind: string;
+  reason: string;
+  relatedIdentifier: string | null;
+};
+
 export type OrchestratorTrackerAdapter = {
   listIssues(
     project: OrchestratorProjectConfig,
@@ -191,6 +199,7 @@ export type OrchestratorTrackerAdapter = {
     project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
+  resolveTerminalFact?(issue: TrackedIssue): TrackerTerminalFact | null;
   requestState?(
     project: OrchestratorProjectConfig,
     input: {

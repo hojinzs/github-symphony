@@ -135,6 +135,7 @@ type GraphQLIssueNode = {
   url: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  state?: string | null;
   labels: { nodes: Array<{ name: string | null } | null> | null } | null;
   assignees: { nodes: Array<{ login: string | null } | null> | null } | null;
   repository: {
@@ -498,6 +499,7 @@ export function normalizeProjectItem(
     },
     metadata: withIssueMetadata(
       fieldValues,
+      item.content.state ?? null,
       linkedPullRequests,
       linkedPullRequestsTruncated,
       isArchived
@@ -2318,6 +2320,7 @@ function withGitHubMetadata(
 
 function withIssueMetadata(
   fieldValues: Record<string, string>,
+  sourceState: string | null,
   linkedPullRequests: GitHubPullRequestMetadata[],
   linkedPullRequestsTruncated = false,
   isArchived = false
@@ -2327,10 +2330,13 @@ function withIssueMetadata(
     !linkedPullRequestsTruncated &&
     !isArchived
   ) {
-    return fieldValues;
+    return sourceState === null
+      ? fieldValues
+      : withGitHubMetadata(fieldValues, { sourceState });
   }
 
   return withGitHubMetadata(fieldValues, {
+    sourceState,
     linkedPullRequests,
     linkedPullRequestsTruncated,
     isArchived,
@@ -2994,6 +3000,7 @@ const PROJECT_ITEMS_QUERY = `
                 title
                 body
                 url
+                state
                 createdAt
                 updatedAt
                 labels(first: 20) {

@@ -670,6 +670,27 @@ describe("resolveTrackerAdapter", () => {
     expect(metadata?.linkedPullRequestsTruncated).toBe(false);
   });
 
+  it("keeps the source issue state distinct from the Project status", () => {
+    const projectItem = makeProjectItem({
+      itemId: "item-1",
+      issueId: "issue-1",
+      number: 1,
+      title: "Closed issue with active Project status",
+      assignees: [],
+    });
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      {
+        ...projectItem,
+        content: { ...projectItem.content, state: "CLOSED" },
+      },
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.state).toBe("Todo");
+    expect(issue?.metadata.sourceState).toBe("CLOSED");
+  });
+
   it("marks Issue linked pull request metadata as truncated when GitHub has another page", () => {
     const linkedPullRequests = Array.from({ length: 20 }, (_, index) => {
       const number = index + 1;
