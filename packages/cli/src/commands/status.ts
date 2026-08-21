@@ -144,7 +144,12 @@ function renderLegacyStatus(
   // Health and last tick
   lines.push(
     ...renderStatusLivenessBanner(
-      createStatusLivenessBanner(snapshot, runtimeStatus),
+      createStatusLivenessBanner(
+        snapshot,
+        runtimeStatus,
+        undefined,
+        startCommandName
+      ),
       { layout: "legacy", noColor }
     )
   );
