@@ -40,6 +40,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Git-heavy integration files create and mutate many repositories and
+    // process-level Git resources. Keep files serial while preserving the
+    // explicit concurrency exercised inside individual cache/lock tests.
+    fileParallelism: false,
     setupFiles: ["./vitest.setup.ts"],
   },
 });
