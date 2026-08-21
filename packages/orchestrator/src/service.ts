@@ -271,6 +271,8 @@ function matchesTargetIssueIdentifier(
   );
 }
 
+class NonRetryableDispatchError extends Error {}
+
 function resolvePullRequestBranchCheckoutTarget(
   issue: TrackedIssue
 ): { headRefName: string } | null {
@@ -281,7 +283,7 @@ function resolvePullRequestBranchCheckoutTarget(
 
   if (!pullRequest) {
     if (issue.metadata.contentType === "PullRequest") {
-      throw new Error(
+      throw new NonRetryableDispatchError(
         `Cannot checkout pull request branch for ${issue.identifier}: missing pull request metadata.`
       );
     }
@@ -291,7 +293,7 @@ function resolvePullRequestBranchCheckoutTarget(
 
   const headRefName = pullRequest.headRefName?.trim();
   if (!headRefName) {
-    throw new Error(
+    throw new NonRetryableDispatchError(
       `Cannot checkout pull request branch for ${pullRequest.identifier}: missing headRefName.`
     );
   }
@@ -306,7 +308,7 @@ function resolvePullRequestBranchCheckoutTarget(
     const source = headRepository
       ? `${headRepository.owner}/${headRepository.name}`
       : "unknown fork";
-    throw new Error(
+    throw new NonRetryableDispatchError(
       `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
     );
   }
@@ -1326,8 +1328,10 @@ export class OrchestratorService {
       );
       this.rememberTrackerRateLimits(tenant.projectId, trackerRateLimits);
       const concurrency = await this.getProjectConcurrency(tenant);
-      const currentlyActive = issueRecords.filter((record) =>
-        isIssueOrchestrationClaimedState(record.state)
+      const currentlyActive = issueRecords.filter(
+        (record) =>
+          isIssueOrchestrationClaimedState(record.state) &&
+          (record.state !== "retry_queued" || record.currentRunId !== null)
       ).length;
       const availableSlots = Math.max(0, concurrency - currentlyActive);
       const latestRunsByIssueId = buildLatestRunMapByIssueId(
@@ -1355,7 +1359,8 @@ export class OrchestratorService {
         return !issueRecords.some(
           (record) =>
             record.issueId === issue.id &&
-            isIssueOrchestrationClaimedState(record.state)
+            isIssueOrchestrationClaimedState(record.state) &&
+            (record.state !== "retry_queued" || record.currentRunId !== null)
         );
       });
       // Sort candidates by priority (asc, null last) → createdAt (oldest) → identifier (lexicographic)
@@ -1382,13 +1387,21 @@ export class OrchestratorService {
         }
         if (slotsRemaining <= 0) break;
         const existingIssueRecord = issueRecords.find(
-          (record) => record.issueId === issue.id
+          (record) =>
+            record.issueId === issue.id ||
+            record.identifier === issue.identifier
         );
-        if (
-          existingIssueRecord?.retryEntry &&
-          Date.parse(existingIssueRecord.retryEntry.dueAt) > now.getTime()
-        ) {
-          continue;
+        if (existingIssueRecord?.retryEntry) {
+          const retryDueAtMs = parseTimestampMs(
+            existingIssueRecord.retryEntry.dueAt
+          );
+          if (retryDueAtMs === null) {
+            lastError = `Invalid retry dueAt for ${issue.identifier}: ${existingIssueRecord.retryEntry.dueAt}`;
+            continue;
+          }
+          if (retryDueAtMs > now.getTime()) {
+            continue;
+          }
         }
         if (
           await this.isFailureRetrySuppressedIssue(
@@ -1450,8 +1463,13 @@ export class OrchestratorService {
           issueId: issue.id,
           identifier: issue.identifier,
           workspaceKey: preferredWorkspaceKey,
-          state: "claimed",
-          failureRetryCount: existingIssueRecord?.failureRetryCount ?? 0,
+          state:
+            existingIssueRecord?.state === "retry_queued"
+              ? "retry_queued"
+              : "claimed",
+          failureRetryCount: existingIssueRecord?.retryEntry
+            ? existingIssueRecord.failureRetryCount
+            : 0,
           currentRunId: null,
           retryEntry: null,
           updatedAt: now.toISOString(),
@@ -1486,44 +1504,62 @@ export class OrchestratorService {
           });
         } catch (error) {
           const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
+          lastError = errorMessage;
           const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
-          if (failedPreparedRun) {
-            await this.store.saveRun({
-              ...failedPreparedRun,
-              status: "failed",
-              completedAt: now.toISOString(),
-              updatedAt: now.toISOString(),
-              lastError: errorMessage,
-            });
-          }
           const retryAttempt =
-            (existingIssueRecord?.retryEntry?.attempt ?? 1) + 1;
-          const retryPolicy = await this.loadRetryPolicy(
+            (existingIssueRecord?.retryEntry?.attempt ?? 0) + 1;
+          const maxFailureRetries = await this.loadMaxFailureRetries(
             tenant,
             issue.repository
           );
-          const retryDueAt = (
-            retryPolicy
-              ? scheduleRetryAt(now, retryAttempt, retryPolicy)
-              : new Date(
-                  now.getTime() +
-                    (this.dependencies.retryBackoffMs ??
-                      DEFAULT_RETRY_BACKOFF_MS)
-                )
-          ).toISOString();
+          const failureRetryCount =
+            error instanceof NonRetryableDispatchError
+              ? maxFailureRetries
+              : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
+          const retrySuppressed = failureRetryCount >= maxFailureRetries;
+          const suppressionError = [
+            `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+            `failureRetryCount=${failureRetryCount}.`,
+            `maxFailureRetries=${maxFailureRetries}.`,
+            errorMessage,
+          ].join(" ");
+          if (failedPreparedRun) {
+            await this.store.saveRun({
+              ...failedPreparedRun,
+              status: retrySuppressed ? "suppressed" : "failed",
+              completedAt: now.toISOString(),
+              updatedAt: now.toISOString(),
+              lastError: retrySuppressed ? suppressionError : errorMessage,
+            });
+          }
+          const retryPolicy = retrySuppressed
+            ? null
+            : await this.loadRetryPolicy(tenant, issue.repository);
+          const retryDueAt = retrySuppressed
+            ? null
+            : (
+                retryPolicy
+                  ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+                  : new Date(
+                      now.getTime() +
+                        (this.dependencies.retryBackoffMs ??
+                          DEFAULT_RETRY_BACKOFF_MS)
+                    )
+              ).toISOString();
           issueRecords = upsertIssueOrchestration(issueRecords, {
             issueId: issue.id,
             identifier: issue.identifier,
             workspaceKey: preferredWorkspaceKey,
-            state: "released",
-            failureRetryCount:
-              (existingIssueRecord?.failureRetryCount ?? 0) + 1,
+            state: retrySuppressed ? "released" : "retry_queued",
+            failureRetryCount,
             currentRunId: null,
-            retryEntry: {
-              attempt: retryAttempt,
-              dueAt: retryDueAt,
-              error: errorMessage,
-            },
+            retryEntry: retryDueAt
+              ? {
+                  attempt: retryAttempt,
+                  dueAt: retryDueAt,
+                  error: errorMessage,
+                }
+              : null,
             updatedAt: now.toISOString(),
           });
           await this.store.saveProjectIssueOrchestrations(
@@ -1531,7 +1567,9 @@ export class OrchestratorService {
             issueRecords
           );
           this.writeStderr(
-            `[orchestrator] dispatch failed for ${issue.identifier}; retry scheduled at ${retryDueAt}: ${this.formatErrorMessage(error)}`
+            retryDueAt
+              ? `[orchestrator] dispatch failed for ${issue.identifier}; retry scheduled at ${retryDueAt}: ${this.formatErrorMessage(error)}`
+              : `[orchestrator] dispatch failed for ${issue.identifier}; retries suppressed: ${this.formatErrorMessage(error)}`
           );
           continue;
         }
@@ -4627,19 +4665,18 @@ export class OrchestratorService {
       return false;
     }
 
-    if (
-      !latestRun ||
-      latestRun.status !== "suppressed" ||
-      latestRun.issueState !== issue.state ||
-      !latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
-    ) {
-      return false;
-    }
+    const suppressedAt =
+      latestRun?.status === "suppressed" &&
+      latestRun.issueState === issue.state &&
+      latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
+        ? (latestRun.completedAt ?? latestRun.updatedAt)
+        : issueRecord.retryEntry === null
+          ? issueRecord.updatedAt
+          : null;
+    if (suppressedAt === null) return false;
 
     const issueUpdatedAtMs = parseTimestampMs(issue.updatedAt);
-    const suppressedAtMs = parseTimestampMs(
-      latestRun.completedAt ?? latestRun.updatedAt
-    );
+    const suppressedAtMs = parseTimestampMs(suppressedAt);
     if (issueUpdatedAtMs === null || suppressedAtMs === null) {
       return true;
     }

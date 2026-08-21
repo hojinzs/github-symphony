@@ -21,7 +21,7 @@ describe("issue orchestration transitions", () => {
 
   it.each<[IssueOrchestrationState, IssueOrchestrationState]>([
     ["unclaimed", "released"],
-    ["claimed", "retry_queued"],
+    ["released", "retry_queued"],
     ["running", "claimed"],
     ["retry_queued", "claimed"],
     ["released", "running"],

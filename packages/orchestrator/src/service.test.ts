@@ -117,6 +117,7 @@ describe("OrchestratorService", () => {
       {
         retryBaseDelayMs: 1000,
         retryMaxDelayMs: 1000,
+        maxFailureRetries: 3,
         maxConcurrentAgents: 2,
       }
     );
@@ -173,11 +174,12 @@ describe("OrchestratorService", () => {
       on: vi.fn(),
       unref: vi.fn(),
     });
+    let currentTime = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
       concurrency: 2,
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: spawnImpl as never,
-      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      now: () => currentTime,
       writeStderr: vi.fn(),
     });
     const startRun = (
@@ -204,16 +206,18 @@ describe("OrchestratorService", () => {
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
     expect(result.summary.dispatched).toBe(1);
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toContain("checkout failed");
     expect(spawnImpl).toHaveBeenCalledOnce();
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           issueId: "issue-1",
-          state: "released",
+          state: "retry_queued",
           failureRetryCount: 1,
           currentRunId: null,
           retryEntry: {
-            attempt: 2,
+            attempt: 1,
             dueAt: "2026-03-08T00:00:01.000Z",
             error: expect.stringContaining("Worker spawn failed:"),
           },
@@ -221,6 +225,24 @@ describe("OrchestratorService", () => {
         expect.objectContaining({
           issueId: "issue-2",
           state: "running",
+        }),
+      ])
+    );
+
+    vi.spyOn(service as never, "isRunProcessRunning").mockReturnValue(true);
+    currentTime = new Date("2026-03-08T00:00:01.000Z");
+    await service.runOnce();
+    currentTime = new Date("2026-03-08T00:00:03.000Z");
+    await service.runOnce();
+    const cappedIssueRecords =
+      await store.loadProjectIssueOrchestrations("tenant-1");
+    expect(cappedIssueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "issue-1",
+          state: "released",
+          failureRetryCount: 3,
+          retryEntry: null,
         }),
       ])
     );
