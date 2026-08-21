@@ -1503,7 +1503,11 @@ export class OrchestratorService {
             },
           });
         } catch (error) {
-          const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
+          const errorDetail =
+            error instanceof Error
+              ? error.message
+              : this.formatErrorMessage(error);
+          const errorMessage = `Worker spawn failed: ${errorDetail}`;
           lastError = errorMessage;
           const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
           const retryAttempt =
@@ -4670,7 +4674,7 @@ export class OrchestratorService {
       latestRun.issueState === issue.state &&
       latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
         ? (latestRun.completedAt ?? latestRun.updatedAt)
-        : issueRecord.retryEntry === null
+        : latestRun === null && issueRecord.retryEntry === null
           ? issueRecord.updatedAt
           : null;
     if (suppressedAt === null) return false;

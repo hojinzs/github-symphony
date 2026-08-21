@@ -6752,6 +6752,94 @@ Prefer focused changes.
     expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
+  it("redispatches a failure-suppressed issue after its tracker state changes", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-state-change-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+        activeStates: ["Ready", "Todo"],
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Ready",
+      repository,
+      status: "suppressed",
+      attempt: 3,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "suppressed-run"),
+      issueWorkspaceKey: null,
+      workspaceRuntimeDir: join(
+        tempRoot,
+        "suppressed-run",
+        "workspace-runtime"
+      ),
+      workflowPath: null,
+      retryKind: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:05:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: "2026-03-08T00:05:00.000Z",
+      lastError:
+        "Run suppressed: max_failure_retries_exceeded. failureRetryCount=3. maxFailureRetries=3.",
+      nextRetryAt: null,
+      runPhase: "failed",
+    });
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4107,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:04:00.000Z",
+        })
+      ) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(issueRecords[0]).toMatchObject({
+      state: "running",
+      failureRetryCount: 0,
+    });
+    expect(issueRecords[0]?.currentRunId).not.toBeNull();
+  });
+
   it("redispatches a convergence-locked issue after it re-enters the same active state with a newer tracker timestamp", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
