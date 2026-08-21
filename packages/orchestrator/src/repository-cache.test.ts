@@ -169,6 +169,91 @@ describe("global bare repository cache", () => {
     expect(result.skipped[0]?.reason).toBe("recent");
   });
 
+  it("removes an old idle cache in non-dry-run mode", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const root = await mkdtemp(join(tmpdir(), "repository-cache-remove-"));
+    const remote = await createRemote(root, "remove-remote");
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository: { owner: "acme", name: "platform", cloneUrl: remote },
+      configDir,
+      now: new Date("2025-01-01T00:00:00.000Z"),
+    });
+
+    const result = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 1,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(result.removed).toMatchObject([
+      { repository: "acme/platform", worktrees: 0 },
+    ]);
+    expect(result.reclaimedBytes).toBeGreaterThan(0);
+    await expect(access(bareDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("preserves an old cache with a linked worktree", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const root = await mkdtemp(join(tmpdir(), "repository-cache-worktree-"));
+    const remote = await createRemote(root, "worktree-remote");
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository: { owner: "acme", name: "platform", cloneUrl: remote },
+      configDir,
+      now: new Date("2025-01-01T00:00:00.000Z"),
+    });
+    const linkedDirectory = join(root, "linked-worktree");
+    execFileSync(
+      "git",
+      [
+        "-C",
+        bareDirectory,
+        "worktree",
+        "add",
+        "--detach",
+        linkedDirectory,
+        "origin/main",
+      ],
+      { stdio: "ignore" }
+    );
+
+    const result = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 1,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(result.removed).toHaveLength(0);
+    expect(result.skipped).toMatchObject([
+      { repository: "acme/platform", worktrees: 1, reason: "worktrees" },
+    ]);
+    await expect(access(bareDirectory)).resolves.toBeUndefined();
+  });
+
+  it("preserves an old cache when linked worktrees cannot be verified", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const bareDirectory = join(configDir, "repos", "acme", "platform.git");
+    await mkdir(bareDirectory, { recursive: true });
+    await writeFile(join(bareDirectory, "not-a-bare-repository"), "broken");
+    await writeFile(
+      join(bareDirectory, ".gh-symphony-last-used"),
+      "2025-01-01T00:00:00.000Z\n"
+    );
+
+    const result = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 1,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(result.removed).toHaveLength(0);
+    expect(result.skipped).toMatchObject([
+      { repository: "acme/platform", worktrees: null, reason: "worktrees" },
+    ]);
+    await expect(access(bareDirectory)).resolves.toBeUndefined();
+  });
+
   it("prevents pruning while a cache reader operation is active", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
     const root = await mkdtemp(join(tmpdir(), "repository-cache-reader-"));
