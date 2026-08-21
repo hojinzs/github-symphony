@@ -2,13 +2,37 @@
 
 - **Date**: 2026-08-11
 - **Status**: Shipped
-- **Symphony Layers**: Policy (WORKFLOW.md externalization), Configuration (project manifest, MCP, skill layers), Coordination (supervisor topology, registration validation), Execution (worktree populate, skill/MCP injection), Observability (status aggregation, shadow warnings)
+- **Symphony Layers**: Policy (WORKFLOW.md externalization), Configuration (project manifest, MCP, skill layers), Coordination (per-project process topology, start-time overlap validation), Execution (worktree populate, skill/MCP injection), Integration (folder-addressed CLI lifecycle), Observability (status surfaces, shadow warnings)
 - **Related ADRs**:
-  - `docs/adr/2026-05-04_single-repo-orchestrator.md` — adopted "1 repo = 1 instance". This design **refines it to "1 project = 1 instance"** (allowing 1 repo : N projects). Once finalized, record the relationship in a follow-up ADR.
+  - `docs/adr/2026-05-04_single-repo-orchestrator.md` — adopted "1 repo = 1 instance".
+  - `docs/adr/2026-08-13_standalone-project-instance-boundary.md` — supersedes that deployment boundary with **"1 project = 1 instance"**, allowing 1 repo : N projects.
+
+## Shipped Outcome (2026-08-21)
+
+Issues [#562](https://github.com/hojinzs/github-symphony/issues/562) through
+[#570](https://github.com/hojinzs/github-symphony/issues/570) delivered D1–D9. Follow-up
+[#600](https://github.com/hojinzs/github-symphony/issues/600), merged in
+[PR #601](https://github.com/hojinzs/github-symphony/pull/601), replaced the initial registration
+command with a folder-addressed model:
+
+- `gh-symphony project start|status|stop` use the current directory or `--project-dir <path>`.
+- `project start` re-derives configuration from the folder's `WORKFLOW.md` on every start and caches
+  only the runtime state needed by `status` and `stop`; `project add` is not part of the shipped CLI.
+- Tracker-mapping overlap is validated under a config-wide lock when a project starts. Running
+  overlap is rejected; stopped overlap requires interactive confirmation and fails closed in
+  non-interactive use.
+- Two label-disjoint project folders can run against one repository as separate orchestrator
+  instances while sharing the bare clone cache.
+
+Final acceptance exercised the full standalone lifecycle and the 1 repo : 2 projects case. It also
+fixed pickup-label filtering, clone-URL re-pointing, config-directory propagation to the bare cache,
+standalone `workspace.root`, and repository shadow detection. `pnpm e2e:standalone-project`, the
+repo-embedded happy path, and the Claude E2E passed for the closure.
 
 ## Context / Problem
 
-The current approach is a repo-embedded model that commits WORKFLOW.md and skills inside the repository. There are five problems:
+At design time, the only approach was a repo-embedded model that committed WORKFLOW.md and skills
+inside the repository. It had five problems:
 
 | #   | Problem                                                                                  |
 | --- | ---------------------------------------------------------------------------------------- |
@@ -44,7 +68,9 @@ A "project" is an **orchestration execution unit** bundling WORKFLOW.md policy +
 
 - Instead of inventing a new concept, extend the existing `OrchestratorProjectConfig` (`packages/core/src/contracts/status-surface.ts`). It already has `projectId`/`slug`/`workspaceDir`/`repository`/`tracker`, and the state store and status surface sit on top of it, minimizing migration.
 - Additional fields: `workflowSource: { type: "repo" } | { type: "external"; path }`, etc.
-- **The project folder is the source of truth; `config.json` is registration/derived state.**
+- **The project folder is the source of truth; `config.json` is cached runtime state derived at
+  start.** Folder identity, rather than a registration command or `activeProject`, selects the
+  standalone project.
 - The `workspaces/` state directory naming collides with the spec's Workspace (§4.1.4, per-issue directory) — separate cleanup item.
 
 ### D3. The workflow source is a mode declaration, not a priority contest
@@ -89,13 +115,19 @@ The upstream spec has no MCP at all (zero occurrences). Tools are defined only v
 - **Composition**: reuse the existing `mcp-compose.ts` pattern — every attempt, composed at 0600 into the runtime directory outside the worktree. Per-attempt composition means no sidecar watch is needed (dynamic reload only applies to front matter for the orchestrator loop).
 - **Runtime asymmetry**: declaration happens once in core in a runtime-neutral shape; translation is the adapter's responsibility — claude uses a composed `.mcp.json` + `--mcp-config` argv, codex uses `RuntimeToolDefinition` registration (`packages/runtime-codex/src/runtime.ts`).
 
-### D7. Topology — orchestrator unchanged, supervisor placed above
+### D7. Topology — orchestrator unchanged, one managed process per project
 
-**The orchestrator stays as-is: one process = one project** (keeping the current structure where the `OrchestratorService` constructor takes a single `projectConfig`). Multi-project is handled by a **supervisor** above it.
+**The orchestrator stays as-is: one process = one project** (keeping the structure where the
+`OrchestratorService` constructor takes a single `projectConfig`). Multi-project process management
+stays above the orchestrator.
 
 - Rationale: spec §2.2 Non-Goals explicitly lists "Rich web UI or multi-tenant control plane" — putting multi-tenancy inside the orchestrator contradicts the spec's scope declaration. The entire spec treats the orchestrator as a single-workflow standalone service and the single state authority (§7, §8.1, Appendix A), and multi-instance topology is deliberately left to implementers. Therefore the supervisor is not a divergence but an **extension layer outside the spec**.
-- Supervisor responsibilities: project folder registration and discovery, spawning/restarting/health-checking one orchestrator process per project, assigning child status-server ports (or unix sockets), aggregating status APIs and exposing a single endpoint (:4680). **The Control Plane talks only to the supervisor.**
-- **Registration-time disjointness validation**: the supervisor validates at project registration that the tracker mappings (project_slug, labels, status boards) of projects sharing the same repo+tracker do not overlap. Since orchestrators do not know about each other, registration-time validation — not runtime coordination — is the right place.
+- The shipped CLI derives a stable project ID from the canonical project-folder path and manages one
+  daemon/runtime directory per project. A future aggregate supervisor or Control Plane can discover
+  and manage those instances without making the orchestrator multi-project.
+- **Start-time disjointness validation**: `project start` validates tracker mappings against cached
+  projects sharing the same repo+tracker. This reflects the folder-addressed model: there is no
+  separate registration step, and re-validating on every start observes WORKFLOW.md changes.
 - Rate limiting: polling is independent per instance, but the existing self-throttling (widening polling intervals when a low rate limit is detected) prevents runaway. If cross-coordination becomes necessary, add it to the supervisor later.
 
 ### D9. Project env is a `<project>/.env` file — no front matter `env` key
@@ -109,7 +141,9 @@ Project env is declared in the project folder's `.env` (dotenv format, 0600 enfo
 
 ## Clone Cache Operational Details (D4, D8)
 
-The current implementation does a full clone per issue workspace (`packages/orchestrator/src/git.ts` `syncRepositoryForRun` — clone into `<workspace>/repository`, re-clone on failure). This design replaces it with a shared bare cache + worktrees.
+At design time, the implementation performed a full clone per issue workspace
+(`packages/orchestrator/src/git.ts` `syncRepositoryForRun`). The shipped standalone strategy replaces
+that path with a shared bare cache plus worktrees while repo-embedded mode retains clone behavior.
 
 ### Layout and locking
 
@@ -169,14 +203,16 @@ projects/
 
 ## Open Questions (follow-up decisions)
 
-1. **Supervisor detailed design** — **split into a separate design document** (out of scope for this spec). Process lifecycle, status aggregation API shape, registration protocol. Note: proto-supervisor infrastructure already exists in the CLI — the `~/.gh-symphony/projects/<id>/project.json` registry, per-project daemon PID/log/liveness determination (`packages/cli/src/daemon-liveness.ts`), and the `@gh-symphony/control-plane` and `@gh-symphony/dashboard` packages. The separate design should start on top of these.
+1. **Supervisor detailed design** — **split into a separate design document** (out of scope for this spec). Process lifecycle and status aggregation API shape remain open. The shipped CLI already provides folder-derived project identity, cached per-project runtime state, and daemon PID/log/liveness determination (`packages/cli/src/daemon-liveness.ts`); a future supervisor should build on those boundaries rather than introduce a registration command.
 2. **`workspaces/` state directory naming cleanup** — terminology collision with the spec's Workspace (D2)
 3. **Verify the codex runtime skill discovery path** — confirm whether it is cwd-based, then finalize D5 placement (verify in `runtime-codex`)
 4. **Control Plane secret store** — how to manage the origins of `$VAR` per project (during Control Plane design). D9's `.env` is the store for now, and the Control Plane can treat it as something to manage rather than replace
 5. **repo-embedded → standalone migration path** — procedure for wrapping existing setups into the project model (including `clone` → `worktree-cache` populate strategy convergence). The related workspace-layout half — repo-embedded still ignores `workspace.root` while standalone honors it (spec §9.1) — is tracked in [#599](https://github.com/hojinzs/github-symphony/issues/599).
-6. **Follow-up ADR** — a decision record refining the relationship with `2026-05-04_single-repo-orchestrator.md` ("1 repo = 1 instance") to "1 project = 1 instance"
 
 Resolved items (2026-08-11): clone cache operations and branch namespace → D4, D8 and the "Clone cache operational details" section. Project env declaration → D9.
+
+Resolved item (2026-08-13): the instance boundary was recorded in
+`docs/adr/2026-08-13_standalone-project-instance-boundary.md`.
 
 ## Spec Conformance Summary
 
@@ -187,6 +223,6 @@ Resolved items (2026-08-11): clone cache operations and branch namespace → D4,
 | .runners via `workspace.root` | **Conforming** — §5.3.3, §9.1                                                    |
 | Built-in worktree populate    | **Conforming** — §9.3 implementation-defined                                     |
 | Skill/MCP injection           | **Extension outside the spec** — the spec has no skill/MCP concepts              |
-| Supervisor                    | **Extension layer outside the spec** — §2.2 Non-Goals points to placing it above |
+| Per-project process management | **Extension layer outside the spec** — §2.2 Non-Goals keeps it above the orchestrator |
 | Branch namespace (D8)         | **Outside the spec** — the spec does not prescribe VCS workflows (§9.3)          |
 | Orchestrator changes          | **None** — single-project process preserved                                      |
