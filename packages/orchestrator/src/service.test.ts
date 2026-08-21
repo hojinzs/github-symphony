@@ -7597,7 +7597,7 @@ Prefer focused changes.
     });
   });
 
-  it("uses a fixed 1000ms delay for continuation retries", async () => {
+  it("distinguishes active and unknown tracker state after a successful worker exit", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-continuation-retry-")
@@ -7650,6 +7650,7 @@ Prefer focused changes.
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
       trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
+      runPhase: "succeeded",
       lastError: null,
       nextRetryAt: null,
     });
@@ -7666,6 +7667,11 @@ Prefer focused changes.
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
+    const currentProgressSpy = vi.spyOn(
+      service as never,
+      "classifyCurrentTrackerProgress"
+    );
+    currentProgressSpy.mockResolvedValueOnce("active" as never);
     const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
 
     await service.runOnce();
@@ -7679,6 +7685,32 @@ Prefer focused changes.
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
+
+    await store.saveRun({
+      ...updatedRun!,
+      status: "running",
+      attempt: 1,
+      completedAt: null,
+      nextRetryAt: null,
+      retryKind: null,
+      lastError: null,
+    });
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        ...issueRecords[0]!,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+      },
+    ]);
+    currentProgressSpy.mockResolvedValueOnce("unknown" as never);
+
+    await service.runOnce();
+
+    expect((await store.loadRun("run-1"))?.status).toBe("running");
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.state
+    ).toBe("running");
   });
 
   it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {

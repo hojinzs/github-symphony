@@ -3138,15 +3138,23 @@ export class OrchestratorService {
       );
     }
 
-    if (
+    const currentTrackerProgress =
       runWithTokens.runPhase === "succeeded" &&
-      runWithTokens.trackerProgressConfirmedAt &&
-      (await this.isTrackerProgressCurrentlyNonActionable(
-        tenant,
-        runWithTokens,
-        trackerDependencies
-      ))
-    ) {
+      runWithTokens.trackerProgressConfirmedAt
+        ? await this.classifyCurrentTrackerProgress(
+            tenant,
+            runWithTokens,
+            trackerDependencies
+          )
+        : null;
+    if (currentTrackerProgress === "unknown") {
+      this.logVerbose(
+        `[run-finalization-deferred] ${runWithTokens.runId} reason=tracker-state-unknown`
+      );
+      return { issueRecords, recovered: false };
+    }
+
+    if (currentTrackerProgress === "non-actionable") {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
         status: "succeeded",
@@ -3755,15 +3763,15 @@ export class OrchestratorService {
     }
   }
 
-  private async isTrackerProgressCurrentlyNonActionable(
+  private async classifyCurrentTrackerProgress(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
     trackerDependencies: OrchestratorTrackerDependencies = {}
-  ): Promise<boolean> {
+  ): Promise<"non-actionable" | "active" | "unknown"> {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
-        return false;
+        return "unknown";
       }
       const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
       const issues = await trackerAdapter.fetchIssueStatesByIds(
@@ -3777,12 +3785,20 @@ export class OrchestratorService {
       const issue = issues.find(
         (candidate) => candidate.id === run.issueSubjectId
       );
-      return (
-        issue !== undefined &&
-        !matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
+      if (!issue) {
+        return "unknown";
+      }
+      return matchesWorkflowState(
+        issue.state,
+        resolution.lifecycle.activeStates
+      )
+        ? "active"
+        : "non-actionable";
+    } catch (error) {
+      this.logVerbose(
+        `[run-finalization-deferred] ${run.runId} tracker lookup failed: ${this.formatErrorMessage(error)}`
       );
-    } catch {
-      return false;
+      return "unknown";
     }
   }
 
