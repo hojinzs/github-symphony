@@ -50,6 +50,7 @@ import {
   buildPriorityDriftDiagnostics,
 } from "../priority-diagnostics.js";
 import { inspectManagedProjectSelection } from "../project-selection.js";
+import { standaloneProjectId } from "./project.js";
 import {
   createSupportBundle,
   type SupportBundleSummary,
@@ -244,7 +245,7 @@ const DEFAULT_DEPENDENCIES: DoctorDependencies = {
 const MINIMUM_NODE_MAJOR = 24;
 const MINIMUM_NODE_VERSION = `v${MINIMUM_NODE_MAJOR}.0.0`;
 const DOCTOR_USAGE =
-  "Usage: gh-symphony doctor [--project-id <project-id>] [--fix] [--smoke] [--issue <owner/repo#number>] [--bundle [path]]";
+  "Usage: gh-symphony doctor [--project-id <project-id>] [--project-dir <path>] [--fix] [--smoke] [--issue <owner/repo#number>] [--bundle [path]]";
 
 type GitInstallationState =
   | {
@@ -268,6 +269,19 @@ function parseDoctorArgs(args: string[]): ParsedDoctorArgs {
         return parsed;
       }
       parsed.projectId = value;
+      i += 1;
+      continue;
+    }
+
+    if (arg === "--project-dir") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        parsed.error = `Option '${arg}' argument missing`;
+        return parsed;
+      }
+      // Standalone projects are addressed by folder everywhere else, and the
+      // identifier is derived from the path.
+      parsed.projectId = standaloneProjectId(value);
       i += 1;
       continue;
     }
@@ -656,9 +670,12 @@ async function checkGitInstallation(
 
 async function checkWorkflow(
   repoRoot: string,
-  deps: Pick<DoctorDependencies, "readFile" | "parseWorkflowMarkdown">
+  deps: Pick<DoctorDependencies, "readFile" | "parseWorkflowMarkdown">,
+  externalWorkflowPath?: string | null
 ): Promise<WorkflowCheckState> {
-  const workflowPath = join(repoRoot, "WORKFLOW.md");
+  // A standalone project owns its policy outside the repository, so the cwd
+  // lookup would report a missing file for a perfectly healthy setup.
+  const workflowPath = externalWorkflowPath ?? join(repoRoot, "WORKFLOW.md");
   let markdown: string;
 
   try {
@@ -668,9 +685,12 @@ async function checkWorkflow(
       status: "fail",
       reason: "missing",
       workflowPath,
-      summary: "WORKFLOW.md was not found in the repository root.",
-      remediation:
-        "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
+      summary: externalWorkflowPath
+        ? `WORKFLOW.md was not found at the registered project path ${workflowPath}.`
+        : "WORKFLOW.md was not found in the repository root.",
+      remediation: externalWorkflowPath
+        ? `Restore ${workflowPath}; the folder's workflow is derived on every 'gh-symphony project start'.`
+        : "Run 'gh-symphony workflow init' in this repository or add a valid WORKFLOW.md at the repo root.",
     };
   }
 
@@ -2030,12 +2050,21 @@ export async function runDoctorDiagnostics(
     );
   }
 
-  const workflow = await checkWorkflow(process.cwd(), deps);
+  const externalWorkflowPath =
+    resolvedProjectConfig?.kind === "resolved" &&
+    resolvedProjectConfig.projectConfig.workflowSource?.type === "external"
+      ? resolvedProjectConfig.projectConfig.workflowSource.path
+      : null;
+  const workflow = await checkWorkflow(
+    process.cwd(),
+    deps,
+    externalWorkflowPath
+  );
   if (workflow.status === "pass") {
     checks.push(
       passCheck(
         "workflow_file",
-        "Repository WORKFLOW.md",
+        externalWorkflowPath ? "Project WORKFLOW.md" : "Repository WORKFLOW.md",
         `WORKFLOW.md parsed successfully (${workflow.format}).`,
         { path: workflow.workflowPath, format: workflow.format }
       )
@@ -2044,7 +2073,7 @@ export async function runDoctorDiagnostics(
     checks.push(
       failCheck(
         "workflow_file",
-        "Repository WORKFLOW.md",
+        externalWorkflowPath ? "Project WORKFLOW.md" : "Repository WORKFLOW.md",
         workflow.summary,
         workflow.remediation,
         {

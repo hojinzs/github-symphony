@@ -22,6 +22,8 @@ export type GlobalOptions = {
   json: boolean;
   noColor: boolean;
   invocation?: "project";
+  /** Explicit runtime target, resolved from a standalone project folder. */
+  projectId?: string;
 };
 
 export type CommandHandler = (
@@ -60,6 +62,7 @@ type CliOptionValues = Partial<
     output?: string;
     project?: string;
     projectId?: string;
+    projectDir?: string;
     prune?: boolean;
     run?: string;
     runtime?: string;
@@ -128,6 +131,14 @@ export function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
     process.env.NO_COLOR = "1";
   }
   setNoColor(options.noColor);
+
+  // The shared bare-clone cache and spawned child processes resolve the config
+  // directory from the environment. Without exporting an explicit `--config`,
+  // the cache would stay in the default home directory while every other
+  // artifact honors the override.
+  if (configDirSource === "cli") {
+    process.env.GH_SYMPHONY_CONFIG_DIR = options.configDir;
+  }
 
   return options;
 }
@@ -441,6 +452,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .command("doctor")
       .description("Run diagnostics and optional first-run remediation")
       .option("--project-id <projectId>", "Project identifier")
+      .option("--project-dir <path>", "Standalone project folder")
       .option(
         "--fix",
         "Apply safe remediation steps and print manual follow-ups"
@@ -461,6 +473,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     const values = this.optsWithGlobals<CliOptionValues>();
     const args: string[] = [];
     pushOption(args, "--project-id", resolveProjectId(values));
+    pushOption(args, "--project-dir", values.projectDir);
     pushOption(args, "--fix", values.fix);
     pushOption(args, "--smoke", values.smoke);
     pushOption(args, "--bundle", values.bundle);
@@ -518,19 +531,6 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const project = addGlobalOptions(
     program.command("project").description("Manage standalone projects")
   );
-  addGlobalOptions(
-    project
-      .command("add")
-      .argument("<projectDir>", "Standalone project directory")
-      .allowExcessArguments(false)
-  ).action(async function (this: Command, projectDir: string) {
-    markInvoked();
-    await invokeHandler(
-      "project",
-      ["add", projectDir],
-      this.optsWithGlobals<CliOptionValues>()
-    );
-  });
   addGlobalOptions(project.command("list").allowExcessArguments(false)).action(
     async function (this: Command) {
       markInvoked();

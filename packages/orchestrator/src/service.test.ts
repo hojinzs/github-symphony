@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -28,6 +29,7 @@ import {
 import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
+import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
 import { clampPollInterval, OrchestratorService } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
@@ -11454,6 +11456,97 @@ Workspace prompt.
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
+  it("places standalone issue workspaces under the configured workspace root", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-standalone-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectDir = join(tempRoot, "projects", "sandbox");
+    const workspaceRoot = join(projectDir, ".runners");
+    await mkdir(projectDir, { recursive: true });
+    const externalWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      externalWorkflowPath,
+      await readFile(join(repository.path, "WORKFLOW.md"), "utf8"),
+      "utf8"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, workspaceRoot),
+      projectDir,
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5301, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+    const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
+
+    expect(snapshot.summary.dispatched).toBe(1);
+    expect(workspaceRecord?.workspacePath).toBe(
+      join(workspaceRoot, workspaceRecord!.workspaceKey)
+    );
+    expect(
+      (
+        await stat(join(workspaceRecord!.workspacePath, "repository"))
+      ).isDirectory()
+    ).toBe(true);
+    // The worker is pointed at the relocated workspace, not the state directory.
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+    expect(workerEnv?.WORKING_DIRECTORY).toBe(
+      join(workspaceRecord!.workspacePath, "repository")
+    );
+    expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
+  });
+
+  it("keeps repo-embedded issue workspaces beside the project state", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-embedded-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    // repo-embedded registration stores the repository checkout here, which
+    // must never be used as a workspace root.
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository,
+      repository.path
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5302, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
+
+    expect(workspaceRecord?.workspacePath).toBe(
+      join(store.projectDir("tenant-1"), workspaceRecord!.workspaceKey)
+    );
+  });
+
   it("loads only an external workflow and warns when it shadows the repository workflow", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -11505,6 +11598,114 @@ Workspace prompt.
     expect(snapshot.warnings).toEqual([
       `External workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
     ]);
+  });
+
+  it("warns from the shared cache when a remote repository commits its own WORKFLOW.md", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-remote-")
+    );
+    const origin = await createRepositoryFixture(tempRoot, "acme", "platform");
+    const configDir = join(tempRoot, "config");
+    process.env.GH_SYMPHONY_CONFIG_DIR = configDir;
+    // The cache is what populate leaves behind; the repository itself is never
+    // checked out to resolve policy in standalone mode.
+    await ensureGlobalBareRepositoryCache({
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: origin.path,
+      },
+      configDir,
+    });
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      await readFile(join(origin.path, "WORKFLOW.md"), "utf8"),
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(origin)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 4711, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.warnings).toEqual([
+      `External workflow source ${externalWorkflowPath} shadows WORKFLOW.md committed to acme/platform.`,
+    ]);
+  });
+
+  it("does not warn for a remote repository without a committed WORKFLOW.md", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-external-workflow-unaware-")
+    );
+    const origin = await createRepositoryFixture(tempRoot, "acme", "platform");
+    execSync(`git -C ${JSON.stringify(origin.path)} rm -q WORKFLOW.md`);
+    execSync(
+      `git -C ${JSON.stringify(origin.path)} commit -q -m "remove workflow"`
+    );
+    const configDir = join(tempRoot, "config");
+    process.env.GH_SYMPHONY_CONFIG_DIR = configDir;
+    await ensureGlobalBareRepositoryCache({
+      repository: {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: origin.path,
+      },
+      configDir,
+    });
+
+    const store = new OrchestratorFsStore(tempRoot);
+    const externalWorkflowPath = join(
+      store.projectDir("tenant-1"),
+      "WORKFLOW.md"
+    );
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, {
+        owner: "acme",
+        name: "platform",
+        cloneUrl: "https://github.com/acme/platform.git",
+      }),
+      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+    };
+    await store.saveProjectConfig(projectConfig);
+    await writeFile(
+      externalWorkflowPath,
+      "---\ntracker:\n  kind: github-project\n  project_id: project-123\ncodex:\n  command: codex app-server\n---\nExternal prompt\n",
+      "utf8"
+    );
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(origin)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 4712, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const snapshot = await service.runOnce();
+
+    expect(snapshot.warnings).toEqual([]);
   });
 
   it("does not warn when an external workflow is the resolved repository workflow", async () => {

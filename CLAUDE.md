@@ -60,7 +60,7 @@ The full component-to-package map, sliced by Symphony layer, lives in [docs/arch
 ### Key Packages
 
 - **`packages/core`** — Domain types, contracts (`OrchestratorStateStore`, `OrchestratorTrackerAdapter`), workflow loading/config, lifecycle (`WorkflowExecutionPhase`: planning → human-review → implementation → awaiting-merge → completed), MCP config composition, observability snapshots. No external dependencies.
-- **`packages/cli`** — `gh-symphony` published entrypoint: `setup`, `doctor`, `workflow`, `config`, `repo` (init/start/stop/status/run/logs/recover/explain), and `project` (standalone project add/list/start/status/stop).
+- **`packages/cli`** — `gh-symphony` published entrypoint: `setup`, `doctor`, `workflow`, `config`, `repo` (init/start/stop/status/run/logs/recover/explain), and `project` (standalone project list/start/status/stop, addressed by folder).
 - **`packages/orchestrator`** — `OrchestratorService` dispatch loop, filesystem-backed state store (`OrchestratorFsStore`), shared bare clone cache + worktree populate, layered skill injection, leases/retries/recovery.
 - **`packages/worker`** — Runs a single issue; serves `/api/v1/state`; drives a runtime adapter; manages approval workflow and hooks.
 - **`packages/runtime-codex` / `packages/runtime-claude`** — Agent runtime adapters (Codex app-server protocol; Claude print mode).

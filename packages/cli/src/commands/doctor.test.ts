@@ -438,6 +438,61 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
+  it("reads the registered project WORKFLOW.md for standalone projects", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
+    const workspaceDir = join(configDir, "workspaces");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    // The policy lives outside the repository, and doctor runs from a
+    // directory that deliberately has no WORKFLOW.md.
+    const { repoDir, pathEnv } = await createWorkflowFixture();
+    const projectDir = await mkdtemp(join(tmpdir(), "doctor-project-"));
+    const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      projectWorkflowPath,
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nStandalone prompt\n",
+      "utf8"
+    );
+    const emptyCwd = await mkdtemp(join(tmpdir(), "doctor-cwd-"));
+
+    const report = await withCwd(emptyCwd, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: {
+            ...createProjectConfig(workspaceDir),
+            projectDir,
+            workflowSource: { type: "external", path: projectWorkflowPath },
+          } as never,
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        execFileSync: (() => "git version 2.43.0") as never,
+        pathEnv,
+      })
+    );
+
+    const workflowCheck = report.checks.find(
+      (check) => check.id === "workflow_file"
+    );
+    expect(workflowCheck).toMatchObject({
+      status: "pass",
+      title: "Project WORKFLOW.md",
+    });
+    expect(workflowCheck?.details).toMatchObject({
+      path: projectWorkflowPath,
+    });
+    expect(repoDir).toBeTruthy();
+  });
+
   it("reports success when all required checks pass", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

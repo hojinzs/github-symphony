@@ -370,17 +370,17 @@ gh-symphony repo stop                # Stop this repository
 
 ### Standalone Projects
 
-A standalone project is a project folder registered as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
+A standalone project is a project folder used as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are created under the project's `workspace.root`, relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
 
 ```bash
-gh-symphony project add <projectDir>   # Register a project folder (validates WORKFLOW.md, rejects overlapping tracker mappings)
-gh-symphony project list               # List registered standalone projects as JSON
-gh-symphony project start              # Start orchestration for the active standalone project (same flags as repo start)
-gh-symphony project status             # Show standalone project status
-gh-symphony project stop               # Stop the standalone project daemon
+cd <projectDir> && gh-symphony project start   # Start the project in this folder
+gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
+gh-symphony project status                     # Status for the project in this folder
+gh-symphony project stop                       # Stop its daemon
+gh-symphony project list                       # List projects started on this host, as JSON
 ```
 
-`project start` accepts the same flags as `repo start` (`--once`, `--daemon`, `--web`, `--http`, and so on). Registration refuses tracker mappings that overlap an already-registered project for the same repository unless you confirm interactively. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start` accepts the same flags as `repo start` (`--once`, `--daemon`, `--web`, `--http`, and so on). Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.pickup_labels`, which the GitHub, Linear, and file trackers all apply when listing dispatch candidates. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
 
 ### Official Container Deployment
 

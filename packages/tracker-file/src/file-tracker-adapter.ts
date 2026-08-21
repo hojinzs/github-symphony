@@ -8,6 +8,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
+import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 
 function requireTrackerSetting(
   project: OrchestratorProjectConfig,
@@ -23,36 +24,6 @@ function requireTrackerSetting(
 function parseIssueNumber(identifier: string): number {
   const match = identifier.match(/#(\d+)$/);
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
-}
-
-function filterIssuesByPickupLabels(
-  issues: TrackedIssue[],
-  project: OrchestratorProjectConfig
-): TrackedIssue[] {
-  const pickupLabels = project.tracker.settings?.pickupLabels;
-  if (
-    !pickupLabels ||
-    typeof pickupLabels !== "object" ||
-    Array.isArray(pickupLabels)
-  ) {
-    return issues;
-  }
-  const config = pickupLabels as Record<string, unknown>;
-  const readLabels = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? value.filter((label): label is string => typeof label === "string")
-      : [];
-  const include = readLabels(config.include);
-  const exclude = new Set(readLabels(config.exclude));
-  if (include.length === 0 && exclude.size === 0) return issues;
-
-  return issues.filter((issue) => {
-    const labels = new Set(issue.labels);
-    return (
-      ![...exclude].some((label) => labels.has(label)) &&
-      (include.length === 0 || include.some((label) => labels.has(label)))
-    );
-  });
 }
 
 function isValidIssueShape(entry: unknown): entry is TrackedIssue {

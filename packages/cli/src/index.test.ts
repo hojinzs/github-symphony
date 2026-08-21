@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveGlobalOptions, runCli } from "./index.js";
+import { standaloneProjectId } from "./commands/project.js";
 import {
   saveGlobalConfig,
   saveProjectConfig,
@@ -71,6 +72,10 @@ describe("Commander CLI entrypoint", () => {
         resolveGlobalOptions({ configDir: "/tmp/from-config-dir" })
           .configDirOverride
       ).toBe(true);
+      // An explicit --config is exported to the environment so child processes
+      // and the shared bare-clone cache resolve the same directory. Clear it
+      // again before asserting the unset-environment defaults.
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
       expect(resolveGlobalOptions({}).configDirOverride).toBe(false);
       expect(resolveGlobalOptions({}).configDirSource).toBe("default");
 
@@ -433,7 +438,7 @@ describe("Commander CLI entrypoint", () => {
 
   it.each([
     [["project"], undefined, undefined],
-    [["project", "add", "--non-interactive"], "stderr", "unknown option"],
+    [["project", "add", "./somewhere"], "stderr", "unknown command 'add'"],
   ])("reports project command usage for %s", async (argv, stream, message) => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);
@@ -470,6 +475,68 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--smoke");
     expect(output).toContain("--bundle");
     expect(output).toContain("--issue");
+    expect(output).toContain("--project-dir");
     expect(output).toContain("remediation");
+  });
+
+  it("forwards doctor --project-dir through the Commander entrypoint", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-doctor-config-"));
+    const projectDir = await mkdtemp(join(tmpdir(), "cli-doctor-project-"));
+    const projectId = standaloneProjectId(projectDir);
+    await saveProjectConfig(configDir, projectId, {
+      ...createProject(projectId),
+      projectDir,
+      workflowSource: {
+        type: "external",
+        path: join(projectDir, "WORKFLOW.md"),
+      },
+    });
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli([
+        "doctor",
+        "--project-dir",
+        projectDir,
+        "--config",
+        configDir,
+        "--json",
+      ]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    expect(JSON.parse(stdout.output())).toMatchObject({ projectId });
+  });
+});
+
+describe("config directory export", () => {
+  const originalConfigDir = process.env.GH_SYMPHONY_CONFIG_DIR;
+
+  afterEach(() => {
+    if (originalConfigDir === undefined) {
+      delete process.env.GH_SYMPHONY_CONFIG_DIR;
+    } else {
+      process.env.GH_SYMPHONY_CONFIG_DIR = originalConfigDir;
+    }
+  });
+
+  it("exports an explicit --config directory so the bare cache honors it", () => {
+    delete process.env.GH_SYMPHONY_CONFIG_DIR;
+
+    const options = resolveGlobalOptions({ config: "/tmp/symphony-config" });
+
+    expect(options.configDir).toBe("/tmp/symphony-config");
+    expect(process.env.GH_SYMPHONY_CONFIG_DIR).toBe("/tmp/symphony-config");
+  });
+
+  it("leaves the environment untouched when no override is given", () => {
+    delete process.env.GH_SYMPHONY_CONFIG_DIR;
+
+    resolveGlobalOptions({});
+
+    expect(process.env.GH_SYMPHONY_CONFIG_DIR).toBeUndefined();
   });
 });

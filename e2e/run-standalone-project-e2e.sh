@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This bypasses the repo-embedded entrypoint and dispatches two registered
+# This bypasses the repo-embedded entrypoint and dispatches two folder-addressed
 # standalone projects once against the same local seed repository.
 COMPOSE="docker compose -f docker-compose.e2e.yml"
 
@@ -38,6 +38,7 @@ codex:
   command: codex
 repository:
   slug: test-owner/test-repo
+  clone_url: /e2e/repos/test-owner/test-repo
 workspace:
   root: .runtime/workspaces
 ---
@@ -59,32 +60,35 @@ cat > "$FIXTURE" <<EOF
 ]
 EOF
 
-for project in project-alpha project-beta; do
-  node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project add "$PROJECT_ROOT/$project"
-done
-alpha_id=$(node -e "console.log(require(\"$CONFIG_DIR/config.json\").projects[0])")
-beta_id=$(node -e "console.log(require(\"$CONFIG_DIR/config.json\").projects[1])")
+# Both projects run at once against one repository, addressed only by their
+# folder: no registration step, no shared active-project state.
 run_pids=""
-for project_id in "$alpha_id" "$beta_id"; do
-  node -e "const fs=require(\"fs\"); const path=\"$CONFIG_DIR/projects/$project_id/project.json\"; const config=require(path); config.repository.cloneUrl=\"/e2e/repos/test-owner/test-repo\"; config.tracker.settings.issuesPath=\"$FIXTURE\"; fs.writeFileSync(path, JSON.stringify(config, null, 2)+\"\\n\")"
-  GH_SYMPHONY_CONFIG_DIR="$CONFIG_DIR" node /app/packages/orchestrator/dist/index.js run-once --runtime-root "$CONFIG_DIR" --project-id "$project_id" > "/tmp/$project_id.json" 2>&1 &
+for project in project-alpha project-beta; do
+  (cd "$PROJECT_ROOT/$project" && \
+    GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH="$FIXTURE" \
+    node /app/packages/cli/dist/index.js --config "$CONFIG_DIR" project start \
+      > "/tmp/$project.log" 2>&1) &
   run_pids="$run_pids $!"
-  for _ in $(seq 1 20); do
-    if grep -q "\"dispatched\": 1" "/tmp/$project_id.json"; then break; fi
-    sleep 1
-  done
-  if ! grep -q "\"dispatched\": 1" "/tmp/$project_id.json"; then
-    cat "/tmp/$project_id.json" >&2
-    exit 1
-  fi
 done
+alpha_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-alpha\";console.log(\"project-alpha-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
+beta_id=$(node -e "const {createHash}=require(\"crypto\");const d=\"$PROJECT_ROOT/project-beta\";console.log(\"project-beta-\"+createHash(\"sha256\").update(d).digest(\"hex\").slice(0,8))")
+for _ in $(seq 1 40); do
+  if test -f "$CONFIG_DIR/projects/$alpha_id/project.json" &&
+     test -f "$CONFIG_DIR/projects/$beta_id/project.json"; then
+    break
+  fi
+  sleep 1
+done
+test -f "$CONFIG_DIR/projects/$alpha_id/project.json"
+test -f "$CONFIG_DIR/projects/$beta_id/project.json"
 
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
   completed_logs=$(find "$CONFIG_DIR/projects" -path "*/runs/*/worker.log" -type f -exec grep -l "\\[stub-worker\\] status=completed" {} + 2>/dev/null | wc -l | tr -d " " || true)
   test "$completed_logs" = 2 && break
   sleep 1
 done
 if [ "${completed_logs:-0}" != 2 ]; then
+  cat /tmp/project-alpha.log /tmp/project-beta.log >&2 || true
   for log in $(find "$CONFIG_DIR/projects" -path "*/runs/*/worker.log" -type f); do
     echo "--- $log" >&2
     cat "$log" >&2
@@ -101,7 +105,10 @@ for project in project-alpha project-beta; do
   if [ "$label" = beta ]; then issue=102; fi
   project_id="$alpha_id"
   if [ "$label" = beta ]; then project_id="$beta_id"; fi
-  repo=$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d | head -1)
+  # Standalone workspaces live under the workspace.root of the project folder,
+  # not under the runtime state directory (spec 9.1).
+  test -z "$(find "$CONFIG_DIR/projects/$project_id" -path "*/repository" -type d)"
+  repo=$(find "$PROJECT_ROOT/$project/.runtime/workspaces" -path "*/repository" -type d | head -1)
   # A linked worktree records its gitdir in a .git file; a normal checkout
   # uses a directory. Either shape proves the populated workspace is a repo.
   test -e "$repo/.git"
@@ -115,8 +122,8 @@ for project in project-alpha project-beta; do
   grep -q "\\[stub-worker\\] mcp_servers=$label" $logs
   grep -q "\\[stub-worker\\] status=completed" $logs
 done
-alpha_repo=$(find "$CONFIG_DIR/projects/$alpha_id" -path "*/repository" -type d | head -1)
-beta_repo=$(find "$CONFIG_DIR/projects/$beta_id" -path "*/repository" -type d | head -1)
+alpha_repo=$(find "$PROJECT_ROOT/project-alpha/.runtime/workspaces" -path "*/repository" -type d | head -1)
+beta_repo=$(find "$PROJECT_ROOT/project-beta/.runtime/workspaces" -path "*/repository" -type d | head -1)
 alpha_branch=$(git -C "$alpha_repo" branch --show-current)
 beta_branch=$(git -C "$beta_repo" branch --show-current)
 test "$alpha_branch" != "$beta_branch"

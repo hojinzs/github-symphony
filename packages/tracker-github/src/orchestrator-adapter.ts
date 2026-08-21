@@ -5,6 +5,7 @@ import type {
   OrchestratorTrackerConfig,
   TrackedIssueList,
 } from "@gh-symphony/core";
+import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -16,7 +17,16 @@ import {
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
-    return listProjectIssues(project, dependencies);
+    const issues = await listProjectIssues(project, dependencies);
+    const filtered = filterIssuesByPickupLabels(
+      issues,
+      project
+    ) as TrackedIssueList;
+    if (filtered !== issues) {
+      filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
+      filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
+    }
+    return filtered;
   },
 
   async listIssuesByStates(project, states, dependencies = {}) {

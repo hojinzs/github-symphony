@@ -173,7 +173,7 @@ projects/
 2. **`workspaces/` state directory naming cleanup** — terminology collision with the spec's Workspace (D2)
 3. **Verify the codex runtime skill discovery path** — confirm whether it is cwd-based, then finalize D5 placement (verify in `runtime-codex`)
 4. **Control Plane secret store** — how to manage the origins of `$VAR` per project (during Control Plane design). D9's `.env` is the store for now, and the Control Plane can treat it as something to manage rather than replace
-5. **repo-embedded → standalone migration path** — procedure for wrapping existing setups into the project model (including `clone` → `worktree-cache` populate strategy convergence)
+5. **repo-embedded → standalone migration path** — procedure for wrapping existing setups into the project model (including `clone` → `worktree-cache` populate strategy convergence). The related workspace-layout half — repo-embedded still ignores `workspace.root` while standalone honors it (spec §9.1) — is tracked in [#599](https://github.com/hojinzs/github-symphony/issues/599).
 6. **Follow-up ADR** — a decision record refining the relationship with `2026-05-04_single-repo-orchestrator.md` ("1 repo = 1 instance") to "1 project = 1 instance"
 
 Resolved items (2026-08-11): clone cache operations and branch namespace → D4, D8 and the "Clone cache operational details" section. Project env declaration → D9.
