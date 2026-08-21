@@ -40,7 +40,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
-- Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
+- Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read defers classification to a later tick instead of manufacturing a failure retry. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`) and worktree populate: `repository-cache.ts`, `git.ts`
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config
