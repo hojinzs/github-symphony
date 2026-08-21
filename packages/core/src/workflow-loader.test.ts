@@ -857,6 +857,27 @@ Prompt body.
 });
 
 describe("WorkflowConfigStore", () => {
+  it("stores a hash instead of plaintext environment values in cache metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
+    tempDirs.push(root);
+    const workflowPath = join(root, "WORKFLOW.md");
+    const store = new WorkflowConfigStore();
+    const secret = "project-and-host-secret";
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+    await store.load(workflowPath, { SECRET_TOKEN: secret });
+
+    const cache = (
+      store as unknown as {
+        cache: Map<string, { envSignature: string }>;
+      }
+    ).cache;
+    const envSignature = cache.get(workflowPath)?.envSignature;
+
+    expect(envSignature).toMatch(/^[a-f0-9]{64}$/);
+    expect(envSignature).not.toContain(secret);
+  });
+
   it("keeps the last known good workflow after an invalid update", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
     tempDirs.push(root);
