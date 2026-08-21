@@ -95,7 +95,7 @@ describe("convergence threshold lifecycle", () => {
       )
     ).resolves.toEqual({
       action: "complete",
-      executionPhase: "awaiting-review",
+      executionPhase: "awaiting-merge",
     });
   });
 
