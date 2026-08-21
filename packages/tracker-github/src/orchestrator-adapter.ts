@@ -91,6 +91,29 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     };
   },
 
+  resolveTerminalFact(issue) {
+    if (issue.metadata.sourceState?.trim().toLowerCase() === "closed") {
+      return {
+        kind: "issue_closed",
+        reason: "Source issue is closed while its Project status is active.",
+        relatedIdentifier: null,
+      };
+    }
+
+    const mergedPullRequest = issue.metadata.linkedPullRequests?.find(
+      (pullRequest) =>
+        pullRequest.merged === true ||
+        pullRequest.state?.trim().toLowerCase() === "merged"
+    );
+    return mergedPullRequest
+      ? {
+          kind: "linked_pull_request_merged",
+          reason: `Linked pull request ${mergedPullRequest.identifier} is merged while the issue Project status is active.`,
+          relatedIdentifier: mergedPullRequest.identifier,
+        }
+      : null;
+  },
+
   async requestState(project, input, dependencies = {}) {
     const trackerConfig = resolveGitHubTrackerConfig(project, dependencies);
     return requestGithubProjectItemState(

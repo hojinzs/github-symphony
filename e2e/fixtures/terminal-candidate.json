@@ -24,7 +24,11 @@
       "itemId": "issue-terminal-1"
     },
     "metadata": {
-      "sourceState": "CLOSED"
+      "terminalFact": {
+        "kind": "issue_closed",
+        "reason": "Source issue is closed while its Project status is active.",
+        "relatedIdentifier": null
+      }
     }
   }
 ]

@@ -1276,6 +1276,8 @@ describe("OrchestratorService", () => {
       name: "closed source issue",
       metadata: { sourceState: "CLOSED" },
       terminalFact: "issue_closed",
+      requestFails: false,
+      targetIdentifier: null,
     },
     {
       name: "merged linked pull request",
@@ -1293,10 +1295,26 @@ describe("OrchestratorService", () => {
         ],
       },
       terminalFact: "linked_pull_request_merged",
+      requestFails: false,
+      targetIdentifier: null,
+    },
+    {
+      name: "terminal candidate when the provider transition fails",
+      metadata: { sourceState: "CLOSED" },
+      terminalFact: "issue_closed",
+      requestFails: true,
+      targetIdentifier: null,
+    },
+    {
+      name: "unrelated terminal candidate during a targeted run",
+      metadata: { sourceState: "CLOSED" },
+      terminalFact: "issue_closed",
+      requestFails: false,
+      targetIdentifier: "acme/platform#99",
     },
   ])(
     "reconciles a $name to Done without dispatching",
-    async ({ metadata, terminalFact }) => {
+    async ({ metadata, terminalFact, requestFails, targetIdentifier }) => {
       const tempRoot = await mkdtemp(
         join(tmpdir(), "orchestrator-terminal-candidate-")
       );
@@ -1340,10 +1358,13 @@ describe("OrchestratorService", () => {
         state: "Done",
         expectedState: "Todo",
         targetState: "Done",
-        reason: expect.any(String),
+        reason: "Terminal fact provided by tracker adapter.",
         rateLimits: null,
         error: null,
       });
+      if (requestFails) {
+        requestState.mockRejectedValueOnce(new Error("provider unavailable"));
+      }
       const spawnImpl = vi.fn();
       vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
         listIssues: vi.fn().mockResolvedValue(issues),
@@ -1351,6 +1372,14 @@ describe("OrchestratorService", () => {
         fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
         buildWorkerEnvironment: vi.fn(),
         reviveIssue: vi.fn(),
+        resolveTerminalFact: vi.fn().mockReturnValue({
+          kind: terminalFact,
+          reason: "Terminal fact provided by tracker adapter.",
+          relatedIdentifier:
+            terminalFact === "linked_pull_request_merged"
+              ? "acme/platform#2"
+              : null,
+        }),
         requestState,
       });
       const info = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -1359,11 +1388,22 @@ describe("OrchestratorService", () => {
         now: () => new Date("2026-03-08T00:00:00.000Z"),
       });
 
-      const result = await service.runOnce();
+      const result = await service.runOnce({
+        issueIdentifier: targetIdentifier ?? undefined,
+      });
 
       expect(result.summary.dispatched).toBe(0);
-      expect(result.summary.suppressed).toBe(1);
+      expect(result.summary.suppressed).toBe(0);
       expect(spawnImpl).not.toHaveBeenCalled();
+      if (targetIdentifier) {
+        expect(requestState).not.toHaveBeenCalled();
+        expect(info).not.toHaveBeenCalledWith(
+          expect.stringContaining(
+            `"event":"tracker-terminal-candidate-reconciled"`
+          )
+        );
+        return;
+      }
       expect(requestState).toHaveBeenCalledWith(
         projectConfig,
         expect.objectContaining({
@@ -1385,6 +1425,14 @@ describe("OrchestratorService", () => {
       expect(info).toHaveBeenCalledWith(
         expect.stringContaining(`"terminalFact":"${terminalFact}"`)
       );
+      if (requestFails) {
+        expect(info).toHaveBeenCalledWith(
+          expect.stringContaining(`"outcome":"failed"`)
+        );
+        expect(info).toHaveBeenCalledWith(
+          expect.stringContaining(`"error":"Error: provider unavailable`)
+        );
+      }
     }
   );
 

@@ -170,6 +170,12 @@ export type TrackerStateResult = {
   error: string | null;
 };
 
+export type TrackerTerminalFact = {
+  kind: string;
+  reason: string;
+  relatedIdentifier: string | null;
+};
+
 export type OrchestratorTrackerAdapter = {
   listIssues(
     project: OrchestratorProjectConfig,
@@ -193,6 +199,7 @@ export type OrchestratorTrackerAdapter = {
     project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
+  resolveTerminalFact?(issue: TrackedIssue): TrackerTerminalFact | null;
   requestState?(
     project: OrchestratorProjectConfig,
     input: {

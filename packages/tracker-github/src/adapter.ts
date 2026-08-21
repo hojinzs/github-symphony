@@ -2326,12 +2326,13 @@ function withIssueMetadata(
   isArchived = false
 ): TrackedIssue["metadata"] {
   if (
-    sourceState === null &&
     linkedPullRequests.length === 0 &&
     !linkedPullRequestsTruncated &&
     !isArchived
   ) {
-    return fieldValues;
+    return sourceState === null
+      ? fieldValues
+      : withGitHubMetadata(fieldValues, { sourceState });
   }
 
   return withGitHubMetadata(fieldValues, {

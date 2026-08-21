@@ -17,7 +17,7 @@
 
 - Issue `#30` is never present in `activeRuns`; the stub worker is not started.
 - Its stale active `Ready` state is reconciled to terminal state `Done`.
-- The reconciliation tick counts one suppressed candidate; a later idle poll may reset the current summary counters to zero.
+- Reconciliation is tracked by its dedicated event and does not inflate the worker-run `summary.suppressed` counter.
 - Container logs contain a `tracker-terminal-candidate-reconciled` structured event with `terminalFact: issue_closed`, `targetState: Done`, and `outcome: confirmed`.
 
 ## Cleanup
