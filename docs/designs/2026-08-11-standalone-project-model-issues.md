@@ -1,30 +1,46 @@
 # Standalone Project Model — Issue Breakdown Plan
 
-> **Source spec:** `docs/designs/2026-08-11-standalone-project-model-design.md` (commit `d994c6e`)
+> **Source spec:** `docs/designs/2026-08-11-standalone-project-model-design.md`
 > **Repository:** `hojinzs/github-symphony`
-> **Status:** Active — executed by dogfooding gh-symphony (Project #14, initial state Backlog, promotion to Ready is done by a human)
-> **Composition:** 1 epic + 9 implementation issues. Each issue body can be used directly with `gh issue create --body-file -`.
+> **Status:** Completed — D1–D9 shipped through #562–#570; the final folder-addressed CLI and acceptance fixes shipped through #600 / PR #601
+> **Composition:** Epic #561 + 9 implementation issues (#562–#570) + final CLI correction #600
 
-The design document is the single source of truth. Each issue embeds its relevant slice so workers do not have to read the entire document.
+The design document is the single source of truth. The issue bodies below preserve the original
+implementation plan. The shipped-outcome notes record where the final implementation intentionally
+superseded that plan.
+
+## Final outcome
+
+- All implementation issues #562–#570 are complete.
+- The standalone project folder is the execution unit and the repository remains unaware of
+  Symphony configuration.
+- #600 removed `project add`: `project start|status|stop` now address a folder directly, and start
+  re-derives its configuration every time.
+- PR #601 validated the full Ready → PR → In review → Land → merge → Done → cleanup lifecycle and
+  two label-disjoint projects running one repository concurrently.
+- `pnpm e2e:standalone-project`, the repo-embedded happy-path E2E, and `pnpm e2e:claude` passed.
+- `docs/adr/2026-08-13_standalone-project-instance-boundary.md` records "1 project = 1 instance".
 
 ## Dependency graph
 
 ```
-┌─ #1 D2 core: ProjectConfig extension ──────────── (foundation — everything depends on this)
+┌─ #562 D2 core: ProjectConfig extension ────────── (foundation — everything depends on this)
 │
-├──┬─ #2 D3: workflow source resolution + shadow warning
-│  └─ #3 D4a: bare clone cache module (lock + TTL fetch)     ← can run in parallel with #2
+├──┬─ #563 D3: workflow source resolution + shadow warning
+│  └─ #564 D4a: bare clone cache module (lock + TTL fetch)   ← can run in parallel with #563
 │         │
-│         └─ #4 D4b+D8: worktree populate + branch template + cleanup lifecycle
+│         └─ #565 D4b+D8: worktree populate + branch template + cleanup lifecycle
 │                │
-│                └─ #6 D5: layered skill merge injection + git exclude
+│                └─ #567 D5: layered skill merge injection + git exclude
 │
-├─ #5 D9: project .env relocation + $VAR source expansion      ← can run in parallel with #2–4
-├─ #7 D6: MCP layering (.mcp.json sidecar)          ← can run in parallel after #1
+├─ #566 D9: project .env relocation + $VAR source expansion  ← parallel with #563–#565
+├─ #568 D6: MCP layering (.mcp.json sidecar)        ← parallel after #562
 │
-└─ #8 CLI: project add / project-folder startup + disjointness validation   ← after #2
+└─ #569 CLI: initial standalone registration/startup          ← after #563
       │
-      └─ #9 closure: Docker E2E + docs + changeset + ADR    ← after everything
+      └─ #570 closure: Docker E2E + docs + changeset + ADR   ← after everything
+             │
+             └─ #600 folder addressing + project add removal + final acceptance
 ```
 
 ## Verification gates
@@ -35,7 +51,7 @@ Every issue's PR must pass:
 pnpm lint && pnpm test && pnpm typecheck && pnpm build
 ```
 
-CLAUDE.md convention: after completing work, test cases must be written and executed for verification. Integration behavior that unit tests cannot cover is verified with black-box tests in the Docker E2E environment (AGENT_TEST.md) — E2E integration verification is owned by #9, but each issue also includes unit/integration TCs for its own scope.
+CLAUDE.md convention: after completing work, test cases must be written and executed for verification. Integration behavior that unit tests cannot cover is verified with black-box tests in the Docker E2E environment (AGENT_TEST.md) — E2E integration verification was owned by #570, but each issue also included unit/integration TCs for its own scope.
 
 ---
 
@@ -43,7 +59,7 @@ CLAUDE.md convention: after completing work, test cases must be written and exec
 
 **Title:** `epic: standalone project model (repo-decoupled projects)`
 **Labels:** `epic`
-**Initial state:** Backlog (tracking only — do not promote to Ready)
+**Initial state:** Backlog (tracking only)
 
 ```markdown
 ## Overview
@@ -58,25 +74,24 @@ the execution unit, and the repository does not know Symphony is running (repo-u
 
 ## Sub-issues
 
-- [ ] #1 feat(core): extend OrchestratorProjectConfig
-- [ ] #2 feat(orchestrator): workflow source resolution
-- [ ] #3 feat(orchestrator): bare clone cache
-- [ ] #4 feat(orchestrator): worktree populate + branch namespace
-- [ ] #5 feat(orchestrator): project .env relocation
-- [ ] #6 feat(worker): layered skill injection
-- [ ] #7 feat(core,runtime): MCP layer composition
-- [ ] #8 feat(cli): standalone project registration and startup
-- [ ] #9 test(e2e): E2E + docs + changeset + ADR
-
-(Update with actual issue numbers after publishing)
+- [x] #562 feat(core): extend OrchestratorProjectConfig
+- [x] #563 feat(orchestrator): workflow source resolution
+- [x] #564 feat(orchestrator): bare clone cache
+- [x] #565 feat(orchestrator): worktree populate + branch namespace
+- [x] #566 feat(orchestrator): project .env relocation
+- [x] #567 feat(worker): layered skill injection
+- [x] #568 feat(core,runtime): MCP layer composition
+- [x] #569 feat(cli): standalone project registration and startup
+- [x] #570 test(e2e): E2E + docs + changeset + ADR
+- [x] #600 feat(cli)!: folder addressing + `project add` removal + final acceptance fixes
 
 ## Order
 
-#1 → {#2, #3, #5, #7 in parallel} → #4 → #6, #2 → #8 → #9
+#562 → {#563, #564, #566, #568 in parallel} → #565 → #567, #563 → #569 → #570 → #600
 
 ## Definition of done
 
-- Docker E2E: black-box pass from project folder creation → registration → run-once → worktree populate → skill/MCP injection → worker execution
+- Docker E2E: black-box pass from project folder creation → folder-addressed start → worktree populate → skill/MCP injection → worker execution
 - No regression in the existing repo-embedded mode
 - Follow-up "1 project = 1 instance" ADR merged
 ```
@@ -334,6 +349,10 @@ Composition follows the existing `mcp-compose.ts` pattern: every attempt, in the
 
 ## Issue #8 — feat(cli): standalone project registration and startup
 
+> **Published as #569; completed.** This issue shipped the initial registration-based CLI. #600
+> subsequently replaced that surface with folder-addressed `project start|status|stop`; the original
+> issue body below is retained as planning history, not current CLI documentation.
+
 **Labels:** `cli`, `enhancement`
 **Depends on:** #2
 **Effort:** M
@@ -366,6 +385,11 @@ the same repo+tracker — if they overlap, two orchestrators will pick up the sa
 ---
 
 ## Issue #9 — test(e2e): standalone project model end-to-end + docs + changeset + ADR
+
+> **Published as #570; completed.** The closure artifacts shipped, including the ADR and initial
+> standalone E2E. #600 / PR #601 updated the black-box scenario to start projects by folder and ran
+> final acceptance for the full lifecycle and 1 repo : 2 projects. References to `project add` below
+> describe the original test plan and are superseded.
 
 **Labels:** `test`, `documentation`
 **Depends on:** all of #1–#8
