@@ -1250,6 +1250,15 @@ export class OrchestratorService {
         );
       }
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
+      const terminalCandidateReconciliation =
+        await this.reconcileTerminalCandidates(
+          tenant,
+          trackerAdapter,
+          canonicalIssues,
+          candidateTrackerDependencies,
+          now
+        );
+      suppressed += terminalCandidateReconciliation.suppressedIdentifiers.size;
       // The map is unconditionally seeded from `canonicalIssues`, so the old
       // second reverse-order merge loop is unnecessary. If seeding ever
       // becomes conditional, revisit the precedence here.
@@ -1327,7 +1336,15 @@ export class OrchestratorService {
       const {
         candidates: trackedActionableIssues,
         lifecyclesByIssueIdentifier,
-      } = await this.resolveActionableCandidates(tenant, canonicalIssues);
+      } = await this.resolveActionableCandidates(
+        tenant,
+        canonicalIssues.filter(
+          (issue) =>
+            !terminalCandidateReconciliation.suppressedIdentifiers.has(
+              issue.identifier
+            )
+        )
+      );
       const resolveTrackedIssueLifecycle = async (
         issue: TrackedIssue
       ): Promise<WorkflowLifecycleConfig | null> => {
@@ -1594,14 +1611,13 @@ export class OrchestratorService {
             : await this.loadRetryPolicy(tenant, issue.repository);
           const retryDueAt = retrySuppressed
             ? null
-            : (
-                retryPolicy
-                  ? scheduleRetryAt(now, retryAttempt, retryPolicy)
-                  : new Date(
-                      now.getTime() +
-                        (this.dependencies.retryBackoffMs ??
-                          DEFAULT_RETRY_BACKOFF_MS)
-                    )
+            : (retryPolicy
+                ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+                : new Date(
+                    now.getTime() +
+                      (this.dependencies.retryBackoffMs ??
+                        DEFAULT_RETRY_BACKOFF_MS)
+                  )
               ).toISOString();
           issueRecords = upsertIssueOrchestration(issueRecords, {
             issueId: issue.id,
@@ -2236,6 +2252,103 @@ export class OrchestratorService {
       candidates,
       lifecyclesByIssueIdentifier,
     };
+  }
+
+  private async reconcileTerminalCandidates(
+    tenant: OrchestratorProjectConfig,
+    trackerAdapter: OrchestratorTrackerAdapter,
+    issues: readonly TrackedIssue[],
+    trackerDependencies: OrchestratorTrackerDependencies,
+    now: Date
+  ): Promise<{ suppressedIdentifiers: Set<string> }> {
+    const suppressedIdentifiers = new Set<string>();
+
+    for (const issue of issues) {
+      if (
+        isArchivedProjectItem(issue) ||
+        issue.metadata.contentType === "PullRequest"
+      ) {
+        continue;
+      }
+
+      const lifecycle = await this.resolveIssueLifecycle(tenant, issue);
+      if (
+        !lifecycle ||
+        isStateTerminal(issue.state, lifecycle) ||
+        !matchesWorkflowState(issue.state, lifecycle.activeStates)
+      ) {
+        continue;
+      }
+
+      const terminalFact = resolveTerminalCandidateFact(issue);
+      if (!terminalFact) {
+        continue;
+      }
+      suppressedIdentifiers.add(issue.identifier);
+
+      const targetState = lifecycle.terminalStates[0]?.trim() ?? "";
+      let result: TrackerStateResult;
+      if (!targetState) {
+        result = buildTerminalCandidateFailure(
+          issue,
+          targetState,
+          terminalFact.reason,
+          "terminal_state_missing"
+        );
+      } else if (!trackerAdapter.requestState) {
+        result = buildTerminalCandidateFailure(
+          issue,
+          targetState,
+          terminalFact.reason,
+          "tracker_state_requests_unsupported"
+        );
+      } else {
+        try {
+          result = await trackerAdapter.requestState(
+            tenant,
+            {
+              issueSubjectId: issue.id,
+              itemId: issue.tracker.itemId,
+              request: {
+                type: "transition-request",
+                expectedState: issue.state,
+                targetState,
+                reason: terminalFact.reason,
+              },
+            },
+            trackerDependencies
+          );
+        } catch (error) {
+          result = buildTerminalCandidateFailure(
+            issue,
+            targetState,
+            terminalFact.reason,
+            this.formatErrorMessage(error)
+          );
+        }
+      }
+
+      this.rememberTrackerRateLimits(tenant.projectId, result.rateLimits);
+      console.info(
+        JSON.stringify({
+          at: now.toISOString(),
+          event: "tracker-terminal-candidate-reconciled",
+          projectId: tenant.projectId,
+          issueIdentifier: issue.identifier,
+          issueId: issue.id,
+          trackerItemId: issue.tracker.itemId,
+          terminalFact: terminalFact.kind,
+          linkedPullRequest: terminalFact.linkedPullRequestIdentifier,
+          expectedState: issue.state,
+          targetState,
+          confirmedState: result.state,
+          outcome: result.outcome,
+          error: result.error,
+        })
+      );
+    }
+
+    return { suppressedIdentifiers };
   }
 
   private async resolveIssueLifecycle(
@@ -5509,4 +5622,49 @@ function releaseIssueOrchestration(
 
 function isArchivedProjectItem(issue: TrackedIssue): boolean {
   return issue.metadata.isArchived === true;
+}
+
+function resolveTerminalCandidateFact(issue: TrackedIssue): {
+  kind: "issue_closed" | "linked_pull_request_merged";
+  reason: string;
+  linkedPullRequestIdentifier: string | null;
+} | null {
+  if (issue.metadata.sourceState?.trim().toLowerCase() === "closed") {
+    return {
+      kind: "issue_closed",
+      reason: "Source issue is closed while its Project status is active.",
+      linkedPullRequestIdentifier: null,
+    };
+  }
+
+  const mergedPullRequest = issue.metadata.linkedPullRequests?.find(
+    (pullRequest) =>
+      pullRequest.merged === true ||
+      pullRequest.state?.trim().toLowerCase() === "merged"
+  );
+  return mergedPullRequest
+    ? {
+        kind: "linked_pull_request_merged",
+        reason: `Linked pull request ${mergedPullRequest.identifier} is merged while the issue Project status is active.`,
+        linkedPullRequestIdentifier: mergedPullRequest.identifier,
+      }
+    : null;
+}
+
+function buildTerminalCandidateFailure(
+  issue: TrackedIssue,
+  targetState: string,
+  reason: string,
+  error: string
+): TrackerStateResult {
+  return {
+    ok: false,
+    outcome: "failed",
+    state: issue.state,
+    expectedState: issue.state,
+    targetState: targetState || null,
+    reason,
+    rateLimits: null,
+    error,
+  };
 }

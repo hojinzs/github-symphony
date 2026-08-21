@@ -1271,6 +1271,123 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it.each([
+    {
+      name: "closed source issue",
+      metadata: { sourceState: "CLOSED" },
+      terminalFact: "issue_closed",
+    },
+    {
+      name: "merged linked pull request",
+      metadata: {
+        sourceState: "OPEN",
+        linkedPullRequests: [
+          {
+            id: "pr-2",
+            number: 2,
+            identifier: "acme/platform#2",
+            url: "https://github.com/acme/platform/pull/2",
+            state: "MERGED",
+            merged: true,
+          },
+        ],
+      },
+      terminalFact: "linked_pull_request_merged",
+    },
+  ])(
+    "reconciles a $name to Done without dispatching",
+    async ({ metadata, terminalFact }) => {
+      const tempRoot = await mkdtemp(
+        join(tmpdir(), "orchestrator-terminal-candidate-")
+      );
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
+      const store = new OrchestratorFsStore(tempRoot);
+      const projectConfig = createProjectConfig(tempRoot, repository);
+      await store.saveProjectConfig(projectConfig);
+      const issue = {
+        id: "issue-1",
+        identifier: "acme/platform#1",
+        number: 1,
+        title: "Already terminal issue",
+        description: null,
+        priority: null,
+        state: "Todo",
+        branchName: null,
+        url: "https://github.com/acme/platform/issues/1",
+        labels: [],
+        blockedBy: [],
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        repository,
+        tracker: {
+          adapter: "github-project" as const,
+          bindingId: "project-123",
+          itemId: "item-1",
+        },
+        metadata,
+      };
+      const issues = Object.assign([issue], {
+        rateLimits: null,
+        skippedItems: [],
+      }) as TrackedIssueList;
+      const requestState = vi.fn().mockResolvedValue({
+        ok: true,
+        outcome: "confirmed",
+        state: "Done",
+        expectedState: "Todo",
+        targetState: "Done",
+        reason: expect.any(String),
+        rateLimits: null,
+        error: null,
+      });
+      const spawnImpl = vi.fn();
+      vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+        listIssues: vi.fn().mockResolvedValue(issues),
+        listIssuesByStates: vi.fn().mockResolvedValue([]),
+        fetchIssueStatesByIds: vi.fn().mockResolvedValue([]),
+        buildWorkerEnvironment: vi.fn(),
+        reviveIssue: vi.fn(),
+        requestState,
+      });
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const service = new OrchestratorService(store, projectConfig, {
+        spawnImpl: spawnImpl as never,
+        now: () => new Date("2026-03-08T00:00:00.000Z"),
+      });
+
+      const result = await service.runOnce();
+
+      expect(result.summary.dispatched).toBe(0);
+      expect(result.summary.suppressed).toBe(1);
+      expect(spawnImpl).not.toHaveBeenCalled();
+      expect(requestState).toHaveBeenCalledWith(
+        projectConfig,
+        expect.objectContaining({
+          issueSubjectId: "issue-1",
+          itemId: "item-1",
+          request: expect.objectContaining({
+            type: "transition-request",
+            expectedState: "Todo",
+            targetState: "Done",
+          }),
+        }),
+        expect.any(Object)
+      );
+      expect(info).toHaveBeenCalledWith(
+        expect.stringContaining(
+          `\"event\":\"tracker-terminal-candidate-reconciled\"`
+        )
+      );
+      expect(info).toHaveBeenCalledWith(
+        expect.stringContaining(`\"terminalFact\":\"${terminalFact}\"`)
+      );
+    }
+  );
+
   it("passes worktree-cache settings into issue populate", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
