@@ -39,6 +39,14 @@ If no PR is linked to the issue, record the blocker in the workpad and exit.
 
 **Sibling skills.** This skill delegates to `/gh-project` for the Done transition and `/pull` for branch freshness. Both were updated alongside this skill to target the Moncher Stack project and accept the PR's actual base branch — no special workaround is required. If either fails at runtime (e.g. authentication, board re-configuration), record the specific failure in the workpad and exit with a `⛔ Blocker` comment.
 
+## Merged-PR Precedence Guard
+
+Run this guard immediately after loading Required Context and before every pre-flight check or failure classification:
+
+1. Read the linked PR's `state` and `mergeCommit` with `gh pr view <pr-number> --json state,mergeCommit`.
+2. If `state` is `MERGED`, skip approval, CI, branch freshness, changeset, mergeability, and every failure classification. Record the merged commit SHA and changeset path (if any) in the Land workpad, prepare the `Land` → `Done` body, transition through `/gh-project`, and exit.
+3. Never transition a merged PR's issue to `Ready`, even if its deleted head branch makes a later freshness or mergeability command fail.
+
 ## Pre-flight Checks
 
 All must pass before merging. If any fails, record the failure in the workpad and **do not** merge.
@@ -46,7 +54,7 @@ All must pass before merging. If any fails, record the failure in the workpad an
 1. **At least one human approval.** `gh pr view <pr-number> --json reviews --jq '[.reviews[] | select(.state == "APPROVED")] | length'` must be ≥ 1.
 2. **All required CI checks green.** Use `gh pr checks <pr-number> --required` — no failing or pending **required** checks. Optional checks do not gate Land pre-flight. Before `/pull`, capture the required-check names from `gh pr checks <pr-number> --required --json name,bucket`. If no required checks are configured, this gate passes and must not wait for a check suite. If this run's `/pull` or another fresh head update has re-queued previously observed required CI:
    - First poll `gh pr checks <pr-number> --required --json name,bucket` every 10 seconds until the previously observed required checks appear. Do not invoke `--watch` while the result is empty: GitHub can register a new head before its check suite exists, and `--watch` exits immediately when no checks are reported.
-   - Keep `Land` while waiting for registration, for at most 5 minutes. If no required check appears by then, classify it as an external CI-registration wait, record the exact head SHA and polling evidence in the workpad, then follow Failure Handling step 5 (`Land` → `In review`). Do not hide GitHub API/authentication errors as an empty result; those are external blockers.
+   - Keep `Land` while waiting for registration, for at most 5 minutes. If no required check appears by then, classify it as an external CI-registration wait, record the exact head SHA and polling evidence in the workpad, then follow Failure Handling step 6 (`Land` → `In review`). Do not hide GitHub API/authentication errors as an empty result; those are external blockers.
    - Once required checks appear, wait with `gh pr checks <pr-number> --required --watch --interval 10`. Do not transition to `In review` merely because newly-triggered required CI is still running. Once the checks reach terminal states, restart the full pre-flight from step 1.
 3. **Branch up-to-date with the PR base.**
    ```bash
@@ -60,9 +68,9 @@ All must pass before merging. If any fails, record the failure in the workpad an
 
 ## Flow
 
-1. Load context and run all Pre-flight Checks. The human-owned `In review` → `Land` transition is already confirmed before this worker is dispatched; record it as the Land-cycle trigger and do not issue a duplicate `/gh-project` request or status comment for it. Only transitions requested by this skill carry a policy-authored `comment_body` through `/gh-project`.
-2. If the PR is already merged, skip the merge command; run post-merge steps idempotently.
-3. Otherwise squash-merge with branch deletion: `gh pr merge <pr-number> --squash --delete-branch`.
+1. Load context and run the Merged-PR Precedence Guard. The human-owned `In review` → `Land` transition is already confirmed before this worker is dispatched; record it as the Land-cycle trigger and do not issue a duplicate `/gh-project` request or status comment for it. Only transitions requested by this skill carry a policy-authored `comment_body` through `/gh-project`.
+2. If the PR remains open, run all Pre-flight Checks.
+3. Squash-merge with branch deletion: `gh pr merge <pr-number> --squash --delete-branch`.
 4. Capture the merge commit SHA: `gh pr view <pr-number> --json mergeCommit --jq .mergeCommit.oid`.
 5. Update the Land cycle workpad's `### Validation` and `### Progress Log` sections with merge commit SHA, changeset path (if any), timestamp, and the exact `Land → Done` reason. Complete all Land-cycle evidence before the tracker transition.
 6. Prepare the `🔁 Status: Land → Done` body (cycle close: land) and include it as `comment_body` in the `/gh-project` request. Do not defer any outcome details until after the transition.
@@ -70,13 +78,14 @@ All must pass before merging. If any fails, record the failure in the workpad an
 
 ## Failure Handling
 
-1. Record the exact failure (command, exit code, output excerpt, timestamp) in the workpad `### Progress Log`.
-2. If immediately recoverable in this run (branch behind → run `/pull`), do so and re-run pre-flight from scratch. If `/pull` fails, classify that failure using step 5.
-3. Do not retry a non-recoverable Land pre-flight failure on later polling turns. First write its concrete classification, command output excerpt, timestamp, exact transition reason, and `comment_body` into the workpad; then close the Land cycle after the orchestrator confirms the transition readback, and append the workpad `### Status Transitions` line if the worker remains alive.
-4. **Required CI pending or registering** — when a pre-refresh check found one or more required checks, keep `Land` while those required checks are registering or running. Poll `gh pr checks <pr-number> --required --json name,bucket` every 10 seconds until the previously observed required checks appear (maximum 5 minutes), then wait with `gh pr checks <pr-number> --required --watch --interval 10`. If no required checks were configured before the fresh head, this gate passes without a registration wait. When checks complete, restart all pre-flight checks. A failed required check is a rework failure; a green result proceeds to merge. If expected required checks do not register within the limit, record the head SHA and polling evidence, then classify it as the external wait-only failure in step 5. Do not use `Land` → `In review` solely because CI was re-queued by `/pull` or another fresh head update.
-5. **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: prepare a status body naming the concrete gate that failed, the head SHA it was evaluated against, and what a human must do; send it as `comment_body` while transitioning `Land` → `In review` via `/gh-project`. This is not a `⛔ Blocker`.
-6. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
-7. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, prepare a status body stating the unblock condition, then transition `Land` → `Backlog` via `/gh-project` with that body.
+1. **Merged-PR precedence is always first.** Re-read the linked PR's `state` before classifying a failure. If it is `MERGED`, discard the pending failure classification, record the merge commit SHA, transition `Land` → `Done` through `/gh-project`, and exit. A deleted head branch is not rework after merge.
+2. Record the exact failure (command, exit code, output excerpt, timestamp) in the workpad `### Progress Log`.
+3. If immediately recoverable in this run (branch behind → run `/pull`), do so and re-run the merged guard plus pre-flight from scratch. If `/pull` fails, classify that failure using step 6.
+4. Do not retry a non-recoverable Land pre-flight failure on later polling turns. First write its concrete classification, command output excerpt, timestamp, exact transition reason, and `comment_body` into the workpad; then close the Land cycle after the orchestrator confirms the transition readback, and append the workpad `### Status Transitions` line if the worker remains alive.
+5. **Required CI pending or registering** — when a pre-refresh check found one or more required checks, keep `Land` while those required checks are registering or running. Poll `gh pr checks <pr-number> --required --json name,bucket` every 10 seconds until the previously observed required checks appear (maximum 5 minutes), then wait with `gh pr checks <pr-number> --required --watch --interval 10`. If no required checks were configured before the fresh head, this gate passes without a registration wait. When checks complete, restart the merged guard and all pre-flight checks. A failed required check is a rework failure; a green result proceeds to merge. If expected required checks do not register within the limit, record the head SHA and polling evidence, then classify it as the external wait-only failure in step 6. Do not use `Land` → `In review` solely because CI was re-queued by `/pull` or another fresh head update.
+6. **Approval or other external wait-only failure** — no human `APPROVED` review or another condition awaiting human/external review after CI is terminal: prepare a status body naming the concrete gate that failed, the head SHA it was evaluated against, and what a human must do; send it as `comment_body` while transitioning `Land` → `In review` via `/gh-project`. This is not a `⛔ Blocker`.
+7. **Rework failure** — failed required CI, merge conflict, missing labeled Changeset, unresolved actionable review feedback, or another PR/code condition the worker can address: prepare a status body with reason `Land-return rework: <cause>`, then transition `Land` → `Ready` via `/gh-project` with that body. The Ready-return rework guard must open the next work cycle and route the item to `In progress`; do not treat it as a fresh pickup.
+8. **External or permission blocker** — missing required context, authentication/board failure, or an external dependency the worker cannot resolve: write a `⛔ Blocker` comment with what · why · how to unblock, prepare a status body stating the unblock condition, then transition `Land` → `Backlog` via `/gh-project` with that body.
 
 ## Guardrails
 

@@ -2,4 +2,4 @@
 "@gh-symphony/cli": patch
 ---
 
-Prevent merged pull requests from returning their issues to Ready during Ready-entry and Land failure handling (#577).
+Install a Land skill that completes already-merged pull requests before pre-flight or failure classification, preventing their issues from returning to Ready (#577).

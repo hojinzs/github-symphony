@@ -39,7 +39,7 @@ codex:
 | Status          | Role     | Agent Action                                                                                                                                                                                                                                             |
 | --------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Backlog**     | wait     | Agent ignores. Exit quietly without commenting. Also the parking lane for code-blocked issues — agent moves the issue here with a `⛔ Blocker` comment when a blocker is hit; human resolves and moves back to `Ready`.                                  |
-| **Ready**       | active   | Triage scope and clarity. If a linked PR exists with unresolved review feedback, treat as a **rework re-entry** (see _Ready-return rework guard_ in Step 0) and open a new work cycle before any code change.                                            |
+| **Ready**       | active   | Apply merged-PR precedence first. Otherwise triage scope and clarity; unresolved review feedback means **rework re-entry** (see _Ready-return rework guard_ in Step 0) and opens a new work cycle before code changes.                                   |
 | **In progress** | active   | Implement → test → create or update PR. Each work cycle gets exactly one workpad comment; within the same cycle, update it in place.                                                                                                                     |
 | **In review**   | wait     | Pure human-review wait. Agent does **nothing** here except: if the PR has been merged, transition to `Done`; otherwise exit. Review rework is initiated by a human moving the issue back to `Ready` (or by the human approving and moving it to `Land`). |
 | **Land**        | active   | The human has approved the PR. Run `/land` skill: pre-flight checks (approval, CI, branch freshness) → squash merge → post-merge actions → transition to `Done`.                                                                                         |
@@ -82,12 +82,12 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
    **Lifecycle finalization order.** Treat a Project status transition as the final lifecycle mutation for the turn, not as a progress signal. Before requesting it, complete the scoped implementation/rebase/merge decision, collect final validation output, refresh the PR/workpad narrative, and record the transition reason, exact `comment_body`, and evidence in the workpad's Validation/Progress Log sections. Then request the state transition. The only permitted work after the request is recording a failed response if the worker remains alive; the orchestrator owns the public transition comment.
 
 6. Treat Issue cards as the canonical project item for planning, workpad lifecycle, and state transitions. The PR card supplies PR context only. If an issue has an open PR, inspect it from the issue timeline before deciding whether to create a new branch.
-7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, treat that as a **new work cycle**: run the relevant guard (Step 0 _Ready-return rework guard_ for `Ready`; the `/land` skill's pre-flight for `Land`) and create a **new workpad comment** for the cycle before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
+7. If the issue re-enters `Ready`, `In progress`, or `Land` while a PR already exists, run the relevant merged-PR guard first. A merged current delivery PR completes the issue without opening a cycle; otherwise treat the entry as a **new work cycle** and create a **new workpad comment** before any code change. Within the same cycle, always update the existing workpad in place — never create a second workpad comment.
 8. Use the `/gh-project` skill for all tracker status reads and transitions. Workers send intent to the run-scoped orchestrator API and never traverse provider boards or mutate tracker fields directly.
 9. **Multi-line GitHub comments**: never pass escaped `\n` strings as `--body`. Write the body to a temporary markdown file and post with `gh ... --body-file <file>`. This applies to workpad comments, triage/blocker comments, PR comments, and review replies. Status-transition bodies are supplied as `/gh-project` `comment_body`; do not post them directly.
 10. Do not edit the issue body for planning or progress tracking.
 11. If you discover out-of-scope improvements during the work, open a separate issue rather than expanding the current scope.
-12. **Merged-PR invariant.** A linked PR in `MERGED` state always takes precedence over pickup, rework, pre-flight, and failure classification. Transition the canonical Issue directly to `Done` and exit. A merged issue must never transition to `Ready`.
+12. **Merged-PR invariant.** A current delivery PR in `MERGED` state always takes precedence over pickup, rework, pre-flight, and failure classification. Transition the canonical Issue directly to `Done` and exit. An issue whose current delivery PR is merged must never transition to `Ready`.
 
 ### Workflow
 
@@ -107,8 +107,8 @@ You are an AI coding agent working on issue {{issue.identifier}}: "{{issue.title
 
 When entering `Ready`, before treating it as a fresh pickup, board drift, or resume, inspect linked PR state:
 
-1. Find linked PRs in every state from the issue/project item, the current workpad, and `gh pr list --state all --search "<issue-number>"`.
-2. **Merged-PR precedence guard:** if any linked PR is `MERGED`, refresh its merged commit SHA into the current workpad when one exists, prepare the `🔁 Status: Ready → Done` body, and send it as `comment_body` through `/gh-project`. After confirmed readback, append the matching workpad Status Transitions line when the worker remains alive, then exit. Do not open a new cycle, inspect review feedback, check out the deleted head branch, or enter any rework path.
+1. Resolve the **current delivery PR** from the newest workpad's recorded PR, or, when no workpad records one, from the issue timeline's closing-PR relationship. Use `gh pr list --state all --search "<issue-number>"` only to collect candidates, then verify each candidate through the workpad or `closingIssuesReferences`; a text-search match alone is never linked evidence. When the newest workpad records a PR, it takes precedence over older closing PRs so intentional follow-up work is not short-circuited by historical merges.
+2. **Merged-PR precedence guard:** if the current delivery PR is `MERGED`, refresh its merged commit SHA into the current workpad when one exists, prepare the `🔁 Status: Ready → Done` body, and send it as `comment_body` through `/gh-project`. After confirmed readback, append the matching workpad Status Transitions line when the worker remains alive, then exit. Do not open a new cycle, inspect review feedback, check out the deleted head branch, or enter any rework path.
 3. For each remaining open linked PR, read `reviewDecision`, latest human reviews, inline review comments (`gh api repos/<owner>/<repo>/pulls/<N>/comments --paginate`), top-level PR comments, and recent issue comments.
 4. If any open linked PR has `CHANGES_REQUESTED`, unresolved actionable review comments, a human instruction indicating rework, or a recent `Land` → `Ready` transition recorded as a **Land-return rework**, this `Ready` state means **review rework return** — not a fresh pickup and not drift.
 5. For rework return: open a new work cycle (new `## Workpad` comment), prepare the `🔁 Status: Ready → In progress` body, and pass it as `comment_body` through `/gh-project`. Append the matching workpad line only after confirmed readback, then proceed to Step 2 and execute the rework preamble (Step 2.2). Do not transition back to `In review` until feedback is addressed, the Completion Bar (Step 2.6) passes again, every inline comment has a reply, and re-review is requested.
@@ -250,6 +250,8 @@ A **work cycle** is one continuous active stretch on an issue. It opens when the
 | `In progress` → `Backlog` (code-blocker)                              | close current cycle (parked)              |
 | `Backlog` → `Ready` (resume after blocker resolved)                   | open **next cycle** (resume)              |
 | `In review` → `Land`                                                  | open a **land cycle**                     |
+| `Ready` → `Done` (merged-PR precedence repair)                        | no new cycle; terminal correction         |
+| `In review` → `Done` (merged PR observed)                             | no new cycle; terminal completion         |
 | `Land` → `Done`                                                       | close the land cycle (terminal)           |
 
 **Rules:**
@@ -258,7 +260,7 @@ A **work cycle** is one continuous active stretch on an issue. It opens when the
 - Within a cycle, **edit** the existing workpad in place. Never create a second workpad for the same cycle.
 - When a new cycle opens, create a **new** workpad comment. Prior cycle workpads remain as historical audit records — do not silently rewrite them.
 - The "current" workpad is the newest open cycle comment. Identify it by searching for the most recent comment whose body starts with `## Workpad —`.
-- Cycle number N increments across the whole issue lifetime — including land cycles. (Example: cycle 1 initial work, cycle 2 rework, cycle 3 land.) Cycles open on a transition into `In progress` (Step 1.5 / Step 0 Ready-return guard step 4) or `Land` (Step 4.1); transitions into intermediate active states like `Ready` do not open a cycle.
+- Cycle number N increments across the whole issue lifetime — including land cycles. (Example: cycle 1 initial work, cycle 2 rework, cycle 3 land.) Cycles open on a transition into `In progress` (Step 1.5 / Step 0 Ready-return guard step 5) or `Land` (Step 4.1); transitions into intermediate active states like `Ready` do not open a cycle.
 - Triage failures (`Ready` → `Backlog` from Step 1.2) do **not** open or close a cycle. The `comment_body` still identifies the transition, but the `Cycle:` line is written as `Cycle: — (triage rejection)`. The next cycle number is unaffected.
 
 ### Status Transition Log
