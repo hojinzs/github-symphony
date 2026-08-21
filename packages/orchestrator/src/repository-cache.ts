@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import type { RepositoryRef } from "@gh-symphony/core";
 import {
   acquireRepositoryLock,
+  isRepositoryLockStale,
   releaseRepositoryLock,
   runGitCommand,
   runGitCommandCapture,
@@ -42,6 +43,7 @@ export type RepositoryCacheEntry = {
   bytes: number;
   updatedAt: string;
   locked: boolean;
+  staleLock: boolean;
   worktrees: number | null;
 };
 
@@ -98,15 +100,20 @@ export async function inspectGlobalRepositoryCache(
       const directory = join(root, owner, name);
       const lockDirectory = join(root, owner, `${name.slice(0, -4)}.lock`);
       const locked = await pathExists(lockDirectory);
+      const staleLock = locked
+        ? await isRepositoryLockStale(lockDirectory)
+        : false;
       const details = await safeStat(directory);
       if (!details) continue;
       entries.push({
         repository: `${owner}/${name.slice(0, -4)}`,
         directory,
-        bytes: locked ? 0 : await directorySize(directory),
+        bytes: locked && !staleLock ? 0 : await directorySize(directory),
         updatedAt: await readLastUsedAt(directory, details.mtime),
         locked,
-        worktrees: locked ? null : await countLinkedWorktrees(directory),
+        staleLock,
+        worktrees:
+          locked && !staleLock ? null : await countLinkedWorktrees(directory),
       });
     }
   }
@@ -131,7 +138,7 @@ export async function pruneGlobalRepositoryCache(input: {
       result.skipped.push({ ...entry, reason: "recent" });
       continue;
     }
-    if (entry.locked) {
+    if (entry.locked && !entry.staleLock) {
       result.skipped.push({ ...entry, reason: "locked" });
       continue;
     }
@@ -141,12 +148,21 @@ export async function pruneGlobalRepositoryCache(input: {
     }
     if (!input.dryRun) {
       const lockDirectory = `${entry.directory.slice(0, -4)}.lock`;
-      const ownerToken = await tryAcquireRepositoryLock(lockDirectory);
+      const ownerToken = await tryAcquireRepositoryLock(lockDirectory, {
+        breakStale: true,
+      });
       if (!ownerToken) {
         result.skipped.push({ ...entry, locked: true, reason: "locked" });
         continue;
       }
       try {
+        const details = await safeStat(entry.directory);
+        if (!details) continue;
+        const updatedAt = await readLastUsedAt(entry.directory, details.mtime);
+        if (now.getTime() - Date.parse(updatedAt) < input.maxAgeMs) {
+          result.skipped.push({ ...entry, updatedAt, reason: "recent" });
+          continue;
+        }
         if ((await countLinkedWorktrees(entry.directory)) !== 0) {
           result.skipped.push({ ...entry, reason: "worktrees" });
           continue;

@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -290,5 +296,49 @@ describe("global bare repository cache", () => {
     ]);
     releaseReader?.();
     await expect(reader).resolves.toContain("platform.git");
+  });
+
+  it("reclaims an old cache after breaking an abandoned stale lock", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repository-cache-config-"));
+    const root = await mkdtemp(join(tmpdir(), "repository-cache-stale-lock-"));
+    const remote = await createRemote(root, "stale-lock-remote");
+    const repository = { owner: "acme", name: "platform", cloneUrl: remote };
+    const bareDirectory = await ensureGlobalBareRepositoryCache({
+      repository,
+      configDir,
+      now: new Date("2025-01-01T00:00:00.000Z"),
+    });
+    const lockDirectory = globalBareRepositoryLockDirectory({
+      repository,
+      configDir,
+    });
+    await mkdir(lockDirectory);
+    await writeFile(join(lockDirectory, "owner"), "abandoned\n", "utf8");
+    const stale = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(lockDirectory, stale, stale);
+
+    const entries = await inspectGlobalRepositoryCache({ configDir });
+    expect(entries).toMatchObject([
+      {
+        repository: "acme/platform",
+        locked: true,
+        staleLock: true,
+        worktrees: 0,
+      },
+    ]);
+    expect(entries[0]?.bytes).toBeGreaterThan(0);
+
+    const result = await pruneGlobalRepositoryCache({
+      configDir,
+      maxAgeMs: 1,
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(result.removed).toMatchObject([
+      { repository: "acme/platform", staleLock: true },
+    ]);
+    await expect(access(bareDirectory)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

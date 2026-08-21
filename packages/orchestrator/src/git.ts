@@ -862,7 +862,7 @@ export async function acquireRepositoryLock(
       }
     }
 
-    const stale = await isStaleLock(lockDirectory);
+    const stale = await isRepositoryLockStale(lockDirectory);
     if (stale) {
       await rm(lockDirectory, { recursive: true, force: true });
       continue;
@@ -880,22 +880,29 @@ export async function acquireRepositoryLock(
 
 /** Attempts lock acquisition once; maintenance callers use this to skip busy caches. */
 export async function tryAcquireRepositoryLock(
-  lockDirectory: string
+  lockDirectory: string,
+  options: { breakStale?: boolean } = {}
 ): Promise<string | null> {
   const ownerToken = `${process.pid}:${randomUUID()}`;
-  try {
-    await mkdir(lockDirectory);
-    await writeFile(
-      join(lockDirectory, "owner"),
-      `${ownerToken}\n${new Date().toISOString()}\n`,
-      "utf8"
-    );
-    return ownerToken;
-  } catch (error) {
-    if (isAlreadyExistsError(error)) {
+  for (;;) {
+    try {
+      await mkdir(lockDirectory);
+      await writeFile(
+        join(lockDirectory, "owner"),
+        `${ownerToken}\n${new Date().toISOString()}\n`,
+        "utf8"
+      );
+      return ownerToken;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+    }
+
+    if (!options.breakStale || !(await isRepositoryLockStale(lockDirectory))) {
       return null;
     }
-    throw error;
+    await rm(lockDirectory, { recursive: true, force: true });
   }
 }
 
@@ -955,7 +962,9 @@ export function startRepositoryLockHeartbeat(
   };
 }
 
-async function isStaleLock(lockDirectory: string): Promise<boolean> {
+export async function isRepositoryLockStale(
+  lockDirectory: string
+): Promise<boolean> {
   try {
     const details = await stat(lockDirectory);
     return Date.now() - details.mtimeMs >= LOCK_STALE_MS;
