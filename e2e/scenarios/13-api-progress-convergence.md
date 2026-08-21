@@ -18,8 +18,9 @@ Inject the happy-path fixture and trigger refresh as described in
 1. The worker log contains `api-progress readback` with `"state":"Done"`.
 2. The exact run ID observed during dispatch resolves to one persisted
    `run.json` with `status: "succeeded"` and `runPhase: "succeeded"`.
-3. The run is not rewritten to `suppressed` or
-   `canceled_by_reconciliation`.
+3. Exactly one scenario `run.json` exists, so the original run is neither
+   rewritten to `suppressed` / `canceled_by_reconciliation` nor masked by a
+   replacement run.
 
 The real worker threshold branch is covered separately by
 `packages/worker/src/convergence-lifecycle.test.ts`; the Docker environment
