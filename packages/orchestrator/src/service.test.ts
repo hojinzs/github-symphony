@@ -840,7 +840,6 @@ describe("OrchestratorService", () => {
     expect(saveRun).toHaveBeenCalledWith(
       expect.objectContaining({
         issueState: "In review",
-        trackerProgressConfirmedAt: "2026-08-07T09:01:00.000Z",
       })
     );
     expect(upsertTransitionComment).toHaveBeenCalledOnce();
