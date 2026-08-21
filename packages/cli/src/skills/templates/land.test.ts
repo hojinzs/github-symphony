@@ -62,9 +62,10 @@ describe("merged-PR lifecycle guards", () => {
       "##### Stalled-handoff safety net"
     );
 
-    expect(ready.indexOf("**Merged-PR precedence guard:**")).toBeLessThan(
-      ready.indexOf("`CHANGES_REQUESTED`")
-    );
+    const readyGuardIndex = ready.indexOf("**Merged-PR precedence guard:**");
+    const reworkIndex = ready.indexOf("`CHANGES_REQUESTED`");
+    expect(readyGuardIndex).toBeGreaterThanOrEqual(0);
+    expect(reworkIndex).toBeGreaterThan(readyGuardIndex);
     expect(ready).toContain("closingIssuesReferences");
     expect(ready).toContain("text-search match alone is never linked evidence");
     expect(ready).toContain("current delivery PR is `MERGED`");
@@ -80,13 +81,17 @@ describe("merged-PR lifecycle guards", () => {
   it("places installed land-skill merged precedence before pre-flight and failure classification", async () => {
     const landSkill = await repositoryFile(".codex/skills/land/SKILL.md");
 
-    expect(landSkill.indexOf("## Merged-PR Precedence Guard")).toBeLessThan(
-      landSkill.indexOf("## Pre-flight Checks")
-    );
+    const guardIndex = landSkill.indexOf("## Merged-PR Precedence Guard");
+    const preflightIndex = landSkill.indexOf("## Pre-flight Checks");
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(preflightIndex).toBeGreaterThan(guardIndex);
     const failure = section(landSkill, "## Failure Handling", "## Guardrails");
-    expect(
-      failure.indexOf("**Merged-PR precedence is always first.**")
-    ).toBeLessThan(failure.indexOf("**Rework failure**"));
+    const failureGuardIndex = failure.indexOf(
+      "**Merged-PR precedence is always first.**"
+    );
+    const reworkFailureIndex = failure.indexOf("**Rework failure**");
+    expect(failureGuardIndex).toBeGreaterThanOrEqual(0);
+    expect(reworkFailureIndex).toBeGreaterThan(failureGuardIndex);
     expect(failure).toContain(
       "A deleted head branch is not rework after merge"
     );
@@ -95,12 +100,14 @@ describe("merged-PR lifecycle guards", () => {
   it("generates the same precedence guard in the published CLI land skill", () => {
     const generated = generateLandSkill(context);
 
-    expect(generated.indexOf("## Merged-PR Precedence Guard")).toBeLessThan(
-      generated.indexOf("## Pre-flight Checks")
-    );
+    const guardIndex = generated.indexOf("## Merged-PR Precedence Guard");
+    const preflightIndex = generated.indexOf("## Pre-flight Checks");
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(preflightIndex).toBeGreaterThan(guardIndex);
     expect(generated).toContain(
       "Before any pre-flight check or failure classification"
     );
+    expect(generated).toContain("gh pr view <pr-number>");
     expect(generated).toContain("Never return a merged PR to `Ready`");
     expect(generated).toContain("Re-run the Merged-PR Precedence Guard first");
   });

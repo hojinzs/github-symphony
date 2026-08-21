@@ -18,7 +18,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("## Merged-PR Precedence Guard");
   lines.push("");
   lines.push(
-    "Before any pre-flight check or failure classification, read `state` and `mergeCommit` with `gh pr view --json state,mergeCommit`."
+    "Before any pre-flight check or failure classification, read `state` and `mergeCommit` with `gh pr view <pr-number> --json state,mergeCommit` (always pass the PR number — the head branch may already be deleted)."
   );
   lines.push(
     "If the PR is `MERGED`, skip every pre-flight and failure path, record the merge commit, transition `Land` → `Done` through the gh-project skill, and exit. Never return a merged PR to `Ready`, even if its head branch was deleted."

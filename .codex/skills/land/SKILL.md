@@ -32,7 +32,7 @@ Before acting, collect:
 
 1. Issue: state, identifier, title, labels, description, URL, repository.
 2. Land cycle workpad comment for this issue. (Step 4 created it. If absent, create one before proceeding.)
-3. PR: number, URL, base branch, head branch, `mergeStateStatus`, reviews, CI checks, head SHA.
+3. PR: number, URL, base branch, head branch, `state`, `mergeCommit`, reviews, CI checks, head SHA. Collect `mergeStateStatus` only after the Merged-PR Precedence Guard confirms the PR remains open.
 4. Changeset file path, if the issue carries a `changeset:major|minor|patch` label.
 
 If no PR is linked to the issue, record the blocker in the workpad and exit.
@@ -55,14 +55,14 @@ All must pass before merging. If any fails, record the failure in the workpad an
 2. **All required CI checks green.** Use `gh pr checks <pr-number> --required` — no failing or pending **required** checks. Optional checks do not gate Land pre-flight. Before `/pull`, capture the required-check names from `gh pr checks <pr-number> --required --json name,bucket`. If no required checks are configured, this gate passes and must not wait for a check suite. If this run's `/pull` or another fresh head update has re-queued previously observed required CI:
    - First poll `gh pr checks <pr-number> --required --json name,bucket` every 10 seconds until the previously observed required checks appear. Do not invoke `--watch` while the result is empty: GitHub can register a new head before its check suite exists, and `--watch` exits immediately when no checks are reported.
    - Keep `Land` while waiting for registration, for at most 5 minutes. If no required check appears by then, classify it as an external CI-registration wait, record the exact head SHA and polling evidence in the workpad, then follow Failure Handling step 6 (`Land` → `In review`). Do not hide GitHub API/authentication errors as an empty result; those are external blockers.
-   - Once required checks appear, wait with `gh pr checks <pr-number> --required --watch --interval 10`. Do not transition to `In review` merely because newly-triggered required CI is still running. Once the checks reach terminal states, restart the full pre-flight from step 1.
+   - Once required checks appear, wait with `gh pr checks <pr-number> --required --watch --interval 10`. Do not transition to `In review` merely because newly-triggered required CI is still running. Once the checks reach terminal states, restart the Merged-PR Precedence Guard and the full pre-flight sequence.
 3. **Branch up-to-date with the PR base.**
    ```bash
    base=$(gh pr view <pr-number> --json baseRefName --jq .baseRefName)
    git fetch origin "$base"
    git merge-base --is-ancestor "origin/$base" HEAD
    ```
-   If behind: run `/pull`, then **re-run the full pre-flight sequence from step 1** (pushing the rebase invalidates prior CI runs and any prior approval).
+   If behind: run `/pull`, then **restart the Merged-PR Precedence Guard and the full pre-flight sequence** (pushing the rebase invalidates prior CI runs and any prior approval).
 4. **Changeset present if labeled.** If the issue has a `changeset:major|minor|patch` label, confirm at least one `.changeset/*.md` file exists on the head branch (excluding `README.md` / `config.json`). If absent, record the blocker, do not merge.
 5. **PR mergeable.** `gh pr view <pr-number> --json mergeStateStatus --jq .mergeStateStatus` must be `CLEAN` / `HAS_HOOKS` / `UNSTABLE` (the last allowed only when failing checks are all non-required). `BLOCKED` / `DIRTY` / `BEHIND` → not mergeable.
 
