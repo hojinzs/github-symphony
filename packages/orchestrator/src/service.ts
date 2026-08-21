@@ -592,13 +592,20 @@ export class OrchestratorService {
           },
           this.createTrackerDependencies()
         );
-        const workflowResolution = await this.loadProjectWorkflow(
-          this.projectConfig,
-          run.repository
-        );
-        const activeStates = isUsableWorkflowResolution(workflowResolution)
-          ? workflowResolution.lifecycle.activeStates
-          : DEFAULT_WORKFLOW_LIFECYCLE.activeStates;
+        let recordConfirmedTrackerProgress = false;
+        if (input.request.type === "transition-request") {
+          const workflowResolution = await this.loadProjectWorkflow(
+            this.projectConfig,
+            run.repository
+          );
+          recordConfirmedTrackerProgress =
+            isUsableWorkflowResolution(workflowResolution) &&
+            shouldRecordConfirmedTrackerProgress(
+              input.request,
+              result,
+              workflowResolution.lifecycle.activeStates
+            );
+        }
         const persistedRun = await this.runSerialized(async () => {
           // Reconciliation may have updated this run while the provider call
           // waited for GitHub. Preserve that newer lifecycle state and merge
@@ -623,11 +630,7 @@ export class OrchestratorService {
             lastError: result.ok
               ? latestRun.lastError
               : (result.error ?? latestRun.lastError),
-            trackerProgressConfirmedAt: shouldRecordConfirmedTrackerProgress(
-              input.request,
-              result,
-              activeStates
-            )
+            trackerProgressConfirmedAt: recordConfirmedTrackerProgress
               ? nowIso
               : (latestRun.trackerProgressConfirmedAt ?? null),
           };
@@ -3137,7 +3140,12 @@ export class OrchestratorService {
 
     if (
       runWithTokens.runPhase === "succeeded" &&
-      runWithTokens.trackerProgressConfirmedAt
+      runWithTokens.trackerProgressConfirmedAt &&
+      (await this.isTrackerProgressCurrentlyNonActionable(
+        tenant,
+        runWithTokens,
+        trackerDependencies
+      ))
     ) {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
@@ -3744,6 +3752,37 @@ export class OrchestratorService {
         : "failure";
     } catch {
       return "failure";
+    }
+  }
+
+  private async isTrackerProgressCurrentlyNonActionable(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    trackerDependencies: OrchestratorTrackerDependencies = {}
+  ): Promise<boolean> {
+    try {
+      const resolution = await this.loadProjectWorkflow(tenant, run.repository);
+      if (!isUsableWorkflowResolution(resolution)) {
+        return false;
+      }
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+      const issues = await trackerAdapter.fetchIssueStatesByIds(
+        tenant,
+        [run.issueSubjectId],
+        {
+          ...this.createTrackerDependencies(),
+          ...trackerDependencies,
+        }
+      );
+      const issue = issues.find(
+        (candidate) => candidate.id === run.issueSubjectId
+      );
+      return (
+        issue !== undefined &&
+        !matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
+      );
+    } catch {
+      return false;
     }
   }
 

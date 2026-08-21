@@ -513,6 +513,7 @@ describe("OrchestratorService", () => {
     const service = new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-07-30T13:01:00.000Z"),
     });
+    const loadWorkflowSpy = vi.spyOn(service as never, "loadProjectWorkflow");
 
     const result = await service.requestTrackerState({
       runId: "run-1",
@@ -550,6 +551,8 @@ describe("OrchestratorService", () => {
       rateLimits: { cycleCost: 1 },
       lastError: "expected_state_mismatch",
     });
+    expect(loadWorkflowSpy).toHaveBeenCalledOnce();
+    loadWorkflowSpy.mockClear();
     const providerError = Object.assign(new Error("rate limit exhausted"), {
       rateLimits: {
         source: "github",
@@ -569,6 +572,7 @@ describe("OrchestratorService", () => {
       error: expect.stringContaining("rate limit exhausted"),
       rateLimits: expect.objectContaining({ remaining: 0 }),
     });
+    expect(loadWorkflowSpy).not.toHaveBeenCalled();
     const events = (
       await readFile(
         join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
@@ -7646,6 +7650,7 @@ Prefer focused changes.
       updatedAt: "2026-03-08T00:00:00.000Z",
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
+      trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
       lastError: null,
       nextRetryAt: null,
     });

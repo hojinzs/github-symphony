@@ -138,7 +138,9 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
   if [ "$RUN_STATUS" = "running" ]; then
     SAW_RUNNING=true
-    SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
+    if [ -z "$SCENARIO_RUN_ID" ]; then
+      SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
+    fi
     if echo "$STATUS_JSON" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -238,6 +240,14 @@ PY
       `*/runs/${process.env.SCENARIO_RUN_ID}/run.json`,
     ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (paths.length !== 1) throw new Error(`expected_one_scenario_run:${JSON.stringify(paths)}`);
+    const allScenarioRuns = execFileSync("find", [
+      "/e2e/work",
+      "-path",
+      "*/runs/*/run.json",
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (allScenarioRuns.length !== 1) {
+      throw new Error(`unexpected_replacement_runs:${JSON.stringify(allScenarioRuns)}`);
+    }
     const run = JSON.parse(readFileSync(paths[0], "utf8"));
     if (run.runId !== process.env.SCENARIO_RUN_ID) {
       throw new Error(`unexpected_run_id:${run.runId}`);
