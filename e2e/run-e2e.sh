@@ -119,6 +119,7 @@ log "Issues injected; refresh trigger accepted (202). Falling back to polling un
 SAW_RUNNING=false
 SAW_RETRY=false
 SAW_REDACTED_STATE=false
+SCENARIO_RUN_ID=""
 ELAPSED=0
 
 log "Polling..."
@@ -137,6 +138,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
   if [ "$RUN_STATUS" = "running" ]; then
     SAW_RUNNING=true
+    SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
     if echo "$STATUS_JSON" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -223,16 +225,23 @@ issues = json.loads(Path("e2e/fixtures/issues.json").read_text())
 assert len(issues) == 1, issues
 assert issues[0]["state"] == "Done", issues[0]
 PY
-  docker exec symphony-e2e node --input-type=module -e '
+  if [ -z "$SCENARIO_RUN_ID" ] || [ "$SCENARIO_RUN_ID" = "[REDACTED]" ]; then
+    fail "Scenario run id was not captured"
+    exit 1
+  fi
+  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { execFileSync } from "node:child_process";
-    const path = execFileSync("find", [
+    const paths = execFileSync("find", [
       "/e2e/work",
-      "-name",
-      "run.json",
-    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean).at(-1);
-    if (!path) throw new Error("run_record_missing");
-    const run = JSON.parse(readFileSync(path, "utf8"));
+      "-path",
+      `*/runs/${process.env.SCENARIO_RUN_ID}/run.json`,
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (paths.length !== 1) throw new Error(`expected_one_scenario_run:${JSON.stringify(paths)}`);
+    const run = JSON.parse(readFileSync(paths[0], "utf8"));
+    if (run.runId !== process.env.SCENARIO_RUN_ID) {
+      throw new Error(`unexpected_run_id:${run.runId}`);
+    }
     if (run.status !== "succeeded" || run.runPhase !== "succeeded") {
       throw new Error(`unexpected_run_outcome:${JSON.stringify({status: run.status, runPhase: run.runPhase})}`);
     }

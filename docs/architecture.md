@@ -48,7 +48,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 4. Execution — worker and agent subprocess
 
 - Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
-- Multi-turn convergence compares local workspace/HEAD progress and, at the failure threshold, reads canonical tracker state through `/api/v1/tracker-state`. A confirmed state outside the workflow's active states completes the worker; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter.
+- Multi-turn convergence compares local workspace/HEAD progress and reads canonical tracker state through `/api/v1/tracker-state` before each turn after the first and again at the failure threshold. A confirmed state outside the workflow's active states completes the worker at the next boundary; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter. Each read uses the tracker adapter and may consume a live provider request (up to 19 per default 20-turn session, plus the threshold read).
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
 - Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 

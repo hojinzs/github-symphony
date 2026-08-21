@@ -58,7 +58,47 @@ async function runConvergenceThreshold(response: Response) {
   };
 }
 
+async function runTurnBoundary(response: Response) {
+  const trackerState = await refreshTrackerState(
+    {
+      SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+      SYMPHONY_ORCHESTRATOR_TOKEN: "worker-token",
+      SYMPHONY_RUN_ID: "run-1",
+    },
+    ["Ready", "In progress", "Land"],
+    vi.fn().mockResolvedValue(response)
+  );
+
+  return trackerState === "non-actionable"
+    ? {
+        action: "complete",
+        executionPhase: resolveFinalExecutionPhase({
+          currentPhase: "implementation",
+          trackerState,
+          userInputRequired: false,
+        }),
+      }
+    : { action: "continue", executionPhase: "implementation" };
+}
+
 describe("convergence threshold lifecycle", () => {
+  it("completes at the next turn boundary after canonical lifecycle progress", async () => {
+    await expect(
+      runTurnBoundary(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            outcome: "confirmed",
+            state: "In review",
+          })
+        )
+      )
+    ).resolves.toEqual({
+      action: "complete",
+      executionPhase: "awaiting-review",
+    });
+  });
+
   it("completes after confirmed API-side lifecycle progress", async () => {
     await expect(
       runConvergenceThreshold(

@@ -16,7 +16,8 @@ Inject the happy-path fixture and trigger refresh as described in
 `AGENT_TEST.md`. Then verify:
 
 1. The worker log contains `api-progress readback` with `"state":"Done"`.
-2. The persisted run has `status: "succeeded"` and `runPhase: "succeeded"`.
+2. The exact run ID observed during dispatch resolves to one persisted
+   `run.json` with `status: "succeeded"` and `runPhase: "succeeded"`.
 3. The run is not rewritten to `suppressed` or
    `canceled_by_reconciliation`.
 
