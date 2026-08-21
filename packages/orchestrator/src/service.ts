@@ -1516,10 +1516,13 @@ export class OrchestratorService {
             tenant,
             issue.repository
           );
+          const priorFailureRetryCount = existingIssueRecord?.retryEntry
+            ? existingIssueRecord.failureRetryCount
+            : 0;
           const failureRetryCount =
             error instanceof NonRetryableDispatchError
               ? maxFailureRetries
-              : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
+              : priorFailureRetryCount + 1;
           const retrySuppressed = failureRetryCount >= maxFailureRetries;
           const suppressionError = [
             `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,

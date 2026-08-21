@@ -6835,6 +6835,66 @@ Prefer focused changes.
     expect(issueRecords[0]?.currentRunId).not.toBeNull();
   });
 
+  it("starts a fresh dispatch retry chain after tracker reactivation", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-failure-retry-reactivation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+        maxFailureRetries: 3,
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 3,
+        state: "released",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:05:00.000Z",
+      },
+    ]);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(
+        createTrackerResponseWithState(repository, "Todo", {
+          updatedAt: "2026-03-08T00:06:00.000Z",
+        })
+      ) as never,
+      spawnImpl: vi.fn() as never,
+      now: () => new Date("2026-03-08T00:06:00.000Z"),
+    });
+    vi.spyOn(service as never, "startRun").mockRejectedValue(
+      new Error("temporary checkout failure")
+    );
+
+    await service.runOnce();
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(issueRecords[0]).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
+      currentRunId: null,
+      retryEntry: {
+        attempt: 1,
+        dueAt: "2026-03-08T00:06:01.000Z",
+        error: expect.stringContaining("temporary checkout failure"),
+      },
+    });
+  });
+
   it("redispatches a failure-suppressed issue after its tracker state changes", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
