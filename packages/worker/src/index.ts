@@ -41,6 +41,7 @@ import { launchCodexWithValidatedPolicy } from "./codex-startup.js";
 import {
   captureTurnBoundarySnapshot,
   evaluateTurnProgress,
+  resolveConvergenceThresholdAction,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import {
@@ -1807,6 +1808,23 @@ async function runCodexClientProtocol(
       }
 
       if (consecutiveNonProductiveTurns >= maxNonProductiveTurns) {
+        const trackerState = await refreshTrackerState(env);
+        process.stderr.write(
+          `[worker] convergence threshold tracker confirmation: ${trackerState}\n`
+        );
+        if (resolveConvergenceThresholdAction(trackerState) === "complete") {
+          runtimeState.runPhase = "finishing";
+          runtimeState.executionPhase = resolveFinalExecutionPhase({
+            currentPhase: runtimeState.executionPhase,
+            trackerState,
+            userInputRequired: false,
+          });
+          process.stderr.write(
+            "[worker] canonical tracker item is no longer actionable — preserving API-side lifecycle progress\n"
+          );
+          break;
+        }
+
         convergenceDetected = true;
         if (runtimeState.run) {
           runtimeState.run.lastError = turnProgress.reason

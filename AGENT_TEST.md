@@ -177,6 +177,12 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 | `stall`           | starting(2s) → running(forever), waits for SIGTERM |
 | `slow`            | starting(2s) → running(30s) → completed, exit 0    |
 
+### Worker lifecycle regression cases
+
+| Case | Automated coverage | Docker black-box confirmation |
+| ---- | ------------------ | ----------------------------- |
+| API-side lifecycle progress at the convergence threshold | `packages/worker/src/convergence-detection.test.ts` verifies that a confirmed canonical non-actionable readback completes the run while active/unknown readbacks fail closed. | Run the `happy` scenario and confirm the issue reaches the completed state without workspace mutations. |
+
 `docker-compose.e2e.yml` uses `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`, so the scenario can be selected via a shell environment variable.
 
 ```bash

@@ -47,6 +47,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 4. Execution — worker and agent subprocess
 
 - Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
+- Multi-turn convergence compares local workspace/HEAD progress and, at the failure threshold, confirms canonical tracker activity through the orchestrator before classifying the run. A confirmed transition out of the active lifecycle completes the worker instead of being overwritten by a stale local-workspace result.
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
 - Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 
