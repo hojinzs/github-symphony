@@ -20,6 +20,7 @@ import {
 } from "@gh-symphony/core";
 import {
   ensureGlobalBareRepositoryCache,
+  RepositoryCacheUnavailableError,
   withGlobalBareRepositoryCache,
 } from "./repository-cache.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
@@ -97,19 +98,29 @@ export async function syncRepositoryForRun(input: {
     await rm(tempRepositoryDirectory, { recursive: true, force: true });
 
     try {
-      const bareRepositoryDirectory = await ensureGlobalBareRepositoryCache({
-        repository: input.repository,
-        requiredRef: input.requiredRef,
-      });
-      await runCommand("git", [
-        "clone",
-        "--filter=blob:none",
-        "--reference-if-able",
-        bareRepositoryDirectory,
-        "--dissociate",
-        sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
-        tempRepositoryDirectory,
-      ]);
+      try {
+        const bareRepositoryDirectory = await ensureGlobalBareRepositoryCache({
+          repository: input.repository,
+          requiredRef: input.requiredRef,
+        });
+        await runCommand("git", [
+          "clone",
+          "--filter=blob:none",
+          "--reference-if-able",
+          bareRepositoryDirectory,
+          "--dissociate",
+          sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
+          tempRepositoryDirectory,
+        ]);
+      } catch (error) {
+        if (!(error instanceof RepositoryCacheUnavailableError)) {
+          throw error;
+        }
+        await cloneRepositoryDirectly(
+          input.repository,
+          tempRepositoryDirectory
+        );
+      }
       await rename(tempRepositoryDirectory, repositoryDirectory);
       return {
         repositoryDirectory,
@@ -233,41 +244,73 @@ async function ensureIssueWorkspaceWorktree(input: {
   const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
   await mkdir(input.issueWorkspacePath, { recursive: true });
   try {
-    return await withGlobalBareRepositoryCache(
-      {
-        repository: input.repository,
-        requiredRef: input.pullRequestBranch
-          ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
-          : input.baseBranch
-            ? `refs/remotes/origin/${input.baseBranch}`
-            : undefined,
-      },
-      async (bare) => {
-        const baseBranch =
-          input.pullRequestBranch?.headRefName ??
-          input.baseBranch ??
-          (await readOriginDefaultBranch(bare));
-        const baseRef = `refs/remotes/origin/${baseBranch}`;
-        await runGitCommand(["-C", bare, "worktree", "prune"]);
-        await runGitCommand([
-          "-C",
-          bare,
-          "worktree",
-          "add",
-          "-B",
-          branch,
-          repositoryDirectory,
-          baseRef,
-        ]);
-        return repositoryDirectory;
+    try {
+      return await withGlobalBareRepositoryCache(
+        {
+          repository: input.repository,
+          requiredRef: input.pullRequestBranch
+            ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
+            : input.baseBranch
+              ? `refs/remotes/origin/${input.baseBranch}`
+              : undefined,
+        },
+        async (bare) => {
+          const baseBranch =
+            input.pullRequestBranch?.headRefName ??
+            input.baseBranch ??
+            (await readOriginDefaultBranch(bare));
+          const baseRef = `refs/remotes/origin/${baseBranch}`;
+          await runGitCommand(["-C", bare, "worktree", "prune"]);
+          await runGitCommand([
+            "-C",
+            bare,
+            "worktree",
+            "add",
+            "-B",
+            branch,
+            repositoryDirectory,
+            baseRef,
+          ]);
+          return repositoryDirectory;
+        }
+      );
+    } catch (error) {
+      if (!(error instanceof RepositoryCacheUnavailableError)) {
+        throw error;
       }
-    );
+      await cloneRepositoryDirectly(input.repository, repositoryDirectory);
+      const baseBranch =
+        input.pullRequestBranch?.headRefName ??
+        input.baseBranch ??
+        (await readOriginDefaultBranch(repositoryDirectory));
+      await runGitCommand([
+        "-C",
+        repositoryDirectory,
+        "checkout",
+        "-B",
+        branch,
+        `refs/remotes/origin/${baseBranch}`,
+      ]);
+      return repositoryDirectory;
+    }
   } catch (error) {
     if (!repositoryDirectoryExisted) {
       await rm(repositoryDirectory, { recursive: true, force: true });
     }
     throw error;
   }
+}
+
+async function cloneRepositoryDirectly(
+  repository: RepositoryRef,
+  targetDirectory: string
+): Promise<void> {
+  await runCommand("git", [
+    "clone",
+    "--filter=blob:none",
+    sanitizeRepositoryCloneUrl(repository.cloneUrl),
+    targetDirectory,
+  ]);
 }
 
 async function ignoreMissingWorktree(command: Promise<void>): Promise<void> {

@@ -14,6 +14,16 @@ const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 const FETCH_TTL_MS = 60_000;
 const LAST_FETCH_MARKER = ".gh-symphony-last-fetch";
 
+export class RepositoryCacheUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown
+  ) {
+    super(message);
+    this.name = "RepositoryCacheUnavailableError";
+  }
+}
+
 export function resolveGlobalRepositoryCacheRoot(
   configDir = process.env.GH_SYMPHONY_CONFIG_DIR || DEFAULT_CONFIG_DIR
 ): string {
@@ -53,15 +63,23 @@ export async function ensureGlobalBareRepositoryCache(input: {
   const bareDirectory = globalBareRepositoryDirectory(input);
   const lockDirectory = globalBareRepositoryLockDirectory(input);
   const cloneUrl = sanitizeRepositoryCloneUrl(input.repository.cloneUrl);
-  await mkdir(dirname(bareDirectory), { recursive: true });
-
-  const ownerToken = await acquireRepositoryLock(lockDirectory);
+  let ownerToken: string;
   try {
-    return ensureBareRepositoryCacheUnderLock({
-      ...input,
-      bareDirectory,
-      cloneUrl,
-    });
+    await mkdir(dirname(bareDirectory), { recursive: true });
+    ownerToken = await acquireRepositoryLock(lockDirectory);
+  } catch (error) {
+    throw cacheUnavailableError(bareDirectory, error);
+  }
+  try {
+    try {
+      return await ensureBareRepositoryCacheUnderLock({
+        ...input,
+        bareDirectory,
+        cloneUrl,
+      });
+    } catch (error) {
+      throw cacheUnavailableError(bareDirectory, error);
+    }
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }
@@ -80,18 +98,38 @@ export async function withGlobalBareRepositoryCache<T>(
   const bareDirectory = globalBareRepositoryDirectory(input);
   const lockDirectory = globalBareRepositoryLockDirectory(input);
   const cloneUrl = sanitizeRepositoryCloneUrl(input.repository.cloneUrl);
-  await mkdir(dirname(bareDirectory), { recursive: true });
-  const ownerToken = await acquireRepositoryLock(lockDirectory);
+  let ownerToken: string;
   try {
-    await ensureBareRepositoryCacheUnderLock({
-      ...input,
-      bareDirectory,
-      cloneUrl,
-    });
+    await mkdir(dirname(bareDirectory), { recursive: true });
+    ownerToken = await acquireRepositoryLock(lockDirectory);
+  } catch (error) {
+    throw cacheUnavailableError(bareDirectory, error);
+  }
+  try {
+    try {
+      await ensureBareRepositoryCacheUnderLock({
+        ...input,
+        bareDirectory,
+        cloneUrl,
+      });
+    } catch (error) {
+      throw cacheUnavailableError(bareDirectory, error);
+    }
     return await operation(bareDirectory);
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }
+}
+
+function cacheUnavailableError(
+  bareDirectory: string,
+  cause: unknown
+): RepositoryCacheUnavailableError {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return new RepositoryCacheUnavailableError(
+    `Global repository cache unavailable at ${bareDirectory}: ${detail}`,
+    cause
+  );
 }
 
 async function ensureBareRepositoryCacheUnderLock(input: {

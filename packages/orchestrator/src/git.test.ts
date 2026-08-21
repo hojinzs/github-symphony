@@ -218,6 +218,26 @@ describe("global bare repository cache", () => {
 });
 
 describe("cloneRepositoryForRun", () => {
+  it("falls back to a direct clone when the global cache is unavailable", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const unavailableConfig = join(tempRoot, "config-file");
+    await writeFile(unavailableConfig, "not a directory");
+    process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
+
+    const repositoryDirectory = await cloneRepositoryForRun({
+      repository,
+      targetDirectory: join(tempRoot, "workspace"),
+    });
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain('project_id: "PVT_test"');
+    await expect(
+      access(join(repositoryDirectory, ".git", "objects", "info", "alternates"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("serializes concurrent cache clones for the same repository", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
     const repository = await createRepositoryFixture(tempRoot);
@@ -780,6 +800,33 @@ describe("cloneRepositoryForRun", () => {
 });
 
 describe("worktree-cache issue workspaces", () => {
+  it("falls back to a direct clone with the project branch when the cache is unavailable", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const unavailableConfig = join(tempRoot, "config-file");
+    await writeFile(unavailableConfig, "not a directory");
+    process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
+
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspace"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "fallback-project",
+      issueIdentifier: "588",
+      baseBranch: "main",
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("symphony/fallback-project/588");
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain('project_id: "PVT_test"');
+  });
+
   it("populates, reuses, and removes a project-scoped worktree", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
     const repository = await createRepositoryFixture(tempRoot);
