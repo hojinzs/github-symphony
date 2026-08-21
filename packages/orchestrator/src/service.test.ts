@@ -34,6 +34,7 @@ import {
   clampPollInterval,
   OrchestratorService,
   shouldAwaitTrackerProgressExit,
+  shouldRecordConfirmedTrackerProgress,
 } from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
@@ -83,6 +84,46 @@ describe("OrchestratorService", () => {
         new Date("2026-08-21T00:00:01.000Z")
       )
     ).toBe(false);
+  });
+
+  it("records only confirmed transitions outside active workflow states", () => {
+    const result = {
+      ok: true,
+      outcome: "confirmed",
+      state: "In progress",
+      expectedState: "Ready",
+      targetState: "In progress",
+      reason: "implementation",
+      rateLimits: null,
+      error: null,
+    } as const;
+
+    expect(
+      shouldRecordConfirmedTrackerProgress(
+        {
+          type: "transition-request",
+          expectedState: "Ready",
+          targetState: "In progress",
+          reason: "implementation",
+          commentBody: "transition",
+        },
+        result,
+        ["Ready", "In progress", "Land"]
+      )
+    ).toBe(false);
+    expect(
+      shouldRecordConfirmedTrackerProgress(
+        {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "handoff",
+          commentBody: "transition",
+        },
+        { ...result, state: "IN REVIEW", targetState: "In review" },
+        ["Ready", "In progress", "Land"]
+      )
+    ).toBe(true);
   });
 
   afterEach(() => {

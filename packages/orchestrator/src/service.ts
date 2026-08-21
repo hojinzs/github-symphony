@@ -124,13 +124,30 @@ export function shouldAwaitTrackerProgressExit(
   issueState: string,
   now: Date
 ): boolean {
-  if (run.issueState !== issueState || !run.trackerProgressConfirmedAt) {
+  if (
+    !matchesWorkflowState(run.issueState, [issueState]) ||
+    !run.trackerProgressConfirmedAt
+  ) {
     return false;
   }
   const confirmedAt = Date.parse(run.trackerProgressConfirmedAt);
   return (
     Number.isFinite(confirmedAt) &&
     now.getTime() - confirmedAt < TRACKER_PROGRESS_EXIT_GRACE_MS
+  );
+}
+
+export function shouldRecordConfirmedTrackerProgress(
+  request: TrackerStateRequest,
+  result: TrackerStateResult,
+  activeStates: readonly string[]
+): boolean {
+  return (
+    request.type === "transition-request" &&
+    result.ok &&
+    result.outcome === "confirmed" &&
+    result.state !== null &&
+    !matchesWorkflowState(result.state, activeStates)
   );
 }
 
@@ -575,6 +592,13 @@ export class OrchestratorService {
           },
           this.createTrackerDependencies()
         );
+        const workflowResolution = await this.loadProjectWorkflow(
+          this.projectConfig,
+          run.repository
+        );
+        const activeStates = isUsableWorkflowResolution(workflowResolution)
+          ? workflowResolution.lifecycle.activeStates
+          : DEFAULT_WORKFLOW_LIFECYCLE.activeStates;
         const persistedRun = await this.runSerialized(async () => {
           // Reconciliation may have updated this run while the provider call
           // waited for GitHub. Preserve that newer lifecycle state and merge
@@ -599,12 +623,13 @@ export class OrchestratorService {
             lastError: result.ok
               ? latestRun.lastError
               : (result.error ?? latestRun.lastError),
-            trackerProgressConfirmedAt:
-              input.request.type === "transition-request" &&
-              result.ok &&
-              result.outcome === "confirmed"
-                ? nowIso
-                : (latestRun.trackerProgressConfirmedAt ?? null),
+            trackerProgressConfirmedAt: shouldRecordConfirmedTrackerProgress(
+              input.request,
+              result,
+              activeStates
+            )
+              ? nowIso
+              : (latestRun.trackerProgressConfirmedAt ?? null),
           };
           await this.persistTrackerStateDiagnostics(
             diagnosticRun,
