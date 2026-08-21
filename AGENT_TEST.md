@@ -341,11 +341,12 @@ idle → [inject issue + refresh]
 
 ### Predefined Fixtures
 
-| File                              | Purpose                                          |
-| --------------------------------- | ------------------------------------------------ |
-| `e2e/fixtures/happy-path.json`    | Single issue (state: Ready)                      |
-| `e2e/fixtures/multi-issue.json`   | 3 issues (concurrency test, concurrency_limit=2) |
-| `e2e/fixtures/blocked-issue.json` | Issue with blockedBy                             |
+| File                                       | Purpose                                                         |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `e2e/fixtures/happy-path.json`             | Single issue (state: Ready)                                     |
+| `e2e/fixtures/multi-issue.json`            | 3 issues (concurrency test, concurrency_limit=2)                |
+| `e2e/fixtures/blocked-issue.json`          | Issue with blockedBy                                            |
+| `e2e/fixtures/dispatch-start-failure.json` | Poison first candidate followed by a healthy dispatch candidate |
 
 ### Predefined Scenario Documents
 
@@ -367,6 +368,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/11-stale-run-recovery.md`                  | Verify stale-run ownership and lifecycle recovery                                                                         |
 | `e2e/scenarios/12-transition-comment-race.md`             | Verify orchestrator-owned transition comments survive reconciliation races                                                |
 | `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
+| `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
 
 ## TC Writing Guide
 

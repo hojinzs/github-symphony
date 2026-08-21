@@ -1,0 +1,56 @@
+[
+  {
+    "id": "poison-pr",
+    "identifier": "test-owner/test-repo#20",
+    "number": 20,
+    "title": "Pull request with missing checkout metadata",
+    "description": "This candidate must fail before worker spawn without aborting the tick.",
+    "priority": 1,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-08-21T00:00:00Z",
+    "updatedAt": "2026-08-21T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "poison-pr"
+    },
+    "metadata": {
+      "contentType": "PullRequest"
+    }
+  },
+  {
+    "id": "healthy-issue",
+    "identifier": "test-owner/test-repo#21",
+    "number": 21,
+    "title": "Healthy candidate after poison pull request",
+    "description": "This candidate must dispatch in the same reconciliation tick.",
+    "priority": 2,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-08-21T00:00:01Z",
+    "updatedAt": "2026-08-21T00:00:01Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "healthy-issue"
+    },
+    "metadata": {}
+  }
+]
