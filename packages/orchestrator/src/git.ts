@@ -47,6 +47,7 @@ export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
   requiredRef?: string;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   const result = await syncRepositoryForRun(input);
   return result.repositoryDirectory;
@@ -56,6 +57,7 @@ export async function syncRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
   requiredRef?: string;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<RepositorySyncResult> {
   await mkdir(input.targetDirectory, { recursive: true });
   const repositoryDirectory = join(input.targetDirectory, "repository");
@@ -124,6 +126,7 @@ export async function syncRepositoryForRun(input: {
         if (!(error instanceof RepositoryCacheUnavailableError)) {
           throw error;
         }
+        input.onCacheUnavailable?.(error);
         await cloneRepositoryDirectly(
           input.repository,
           tempRepositoryDirectory
@@ -151,6 +154,7 @@ export async function ensureIssueWorkspaceRepository(input: {
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   if (input.populateStrategy === "worktree-cache") {
     return ensureIssueWorkspaceWorktree(input);
@@ -173,6 +177,7 @@ export async function ensureIssueWorkspaceRepository(input: {
         requiredRef: input.pullRequestBranch
           ? `refs/heads/${input.pullRequestBranch.headRefName}`
           : undefined,
+        onCacheUnavailable: input.onCacheUnavailable,
       });
 
   if (input.pullRequestBranch && !dirtyExistingWorkspaceAllowed) {
@@ -192,6 +197,9 @@ export async function removeIssueWorkspaceWorktree(input: {
   issueIdentifier: string;
   branchTemplate?: string | null;
 }): Promise<void> {
+  if (await isDirectory(join(input.repositoryDirectory, ".git"))) {
+    return;
+  }
   const branch = renderIssueBranchName({
     template: input.branchTemplate,
     projectSlug: input.projectSlug,
@@ -286,6 +294,7 @@ async function ensureIssueWorkspaceWorktree(input: {
       if (!(error instanceof RepositoryCacheUnavailableError)) {
         throw error;
       }
+      input.onCacheUnavailable?.(error);
       await cloneRepositoryDirectly(input.repository, repositoryDirectory);
       const baseBranch =
         input.pullRequestBranch?.headRefName ??
@@ -305,6 +314,15 @@ async function ensureIssueWorkspaceWorktree(input: {
     if (!repositoryDirectoryExisted) {
       await rm(repositoryDirectory, { recursive: true, force: true });
     }
+    throw error;
+  }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (isMissingFileError(error)) return false;
     throw error;
   }
 }

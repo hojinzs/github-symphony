@@ -33,11 +33,15 @@ const handler = async (
       return;
     }
     for (const entry of entries) {
-      const state = entry.locked
-        ? "locked"
-        : entry.worktrees
-          ? `${entry.worktrees} linked worktree(s)`
-          : "idle";
+      const state = entry.staleLock
+        ? "stale-locked"
+        : entry.locked
+          ? "locked"
+          : entry.worktrees === null
+            ? "unverifiable"
+            : entry.worktrees > 0
+              ? `${entry.worktrees} linked worktree(s)`
+              : "idle";
       process.stdout.write(
         `${entry.repository}  ${formatBytes(entry.bytes)}  ${state}  ${entry.updatedAt}\n`
       );

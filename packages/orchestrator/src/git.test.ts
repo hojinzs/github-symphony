@@ -248,9 +248,11 @@ describe("cloneRepositoryForRun", () => {
     await writeFile(unavailableConfig, "not a directory");
     process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
 
+    const onCacheUnavailable = vi.fn();
     const repositoryDirectory = await cloneRepositoryForRun({
       repository,
       targetDirectory: join(tempRoot, "workspace"),
+      onCacheUnavailable,
     });
 
     expect(
@@ -259,6 +261,9 @@ describe("cloneRepositoryForRun", () => {
     await expect(
       access(join(repositoryDirectory, ".git", "objects", "info", "alternates"))
     ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(onCacheUnavailable).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "RepositoryCacheUnavailableError" })
+    );
   });
 
   it("serializes concurrent cache clones for the same repository", async () => {
@@ -830,6 +835,7 @@ describe("worktree-cache issue workspaces", () => {
     await writeFile(unavailableConfig, "not a directory");
     process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
 
+    const onCacheUnavailable = vi.fn();
     const repositoryDirectory = await ensureIssueWorkspaceRepository({
       repository,
       issueWorkspacePath: join(tempRoot, "workspace"),
@@ -838,6 +844,7 @@ describe("worktree-cache issue workspaces", () => {
       projectSlug: "fallback-project",
       issueIdentifier: "588",
       baseBranch: "main",
+      onCacheUnavailable,
     });
 
     expect(
@@ -848,6 +855,19 @@ describe("worktree-cache issue workspaces", () => {
     expect(
       await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
     ).toContain('project_id: "PVT_test"');
+    expect(onCacheUnavailable).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "RepositoryCacheUnavailableError" })
+    );
+
+    await expect(
+      removeIssueWorkspaceWorktree({
+        repository,
+        repositoryDirectory,
+        projectSlug: "fallback-project",
+        issueIdentifier: "588",
+      })
+    ).resolves.toBeUndefined();
+    await expect(access(repositoryDirectory)).resolves.toBeUndefined();
   });
 
   it("populates, reuses, and removes a project-scoped worktree", async () => {
