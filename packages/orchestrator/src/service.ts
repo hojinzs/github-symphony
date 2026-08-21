@@ -4674,7 +4674,12 @@ export class OrchestratorService {
       latestRun.issueState === issue.state &&
       latestRun.lastError?.includes(MAX_FAILURE_RETRIES_EXCEEDED_REASON)
         ? (latestRun.completedAt ?? latestRun.updatedAt)
-        : latestRun === null && issueRecord.retryEntry === null
+        : issueRecord.retryEntry === null &&
+            (latestRun === null ||
+              (parseTimestampMs(issueRecord.updatedAt) ?? 0) >
+                (parseTimestampMs(
+                  latestRun.completedAt ?? latestRun.updatedAt
+                ) ?? 0))
           ? issueRecord.updatedAt
           : null;
     if (suppressedAt === null) return false;
