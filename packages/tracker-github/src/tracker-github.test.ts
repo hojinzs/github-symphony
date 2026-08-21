@@ -1267,120 +1267,141 @@ describe("resolveTrackerAdapter", () => {
     expect(mutationBody.variables.subjectId).toBe("issue-1");
   });
 
-  it("creates an advisory comment through REST and persists its ETag", async () => {
-    const adapter = resolveTrackerAdapter({
-      adapter: "github-project",
-      bindingId: "project-123",
-      settings: { projectId: "project-123" },
-    });
-    const marker = "<!-- gh-symphony:advisory -->";
-    const body = `${marker}\ncreated body`;
-    const cache: IssueCommentCache = {
-      get: vi.fn(async () => null),
-      set: vi.fn(async () => undefined),
-      delete: vi.fn(async () => undefined),
-    };
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: {
-              node: {
-                __typename: "Issue",
-                comments: {
-                  nodes: [],
-                  pageInfo: { endCursor: null, hasNextPage: false },
+  it.each([
+    ["https://api.github.com/graphql", "https://api.github.com"],
+    ["https://github.example/api/graphql", "https://github.example/api/v3"],
+    ["https://github.example/api/v3/graphql", "https://github.example/api/v3"],
+  ])(
+    "creates an advisory comment through REST from %s and persists its ETag",
+    async (apiUrl, restApiUrl) => {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: { projectId: "project-123" },
+      });
+      const marker = "<!-- gh-symphony:advisory -->";
+      const body = `${marker}\ncreated body`;
+      const cache: IssueCommentCache = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: {
+                node: {
+                  __typename: "Issue",
+                  comments: {
+                    nodes: [],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
                 },
               },
-            },
-          })
+            })
+          )
         )
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 42, body }), {
-          status: 201,
-          headers: { etag: '"comment-v1"' },
-        })
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: 42, body }), {
+            status: 201,
+            headers: { etag: '"comment-v1"' },
+          })
+        );
+
+      await expect(
+        adapter.upsertIssueComment?.(
+          makeProjectConfig({ apiUrl }),
+          makeTrackedIssue(),
+          { marker, body },
+          { token: "test-token", fetchImpl, issueCommentCache: cache }
+        )
+      ).resolves.toMatchObject({ outcome: "created", rateLimits: null });
+
+      expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(apiUrl);
+      expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+        `${restApiUrl}/repos/acme/platform/issues/1/comments`
       );
-
-    await expect(
-      adapter.upsertIssueComment?.(
-        makeProjectConfig(),
-        makeTrackedIssue(),
-        { marker, body },
-        { token: "test-token", fetchImpl, issueCommentCache: cache }
-      )
-    ).resolves.toMatchObject({ outcome: "created", rateLimits: null });
-
-    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
-      "https://api.github.com/repos/acme/platform/issues/1/comments"
-    );
-    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
-      method: "POST",
-      body: JSON.stringify({ body }),
-    });
-    expect(cache.set).toHaveBeenCalledTimes(1);
-    expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
-      commentId: 42,
-      etag: '"comment-v1"',
-      body,
-    });
-  });
-
-  it("updates a cached advisory comment through REST with one cache write", async () => {
-    const adapter = resolveTrackerAdapter({
-      adapter: "github-project",
-      bindingId: "project-123",
-      settings: { projectId: "project-123" },
-    });
-    const marker = "<!-- gh-symphony:advisory -->";
-    const body = `${marker}\nupdated body`;
-    const cache: IssueCommentCache = {
-      get: vi.fn(async () => ({
+      expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+      expect(cache.set).toHaveBeenCalledTimes(1);
+      expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
         commentId: 42,
         etag: '"comment-v1"',
-        body: `${marker}\nold body`,
-      })),
-      set: vi.fn(async () => undefined),
-      delete: vi.fn(async () => undefined),
-    };
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 42, body: `${marker}\nold body` }), {
-          headers: { etag: '"comment-v1"' },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 42, body }), {
-          headers: { etag: '"comment-v2"' },
-        })
+        body,
+      });
+    }
+  );
+
+  it.each([
+    ["https://api.github.com/graphql", "https://api.github.com"],
+    ["https://github.example/api/graphql", "https://github.example/api/v3"],
+    ["https://github.example/api/v3/graphql", "https://github.example/api/v3"],
+  ])(
+    "updates a cached advisory comment through REST from %s with one cache write",
+    async (apiUrl, restApiUrl) => {
+      const adapter = resolveTrackerAdapter({
+        adapter: "github-project",
+        bindingId: "project-123",
+        settings: { projectId: "project-123" },
+      });
+      const marker = "<!-- gh-symphony:advisory -->";
+      const body = `${marker}\nupdated body`;
+      const cache: IssueCommentCache = {
+        get: vi.fn(async () => ({
+          commentId: 42,
+          etag: '"comment-v1"',
+          body: `${marker}\nold body`,
+        })),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      };
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ id: 42, body: `${marker}\nold body` }),
+            {
+              headers: { etag: '"comment-v1"' },
+            }
+          )
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: 42, body }), {
+            headers: { etag: '"comment-v2"' },
+          })
+        );
+
+      await expect(
+        adapter.upsertIssueComment?.(
+          makeProjectConfig({ apiUrl }),
+          makeTrackedIssue(),
+          { marker, body },
+          { token: "test-token", fetchImpl, issueCommentCache: cache }
+        )
+      ).resolves.toMatchObject({ outcome: "updated", rateLimits: null });
+
+      expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+        `${restApiUrl}/repos/acme/platform/issues/comments/42`
       );
-
-    await expect(
-      adapter.upsertIssueComment?.(
-        makeProjectConfig(),
-        makeTrackedIssue(),
-        { marker, body },
-        { token: "test-token", fetchImpl, issueCommentCache: cache }
-      )
-    ).resolves.toMatchObject({ outcome: "updated", rateLimits: null });
-
-    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
-      "https://api.github.com/repos/acme/platform/issues/comments/42"
-    );
-    expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
-      method: "PATCH",
-      body: JSON.stringify({ body }),
-    });
-    expect(cache.set).toHaveBeenCalledTimes(1);
-    expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
-      commentId: 42,
-      etag: '"comment-v2"',
-      body,
-    });
-  });
+      expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+        `${restApiUrl}/repos/acme/platform/issues/comments/42`
+      );
+      expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({
+        method: "PATCH",
+        body: JSON.stringify({ body }),
+      });
+      expect(cache.set).toHaveBeenCalledTimes(1);
+      expect(cache.set).toHaveBeenCalledWith(expect.any(String), {
+        commentId: 42,
+        etag: '"comment-v2"',
+        body,
+      });
+    }
+  );
 
   it("does not update advisory comments when the existing body is unchanged", async () => {
     const adapter = resolveTrackerAdapter({
@@ -4256,11 +4277,25 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.priority).toBe(1);
   });
 
-  it("resolves the REST user endpoint from a graphql URL with a trailing slash", async () => {
+  it.each([
+    ["https://api.github.com/graphql/", "https://api.github.com/user"],
+    [
+      "https://github.example/api/graphql",
+      "https://github.example/api/v3/user",
+    ],
+    [
+      "https://github.example/api/graphql/",
+      "https://github.example/api/v3/user",
+    ],
+    [
+      "https://github.example/api/v3/graphql",
+      "https://github.example/api/v3/user",
+    ],
+  ])("resolves the REST user endpoint from %s", async (apiUrl, expectedUrl) => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
       bindingId: "project-123",
-      apiUrl: "https://api.github.com/graphql/",
+      apiUrl,
       settings: {
         projectId: "project-123",
         assignedOnly: true,
@@ -4268,30 +4303,15 @@ describe("resolveTrackerAdapter", () => {
     });
 
     await adapter.listIssues(
-      {
-        projectId: "workspace-1",
-        slug: "workspace-1",
-        workspaceDir: "/tmp/workspace-1",
-        repository: {
-          owner: "acme",
-          name: "platform",
-          cloneUrl: "https://github.com/acme/platform.git",
-        },
-        tracker: {
-          adapter: "github-project",
-          bindingId: "project-123",
-          apiUrl: "https://api.github.com/graphql/",
-          settings: {
-            projectId: "project-123",
-            assignedOnly: true,
-          },
-        },
-      },
+      makeProjectConfig({
+        apiUrl,
+        trackerSettings: { assignedOnly: true },
+      }),
       {
         token: "dependencies-token",
         fetchImpl: async (url, init) => {
           if (init?.method === "GET") {
-            expect(String(url)).toBe("https://api.github.com/user");
+            expect(String(url)).toBe(expectedUrl);
             return new Response(JSON.stringify({ login: "machine-user" }), {
               status: 200,
               headers: { "content-type": "application/json" },
@@ -5706,6 +5726,7 @@ function makePullRequestStateLookupNode(input: {
 
 function makeProjectConfig(
   input: {
+    apiUrl?: string;
     repository?: {
       owner: string;
       name: string;
@@ -5727,6 +5748,7 @@ function makeProjectConfig(
     tracker: {
       adapter: "github-project" as const,
       bindingId: "project-123",
+      ...(input.apiUrl ? { apiUrl: input.apiUrl } : {}),
       settings: {
         projectId: "project-123",
         ...input.trackerSettings,
