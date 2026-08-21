@@ -235,6 +235,7 @@ async function ensureIssueWorkspaceWorktree(input: {
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
   if (await pathExists(join(repositoryDirectory, ".git"))) {

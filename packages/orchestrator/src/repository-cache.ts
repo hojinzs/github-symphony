@@ -98,7 +98,11 @@ export async function inspectGlobalRepositoryCache(
     for (const name of await safeDirectories(join(root, owner))) {
       if (!name.endsWith(".git")) continue;
       const directory = join(root, owner, name);
-      const lockDirectory = join(root, owner, `${name.slice(0, -4)}.lock`);
+      const repository = { owner, name: name.slice(0, -4) };
+      const lockDirectory = globalBareRepositoryLockDirectory({
+        repository,
+        configDir: input.configDir,
+      });
       const locked = await pathExists(lockDirectory);
       const staleLock = locked
         ? await isRepositoryLockStale(lockDirectory)
@@ -106,7 +110,7 @@ export async function inspectGlobalRepositoryCache(
       const details = await safeStat(directory);
       if (!details) continue;
       entries.push({
-        repository: `${owner}/${name.slice(0, -4)}`,
+        repository: `${repository.owner}/${repository.name}`,
         directory,
         bytes: locked && !staleLock ? 0 : await directorySize(directory),
         updatedAt: await readLastUsedAt(directory, details.mtime),
@@ -147,7 +151,7 @@ export async function pruneGlobalRepositoryCache(input: {
       continue;
     }
     if (!input.dryRun) {
-      const lockDirectory = `${entry.directory.slice(0, -4)}.lock`;
+      const lockDirectory = cacheEntryLockDirectory(entry, input.configDir);
       const ownerToken = await tryAcquireRepositoryLock(lockDirectory, {
         breakStale: true,
       });
@@ -176,6 +180,20 @@ export async function pruneGlobalRepositoryCache(input: {
     result.reclaimedBytes += entry.bytes;
   }
   return result;
+}
+
+function cacheEntryLockDirectory(
+  entry: RepositoryCacheEntry,
+  configDir?: string
+): string {
+  const separator = entry.repository.indexOf("/");
+  return globalBareRepositoryLockDirectory({
+    repository: {
+      owner: entry.repository.slice(0, separator),
+      name: entry.repository.slice(separator + 1),
+    },
+    configDir,
+  });
 }
 
 async function safeDirectories(directory: string): Promise<string[]> {
