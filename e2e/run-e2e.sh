@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -119,6 +119,7 @@ log "Issues injected; refresh trigger accepted (202). Falling back to polling un
 SAW_RUNNING=false
 SAW_RETRY=false
 SAW_REDACTED_STATE=false
+SCENARIO_RUN_ID=""
 ELAPSED=0
 
 log "Polling..."
@@ -137,6 +138,9 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
   if [ "$RUN_STATUS" = "running" ]; then
     SAW_RUNNING=true
+    if [ -z "$SCENARIO_RUN_ID" ]; then
+      SCENARIO_RUN_ID=$(echo "$STATUS_JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);r=d['activeRuns'];print(r[0].get('runId','') if r else '')" 2>/dev/null || echo "")
+    fi
     if echo "$STATUS_JSON" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -157,7 +161,7 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ]; then
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ]; then
       echo "[]" > e2e/fixtures/issues.json
     fi
   fi
@@ -172,11 +176,11 @@ done
 
 echo ""
 log "=== Worker Logs ==="
-docker exec symphony-e2e sh -c 'for f in $(find /e2e/work/test-repo/.runtime/orchestrator/runs -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
+docker exec symphony-e2e sh -c 'for f in $(find /e2e/work -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
 
 echo ""
 log "=== Event Logs ==="
-docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator/runs -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
+docker exec symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
 if [ "$SCENARIO" = "transition-race" ]; then
@@ -205,6 +209,61 @@ PY
   log "  Final tracker state:      In review"
   log "  Exact comments:           1"
   log "  Elapsed:                  ${ELAPSED}s"
+  echo ""
+  log "PASSED"
+  exit 0
+fi
+
+if [ "$SCENARIO" = "api-progress" ]; then
+  if [ "$SAW_RUNNING" != true ]; then
+    fail "Worker did not reach running state"
+    exit 1
+  fi
+  python3 - <<'PY'
+import json
+from pathlib import Path
+
+issues = json.loads(Path("e2e/fixtures/issues.json").read_text())
+assert len(issues) == 1, issues
+assert issues[0]["state"] == "Done", issues[0]
+PY
+  if [ -z "$SCENARIO_RUN_ID" ] || [ "$SCENARIO_RUN_ID" = "[REDACTED]" ]; then
+    fail "Scenario run id was not captured"
+    exit 1
+  fi
+  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { execFileSync } from "node:child_process";
+    const paths = execFileSync("find", [
+      "/e2e/work",
+      "-path",
+      `*/runs/${process.env.SCENARIO_RUN_ID}/run.json`,
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (paths.length !== 1) throw new Error(`expected_one_scenario_run:${JSON.stringify(paths)}`);
+    const allScenarioRuns = execFileSync("find", [
+      "/e2e/work",
+      "-path",
+      "*/runs/*/run.json",
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (allScenarioRuns.length !== 1) {
+      throw new Error(`unexpected_replacement_runs:${JSON.stringify(allScenarioRuns)}`);
+    }
+    const run = JSON.parse(readFileSync(paths[0], "utf8"));
+    if (run.runId !== process.env.SCENARIO_RUN_ID) {
+      throw new Error(`unexpected_run_id:${run.runId}`);
+    }
+    if (run.status !== "succeeded" || run.runPhase !== "succeeded") {
+      throw new Error(`unexpected_run_outcome:${JSON.stringify({status: run.status, runPhase: run.runPhase})}`);
+    }
+  '
+  if ! docker logs symphony-e2e 2>&1 | grep -q 'api-progress readback.*"state":"Done"'; then
+    fail "Confirmed Done readback was not observed"
+    exit 1
+  fi
+  log "=== Result ==="
+  log "  Canonical tracker state: Done"
+  log "  Persisted run outcome:   succeeded/succeeded"
+  log "  Reconciliation override: NO"
   echo ""
   log "PASSED"
   exit 0

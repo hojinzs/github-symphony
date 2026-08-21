@@ -7,6 +7,7 @@ import {
   captureTurnBoundarySnapshot,
   captureTurnWorkspaceSnapshot,
   evaluateTurnProgress,
+  resolveConvergenceThresholdAction,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 
@@ -35,6 +36,17 @@ describe("convergence detection helpers", () => {
         SYMPHONY_MAX_NONPRODUCTIVE_TURNS: "5",
       })
     ).toBe(5);
+  });
+
+  it("completes at the threshold after confirmed API-side lifecycle progress", () => {
+    expect(resolveConvergenceThresholdAction("non-actionable")).toBe(
+      "complete"
+    );
+  });
+
+  it("fails closed at the threshold while tracker activity is active or unknown", () => {
+    expect(resolveConvergenceThresholdAction("active")).toBe("fail");
+    expect(resolveConvergenceThresholdAction("unknown")).toBe("fail");
   });
 
   it("captures the git workspace fingerprint from file changes", async () => {

@@ -41,6 +41,7 @@ import { launchCodexWithValidatedPolicy } from "./codex-startup.js";
 import {
   captureTurnBoundarySnapshot,
   evaluateTurnProgress,
+  resolveConvergenceThresholdAction,
   resolveMaxNonProductiveTurns,
 } from "./convergence-detection.js";
 import {
@@ -591,6 +592,7 @@ async function startAssignedRun() {
     void runCodexClientProtocol(childProcess, plan, launcherEnv, {
       continuationGuidance: workflow.continuationGuidance,
       policySettings: codexLaunch.policySettings,
+      activeStates: workflow.lifecycle.activeStates,
     });
 
     childProcess.once(
@@ -1016,6 +1018,7 @@ async function runCodexClientProtocol(
   options: {
     continuationGuidance: string | null;
     policySettings: CodexPolicySettings;
+    activeStates: string[];
   }
 ): Promise<void> {
   const renderedPrompt = env.SYMPHONY_RENDERED_PROMPT;
@@ -1629,7 +1632,10 @@ async function runCodexClientProtocol(
       const isFirstTurn = turn === 0;
 
       if (!isFirstTurn) {
-        const trackerState = await refreshTrackerState(env);
+        const trackerState = await refreshTrackerState(
+          env,
+          options.activeStates
+        );
         process.stderr.write(
           `[worker] tracker state refresh: ${trackerState}\n`
         );
@@ -1807,6 +1813,49 @@ async function runCodexClientProtocol(
       }
 
       if (consecutiveNonProductiveTurns >= maxNonProductiveTurns) {
+        const trackerState = await refreshTrackerState(
+          env,
+          options.activeStates
+        );
+        process.stderr.write(
+          `[worker] convergence threshold tracker confirmation: ${trackerState}\n`
+        );
+        if (resolveConvergenceThresholdAction(trackerState) === "complete") {
+          runtimeState.runPhase = "finishing";
+          runtimeState.executionPhase = resolveFinalExecutionPhase({
+            currentPhase: runtimeState.executionPhase,
+            trackerState,
+            userInputRequired: false,
+          });
+          process.stderr.write(
+            "[worker] canonical tracker item is no longer actionable — preserving API-side lifecycle progress\n"
+          );
+          break;
+        }
+
+        if (trackerState === "unknown") {
+          const refreshFailureThreshold = resolveRefreshFailureThreshold(
+            env.SYMPHONY_REFRESH_FAILURE_THRESHOLD
+          );
+          const refreshFailures = updateRefreshFailureCount(
+            trackerState,
+            consecutiveRefreshFailures,
+            refreshFailureThreshold
+          );
+          consecutiveRefreshFailures = refreshFailures.count;
+          if (refreshFailures.failClosed) {
+            failWorkerTurnGate(
+              "orchestrator_unavailable",
+              `tracker refresh failed ${consecutiveRefreshFailures} consecutive times`
+            );
+            throw new Error("orchestrator_unavailable");
+          }
+          process.stderr.write(
+            "[worker] convergence deferred because canonical tracker state is unavailable\n"
+          );
+          continue;
+        }
+
         convergenceDetected = true;
         if (runtimeState.run) {
           runtimeState.run.lastError = turnProgress.reason

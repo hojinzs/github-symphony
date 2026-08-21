@@ -30,7 +30,12 @@ import { GitHubGraphQLRateLimitError } from "@gh-symphony/tracker-github";
 import { OrchestratorFsStore } from "./fs-store.js";
 import * as gitModule from "./git.js";
 import { ensureGlobalBareRepositoryCache } from "./repository-cache.js";
-import { clampPollInterval, OrchestratorService } from "./service.js";
+import {
+  clampPollInterval,
+  OrchestratorService,
+  shouldAwaitTrackerProgressExit,
+  shouldRecordConfirmedTrackerProgress,
+} from "./service.js";
 import * as trackerAdapters from "./tracker-adapters.js";
 
 describe("OrchestratorService", () => {
@@ -50,6 +55,75 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(0)).toBe(1_000);
     expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
     expect(clampPollInterval(30_000)).toBe(30_000);
+  });
+
+  it("gives confirmed tracker progress a bounded clean-exit grace", () => {
+    const run = {
+      issueState: "Done",
+      trackerProgressConfirmedAt: "2026-08-21T00:00:00.000Z",
+    } as OrchestratorRunRecord;
+
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "Done",
+        new Date("2026-08-21T00:00:29.999Z")
+      )
+    ).toBe(true);
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "Done",
+        new Date("2026-08-21T00:00:30.000Z")
+      )
+    ).toBe(false);
+    expect(
+      shouldAwaitTrackerProgressExit(
+        run,
+        "In review",
+        new Date("2026-08-21T00:00:01.000Z")
+      )
+    ).toBe(false);
+  });
+
+  it("records only confirmed transitions outside active workflow states", () => {
+    const result = {
+      ok: true,
+      outcome: "confirmed",
+      state: "In progress",
+      expectedState: "Ready",
+      targetState: "In progress",
+      reason: "implementation",
+      rateLimits: null,
+      error: null,
+    } as const;
+
+    expect(
+      shouldRecordConfirmedTrackerProgress(
+        {
+          type: "transition-request",
+          expectedState: "Ready",
+          targetState: "In progress",
+          reason: "implementation",
+          commentBody: "transition",
+        },
+        result,
+        ["Ready", "In progress", "Land"]
+      )
+    ).toBe(false);
+    expect(
+      shouldRecordConfirmedTrackerProgress(
+        {
+          type: "transition-request",
+          expectedState: "In progress",
+          targetState: "In review",
+          reason: "handoff",
+          commentBody: "transition",
+        },
+        { ...result, state: "IN REVIEW", targetState: "In review" },
+        ["Ready", "In progress", "Land"]
+      )
+    ).toBe(true);
   });
 
   afterEach(() => {
@@ -439,6 +513,7 @@ describe("OrchestratorService", () => {
     const service = new OrchestratorService(store, projectConfig, {
       now: () => new Date("2026-07-30T13:01:00.000Z"),
     });
+    const loadWorkflowSpy = vi.spyOn(service as never, "loadProjectWorkflow");
 
     const result = await service.requestTrackerState({
       runId: "run-1",
@@ -476,6 +551,8 @@ describe("OrchestratorService", () => {
       rateLimits: { cycleCost: 1 },
       lastError: "expected_state_mismatch",
     });
+    expect(loadWorkflowSpy).toHaveBeenCalledOnce();
+    loadWorkflowSpy.mockClear();
     const providerError = Object.assign(new Error("rate limit exhausted"), {
       rateLimits: {
         source: "github",
@@ -495,6 +572,7 @@ describe("OrchestratorService", () => {
       error: expect.stringContaining("rate limit exhausted"),
       rateLimits: expect.objectContaining({ remaining: 0 }),
     });
+    expect(loadWorkflowSpy).not.toHaveBeenCalled();
     const events = (
       await readFile(
         join(store.runDir("run-1", projectConfig.projectId), "events.ndjson"),
@@ -760,7 +838,9 @@ describe("OrchestratorService", () => {
 
     expect(result).toMatchObject({ ok: true, outcome: "confirmed" });
     expect(saveRun).toHaveBeenCalledWith(
-      expect.objectContaining({ issueState: "In review" })
+      expect.objectContaining({
+        issueState: "In review",
+      })
     );
     expect(upsertTransitionComment).toHaveBeenCalledOnce();
     expect(appendRunEvent).toHaveBeenCalledWith(
@@ -7517,7 +7597,7 @@ Prefer focused changes.
     });
   });
 
-  it("uses a fixed 1000ms delay for continuation retries", async () => {
+  it("distinguishes active and unknown tracker state after a successful worker exit", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-continuation-retry-")
@@ -7569,6 +7649,8 @@ Prefer focused changes.
       updatedAt: "2026-03-08T00:00:00.000Z",
       startedAt: "2026-03-08T00:00:00.000Z",
       completedAt: null,
+      trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
+      runPhase: "succeeded",
       lastError: null,
       nextRetryAt: null,
     });
@@ -7585,6 +7667,11 @@ Prefer focused changes.
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
+    const currentProgressSpy = vi.spyOn(
+      service as never,
+      "classifyCurrentTrackerProgress"
+    );
+    currentProgressSpy.mockResolvedValueOnce("active" as never);
     const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
 
     await service.runOnce();
@@ -7598,6 +7685,32 @@ Prefer focused changes.
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
+
+    await store.saveRun({
+      ...updatedRun!,
+      status: "running",
+      attempt: 1,
+      completedAt: null,
+      nextRetryAt: null,
+      retryKind: null,
+      lastError: null,
+    });
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        ...issueRecords[0]!,
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+      },
+    ]);
+    currentProgressSpy.mockResolvedValueOnce("unknown" as never);
+
+    await service.runOnce();
+
+    expect((await store.loadRun("run-1"))?.status).toBe("running");
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.state
+    ).toBe("running");
   });
 
   it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {

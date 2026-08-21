@@ -104,31 +104,79 @@ describe("worker turn lease", () => {
 });
 
 describe("tracker refresh fail-closed threshold", () => {
-  it("checks worker state through an authenticated minimal response", async () => {
+  it("checks canonical tracker state through the authenticated endpoint", async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ active: true })));
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, outcome: "confirmed", state: "LAND" })
+        )
+      );
 
     await expect(
       refreshTrackerState(
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
           SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+          SYMPHONY_RUN_ID: "run-1",
         },
+        ["Ready", "Land"],
         fetchImpl
       )
     ).resolves.toBe("active");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://localhost:4680/api/v1/worker-state",
+      "http://localhost:4680/api/v1/tracker-state",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          authorization: "Bearer worker-api-token",
+          "x-symphony-run-id": "run-1",
+          "x-symphony-orchestrator-token": "worker-api-token",
         }),
-        body: JSON.stringify({ issueIdentifier: "acme/repo#1" }),
+        body: JSON.stringify({ type: "state-read" }),
       })
     );
+  });
+
+  it("returns non-actionable only for a confirmed state outside active states", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, outcome: "confirmed", state: "Done" })
+        )
+      );
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready", "In progress", "Land"],
+        fetchImpl
+      )
+    ).resolves.toBe("non-actionable");
+  });
+
+  it("fails closed when the canonical tracker response is unconfirmed", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, state: "Done" }))
+      );
+
+    await expect(
+      refreshTrackerState(
+        {
+          SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
+          SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
+          SYMPHONY_RUN_ID: "run-1",
+        },
+        ["Ready"],
+        fetchImpl
+      )
+    ).resolves.toBe("unknown");
   });
 
   it("returns unknown on transport failure for threshold accounting", async () => {
@@ -138,8 +186,9 @@ describe("tracker refresh fail-closed threshold", () => {
         {
           SYMPHONY_ORCHESTRATOR_URL: "http://localhost:4680",
           SYMPHONY_ORCHESTRATOR_TOKEN: "worker-api-token",
-          SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
+          SYMPHONY_RUN_ID: "run-1",
         },
+        ["Ready"],
         fetchImpl
       )
     ).resolves.toBe("unknown");

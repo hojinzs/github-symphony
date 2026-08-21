@@ -1,3 +1,5 @@
+import { matchesWorkflowState } from "@gh-symphony/core";
+
 export const DEFAULT_REFRESH_FAILURE_THRESHOLD = 3;
 const ORCHESTRATOR_REQUEST_TIMEOUT_MS = 5_000;
 
@@ -32,30 +34,48 @@ export function updateRefreshFailureCount(
 
 export async function refreshTrackerState(
   env: NodeJS.ProcessEnv,
+  activeStates: readonly string[],
   fetchImpl: typeof fetch = fetch
 ): Promise<TrackerRefreshState> {
   const orchestratorUrl = env.SYMPHONY_ORCHESTRATOR_URL;
-  const issueIdentifier = env.SYMPHONY_ISSUE_IDENTIFIER;
+  const runId = env.SYMPHONY_RUN_ID;
   const apiToken = env.SYMPHONY_ORCHESTRATOR_TOKEN;
 
-  if (!orchestratorUrl || !issueIdentifier || !apiToken) {
+  if (!orchestratorUrl || !runId || !apiToken) {
     return "unknown";
   }
 
   try {
-    const response = await fetchImpl(`${orchestratorUrl}/api/v1/worker-state`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ issueIdentifier }),
-      signal: AbortSignal.timeout(ORCHESTRATOR_REQUEST_TIMEOUT_MS),
-    });
+    const response = await fetchImpl(
+      `${orchestratorUrl}/api/v1/tracker-state`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-symphony-run-id": runId,
+          "x-symphony-orchestrator-token": apiToken,
+        },
+        body: JSON.stringify({ type: "state-read" }),
+        signal: AbortSignal.timeout(ORCHESTRATOR_REQUEST_TIMEOUT_MS),
+      }
+    );
     if (!response.ok) return "unknown";
 
-    const status = (await response.json()) as { active?: boolean };
-    return status.active === true ? "active" : "non-actionable";
+    const result = (await response.json()) as {
+      ok?: boolean;
+      outcome?: string;
+      state?: string | null;
+    };
+    if (
+      result.ok !== true ||
+      result.outcome !== "confirmed" ||
+      typeof result.state !== "string"
+    ) {
+      return "unknown";
+    }
+
+    const active = matchesWorkflowState(result.state, activeStates);
+    return active ? "active" : "non-actionable";
   } catch {
     return "unknown";
   }

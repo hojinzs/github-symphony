@@ -40,6 +40,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read defers classification to a later tick instead of manufacturing a failure retry. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`) and worktree populate: `repository-cache.ts`, `git.ts`
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config
@@ -47,6 +48,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 4. Execution — worker and agent subprocess
 
 - Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
+- Multi-turn convergence compares local workspace/HEAD progress and reads canonical tracker state through `/api/v1/tracker-state` before each turn after the first and again at the failure threshold. A confirmed state outside the workflow's active states completes the worker at the next boundary; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter. Each read uses the tracker adapter and may consume a live provider request (up to 19 per default 20-turn session, plus the threshold read).
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
 - Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`
 
