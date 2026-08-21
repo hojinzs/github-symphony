@@ -370,7 +370,7 @@ gh-symphony repo stop                # Stop this repository
 
 ### Standalone Projects
 
-A standalone project is a project folder registered as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are created under the project's `workspace.root`, relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
+A standalone project is a project folder used as an independent orchestration instance, decoupled from the repository it targets. The folder owns `WORKFLOW.md` (which must declare `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`; the referenced repository itself stays unmodified. Issue workspaces are created under the project's `workspace.root`, relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`. Issue workspaces are populated as worktrees from a shared bare clone cache, and branches default to `symphony/<project-slug>/<issue-id>`, so multiple projects can orchestrate the same repository without branch collisions.
 
 ```bash
 cd <projectDir> && gh-symphony project start   # Start the project in this folder
