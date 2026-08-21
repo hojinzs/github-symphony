@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This bypasses the repo-embedded entrypoint and dispatches two registered
+# This bypasses the repo-embedded entrypoint and dispatches two folder-addressed
 # standalone projects once against the same local seed repository.
 COMPOSE="docker compose -f docker-compose.e2e.yml"
 

@@ -1,12 +1,12 @@
 ---
-"@gh-symphony/cli": patch
+"@gh-symphony/cli": minor
 ---
 
 Fix defects found while validating the standalone project model end to end:
 
 - GitHub Project tracker now honors `tracker.pickup_labels`. Label-disjoint projects that
-  share one repository previously dispatched each other's issues even though `project add`
-  validates registrations against those same labels.
+  share one repository previously dispatched each other's issues despite those labels being
+  intended to keep project mappings disjoint.
 - The shared bare-clone cache re-points `origin` and refetches when a project's clone URL
   changes, instead of serving the previously cached remote forever.
 - An explicit `--config <dir>` is exported to the environment so the bare-clone cache and
@@ -14,7 +14,7 @@ Fix defects found while validating the standalone project model end to end:
 - The standalone shadow warning reads the shared bare cache instead of the process working
   directory, so it names the repository that actually commits a `WORKFLOW.md` rather than
   whichever directory the CLI was started from.
-- `gh-symphony doctor` validates the registered project `WORKFLOW.md` for standalone
+- `gh-symphony doctor` validates the folder-addressed project `WORKFLOW.md` for standalone
   projects instead of reporting the repository root file as missing.
 - Standalone projects create issue workspaces under their `workspace.root` (spec 9.1), resolved
   relative to the project folder and defaulting to `<project-dir>/.runtime/workspaces`, instead of
