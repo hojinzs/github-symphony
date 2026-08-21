@@ -15,6 +15,15 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "Do NOT call `gh pr merge` directly — always go through this flow."
   );
   lines.push("");
+  lines.push("## Merged-PR Precedence Guard");
+  lines.push("");
+  lines.push(
+    "Before any pre-flight check or failure classification, read `state` and `mergeCommit` with `gh pr view <pr-number> --json state,mergeCommit` (always pass the PR number — the head branch may already be deleted)."
+  );
+  lines.push(
+    "If the PR is `MERGED`, skip every pre-flight and failure path, record the merge commit, transition `Land` → `Done` through the gh-project skill, and exit. Never return a merged PR to `Ready`, even if its head branch was deleted."
+  );
+  lines.push("");
   lines.push("## Pre-flight Checks");
   lines.push("");
   lines.push("Before merging, verify ALL of the following:");
@@ -40,7 +49,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   lines.push("## Flow");
   lines.push("");
   lines.push(
-    "1. Run all pre-flight checks above. The human-owned `In review` → `Land` transition is already confirmed before this skill runs; do not replay it or post a duplicate status comment."
+    "1. Run the Merged-PR Precedence Guard, then run pre-flight checks only if the PR remains open. The human-owned `In review` → `Land` transition is already confirmed before this skill runs; do not replay it or post a duplicate status comment."
   );
   lines.push("2. If all checks pass, merge the PR:");
   lines.push("   ```bash");
@@ -57,6 +66,7 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
     "   - The orchestrator publishes the transition body after confirmed readback; do not post a duplicate status comment"
   );
   lines.push("4. On merge failure:");
+  lines.push("   - Re-run the Merged-PR Precedence Guard first");
   lines.push("   - Record the failure reason in workpad Notes");
   lines.push("   - Resolve the blocking issue (re-run pre-flight checks)");
   lines.push("   - Retry the merge");
@@ -73,6 +83,9 @@ export function generateLandSkill(_ctx: SkillTemplateContext): string {
   );
   lines.push(
     "- If any pre-flight check fails, do not merge — fix the issue first"
+  );
+  lines.push(
+    "- Never classify or return a merged PR as rework; merged state always transitions to Done"
   );
   lines.push("- Record all merge attempts and outcomes in the workpad");
 
