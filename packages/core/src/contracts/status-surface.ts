@@ -52,6 +52,7 @@ export type OrchestratorProjectConfig = {
 export function normalizeOrchestratorProjectConfig(
   config: OrchestratorProjectConfig
 ): OrchestratorProjectConfig {
+  normalizeProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
 
@@ -60,6 +61,17 @@ export function normalizeOrchestratorProjectConfig(
     workflowSource,
     populateStrategy,
   };
+}
+
+function normalizeProjectDir(config: OrchestratorProjectConfig): void {
+  if (config.projectDir === undefined) {
+    return;
+  }
+  if (typeof config.projectDir !== "string" || !isAbsolute(config.projectDir)) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} project directory ${JSON.stringify(config.projectDir)} must be absolute.`
+    );
+  }
 }
 
 function normalizeWorkflowSource(

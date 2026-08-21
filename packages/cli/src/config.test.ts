@@ -113,6 +113,16 @@ describe("config persistence", () => {
         },
       })
     ).rejects.toThrow('Project "project-1" external workflow source path');
+
+    await expect(
+      saveProjectConfig(configDir, projectId, {
+        projectId,
+        slug: projectId,
+        workspaceDir: "/tmp/project-1",
+        projectDir: "relative/project",
+        tracker: { adapter: "file", bindingId: "project-1" },
+      })
+    ).rejects.toThrow('Project "project-1" project directory');
   });
 
   it("serializes concurrent load-modify-save updates", async () => {
