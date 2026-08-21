@@ -1064,6 +1064,7 @@ describe("runDoctorDiagnostics", () => {
     ).toMatchObject({
       status: "fail",
       summary: expect.stringContaining("repo init"),
+      remediation: expect.stringContaining("--project-dir <path>"),
     });
   });
 
