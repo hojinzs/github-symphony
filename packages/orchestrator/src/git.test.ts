@@ -20,6 +20,7 @@ import {
   removeIssueWorkspaceWorktree,
   renderIssueBranchName,
   releaseRepositoryLock,
+  startRepositoryLockHeartbeat,
   syncRepositoryForRun,
 } from "./git.js";
 import {
@@ -167,6 +168,28 @@ describe("global bare repository cache", () => {
     await expect(
       ensureGlobalBareRepositoryCache({ repository, configDir })
     ).resolves.toBe(bareDirectory);
+  });
+
+  it("keeps a cache lock fresh while a long operation is running", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const lockDirectory = join(tempRoot, "platform.lock");
+    const ownerToken = await acquireRepositoryLock(lockDirectory);
+    const staleAt = new Date(Date.now() - 31 * 60 * 1000);
+    await utimes(lockDirectory, staleAt, staleAt);
+
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      10
+    );
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    const refreshed = await stat(lockDirectory);
+    await heartbeat.stop();
+    await releaseRepositoryLock(lockDirectory, ownerToken);
+
+    expect(Date.now() - refreshed.mtimeMs).toBeLessThan(1_000);
   });
 
   it("recreates a cache with a missing origin remote under its lock", async () => {

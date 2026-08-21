@@ -7,12 +7,14 @@ import {
   releaseRepositoryLock,
   runGitCommand,
   runGitCommandCapture,
+  startRepositoryLockHeartbeat,
 } from "./git.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
 const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 const FETCH_TTL_MS = 60_000;
 const LAST_FETCH_MARKER = ".gh-symphony-last-fetch";
+const CACHE_LOCK_HEARTBEAT_MS = 60_000;
 
 export class RepositoryCacheUnavailableError extends Error {
   constructor(
@@ -71,6 +73,11 @@ export async function ensureGlobalBareRepositoryCache(input: {
     throw cacheUnavailableError(bareDirectory, error);
   }
   try {
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      CACHE_LOCK_HEARTBEAT_MS
+    );
     try {
       return await ensureBareRepositoryCacheUnderLock({
         ...input,
@@ -79,6 +86,8 @@ export async function ensureGlobalBareRepositoryCache(input: {
       });
     } catch (error) {
       throw cacheUnavailableError(bareDirectory, error);
+    } finally {
+      await heartbeat.stop();
     }
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
@@ -106,16 +115,25 @@ export async function withGlobalBareRepositoryCache<T>(
     throw cacheUnavailableError(bareDirectory, error);
   }
   try {
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      CACHE_LOCK_HEARTBEAT_MS
+    );
     try {
-      await ensureBareRepositoryCacheUnderLock({
-        ...input,
-        bareDirectory,
-        cloneUrl,
-      });
-    } catch (error) {
-      throw cacheUnavailableError(bareDirectory, error);
+      try {
+        await ensureBareRepositoryCacheUnderLock({
+          ...input,
+          bareDirectory,
+          cloneUrl,
+        });
+      } catch (error) {
+        throw cacheUnavailableError(bareDirectory, error);
+      }
+      return await operation(bareDirectory);
+    } finally {
+      await heartbeat.stop();
     }
-    return await operation(bareDirectory);
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }

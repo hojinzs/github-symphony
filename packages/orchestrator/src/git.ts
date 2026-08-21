@@ -7,6 +7,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -29,6 +30,10 @@ const workflowConfigStore = new WorkflowConfigStore();
 const LOCK_RETRY_MS = 100;
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
+
+export type RepositoryLockHeartbeat = {
+  stop: () => Promise<void>;
+};
 
 export type RepositorySyncResult = {
   repositoryDirectory: string;
@@ -887,6 +892,43 @@ export async function releaseRepositoryLock(
   }
 
   await rm(lockDirectory, { recursive: true, force: true });
+}
+
+/**
+ * Keeps a long-running lock lease fresh without changing the generic lock's
+ * stale timeout. Ownership is checked before every touch so a replaced lock is
+ * never intentionally renewed by its previous holder.
+ */
+export function startRepositoryLockHeartbeat(
+  lockDirectory: string,
+  ownerToken: string,
+  intervalMs = 60_000
+): RepositoryLockHeartbeat {
+  let stopped = false;
+  let heartbeat = Promise.resolve();
+  const timer = setInterval(() => {
+    heartbeat = heartbeat
+      .then(async () => {
+        if (stopped || (await readLockOwner(lockDirectory)) !== ownerToken) {
+          return;
+        }
+        const now = new Date();
+        await utimes(lockDirectory, now, now);
+      })
+      .catch(() => {
+        // The cache operation itself remains authoritative. A removed or
+        // inaccessible lock will be handled by its normal failure path.
+      });
+  }, intervalMs);
+  timer.unref();
+
+  return {
+    async stop(): Promise<void> {
+      stopped = true;
+      clearInterval(timer);
+      await heartbeat;
+    },
+  };
 }
 
 async function isStaleLock(lockDirectory: string): Promise<boolean> {
