@@ -68,9 +68,10 @@ A "project" is an **orchestration execution unit** bundling WORKFLOW.md policy +
 
 - Instead of inventing a new concept, extend the existing `OrchestratorProjectConfig` (`packages/core/src/contracts/status-surface.ts`). It already has `projectId`/`slug`/`workspaceDir`/`repository`/`tracker`, and the state store and status surface sit on top of it, minimizing migration.
 - Additional fields: `workflowSource: { type: "repo" } | { type: "external"; path }`, etc.
-- **The project folder is the source of truth; `config.json` is cached runtime state derived at
-  start.** Folder identity, rather than a registration command or `activeProject`, selects the
-  standalone project.
+- **The project folder is the source of truth; `<configDir>/projects/<projectId>/project.json` is
+  cached runtime state derived at start.** The top-level `config.json` remains the global registry;
+  folder identity, rather than a registration command or `activeProject`, selects the standalone
+  project.
 - The `workspaces/` state directory naming collides with the spec's Workspace (§4.1.4, per-issue directory) — separate cleanup item.
 
 ### D3. The workflow source is a mode declaration, not a priority contest
