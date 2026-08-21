@@ -27,11 +27,13 @@
 
 ## Expected
 
-- Candidate `#20` is released with `failureRetryCount: 1` and a populated
-  `retryEntry` whose error reports missing pull request metadata.
+- Candidate `#20` is released with `failureRetryCount` at the configured
+  suppression limit and no `retryEntry`, because missing pull request metadata
+  is a permanent dispatch error.
 - Candidate `#21` reaches `running` in the same reconciliation tick.
-- The project does not retain a tick-level `lastError` from candidate `#20`.
-- The log reports the isolated failure and its scheduled retry time.
+- The project remains `degraded` and retains candidate `#20`'s error in
+  `lastError` without aborting the tick.
+- The log reports the isolated failure and that retries were suppressed.
 
 ## Cleanup
 
