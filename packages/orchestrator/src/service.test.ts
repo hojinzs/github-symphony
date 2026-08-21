@@ -1379,11 +1379,11 @@ describe("OrchestratorService", () => {
       );
       expect(info).toHaveBeenCalledWith(
         expect.stringContaining(
-          `\"event\":\"tracker-terminal-candidate-reconciled\"`
+          `"event":"tracker-terminal-candidate-reconciled"`
         )
       );
       expect(info).toHaveBeenCalledWith(
-        expect.stringContaining(`\"terminalFact\":\"${terminalFact}\"`)
+        expect.stringContaining(`"terminalFact":"${terminalFact}"`)
       );
     }
   );
