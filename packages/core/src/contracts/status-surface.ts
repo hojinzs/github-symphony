@@ -52,7 +52,7 @@ export type OrchestratorProjectConfig = {
 export function normalizeOrchestratorProjectConfig(
   config: OrchestratorProjectConfig
 ): OrchestratorProjectConfig {
-  normalizeProjectDir(config);
+  assertAbsoluteProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
 
@@ -63,7 +63,7 @@ export function normalizeOrchestratorProjectConfig(
   };
 }
 
-function normalizeProjectDir(config: OrchestratorProjectConfig): void {
+function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {
   if (config.projectDir === undefined) {
     return;
   }
