@@ -863,6 +863,7 @@ describe("WorkflowConfigStore", () => {
     const workflowPath = join(root, "WORKFLOW.md");
     const store = new WorkflowConfigStore();
     const secret = "project-and-host-secret";
+    const changedSecret = "changed-project-and-host-secret";
 
     await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
     await store.load(workflowPath, { SECRET_TOKEN: secret });
@@ -874,8 +875,14 @@ describe("WorkflowConfigStore", () => {
     ).cache;
     const envSignature = cache.get(workflowPath)?.envSignature;
 
+    await store.load(workflowPath, { SECRET_TOKEN: changedSecret });
+    const changedEnvSignature = cache.get(workflowPath)?.envSignature;
+
     expect(envSignature).toMatch(/^[a-f0-9]{64}$/);
     expect(envSignature).not.toContain(secret);
+    expect(changedEnvSignature).toMatch(/^[a-f0-9]{64}$/);
+    expect(changedEnvSignature).not.toContain(changedSecret);
+    expect(changedEnvSignature).not.toBe(envSignature);
   });
 
   it("keeps the last known good workflow after an invalid update", async () => {
