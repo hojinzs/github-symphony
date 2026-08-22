@@ -7,6 +7,7 @@ import {
   rename,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -19,7 +20,7 @@ import {
   type WorkflowResolution,
 } from "@gh-symphony/core";
 import {
-  ensureGlobalBareRepositoryCache,
+  RepositoryCacheUnavailableError,
   withGlobalBareRepositoryCache,
 } from "./repository-cache.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
@@ -28,6 +29,10 @@ const workflowConfigStore = new WorkflowConfigStore();
 const LOCK_RETRY_MS = 100;
 const LOCK_STALE_MS = 30 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2 * 60 * 1000;
+
+export type RepositoryLockHeartbeat = {
+  stop: () => Promise<void>;
+};
 
 export type RepositorySyncResult = {
   repositoryDirectory: string;
@@ -42,6 +47,7 @@ export async function cloneRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
   requiredRef?: string;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   const result = await syncRepositoryForRun(input);
   return result.repositoryDirectory;
@@ -51,6 +57,7 @@ export async function syncRepositoryForRun(input: {
   repository: RepositoryRef;
   targetDirectory: string;
   requiredRef?: string;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<RepositorySyncResult> {
   await mkdir(input.targetDirectory, { recursive: true });
   const repositoryDirectory = join(input.targetDirectory, "repository");
@@ -97,19 +104,34 @@ export async function syncRepositoryForRun(input: {
     await rm(tempRepositoryDirectory, { recursive: true, force: true });
 
     try {
-      const bareRepositoryDirectory = await ensureGlobalBareRepositoryCache({
-        repository: input.repository,
-        requiredRef: input.requiredRef,
-      });
-      await runCommand("git", [
-        "clone",
-        "--filter=blob:none",
-        "--reference-if-able",
-        bareRepositoryDirectory,
-        "--dissociate",
-        sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
-        tempRepositoryDirectory,
-      ]);
+      try {
+        await withGlobalBareRepositoryCache(
+          {
+            repository: input.repository,
+            requiredRef: input.requiredRef,
+          },
+          async (bareRepositoryDirectory) => {
+            await runCommand("git", [
+              "clone",
+              "--filter=blob:none",
+              "--reference-if-able",
+              bareRepositoryDirectory,
+              "--dissociate",
+              sanitizeRepositoryCloneUrl(input.repository.cloneUrl),
+              tempRepositoryDirectory,
+            ]);
+          }
+        );
+      } catch (error) {
+        if (!(error instanceof RepositoryCacheUnavailableError)) {
+          throw error;
+        }
+        input.onCacheUnavailable?.(error);
+        await cloneRepositoryDirectly(
+          input.repository,
+          tempRepositoryDirectory
+        );
+      }
       await rename(tempRepositoryDirectory, repositoryDirectory);
       return {
         repositoryDirectory,
@@ -132,6 +154,7 @@ export async function ensureIssueWorkspaceRepository(input: {
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   if (input.populateStrategy === "worktree-cache") {
     return ensureIssueWorkspaceWorktree(input);
@@ -154,6 +177,7 @@ export async function ensureIssueWorkspaceRepository(input: {
         requiredRef: input.pullRequestBranch
           ? `refs/heads/${input.pullRequestBranch.headRefName}`
           : undefined,
+        onCacheUnavailable: input.onCacheUnavailable,
       });
 
   if (input.pullRequestBranch && !dirtyExistingWorkspaceAllowed) {
@@ -173,6 +197,9 @@ export async function removeIssueWorkspaceWorktree(input: {
   issueIdentifier: string;
   branchTemplate?: string | null;
 }): Promise<void> {
+  if (await isDirectory(join(input.repositoryDirectory, ".git"))) {
+    return;
+  }
   const branch = renderIssueBranchName({
     template: input.branchTemplate,
     projectSlug: input.projectSlug,
@@ -208,6 +235,7 @@ async function ensureIssueWorkspaceWorktree(input: {
   issueIdentifier?: string;
   branchTemplate?: string | null;
   baseBranch?: string | null;
+  onCacheUnavailable?: (error: RepositoryCacheUnavailableError) => void;
 }): Promise<string> {
   const repositoryDirectory = join(input.issueWorkspacePath, "repository");
   if (await pathExists(join(repositoryDirectory, ".git"))) {
@@ -233,41 +261,83 @@ async function ensureIssueWorkspaceWorktree(input: {
   const repositoryDirectoryExisted = await pathExists(repositoryDirectory);
   await mkdir(input.issueWorkspacePath, { recursive: true });
   try {
-    return await withGlobalBareRepositoryCache(
-      {
-        repository: input.repository,
-        requiredRef: input.pullRequestBranch
-          ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
-          : input.baseBranch
-            ? `refs/remotes/origin/${input.baseBranch}`
-            : undefined,
-      },
-      async (bare) => {
-        const baseBranch =
-          input.pullRequestBranch?.headRefName ??
-          input.baseBranch ??
-          (await readOriginDefaultBranch(bare));
-        const baseRef = `refs/remotes/origin/${baseBranch}`;
-        await runGitCommand(["-C", bare, "worktree", "prune"]);
-        await runGitCommand([
-          "-C",
-          bare,
-          "worktree",
-          "add",
-          "-B",
-          branch,
-          repositoryDirectory,
-          baseRef,
-        ]);
-        return repositoryDirectory;
+    try {
+      return await withGlobalBareRepositoryCache(
+        {
+          repository: input.repository,
+          requiredRef: input.pullRequestBranch
+            ? `refs/remotes/origin/${input.pullRequestBranch.headRefName}`
+            : input.baseBranch
+              ? `refs/remotes/origin/${input.baseBranch}`
+              : undefined,
+        },
+        async (bare) => {
+          const baseBranch =
+            input.pullRequestBranch?.headRefName ??
+            input.baseBranch ??
+            (await readOriginDefaultBranch(bare));
+          const baseRef = `refs/remotes/origin/${baseBranch}`;
+          await runGitCommand(["-C", bare, "worktree", "prune"]);
+          await runGitCommand([
+            "-C",
+            bare,
+            "worktree",
+            "add",
+            "-B",
+            branch,
+            repositoryDirectory,
+            baseRef,
+          ]);
+          return repositoryDirectory;
+        }
+      );
+    } catch (error) {
+      if (!(error instanceof RepositoryCacheUnavailableError)) {
+        throw error;
       }
-    );
+      input.onCacheUnavailable?.(error);
+      await cloneRepositoryDirectly(input.repository, repositoryDirectory);
+      const baseBranch =
+        input.pullRequestBranch?.headRefName ??
+        input.baseBranch ??
+        (await readOriginDefaultBranch(repositoryDirectory));
+      await runGitCommand([
+        "-C",
+        repositoryDirectory,
+        "checkout",
+        "-B",
+        branch,
+        `refs/remotes/origin/${baseBranch}`,
+      ]);
+      return repositoryDirectory;
+    }
   } catch (error) {
     if (!repositoryDirectoryExisted) {
       await rm(repositoryDirectory, { recursive: true, force: true });
     }
     throw error;
   }
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (isMissingFileError(error)) return false;
+    throw error;
+  }
+}
+
+async function cloneRepositoryDirectly(
+  repository: RepositoryRef,
+  targetDirectory: string
+): Promise<void> {
+  await runCommand("git", [
+    "clone",
+    "--filter=blob:none",
+    sanitizeRepositoryCloneUrl(repository.cloneUrl),
+    targetDirectory,
+  ]);
 }
 
 async function ignoreMissingWorktree(command: Promise<void>): Promise<void> {
@@ -811,7 +881,7 @@ export async function acquireRepositoryLock(
       }
     }
 
-    const stale = await isStaleLock(lockDirectory);
+    const stale = await isRepositoryLockStale(lockDirectory);
     if (stale) {
       await rm(lockDirectory, { recursive: true, force: true });
       continue;
@@ -824,6 +894,34 @@ export async function acquireRepositoryLock(
     }
 
     await wait(LOCK_RETRY_MS);
+  }
+}
+
+/** Attempts lock acquisition once; maintenance callers use this to skip busy caches. */
+export async function tryAcquireRepositoryLock(
+  lockDirectory: string,
+  options: { breakStale?: boolean } = {}
+): Promise<string | null> {
+  const ownerToken = `${process.pid}:${randomUUID()}`;
+  for (;;) {
+    try {
+      await mkdir(lockDirectory);
+      await writeFile(
+        join(lockDirectory, "owner"),
+        `${ownerToken}\n${new Date().toISOString()}\n`,
+        "utf8"
+      );
+      return ownerToken;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+    }
+
+    if (!options.breakStale || !(await isRepositoryLockStale(lockDirectory))) {
+      return null;
+    }
+    await rm(lockDirectory, { recursive: true, force: true });
   }
 }
 
@@ -846,7 +944,46 @@ export async function releaseRepositoryLock(
   await rm(lockDirectory, { recursive: true, force: true });
 }
 
-async function isStaleLock(lockDirectory: string): Promise<boolean> {
+/**
+ * Keeps a long-running lock lease fresh without changing the generic lock's
+ * stale timeout. Ownership is checked before every touch so a replaced lock is
+ * never intentionally renewed by its previous holder.
+ */
+export function startRepositoryLockHeartbeat(
+  lockDirectory: string,
+  ownerToken: string,
+  intervalMs = 60_000
+): RepositoryLockHeartbeat {
+  let stopped = false;
+  let heartbeat = Promise.resolve();
+  const timer = setInterval(() => {
+    heartbeat = heartbeat
+      .then(async () => {
+        if (stopped || (await readLockOwner(lockDirectory)) !== ownerToken) {
+          return;
+        }
+        const now = new Date();
+        await utimes(lockDirectory, now, now);
+      })
+      .catch(() => {
+        // The cache operation itself remains authoritative. A removed or
+        // inaccessible lock will be handled by its normal failure path.
+      });
+  }, intervalMs);
+  timer.unref();
+
+  return {
+    async stop(): Promise<void> {
+      stopped = true;
+      clearInterval(timer);
+      await heartbeat;
+    },
+  };
+}
+
+export async function isRepositoryLockStale(
+  lockDirectory: string
+): Promise<boolean> {
   try {
     const details = await stat(lockDirectory);
     return Date.now() - details.mtimeMs >= LOCK_STALE_MS;

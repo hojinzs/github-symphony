@@ -39,6 +39,7 @@ type LoaderKey =
   | "repo"
   | "project"
   | "config"
+  | "cache"
   | "version";
 
 type CliOptionValues = Partial<
@@ -79,6 +80,7 @@ type CliOptionValues = Partial<
     bundle?: string | boolean;
     attempt?: string;
     tracker?: string;
+    maxAgeDays?: string;
   }
 >;
 
@@ -91,6 +93,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     repo: () => import("./commands/repo.js"),
     project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
+    cache: () => import("./commands/cache.js"),
     version: () => import("./commands/version.js"),
   };
 
@@ -790,6 +793,40 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const config = addGlobalOptions(
     program.command("config").description("Manage CLI configuration")
   );
+
+  const cache = addGlobalOptions(
+    program
+      .command("cache")
+      .description("Inspect and clean the global repository cache")
+  );
+  addGlobalOptions(
+    cache
+      .command("status")
+      .description("Show cached repositories")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeHandler(
+      "cache",
+      ["status"],
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
+  addGlobalOptions(
+    cache
+      .command("prune")
+      .description("Remove old unused cache entries")
+      .option("--max-age-days <days>", "Minimum unused age", "30")
+      .option("--dry-run", "Preview removals")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args = ["prune"];
+    pushOption(args, "--max-age-days", values.maxAgeDays);
+    pushOption(args, "--dry-run", values.dryRun);
+    await invokeHandler("cache", args, values);
+  });
 
   config.action(async function (this: Command) {
     markInvoked();

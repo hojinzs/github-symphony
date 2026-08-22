@@ -379,6 +379,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/13-standalone-project-model.md`            | Verify the standalone project model (project `.env`, MCP, worktree, and branch isolation) — `pnpm e2e:standalone-project` |
 | `e2e/scenarios/14-dispatch-start-failure-isolation.md`    | Verify one candidate's pre-spawn failure records retry state without starving later candidates                            |
 | `e2e/scenarios/15-terminal-candidate-reconciliation.md`   | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                |
+| `e2e/scenarios/15-cache-maintenance.md`                   | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                |
 
 ## TC Writing Guide
 

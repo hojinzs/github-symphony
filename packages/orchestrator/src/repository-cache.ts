@@ -1,18 +1,60 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { RepositoryRef } from "@gh-symphony/core";
 import {
   acquireRepositoryLock,
+  isRepositoryLockStale,
   releaseRepositoryLock,
   runGitCommand,
   runGitCommandCapture,
+  startRepositoryLockHeartbeat,
+  tryAcquireRepositoryLock,
 } from "./git.js";
 import { sanitizeRepositoryCloneUrl } from "./repository-url.js";
 
 const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 const FETCH_TTL_MS = 60_000;
 const LAST_FETCH_MARKER = ".gh-symphony-last-fetch";
+const LAST_USED_MARKER = ".gh-symphony-last-used";
+const CACHE_LOCK_HEARTBEAT_MS = 60_000;
+
+export class RepositoryCacheUnavailableError extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown
+  ) {
+    super(message);
+    this.name = "RepositoryCacheUnavailableError";
+  }
+}
+
+export type RepositoryCacheEntry = {
+  repository: string;
+  directory: string;
+  bytes: number;
+  updatedAt: string;
+  locked: boolean;
+  staleLock: boolean;
+  worktrees: number | null;
+};
+
+export type RepositoryCachePruneResult = {
+  removed: RepositoryCacheEntry[];
+  skipped: Array<
+    RepositoryCacheEntry & { reason: "locked" | "worktrees" | "recent" }
+  >;
+  reclaimedBytes: number;
+  dryRun: boolean;
+};
 
 export function resolveGlobalRepositoryCacheRoot(
   configDir = process.env.GH_SYMPHONY_CONFIG_DIR || DEFAULT_CONFIG_DIR
@@ -44,6 +86,211 @@ export function globalBareRepositoryLockDirectory(input: {
   );
 }
 
+export async function inspectGlobalRepositoryCache(
+  input: {
+    configDir?: string;
+  } = {}
+): Promise<RepositoryCacheEntry[]> {
+  const root = resolveGlobalRepositoryCacheRoot(input.configDir);
+  const owners = await safeDirectories(root);
+  const entries: RepositoryCacheEntry[] = [];
+  for (const owner of owners) {
+    for (const name of await safeDirectories(join(root, owner))) {
+      if (!name.endsWith(".git")) continue;
+      const directory = join(root, owner, name);
+      const repository = { owner, name: name.slice(0, -4) };
+      const lockDirectory = globalBareRepositoryLockDirectory({
+        repository,
+        configDir: input.configDir,
+      });
+      const locked = await pathExists(lockDirectory);
+      const staleLock = locked
+        ? await isRepositoryLockStale(lockDirectory)
+        : false;
+      const details = await safeStat(directory);
+      if (!details) continue;
+      entries.push({
+        repository: `${repository.owner}/${repository.name}`,
+        directory,
+        bytes: locked && !staleLock ? 0 : await directorySize(directory),
+        updatedAt: await readLastUsedAt(directory, details.mtime),
+        locked,
+        staleLock,
+        worktrees:
+          locked && !staleLock ? null : await countLinkedWorktrees(directory),
+      });
+    }
+  }
+  return entries.sort((a, b) => a.repository.localeCompare(b.repository));
+}
+
+export async function pruneGlobalRepositoryCache(input: {
+  configDir?: string;
+  maxAgeMs: number;
+  now?: Date;
+  dryRun?: boolean;
+}): Promise<RepositoryCachePruneResult> {
+  const now = input.now ?? new Date();
+  const result: RepositoryCachePruneResult = {
+    removed: [],
+    skipped: [],
+    reclaimedBytes: 0,
+    dryRun: Boolean(input.dryRun),
+  };
+  for (const entry of await inspectGlobalRepositoryCache(input)) {
+    if (now.getTime() - Date.parse(entry.updatedAt) < input.maxAgeMs) {
+      result.skipped.push({ ...entry, reason: "recent" });
+      continue;
+    }
+    if (entry.locked && !entry.staleLock) {
+      result.skipped.push({ ...entry, reason: "locked" });
+      continue;
+    }
+    if (entry.worktrees !== 0) {
+      result.skipped.push({ ...entry, reason: "worktrees" });
+      continue;
+    }
+    if (!input.dryRun) {
+      const lockDirectory = cacheEntryLockDirectory(entry, input.configDir);
+      const ownerToken = await tryAcquireRepositoryLock(lockDirectory, {
+        breakStale: true,
+      });
+      if (!ownerToken) {
+        result.skipped.push({ ...entry, locked: true, reason: "locked" });
+        continue;
+      }
+      try {
+        const details = await safeStat(entry.directory);
+        if (!details) continue;
+        const updatedAt = await readLastUsedAt(entry.directory, details.mtime);
+        if (now.getTime() - Date.parse(updatedAt) < input.maxAgeMs) {
+          result.skipped.push({ ...entry, updatedAt, reason: "recent" });
+          continue;
+        }
+        if ((await countLinkedWorktrees(entry.directory)) !== 0) {
+          result.skipped.push({ ...entry, reason: "worktrees" });
+          continue;
+        }
+        await rm(entry.directory, { recursive: true, force: true });
+      } finally {
+        await releaseRepositoryLock(lockDirectory, ownerToken);
+      }
+    }
+    result.removed.push(entry);
+    result.reclaimedBytes += entry.bytes;
+  }
+  return result;
+}
+
+function cacheEntryLockDirectory(
+  entry: RepositoryCacheEntry,
+  configDir?: string
+): string {
+  const separator = entry.repository.indexOf("/");
+  return globalBareRepositoryLockDirectory({
+    repository: {
+      owner: entry.repository.slice(0, separator),
+      name: entry.repository.slice(separator + 1),
+    },
+    configDir,
+  });
+}
+
+async function safeDirectories(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+}
+
+async function directorySize(directory: string): Promise<number> {
+  let total = 0;
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isMissing(error)) return 0;
+    throw error;
+  }
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySize(path);
+      continue;
+    }
+    const details = await safeStat(path);
+    if (details) total += details.size;
+  }
+  return total;
+}
+
+async function safeStat(path: string): Promise<Stats | null> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+}
+
+async function readLastUsedAt(
+  directory: string,
+  fallback: Date
+): Promise<string> {
+  try {
+    const marker = await readFile(join(directory, LAST_USED_MARKER), "utf8");
+    const usedAt = Date.parse(marker.trim());
+    return Number.isFinite(usedAt)
+      ? new Date(usedAt).toISOString()
+      : fallback.toISOString();
+  } catch (error) {
+    if (isMissing(error)) return fallback.toISOString();
+    throw error;
+  }
+}
+
+async function countLinkedWorktrees(directory: string): Promise<number | null> {
+  try {
+    const output = await runGitCommandCapture([
+      "-C",
+      directory,
+      "worktree",
+      "list",
+      "--porcelain",
+    ]);
+    return Math.max(
+      0,
+      output.split("\n").filter((line) => line.startsWith("worktree ")).length -
+        1
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
+}
+
 export async function ensureGlobalBareRepositoryCache(input: {
   repository: RepositoryRef;
   requiredRef?: string;
@@ -53,15 +300,30 @@ export async function ensureGlobalBareRepositoryCache(input: {
   const bareDirectory = globalBareRepositoryDirectory(input);
   const lockDirectory = globalBareRepositoryLockDirectory(input);
   const cloneUrl = sanitizeRepositoryCloneUrl(input.repository.cloneUrl);
-  await mkdir(dirname(bareDirectory), { recursive: true });
-
-  const ownerToken = await acquireRepositoryLock(lockDirectory);
+  let ownerToken: string;
   try {
-    return ensureBareRepositoryCacheUnderLock({
-      ...input,
-      bareDirectory,
-      cloneUrl,
-    });
+    await mkdir(dirname(bareDirectory), { recursive: true });
+    ownerToken = await acquireRepositoryLock(lockDirectory);
+  } catch (error) {
+    throw cacheUnavailableError(bareDirectory, error);
+  }
+  try {
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      CACHE_LOCK_HEARTBEAT_MS
+    );
+    try {
+      return await ensureBareRepositoryCacheUnderLock({
+        ...input,
+        bareDirectory,
+        cloneUrl,
+      });
+    } catch (error) {
+      throw cacheUnavailableError(bareDirectory, error);
+    } finally {
+      await heartbeat.stop();
+    }
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }
@@ -80,18 +342,47 @@ export async function withGlobalBareRepositoryCache<T>(
   const bareDirectory = globalBareRepositoryDirectory(input);
   const lockDirectory = globalBareRepositoryLockDirectory(input);
   const cloneUrl = sanitizeRepositoryCloneUrl(input.repository.cloneUrl);
-  await mkdir(dirname(bareDirectory), { recursive: true });
-  const ownerToken = await acquireRepositoryLock(lockDirectory);
+  let ownerToken: string;
   try {
-    await ensureBareRepositoryCacheUnderLock({
-      ...input,
-      bareDirectory,
-      cloneUrl,
-    });
-    return await operation(bareDirectory);
+    await mkdir(dirname(bareDirectory), { recursive: true });
+    ownerToken = await acquireRepositoryLock(lockDirectory);
+  } catch (error) {
+    throw cacheUnavailableError(bareDirectory, error);
+  }
+  try {
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      CACHE_LOCK_HEARTBEAT_MS
+    );
+    try {
+      try {
+        await ensureBareRepositoryCacheUnderLock({
+          ...input,
+          bareDirectory,
+          cloneUrl,
+        });
+      } catch (error) {
+        throw cacheUnavailableError(bareDirectory, error);
+      }
+      return await operation(bareDirectory);
+    } finally {
+      await heartbeat.stop();
+    }
   } finally {
     await releaseRepositoryLock(lockDirectory, ownerToken);
   }
+}
+
+function cacheUnavailableError(
+  bareDirectory: string,
+  cause: unknown
+): RepositoryCacheUnavailableError {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return new RepositoryCacheUnavailableError(
+    `Global repository cache unavailable at ${bareDirectory}: ${detail}`,
+    cause
+  );
 }
 
 async function ensureBareRepositoryCacheUnderLock(input: {
@@ -104,6 +395,7 @@ async function ensureBareRepositoryCacheUnderLock(input: {
   const now = input.now ?? new Date();
   if (!(await isBareRepository(input.bareDirectory))) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    await writeLastUsedMarker(input.bareDirectory, now);
     return input.bareDirectory;
   }
 
@@ -116,6 +408,7 @@ async function ensureBareRepositoryCacheUnderLock(input: {
   const originUrl = await readOriginRemoteUrl(input.bareDirectory);
   if (originUrl === null) {
     await recreateBareRepository(input.bareDirectory, input.cloneUrl, now);
+    await writeLastUsedMarker(input.bareDirectory, now);
     return input.bareDirectory;
   }
   // The cache is keyed by owner/name, so a repository that moved hosts,
@@ -142,6 +435,8 @@ async function ensureBareRepositoryCacheUnderLock(input: {
     await writeLastFetchMarker(input.bareDirectory, now);
     await runGitCommand(["-C", input.bareDirectory, "gc", "--auto"]);
   }
+
+  await writeLastUsedMarker(input.bareDirectory, now);
 
   return input.bareDirectory;
 }
@@ -291,6 +586,17 @@ async function writeLastFetchMarker(
 ): Promise<void> {
   await writeFile(
     join(directory, LAST_FETCH_MARKER),
+    `${now.toISOString()}\n`,
+    "utf8"
+  );
+}
+
+async function writeLastUsedMarker(
+  directory: string,
+  now: Date
+): Promise<void> {
+  await writeFile(
+    join(directory, LAST_USED_MARKER),
     `${now.toISOString()}\n`,
     "utf8"
   );

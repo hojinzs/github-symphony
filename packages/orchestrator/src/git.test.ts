@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireRepositoryLock,
   cloneRepositoryForRun,
@@ -20,6 +20,7 @@ import {
   removeIssueWorkspaceWorktree,
   renderIssueBranchName,
   releaseRepositoryLock,
+  startRepositoryLockHeartbeat,
   syncRepositoryForRun,
 } from "./git.js";
 import {
@@ -169,6 +170,28 @@ describe("global bare repository cache", () => {
     ).resolves.toBe(bareDirectory);
   });
 
+  it("keeps a cache lock fresh while a long operation is running", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-global-cache-")
+    );
+    const lockDirectory = join(tempRoot, "platform.lock");
+    const ownerToken = await acquireRepositoryLock(lockDirectory);
+    const staleAt = new Date(Date.now() - 31 * 60 * 1000);
+    await utimes(lockDirectory, staleAt, staleAt);
+
+    const heartbeat = startRepositoryLockHeartbeat(
+      lockDirectory,
+      ownerToken,
+      10
+    );
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    const refreshed = await stat(lockDirectory);
+    await heartbeat.stop();
+    await releaseRepositoryLock(lockDirectory, ownerToken);
+
+    expect(Date.now() - refreshed.mtimeMs).toBeLessThan(1_000);
+  });
+
   it("recreates a cache with a missing origin remote under its lock", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-global-cache-")
@@ -218,6 +241,31 @@ describe("global bare repository cache", () => {
 });
 
 describe("cloneRepositoryForRun", () => {
+  it("falls back to a direct clone when the global cache is unavailable", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const unavailableConfig = join(tempRoot, "config-file");
+    await writeFile(unavailableConfig, "not a directory");
+    process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
+
+    const onCacheUnavailable = vi.fn();
+    const repositoryDirectory = await cloneRepositoryForRun({
+      repository,
+      targetDirectory: join(tempRoot, "workspace"),
+      onCacheUnavailable,
+    });
+
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain('project_id: "PVT_test"');
+    await expect(
+      access(join(repositoryDirectory, ".git", "objects", "info", "alternates"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(onCacheUnavailable).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "RepositoryCacheUnavailableError" })
+    );
+  });
+
   it("serializes concurrent cache clones for the same repository", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-git-"));
     const repository = await createRepositoryFixture(tempRoot);
@@ -780,6 +828,48 @@ describe("cloneRepositoryForRun", () => {
 });
 
 describe("worktree-cache issue workspaces", () => {
+  it("falls back to a direct clone with the project branch when the cache is unavailable", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const unavailableConfig = join(tempRoot, "config-file");
+    await writeFile(unavailableConfig, "not a directory");
+    process.env.GH_SYMPHONY_CONFIG_DIR = unavailableConfig;
+
+    const onCacheUnavailable = vi.fn();
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspace"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "fallback-project",
+      issueIdentifier: "588",
+      baseBranch: "main",
+      onCacheUnavailable,
+    });
+
+    expect(
+      execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe("symphony/fallback-project/588");
+    expect(
+      await readFile(join(repositoryDirectory, "WORKFLOW.md"), "utf8")
+    ).toContain('project_id: "PVT_test"');
+    expect(onCacheUnavailable).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "RepositoryCacheUnavailableError" })
+    );
+
+    await expect(
+      removeIssueWorkspaceWorktree({
+        repository,
+        repositoryDirectory,
+        projectSlug: "fallback-project",
+        issueIdentifier: "588",
+      })
+    ).resolves.toBeUndefined();
+    await expect(access(repositoryDirectory)).resolves.toBeUndefined();
+  });
+
   it("populates, reuses, and removes a project-scoped worktree", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
     const repository = await createRepositoryFixture(tempRoot);

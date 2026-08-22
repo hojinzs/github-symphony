@@ -2720,6 +2720,11 @@ export class OrchestratorService {
       issueIdentifier: issue.identifier,
       branchTemplate,
       baseBranch,
+      onCacheUnavailable: (error) => {
+        this.writeStderr(
+          `[orchestrator] repository cache unavailable for ${issue.identifier}; using direct clone: ${error.message}`
+        );
+      },
     });
     const agentCommand = resolveWorkflowRuntimeCommand(
       workflowForPopulate.workflow

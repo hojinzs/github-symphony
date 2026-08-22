@@ -338,6 +338,17 @@ gh-symphony repo recover                 # Recover stalled runs
 gh-symphony repo recover --dry-run       # Preview what would be recovered
 ```
 
+### Repository Cache Maintenance
+
+```bash
+gh-symphony cache status                 # Paths, sizes, timestamps, locks, and linked worktrees
+gh-symphony cache status --json
+gh-symphony cache prune --dry-run        # Preview the default 30-day eviction policy
+gh-symphony cache prune --max-age-days 7 # Remove old idle cache entries
+```
+
+Cache cleanup is conservative: locked entries, caches with linked worktrees, and caches whose worktree state cannot be verified are skipped. Long-running cache operations heartbeat their locks, and workspace population falls back to an isolated direct clone when cache preparation is unavailable.
+
 ### Standalone Projects
 
 Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
