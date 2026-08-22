@@ -38,6 +38,18 @@ function explicitProjectRequiredMessage(): string {
   return "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime.\n";
 }
 
+function diagnosticProjectRequiredMessage(): string {
+  return "Multiple managed projects are configured and no active project is set. Pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For standalone diagnostics, pass '--project-dir <path>' to 'gh-symphony doctor'.";
+}
+
+function projectConfigRemediation(): string {
+  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
+}
+
+function missingProjectConfigMessage(projectId: string): string {
+  return `Project "${projectId}" is not configured. ${projectConfigRemediation()}`;
+}
+
 export async function inspectManagedProjectSelection(
   input: ResolveProjectSelectionInput
 ): Promise<ManagedProjectResolution> {
@@ -50,7 +62,7 @@ export async function inspectManagedProjectSelection(
       return {
         kind: "requested_project_missing",
         projectId: input.requestedProjectId,
-        message: `Project "${input.requestedProjectId}" is not configured. Run 'gh-symphony repo init' from the target repository.`,
+        message: missingProjectConfigMessage(input.requestedProjectId),
       };
     }
 
@@ -79,13 +91,6 @@ export async function inspectManagedProjectSelection(
     };
   }
 
-  if (projectIds.length > 1 && !isInteractiveTerminal()) {
-    return {
-      kind: "multiple_projects_require_selection",
-      message: explicitProjectRequiredMessage().trimEnd(),
-    };
-  }
-
   if (global.activeProject) {
     const projectConfig = await loadProjectConfig(
       input.configDir,
@@ -95,7 +100,7 @@ export async function inspectManagedProjectSelection(
       return {
         kind: "active_project_missing",
         projectId: global.activeProject,
-        message: `Active project "${global.activeProject}" is configured in config.json but its project config is missing. Re-run 'gh-symphony repo init'.`,
+        message: `Active project "${global.activeProject}" is configured in config.json but its project config is missing. ${projectConfigRemediation()}`,
       };
     }
 
@@ -113,7 +118,7 @@ export async function inspectManagedProjectSelection(
       return {
         kind: "configured_project_missing",
         projectId,
-        message: `Configured project "${projectId}" is missing its project config file. Re-run 'gh-symphony repo init'.`,
+        message: missingProjectConfigMessage(projectId),
       };
     }
 
@@ -126,8 +131,7 @@ export async function inspectManagedProjectSelection(
 
   return {
     kind: "multiple_projects_require_selection",
-    message:
-      "Multiple repository runtime configs are present and no active project is set. Re-run 'gh-symphony repo init' from the target repository.",
+    message: diagnosticProjectRequiredMessage(),
   };
 }
 

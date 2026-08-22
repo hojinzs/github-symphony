@@ -599,6 +599,8 @@ gh-symphony config edit             # Open config in $EDITOR
 
 `gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
 
+When the global registry contains multiple standalone projects, `doctor` and live `workflow preview` diagnostics use its `activeProject`. To inspect a different standalone project explicitly, pass `--project-dir <path>` to `doctor` or `--project-id <projectId>` to `workflow preview`.
+
 Use an explicit issue when you want a deterministic check:
 
 ```bash

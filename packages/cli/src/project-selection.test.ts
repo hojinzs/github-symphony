@@ -174,7 +174,7 @@ describe("resolveManagedProjectConfig", () => {
 });
 
 describe("inspectManagedProjectSelection", () => {
-  it("requires explicit project selection in non-interactive multi-project mode", async () => {
+  it("uses the active project in non-interactive multi-project mode", async () => {
     const configDir = await createConfigFixture(
       [createProject("tenant-a"), createProject("tenant-b")],
       "tenant-b"
@@ -184,10 +184,26 @@ describe("inspectManagedProjectSelection", () => {
     const result = await inspectManagedProjectSelection({ configDir });
 
     expect(result).toMatchObject({
-      kind: "multiple_projects_require_selection",
-      message:
-        "Multiple repository runtime configs are present. Run 'gh-symphony repo init' from the target repository to refresh the cwd runtime.",
+      kind: "resolved",
+      projectId: "tenant-b",
     });
+  });
+
+  it("reports standalone selection guidance when multiple projects have no active project", async () => {
+    const configDir = await createConfigFixture([
+      createProject("tenant-a"),
+      createProject("tenant-b"),
+    ]);
+    setTty(false, false);
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "multiple_projects_require_selection",
+      message: expect.stringContaining("--project-dir <path>"),
+    });
+    expect(result.message).toContain("gh-symphony project list");
+    expect(result.message).not.toContain("repo init");
   });
 
   it("uses the active project when one is configured", async () => {
@@ -217,6 +233,9 @@ describe("inspectManagedProjectSelection", () => {
     expect(result).toMatchObject({
       kind: "active_project_missing",
       projectId: "tenant-a",
+      message:
+        "Active project \"tenant-a\" is configured in config.json but its project config is missing. For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
     });
+    expect(result.message).not.toContain('Active Project "tenant-a"');
   });
 });
