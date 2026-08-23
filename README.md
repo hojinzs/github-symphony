@@ -142,6 +142,8 @@ gh-symphony repo start --once
 
 `doctor --smoke` validates the GitHub Project binding, repository workflow, runtime command, workspace root, and hook paths without dispatching a worker. `repo start --once` then performs startup cleanup plus one poll/reconcile/dispatch tick and exits.
 
+Repo-embedded projects honor `workspace.root` relative to the repository checkout. Their issue worktrees live at `<workspace.root>/<issue-key>`, while orchestrator records remain under `.runtime/orchestrator`; `doctor` reports the configured worktree root. Existing installations should stop the daemon, archive `.runtime/orchestrator`, run `repo init` again, and restart so worktrees are safely re-populated without stale shared-cache registrations. See [Configuration](docs/configuration.md#repo-embedded-workspace-root-migration).
+
 Use an explicit issue when you want a deterministic preflight:
 
 ```bash

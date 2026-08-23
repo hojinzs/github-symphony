@@ -386,6 +386,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/16-bounded-finalization-deferral.md`       | Verify persistent unknown final tracker reads emit three durable deferrals and enter failure retry handling               |
 | `e2e/scenarios/16-packaged-runtime-entrypoints.md`        | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                |
 | `e2e/scenarios/16-planning-phase-prompt.md`               | Verify normalized `planning_states` classification reaches the dispatched prompt                                          |
+| `e2e/scenarios/16-repo-embedded-workspace-root.md`        | Verify repo-embedded issue workspaces use `workspace.root` while workspace records remain in orchestrator state           |
 
 ## TC Writing Guide
 

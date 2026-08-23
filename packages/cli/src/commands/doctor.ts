@@ -2035,7 +2035,7 @@ export async function runDoctorDiagnostics(
         workspaceDir,
         workspaceState,
         formatEnsureDirectoryCommand(workspaceDir, deps.platform),
-        "Update the managed project workspaceDir to a writable path or fix the filesystem permissions."
+        "Update WORKFLOW.md workspace.root to a writable path, run 'gh-symphony repo init' again for repo-embedded projects, or fix the filesystem permissions."
       )
     );
   } else {

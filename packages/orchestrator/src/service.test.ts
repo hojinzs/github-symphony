@@ -12442,6 +12442,65 @@ Workspace prompt.
     );
   });
 
+  it("re-populates a legacy workspace record under the configured root", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-migrated-embedded-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRoot = join(tempRoot, "configured-workspaces");
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, workspaceRoot),
+      repositoryDir: repository.path,
+    };
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = "acme_platform_1";
+    const legacyWorkspacePath = join(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: legacyWorkspacePath,
+      repositoryPath: join(legacyWorkspacePath, "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 5304, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const migratedRecord = await store.loadIssueWorkspace(
+      projectConfig.projectId,
+      workspaceKey
+    );
+
+    expect(migratedRecord?.workspacePath).toBe(
+      join(workspaceRoot, workspaceKey)
+    );
+    expect(migratedRecord?.repositoryPath).toBe(
+      join(workspaceRoot, workspaceKey, "repository")
+    );
+  });
+
   it("loads only an external workflow and warns when it shadows the repository workflow", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(

@@ -2637,6 +2637,10 @@ export class OrchestratorService {
       this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
+    const existingWorkspaceAtConfiguredRoot = Boolean(
+      existingWorkspaceRecord &&
+      resolve(existingWorkspaceRecord.workspacePath) === issueWorkspacePath
+    );
     const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
 
     // #507: dirty recovery may only reuse the workspace when the dirty state
@@ -2646,7 +2650,7 @@ export class OrchestratorService {
     let workspaceQuarantined = false;
     if (
       recovery?.kind === "incomplete-turn-dirty-workspace" &&
-      existingWorkspaceRecord
+      existingWorkspaceAtConfiguredRoot
     ) {
       const currentBranch = await readGitCurrentBranch(
         join(issueWorkspacePath, "repository")
@@ -2713,7 +2717,7 @@ export class OrchestratorService {
       repository: issue.repository,
       issueWorkspacePath,
       existingWorkspace:
-        Boolean(existingWorkspaceRecord) && !workspaceQuarantined,
+        existingWorkspaceAtConfiguredRoot && !workspaceQuarantined,
       pullRequestBranch,
       allowDirtyExistingWorkspace:
         recovery?.kind === "incomplete-turn-dirty-workspace",
@@ -2733,7 +2737,7 @@ export class OrchestratorService {
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
 
-    if (!existingWorkspaceRecord || workspaceQuarantined) {
+    if (!existingWorkspaceAtConfiguredRoot || workspaceQuarantined) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
         projectId: tenant.projectId,

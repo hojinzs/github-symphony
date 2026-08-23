@@ -3,14 +3,6 @@ import { createHash } from "node:crypto";
 import type { IssueSubjectIdentity } from "../domain/issue.js";
 import { isPathWithinRoot } from "./path-safety.js";
 
-const RESERVED_WORKSPACE_KEYS = new Set([
-  "cache",
-  "issues.json",
-  "project.json",
-  "runs",
-  "status.json",
-]);
-
 /**
  * Derive a stable workspace key from a canonical issue identifier.
  *
@@ -79,17 +71,11 @@ export function resolveIssueWorkspaceDirectory(
     );
   }
 
-  if (isReservedWorkspaceKey(workspaceKey)) {
-    throw new Error("Issue workspace key is reserved by the runtime layout.");
+  if (workspaceKey.startsWith(".")) {
+    throw new Error("Issue workspace key cannot be hidden.");
   }
 
   return candidate;
-}
-
-function isReservedWorkspaceKey(workspaceKey: string): boolean {
-  return (
-    workspaceKey.startsWith(".") || RESERVED_WORKSPACE_KEYS.has(workspaceKey)
-  );
 }
 
 export function resolveIssueRepositoryPath(

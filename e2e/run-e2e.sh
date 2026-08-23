@@ -300,10 +300,40 @@ if [ "$SCENARIO" = "api-progress-unknown" ]; then
   exit 0
 fi
 
-if [ "$SAW_RUNNING" = true ] && [ "$SAW_REDACTED_STATE" = true ]; then
+CONFIGURED_WORKSPACE_ROOT=false
+if docker exec symphony-e2e node --input-type=module -e '
+  import { existsSync, readFileSync } from "node:fs";
+  import { dirname, resolve, sep } from "node:path";
+  import { execFileSync } from "node:child_process";
+  const repoDir = "/e2e/work/test-repo";
+  const stateDir = `${repoDir}/.runtime/orchestrator/projects/repository`;
+  const expectedRoot = `${repoDir}/.runtime/symphony-workspaces`;
+  const project = JSON.parse(readFileSync(`${stateDir}/project.json`, "utf8"));
+  if (project.repositoryDir !== repoDir || project.workspaceDir !== expectedRoot) {
+    throw new Error(`unexpected_project_paths:${JSON.stringify(project)}`);
+  }
+  const records = execFileSync("find", [stateDir, "-name", "workspace.json"], {
+    encoding: "utf8",
+  }).trim().split("\n").filter(Boolean);
+  if (records.length !== 1) throw new Error(`expected_one_workspace_record:${JSON.stringify(records)}`);
+  const record = JSON.parse(readFileSync(records[0], "utf8"));
+  const workspacePath = resolve(record.workspacePath);
+  if (!workspacePath.startsWith(`${resolve(expectedRoot)}${sep}`)) {
+    throw new Error(`workspace_outside_configured_root:${workspacePath}`);
+  }
+  if (existsSync(`${dirname(records[0])}/repository`)) {
+    throw new Error(`workspace_populated_beside_state:${dirname(records[0])}`);
+  }
+'; then
+  CONFIGURED_WORKSPACE_ROOT=true
+  log "Configured repo-embedded workspace root: YES"
+fi
+
+if [ "$SAW_RUNNING" = true ] && [ "$SAW_REDACTED_STATE" = true ] && [ "$CONFIGURED_WORKSPACE_ROOT" = true ]; then
   log "=== Result ==="
   log "  Worker dispatched and ran: YES"
   log "  Routable IDs + redaction:  YES"
+  log "  Configured workspace root: YES"
   log "  Worker entered retry:     $SAW_RETRY"
   log "  Final health:             $HEALTH"
   log "  Elapsed:                  ${ELAPSED}s"
@@ -314,6 +344,7 @@ else
   fail "=== Result ==="
   fail "  Worker reached running:    $SAW_RUNNING"
   fail "  Routable IDs + redaction:  $SAW_REDACTED_STATE"
+  fail "  Configured workspace root: $CONFIGURED_WORKSPACE_ROOT"
   echo ""
   fail "FAILED"
   docker logs symphony-e2e 2>&1 | tail -20

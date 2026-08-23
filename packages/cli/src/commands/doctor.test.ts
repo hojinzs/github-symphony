@@ -1407,6 +1407,47 @@ describe("runDoctorDiagnostics", () => {
     });
   });
 
+  it("checks the issue workspace root instead of the repo-embedded checkout", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "doctor-embedded-root-"));
+    const configDir = join(rootDir, "config");
+    const workspaceDir = join(rootDir, "configured-workspaces");
+    const repositoryDir = join(rootDir, "repository-file");
+    await prepareDoctorPaths(configDir, workspaceDir);
+    await writeFile(repositoryDir, "not a directory", "utf8");
+    const { repoDir } = await createWorkflowFixture();
+
+    const report = await withCwd(repoDir, () =>
+      runDoctorDiagnostics(baseOptions(configDir), [], {
+        ...authDependencies(),
+        inspectManagedProjectSelection: async () => ({
+          kind: "resolved",
+          projectId: "tenant-a",
+          projectConfig: {
+            ...createProjectConfig(workspaceDir),
+            repositoryDir,
+          },
+        }),
+        getProjectDetail: (async () =>
+          ({
+            id: "PVT_test",
+            title: "Acme Platform",
+            url: "https://github.com/orgs/acme/projects/1",
+            statusFields: [],
+            textFields: [],
+            linkedRepositories: [],
+          }) as never) as never,
+        pathEnv: "",
+      })
+    );
+
+    expect(
+      report.checks.find((check) => check.id === "workspace_root")
+    ).toMatchObject({
+      status: "pass",
+      summary: expect.stringContaining(workspaceDir),
+    });
+  });
+
   it("reports token retrieval errors distinctly from auth failures", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");

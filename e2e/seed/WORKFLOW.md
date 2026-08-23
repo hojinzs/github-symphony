@@ -15,6 +15,8 @@ tracker:
     - " ready "
 polling:
   interval_ms: 5000
+workspace:
+  root: .runtime/symphony-workspaces
 agent:
   max_concurrent_agents: 2
   max_turns: 2

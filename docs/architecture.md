@@ -38,7 +38,8 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter
 - CLI global/project config, folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
-  `commands/project.ts`
+  `commands/project.ts`; `workspaceDir` is the issue-workspace root in both modes, while
+  repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 
 ### 3. Coordination — the orchestrator
@@ -49,6 +50,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Before dispatch, active candidates carrying an adapter-provided terminal fact are converged to the workflow terminal state and suppressed from worker startup.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
 - Shared bare clone cache (`<config-dir>/repos/<owner>/<repo>.git`), heartbeat locks, direct-clone degradation, safe inventory/eviction, and worktree populate: `repository-cache.ts`, `git.ts`; operator diagnostics and cleanup: `packages/cli/src/commands/cache.ts`
+- Issue workspace records remain in orchestrator state, while population, quarantine, terminal cleanup, and worktree removal operate on `<workspace.root>/<issue-key>` in repo-embedded and standalone modes.
 - Workflow source resolution (declared external/repo sources): `service.ts` + core workflow config
 
 ### 4. Execution — worker and agent subprocess
