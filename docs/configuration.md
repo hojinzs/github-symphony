@@ -67,7 +67,9 @@ After upgrading an existing repo-embedded installation, re-run
 `gh-symphony repo init` while the daemon is stopped so project metadata records
 the repository checkout and `workspace.root` separately. Existing issue
 worktrees are not moved in place because their administrative paths are also
-recorded in the shared bare cache. Use this recoverable one-time reset:
+recorded in the shared bare cache. Startup rejects legacy metadata that still
+uses `workspaceDir` as the repository checkout instead of risking workspace
+population inside that checkout. Use this recoverable one-time reset:
 
 ```bash
 gh-symphony repo stop

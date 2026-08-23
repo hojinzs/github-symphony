@@ -4733,15 +4733,12 @@ export class OrchestratorService {
 
   /**
    * Per-issue workspaces live under the project's configured `workspace.root`
-   * (spec 9.1). New project configs carry that root as `workspaceDir` in both
-   * modes. A repo-embedded config without `repositoryDir` predates that split,
-   * so it retains the consolidated state-directory layout until `repo init`
-   * migrates its metadata.
+   * (spec 9.1), carried as `workspaceDir` in every project mode. Persisted
+   * repo-embedded configs that still use this field for the checkout are
+   * rejected during normalization until `repo init` migrates them.
    */
   private resolveIssueWorkspaceRoot(tenant: OrchestratorProjectConfig): string {
-    return tenant.repositoryDir || tenant.workflowSource?.type === "external"
-      ? resolve(tenant.workspaceDir)
-      : this.store.projectDir(tenant.projectId);
+    return resolve(tenant.workspaceDir);
   }
 
   private resolveWorkflowRepositoryDirectory(

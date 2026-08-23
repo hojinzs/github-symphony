@@ -12408,7 +12408,7 @@ Workspace prompt.
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
   });
 
-  it("keeps legacy repo-embedded workspaces beside project state", async () => {
+  it("uses workspaceDir for repo-embedded configs without repositoryDir", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-legacy-embedded-workspace-root-")
@@ -12419,10 +12419,11 @@ Workspace prompt.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRoot = join(tempRoot, "legacy-compatible-workspaces");
     const projectConfig = createProjectConfig(
       tempRoot,
       repository,
-      repository.path
+      workspaceRoot
     );
     await store.saveProjectConfig(projectConfig);
 
@@ -12438,7 +12439,7 @@ Workspace prompt.
     const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
 
     expect(workspaceRecord?.workspacePath).toBe(
-      join(store.projectDir("tenant-1"), workspaceRecord!.workspaceKey)
+      join(workspaceRoot, workspaceRecord!.workspaceKey)
     );
   });
 
@@ -13656,7 +13657,7 @@ Prefer focused changes.
 
     const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(
-      store.projectDir("tenant-1"),
+      workspaceDir,
       workspaceKey
     );
 
@@ -13775,7 +13776,7 @@ function createProjectConfig(
     name: string;
     cloneUrl: string;
   },
-  workspaceDir = join(root, "workspaces", "tenant-1")
+  workspaceDir = join(root, "projects", "tenant-1")
 ) {
   return {
     projectId: "tenant-1",

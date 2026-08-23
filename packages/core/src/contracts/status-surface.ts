@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
 import type {
   WorkflowDefinition,
@@ -58,6 +58,18 @@ export function normalizeOrchestratorProjectConfig(
   assertAbsoluteProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
+  const repositoryPath = config.repository?.path;
+
+  if (
+    workflowSource.type === "repo" &&
+    !config.repositoryDir &&
+    repositoryPath &&
+    resolve(config.workspaceDir) === resolve(repositoryPath)
+  ) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony repo init' again before starting it.`
+    );
+  }
 
   return {
     ...config,
