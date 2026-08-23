@@ -210,7 +210,22 @@ describe("generateReferenceWorkflow", () => {
   it("defaults blocker_check_states to Todo without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
     expect(output).toContain("blocker_check_states:\n    - Todo");
-    expect(output).toContain("planning_states:\n    - Todo");
+    expect(output).toContain("planning_states: []");
+  });
+
+  it("defaults blocker checks to the first custom active column", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      statusColumns: [
+        { name: "Ready", role: "active" },
+        { name: "Doing", role: "active" },
+        { name: "Shipped", role: "terminal" },
+      ],
+    });
+
+    expect(output).toContain("blocker_check_states:\n    - Ready");
+    expect(output).not.toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("planning_states: []");
   });
 
   it("includes configured blocker and planning states from lifecycle input", () => {

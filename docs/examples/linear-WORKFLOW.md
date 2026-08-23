@@ -22,8 +22,7 @@ tracker:
     - Duplicate
   blocker_check_states:
     - Todo
-  planning_states:
-    - Todo
+  planning_states: []
 polling:
   interval_ms: 30000
 workspace:
@@ -61,7 +60,7 @@ runtime:
 
 `tracker.pickup_labels` only controls whether active-state issues are eligible for new worker pickup. Exclude labels win over include labels. If `include` is omitted or empty, active-state issues remain pickup-eligible unless excluded. Do not use label changes to stop already running workers; move the Linear issue state to control interruption, review, and completion.
 
-`tracker.blocker_check_states` defaults to `Todo`. In those states, non-terminal blockers prevent dispatch. Linear blockers are derived only from inverse relations of type `blocks`; an explicit `blocker_check_states: []` disables this gate.
+`tracker.blocker_check_states` defaults to the first active state (`Todo` in this example). In those states, non-terminal blockers prevent dispatch. Linear blockers are derived only from inverse relations of type `blocks`; an explicit `blocker_check_states: []` disables this gate as an intentional repository-level divergence from the vendored Symphony specification. Planning remains disabled unless `planning_states` is explicitly configured.
 
 ## Workpad Policy
 

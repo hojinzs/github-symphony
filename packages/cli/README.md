@@ -114,6 +114,12 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
+Lifecycle generation enables blocker checks for the first configured active
+state (`Todo` with built-in defaults) while leaving planning states disabled.
+An explicit `tracker.blocker_check_states: []` disables blocker gating; this is
+an intentional repository-level opt-out from the vendored Symphony spec's
+unconditional blocker rule.
+
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 Before dispatch, GitHub candidates are checked against the source issue and linked closing PR state. A closed issue or merged linked PR left in an active Project status is reconciled to the first configured terminal status, suppressed from worker startup, and reported as `tracker-terminal-candidate-reconciled`.

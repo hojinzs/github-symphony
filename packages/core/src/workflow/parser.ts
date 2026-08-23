@@ -75,7 +75,8 @@ export function parseWorkflowMarkdown(
     readStringList(tracker, "blocker_check_states") ??
     DEFAULT_WORKFLOW_TRACKER.blockerCheckStates;
   const planningStates =
-    readStringList(tracker, "planning_states") ?? blockerCheckStates;
+    readStringList(tracker, "planning_states") ??
+    DEFAULT_WORKFLOW_TRACKER.planningStates;
 
   const maxConcurrentAgentsByState = readNumberMap(
     agent,

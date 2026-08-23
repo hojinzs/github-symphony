@@ -447,6 +447,8 @@ describe("init command config output", () => {
     );
     expect(plan.workflowMd).not.toContain("  pickup_labels:");
     expect(plan.workflowMd).not.toContain("  project_id:");
+    expect(plan.workflowMd).toContain("  blocker_check_states:\n    - Todo\n");
+    expect(plan.workflowMd).toContain("  planning_states: []\n");
   });
 
   it("writes the simplified project config", async () => {

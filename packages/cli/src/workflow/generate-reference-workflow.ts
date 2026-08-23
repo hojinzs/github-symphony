@@ -3,6 +3,7 @@ import type {
   WorkflowPriorityConfig,
 } from "@gh-symphony/core";
 import type { DetectedEnvironment } from "../detection/environment-detector.js";
+import { getDefaultBlockerCheckStates } from "../mapping/smart-defaults.js";
 import {
   DEFAULT_AFTER_CREATE_HOOK_COMMENT,
   DEFAULT_AFTER_CREATE_HOOK_PATH,
@@ -62,8 +63,12 @@ export function generateReferenceWorkflow(
   const terminalColumns = input.statusColumns.filter(
     (c) => c.role === "terminal"
   );
-  const blockerCheckStates = input.lifecycle?.blockerCheckStates ?? ["Todo"];
-  const planningStates = input.lifecycle?.planningStates ?? blockerCheckStates;
+  const blockerCheckStates =
+    input.lifecycle?.blockerCheckStates ??
+    getDefaultBlockerCheckStates({
+      activeStates: activeColumns.map((column) => column.name),
+    });
+  const planningStates = input.lifecycle?.planningStates ?? [];
 
   if (activeColumns.length > 0) {
     lines.push("  active_states:");

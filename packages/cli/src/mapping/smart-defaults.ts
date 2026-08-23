@@ -72,15 +72,22 @@ export function toWorkflowLifecycleConfig(
 
   const blockerCheckStates =
     options.blockerCheckStates ??
-    (activeStates.includes("Todo") ? ["Todo"] : []);
+    getDefaultBlockerCheckStates({ activeStates });
 
   return {
     stateFieldName,
     activeStates,
     terminalStates,
     blockerCheckStates,
-    planningStates: options.planningStates ?? blockerCheckStates,
+    planningStates: options.planningStates ?? [],
   };
+}
+
+export function getDefaultBlockerCheckStates(
+  lifecycle: Pick<WorkflowLifecycleConfig, "activeStates">
+): string[] {
+  const firstActive = lifecycle.activeStates[0];
+  return firstActive ? [firstActive] : [];
 }
 
 // ── 3.4: Mapping validation ─────────────────────────────────────────────────

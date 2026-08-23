@@ -39,6 +39,7 @@ import {
   type LinkedRepository,
 } from "../github/client.js";
 import {
+  getDefaultBlockerCheckStates,
   inferAllStateRoles,
   toWorkflowLifecycleConfig,
   validateStateMapping,
@@ -893,13 +894,6 @@ export async function promptStateMappings(
   return mappings;
 }
 
-export function getDefaultBlockerCheckStates(
-  lifecycle: Pick<WorkflowLifecycleConfig, "activeStates">
-): string[] {
-  const firstActive = lifecycle.activeStates[0];
-  return firstActive ? [firstActive] : [];
-}
-
 export async function promptBlockerCheck(
   lifecycle: Pick<WorkflowLifecycleConfig, "activeStates">,
   options?: {
@@ -1097,7 +1091,7 @@ function buildLinearProjectDetail(projectSlug: string): ProjectDetail {
 function buildLinearWorkflowLifecycle(): WorkflowLifecycleConfig {
   return toWorkflowLifecycleConfig("State", LINEAR_DEFAULT_MAPPINGS, {
     blockerCheckStates: ["Todo"],
-    planningStates: ["Todo"],
+    planningStates: [],
   });
 }
 
