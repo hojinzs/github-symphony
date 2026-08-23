@@ -3345,11 +3345,14 @@ export class OrchestratorService {
       };
     }
 
-    const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
-      tenant,
-      runWithTokens,
-      now
-    );
+    const finalizationExhausted = currentTrackerProgress?.state === "unknown";
+    const recovery = finalizationExhausted
+      ? null
+      : await this.classifyIncompleteTurnDirtyWorkspace(
+          tenant,
+          runWithTokens,
+          now
+        );
     const convergenceDetected =
       workerInfo.exitClassification === "convergence-detected";
 
