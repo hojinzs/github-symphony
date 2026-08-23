@@ -26,6 +26,8 @@ fi
 # TC can select a deterministic worker behavior without widening that allowlist.
 printf 'STUB_SCENARIO=%s\n' "${STUB_SCENARIO:-happy}" > \
   "$WORK_DIR/.runtime/orchestrator/projects/repository/.env"
+printf 'GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH=/e2e/fixtures/issues.json\n' >> \
+  "$WORK_DIR/.runtime/orchestrator/projects/repository/.env"
 
 echo "[entrypoint] Starting CLI orchestrator with HTTP composition..."
 node /app/packages/cli/dist/index.js repo start \

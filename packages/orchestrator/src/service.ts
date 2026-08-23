@@ -90,6 +90,7 @@ const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const WORKER_TURN_LEASE_TTL_MS = 15_000;
 const TRACKER_PROGRESS_EXIT_GRACE_MS = 30_000;
+const MAX_FINALIZATION_DEFERRALS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
@@ -3292,15 +3293,41 @@ export class OrchestratorService {
           )
         : null;
     if (currentTrackerProgress === "unknown") {
+      const consecutiveDeferrals =
+        (runWithTokens.finalizationDeferralCount ?? 0) + 1;
+      const exhausted = consecutiveDeferrals >= MAX_FINALIZATION_DEFERRALS;
+      const deferredRun: OrchestratorRunRecord = {
+        ...runWithTokens,
+        finalizationDeferralCount: consecutiveDeferrals,
+        updatedAt: now.toISOString(),
+        lastEvent: "run-finalization-deferred",
+        lastEventAt: now.toISOString(),
+      };
+      await this.store.saveRun(deferredRun);
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "run-finalization-deferred",
+        projectId: run.projectId,
+        runId: run.runId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        reason: "tracker-state-unknown",
+        consecutiveDeferrals,
+        maxDeferrals: MAX_FINALIZATION_DEFERRALS,
+        exhausted,
+      });
       this.logVerbose(
-        `[run-finalization-deferred] ${runWithTokens.runId} reason=tracker-state-unknown`
+        `[run-finalization-deferred] ${runWithTokens.runId} reason=tracker-state-unknown consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
       );
-      return { issueRecords, recovered: false };
+      if (!exhausted) {
+        return { issueRecords, recovered: false };
+      }
     }
 
     if (currentTrackerProgress === "non-actionable") {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
+        finalizationDeferralCount: 0,
         status: "succeeded",
         processId: null,
         completedAt: now.toISOString(),
@@ -3362,9 +3389,10 @@ export class OrchestratorService {
     }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = convergenceDetected
-      ? "failure"
-      : await this.classifyRetryKind(tenant, run, trackerDependencies);
+    const retryKind =
+      convergenceDetected || currentTrackerProgress === "unknown"
+        ? "failure"
+        : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
@@ -3387,6 +3415,7 @@ export class OrchestratorService {
       ].join(" ");
       const suppressedRun: OrchestratorRunRecord = {
         ...runWithTokens,
+        finalizationDeferralCount: 0,
         status: "suppressed",
         processId: null,
         updatedAt: now.toISOString(),
@@ -3450,6 +3479,7 @@ export class OrchestratorService {
 
     const retryRecord: OrchestratorRunRecord = {
       ...runWithTokens,
+      finalizationDeferralCount: 0,
       status: "retrying",
       attempt: runWithTokens.attempt + 1,
       processId: null,

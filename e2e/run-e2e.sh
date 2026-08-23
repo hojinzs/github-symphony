@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -161,7 +161,7 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ]; then
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ]; then
       echo "[]" > e2e/fixtures/issues.json
     fi
   fi
@@ -264,6 +264,33 @@ PY
   log "  Canonical tracker state: Done"
   log "  Persisted run outcome:   succeeded/succeeded"
   log "  Reconciliation override: NO"
+  echo ""
+  log "PASSED"
+  exit 0
+fi
+
+if [ "$SCENARIO" = "api-progress-unknown" ]; then
+  if [ "$SAW_RUNNING" != true ]; then
+    fail "Worker did not reach running state"
+    exit 1
+  fi
+  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { execFileSync } from "node:child_process";
+    const eventPaths = execFileSync("find", ["/e2e/work", "-path", `*/runs/${process.env.SCENARIO_RUN_ID}/events.ndjson`], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (eventPaths.length !== 1) throw new Error(`expected_one_event_log:${JSON.stringify(eventPaths)}`);
+    const events = readFileSync(eventPaths[0], "utf8").trim().split("\n").map(JSON.parse).filter((event) => event.event === "run-finalization-deferred");
+    if (events.length !== 3) throw new Error(`expected_three_deferrals:${JSON.stringify(events)}`);
+    for (let index = 0; index < events.length; index += 1) {
+      if (events[index].consecutiveDeferrals !== index + 1 || events[index].maxDeferrals !== 3 || events[index].exhausted !== (index === 2)) {
+        throw new Error(`unexpected_deferral_sequence:${JSON.stringify(events)}`);
+      }
+    }
+  '
+  log "=== Result ==="
+  log "  Canonical tracker readback: unknown after confirmed progress"
+  log "  Persisted deferrals:        3 (bounded)"
+  log "  Final deferral exhausted:   YES"
   echo ""
   log "PASSED"
   exit 0

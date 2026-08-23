@@ -8,6 +8,7 @@
  *   slow            — starting(2s) → running(30s) → completed, exit 0
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  *   api-progress    — requests Ready → Done, confirms readback, then completes
+ *   api-progress-unknown — confirms Done, removes the canonical item, then completes
  */
 
 import { existsSync } from "node:fs";
@@ -29,7 +30,8 @@ type Scenario =
   | "stall"
   | "slow"
   | "transition-race"
-  | "api-progress";
+  | "api-progress"
+  | "api-progress-unknown";
 const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "happy",
   "fail",
@@ -37,6 +39,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "slow",
   "transition-race",
   "api-progress",
+  "api-progress-unknown",
 ]);
 const rawScenario = process.env.STUB_SCENARIO ?? "happy";
 const SCENARIO: Scenario = VALID_SCENARIOS.has(rawScenario)
@@ -56,6 +59,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     slow: { startMs: 2000, runMs: 30000 },
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
+    "api-progress-unknown": { startMs: 2000, runMs: 1000 },
   };
 
 function resolveCoreModuleUrl(): string {
@@ -258,6 +262,15 @@ async function requestAndConfirmApiProgress(): Promise<void> {
   }
 }
 
+async function removeCanonicalTrackerItem(): Promise<void> {
+  const issuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+  if (!issuesPath) {
+    throw new Error("stub_file_tracker_issues_path_missing");
+  }
+  await writeFile(issuesPath, "[]\n", "utf8");
+  console.error("[stub-worker] api-progress canonical item removed");
+}
+
 async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
@@ -295,8 +308,11 @@ async function run() {
   if (SCENARIO === "transition-race") {
     await requestTransitionForRace();
   }
-  if (SCENARIO === "api-progress") {
+  if (SCENARIO === "api-progress" || SCENARIO === "api-progress-unknown") {
     await requestAndConfirmApiProgress();
+  }
+  if (SCENARIO === "api-progress-unknown") {
+    await removeCanonicalTrackerItem();
   }
   await sleep(durations.runMs);
 
