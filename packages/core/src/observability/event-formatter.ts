@@ -24,6 +24,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return "Recovered existing run";
     case "run-retried":
       return `Retry ${event.attempt} scheduled (${event.retryKind})`;
+    case "run-finalization-deferred":
+      return `Finalization deferred ${event.consecutiveDeferrals}/${event.maxDeferrals} (${event.reason})${event.exhausted ? " — bound exhausted" : ""}`;
     case "run-failed":
       return event.lastError;
     case "run-suppressed":

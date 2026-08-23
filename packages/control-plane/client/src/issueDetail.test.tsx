@@ -123,9 +123,15 @@ describe("issue detail helpers", () => {
       event: "run-dispatched",
       message: "Lease acquired",
     };
+    const finalizationWarning: IssueStatusEvent = {
+      at: "2026-04-10T11:59:50.000Z",
+      event: "run-finalization-deferred",
+      message: "Finalization deferred 2/3 (tracker-read-failed)",
+    };
 
     expect(classifyEventTone(successEvent)).toBe("success");
     expect(classifyEventTone(warningEvent)).toBe("warning");
+    expect(classifyEventTone(finalizationWarning)).toBe("warning");
     expect(classifyEventTone(oldEvent)).toBe("muted");
   });
 });

@@ -551,6 +551,7 @@ describe("OrchestratorService", () => {
       rateLimits: { cycleCost: 1 },
       lastError: "expected_state_mismatch",
     });
+    expect(persistedRun?.trackerProgressConfirmedAt).toBeNull();
     expect(loadWorkflowSpy).toHaveBeenCalledOnce();
     loadWorkflowSpy.mockClear();
     const providerError = Object.assign(new Error("rate limit exhausted"), {
@@ -606,11 +607,11 @@ describe("OrchestratorService", () => {
     );
     try {
       const store = new OrchestratorFsStore(tempRoot);
-      const repository = {
-        owner: "acme",
-        name: "platform",
-        cloneUrl: "https://github.com/acme/platform.git",
-      };
+      const repository = await createRepositoryFixture(
+        tempRoot,
+        "acme",
+        "platform"
+      );
       const projectConfig = createProjectConfig(tempRoot, repository);
       await store.saveProjectConfig(projectConfig);
       await store.saveProjectIssueOrchestrations(projectConfig.projectId, [
@@ -699,6 +700,7 @@ describe("OrchestratorService", () => {
         store.loadRun("run-1", projectConfig.projectId)
       ).resolves.toMatchObject({
         issueState: "In review",
+        trackerProgressConfirmedAt: "2026-08-07T09:01:00.000Z",
         transitionComment: { status: "created", error: null },
       });
 
@@ -7762,10 +7764,12 @@ Prefer focused changes.
     });
   });
 
-  it("distinguishes active and unknown tracker state after a successful worker exit", async () => {
+  async function createSuccessfulFinalizationFixture(
+    trackerState: string | null | Error
+  ) {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-continuation-retry-")
+      join(tmpdir(), "orchestrator-successful-finalization-")
     );
     const repository = await createRepositoryFixture(
       tempRoot,
@@ -7816,27 +7820,52 @@ Prefer focused changes.
       completedAt: null,
       trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
       runPhase: "succeeded",
+      lastEventAt: "2026-03-07T23:59:58.000Z",
+      lastEventAtSource: "event-channel",
       lastError: null,
       nextRetryAt: null,
     });
 
+    const fetchImpl = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/v1/state")) {
+        return Promise.resolve({ ok: false, json: vi.fn() } as never);
+      }
+      return Promise.resolve(
+        trackerState === null || trackerState instanceof Error
+          ? createEmptyTrackerResponse()
+          : createTrackerResponseWithState(repository, trackerState)
+      );
+    });
+    const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
+      projectConfig.tracker
+    );
+    const fetchIssueStatesByIds = vi.fn();
+    if (trackerState instanceof Error) {
+      fetchIssueStatesByIds.mockRejectedValue(trackerState);
+    } else {
+      fetchIssueStatesByIds.mockResolvedValue(
+        trackerState === null ? [] : [{ id: "issue-1", state: trackerState }]
+      );
+    }
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      ...trackerAdapter,
+      fetchIssueStatesByIds,
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(
-          createTrackerResponseWithState(repository, "Todo")
-        ) as never,
+      fetchImpl: fetchImpl as typeof fetch,
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4105,
         unref: vi.fn(),
       }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
-    const currentProgressSpy = vi.spyOn(
-      service as never,
-      "classifyCurrentTrackerProgress"
-    );
-    currentProgressSpy.mockResolvedValueOnce("active" as never);
+
+    return { store, service, fetchIssueStatesByIds };
+  }
+
+  it("classifies an active tracker state and schedules continuation after a successful worker exit", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Todo");
     const loadRetryPolicySpy = vi.spyOn(service as never, "loadRetryPolicy");
 
     await service.runOnce();
@@ -7850,32 +7879,213 @@ Prefer focused changes.
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);
     expect(loadRetryPolicySpy).not.toHaveBeenCalled();
+  });
 
-    await store.saveRun({
-      ...updatedRun!,
-      status: "running",
-      attempt: 1,
-      completedAt: null,
-      nextRetryAt: null,
-      retryKind: null,
-      lastError: null,
-    });
-    await store.saveProjectIssueOrchestrations("tenant-1", [
-      {
-        ...issueRecords[0]!,
-        state: "running",
-        currentRunId: "run-1",
-        retryEntry: null,
-      },
-    ]);
-    currentProgressSpy.mockResolvedValueOnce("unknown" as never);
+  it("classifies a non-actionable tracker state and succeeds the completed worker run", async () => {
+    const { store, service } =
+      await createSuccessfulFinalizationFixture("Done");
 
     await service.runOnce();
 
-    expect((await store.loadRun("run-1"))?.status).toBe("running");
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "succeeded",
+      completedAt: "2026-03-08T00:00:00.000Z",
+      finalizationDeferralCount: 0,
+    });
     expect(
-      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]?.state
-    ).toBe("running");
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "released", currentRunId: null });
+  });
+
+  it("recovers a transient unknown finalization read and later succeeds", async () => {
+    const { store, service, fetchIssueStatesByIds } =
+      await createSuccessfulFinalizationFixture(null);
+
+    await service.runOnce();
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "running",
+      finalizationDeferralCount: 1,
+      lastEventAt: "2026-03-07T23:59:58.000Z",
+      lastEventAtSource: "event-channel",
+    });
+
+    fetchIssueStatesByIds.mockResolvedValueOnce([
+      { id: "issue-1", state: "Done" },
+    ]);
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "succeeded",
+      finalizationDeferralCount: 0,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "released", currentRunId: null });
+  });
+
+  it("persists unknown finalization deferrals and enters failure retry handling at the bound", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(null);
+
+    await service.runOnce();
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "running",
+      finalizationDeferralCount: 2,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "running", failureRetryCount: 0 });
+
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      finalizationDeferralCount: 0,
+      nextRetryAt: "2026-03-08T00:00:07.000Z",
+      lastError:
+        "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "retry_queued", failureRetryCount: 1 });
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) => event.event === "run-finalization-deferred");
+    expect(events).toEqual([
+      expect.objectContaining({
+        reason: "tracker-item-missing",
+        error:
+          "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+        consecutiveDeferrals: 1,
+        maxDeferrals: 3,
+        exhausted: false,
+      }),
+      expect.objectContaining({
+        reason: "tracker-item-missing",
+        consecutiveDeferrals: 2,
+        maxDeferrals: 3,
+        exhausted: false,
+      }),
+      expect.objectContaining({
+        reason: "tracker-item-missing",
+        consecutiveDeferrals: 3,
+        maxDeferrals: 3,
+        exhausted: true,
+      }),
+    ]);
+  });
+
+  it.each(["turn_completed", "heartbeat", undefined] as const)(
+    "preserves bounded failure retry accounting when the completed workspace is dirty and lastEvent is %s",
+    async (lastEvent) => {
+      const { store, service } =
+        await createSuccessfulFinalizationFixture(null);
+      const run = await store.loadRun("run-1");
+      expect(run).not.toBeNull();
+
+      const workspaceKey = deriveIssueWorkspaceKey(
+        {
+          adapter: "github-project",
+          issueSubjectId: "issue-1",
+        },
+        "acme/platform#1"
+      );
+      const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+        store.projectDir("tenant-1"),
+        workspaceKey
+      );
+      const repositoryDirectory =
+        await gitModule.ensureIssueWorkspaceRepository({
+          repository: run!.repository,
+          issueWorkspacePath,
+          existingWorkspace: false,
+        });
+      await store.saveIssueWorkspace({
+        workspaceKey,
+        projectId: "tenant-1",
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+        issueIdentifier: "acme/platform#1",
+        workspacePath: issueWorkspacePath,
+        repositoryPath: repositoryDirectory,
+        status: "active",
+        createdAt: "2026-03-08T00:00:00.000Z",
+        updatedAt: "2026-03-08T00:00:00.000Z",
+        lastError: null,
+      });
+      await writeFile(
+        join(repositoryDirectory, "completed-turn-output.txt"),
+        "completed worker output\n",
+        "utf8"
+      );
+      await store.saveRun({
+        ...run!,
+        issueWorkspaceKey: workspaceKey,
+        lastEvent,
+      });
+
+      await service.runOnce();
+      await service.runOnce();
+      await service.runOnce();
+
+      const exhaustedRun = await store.loadRun("run-1");
+      expect(exhaustedRun).toMatchObject({
+        status: "retrying",
+        retryKind: "failure",
+        finalizationDeferralCount: 0,
+        lastError:
+          "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+        recovery: null,
+      });
+      expect(exhaustedRun?.lastEvent ?? null).toBe(lastEvent ?? null);
+      expect(
+        (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+      ).toMatchObject({
+        state: "retry_queued",
+        failureRetryCount: 1,
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:07.000Z",
+          error:
+            "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+        },
+      });
+    }
+  );
+
+  it("preserves a failed tracker read cause in finalization diagnostics", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(
+      new Error("tracker timeout")
+    );
+
+    await service.runOnce();
+
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "run-finalization-deferred",
+        reason: "tracker-read-failed",
+        error:
+          "Final tracker state unavailable: tracker read failed: tracker timeout",
+      })
+    );
   });
 
   it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {

@@ -332,6 +332,19 @@ describe("logs command", () => {
         projectId: "tenant-a",
         reason: "lease already active",
       },
+      {
+        at: "2026-03-16T00:02:00.000Z",
+        event: "run-finalization-deferred",
+        issueIdentifier: "acme/platform#3",
+        issueId: "issue-3",
+        projectId: "tenant-a",
+        runId: "run-1",
+        reason: "tracker-read-failed",
+        error: "Final tracker state unavailable: tracker read failed: timeout",
+        consecutiveDeferrals: 2,
+        maxDeferrals: 3,
+        exhausted: false,
+      },
     ]);
     const stdout = captureWrites(process.stdout);
 
@@ -348,6 +361,9 @@ describe("logs command", () => {
 
     const output = stdout.output();
     expect(output).toContain("run-suppressed acme/platform#2");
+    expect(output).toContain(
+      "run-finalization-deferred acme/platform#3 Finalization deferred 2/3 (tracker-read-failed)"
+    );
     expect(output).not.toContain("hook-failed");
   });
 

@@ -90,6 +90,7 @@ const DEFAULT_WORKER_COMMAND = "node packages/worker/dist/index.js";
 const DEFAULT_MAX_NONPRODUCTIVE_TURNS = 3;
 const WORKER_TURN_LEASE_TTL_MS = 15_000;
 const TRACKER_PROGRESS_EXIT_GRACE_MS = 30_000;
+const MAX_FINALIZATION_DEFERRALS = 3;
 const LOW_RATE_LIMIT_WARNING_THRESHOLD = 0.05;
 const ADAPTIVE_RATE_LIMIT_FULL_SPEED_RATIO = 0.5;
 const MAX_ADAPTIVE_POLL_INTERVAL_MULTIPLIER = 10;
@@ -3291,16 +3292,41 @@ export class OrchestratorService {
             trackerDependencies
           )
         : null;
-    if (currentTrackerProgress === "unknown") {
+    if (currentTrackerProgress?.state === "unknown") {
+      const consecutiveDeferrals =
+        (runWithTokens.finalizationDeferralCount ?? 0) + 1;
+      const exhausted = consecutiveDeferrals >= MAX_FINALIZATION_DEFERRALS;
+      const deferredRun: OrchestratorRunRecord = {
+        ...runWithTokens,
+        finalizationDeferralCount: consecutiveDeferrals,
+        updatedAt: now.toISOString(),
+      };
+      await this.store.saveRun(deferredRun);
+      await this.store.appendRunEvent(run.runId, {
+        at: now.toISOString(),
+        event: "run-finalization-deferred",
+        projectId: run.projectId,
+        runId: run.runId,
+        issueIdentifier: run.issueIdentifier,
+        issueId: run.issueId,
+        reason: currentTrackerProgress.reason,
+        error: currentTrackerProgress.error,
+        consecutiveDeferrals,
+        maxDeferrals: MAX_FINALIZATION_DEFERRALS,
+        exhausted,
+      });
       this.logVerbose(
-        `[run-finalization-deferred] ${runWithTokens.runId} reason=tracker-state-unknown`
+        `[run-finalization-deferred] ${runWithTokens.runId} reason=${currentTrackerProgress.reason} consecutiveDeferrals=${consecutiveDeferrals} maxDeferrals=${MAX_FINALIZATION_DEFERRALS} exhausted=${exhausted}`
       );
-      return { issueRecords, recovered: false };
+      if (!exhausted) {
+        return { issueRecords, recovered: false };
+      }
     }
 
-    if (currentTrackerProgress === "non-actionable") {
+    if (currentTrackerProgress?.state === "non-actionable") {
       const completedRun: OrchestratorRunRecord = {
         ...runWithTokens,
+        finalizationDeferralCount: 0,
         status: "succeeded",
         processId: null,
         completedAt: now.toISOString(),
@@ -3319,11 +3345,14 @@ export class OrchestratorService {
       };
     }
 
-    const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
-      tenant,
-      runWithTokens,
-      now
-    );
+    const finalizationExhausted = currentTrackerProgress?.state === "unknown";
+    const recovery = finalizationExhausted
+      ? null
+      : await this.classifyIncompleteTurnDirtyWorkspace(
+          tenant,
+          runWithTokens,
+          now
+        );
     const convergenceDetected =
       workerInfo.exitClassification === "convergence-detected";
 
@@ -3362,9 +3391,10 @@ export class OrchestratorService {
     }
 
     // Determine retry kind: continuation (issue still actionable) vs failure
-    const retryKind = convergenceDetected
-      ? "failure"
-      : await this.classifyRetryKind(tenant, run, trackerDependencies);
+    const retryKind =
+      convergenceDetected || currentTrackerProgress?.state === "unknown"
+        ? "failure"
+        : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
 
     const failureRetryCount =
@@ -3387,6 +3417,7 @@ export class OrchestratorService {
       ].join(" ");
       const suppressedRun: OrchestratorRunRecord = {
         ...runWithTokens,
+        finalizationDeferralCount: 0,
         status: "suppressed",
         processId: null,
         updatedAt: now.toISOString(),
@@ -3450,6 +3481,7 @@ export class OrchestratorService {
 
     const retryRecord: OrchestratorRunRecord = {
       ...runWithTokens,
+      finalizationDeferralCount: 0,
       status: "retrying",
       attempt: runWithTokens.attempt + 1,
       processId: null,
@@ -3472,7 +3504,9 @@ export class OrchestratorService {
           "convergence_detected: repeated non-productive turns")
         : recovery || retryKind === "continuation"
           ? null
-          : "Worker process exited unexpectedly.",
+          : (currentTrackerProgress?.state === "unknown"
+            ? currentTrackerProgress.error
+            : "Worker process exited unexpectedly."),
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -3911,11 +3945,25 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
     trackerDependencies: OrchestratorTrackerDependencies = {}
-  ): Promise<"non-actionable" | "active" | "unknown"> {
+  ): Promise<
+    | { state: "non-actionable" | "active" }
+    | {
+        state: "unknown";
+        reason:
+          | "workflow-unavailable"
+          | "tracker-item-missing"
+          | "tracker-read-failed";
+        error: string;
+      }
+  > {
     try {
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
-        return "unknown";
+        return {
+          state: "unknown",
+          reason: "workflow-unavailable",
+          error: "Final tracker state unavailable: workflow policy could not be loaded.",
+        };
       }
       const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
       const issues = await trackerAdapter.fetchIssueStatesByIds(
@@ -3930,19 +3978,31 @@ export class OrchestratorService {
         (candidate) => candidate.id === run.issueSubjectId
       );
       if (!issue) {
-        return "unknown";
+        return {
+          state: "unknown",
+          reason: "tracker-item-missing",
+          error: `Final tracker state unavailable: canonical tracker item ${run.issueSubjectId} was not returned.`,
+        };
       }
-      return matchesWorkflowState(
-        issue.state,
-        resolution.lifecycle.activeStates
-      )
-        ? "active"
-        : "non-actionable";
+      return {
+        state: matchesWorkflowState(
+          issue.state,
+          resolution.lifecycle.activeStates
+        )
+          ? "active"
+          : "non-actionable",
+      };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : this.formatErrorMessage(error);
       this.logVerbose(
-        `[run-finalization-deferred] ${run.runId} tracker lookup failed: ${this.formatErrorMessage(error)}`
+        `[run-finalization-deferred] ${run.runId} tracker lookup failed: ${errorMessage}`
       );
-      return "unknown";
+      return {
+        state: "unknown",
+        reason: "tracker-read-failed",
+        error: `Final tracker state unavailable: tracker read failed: ${errorMessage}`,
+      };
     }
   }
 

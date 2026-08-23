@@ -119,6 +119,23 @@ export type RunSuppressedEvent = {
   reason: string;
 };
 
+export type RunFinalizationDeferredEvent = {
+  at: string;
+  event: "run-finalization-deferred";
+  projectId: string;
+  runId: string;
+  issueIdentifier: string;
+  issueId: string;
+  reason:
+    | "workflow-unavailable"
+    | "tracker-item-missing"
+    | "tracker-read-failed";
+  error: string;
+  consecutiveDeferrals: number;
+  maxDeferrals: number;
+  exhausted: boolean;
+};
+
 export type ConvergenceLockExpiredEvent = {
   at: string;
   event: "convergence-lock-expired";
@@ -278,6 +295,7 @@ export type OrchestratorEvent =
   | RunRetriedEvent
   | RunFailedEvent
   | RunSuppressedEvent
+  | RunFinalizationDeferredEvent
   | ConvergenceLockExpiredEvent
   | RecoveryQuarantinedEvent
   | HookExecutedEvent
