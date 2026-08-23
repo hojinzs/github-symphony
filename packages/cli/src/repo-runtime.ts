@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmod,
   mkdir,
   readdir,
   readFile,
@@ -8,7 +9,14 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import {
   parseWorkflowMarkdown,
   type OrchestratorProjectConfig,
@@ -122,13 +130,31 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     trackerSettings.issuesPath =
       process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
   }
+  const workspaceDir = workflow.workspace.root
+    ? resolve(repoDir, workflow.workspace.root)
+    : resolve(repoDir, DEFAULT_WORKSPACE_ROOT);
+  const runtimeRelativeToWorkspace = relative(workspaceDir, runtimeRoot);
+  const repositoryRelativeToWorkspace = relative(workspaceDir, repoDir);
+  const workspaceContainsRepository =
+    repositoryRelativeToWorkspace === "" ||
+    (!repositoryRelativeToWorkspace.startsWith("..") &&
+      !isAbsolute(repositoryRelativeToWorkspace));
+  if (
+    !workspaceContainsRepository &&
+    (runtimeRelativeToWorkspace === "" ||
+      (!runtimeRelativeToWorkspace.startsWith("..") &&
+        !isAbsolute(runtimeRelativeToWorkspace)))
+  ) {
+    throw new Error(
+      `workspace.root ${JSON.stringify(workspaceDir)} must not equal or contain the orchestrator runtime directory ${JSON.stringify(runtimeRoot)}.`
+    );
+  }
+
   const projectConfig: CliProjectConfig = {
     projectId: INTERNAL_PROJECT_ID,
     slug: basename(repoDir) || INTERNAL_PROJECT_ID,
     displayName: `${repository.owner}/${repository.name}`,
-    workspaceDir: workflow.workspace.root
-      ? resolve(repoDir, workflow.workspace.root)
-      : resolve(repoDir, DEFAULT_WORKSPACE_ROOT),
+    workspaceDir,
     repositoryDir: repoDir,
     repository,
     tracker: {
@@ -145,6 +171,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   await mkdir(runtimeRoot, { recursive: true });
   await saveProjectConfig(runtimeRoot, INTERNAL_PROJECT_ID, projectConfig);
   await mkdir(projectConfig.workspaceDir, { recursive: true, mode: 0o700 });
+  await chmod(projectConfig.workspaceDir, 0o700);
   await saveGlobalConfig(runtimeRoot, {
     activeProject: INTERNAL_PROJECT_ID,
     projects: [INTERNAL_PROJECT_ID],

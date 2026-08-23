@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -301,6 +308,33 @@ describe("repo init runtime migration", () => {
     );
     expect(projectConfig.workspaceDir).not.toBe(
       join(repoDir, ".runtime", "orchestrator")
+    );
+  });
+
+  it("enforces private permissions on a pre-existing workspace root", async () => {
+    const repoDir = await createGitRepo();
+    const workspaceDir = join(repoDir, ".runtime", "symphony-workspaces");
+    const { initRepoRuntime } = await loadRepoRuntimeModule();
+    await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+    await mkdir(workspaceDir, { recursive: true, mode: 0o755 });
+    await chmod(workspaceDir, 0o755);
+
+    await initRepoRuntime({ repoDir });
+
+    expect((await stat(workspaceDir)).mode & 0o777).toBe(0o700);
+  });
+
+  it("rejects workspace.root when it contains orchestrator state", async () => {
+    const repoDir = await createGitRepo();
+    const { initRepoRuntime } = await loadRepoRuntimeModule();
+    await writeFile(
+      join(repoDir, "WORKFLOW.md"),
+      VALID_WORKFLOW.replace(".runtime/symphony-workspaces", ".runtime"),
+      "utf8"
+    );
+
+    await expect(initRepoRuntime({ repoDir })).rejects.toThrow(
+      "must not equal or contain the orchestrator runtime directory"
     );
   });
 
