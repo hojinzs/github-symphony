@@ -52,7 +52,7 @@ tracker:
   blocker_check_states:
     - Ready
   planning_states:
-    - Ready
+    - " ready "
 polling:
   interval_ms: 5000
 agent:
@@ -65,7 +65,7 @@ codex:
   turn_sandbox_policy: dangerFullAccess
   stall_timeout_ms: 60000
 ---
-You are an AI agent working on issue {{issue.identifier}}.
+You are an AI agent working on issue {{issue.identifier}}; phase={{execution_phase}}.
 This is an E2E test environment. Complete the task and report success.
 EOF
 

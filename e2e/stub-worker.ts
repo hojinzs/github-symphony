@@ -6,6 +6,7 @@
  *   fail            — starting(2s) → running(3s) → failed, exit 1
  *   stall           — starting(2s) → running(∞), waits for SIGTERM
  *   slow            — starting(2s) → running(30s) → completed, exit 0
+ *   prompt-phase    — validates the rendered planning phase, then completes
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  *   api-progress    — requests Ready → Done, confirms readback, then completes
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
@@ -22,6 +23,7 @@ const RUN_ID = process.env.SYMPHONY_RUN_ID ?? "unknown";
 const ISSUE_ID = process.env.SYMPHONY_ISSUE_ID ?? null;
 const ISSUE_IDENTIFIER = process.env.SYMPHONY_ISSUE_IDENTIFIER ?? null;
 const ISSUE_STATE = process.env.SYMPHONY_ISSUE_STATE ?? null;
+const RENDERED_PROMPT = process.env.SYMPHONY_RENDERED_PROMPT ?? "";
 const WORKSPACE_RUNTIME_DIR =
   process.env.WORKSPACE_RUNTIME_DIR ?? "/tmp/stub-worker";
 type Scenario =
@@ -29,6 +31,7 @@ type Scenario =
   | "fail"
   | "stall"
   | "slow"
+  | "prompt-phase"
   | "transition-race"
   | "api-progress"
   | "api-progress-unknown";
@@ -37,6 +40,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "fail",
   "stall",
   "slow",
+  "prompt-phase",
   "transition-race",
   "api-progress",
   "api-progress-unknown",
@@ -57,6 +61,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     fail: { startMs: 2000, runMs: 3000 },
     stall: { startMs: 2000, runMs: Infinity },
     slow: { startMs: 2000, runMs: 30000 },
+    "prompt-phase": { startMs: 500, runMs: 500 },
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
@@ -275,6 +280,14 @@ async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
   console.error(`[stub-worker] scenario=${SCENARIO} runId=${RUN_ID}`);
+  if (
+    SCENARIO === "prompt-phase" &&
+    !RENDERED_PROMPT.includes("phase=planning")
+  ) {
+    throw new Error(
+      `stub_prompt_phase_missing:${JSON.stringify(RENDERED_PROMPT)}`
+    );
+  }
   // Record the starting event before loading the runtime dependency so a
   // resolution failure remains observable in both local and Docker E2E runs.
   status = "starting";
@@ -308,7 +321,11 @@ async function run() {
   if (SCENARIO === "transition-race") {
     await requestTransitionForRace();
   }
-  if (SCENARIO === "api-progress" || SCENARIO === "api-progress-unknown") {
+  if (
+    SCENARIO === "api-progress" ||
+    SCENARIO === "api-progress-unknown" ||
+    SCENARIO === "prompt-phase"
+  ) {
     await requestAndConfirmApiProgress();
   }
   if (SCENARIO === "api-progress-unknown") {
