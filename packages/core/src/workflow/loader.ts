@@ -23,14 +23,20 @@ export class WorkflowConfigStore {
     const fileStat = await stat(workflowPath);
     const cached = this.cache.get(workflowPath);
     const markdown = await readFile(workflowPath, "utf8");
-    const fingerprint = `${fileStat.mtimeMs}:${fileStat.size}:${createHash("sha256")
+    const fingerprint = `${fileStat.mtimeMs}:${fileStat.size}:${createHash(
+      "sha256"
+    )
       .update(markdown)
       .digest("hex")}`;
-    const envSignature = JSON.stringify(
-      Object.entries(env).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string"
+    const envSignature = createHash("sha256")
+      .update(
+        JSON.stringify(
+          Object.entries(env).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string"
+          )
+        )
       )
-    );
+      .digest("hex");
 
     if (
       cached &&
