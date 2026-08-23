@@ -7984,6 +7984,78 @@ Prefer focused changes.
     ]);
   });
 
+  it("preserves bounded failure retry accounting when the completed workspace is dirty", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(null);
+    const run = await store.loadRun("run-1");
+    expect(run).not.toBeNull();
+
+    const workspaceKey = deriveIssueWorkspaceKey(
+      {
+        adapter: "github-project",
+        issueSubjectId: "issue-1",
+      },
+      "acme/platform#1"
+    );
+    const issueWorkspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir("tenant-1"),
+      workspaceKey
+    );
+    const repositoryDirectory = await gitModule.ensureIssueWorkspaceRepository({
+      repository: run!.repository,
+      issueWorkspacePath,
+      existingWorkspace: false,
+    });
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: issueWorkspacePath,
+      repositoryPath: repositoryDirectory,
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await writeFile(
+      join(repositoryDirectory, "completed-turn-output.txt"),
+      "completed worker output\n",
+      "utf8"
+    );
+    await store.saveRun({
+      ...run!,
+      issueWorkspaceKey: workspaceKey,
+      lastEvent: "turn_completed",
+    });
+
+    await service.runOnce();
+    await service.runOnce();
+    await service.runOnce();
+
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      retryKind: "failure",
+      finalizationDeferralCount: 0,
+      lastEvent: "turn_completed",
+      lastError:
+        "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+      recovery: null,
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      failureRetryCount: 1,
+      retryEntry: {
+        attempt: 2,
+        dueAt: "2026-03-08T00:00:07.000Z",
+        error:
+          "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
+      },
+    });
+  });
+
   it("preserves a failed tracker read cause in finalization diagnostics", async () => {
     const { store, service } = await createSuccessfulFinalizationFixture(
       new Error("tracker timeout")

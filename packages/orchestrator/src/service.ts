@@ -3300,7 +3300,6 @@ export class OrchestratorService {
         ...runWithTokens,
         finalizationDeferralCount: consecutiveDeferrals,
         updatedAt: now.toISOString(),
-        lastEvent: "run-finalization-deferred",
       };
       await this.store.saveRun(deferredRun);
       await this.store.appendRunEvent(run.runId, {
