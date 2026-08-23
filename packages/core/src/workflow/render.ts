@@ -3,6 +3,7 @@ import type {
   TrackedIssueContentType,
   TrackedPullRequestContext,
 } from "../contracts/tracker-adapter.js";
+import type { WorkflowExecutionPhase } from "../contracts/status-surface.js";
 import {
   Liquid,
   ParseError,
@@ -54,11 +55,13 @@ export type PromptPullRequestVariables = {
  * - `issue` — normalized issue payload
  * - `pull_request_context` — normalized PR context and checkout guidance
  * - `attempt` — null for first execution, attempt number for retries
+ * - `execution_phase` — lifecycle phase derived from the issue state
  */
 export type PromptVariables = {
   issue: PromptIssueVariables;
   pull_request_context: PromptPullRequestVariables;
   attempt: number | null;
+  execution_phase: WorkflowExecutionPhase | null;
 };
 
 export type ContinuationGuidanceVariables = {
@@ -73,6 +76,7 @@ export function buildPromptVariables(
   issue: TrackedIssue,
   options: {
     attempt: number | null;
+    executionPhase?: WorkflowExecutionPhase | null;
   }
 ): PromptVariables {
   const contentType = issue.metadata.contentType ?? "Issue";
@@ -117,6 +121,7 @@ export function buildPromptVariables(
     },
     pull_request_context: pullRequestContext,
     attempt: options.attempt,
+    execution_phase: options.executionPhase ?? null,
   };
 }
 

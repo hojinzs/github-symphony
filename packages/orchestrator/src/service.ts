@@ -25,6 +25,7 @@ import {
   mapIssueOrchestrationStateToStatus,
   readEnvFile,
   renderPrompt,
+  resolveWorkflowExecutionPhase,
   resolveWorkflowRuntimeCommand,
   resolveWorkflowRuntimeTimeouts,
   resolveIssueWorkspaceDirectory,
@@ -2787,6 +2788,11 @@ export class OrchestratorService {
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
       attempt: null, // first execution
+      executionPhase: resolveWorkflowExecutionPhase({
+        issueState: issue.state,
+        planningStates: workflow.lifecycle.planningStates,
+        activeStates: workflow.lifecycle.activeStates,
+      }),
     });
     const renderedPrompt = composeWorkerRunPrompt(
       issue,

@@ -207,6 +207,34 @@ Prompt {{ issue.identifier }}
     expect(stdout.output()).toContain("Attempt=2");
   });
 
+  it("previews the normalized execution phase for planning states", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-preview-phase-"));
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+    const workflow = SAMPLE_WORKFLOW.replace(
+      "  terminal_states:\n    - Done",
+      "  terminal_states:\n    - Done\n  planning_states:\n    - IN PROGRESS"
+    ).replace(
+      "{{ issue.identifier }}: {{ issue.title }}",
+      "{{ issue.identifier }}: phase={{ execution_phase }}"
+    );
+
+    await writeFile(workflowPath, workflow, "utf8");
+
+    try {
+      await workflowCommand(["preview", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: false,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("octo/hello-world#157: phase=planning");
+  });
+
   it("loads sample issue JSON for preview rendering", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-preview-sample-"));
     const workflowPath = join(root, "WORKFLOW.md");

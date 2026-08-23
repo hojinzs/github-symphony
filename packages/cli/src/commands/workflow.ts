@@ -5,6 +5,7 @@ import {
   type OrchestratorProjectConfig,
   parseWorkflowMarkdown,
   renderPrompt,
+  resolveWorkflowExecutionPhase,
   type TrackedIssue,
 } from "@gh-symphony/core";
 import { resolveTrackerAdapter } from "@gh-symphony/orchestrator";
@@ -569,12 +570,23 @@ export function readGitHubProjectBinding(
 }
 
 export function renderIssueWorkflowPreview(input: {
-  workflow: { promptTemplate: string };
+  workflow: {
+    promptTemplate: string;
+    lifecycle: {
+      planningStates: string[];
+      activeStates: string[];
+    };
+  };
   issue: TrackedIssue;
   attempt: number | null;
 }): string {
   const variables = buildPromptVariables(input.issue, {
     attempt: input.attempt,
+    executionPhase: resolveWorkflowExecutionPhase({
+      issueState: input.issue.state,
+      planningStates: input.workflow.lifecycle.planningStates,
+      activeStates: input.workflow.lifecycle.activeStates,
+    }),
   });
   return renderPrompt(input.workflow.promptTemplate, variables, {
     strict: true,
@@ -779,9 +791,19 @@ function validateWorkflow(
   const workflow = parseWorkflowMarkdown(markdown);
   const promptFreshVariables = buildPromptVariables(SAMPLE_ISSUE, {
     attempt: null,
+    executionPhase: resolveWorkflowExecutionPhase({
+      issueState: SAMPLE_ISSUE.state,
+      planningStates: workflow.lifecycle.planningStates,
+      activeStates: workflow.lifecycle.activeStates,
+    }),
   });
   const promptRetryVariables = buildPromptVariables(SAMPLE_ISSUE, {
     attempt: 2,
+    executionPhase: resolveWorkflowExecutionPhase({
+      issueState: SAMPLE_ISSUE.state,
+      planningStates: workflow.lifecycle.planningStates,
+      activeStates: workflow.lifecycle.activeStates,
+    }),
   });
 
   renderPrompt(workflow.promptTemplate, promptFreshVariables, { strict: true });

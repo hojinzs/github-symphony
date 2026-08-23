@@ -26,6 +26,16 @@ describe("execution phase helpers", () => {
     ).toBe("implementation");
   });
 
+  it("normalizes configured and tracker state names", () => {
+    expect(
+      resolveInitialExecutionPhase({
+        issueState: "  In progress ",
+        planningStates: ["IN PROGRESS"],
+        activeStates: ["In Progress"],
+      })
+    ).toBe("planning");
+  });
+
   it("advances paused phases when the issue becomes non-actionable", () => {
     expect(resolvePausedExecutionPhase("planning")).toBe("human-review");
     expect(resolvePausedExecutionPhase("implementation")).toBe(

@@ -47,6 +47,7 @@ describe("buildPromptVariables", () => {
     });
 
     expect(variables.issue.content_type).toBe("Issue");
+    expect(variables.execution_phase).toBeNull();
     expect(variables.issue.linked_pull_requests).toEqual([]);
     expect(variables.issue.primary_pull_request).toBeNull();
     expect(variables.issue.has_linked_pr).toBe(false);
@@ -62,6 +63,17 @@ describe("buildPromptVariables", () => {
     expect(
       renderPrompt("Fix {{issue.title}} on {{issue.branch_name}}.", variables)
     ).toBe("Fix Fix the bug on .");
+  });
+
+  it("exposes the execution phase to Liquid templates", () => {
+    const variables = buildPromptVariables(createTrackedIssue(), {
+      attempt: null,
+      executionPhase: "planning",
+    });
+
+    expect(renderPrompt("phase={{ execution_phase }}", variables)).toBe(
+      "phase=planning"
+    );
   });
 
   it("exposes linked pull request context to Liquid templates", () => {
