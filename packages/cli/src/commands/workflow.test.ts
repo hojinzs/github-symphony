@@ -412,8 +412,10 @@ Prompt {{ issue.identifier }}
 
     await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
 
-    setWorkflowCommandDependenciesForTest({
-      loadActiveProjectConfig: vi.fn().mockResolvedValue({
+    const resolveManagedProjectSelection = vi.fn().mockResolvedValue({
+      kind: "resolved",
+      projectId: "repository",
+      projectConfig: {
         projectId: "repository",
         slug: "api",
         workspaceDir: root,
@@ -429,17 +431,30 @@ Prompt {{ issue.identifier }}
             projectSlug: "symphony-0c79b11b75ea",
           },
         },
-      }),
+      },
+    });
+    setWorkflowCommandDependenciesForTest({
+      resolveManagedProjectSelection,
       resolveTrackerAdapter,
     });
 
     try {
-      await workflowCommand(["preview", "--file", workflowPath, "ENG-123"], {
-        configDir: root,
-        verbose: false,
-        json: false,
-        noColor: false,
-      });
+      await workflowCommand(
+        [
+          "preview",
+          "--file",
+          workflowPath,
+          "--project-id",
+          "tenant-a",
+          "ENG-123",
+        ],
+        {
+          configDir: root,
+          verbose: false,
+          json: false,
+          noColor: false,
+        }
+      );
     } finally {
       stdout.restore();
     }
@@ -453,6 +468,10 @@ Prompt {{ issue.identifier }}
         }),
       })
     );
+    expect(resolveManagedProjectSelection).toHaveBeenCalledWith({
+      configDir: root,
+      requestedProjectId: "tenant-a",
+    });
     expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
       expect.objectContaining({
         repository: expect.objectContaining({
@@ -478,20 +497,24 @@ Prompt {{ issue.identifier }}
     await writeFile(workflowPath, LINEAR_WORKFLOW, "utf8");
 
     setWorkflowCommandDependenciesForTest({
-      loadActiveProjectConfig: vi.fn().mockResolvedValue({
+      resolveManagedProjectSelection: vi.fn().mockResolvedValue({
+        kind: "resolved",
         projectId: "tenant-a",
-        slug: "tenant-a",
-        workspaceDir: root,
-        repository: {
-          owner: "acme",
-          name: "api",
-          cloneUrl: "https://github.com/acme/api.git",
-        },
-        tracker: {
-          adapter: "github-project",
-          bindingId: "PVT_project_123",
-          settings: {
-            projectId: "PVT_project_123",
+        projectConfig: {
+          projectId: "tenant-a",
+          slug: "tenant-a",
+          workspaceDir: root,
+          repository: {
+            owner: "acme",
+            name: "api",
+            cloneUrl: "https://github.com/acme/api.git",
+          },
+          tracker: {
+            adapter: "github-project",
+            bindingId: "PVT_project_123",
+            settings: {
+              projectId: "PVT_project_123",
+            },
           },
         },
       }),

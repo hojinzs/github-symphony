@@ -599,7 +599,7 @@ gh-symphony config edit             # Open config in $EDITOR
 
 `gh-symphony doctor` runs a single first-run diagnostic pass and exits non-zero if any required prerequisite is missing. `gh-symphony doctor --fix` adds a remediation pass on top of the same checks. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
 
-When cwd is a registered standalone project folder, `doctor` and live `workflow preview` diagnose that project even if another registry project is active. Explicit `--project-dir <path>` (`doctor`) or `--project-id <projectId>` (`workflow preview`) selection wins over cwd; outside a registered standalone folder, diagnostics fall back to the registry's `activeProject`.
+When cwd is a standalone project folder whose runtime config was cached by `project start`, `doctor` and live `workflow preview` diagnose that project even if another registry project is active. Explicit `--project-dir <path>` (`doctor`) or `--project-id <projectId>` (`workflow preview`) selection wins over cwd; outside such a standalone folder, diagnostics fall back to the registry's `activeProject`.
 
 Use an explicit issue when you want a deterministic check:
 

@@ -6,6 +6,7 @@ import {
   type CliProjectConfig,
 } from "./config.js";
 import { writeCliError } from "./cli-error.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 type ResolveProjectSelectionInput = {
   configDir: string;
@@ -41,7 +42,7 @@ function explicitProjectRequiredMessage(): string {
 }
 
 function diagnosticProjectRequiredMessage(): string {
-  return "Multiple managed projects are configured, cwd is not a registered standalone project folder, and no active project is set. Run the diagnostic from a registered standalone project folder or pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For doctor, you can also pass '--project-dir <path>'.";
+  return "Multiple managed projects are configured, cwd has no cached standalone runtime config, and no active project is set. Run 'gh-symphony project start' from the standalone project folder to refresh its runtime config, run the diagnostic from that folder, or pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For doctor, you can also pass '--project-dir <path>'.";
 }
 
 function projectConfigRemediation(): string {
@@ -52,20 +53,18 @@ function missingProjectConfigMessage(projectId: string): string {
   return `Project "${projectId}" is not configured. ${projectConfigRemediation()}`;
 }
 
-async function loadRegisteredStandaloneProjectFromCwd(
+async function loadStandaloneProjectFromCwd(
   configDir: string,
-  projectIds: string[],
   cwd: string
 ): Promise<{ projectId: string; projectConfig: CliProjectConfig } | null> {
   const resolvedCwd = resolve(cwd);
-  for (const projectId of projectIds) {
-    const projectConfig = await loadProjectConfig(configDir, projectId);
-    if (
-      projectConfig?.projectDir &&
-      resolve(projectConfig.projectDir) === resolvedCwd
-    ) {
-      return { projectId, projectConfig };
-    }
+  const projectId = standaloneProjectId(resolvedCwd);
+  const projectConfig = await loadProjectConfig(configDir, projectId);
+  if (
+    projectConfig?.projectDir &&
+    resolve(projectConfig.projectDir) === resolvedCwd
+  ) {
+    return { projectId, projectConfig };
   }
   return null;
 }
@@ -93,6 +92,14 @@ export async function inspectManagedProjectSelection(
     };
   }
 
+  const cwdProject = await loadStandaloneProjectFromCwd(
+    input.configDir,
+    input.cwd ?? process.cwd()
+  );
+  if (cwdProject) {
+    return { kind: "resolved", ...cwdProject };
+  }
+
   const global = await loadGlobalConfig(input.configDir);
   if (!global) {
     return {
@@ -109,15 +116,6 @@ export async function inspectManagedProjectSelection(
       message:
         "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
     };
-  }
-
-  const cwdProject = await loadRegisteredStandaloneProjectFromCwd(
-    input.configDir,
-    projectIds,
-    input.cwd ?? process.cwd()
-  );
-  if (cwdProject) {
-    return { kind: "resolved", ...cwdProject };
   }
 
   if (global.activeProject) {

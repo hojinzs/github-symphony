@@ -7,6 +7,7 @@ import {
   saveProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
@@ -176,15 +177,17 @@ describe("resolveManagedProjectConfig", () => {
 });
 
 describe("inspectManagedProjectSelection", () => {
-  it("prefers the registered standalone cwd over a different active project", async () => {
+  it("prefers the cached standalone cwd over a different active project", async () => {
     const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
-    const projectBDir = await mkdtemp(join(tmpdir(), "standalone-b-"));
+    const projectAId = standaloneProjectId(projectADir);
     const configDir = await createConfigFixture(
-      [
-        createProject("tenant-a", "Alpha", projectADir),
-        createProject("tenant-b", "Beta", projectBDir),
-      ],
+      [createProject("tenant-b", "Beta")],
       "tenant-b"
+    );
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
     );
 
     const result = await inspectManagedProjectSelection({
@@ -194,19 +197,42 @@ describe("inspectManagedProjectSelection", () => {
 
     expect(result).toMatchObject({
       kind: "resolved",
-      projectId: "tenant-a",
+      projectId: projectAId,
     });
   });
 
-  it("keeps an explicit selector ahead of the registered standalone cwd", async () => {
+  it("resolves a cached standalone cwd without a global config", async () => {
     const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
-    const projectBDir = await mkdtemp(join(tmpdir(), "standalone-b-"));
+    const projectAId = standaloneProjectId(projectADir);
+    const configDir = await mkdtemp(join(tmpdir(), "project-selection-"));
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: projectAId,
+    });
+  });
+
+  it("keeps an explicit selector ahead of the cached standalone cwd", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectAId = standaloneProjectId(projectADir);
     const configDir = await createConfigFixture(
-      [
-        createProject("tenant-a", "Alpha", projectADir),
-        createProject("tenant-b", "Beta", projectBDir),
-      ],
+      [createProject("tenant-b", "Beta")],
       "tenant-b"
+    );
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
     );
 
     const result = await inspectManagedProjectSelection({
@@ -250,9 +276,7 @@ describe("inspectManagedProjectSelection", () => {
       message: expect.stringContaining("--project-dir <path>"),
     });
     expect(result.message).toContain("gh-symphony project list");
-    expect(result.message).toContain(
-      "Run the diagnostic from a registered standalone project folder"
-    );
+    expect(result.message).toContain("run the diagnostic from that folder");
     expect(result.message).not.toContain("repo init");
   });
 

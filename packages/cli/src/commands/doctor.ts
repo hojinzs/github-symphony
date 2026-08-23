@@ -1767,7 +1767,7 @@ export async function runDoctorDiagnostics(
         "managed_project",
         "Managed project selection",
         resolvedProjectConfig.message,
-        "For a standalone project, run this command from its registered project folder or pass '--project-dir <path>'. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
+        "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run this command from that folder or pass '--project-dir <path>'. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
         {
           reason: resolvedProjectConfig.kind,
           ...(resolvedProjectConfig.projectId

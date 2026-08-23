@@ -9,7 +9,7 @@ import {
 } from "@gh-symphony/core";
 import { resolveTrackerAdapter } from "@gh-symphony/orchestrator";
 import { fetchGithubProjectIssueByRepositoryAndNumber } from "@gh-symphony/tracker-github";
-import { loadActiveProjectConfig, type CliProjectConfig } from "../config.js";
+import { type CliProjectConfig } from "../config.js";
 import {
   createClient,
   findLinkedRepository,
@@ -61,7 +61,6 @@ type WorkflowCommandDependencies = {
   fetchLiveIssue: typeof fetchGithubProjectIssueByRepositoryAndNumber;
   getGitHubProjectDetail: typeof getProjectDetail;
   getGitHubTokenWithSource: typeof getGhTokenWithSource;
-  loadActiveProjectConfig: typeof loadActiveProjectConfig;
   resolveManagedProjectSelection: typeof inspectManagedProjectSelection;
   resolveTrackerAdapter: typeof resolveTrackerAdapter;
   validateGitHubToken: typeof validateGitHubToken;
@@ -156,7 +155,6 @@ const workflowCommandDependencies: WorkflowCommandDependencies = {
   fetchLiveIssue: fetchGithubProjectIssueByRepositoryAndNumber,
   getGitHubProjectDetail: getProjectDetail,
   getGitHubTokenWithSource: getGhTokenWithSource,
-  loadActiveProjectConfig,
   resolveManagedProjectSelection: inspectManagedProjectSelection,
   resolveTrackerAdapter,
   validateGitHubToken,
@@ -174,7 +172,6 @@ export function resetWorkflowCommandDependenciesForTest(): void {
     fetchGithubProjectIssueByRepositoryAndNumber;
   workflowCommandDependencies.getGitHubProjectDetail = getProjectDetail;
   workflowCommandDependencies.getGitHubTokenWithSource = getGhTokenWithSource;
-  workflowCommandDependencies.loadActiveProjectConfig = loadActiveProjectConfig;
   workflowCommandDependencies.resolveManagedProjectSelection =
     inspectManagedProjectSelection;
   workflowCommandDependencies.resolveTrackerAdapter = resolveTrackerAdapter;
@@ -702,16 +699,22 @@ function isLinearIssueIdentifier(value: string): boolean {
 
 async function loadLinearIssue(
   issueIdentifier: string,
+  projectId: string | undefined,
   workflow: ReturnType<typeof parseWorkflowMarkdown>,
   options: GlobalOptions
 ): Promise<{
   issue: TrackedIssue;
   sampleSource: string;
 }> {
-  const projectConfig =
-    await workflowCommandDependencies.loadActiveProjectConfig(
-      options.configDir
-    );
+  const selection =
+    await workflowCommandDependencies.resolveManagedProjectSelection({
+      configDir: options.configDir,
+      requestedProjectId: projectId,
+    });
+  if (selection.kind !== "resolved") {
+    throw new Error(selection.message);
+  }
+  const projectConfig = selection.projectConfig;
 
   if (!projectConfig?.repository) {
     throw new Error(
@@ -926,7 +929,7 @@ async function runPreview(
   }
   const { issue, sampleSource } = flags.issue
     ? workflow.tracker.kind === "linear"
-      ? await loadLinearIssue(flags.issue, workflow, options)
+      ? await loadLinearIssue(flags.issue, flags.projectId, workflow, options)
       : await loadLiveIssue(flags.issue, flags.projectId, workflow, options)
     : await loadSampleIssue(flags.sample);
   const renderedPrompt = renderIssueWorkflowPreview({
