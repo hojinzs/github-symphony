@@ -1,5 +1,25 @@
 # @gh-symphony/cli
 
+## 0.10.0
+
+### Minor Changes
+
+- [#616](https://github.com/hojinzs/github-symphony/pull/616) [`d09e94d`](https://github.com/hojinzs/github-symphony/commit/d09e94d8aab97c432a8f096f4802274fedb00713) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Add resilient global bare-cache fallback, heartbeat protection, and cache status/prune diagnostics for [#588](https://github.com/hojinzs/github-symphony/issues/588).
+
+- [#610](https://github.com/hojinzs/github-symphony/pull/610) [`4840d02`](https://github.com/hojinzs/github-symphony/commit/4840d02a8d3f206c0040525e626f9cef8313c4a8) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Document the completed standalone project lifecycle and folder-addressed CLI delivered for [#561](https://github.com/hojinzs/github-symphony/issues/561).
+
+### Patch Changes
+
+- [#605](https://github.com/hojinzs/github-symphony/pull/605) [`be9e533`](https://github.com/hojinzs/github-symphony/commit/be9e5338df2050f0066767d3ce01a3c42c735f5f) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Preserve successful API-side lifecycle completion when convergence follows unchanged local turns: the worker confirms canonical tracker state at turn boundaries and the convergence threshold, while the orchestrator protects only confirmed non-active completion that remains non-active at finalization and defers classification when that final read is unavailable ([#576](https://github.com/hojinzs/github-symphony/issues/576)). Canonical reads may consume live provider requests; active-state comments and PR updates remain governed by the local convergence counter.
+
+- [#617](https://github.com/hojinzs/github-symphony/pull/617) [`b2d1f9c`](https://github.com/hojinzs/github-symphony/commit/b2d1f9c0505df5131562ff4c8680bbee0dd28c43) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Reject relative standalone project directories and avoid retaining plaintext workflow environment values in cache metadata ([#591](https://github.com/hojinzs/github-symphony/issues/591)).
+
+- [#609](https://github.com/hojinzs/github-symphony/pull/609) [`f2a8a4f`](https://github.com/hojinzs/github-symphony/commit/f2a8a4f0734d28d0a2a43e912e1d5c6977d37bf0) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prevent issue [#578](https://github.com/hojinzs/github-symphony/issues/578)'s stale active Project items from repeatedly dispatching after the source issue closes or a linked pull request merges by reconciling them to the workflow terminal state.
+
+- [#618](https://github.com/hojinzs/github-symphony/pull/618) [`c5e8195`](https://github.com/hojinzs/github-symphony/commit/c5e8195ad78360bb21d76b42612a19bbd71ca065) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#589](https://github.com/hojinzs/github-symphony/issues/589) by resolving the active standalone project for multi-project `doctor` and `workflow preview` diagnostics, with standalone-specific selection guidance.
+
+- [#608](https://github.com/hojinzs/github-symphony/pull/608) [`b4c5aae`](https://github.com/hojinzs/github-symphony/commit/b4c5aae97627ad9f68f10a2c0b0017c393227615) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Install a Land skill that completes already-merged pull requests before pre-flight or failure classification, preventing their issues from returning to Ready ([#577](https://github.com/hojinzs/github-symphony/issues/577)).
+
 ## 0.9.0
 
 ### Minor Changes
