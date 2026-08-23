@@ -70,7 +70,9 @@ export function toWorkflowLifecycleConfig(
     }
   }
 
-  const blockerCheckStates = options.blockerCheckStates ?? [];
+  const blockerCheckStates =
+    options.blockerCheckStates ??
+    (activeStates.includes("Todo") ? ["Todo"] : []);
 
   return {
     stateFieldName,

@@ -730,7 +730,7 @@ fall back to `https://api.github.com/graphql`.
 
 The generated file includes:
 
-- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping
+- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Missing blocker configuration defaults to `Todo`; an explicit `blocker_check_states: []` disables blocker gating.
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`

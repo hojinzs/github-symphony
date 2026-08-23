@@ -10,7 +10,7 @@ export const DEFAULT_WORKFLOW_LIFECYCLE: WorkflowLifecycleConfig = {
   stateFieldName: "Status",
   activeStates: ["Todo", "In Progress"],
   terminalStates: ["Done"],
-  blockerCheckStates: [],
+  blockerCheckStates: ["Todo"],
   planningStates: [],
 };
 

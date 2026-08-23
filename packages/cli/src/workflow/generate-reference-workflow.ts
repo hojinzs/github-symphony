@@ -62,7 +62,7 @@ export function generateReferenceWorkflow(
   const terminalColumns = input.statusColumns.filter(
     (c) => c.role === "terminal"
   );
-  const blockerCheckStates = input.lifecycle?.blockerCheckStates ?? [];
+  const blockerCheckStates = input.lifecycle?.blockerCheckStates ?? ["Todo"];
   const planningStates = input.lifecycle?.planningStates ?? blockerCheckStates;
 
   if (activeColumns.length > 0) {

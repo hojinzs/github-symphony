@@ -18,6 +18,12 @@ export function generateWorkflowSchemaReference(
   return [
     reference,
     "",
+    "## Blocker gating",
+    "",
+    "Missing `tracker.blocker_check_states` defaults to `Todo`, so unresolved blockers prevent Todo dispatch.",
+    "Use an explicit empty list (`blocker_check_states: []`) to disable blocker gating.",
+    "Linear blockers are normalized from inverse relations of type `blocks`.",
+    "",
     "## Supported Template Variables",
     "",
     "Use these in the WORKFLOW.md prompt body with double-brace syntax.",

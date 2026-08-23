@@ -133,8 +133,8 @@ describe("toWorkflowLifecycleConfig", () => {
     expect(config.stateFieldName).toBe("Status");
     expect(config.activeStates).toEqual(["Todo", "In Progress"]);
     expect(config.terminalStates).toEqual(["Done"]);
-    expect(config.blockerCheckStates).toEqual([]);
-    expect(config.planningStates).toEqual([]);
+    expect(config.blockerCheckStates).toEqual(["Todo"]);
+    expect(config.planningStates).toEqual(["Todo"]);
   });
 
   it("uses explicit blocker and planning states when provided", () => {

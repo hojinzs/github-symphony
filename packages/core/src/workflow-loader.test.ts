@@ -74,8 +74,8 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.tracker.kind).toBe("github-project");
     expect(workflow.tracker.priority).toBeNull();
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
-    expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
-    expect(workflow.lifecycle.planningStates).toEqual([]);
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
+    expect(workflow.lifecycle.planningStates).toEqual(["Todo"]);
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.repository).toEqual({
       owner: "acme",

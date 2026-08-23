@@ -56,7 +56,7 @@ There are no currently verified Critical gaps from the 2026-03-17 list.
 
 | Area                        | Status                            | Notes                                                                                                                                                                                    |
 | --------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Issue identity fields       | OK                                | `id`, `identifier`, `title`, `description`, `state`, `url`, labels, blockers, and timestamps are normalized into `TrackedIssue`.                                                         |
+| Issue identity fields       | OK                                | `id`, `identifier`, `title`, `description`, `state`, `url`, labels, blockers, and timestamps are normalized into `TrackedIssue`; Linear blockers come from inverse `blocks` relations.   |
 | Priority                    | Implemented with GitHub extension | `tracker.priority` supports explicit `project-field`, `labels`, and `disabled` sources. Legacy `tracker.priority_field` remains supported with deprecation diagnostics. See Section 4.2. |
 | Branch metadata             | Limited by tracker                | GitHub issues do not provide a native tracker branch field; branch context is represented through runtime/workflow behavior rather than a tracker-provided `branch_name`.                |
 | Workspace key normalization | Intentional difference            | Repository-local workspaces are sanitized more aggressively than the upstream replacement-only rule. This is tracked as D3 below.                                                        |
@@ -91,14 +91,15 @@ There are no currently verified Critical gaps from the 2026-03-17 list.
 
 ### 3.5 Tracker Integration
 
-| Requirement            | Status              | Notes                                                                                                                                                       |
-| ---------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Candidate listing      | OK                  | GitHub, Linear, and file tracker adapters implement repository-local tracker contracts.                                                                     |
-| State-specific listing | Partial by platform | The contract exists. GitHub Project V2 cannot filter project items by state at query time, so the GitHub adapter fetches project items and filters locally. |
-| State refresh by ID    | OK                  | GitHub implements batched state refresh by issue node ID.                                                                                                   |
-| Network timeout        | OK                  | GitHub GraphQL uses a default 30s request timeout.                                                                                                          |
-| Rate-limit capture     | OK                  | GitHub rate limits are attached to issues/snapshots; the orchestrator adapts poll intervals when limits are low.                                            |
-| Error category names   | Partial             | Custom error classes and diagnostics exist, but names do not consistently match the upstream spec's suggested category names.                               |
+| Requirement                  | Status              | Notes                                                                                                                                                       |
+| ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate listing            | OK                  | GitHub, Linear, and file tracker adapters implement repository-local tracker contracts.                                                                     |
+| State-specific listing       | Partial by platform | The contract exists. GitHub Project V2 cannot filter project items by state at query time, so the GitHub adapter fetches project items and filters locally. |
+| State refresh by ID          | OK                  | GitHub implements batched state refresh by issue node ID.                                                                                                   |
+| Linear blocker normalization | OK                  | The Linear adapter derives `blocked_by` from inverse relations whose type is `blocks`, following spec §§11.3 and 17.3.                                      |
+| Network timeout              | OK                  | GitHub GraphQL uses a default 30s request timeout.                                                                                                          |
+| Rate-limit capture           | OK                  | GitHub rate limits are attached to issues/snapshots; the orchestrator adapts poll intervals when limits are low.                                            |
+| Error category names         | Partial             | Custom error classes and diagnostics exist, but names do not consistently match the upstream spec's suggested category names.                               |
 
 ### 3.6 Observability and User Surfaces
 

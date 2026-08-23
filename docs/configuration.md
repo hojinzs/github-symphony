@@ -6,6 +6,16 @@ committed `WORKFLOW.md` settings for workflow policy, and use environment
 variables for host-specific authentication, Enterprise endpoints, local paths,
 and operational overrides.
 
+## Workflow Lifecycle Policy
+
+`tracker.blocker_check_states` selects the workflow states where unresolved
+`blocked_by` dependencies prevent dispatch. When the field is omitted, the
+default is `["Todo"]`, matching the Symphony candidate-selection rule. Set an
+explicit empty list (`blocker_check_states: []`) only when blocker gating should
+be disabled. Linear `blocked_by` metadata is derived from inverse relations of
+type `blocks`; source-side relations describe issues blocked by the current
+issue and are not blockers of it.
+
 ## Standalone Projects
 
 `gh-symphony project start` runs the project folder in the working directory as
