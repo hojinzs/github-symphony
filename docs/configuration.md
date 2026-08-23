@@ -41,7 +41,10 @@ the project folder and defaulting to `<project-dir>/.runtime/workspaces`; the
 directory is created with mode `0700` when it does not exist. Repo-embedded
 projects apply the same rule relative to the repository checkout. Their
 orchestrator state remains under `.runtime/orchestrator`, while populated issue
-workspaces live at `<workspace.root>/<sanitized-issue-identifier>`. Each issue is
+workspaces live at `<workspace.root>/<sanitized-issue-identifier>`; when omitted,
+`workspace.root` defaults to `.runtime/symphony-workspaces`. `repo init` creates
+the resolved root with mode `0700`, and rejects a root that equals or contains
+the repository checkout. Each issue is
 populated from the shared bare cache at `<config-dir>/repos/<owner>/<repo>.git`
 using a worktree. Branches default to
 `symphony/<project-slug>/<sanitized-issue-id>`, so multiple projects may use
@@ -63,8 +66,8 @@ policy and skips locked caches, linked worktrees, and unverifiable entries.
 
 ### Repo-embedded workspace-root migration
 
-After upgrading an existing repo-embedded installation, re-run
-`gh-symphony repo init` while the daemon is stopped so project metadata records
+After upgrading an existing repo-embedded installation, `repo stop` remains
+available for legacy metadata. Run it before `repo init` so project metadata records
 the repository checkout and `workspace.root` separately. Existing issue
 worktrees are not moved in place because their administrative paths are also
 recorded in the shared bare cache. Startup rejects legacy metadata that still
@@ -83,6 +86,10 @@ archived directory until needed branches or uncommitted files have been
 recovered; then remove it. Archiving the state and its cache together avoids
 leaving stale `git worktree` registrations behind. If no reusable workspace
 state exists, simply stopping, re-running `repo init`, and starting is enough.
+If `workspace.root` is changed again later, dispatch emits both a structured
+`workspace-root-relocated` event and a stderr warning naming the previous and
+new paths before replacing the workspace record; inspect the previous path for
+work to recover or delete.
 
 When a standalone project targets a repository that also commits its own
 `WORKFLOW.md`, the status surface reports a shadow warning naming the

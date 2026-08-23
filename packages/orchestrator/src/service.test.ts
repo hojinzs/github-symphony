@@ -12480,12 +12480,14 @@ Workspace prompt.
       lastError: null,
     });
 
+    const stderrWrite = vi.fn();
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
       spawnImpl: vi
         .fn()
         .mockReturnValue({ pid: 5304, unref: vi.fn() }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr: { write: stderrWrite } as never,
     });
 
     await service.runOnce();
@@ -12499,6 +12501,24 @@ Workspace prompt.
     );
     expect(migratedRecord?.repositoryPath).toBe(
       join(workspaceRoot, workspaceKey, "repository")
+    );
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `previous=${legacyWorkspacePath} configured=${join(workspaceRoot, workspaceKey)}\n`
+      )
+    );
+    const run = (await store.loadAllRuns()).find(
+      (candidate) => candidate.projectId === projectConfig.projectId
+    );
+    await expect(
+      store.loadRecentRunEvents(run!.runId, 20, projectConfig.projectId)
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "workspace-root-relocated",
+          message: expect.stringContaining(legacyWorkspacePath),
+        }),
+      ])
     );
   });
 

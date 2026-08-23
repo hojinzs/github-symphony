@@ -40,6 +40,8 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
       return event.error;
     case "workspace-cleanup":
       return event.error ? `${event.outcome}: ${event.error}` : event.outcome;
+    case "workspace-root-relocated":
+      return `Workspace root changed from ${event.previousWorkspacePath} to ${event.configuredWorkspacePath}`;
     case "worker-error":
       return event.error;
     case "turn_started":

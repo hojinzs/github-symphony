@@ -25,6 +25,9 @@ stores each checkout at `<workspaceDir>/<sanitized-issue-identifier>`, as
 required by spec §9.1. Repo-embedded projects separately persist
 `repositoryDir` for the source checkout and daemon working directory.
 Standalone projects already keep those concepts separate through `projectDir`.
+Repo-embedded projects default the workspace root to the dedicated
+`.runtime/symphony-workspaces` directory, create it during `repo init`, and
+reject roots that equal or contain the repository checkout.
 
 Workspace records remain in the orchestrator state directory in both modes;
 only the populated workspace moves to `workspace.root`. This keeps operational
@@ -43,5 +46,8 @@ workspace directory part of the control-plane state layout.
   layout until `repo init` writes the split paths. Operators use the documented
   stop/archive/reinitialize procedure when they want to discard orphaned
   worktrees and their shared-cache administration safely.
+- CLI shutdown and diagnostics may read legacy metadata so operators can carry
+  out that procedure; daemon startup rejects the same metadata. Later root
+  changes emit the old and new paths before the persisted record is replaced.
 - This is a repository-local extension: the upstream single-workflow model is
   preserved inside each project instance. It does not modify the upstream spec.

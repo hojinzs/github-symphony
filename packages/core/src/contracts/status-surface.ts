@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
 import type {
   WorkflowDefinition,
@@ -58,8 +58,34 @@ export function normalizeOrchestratorProjectConfig(
   assertAbsoluteProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
-  const repositoryPath = config.repository?.path;
+  if (workflowSource.type === "repo" && config.repositoryDir) {
+    const workspaceRoot = resolve(config.workspaceDir);
+    const repositoryDir = resolve(config.repositoryDir);
+    const repositoryRelativeToRoot = relative(workspaceRoot, repositoryDir);
+    if (
+      repositoryRelativeToRoot === "" ||
+      (!repositoryRelativeToRoot.startsWith("..") &&
+        !isAbsolute(repositoryRelativeToRoot))
+    ) {
+      throw new Error(
+        `Project ${JSON.stringify(config.projectId)} workspace.root ${JSON.stringify(workspaceRoot)} must not equal or contain the repository checkout ${JSON.stringify(repositoryDir)}.`
+      );
+    }
+  }
 
+  return {
+    ...config,
+    workflowSource,
+    populateStrategy,
+  };
+}
+
+/** Rejects legacy repo metadata on daemon startup without blocking CLI migration commands. */
+export function assertDispatchableOrchestratorProjectConfig(
+  config: OrchestratorProjectConfig
+): void {
+  const workflowSource = normalizeWorkflowSource(config);
+  const repositoryPath = config.repository?.path;
   if (
     workflowSource.type === "repo" &&
     !config.repositoryDir &&
@@ -70,12 +96,6 @@ export function normalizeOrchestratorProjectConfig(
       `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony repo init' again before starting it.`
     );
   }
-
-  return {
-    ...config,
-    workflowSource,
-    populateStrategy,
-  };
 }
 
 function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {

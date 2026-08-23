@@ -2641,6 +2641,21 @@ export class OrchestratorService {
       existingWorkspaceRecord &&
       resolve(existingWorkspaceRecord.workspacePath) === issueWorkspacePath
     );
+    if (existingWorkspaceRecord && !existingWorkspaceAtConfiguredRoot) {
+      this.writeStderr(
+        `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
+      );
+      await this.store.appendRunEvent(runId, {
+        at: now.toISOString(),
+        event: "workspace-root-relocated",
+        projectId: tenant.projectId,
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        workspaceKey,
+        previousWorkspacePath: existingWorkspaceRecord.workspacePath,
+        configuredWorkspacePath: issueWorkspacePath,
+      });
+    }
     const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
 
     // #507: dirty recovery may only reuse the workspace when the dirty state

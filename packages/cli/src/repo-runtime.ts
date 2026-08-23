@@ -28,6 +28,7 @@ export type RepoInitFlags = {
 };
 
 const INTERNAL_PROJECT_ID = "repository";
+const DEFAULT_WORKSPACE_ROOT = join(".runtime", "symphony-workspaces");
 
 export class RepoRuntimeMigrationError extends Error {}
 
@@ -127,7 +128,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     displayName: `${repository.owner}/${repository.name}`,
     workspaceDir: workflow.workspace.root
       ? resolve(repoDir, workflow.workspace.root)
-      : runtimeRoot,
+      : resolve(repoDir, DEFAULT_WORKSPACE_ROOT),
     repositoryDir: repoDir,
     repository,
     tracker: {
@@ -143,6 +144,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
 
   await mkdir(runtimeRoot, { recursive: true });
   await saveProjectConfig(runtimeRoot, INTERNAL_PROJECT_ID, projectConfig);
+  await mkdir(projectConfig.workspaceDir, { recursive: true, mode: 0o700 });
   await saveGlobalConfig(runtimeRoot, {
     activeProject: INTERNAL_PROJECT_ID,
     projects: [INTERNAL_PROJECT_ID],
