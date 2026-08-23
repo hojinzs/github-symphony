@@ -208,7 +208,7 @@ async function findOverlappingProjects(
     const liveness = await resolveDaemonLiveness({
       configDir,
       projectId: existing.projectId,
-      workspaceDir: existing.workspaceDir,
+      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
     });
     overlaps.push({
       projectId: existing.projectId,

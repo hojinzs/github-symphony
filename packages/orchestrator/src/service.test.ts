@@ -12374,7 +12374,7 @@ Workspace prompt.
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
   });
 
-  it("keeps repo-embedded issue workspaces beside the project state", async () => {
+  it("places repo-embedded issue workspaces under the configured workspace root", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-embedded-workspace-root-")
@@ -12385,8 +12385,40 @@ Workspace prompt.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    // repo-embedded registration stores the repository checkout here, which
-    // must never be used as a workspace root.
+    const workspaceRoot = join(tempRoot, "configured-workspaces");
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, workspaceRoot),
+      repositoryDir: repository.path,
+    };
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5302, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
+
+    expect(workspaceRecord?.workspacePath).toBe(
+      join(workspaceRoot, workspaceRecord!.workspaceKey)
+    );
+    expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
+  });
+
+  it("keeps legacy repo-embedded workspaces beside project state", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-legacy-embedded-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(
       tempRoot,
       repository,
@@ -12394,10 +12426,11 @@ Workspace prompt.
     );
     await store.saveProjectConfig(projectConfig);
 
-    const spawnImpl = vi.fn().mockReturnValue({ pid: 5302, unref: vi.fn() });
     const service = new OrchestratorService(store, projectConfig, {
       fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
-      spawnImpl: spawnImpl as never,
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 5303, unref: vi.fn() }) as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
     });
 

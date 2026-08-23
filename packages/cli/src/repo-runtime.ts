@@ -125,7 +125,10 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     projectId: INTERNAL_PROJECT_ID,
     slug: basename(repoDir) || INTERNAL_PROJECT_ID,
     displayName: `${repository.owner}/${repository.name}`,
-    workspaceDir: repoDir,
+    workspaceDir: workflow.workspace.root
+      ? resolve(repoDir, workflow.workspace.root)
+      : runtimeRoot,
+    repositoryDir: repoDir,
     repository,
     tracker: {
       adapter: trackerAdapter,
@@ -148,7 +151,8 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   const orchestratorConfig: OrchestratorProjectConfig = {
     projectId: INTERNAL_PROJECT_ID,
     slug: projectConfig.slug,
-    workspaceDir: repoDir,
+    workspaceDir: projectConfig.workspaceDir,
+    repositoryDir: repoDir,
     repository,
     tracker: projectConfig.tracker,
   };

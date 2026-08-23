@@ -337,7 +337,7 @@ const handler = async (
       const runtimeStatus = await resolveRuntimeStatus({
         configDir: options.configDir,
         projectId,
-        workspaceDir: projectConfig.workspaceDir,
+        workspaceDir: projectConfig.repositoryDir ?? projectConfig.workspaceDir,
         snapshot,
       });
       if (options.json || !isTTY) {
@@ -409,7 +409,7 @@ const handler = async (
     const runtimeStatus = await resolveRuntimeStatus({
       configDir: options.configDir,
       projectId,
-      workspaceDir: projectConfig.workspaceDir,
+      workspaceDir: projectConfig.repositoryDir ?? projectConfig.workspaceDir,
       snapshot,
     });
     if (options.json) {
@@ -436,7 +436,7 @@ const handler = async (
     const runtimeStatus = await resolveRuntimeStatus({
       configDir: options.configDir,
       projectId,
-      workspaceDir: projectConfig.workspaceDir,
+      workspaceDir: projectConfig.repositoryDir ?? projectConfig.workspaceDir,
       snapshot: null,
     });
     if (options.json) {

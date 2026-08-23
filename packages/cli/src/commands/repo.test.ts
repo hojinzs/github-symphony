@@ -242,6 +242,10 @@ describe("repo init runtime migration", () => {
       owner: "acme",
       name: "platform",
     });
+    expect(projectConfig.repositoryDir).toBe(repoDir);
+    expect(projectConfig.workspaceDir).toBe(
+      join(repoDir, ".runtime", "symphony-workspaces")
+    );
     expect(projectConfig).not.toHaveProperty("repositories");
     expect(stdout.output()).toContain("Repository initialized: acme/platform");
   });

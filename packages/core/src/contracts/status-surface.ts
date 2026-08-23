@@ -34,7 +34,10 @@ export type PopulateStrategy = "clone" | "worktree-cache";
 export type OrchestratorProjectConfig = {
   projectId: string;
   slug: string;
+  /** Root directory containing persistent per-issue workspaces. */
   workspaceDir: string;
+  /** Repository checkout used as the daemon cwd for repo-embedded projects. */
+  repositoryDir?: string;
   repository: RepositoryRef;
   tracker: OrchestratorTrackerConfig;
   /** Defaults to the repository-local workflow for legacy project configs. */
