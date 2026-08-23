@@ -27,12 +27,14 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 1. Policy — defined by the repo/project
 
 - `WORKFLOW.md` (repository root or standalone project folder) — prompt body and team rules
+- Prompt policy can branch on the normalized lifecycle `execution_phase`; phase classification alone does not impose agent behavior.
 - Skill layers: global `~/.gh-symphony/skills/` + project `.agent/skills/`, injected into the worktree's `.codex/skills/` / `.claude/skills/` (see Skill Layering in [configuration.md](configuration.md))
 - Examples: [examples/](examples/)
 
 ### 2. Configuration — typed parsing and validation
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
+- Shared lifecycle state normalization and execution-phase classification: `packages/core/src/workflow/lifecycle.ts`
 - Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter
 - CLI global/project config, folder-addressed standalone project derivation, and cwd-first
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
@@ -42,6 +44,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 3. Coordination — the orchestrator
 
 - Dispatch loop, concurrency, retry, reconciliation: `packages/orchestrator/src/service.ts`
+- Initial prompt rendering receives the execution phase derived from the configured planning and active states.
 - Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read persists a warning-level `run-finalization-deferred` event with a discriminated cause and defers classification for up to three consecutive reconciliation ticks; the third unknown read enters the existing failure-retry path so the run cannot remain pinned. The tick counter intentionally follows reconciliation opportunities rather than wall-clock time, so adaptive polling can stretch the elapsed grace window by up to the configured 10× poll multiplier while preserving a deterministic provider-read budget. A known active or non-actionable result resets the streak. This failure-retry treatment after a successful worker exit intentionally diverges from the upstream specification's normal-exit continuation retry: the repository prioritizes bounded finalization and eventual suppression when canonical state cannot be established, and retains the tracker cause in retry diagnostics instead of reporting a worker failure. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
 - Before dispatch, active candidates carrying an adapter-provided terminal fact are converged to the workflow terminal state and suppressed from worker startup.
 - Filesystem state store (`OrchestratorFsStore`), leases: `packages/orchestrator/src/fs-store.ts`
@@ -51,6 +54,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 4. Execution — worker and agent subprocess
 
 - Single-issue execution, `/api/v1/state`, approval workflow, hooks: `packages/worker`
+- Worker run metadata uses the same core lifecycle phase resolver as orchestrator prompt rendering.
 - Multi-turn convergence compares local workspace/HEAD progress and reads canonical tracker state through `/api/v1/tracker-state` before each turn after the first and again at the failure threshold. A confirmed state outside the workflow's active states completes the worker at the next boundary; active or unconfirmed reads fail closed. Comments, PR pushes, and active-to-active transitions do not reset the local non-productive-turn counter. Each read uses the tracker adapter and may consume a live provider request (up to 19 per default 20-turn session, plus the threshold read).
 - Runtime adapters: `packages/runtime-codex` (app-server protocol), `packages/runtime-claude` (print mode)
 - Runtime-neutral MCP tools: `packages/tool-github-graphql`, `packages/tool-linear-graphql`

@@ -120,6 +120,13 @@ An explicit `tracker.blocker_check_states: []` disables blocker gating; this is
 an intentional repository-level opt-out from the vendored Symphony spec's
 unconditional blocker rule.
 
+`tracker.planning_states` classifies a dispatched run's `execution_phase` as
+`planning`; other matching active states use `implementation`. State names are
+trimmed and compared case-insensitively. The classification is available to the
+prompt as `{{ execution_phase }}`, but does not itself prevent implementation:
+the `WORKFLOW.md` prompt policy must branch on that variable when a plan-only
+posture is required.
+
 > Currently supported runtimes: **[Codex CLI](https://developers.openai.com/codex/cli/)** and **[Claude Code](https://code.claude.com/docs/en/quickstart)**. The selected runtime command must be installed and authenticated before `gh-symphony repo start` can dispatch worker runs.
 
 Before dispatch, GitHub candidates are checked against the source issue and linked closing PR state. A closed issue or merged linked PR left in an active Project status is reconciled to the first configured terminal status, suppressed from worker startup, and reported as `tracker-terminal-candidate-reconciled`.
