@@ -466,7 +466,7 @@ export function classifyEventTone(event: IssueStatusEvent): EventTone {
     return "success";
   }
 
-  if (text.includes("convergence")) {
+  if (text.includes("convergence") || text.includes("finalization deferred")) {
     return "warning";
   }
 

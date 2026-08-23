@@ -240,6 +240,7 @@ function getLevel(event: LoggedEvent): LogLevel {
       return "error";
     case "run-suppressed":
     case "run-retried":
+    case "run-finalization-deferred":
       return "warn";
     default:
       return "info";

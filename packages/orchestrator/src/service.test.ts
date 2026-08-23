@@ -7765,7 +7765,7 @@ Prefer focused changes.
   });
 
   async function createSuccessfulFinalizationFixture(
-    trackerState: string | null
+    trackerState: string | null | Error
   ) {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -7820,6 +7820,8 @@ Prefer focused changes.
       completedAt: null,
       trackerProgressConfirmedAt: "2026-03-07T23:59:59.000Z",
       runPhase: "succeeded",
+      lastEventAt: "2026-03-07T23:59:58.000Z",
+      lastEventAtSource: "event-channel",
       lastError: null,
       nextRetryAt: null,
     });
@@ -7829,7 +7831,7 @@ Prefer focused changes.
         return Promise.resolve({ ok: false, json: vi.fn() } as never);
       }
       return Promise.resolve(
-        trackerState === null
+        trackerState === null || trackerState instanceof Error
           ? createEmptyTrackerResponse()
           : createTrackerResponseWithState(repository, trackerState)
       );
@@ -7837,11 +7839,14 @@ Prefer focused changes.
     const trackerAdapter = trackerAdapters.resolveTrackerAdapter(
       projectConfig.tracker
     );
-    const fetchIssueStatesByIds = vi
-      .fn()
-      .mockResolvedValue(
+    const fetchIssueStatesByIds = vi.fn();
+    if (trackerState instanceof Error) {
+      fetchIssueStatesByIds.mockRejectedValue(trackerState);
+    } else {
+      fetchIssueStatesByIds.mockResolvedValue(
         trackerState === null ? [] : [{ id: "issue-1", state: trackerState }]
       );
+    }
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       ...trackerAdapter,
       fetchIssueStatesByIds,
@@ -7900,6 +7905,8 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "running",
       finalizationDeferralCount: 1,
+      lastEventAt: "2026-03-07T23:59:58.000Z",
+      lastEventAtSource: "event-channel",
     });
 
     fetchIssueStatesByIds.mockResolvedValueOnce([
@@ -7937,6 +7944,8 @@ Prefer focused changes.
       retryKind: "failure",
       finalizationDeferralCount: 0,
       nextRetryAt: "2026-03-08T00:00:07.000Z",
+      lastError:
+        "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
     });
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
@@ -7953,21 +7962,52 @@ Prefer focused changes.
       .filter((event) => event.event === "run-finalization-deferred");
     expect(events).toEqual([
       expect.objectContaining({
+        reason: "tracker-item-missing",
+        error:
+          "Final tracker state unavailable: canonical tracker item issue-1 was not returned.",
         consecutiveDeferrals: 1,
         maxDeferrals: 3,
         exhausted: false,
       }),
       expect.objectContaining({
+        reason: "tracker-item-missing",
         consecutiveDeferrals: 2,
         maxDeferrals: 3,
         exhausted: false,
       }),
       expect.objectContaining({
+        reason: "tracker-item-missing",
         consecutiveDeferrals: 3,
         maxDeferrals: 3,
         exhausted: true,
       }),
     ]);
+  });
+
+  it("preserves a failed tracker read cause in finalization diagnostics", async () => {
+    const { store, service } = await createSuccessfulFinalizationFixture(
+      new Error("tracker timeout")
+    );
+
+    await service.runOnce();
+
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: "run-finalization-deferred",
+        reason: "tracker-read-failed",
+        error:
+          "Final tracker state unavailable: tracker read failed: tracker timeout",
+      })
+    );
   });
 
   it("does not use continuation retry timing when a Todo issue gains a non-terminal blocker", async () => {

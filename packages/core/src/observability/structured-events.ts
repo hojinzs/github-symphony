@@ -126,7 +126,11 @@ export type RunFinalizationDeferredEvent = {
   runId: string;
   issueIdentifier: string;
   issueId: string;
-  reason: "tracker-state-unknown";
+  reason:
+    | "workflow-unavailable"
+    | "tracker-item-missing"
+    | "tracker-read-failed";
+  error: string;
   consecutiveDeferrals: number;
   maxDeferrals: number;
   exhausted: boolean;

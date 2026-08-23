@@ -135,6 +135,26 @@ describe("event-formatter", () => {
     ).toBe("Recovered existing run");
   });
 
+  it("formats finalization deferrals with diagnostic context", () => {
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-finalization-deferred",
+        projectId: "project-1",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        issueId: "issue-1",
+        reason: "tracker-read-failed",
+        error: "Final tracker state unavailable: tracker read failed: timeout",
+        consecutiveDeferrals: 3,
+        maxDeferrals: 3,
+        exhausted: true,
+      })
+    ).toBe(
+      "Finalization deferred 3/3 (tracker-read-failed) — bound exhausted"
+    );
+  });
+
   it("parses recent events while skipping partial and invalid lines", () => {
     const raw = [
       '{"partial":true',
