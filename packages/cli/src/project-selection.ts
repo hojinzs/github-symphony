@@ -41,11 +41,11 @@ function explicitProjectRequiredMessage(): string {
 }
 
 function diagnosticProjectRequiredMessage(): string {
-  return "Multiple managed projects are configured and no active project is set. Pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For standalone diagnostics, pass '--project-dir <path>' to 'gh-symphony doctor'.";
+  return "Multiple managed projects are configured, cwd is not a registered standalone project folder, and no active project is set. Run the diagnostic from a registered standalone project folder or pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For doctor, you can also pass '--project-dir <path>'.";
 }
 
 function projectConfigRemediation(): string {
-  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
+  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run diagnostics from that folder or select it explicitly. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
 }
 
 function missingProjectConfigMessage(projectId: string): string {

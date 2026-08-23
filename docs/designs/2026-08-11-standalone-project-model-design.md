@@ -16,6 +16,9 @@ Issues [#562](https://github.com/hojinzs/github-symphony/issues/562) through
 command with a folder-addressed model:
 
 - `gh-symphony project start|status|stop` use the current directory or `--project-dir <path>`.
+- `gh-symphony doctor` and live `workflow preview` use a registered standalone project when cwd
+  is that project's folder. Explicit project selectors still win; outside a registered project
+  folder, diagnostics fall back to the global registry's `activeProject`.
 - `project start` re-derives configuration from the folder's `WORKFLOW.md` on every start and caches
   only the runtime state needed by `status` and `stop`; `project add` is not part of the shipped CLI.
 - Tracker-mapping overlap is validated under a config-wide lock when a project starts. Running
@@ -71,7 +74,9 @@ A "project" is an **orchestration execution unit** bundling WORKFLOW.md policy +
 - **The project folder is the source of truth; `<configDir>/projects/<projectId>/project.json` is
   cached runtime state derived at start.** The top-level `config.json` remains the global registry;
   folder identity, rather than a registration command or `activeProject`, selects the standalone
-  project.
+  project for folder-addressed lifecycle commands and diagnostics. Diagnostic commands retain
+  `activeProject` only as a fallback when cwd does not identify a registered standalone project;
+  explicit selectors take precedence over both.
 - The `workspaces/` state directory naming collides with the spec's Workspace (§4.1.4, per-issue directory) — separate cleanup item.
 
 ### D3. The workflow source is a mode declaration, not a priority contest

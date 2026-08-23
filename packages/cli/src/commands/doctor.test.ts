@@ -1068,7 +1068,7 @@ describe("runDoctorDiagnostics", () => {
     });
     expect(
       report.checks.find((check) => check.id === "managed_project")?.remediation
-    ).not.toContain("run from its project folder");
+    ).toContain("registered project folder");
   });
 
   it("accepts env-token auth when gh CLI is unavailable", async () => {
