@@ -48,7 +48,7 @@ describe("Symphony core conformance", () => {
       lifecycle: {
         ...DEFAULT_WORKFLOW_LIFECYCLE,
         blockerCheckStates: ["Todo"],
-        planningStates: ["Todo"],
+        planningStates: [],
       },
     });
   });
