@@ -61,7 +61,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     fail: { startMs: 2000, runMs: 3000 },
     stall: { startMs: 2000, runMs: Infinity },
     slow: { startMs: 2000, runMs: 30000 },
-    "prompt-phase": { startMs: 500, runMs: 500 },
+    "prompt-phase": { startMs: 2000, runMs: 1000 },
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
@@ -280,20 +280,21 @@ async function run() {
   const durations = SCENARIO_DURATIONS[SCENARIO];
 
   console.error(`[stub-worker] scenario=${SCENARIO} runId=${RUN_ID}`);
-  if (
-    SCENARIO === "prompt-phase" &&
-    !RENDERED_PROMPT.includes("phase=planning")
-  ) {
-    throw new Error(
-      `stub_prompt_phase_missing:${JSON.stringify(RENDERED_PROMPT)}`
-    );
-  }
   // Record the starting event before loading the runtime dependency so a
   // resolution failure remains observable in both local and Docker E2E runs.
   status = "starting";
   lastEventAt = new Date().toISOString();
   console.error(`[stub-worker] status=starting`);
   emitOrchestratorEvent("starting");
+
+  if (
+    SCENARIO === "prompt-phase" &&
+    !RENDERED_PROMPT.includes("phase=planning")
+  ) {
+    throw new Error(
+      `stub_prompt_phase_missing:${JSON.stringify(RENDERED_PROMPT.slice(0, 200))}`
+    );
+  }
 
   // Local and Docker builds emit the worker into different directories; find
   // the built core package relative to the emitted worker rather than /app.

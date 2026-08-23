@@ -789,21 +789,18 @@ function validateWorkflow(
   markdown: string
 ): WorkflowValidationReport {
   const workflow = parseWorkflowMarkdown(markdown);
+  const samplePhase = resolveWorkflowExecutionPhase({
+    issueState: SAMPLE_ISSUE.state,
+    planningStates: workflow.lifecycle.planningStates,
+    activeStates: workflow.lifecycle.activeStates,
+  });
   const promptFreshVariables = buildPromptVariables(SAMPLE_ISSUE, {
     attempt: null,
-    executionPhase: resolveWorkflowExecutionPhase({
-      issueState: SAMPLE_ISSUE.state,
-      planningStates: workflow.lifecycle.planningStates,
-      activeStates: workflow.lifecycle.activeStates,
-    }),
+    executionPhase: samplePhase,
   });
   const promptRetryVariables = buildPromptVariables(SAMPLE_ISSUE, {
     attempt: 2,
-    executionPhase: resolveWorkflowExecutionPhase({
-      issueState: SAMPLE_ISSUE.state,
-      planningStates: workflow.lifecycle.planningStates,
-      activeStates: workflow.lifecycle.activeStates,
-    }),
+    executionPhase: samplePhase,
   });
 
   renderPrompt(workflow.promptTemplate, promptFreshVariables, { strict: true });

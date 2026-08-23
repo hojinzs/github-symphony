@@ -161,7 +161,7 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ]; then
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ]; then
       echo "[]" > e2e/fixtures/issues.json
     fi
   fi
@@ -214,7 +214,7 @@ PY
   exit 0
 fi
 
-if [ "$SCENARIO" = "api-progress" ]; then
+if [ "$SCENARIO" = "api-progress" ] || [ "$SCENARIO" = "prompt-phase" ]; then
   if [ "$SAW_RUNNING" != true ]; then
     fail "Worker did not reach running state"
     exit 1
@@ -258,6 +258,10 @@ PY
   '
   if ! docker logs symphony-e2e 2>&1 | grep -q 'api-progress readback.*"state":"Done"'; then
     fail "Confirmed Done readback was not observed"
+    exit 1
+  fi
+  if [ "$SCENARIO" = "prompt-phase" ] && ! docker logs symphony-e2e 2>&1 | grep -q 'scenario=prompt-phase'; then
+    fail "Prompt-phase worker evidence was not observed"
     exit 1
   fi
   log "=== Result ==="

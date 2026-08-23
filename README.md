@@ -753,8 +753,8 @@ Available template variables:
 | `{{execution_phase}}`   | `planning`, `implementation`, or null    |
 | `{{guidelines}}`        | Prompt guidelines from WORKFLOW.md       |
 
-`tracker.planning_states` classifies matching dispatched runs as `planning`
-instead of `implementation`; it does not impose a built-in plan-only gate.
+`tracker.planning_states` classifies matching states as `planning`; it does not
+impose a built-in plan-only gate or make a state eligible for dispatch.
 Use `execution_phase` in the prompt body when policy should change agent
 behavior, for example:
 
@@ -767,9 +767,9 @@ Implement and validate the requested change.
 ```
 
 Planning-state matching uses the same trimmed, case-insensitive comparison as
-active and terminal state matching. When a state appears in both
-`planning_states` and `active_states`, the planning classification takes
-precedence.
+active and terminal state matching. It is evaluated independently of dispatch
+eligibility and takes precedence over active-state classification, including
+when a state appears in both lists.
 
 ### Generating WORKFLOW.md
 

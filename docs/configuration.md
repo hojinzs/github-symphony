@@ -71,10 +71,12 @@ catches up on the next issue populate.
 ## Workflow Lifecycle Phases
 
 `tracker.active_states` controls dispatch eligibility, while
-`tracker.planning_states` classifies eligible runs for prompt policy and status
-surfaces. Both lists use trimmed, case-insensitive state matching. A state in
-`planning_states` resolves to `planning` before the broader active-state check;
-other active states resolve to `implementation`, and unmatched states have no
+`tracker.planning_states` classifies states for prompt policy and status
+surfaces. Classification is independent of dispatch eligibility: a matching
+planning state resolves to `planning` even when it is absent from
+`active_states`. Both lists use trimmed, case-insensitive state matching.
+Planning matching is evaluated before the active-state check; other matching
+active states resolve to `implementation`, and unmatched states have no
 execution phase.
 
 The resolved value is exposed to the `WORKFLOW.md` prompt body as
