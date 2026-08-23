@@ -5,14 +5,18 @@ export type BuiltInMcpServer = "github" | "linear";
 
 export function parseBuiltInMcpServer(args: string[]): BuiltInMcpServer {
   const serverFlagIndex = args.indexOf("--server");
-  const server = serverFlagIndex === -1 ? undefined : args[serverFlagIndex + 1];
+  const inlineServer = args
+    .find((arg) => arg.startsWith("--server="))
+    ?.slice("--server=".length);
+  const server =
+    serverFlagIndex === -1 ? inlineServer : args[serverFlagIndex + 1];
 
   if (server === "github" || server === "linear") {
     return server;
   }
 
   throw new Error(
-    "Expected --server <github|linear> when starting the built-in MCP server."
+    `Expected --server <github|linear> when starting the built-in MCP server, received ${server ?? "nothing"}.`
   );
 }
 

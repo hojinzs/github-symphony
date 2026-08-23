@@ -44,6 +44,9 @@ jobs:
       - name: Run tests with coverage
         run: npx vitest run --coverage.enabled --coverage.reporter=json-summary --coverage.reporter=json
 
+      - name: Package entrypoint smoke test
+        run: pnpm --filter @gh-symphony/cli test:package
+
       - name: Coverage Report
         uses: davelosert/vitest-coverage-report-action@v2
         if: always()

@@ -5,6 +5,8 @@ describe("parseBuiltInMcpServer", () => {
   it.each([
     [["--server", "github"], "github"],
     [["--server", "linear"], "linear"],
+    [["--server=github"], "github"],
+    [["--server=linear"], "linear"],
   ] as const)("selects %s", (args, expected) => {
     expect(parseBuiltInMcpServer([...args])).toBe(expected);
   });
@@ -14,7 +16,7 @@ describe("parseBuiltInMcpServer", () => {
       "Expected --server <github|linear>"
     );
     expect(() => parseBuiltInMcpServer(["--server", "other"])).toThrow(
-      "Expected --server <github|linear>"
+      "received other"
     );
   });
 });
