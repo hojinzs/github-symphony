@@ -38,6 +38,7 @@
     "build": "tsup",
     "lint": "eslint src --ext .ts",
     "test": "vitest run --passWithNoTests",
+    "test:package": "pnpm build && node scripts/package-smoke.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

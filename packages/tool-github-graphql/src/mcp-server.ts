@@ -13,10 +13,7 @@ import { fileURLToPath } from "node:url";
  *   client → tools/call  → server calls github-graphql-tool, returns result
  */
 
-import {
-  executeGitHubGraphQL,
-  type GitHubGraphQLInvocation,
-} from "./tool.js";
+import { executeGitHubGraphQL, type GitHubGraphQLInvocation } from "./tool.js";
 
 const TOOL_SCHEMA = {
   name: "github_graphql",
@@ -160,7 +157,7 @@ async function handleRequest(msg: {
   }
 }
 
-async function main(): Promise<void> {
+export async function runGitHubGraphQLMcpServer(): Promise<void> {
   process.stdin.setEncoding("utf8");
 
   process.stdin.on("data", (chunk: string) => {
@@ -194,7 +191,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
-  main().catch((err: unknown) => {
+  runGitHubGraphQLMcpServer().catch((err: unknown) => {
     process.stderr.write(
       `[github-graphql-mcp] fatal: ${err instanceof Error ? err.message : String(err)}\n`
     );

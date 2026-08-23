@@ -555,7 +555,7 @@ describe("createGitHubGraphQLMcpServerEntry", () => {
   it("creates a default MCP server entry without optional env keys", () => {
     expect(createGitHubGraphQLMcpServerEntry()).toEqual({
       command: "node",
-      args: [expect.stringContaining("mcp-server.js")],
+      args: [expect.stringContaining("mcp-server.js"), "--server", "github"],
       env: {
         GITHUB_GRAPHQL_API_URL: DEFAULT_GITHUB_GRAPHQL_API_URL,
       },
@@ -574,7 +574,7 @@ describe("createGitHubGraphQLMcpServerEntry", () => {
       })
     ).toEqual({
       command: "node",
-      args: [expect.stringContaining("mcp-server.js")],
+      args: [expect.stringContaining("mcp-server.js"), "--server", "github"],
       env: {
         GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
         GITHUB_GRAPHQL_TOKEN: "ghs_token",

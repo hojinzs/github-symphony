@@ -21,7 +21,7 @@ export function createLinearGraphQLMcpServerEntry(
 
   return {
     command: "node",
-    args: [resolveLinearGraphQLMcpServerEntryPoint()],
+    args: [resolveLinearGraphQLMcpServerEntryPoint(), "--server", "linear"],
     env: {
       LINEAR_GRAPHQL_URL: linearGraphqlUrl,
     },

@@ -9,6 +9,8 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "worker-entry": "src/worker-entry.ts",
+    "mcp-server": "src/mcp-server.ts",
+    "git-credential-helper": "src/git-credential-helper.ts",
   },
   format: ["esm"],
   target: "node24",

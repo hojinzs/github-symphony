@@ -60,7 +60,11 @@ describe("composeClaudeMcpConfig", () => {
       mcpServers: {
         github_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "github",
+          ],
           env: {
             GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
             GITHUB_GRAPHQL_TOKEN: "token-1",
@@ -139,7 +143,11 @@ describe("composeClaudeMcpConfig", () => {
         },
         github_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "github",
+          ],
           env: {
             GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
             GITHUB_GRAPHQL_TOKEN: "token-2",
@@ -163,14 +171,22 @@ describe("composeClaudeMcpConfig", () => {
       mcpServers: {
         github_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "github",
+          ],
           env: {
             GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
           },
         },
         linear_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "linear",
+          ],
           env: {
             LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
           },
@@ -230,7 +246,7 @@ describe("composeClaudeMcpConfig", () => {
       },
       github_graphql: {
         command: "node",
-        args: [expect.stringContaining("mcp-server.js")],
+        args: [expect.stringContaining("mcp-server.js"), "--server", "github"],
         env: {
           GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
         },
@@ -282,7 +298,11 @@ describe("composeClaudeMcpConfig", () => {
         },
         github_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "github",
+          ],
           env: {
             GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
             GITHUB_GRAPHQL_TOKEN: "token-3",
@@ -373,7 +393,11 @@ describe("composeClaudeMcpConfig", () => {
       mcpServers: {
         github_graphql: {
           command: "node",
-          args: [expect.stringContaining("mcp-server.js")],
+          args: [
+            expect.stringContaining("mcp-server.js"),
+            "--server",
+            "github",
+          ],
           env: {
             GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
           },

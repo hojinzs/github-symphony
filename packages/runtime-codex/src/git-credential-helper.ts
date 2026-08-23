@@ -87,7 +87,7 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function main(): Promise<void> {
+export async function runGitCredentialHelper(): Promise<void> {
   const request = parseGitCredentialRequest(await readStdin());
   const response = await resolveGitCredential(request, {
     token: process.env.GITHUB_GRAPHQL_TOKEN,
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === new URL(process.argv[1] ?? "", "file:").href) {
-  main().catch((error: unknown) => {
+  runGitCredentialHelper().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Unknown error";
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;

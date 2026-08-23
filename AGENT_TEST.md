@@ -382,6 +382,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/15-terminal-candidate-reconciliation.md`   | Verify a closed issue in active Project status converges to `Done` without worker dispatch                                |
 | `e2e/scenarios/15-cache-maintenance.md`                   | Verify cache inventory, dry-run eviction, and active-worktree preservation                                                |
 | `e2e/scenarios/16-bounded-finalization-deferral.md`       | Verify persistent unknown final tracker reads emit three durable deferrals and enter failure retry handling               |
+| `e2e/scenarios/16-packaged-runtime-entrypoints.md`        | Verify the built CLI's MCP dispatcher and Git credential helper subprocesses inside Docker                                |
 
 ## TC Writing Guide
 

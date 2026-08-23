@@ -69,6 +69,11 @@ Verify the installation:
 gh-symphony --version
 ```
 
+The npm package also ships the internal `dist/mcp-server.js` and
+`dist/git-credential-helper.js` subprocess entry points used by worker runtimes.
+They are implementation details of the CLI and are validated from the packed
+tarball during release testing.
+
 Validate the local prerequisites before setup:
 
 ```bash

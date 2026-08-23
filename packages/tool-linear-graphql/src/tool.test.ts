@@ -238,7 +238,7 @@ describe("createLinearGraphQLMcpServerEntry", () => {
   it("creates a default MCP server entry without optional auth env", () => {
     expect(createLinearGraphQLMcpServerEntry()).toEqual({
       command: "node",
-      args: [expect.stringContaining("mcp-server.js")],
+      args: [expect.stringContaining("mcp-server.js"), "--server", "linear"],
       env: {
         LINEAR_GRAPHQL_URL: DEFAULT_LINEAR_GRAPHQL_API_URL,
       },
@@ -252,7 +252,7 @@ describe("createLinearGraphQLMcpServerEntry", () => {
       })
     ).toEqual({
       command: "node",
-      args: [expect.stringContaining("mcp-server.js")],
+      args: [expect.stringContaining("mcp-server.js"), "--server", "linear"],
       env: {
         LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
       },
