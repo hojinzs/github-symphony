@@ -38,12 +38,14 @@ const {
 
 function createProject(
   projectId: string,
-  displayName?: string
+  displayName?: string,
+  projectDir?: string
 ): CliProjectConfig {
   return {
     projectId,
     slug: projectId,
     displayName,
+    ...(projectDir ? { projectDir } : {}),
     workspaceDir: join("/tmp", projectId),
     tracker: {
       adapter: "github-project",
@@ -174,6 +176,51 @@ describe("resolveManagedProjectConfig", () => {
 });
 
 describe("inspectManagedProjectSelection", () => {
+  it("prefers the registered standalone cwd over a different active project", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectBDir = await mkdtemp(join(tmpdir(), "standalone-b-"));
+    const configDir = await createConfigFixture(
+      [
+        createProject("tenant-a", "Alpha", projectADir),
+        createProject("tenant-b", "Beta", projectBDir),
+      ],
+      "tenant-b"
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "tenant-a",
+    });
+  });
+
+  it("keeps an explicit selector ahead of the registered standalone cwd", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectBDir = await mkdtemp(join(tmpdir(), "standalone-b-"));
+    const configDir = await createConfigFixture(
+      [
+        createProject("tenant-a", "Alpha", projectADir),
+        createProject("tenant-b", "Beta", projectBDir),
+      ],
+      "tenant-b"
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      requestedProjectId: "tenant-b",
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "tenant-b",
+    });
+  });
+
   it("uses the active project in non-interactive multi-project mode", async () => {
     const configDir = await createConfigFixture(
       [createProject("tenant-a"), createProject("tenant-b")],

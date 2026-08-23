@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { resolve } from "node:path";
 import {
   loadGlobalConfig,
   loadProjectConfig,
@@ -9,6 +10,7 @@ import { writeCliError } from "./cli-error.js";
 type ResolveProjectSelectionInput = {
   configDir: string;
   requestedProjectId?: string;
+  cwd?: string;
   json?: boolean;
 };
 
@@ -50,6 +52,24 @@ function missingProjectConfigMessage(projectId: string): string {
   return `Project "${projectId}" is not configured. ${projectConfigRemediation()}`;
 }
 
+async function loadRegisteredStandaloneProjectFromCwd(
+  configDir: string,
+  projectIds: string[],
+  cwd: string
+): Promise<{ projectId: string; projectConfig: CliProjectConfig } | null> {
+  const resolvedCwd = resolve(cwd);
+  for (const projectId of projectIds) {
+    const projectConfig = await loadProjectConfig(configDir, projectId);
+    if (
+      projectConfig?.projectDir &&
+      resolve(projectConfig.projectDir) === resolvedCwd
+    ) {
+      return { projectId, projectConfig };
+    }
+  }
+  return null;
+}
+
 export async function inspectManagedProjectSelection(
   input: ResolveProjectSelectionInput
 ): Promise<ManagedProjectResolution> {
@@ -89,6 +109,15 @@ export async function inspectManagedProjectSelection(
       message:
         "No repository runtime config is configured. Run 'gh-symphony repo init' first.",
     };
+  }
+
+  const cwdProject = await loadRegisteredStandaloneProjectFromCwd(
+    input.configDir,
+    projectIds,
+    input.cwd ?? process.cwd()
+  );
+  if (cwdProject) {
+    return { kind: "resolved", ...cwdProject };
   }
 
   if (global.activeProject) {
