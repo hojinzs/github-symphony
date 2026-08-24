@@ -40,6 +40,7 @@ export function generateWorkflowSchemaReference(
     "| `issue.repository` | Repository in `owner/name` form. |",
     "| `issue.number` | Issue number. |",
     "| `attempt` | Retry attempt number, or null on the first run. |",
+    "| `execution_phase` | Normalized lifecycle classification: `planning`, `implementation`, or null. Classification alone does not gate agent behavior. |",
     "",
     "Only these variables are supported by strict-mode prompt rendering.",
   ].join("\n");

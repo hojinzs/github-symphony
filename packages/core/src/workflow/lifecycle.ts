@@ -41,3 +41,20 @@ export function matchesWorkflowState(
 export function normalizeWorkflowState(state: string): string {
   return state.trim().toLowerCase();
 }
+
+export function resolveWorkflowExecutionPhase(input: {
+  issueState: string | null | undefined;
+  planningStates: readonly string[];
+  activeStates: readonly string[];
+}): "planning" | "implementation" | null {
+  if (!input.issueState) {
+    return null;
+  }
+  if (matchesWorkflowState(input.issueState, input.planningStates)) {
+    return "planning";
+  }
+  if (matchesWorkflowState(input.issueState, input.activeStates)) {
+    return "implementation";
+  }
+  return null;
+}

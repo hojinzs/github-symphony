@@ -1,4 +1,7 @@
-import type { WorkflowExecutionPhase } from "@gh-symphony/core";
+import {
+  resolveWorkflowExecutionPhase,
+  type WorkflowExecutionPhase,
+} from "@gh-symphony/core";
 
 export type WorkerTrackerState = "active" | "non-actionable" | "unknown";
 
@@ -7,17 +10,7 @@ export function resolveInitialExecutionPhase(input: {
   planningStates: string[];
   activeStates: string[];
 }): WorkflowExecutionPhase | null {
-  const { issueState, planningStates, activeStates } = input;
-  if (!issueState) {
-    return null;
-  }
-  if (planningStates.includes(issueState)) {
-    return "planning";
-  }
-  if (activeStates.includes(issueState)) {
-    return "implementation";
-  }
-  return null;
+  return resolveWorkflowExecutionPhase(input);
 }
 
 export function resolvePausedExecutionPhase(

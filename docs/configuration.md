@@ -68,6 +68,23 @@ policy is. The check reads the shared bare cache rather than the working
 directory, so it reflects the repository as of the cache's last fetch and
 catches up on the next issue populate.
 
+## Workflow Lifecycle Phases
+
+`tracker.active_states` controls dispatch eligibility, while
+`tracker.planning_states` classifies states for prompt policy and status
+surfaces. Classification is independent of dispatch eligibility: a matching
+planning state resolves to `planning` even when it is absent from
+`active_states`. Both lists use trimmed, case-insensitive state matching.
+Planning matching is evaluated before the active-state check; other matching
+active states resolve to `implementation`, and unmatched states have no
+execution phase.
+
+The resolved value is exposed to the `WORKFLOW.md` prompt body as
+`{{ execution_phase }}`. This field is classification, not an orchestration
+gate: configure a Liquid conditional in the prompt when planning runs must not
+implement. Existing prompts that do not reference the variable keep their
+current behavior.
+
 ## Skill Layering
 
 Before each worker attempt the orchestrator injects agent skills into the

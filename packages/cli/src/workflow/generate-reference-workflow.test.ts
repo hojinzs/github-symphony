@@ -226,6 +226,12 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("blocker_check_states:\n    - Ready");
     expect(output).not.toContain("blocker_check_states:\n    - Todo");
     expect(output).toContain("planning_states: []");
+    expect(output).toContain(
+      "Classifies matching active runs as planning; does not enforce a plan-only gate."
+    );
+    expect(output).toContain(
+      "Matching is trimmed/case-insensitive; use execution_phase in prompt policy."
+    );
   });
 
   it("includes configured blocker and planning states from lifecycle input", () => {

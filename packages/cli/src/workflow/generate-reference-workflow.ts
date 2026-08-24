@@ -91,6 +91,12 @@ export function generateReferenceWorkflow(
   lines.push(
     ...buildReferenceStringList("blocker_check_states", blockerCheckStates)
   );
+  lines.push(
+    "  # Classifies matching active runs as planning; does not enforce a plan-only gate."
+  );
+  lines.push(
+    "  # Matching is trimmed/case-insensitive; use execution_phase in prompt policy."
+  );
   lines.push(...buildReferenceStringList("planning_states", planningStates));
 
   lines.push("");

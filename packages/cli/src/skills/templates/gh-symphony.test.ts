@@ -111,6 +111,8 @@ describe("gh-symphony reference files", () => {
     );
     expect(schema).toContain("`blocker_check_states: []`");
     expect(schema).toContain("Supported Template Variables");
+    expect(schema).toContain("`execution_phase`");
+    expect(schema).toContain("does not gate agent behavior");
   });
 
   it("generates implement posture content from current defaults", () => {

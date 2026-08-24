@@ -730,7 +730,7 @@ fall back to `https://api.github.com/graphql`.
 
 The generated file includes:
 
-- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Missing blocker configuration defaults to the first active state (`Todo` with built-in defaults); an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
+- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state (`Todo` with built-in defaults); an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`
@@ -750,7 +750,26 @@ Available template variables:
 | `{{issue.repository}}`  | `owner/name`                             |
 | `{{issue.number}}`      | Issue number                             |
 | `{{attempt}}`           | Retry attempt number (null on first run) |
+| `{{execution_phase}}`   | `planning`, `implementation`, or null    |
 | `{{guidelines}}`        | Prompt guidelines from WORKFLOW.md       |
+
+`tracker.planning_states` classifies matching states as `planning`; it does not
+impose a built-in plan-only gate or make a state eligible for dispatch.
+Use `execution_phase` in the prompt body when policy should change agent
+behavior, for example:
+
+```liquid
+{% if execution_phase == "planning" %}
+Produce a plan and move the issue to human review. Do not implement yet.
+{% else %}
+Implement and validate the requested change.
+{% endif %}
+```
+
+Planning-state matching uses the same trimmed, case-insensitive comparison as
+active and terminal state matching. It is evaluated independently of dispatch
+eligibility and takes precedence over active-state classification, including
+when a state appears in both lists.
 
 ### Generating WORKFLOW.md
 
