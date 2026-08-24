@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 0.11.0
+
+### Minor Changes
+
+- [#621](https://github.com/hojinzs/github-symphony/pull/621) [`0f74f79`](https://github.com/hojinzs/github-symphony/commit/0f74f79a2b2b0365349d562eeec222f210577ff9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Honor repo-embedded `workspace.root` for issue workspaces, default to a dedicated root, keep repository checkout metadata separate, and preserve shutdown access with safe migration guidance for legacy project records ([#599](https://github.com/hojinzs/github-symphony/issues/599)).
+
+### Patch Changes
+
+- [#620](https://github.com/hojinzs/github-symphony/pull/620) [`604f70c`](https://github.com/hojinzs/github-symphony/commit/604f70c17a549c2ca7a1d196c823d7e6c56c29d1) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#615](https://github.com/hojinzs/github-symphony/issues/615) by deriving Linear blockers from inverse `blocks` relations and enabling Todo blocker checks by default while preserving an explicit empty-list opt-out.
+
+- [#628](https://github.com/hojinzs/github-symphony/pull/628) [`b90c6f7`](https://github.com/hojinzs/github-symphony/commit/b90c6f72fa94623d62b9a4fd80dbe160f3904e55) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Prefer a registered standalone project in the current directory for `doctor` and live `workflow preview` diagnostics before falling back to `activeProject` ([#619](https://github.com/hojinzs/github-symphony/issues/619)).
+
+- [#622](https://github.com/hojinzs/github-symphony/pull/622) [`cbdcdcc`](https://github.com/hojinzs/github-symphony/commit/cbdcdcc13a300619bb0ee7c17c85614850148b0d) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Expose normalized workflow execution phases to prompt templates and document how `planning_states` drives prompt policy for [#614](https://github.com/hojinzs/github-symphony/issues/614).
+
 ## 0.10.1
 
 ### Patch Changes
