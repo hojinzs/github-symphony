@@ -74,7 +74,7 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.tracker.kind).toBe("github-project");
     expect(workflow.tracker.priority).toBeNull();
     expect(workflow.tracker.priorityFieldName).toBe("Priority");
-    expect(workflow.lifecycle.blockerCheckStates).toEqual([]);
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
     expect(workflow.lifecycle.planningStates).toEqual([]);
     expect(workflow.polling.intervalMs).toBe(30000);
     expect(workflow.repository).toEqual({
@@ -86,7 +86,7 @@ describe("parseWorkflowMarkdown", () => {
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Todo: 1 });
   });
 
-  it("falls planning states back to explicit blocker check states", () => {
+  it("keeps planning disabled when blocker states are explicit", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
@@ -104,7 +104,26 @@ Prompt body.
 `);
 
     expect(workflow.lifecycle.blockerCheckStates).toEqual(["Todo"]);
-    expect(workflow.lifecycle.planningStates).toEqual(["Todo"]);
+    expect(workflow.lifecycle.planningStates).toEqual([]);
+  });
+
+  it("defaults blocker checks to the first configured active state", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  active_states:
+    - Ready
+    - Doing
+  terminal_states:
+    - Shipped
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Ready"]);
+    expect(workflow.lifecycle.planningStates).toEqual([]);
   });
 
   it("parses independent planning states", () => {

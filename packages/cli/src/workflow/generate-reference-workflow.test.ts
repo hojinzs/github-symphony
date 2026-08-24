@@ -159,9 +159,7 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("#   kind: linear");
     expect(output).toContain("#   api_key: $LINEAR_API_KEY");
     expect(output).toContain("#   project_slug: symphony-0c79b11b75ea");
-    expect(output).toContain(
-      "# a Linear webhook setup command."
-    );
+    expect(output).toContain("# a Linear webhook setup command.");
     expect(output).not.toContain("#   project_id:");
     expect(output).not.toContain("#   teamId:");
   });
@@ -184,7 +182,9 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain(
       "# Priority dispatch is disabled until an operator chooses one explicit source."
     );
-    expect(output).toContain("# Optional template: project-field priority source.");
+    expect(output).toContain(
+      "# Optional template: project-field priority source."
+    );
     expect(output).toContain("# Optional template: labels priority source.");
     expect(output).not.toContain("priority_field:");
   });
@@ -207,9 +207,24 @@ describe("generateReferenceWorkflow", () => {
     expect(output).toContain("    - Done");
   });
 
-  it("defaults blocker_check_states to an explicit empty list without lifecycle input", () => {
+  it("defaults blocker_check_states to Todo without lifecycle input", () => {
     const output = generateReferenceWorkflow(defaultInput);
-    expect(output).toContain("blocker_check_states: []");
+    expect(output).toContain("blocker_check_states:\n    - Todo");
+    expect(output).toContain("planning_states: []");
+  });
+
+  it("defaults blocker checks to the first custom active column", () => {
+    const output = generateReferenceWorkflow({
+      ...defaultInput,
+      statusColumns: [
+        { name: "Ready", role: "active" },
+        { name: "Doing", role: "active" },
+        { name: "Shipped", role: "terminal" },
+      ],
+    });
+
+    expect(output).toContain("blocker_check_states:\n    - Ready");
+    expect(output).not.toContain("blocker_check_states:\n    - Todo");
     expect(output).toContain("planning_states: []");
   });
 

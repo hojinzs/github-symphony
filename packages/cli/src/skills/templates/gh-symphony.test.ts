@@ -106,6 +106,10 @@ describe("gh-symphony reference files", () => {
     expect(schema).toContain("# Reference WORKFLOW.md");
     expect(schema).toContain("tracker:");
     expect(schema).toContain("active_states:");
+    expect(schema).toContain(
+      "Missing `tracker.blocker_check_states` defaults to the first configured active state"
+    );
+    expect(schema).toContain("`blocker_check_states: []`");
     expect(schema).toContain("Supported Template Variables");
   });
 

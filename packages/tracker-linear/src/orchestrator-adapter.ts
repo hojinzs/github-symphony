@@ -60,6 +60,16 @@ type LinearIssueNode = {
   labels?: LinearConnection<{
     name?: string | null;
   }> | null;
+  inverseRelations?: LinearConnection<{
+    type?: string | null;
+    issue?: {
+      id?: string | null;
+      identifier?: string | null;
+      state?: {
+        name?: string | null;
+      } | null;
+    } | null;
+  }> | null;
   relations?: LinearConnection<{
     type?: string | null;
     relatedIssue?: {
@@ -108,10 +118,10 @@ const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
         name
       }
     }
-    relations {
+    inverseRelations {
       nodes {
         type
-        relatedIssue {
+        issue {
           id
           identifier
           state {
@@ -401,15 +411,15 @@ export function normalizeLinearIssue(
     labels: (issue.labels?.nodes ?? [])
       .map((label) => label.name)
       .filter((label): label is string => typeof label === "string"),
-    blockedBy: (issue.relations?.nodes ?? [])
+    blockedBy: (issue.inverseRelations?.nodes ?? [])
       .filter((relation) => relation.type === "blocks")
       .map((relation) => ({
-        id: relation.relatedIssue?.id ?? null,
+        id: relation.issue?.id ?? null,
         identifier:
-          typeof relation.relatedIssue?.identifier === "string"
-            ? sanitizeLinearIdentifier(relation.relatedIssue.identifier)
+          typeof relation.issue?.identifier === "string"
+            ? sanitizeLinearIdentifier(relation.issue.identifier)
             : null,
-        state: relation.relatedIssue?.state?.name ?? null,
+        state: relation.issue?.state?.name ?? null,
       })),
     createdAt: issue.createdAt ?? null,
     updatedAt: issue.updatedAt ?? null,

@@ -62,7 +62,7 @@ function linearIssueNode(
     priority: null,
     state: { name: "Todo" },
     labels: { nodes: labels.map((name) => ({ name })) },
-    relations: { nodes: [] },
+    inverseRelations: { nodes: [] },
     ...overrides,
   };
 }
@@ -88,11 +88,11 @@ describe("linearTrackerAdapter", () => {
                   updatedAt: "2026-05-02T00:00:00.000Z",
                   state: { name: "Todo" },
                   labels: { nodes: [{ name: "tracker" }] },
-                  relations: {
+                  inverseRelations: {
                     nodes: [
                       {
                         type: "blocks",
-                        relatedIssue: {
+                        issue: {
                           id: "issue-0",
                           identifier: "ENG-0",
                           state: { name: "Done" },
@@ -120,7 +120,7 @@ describe("linearTrackerAdapter", () => {
                   priority: 4,
                   state: { name: "In Progress" },
                   labels: { nodes: [] },
-                  relations: { nodes: [] },
+                  inverseRelations: { nodes: [] },
                 },
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
@@ -144,6 +144,9 @@ describe("linearTrackerAdapter", () => {
 
     expect(firstRequest.query).toContain("$filter: IssueFilter!");
     expect(firstRequest.query).toContain("filter: $filter");
+    expect(firstRequest.query).toContain("inverseRelations {");
+    expect(firstRequest.query).toContain("issue {");
+    expect(firstRequest.query).not.toMatch(/\n\s+relations \{/);
     expect(firstRequest.variables).toMatchObject({
       filter: {
         project: { slugId: { eq: "symphony-0c79b11b75ea" } },
@@ -412,7 +415,7 @@ describe("linearTrackerAdapter", () => {
                   title: "Assigned issue",
                   state: { name: "Todo" },
                   labels: { nodes: [] },
-                  relations: { nodes: [] },
+                  inverseRelations: { nodes: [] },
                 },
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
@@ -767,7 +770,7 @@ describe("linearTrackerAdapter", () => {
                   title: "First issue",
                   state: { name: "Todo" },
                   labels: { nodes: [] },
-                  relations: { nodes: [] },
+                  inverseRelations: { nodes: [] },
                 },
               ],
               pageInfo: { hasNextPage: false, endCursor: null },
@@ -1054,5 +1057,49 @@ describe("linearTrackerAdapter", () => {
         state: { name: "Todo" },
       })
     ).toThrow(/must match \^\[A-Z\]\[A-Z0-9\]\*-/);
+  });
+
+  it("normalizes blockers from inverse blocks relations only", () => {
+    const issue = normalizeLinearIssue(makeProject(), "project-slug", {
+      id: "issue-2",
+      identifier: "ENG-2",
+      state: { name: "Todo" },
+      relations: {
+        nodes: [
+          {
+            type: "blocks",
+            relatedIssue: {
+              id: "issue-3",
+              identifier: "ENG-3",
+              state: { name: "In Progress" },
+            },
+          },
+        ],
+      },
+      inverseRelations: {
+        nodes: [
+          {
+            type: "blocks",
+            issue: {
+              id: "issue-1",
+              identifier: "ENG-1",
+              state: { name: "Todo" },
+            },
+          },
+          {
+            type: "related",
+            issue: {
+              id: "issue-4",
+              identifier: "ENG-4",
+              state: { name: "Todo" },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(issue.blockedBy).toEqual([
+      { id: "issue-1", identifier: "ENG-1", state: "Todo" },
+    ]);
   });
 });
