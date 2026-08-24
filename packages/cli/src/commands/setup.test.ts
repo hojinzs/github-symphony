@@ -301,7 +301,10 @@ describe("setup command", () => {
       readFile(join(cwd, ".gh-symphony", "context.yaml"), "utf8")
     ).rejects.toThrow();
     expect(project.projectId).toBe("repository");
-    expect(project.workspaceDir).toBe(process.cwd());
+    expect(project.workspaceDir).toBe(
+      join(process.cwd(), ".runtime", "symphony-workspaces")
+    );
+    expect(project.repositoryDir).toBe(process.cwd());
     expect(project.repository).toMatchObject({
       owner: "acme",
       name: "repo-a",
@@ -436,7 +439,10 @@ describe("setup command", () => {
       )
     );
 
-    expect(project.workspaceDir).toBe(process.cwd());
+    expect(project.workspaceDir).toBe(
+      join(process.cwd(), ".runtime", "symphony-workspaces")
+    );
+    expect(project.repositoryDir).toBe(process.cwd());
     expect(project.repository?.name).toBe("repo-b");
     expect(p.note).toHaveBeenCalledWith(
       expect.stringContaining("Init dry-run preview"),

@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { RepositoryRef } from "../domain/workspace.js";
 import type {
   WorkflowDefinition,
@@ -34,7 +34,10 @@ export type PopulateStrategy = "clone" | "worktree-cache";
 export type OrchestratorProjectConfig = {
   projectId: string;
   slug: string;
+  /** Root directory containing persistent per-issue workspaces. */
   workspaceDir: string;
+  /** Repository checkout used as the daemon cwd for repo-embedded projects. */
+  repositoryDir?: string;
   repository: RepositoryRef;
   tracker: OrchestratorTrackerConfig;
   /** Defaults to the repository-local workflow for legacy project configs. */
@@ -55,12 +58,44 @@ export function normalizeOrchestratorProjectConfig(
   assertAbsoluteProjectDir(config);
   const workflowSource = normalizeWorkflowSource(config);
   const populateStrategy = normalizePopulateStrategy(config);
+  if (workflowSource.type === "repo" && config.repositoryDir) {
+    const workspaceRoot = resolve(config.workspaceDir);
+    const repositoryDir = resolve(config.repositoryDir);
+    const repositoryRelativeToRoot = relative(workspaceRoot, repositoryDir);
+    if (
+      repositoryRelativeToRoot === "" ||
+      (!repositoryRelativeToRoot.startsWith("..") &&
+        !isAbsolute(repositoryRelativeToRoot))
+    ) {
+      throw new Error(
+        `Project ${JSON.stringify(config.projectId)} workspace.root ${JSON.stringify(workspaceRoot)} must not equal or contain the repository checkout ${JSON.stringify(repositoryDir)}.`
+      );
+    }
+  }
 
   return {
     ...config,
     workflowSource,
     populateStrategy,
   };
+}
+
+/** Rejects legacy repo metadata on daemon startup without blocking CLI migration commands. */
+export function assertDispatchableOrchestratorProjectConfig(
+  config: OrchestratorProjectConfig
+): void {
+  const workflowSource = normalizeWorkflowSource(config);
+  const repositoryPath = config.repository?.path;
+  if (
+    workflowSource.type === "repo" &&
+    !config.repositoryDir &&
+    repositoryPath &&
+    resolve(config.workspaceDir) === resolve(repositoryPath)
+  ) {
+    throw new Error(
+      `Project ${JSON.stringify(config.projectId)} uses legacy repo-embedded path metadata. Stop the daemon and run 'gh-symphony repo init' again before starting it.`
+    );
+  }
 }
 
 function assertAbsoluteProjectDir(config: OrchestratorProjectConfig): void {

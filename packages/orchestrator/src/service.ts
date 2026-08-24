@@ -2637,6 +2637,25 @@ export class OrchestratorService {
       this.resolveIssueWorkspaceRoot(tenant),
       workspaceKey
     );
+    const existingWorkspaceAtConfiguredRoot = Boolean(
+      existingWorkspaceRecord &&
+      resolve(existingWorkspaceRecord.workspacePath) === issueWorkspacePath
+    );
+    if (existingWorkspaceRecord && !existingWorkspaceAtConfiguredRoot) {
+      this.writeStderr(
+        `[orchestrator] workspace root changed for ${issue.identifier}: previous=${existingWorkspaceRecord.workspacePath} configured=${issueWorkspacePath}`
+      );
+      await this.store.appendRunEvent(runId, {
+        at: now.toISOString(),
+        event: "workspace-root-relocated",
+        projectId: tenant.projectId,
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        workspaceKey,
+        previousWorkspacePath: existingWorkspaceRecord.workspacePath,
+        configuredWorkspacePath: issueWorkspacePath,
+      });
+    }
     const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
 
     // #507: dirty recovery may only reuse the workspace when the dirty state
@@ -2646,7 +2665,7 @@ export class OrchestratorService {
     let workspaceQuarantined = false;
     if (
       recovery?.kind === "incomplete-turn-dirty-workspace" &&
-      existingWorkspaceRecord
+      existingWorkspaceAtConfiguredRoot
     ) {
       const currentBranch = await readGitCurrentBranch(
         join(issueWorkspacePath, "repository")
@@ -2713,7 +2732,7 @@ export class OrchestratorService {
       repository: issue.repository,
       issueWorkspacePath,
       existingWorkspace:
-        Boolean(existingWorkspaceRecord) && !workspaceQuarantined,
+        existingWorkspaceAtConfiguredRoot && !workspaceQuarantined,
       pullRequestBranch,
       allowDirtyExistingWorkspace:
         recovery?.kind === "incomplete-turn-dirty-workspace",
@@ -2733,7 +2752,7 @@ export class OrchestratorService {
     );
     await excludeRuntimeSkillsFromGit(repositoryDirectory, agentCommand);
 
-    if (!existingWorkspaceRecord || workspaceQuarantined) {
+    if (!existingWorkspaceAtConfiguredRoot || workspaceQuarantined) {
       const workspaceRecord: IssueWorkspaceRecord = {
         workspaceKey,
         projectId: tenant.projectId,
@@ -4729,14 +4748,12 @@ export class OrchestratorService {
 
   /**
    * Per-issue workspaces live under the project's configured `workspace.root`
-   * (spec 9.1). Standalone projects carry that root as `workspaceDir`; the
-   * repo-embedded layout still keeps workspaces beside the project state,
-   * where `workspaceDir` means the repository checkout instead.
+   * (spec 9.1), carried as `workspaceDir` in every project mode. Persisted
+   * repo-embedded configs that still use this field for the checkout are
+   * rejected during normalization until `repo init` migrates them.
    */
   private resolveIssueWorkspaceRoot(tenant: OrchestratorProjectConfig): string {
-    return tenant.workflowSource?.type === "external" && tenant.workspaceDir
-      ? resolve(tenant.workspaceDir)
-      : this.store.projectDir(tenant.projectId);
+    return resolve(tenant.workspaceDir);
   }
 
   private resolveWorkflowRepositoryDirectory(

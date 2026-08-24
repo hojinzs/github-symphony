@@ -12374,7 +12374,7 @@ Workspace prompt.
     expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
   });
 
-  it("keeps repo-embedded issue workspaces beside the project state", async () => {
+  it("places repo-embedded issue workspaces under the configured workspace root", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-embedded-workspace-root-")
@@ -12385,13 +12385,11 @@ Workspace prompt.
       "platform"
     );
     const store = new OrchestratorFsStore(tempRoot);
-    // repo-embedded registration stores the repository checkout here, which
-    // must never be used as a workspace root.
-    const projectConfig = createProjectConfig(
-      tempRoot,
-      repository,
-      repository.path
-    );
+    const workspaceRoot = join(tempRoot, "configured-workspaces");
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, workspaceRoot),
+      repositoryDir: repository.path,
+    };
     await store.saveProjectConfig(projectConfig);
 
     const spawnImpl = vi.fn().mockReturnValue({ pid: 5302, unref: vi.fn() });
@@ -12405,7 +12403,122 @@ Workspace prompt.
     const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
 
     expect(workspaceRecord?.workspacePath).toBe(
-      join(store.projectDir("tenant-1"), workspaceRecord!.workspaceKey)
+      join(workspaceRoot, workspaceRecord!.workspaceKey)
+    );
+    expect((await stat(workspaceRoot)).mode & 0o777).toBe(0o700);
+  });
+
+  it("uses workspaceDir for repo-embedded configs without repositoryDir", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-legacy-embedded-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRoot = join(tempRoot, "legacy-compatible-workspaces");
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository,
+      workspaceRoot
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 5303, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+    const [workspaceRecord] = await store.loadIssueWorkspaces("tenant-1");
+
+    expect(workspaceRecord?.workspacePath).toBe(
+      join(workspaceRoot, workspaceRecord!.workspaceKey)
+    );
+  });
+
+  it("re-populates a legacy workspace record under the configured root", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-migrated-embedded-workspace-root-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const workspaceRoot = join(tempRoot, "configured-workspaces");
+    const projectConfig = {
+      ...createProjectConfig(tempRoot, repository, workspaceRoot),
+      repositoryDir: repository.path,
+    };
+    await store.saveProjectConfig(projectConfig);
+
+    const workspaceKey = "acme_platform_1";
+    const legacyWorkspacePath = join(
+      store.projectDir(projectConfig.projectId),
+      workspaceKey
+    );
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath: legacyWorkspacePath,
+      repositoryPath: join(legacyWorkspacePath, "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+
+    const stderrWrite = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      spawnImpl: vi
+        .fn()
+        .mockReturnValue({ pid: 5304, unref: vi.fn() }) as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr: { write: stderrWrite } as never,
+    });
+
+    await service.runOnce();
+    const migratedRecord = await store.loadIssueWorkspace(
+      projectConfig.projectId,
+      workspaceKey
+    );
+
+    expect(migratedRecord?.workspacePath).toBe(
+      join(workspaceRoot, workspaceKey)
+    );
+    expect(migratedRecord?.repositoryPath).toBe(
+      join(workspaceRoot, workspaceKey, "repository")
+    );
+    expect(stderrWrite).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `previous=${legacyWorkspacePath} configured=${join(workspaceRoot, workspaceKey)}\n`
+      )
+    );
+    const run = (await store.loadAllRuns()).find(
+      (candidate) => candidate.projectId === projectConfig.projectId
+    );
+    await expect(
+      store.loadRecentRunEvents(run!.runId, 20, projectConfig.projectId)
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "workspace-root-relocated",
+          message: expect.stringContaining(legacyWorkspacePath),
+        }),
+      ])
     );
   });
 
@@ -13564,7 +13677,7 @@ Prefer focused changes.
 
     const workspaceKey = deriveIssueWorkspaceKey("acme/platform#1");
     const expectedWorkspacePath = resolveIssueWorkspaceDirectory(
-      store.projectDir("tenant-1"),
+      workspaceDir,
       workspaceKey
     );
 
@@ -13683,7 +13796,7 @@ function createProjectConfig(
     name: string;
     cloneUrl: string;
   },
-  workspaceDir = join(root, "workspaces", "tenant-1")
+  workspaceDir = join(root, "projects", "tenant-1")
 ) {
   return {
     projectId: "tenant-1",

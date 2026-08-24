@@ -98,13 +98,19 @@ describe("resolveIssueWorkspaceDirectory", () => {
     ).toThrow("escapes");
   });
 
-  it("rejects reserved flat-layout workspace keys", () => {
-    expect(() =>
-      resolveIssueWorkspaceDirectory("/runtime/orchestrator", "runs")
-    ).toThrow("reserved");
+  it("allows keys formerly reserved by the flat runtime layout", () => {
+    expect(resolveIssueWorkspaceDirectory("/workspaces", "runs")).toBe(
+      "/workspaces/runs"
+    );
+    expect(resolveIssueWorkspaceDirectory("/workspaces", "cache")).toBe(
+      "/workspaces/cache"
+    );
+  });
+
+  it("rejects hidden workspace keys", () => {
     expect(() =>
       resolveIssueWorkspaceDirectory("/runtime/orchestrator", ".lock")
-    ).toThrow("reserved");
+    ).toThrow("hidden");
   });
 
   it("rejects an issue workspace symlink that resolves outside the runtime root", () => {

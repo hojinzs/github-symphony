@@ -125,6 +125,30 @@ describe("config persistence", () => {
     ).rejects.toThrow('Project "project-1" project directory');
   });
 
+  it("loads legacy repo metadata so stop and diagnostic commands can migrate it", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-legacy-repo-config-"));
+    const projectDir = join(configDir, "projects", "repository");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "project.json"),
+      JSON.stringify({
+        projectId: "repository",
+        slug: "repository",
+        workspaceDir: "/repos/acme",
+        repository: { owner: "acme", name: "platform", path: "/repos/acme" },
+        tracker: { adapter: "file", bindingId: "repository" },
+      }),
+      "utf8"
+    );
+
+    await expect(
+      loadProjectConfig(configDir, "repository")
+    ).resolves.toMatchObject({
+      workspaceDir: "/repos/acme",
+      workflowSource: { type: "repo" },
+    });
+  });
+
   it("serializes concurrent load-modify-save updates", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
     await saveGlobalConfig(configDir, {

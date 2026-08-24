@@ -82,6 +82,28 @@ describe("OrchestratorFsStore.loadRecentRunEvents", () => {
     );
   });
 
+  it("rejects legacy repo configs that use workspaceDir as the checkout", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
+    const store = new OrchestratorFsStore(runtimeRoot);
+    const projectDir = store.projectDir("project-1");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, "project.json"),
+      JSON.stringify({
+        projectId: "project-1",
+        slug: "project-1",
+        workspaceDir: "/repos/acme",
+        repository: { owner: "acme", name: "repo", path: "/repos/acme" },
+        tracker: { adapter: "file", bindingId: "file-project-1" },
+      }),
+      "utf8"
+    );
+
+    await expect(store.loadProjectConfig("project-1")).rejects.toThrow(
+      "legacy repo-embedded path metadata"
+    );
+  });
+
   it("round-trips standalone project configuration", async () => {
     const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-store-"));
     const store = new OrchestratorFsStore(runtimeRoot);

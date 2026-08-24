@@ -189,6 +189,17 @@ export type WorkspaceCleanupEvent = {
   error?: string | null;
 };
 
+export type WorkspaceRootRelocatedEvent = {
+  at: string;
+  event: "workspace-root-relocated";
+  projectId?: string;
+  workspaceKey: string;
+  issueIdentifier: string;
+  issueId?: string;
+  previousWorkspacePath: string;
+  configuredWorkspacePath: string;
+};
+
 export type WorkerErrorEvent = {
   at: string;
   event: "worker-error";
@@ -301,6 +312,7 @@ export type OrchestratorEvent =
   | HookExecutedEvent
   | HookFailedEvent
   | WorkspaceCleanupEvent
+  | WorkspaceRootRelocatedEvent
   | WorkerErrorEvent
   | TurnStartedEvent
   | TurnCompletedEvent
