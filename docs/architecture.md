@@ -70,7 +70,11 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ## Package dependency graph
 
 `packages/cli` is the published entrypoint that bundles the rest at build time
-(referenced via devDependencies).
+(referenced via devDependencies). In addition to `dist/index.js` and the worker
+entry, its package build emits `dist/mcp-server.js`, which dispatches exactly one
+built-in GraphQL MCP implementation from an explicit server argument, and
+`dist/git-credential-helper.js`, which supplies runtime-scoped GitHub credentials
+to Git subprocesses.
 
 ```
 cli (bundles: orchestrator, worker, control-plane, dashboard, runtime-claude, tracker-github, core)

@@ -38,6 +38,7 @@
     "build": "tsup",
     "lint": "eslint src --ext .ts",
     "test": "vitest run --passWithNoTests",
+    "test:package": "pnpm build && node scripts/package-smoke.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -51,7 +52,10 @@
     "@gh-symphony/dashboard": "workspace:*",
     "@gh-symphony/orchestrator": "workspace:*",
     "@gh-symphony/runtime-claude": "workspace:*",
+    "@gh-symphony/runtime-codex": "workspace:*",
     "@gh-symphony/tracker-github": "workspace:*",
+    "@gh-symphony/tool-github-graphql": "workspace:*",
+    "@gh-symphony/tool-linear-graphql": "workspace:*",
     "@gh-symphony/worker": "workspace:*",
     "tsup": "^8.5.1"
   }

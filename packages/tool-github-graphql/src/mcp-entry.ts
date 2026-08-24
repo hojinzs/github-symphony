@@ -33,7 +33,7 @@ export function createGitHubGraphQLMcpServerEntry(
 
   return {
     command: "node",
-    args: [resolveGitHubGraphQLMcpServerEntryPoint()],
+    args: [resolveGitHubGraphQLMcpServerEntryPoint(), "--server", "github"],
     env: {
       GITHUB_GRAPHQL_API_URL: githubGraphqlApiUrl,
       ...(options.githubToken
