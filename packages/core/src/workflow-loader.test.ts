@@ -107,6 +107,25 @@ Prompt body.
     expect(workflow.lifecycle.planningStates).toEqual([]);
   });
 
+  it("defaults blocker checks to the first configured active state", () => {
+    const workflow = parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+  active_states:
+    - Ready
+    - Doing
+  terminal_states:
+    - Shipped
+codex:
+  command: codex app-server
+---
+Prompt body.
+`);
+
+    expect(workflow.lifecycle.blockerCheckStates).toEqual(["Ready"]);
+    expect(workflow.lifecycle.planningStates).toEqual([]);
+  });
+
   it("parses independent planning states", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:

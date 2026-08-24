@@ -1090,7 +1090,6 @@ function buildLinearProjectDetail(projectSlug: string): ProjectDetail {
 
 function buildLinearWorkflowLifecycle(): WorkflowLifecycleConfig {
   return toWorkflowLifecycleConfig("State", LINEAR_DEFAULT_MAPPINGS, {
-    blockerCheckStates: ["Todo"],
     planningStates: [],
   });
 }
