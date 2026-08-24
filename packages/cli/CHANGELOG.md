@@ -1,5 +1,13 @@
 # @gh-symphony/cli
 
+## 0.10.1
+
+### Patch Changes
+
+- [#629](https://github.com/hojinzs/github-symphony/pull/629) [`2b50648`](https://github.com/hojinzs/github-symphony/commit/2b50648a93a8468ee2ca456098a83b9f0786109a) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#613](https://github.com/hojinzs/github-symphony/issues/613) by publishing the built-in MCP server and Git credential helper runtime entry points.
+
+- [#623](https://github.com/hojinzs/github-symphony/pull/623) [`30bc1f0`](https://github.com/hojinzs/github-symphony/commit/30bc1f0dea6d45961f77b5f4b8a7c1fa931e61a5) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Bound unknown tracker finalization deferrals and persist diagnostic run events so completed workers cannot remain pinned indefinitely ([#611](https://github.com/hojinzs/github-symphony/issues/611)).
+
 ## 0.10.0
 
 ### Minor Changes
