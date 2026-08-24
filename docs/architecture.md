@@ -34,7 +34,9 @@ touches a layer, check that its slice (and the linked documents) still holds.
 
 - `WORKFLOW.md` front matter parsing and validation: `packages/core/src/workflow/`
 - Layered MCP composition (`.mcp.json` sidecar): `packages/core/src/runtime/mcp-compose.ts` + each runtime adapter
-- CLI global/project config and folder-addressed standalone project derivation: `packages/cli/src/config.ts`, `commands/project.ts`
+- CLI global/project config, folder-addressed standalone project derivation, and cwd-first
+  diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
+  `commands/project.ts`
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 
 ### 3. Coordination — the orchestrator

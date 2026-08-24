@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
@@ -18,6 +17,9 @@ import {
   withConfigLock,
 } from "../config.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
+import { standaloneProjectId } from "../standalone-project.js";
+
+export { standaloneProjectId } from "../standalone-project.js";
 
 type PickupLabels = { include: string[]; exclude: string[] };
 
@@ -57,7 +59,7 @@ export async function deriveStandaloneProject(
       "WORKFLOW.md tracker configuration requires project_id or project_slug."
     );
   }
-  const projectId = projectIdentifier(projectDir);
+  const projectId = standaloneProjectId(projectDir);
   const config: CliProjectConfig = {
     projectId,
     slug: slugify(basename(projectDir)) || projectId,
@@ -118,10 +120,6 @@ export async function deriveStandaloneProject(
  * The identifier is a pure function of the folder path, so a project can be
  * addressed without reading its configuration first.
  */
-export function standaloneProjectId(projectDirInput: string): string {
-  return projectIdentifier(resolve(projectDirInput));
-}
-
 async function listStandaloneProjects(
   configDir: string
 ): Promise<CliProjectConfig[]> {
@@ -344,10 +342,6 @@ function parseRepository(value: Record<string, unknown> | null): RepositoryRef {
         ? value.cloneUrl
         : `https://github.com/${owner}/${name}.git`;
   return { owner, name, cloneUrl };
-}
-
-function projectIdentifier(projectDir: string): string {
-  return `${slugify(basename(projectDir)) || "project"}-${createHash("sha256").update(projectDir).digest("hex").slice(0, 8)}`;
 }
 
 function slugify(value: string): string {

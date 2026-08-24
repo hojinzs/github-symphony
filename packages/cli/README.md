@@ -389,7 +389,7 @@ Without `--issue`, doctor auto-selects one active live issue from the managed pr
 
 `gh-symphony doctor --fix` extends the regular diagnostic flow with safe remediation and guided follow-up:
 
-When multiple standalone projects are registered, diagnostics resolve the registry's `activeProject`. Use `doctor --project-dir <path>` or `workflow preview --project-id <projectId>` to select another project explicitly.
+When cwd is a standalone project folder whose runtime config was cached by `project start`, diagnostics resolve that project before the registry's `activeProject`. Explicit `doctor --project-dir <path>` or `workflow preview --project-id <projectId>` selection wins over cwd; outside such a standalone folder, `activeProject` remains the fallback.
 
 - creates missing config/runtime/workspace directories
 - launches `gh auth login` or `gh auth refresh` when a TTY is available, otherwise prints the exact command to run

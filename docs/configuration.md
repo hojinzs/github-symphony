@@ -29,7 +29,11 @@ must declare `repository.slug`, which is also what distinguishes a standalone
 project from a repository that embeds its own workflow. Configuration is derived
 from the folder on every start and cached under
 `<config-dir>/projects/<project-id>/`, where the project id is a stable function
-of the folder path — there is no registration step and no active-project state.
+of the folder path — there is no registration step, and folder-addressed lifecycle does not rely
+on active-project state.
+Folder-addressed lifecycle commands do not consult `activeProject`. Diagnostics have a separate
+selection rule: an explicit selector wins, then an exact registered `projectDir` match for the
+working directory, then the global registry's `activeProject` as a fallback.
 The cached `projectDir` is always absolute; persisted relative values are
 rejected instead of being resolved against the daemon working directory. Issue workspaces are
 created under the project's `workspace.root` (spec 9.1), resolved relative to

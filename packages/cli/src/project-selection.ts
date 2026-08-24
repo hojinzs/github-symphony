@@ -1,14 +1,17 @@
 import * as p from "@clack/prompts";
+import { resolve } from "node:path";
 import {
   loadGlobalConfig,
   loadProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
 import { writeCliError } from "./cli-error.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 type ResolveProjectSelectionInput = {
   configDir: string;
   requestedProjectId?: string;
+  cwd?: string;
   json?: boolean;
 };
 
@@ -39,15 +42,31 @@ function explicitProjectRequiredMessage(): string {
 }
 
 function diagnosticProjectRequiredMessage(): string {
-  return "Multiple managed projects are configured and no active project is set. Pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For standalone diagnostics, pass '--project-dir <path>' to 'gh-symphony doctor'.";
+  return "Multiple managed projects are configured, cwd has no cached standalone runtime config, and no active project is set. Run 'gh-symphony project start' from the standalone project folder to refresh its runtime config, run the diagnostic from that folder, or pass '--project-id <project-id>' to select one. Run 'gh-symphony project list' to see configured project ids. For doctor, you can also pass '--project-dir <path>'.";
 }
 
 function projectConfigRemediation(): string {
-  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
+  return "For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run diagnostics from that folder or select it explicitly. For a repository runtime, run 'gh-symphony repo init' from the target repository.";
 }
 
 function missingProjectConfigMessage(projectId: string): string {
   return `Project "${projectId}" is not configured. ${projectConfigRemediation()}`;
+}
+
+async function loadStandaloneProjectFromCwd(
+  configDir: string,
+  cwd: string
+): Promise<{ projectId: string; projectConfig: CliProjectConfig } | null> {
+  const resolvedCwd = resolve(cwd);
+  const projectId = standaloneProjectId(resolvedCwd);
+  const projectConfig = await loadProjectConfig(configDir, projectId);
+  if (
+    projectConfig?.projectDir &&
+    resolve(projectConfig.projectDir) === resolvedCwd
+  ) {
+    return { projectId, projectConfig };
+  }
+  return null;
 }
 
 export async function inspectManagedProjectSelection(
@@ -71,6 +90,14 @@ export async function inspectManagedProjectSelection(
       projectId: input.requestedProjectId,
       projectConfig,
     };
+  }
+
+  const cwdProject = await loadStandaloneProjectFromCwd(
+    input.configDir,
+    input.cwd ?? process.cwd()
+  );
+  if (cwdProject) {
+    return { kind: "resolved", ...cwdProject };
   }
 
   const global = await loadGlobalConfig(input.configDir);

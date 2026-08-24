@@ -7,6 +7,7 @@ import {
   saveProjectConfig,
   type CliProjectConfig,
 } from "./config.js";
+import { standaloneProjectId } from "./standalone-project.js";
 
 const selectMock = vi.fn();
 const cancelMock = vi.fn();
@@ -38,12 +39,14 @@ const {
 
 function createProject(
   projectId: string,
-  displayName?: string
+  displayName?: string,
+  projectDir?: string
 ): CliProjectConfig {
   return {
     projectId,
     slug: projectId,
     displayName,
+    ...(projectDir ? { projectDir } : {}),
     workspaceDir: join("/tmp", projectId),
     tracker: {
       adapter: "github-project",
@@ -174,6 +177,76 @@ describe("resolveManagedProjectConfig", () => {
 });
 
 describe("inspectManagedProjectSelection", () => {
+  it("prefers the cached standalone cwd over a different active project", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectAId = standaloneProjectId(projectADir);
+    const configDir = await createConfigFixture(
+      [createProject("tenant-b", "Beta")],
+      "tenant-b"
+    );
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: projectAId,
+    });
+  });
+
+  it("resolves a cached standalone cwd without a global config", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectAId = standaloneProjectId(projectADir);
+    const configDir = await mkdtemp(join(tmpdir(), "project-selection-"));
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: projectAId,
+    });
+  });
+
+  it("keeps an explicit selector ahead of the cached standalone cwd", async () => {
+    const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
+    const projectAId = standaloneProjectId(projectADir);
+    const configDir = await createConfigFixture(
+      [createProject("tenant-b", "Beta")],
+      "tenant-b"
+    );
+    await saveProjectConfig(
+      configDir,
+      projectAId,
+      createProject(projectAId, "Alpha", projectADir)
+    );
+
+    const result = await inspectManagedProjectSelection({
+      configDir,
+      requestedProjectId: "tenant-b",
+      cwd: projectADir,
+    });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "tenant-b",
+    });
+  });
+
   it("uses the active project in non-interactive multi-project mode", async () => {
     const configDir = await createConfigFixture(
       [createProject("tenant-a"), createProject("tenant-b")],
@@ -203,6 +276,7 @@ describe("inspectManagedProjectSelection", () => {
       message: expect.stringContaining("--project-dir <path>"),
     });
     expect(result.message).toContain("gh-symphony project list");
+    expect(result.message).toContain("run the diagnostic from that folder");
     expect(result.message).not.toContain("repo init");
   });
 
@@ -234,7 +308,7 @@ describe("inspectManagedProjectSelection", () => {
       kind: "active_project_missing",
       projectId: "tenant-a",
       message:
-        "Active project \"tenant-a\" is configured in config.json but its project config is missing. For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
+        "Active project \"tenant-a\" is configured in config.json but its project config is missing. For a standalone project, run 'gh-symphony project start' from its project folder to refresh the runtime config, then run diagnostics from that folder or select it explicitly. For a repository runtime, run 'gh-symphony repo init' from the target repository.",
     });
     expect(result.message).not.toContain('Active Project "tenant-a"');
   });
