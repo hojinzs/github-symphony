@@ -2291,6 +2291,9 @@ describe("resolveTrackerAdapter", () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("Deprecated tracker.settings.assignedOnly")
       );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("gh-symphony project start --assigned-only")
+      );
     } finally {
       infoSpy.mockRestore();
       warnSpy.mockRestore();

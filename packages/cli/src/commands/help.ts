@@ -99,6 +99,27 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    title: "Orchestration (standalone project)",
+    entries: [
+      {
+        name: "project list",
+        description: "List cached standalone projects",
+      },
+      {
+        name: "project start",
+        description: "Start the standalone project in the current folder",
+      },
+      {
+        name: "project status",
+        description: "Show standalone project orchestrator status",
+      },
+      {
+        name: "project stop",
+        description: "Stop the standalone project orchestrator",
+      },
+    ],
+  },
+  {
     title: "Maintenance",
     entries: [
       {
