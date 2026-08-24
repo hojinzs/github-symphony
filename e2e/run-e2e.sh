@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -261,7 +261,7 @@ PY
     exit 1
   fi
   if [ "$SCENARIO" = "prompt-phase" ] && ! docker logs symphony-e2e 2>&1 | grep -q 'scenario=prompt-phase'; then
-    fail "Prompt-phase worker evidence was not observed"
+    fail "Stub worker did not start under the prompt-phase scenario"
     exit 1
   fi
   log "=== Result ==="
