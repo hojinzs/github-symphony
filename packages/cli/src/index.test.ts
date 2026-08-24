@@ -286,6 +286,41 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--skip-context");
   });
 
+  it("shows standalone project runtime options in command help", async () => {
+    const stdout = captureWrites(process.stdout);
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["project", "start", "--help"]);
+    } finally {
+      stdout.restore();
+      stderr.restore();
+    }
+
+    const output = stdout.output() + stderr.output();
+    expect(output).toContain("--daemon");
+    expect(output).toContain("--once");
+    expect(output).toContain("--assigned-only");
+    expect(output).toContain("--bind-all");
+    expect(output).toContain("--http [port]");
+    expect(output).toContain("--web [port]");
+    expect(output).toContain("--log-level <level>");
+    expect(output).toContain("--project-dir <path>");
+  });
+
+  it("rejects misspelled standalone project runtime options", async () => {
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await runCli(["project", "start", "--asigned-only"]);
+    } finally {
+      stderr.restore();
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(stderr.output()).toContain("unknown option '--asigned-only'");
+  });
+
   it("keeps hidden removed repo commands callable", async () => {
     const stdout = captureWrites(process.stdout);
     const stderr = captureWrites(process.stderr);

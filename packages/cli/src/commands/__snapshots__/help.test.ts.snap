@@ -25,6 +25,12 @@ exports[`help output > renders the colored grouped help snapshot 1`] = `
   [36mrepo logs[0m                   View orchestrator logs
   [36mrepo explain <issue>[0m        Explain why an issue is not dispatching
 
+[33m[1mOrchestration (standalone project):[0m[0m
+  [36mproject list[0m                List cached standalone projects
+  [36mproject start[0m               Start the standalone project in the current folder
+  [36mproject status[0m              Show standalone project orchestrator status
+  [36mproject stop[0m                Stop the standalone project orchestrator
+
 [33m[1mMaintenance:[0m[0m
   [36mcache status[0m                Inspect the global bare repository cache
   [36mcache prune[0m                 Remove old caches without locks or linked worktrees
@@ -68,6 +74,12 @@ Orchestration (current repository):
   repo recover                Recover stalled runs
   repo logs                   View orchestrator logs
   repo explain <issue>        Explain why an issue is not dispatching
+
+Orchestration (standalone project):
+  project list                List cached standalone projects
+  project start               Start the standalone project in the current folder
+  project status              Show standalone project orchestrator status
+  project stop                Stop the standalone project orchestrator
 
 Maintenance:
   cache status                Inspect the global bare repository cache

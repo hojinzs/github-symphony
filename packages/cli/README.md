@@ -475,7 +475,7 @@ Orchestration:
 
 Standalone Projects:
   project list        List cached standalone projects as JSON
-  project start       Start the cwd project folder (same flags as repo start)
+  project start       Start the cwd project folder (`project start --help` lists runtime flags)
   project status      Show the cwd project folder's status
   project stop        Stop the cwd project folder's daemon
   --project-dir <dir> Address an explicit standalone project folder

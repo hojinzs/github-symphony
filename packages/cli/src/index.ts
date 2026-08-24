@@ -544,7 +544,44 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       );
     }
   );
-  for (const name of ["start", "status", "stop"] as const) {
+  addGlobalOptions(
+    project
+      .command("start")
+      .description("Start a standalone project")
+      .option("-d, --daemon", "Start in daemon mode")
+      .option("--once", "Run a single orchestration tick and exit")
+      .option("--assigned-only", "Limit this run to assigned issues")
+      .option(
+        "--bind-all",
+        "Bind HTTP servers to all interfaces instead of localhost"
+      )
+      .option(
+        "--http [port]",
+        "Expose the JSON status API and refresh endpoints over HTTP"
+      )
+      .option(
+        "--web [port]",
+        "Expose the control plane web dashboard and API over HTTP"
+      )
+      .option("--log-level <level>", "Orchestrator lifecycle log level")
+      .option("--project-dir <path>", "Project folder (defaults to cwd)")
+      .allowExcessArguments(false)
+  ).action(async function (this: Command) {
+    markInvoked();
+    const values = this.optsWithGlobals<CliOptionValues>();
+    const args: string[] = ["start"];
+    pushOption(args, "--daemon", values.daemon);
+    pushOption(args, "--once", values.once);
+    pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--bind-all", values.bindAll);
+    pushOption(args, "--http", values.http);
+    pushOption(args, "--web", values.web);
+    pushOption(args, "--log-level", values.logLevel);
+    pushOption(args, "--project-dir", values.projectDir);
+    await invokeHandler("project", args, values);
+  });
+
+  for (const name of ["status", "stop"] as const) {
     addGlobalOptions(
       project.command(name).allowUnknownOption(true).allowExcessArguments(true)
     ).action(async function (this: Command) {
