@@ -240,9 +240,9 @@ describe("resolveLinearAuthorizationHeader", () => {
         apiKey: " lin_api_key ",
       })
     ).toBe("Bearer runtime-token");
-    expect(resolveLinearAuthorizationHeader({ apiKey: " lin_api_key \n" })).toBe(
-      "lin_api_key"
-    );
+    expect(
+      resolveLinearAuthorizationHeader({ apiKey: " lin_api_key \n" })
+    ).toBe("lin_api_key");
     expect(() =>
       resolveLinearAuthorizationHeader({
         authorizationHeader: "  ",
