@@ -322,6 +322,56 @@ describe("OrchestratorService", () => {
     );
   });
 
+  it("queues a non-exhausted restart failure with backoff", async () => {
+    const now = new Date("2026-03-08T00:00:00.000Z");
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-restart-backoff-"));
+    const repository = await createRepositoryFixture(tempRoot, "acme", "platform", {
+      maxFailureRetries: 3,
+      retryBaseDelayMs: 1000,
+      retryMaxDelayMs: 1000,
+    });
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    const run = {
+      runId: "run-retry", projectId: "tenant-1", projectSlug: "tenant-1",
+      issueId: "retry-issue", issueSubjectId: "retry-issue", issueIdentifier: "acme/platform#1",
+      issueState: "Todo", repository, status: "retrying", attempt: 2, processId: null,
+      port: 4601, workingDirectory: tempRoot, issueWorkspaceKey: "retry-issue",
+      workspaceRuntimeDir: tempRoot, workflowPath: null, retryKind: "failure",
+      createdAt: now.toISOString(), updatedAt: now.toISOString(), startedAt: now.toISOString(),
+      completedAt: null, lastError: "Worker process exited unexpectedly.", nextRetryAt: now.toISOString(),
+    } as OrchestratorRunRecord;
+    const issueRecords = [{
+      issueId: "retry-issue", identifier: "acme/platform#1", workspaceKey: "retry-issue",
+      completedOnce: false, failureRetryCount: 1, state: "running" as const,
+      currentRunId: run.runId, retryEntry: { attempt: 2, dueAt: now.toISOString(), error: run.lastError },
+      updatedAt: now.toISOString(),
+    }];
+    await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      reviveIssue: vi.fn().mockReturnValue({}),
+    } as never);
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => now,
+      writeStderr: vi.fn(),
+    });
+    vi.spyOn(service as never, "startRun").mockRejectedValue(
+      new Error("restart checkout failed")
+    );
+
+    const outcome = await (service as never).restartRun(
+      projectConfig, run, issueRecords, now
+    );
+
+    expect(outcome.recovered).toBe(false);
+    expect(outcome.issueRecords).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        issueId: "retry-issue", state: "retry_queued", failureRetryCount: 2,
+        retryEntry: expect.objectContaining({ attempt: 3, dueAt: "2026-03-08T00:00:01.000Z" }),
+      }),
+    ]));
+  });
+
   it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -423,12 +473,23 @@ describe("OrchestratorService", () => {
       }),
       reviveIssue: vi.fn().mockReturnValue({ ...retryIssue, state: "Todo" }),
     });
-    const spawnImpl = vi.fn().mockReturnValue({
-      pid: 4100,
-      stderr: null,
-      on: vi.fn(),
-      unref: vi.fn(),
-    });
+    const spawnImpl = vi.fn(
+      (
+        _command: string,
+        _args: string[],
+        options: { env?: NodeJS.ProcessEnv }
+      ) => {
+        if (options.env?.SYMPHONY_ISSUE_ID === "retry-issue") {
+          throw new Error("restart worker spawn failed");
+        }
+        return {
+          pid: 4100,
+          stderr: null,
+          on: vi.fn(),
+          unref: vi.fn(),
+        };
+      }
+    );
     const service = new OrchestratorService(store, projectConfig, {
       concurrency: 2,
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
@@ -436,24 +497,6 @@ describe("OrchestratorService", () => {
       now: () => new Date("2026-03-08T00:00:00.000Z"),
       writeStderr: vi.fn(),
     });
-    const startRun = (
-      service as unknown as {
-        startRun: (
-          tenant: OrchestratorProjectConfig,
-          issue: typeof healthyIssue,
-          options: unknown
-        ) => Promise<OrchestratorRunRecord>;
-      }
-    ).startRun.bind(service);
-    vi.spyOn(service as never, "startRun").mockImplementation(
-      async (tenant, issue, options) => {
-        if (issue.id === "retry-issue") {
-          throw new Error("restart checkout failed");
-        }
-        return startRun(tenant, issue, options);
-      }
-    );
-
     const result = await service.runOnce();
     const retryRun = await store.loadRun("run-retry");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
@@ -461,14 +504,14 @@ describe("OrchestratorService", () => {
     expect(result.summary.dispatched).toBe(1);
     expect(result.summary.recovered).toBe(0);
     expect(result.health).toBe("degraded");
-    expect(result.lastError).toContain("restart checkout failed");
+    expect(result.lastError).toContain("restart worker spawn failed");
     expect(retryRun).toMatchObject({
       status: "suppressed",
       nextRetryAt: null,
       retryKind: null,
       lastError: expect.stringContaining("max_failure_retries_exceeded"),
     });
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -487,7 +530,7 @@ describe("OrchestratorService", () => {
 
     const secondResult = await service.runOnce();
     expect(secondResult.summary.dispatched).toBe(0);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a live PID whose worker process identity was reused", () => {

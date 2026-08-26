@@ -4517,6 +4517,17 @@ export class OrchestratorService {
           retryKind: null,
           lastError: retrySuppressed ? suppressionError : errorMessage,
         });
+        // A prepared restart produces both this terminal record and the
+        // superseded retry record. Mark both as suppressed at the retry
+        // limit so equal update timestamps cannot let the stale failed record
+        // bypass issue-level retry suppression during this tick.
+        if (retrySuppressed) {
+          await this.store.saveRun({
+            ...supersededRecord,
+            status: "suppressed",
+            lastError: suppressionError,
+          });
+        }
       } else {
         await this.store.saveRun({
           ...supersededRecord,
