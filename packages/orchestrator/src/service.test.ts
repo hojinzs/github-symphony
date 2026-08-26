@@ -322,7 +322,7 @@ describe("OrchestratorService", () => {
     );
   });
 
-  it("continues dispatching after a restart fails", async () => {
+  it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-restart-failure-")
@@ -331,7 +331,7 @@ describe("OrchestratorService", () => {
       tempRoot,
       "acme",
       "platform",
-      { maxConcurrentAgents: 2 }
+      { maxConcurrentAgents: 2, maxFailureRetries: 2 }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -447,7 +447,7 @@ describe("OrchestratorService", () => {
     ).startRun.bind(service);
     vi.spyOn(service as never, "startRun").mockImplementation(
       async (tenant, issue, options) => {
-        if ((options as { restart?: boolean }).restart) {
+        if (issue.id === "retry-issue") {
           throw new Error("restart checkout failed");
         }
         return startRun(tenant, issue, options);
@@ -463,25 +463,20 @@ describe("OrchestratorService", () => {
     expect(result.health).toBe("degraded");
     expect(result.lastError).toContain("restart checkout failed");
     expect(retryRun).toMatchObject({
-      status: "failed",
+      status: "suppressed",
       nextRetryAt: null,
       retryKind: null,
-      lastError: expect.stringContaining(
-        "Worker spawn failed: Error: restart checkout failed"
-      ),
+      lastError: expect.stringContaining("max_failure_retries_exceeded"),
     });
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           issueId: "retry-issue",
-          state: "retry_queued",
+          state: "released",
           currentRunId: null,
           failureRetryCount: 2,
-          retryEntry: expect.objectContaining({
-            attempt: 3,
-            error: expect.stringContaining("restart checkout failed"),
-          }),
+          retryEntry: null,
         }),
         expect.objectContaining({
           issueId: "healthy-issue",
@@ -489,6 +484,10 @@ describe("OrchestratorService", () => {
         }),
       ])
     );
+
+    const secondResult = await service.runOnce();
+    expect(secondResult.summary.dispatched).toBe(0);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a live PID whose worker process identity was reused", () => {

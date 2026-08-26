@@ -2593,7 +2593,6 @@ export class OrchestratorService {
     issue: TrackedIssue,
     options: {
       recovery?: IncompleteTurnRecoveryContext | null;
-      restart?: boolean;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
   ): Promise<OrchestratorRunRecord> {
@@ -4457,7 +4456,6 @@ export class OrchestratorService {
     try {
       restarted = await this.startRun(tenant, issue, {
         recovery,
-        restart: true,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
           nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
@@ -4487,20 +4485,6 @@ export class OrchestratorService {
     } catch (error) {
       const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
       const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
-      if (failedPreparedRun) {
-        await this.store.saveRun({
-          ...failedPreparedRun,
-          status: "failed",
-          completedAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-          lastError: errorMessage,
-        });
-      } else {
-        await this.store.saveRun({
-          ...supersededRecord,
-          lastError: errorMessage,
-        });
-      }
       const existingIssueRecord = nextIssueRecords.find(
         (record) =>
           record.issueId === run.issueId ||
@@ -4517,6 +4501,29 @@ export class OrchestratorService {
           ? maxFailureRetries
           : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
       const retrySuppressed = failureRetryCount >= maxFailureRetries;
+      const suppressionError = [
+        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+        `failureRetryCount=${failureRetryCount}.`,
+        `maxFailureRetries=${maxFailureRetries}.`,
+        errorMessage,
+      ].join(" ");
+      if (failedPreparedRun) {
+        await this.store.saveRun({
+          ...failedPreparedRun,
+          status: retrySuppressed ? "suppressed" : "failed",
+          completedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          nextRetryAt: null,
+          retryKind: null,
+          lastError: retrySuppressed ? suppressionError : errorMessage,
+        });
+      } else {
+        await this.store.saveRun({
+          ...supersededRecord,
+          status: retrySuppressed ? "suppressed" : "failed",
+          lastError: retrySuppressed ? suppressionError : errorMessage,
+        });
+      }
       const retryPolicy = retrySuppressed
         ? null
         : await this.loadRetryPolicy(tenant, run.repository);
