@@ -24,6 +24,18 @@ describe("deriveGitHubRestApiUrl", () => {
       "https://github.example/api/v3"
     );
   });
+
+  it("preserves a GHES subpath when mapping /api/graphql to /api/v3", () => {
+    expect(
+      deriveGitHubRestApiUrl("https://github.example/gh/api/graphql")
+    ).toBe("https://github.example/gh/api/v3");
+  });
+
+  it("preserves an existing GHES /api/v3/graphql endpoint", () => {
+    expect(
+      deriveGitHubRestApiUrl("https://github.example/gh/api/v3/graphql")
+    ).toBe("https://github.example/gh/api/v3");
+  });
 });
 
 describe("discoverUserProjects", () => {
