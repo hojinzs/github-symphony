@@ -80,7 +80,7 @@ export function resolveLinearAuthorizationHeader(
   }
 
   if (config.apiKey) {
-    return `Bearer ${config.apiKey}`;
+    return config.apiKey;
   }
 
   throw new Error(

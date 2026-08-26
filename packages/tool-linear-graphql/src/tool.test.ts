@@ -229,7 +229,7 @@ describe("resolveLinearAuthorizationHeader", () => {
 
   it("supports LINEAR_API_KEY fallback", () => {
     expect(resolveLinearAuthorizationHeader({ apiKey: "lin_api_key" })).toBe(
-      "Bearer lin_api_key"
+      "lin_api_key"
     );
   });
 });
@@ -245,16 +245,20 @@ describe("createLinearGraphQLMcpServerEntry", () => {
     });
   });
 
-  it("keeps auth out of the MCP server entry environment", () => {
+  it("passes resolved auth through the MCP server entry environment", () => {
     expect(
       createLinearGraphQLMcpServerEntry({
         linearGraphqlUrl: "https://api.linear.app/graphql",
+        linearAuthorization: "Bearer runtime-token",
+        linearApiKey: "lin_api_key",
       })
     ).toEqual({
       command: "node",
       args: [expect.stringContaining("mcp-server.js"), "--server", "linear"],
       env: {
         LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
+        LINEAR_AUTHORIZATION: "Bearer runtime-token",
+        LINEAR_API_KEY: "lin_api_key",
       },
     });
   });

@@ -192,7 +192,10 @@ export function createGitHubGraphQLToolDefinition(
 }
 
 export function createLinearGraphQLToolDefinition(
-  config: Pick<CodexRuntimeConfig, "linearGraphqlUrl">
+  config: Pick<
+    CodexRuntimeConfig,
+    "linearGraphqlUrl" | "linearAuthorization" | "linearApiKey"
+  >
 ): RuntimeToolDefinition {
   const entry = createLinearGraphQLMcpServerEntry(config);
 
@@ -555,6 +558,8 @@ export function buildCodexRuntimePlan(
   const linearTool = config.enableLinearGraphqlTool
     ? createLinearGraphQLToolDefinition({
         linearGraphqlUrl: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
+        linearAuthorization: config.linearAuthorization,
+        linearApiKey: config.linearApiKey,
       })
     : undefined;
   const builtinTools = [githubTool, linearTool].filter(
