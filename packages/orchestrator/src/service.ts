@@ -1214,6 +1214,7 @@ export class OrchestratorService {
         trackerDependencies
       );
       issueRecords = outcome.issueRecords;
+      lastError = outcome.lastError ?? lastError;
       if (outcome.recovered) {
         recovered += 1;
       }
@@ -3106,6 +3107,7 @@ export class OrchestratorService {
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
+    lastError?: string | null;
   }> {
     const now = this.now();
     const issueRecord = issueRecords.find(
@@ -3529,9 +3531,9 @@ export class OrchestratorService {
           "convergence_detected: repeated non-productive turns")
         : recovery || retryKind === "continuation"
           ? null
-          : (currentTrackerProgress?.state === "unknown"
+          : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : "Worker process exited unexpectedly."),
+            : "Worker process exited unexpectedly.",
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -3987,7 +3989,8 @@ export class OrchestratorService {
         return {
           state: "unknown",
           reason: "workflow-unavailable",
-          error: "Final tracker state unavailable: workflow policy could not be loaded.",
+          error:
+            "Final tracker state unavailable: workflow policy could not be loaded.",
         };
       }
       const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
@@ -4425,6 +4428,7 @@ export class OrchestratorService {
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
+    lastError?: string | null;
   }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
@@ -4435,6 +4439,8 @@ export class OrchestratorService {
       status: "failed",
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      nextRetryAt: null,
+      retryKind: null,
       lastError: "Superseded by recovered run.",
     };
     await this.store.saveRun(supersededRecord);
@@ -4477,26 +4483,106 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
+      const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
       const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
+      const existingIssueRecord = nextIssueRecords.find(
+        (record) =>
+          record.issueId === run.issueId ||
+          record.identifier === run.issueIdentifier
+      );
+      const retryAttempt =
+        (existingIssueRecord?.retryEntry?.attempt ?? run.attempt) + 1;
+      const maxFailureRetries = await this.loadMaxFailureRetries(
+        tenant,
+        run.repository
+      );
+      const failureRetryCount =
+        error instanceof NonRetryableDispatchError
+          ? maxFailureRetries
+          : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
+      const retrySuppressed = failureRetryCount >= maxFailureRetries;
+      const suppressionError = [
+        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+        `failureRetryCount=${failureRetryCount}.`,
+        `maxFailureRetries=${maxFailureRetries}.`,
+        errorMessage,
+      ].join(" ");
       if (failedPreparedRun) {
         await this.store.saveRun({
           ...failedPreparedRun,
-          status: "failed",
+          status: retrySuppressed ? "suppressed" : "failed",
           completedAt: now.toISOString(),
           updatedAt: now.toISOString(),
-          lastError: `Worker spawn failed: ${this.formatErrorMessage(error)}`,
+          nextRetryAt: null,
+          retryKind: null,
+          lastError: retrySuppressed ? suppressionError : errorMessage,
+        });
+        // A prepared restart produces both this terminal record and the
+        // superseded retry record. Mark both as suppressed at the retry
+        // limit so equal update timestamps cannot let the stale failed record
+        // bypass issue-level retry suppression during this tick.
+        if (retrySuppressed) {
+          await this.store.saveRun({
+            ...supersededRecord,
+            status: "suppressed",
+            lastError: suppressionError,
+          });
+        }
+      } else {
+        await this.store.saveRun({
+          ...supersededRecord,
+          status: retrySuppressed ? "suppressed" : "failed",
+          lastError: retrySuppressed ? suppressionError : errorMessage,
         });
       }
-      nextIssueRecords = releaseIssueOrchestration(
-        nextIssueRecords,
-        run.issueId,
-        now
-      );
+      const retryPolicy = retrySuppressed
+        ? null
+        : await this.loadRetryPolicy(tenant, run.repository);
+      const retryDueAt = retrySuppressed
+        ? null
+        : (retryPolicy
+            ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+            : new Date(
+                now.getTime() +
+                  (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
+              )
+          ).toISOString();
+      nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey:
+          run.issueWorkspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: run.issueSubjectId,
+            },
+            run.issueIdentifier
+          ),
+        state: retrySuppressed ? "released" : "retry_queued",
+        failureRetryCount,
+        currentRunId: null,
+        retryEntry: retryDueAt
+          ? {
+              attempt: retryAttempt,
+              dueAt: retryDueAt,
+              error: errorMessage,
+            }
+          : null,
+        updatedAt: now.toISOString(),
+      });
       await this.store.saveProjectIssueOrchestrations(
         tenant.projectId,
         nextIssueRecords
       );
-      throw error;
+      this.writeStderr(
+        `[orchestrator] restart failed for ${run.issueIdentifier}: ${this.formatErrorMessage(error)}`
+      );
+      return {
+        issueRecords: nextIssueRecords,
+        recovered: false,
+        lastError: errorMessage,
+      };
     }
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,

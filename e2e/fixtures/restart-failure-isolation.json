@@ -1,0 +1,54 @@
+[
+  {
+    "id": "retry-issue",
+    "identifier": "test-owner/test-repo#20",
+    "number": 20,
+    "title": "Retrying issue with a broken restart checkout",
+    "description": "The persisted retry uses an invalid clone source; its restart must not block later candidates.",
+    "priority": 1,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-08-26T00:00:00Z",
+    "updatedAt": "2026-08-26T00:00:00Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "retry-issue"
+    },
+    "metadata": {}
+  },
+  {
+    "id": "healthy-issue",
+    "identifier": "test-owner/test-repo#21",
+    "number": 21,
+    "title": "Healthy candidate after restart failure",
+    "description": "This candidate must dispatch in the same reconciliation tick.",
+    "priority": 2,
+    "state": "Ready",
+    "branchName": null,
+    "url": null,
+    "labels": [],
+    "blockedBy": [],
+    "createdAt": "2026-08-26T00:00:01Z",
+    "updatedAt": "2026-08-26T00:00:01Z",
+    "repository": {
+      "owner": "test-owner",
+      "name": "test-repo",
+      "cloneUrl": "/e2e/repos/test-owner/test-repo"
+    },
+    "tracker": {
+      "adapter": "file",
+      "bindingId": "e2e-test",
+      "itemId": "healthy-issue"
+    },
+    "metadata": {}
+  }
+]
