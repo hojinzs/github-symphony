@@ -2,13 +2,21 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { getProcessIdentity } from "@gh-symphony/orchestrator";
+import { daemonPidPath, parseDaemonPidRecord } from "./config.js";
 
 const TTL_MS = 60_000;
 
 export type InstanceEntry = {
-  projectId: string; repo: string; repoPath: string; workspacePath: string;
-  runtimeRoot: string; pid: number; startedAt: string; heartbeatAt: string | null;
-  processIdentity: string | null; endpoint?: string;
+  projectId: string;
+  repo: string;
+  repoPath: string;
+  workspacePath: string;
+  runtimeRoot: string;
+  pid: number;
+  startedAt: string;
+  heartbeatAt: string | null;
+  processIdentity: string | null;
+  endpoint?: string;
   standalone?: boolean;
 };
 
@@ -17,7 +25,8 @@ export function instancesRoot(): string {
 }
 
 function pathFor(entry: Pick<InstanceEntry, "runtimeRoot" | "projectId">): string {
-  return join(instancesRoot(), Buffer.from(`${resolve(entry.runtimeRoot)}\0${entry.projectId}`).toString("base64url") + ".json");
+  const key = Buffer.from(`${resolve(entry.runtimeRoot)}\0${entry.projectId}`).toString("base64url");
+  return join(instancesRoot(), `${key}.json`);
 }
 
 export async function registerInstance(entry: InstanceEntry): Promise<void> {
@@ -33,8 +42,11 @@ export async function findLiveDuplicate(entry: Pick<InstanceEntry, "projectId" |
   }
   return null;
 }
-export type ListedInstance = InstanceEntry & { status: "running" | "stale-registry" | "stale-pidfile"; uptimeMs: number };
-export async function listInstances(): Promise<ListedInstance[]> {
+export type ListedInstance = InstanceEntry & {
+  status: "running" | "stale-registry" | "unregistered" | "stale-pidfile";
+  uptimeMs: number;
+};
+export async function listInstances(now = Date.now()): Promise<ListedInstance[]> {
   let names: string[]; try { names = await readdir(instancesRoot()); } catch { return []; }
   const output: ListedInstance[] = [];
   for (const name of names.filter((name) => name.endsWith(".json"))) {
@@ -42,9 +54,13 @@ export async function listInstances(): Promise<ListedInstance[]> {
       const entry = JSON.parse(await readFile(join(instancesRoot(), name), "utf8")) as InstanceEntry;
       const lock = JSON.parse(await readFile(join(entry.runtimeRoot, "projects", entry.projectId, ".lock"), "utf8")) as Partial<InstanceEntry>;
       const identity = getProcessIdentity(entry.pid);
-      const fresh = lock.heartbeatAt && Math.abs(Date.now() - Date.parse(lock.heartbeatAt)) <= TTL_MS;
+      const fresh = lock.heartbeatAt && Math.abs(now - Date.parse(lock.heartbeatAt)) <= TTL_MS;
       const running = Boolean(identity && entry.processIdentity === identity && fresh);
-      output.push({ ...entry, status: running ? "running" : "stale-registry", uptimeMs: Date.now() - Date.parse(entry.startedAt) });
+      const pidRecord = parseDaemonPidRecord(
+        await readFile(daemonPidPath(entry.runtimeRoot, entry.projectId), "utf8").catch(() => "")
+      );
+      const stalePidfile = Boolean(pidRecord && getProcessIdentity(pidRecord.pid) !== pidRecord.processIdentity);
+      output.push({ ...entry, status: !running ? "stale-registry" : stalePidfile ? "stale-pidfile" : "running", uptimeMs: Math.max(0, now - Date.parse(entry.startedAt)) });
       if (!running) await rm(join(instancesRoot(), name), { force: true });
     } catch { /* ignore malformed entries; they cannot be trusted */ }
   }

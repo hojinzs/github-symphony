@@ -388,6 +388,7 @@ gh-symphony project status               # Address this folder's runtime
 gh-symphony project stop
 gh-symphony project start --project-dir <projectDir>
 gh-symphony project list                 # List cached standalone projects
+gh-symphony instances --json             # List registered instances on this host
 gh-symphony doctor --project-dir <projectDir>
 ```
 
@@ -484,6 +485,7 @@ Orchestration:
 
 Standalone Projects:
   project list        List cached standalone projects as JSON
+  instances           List registered orchestrator instances on this host
   project start       Start the cwd project folder (`project start --help` lists runtime flags)
   project status      Show the cwd project folder's status
   project stop        Stop the cwd project folder's daemon
