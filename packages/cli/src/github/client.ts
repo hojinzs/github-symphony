@@ -151,14 +151,13 @@ export function deriveGitHubRestApiUrl(graphqlApiUrl: string): string {
     if (url.hostname.toLowerCase() === "api.github.com") {
       return REST_API_URL;
     }
-    if (normalizedPath === "/api/graphql") {
-      url.pathname = "/api/v3";
-      url.search = "";
-      url.hash = "";
-      return url.toString().replace(/\/$/, "");
-    }
     if (normalizedPath.endsWith("/graphql")) {
-      url.pathname = normalizedPath.slice(0, -"/graphql".length) || "/";
+      const pathSegments = normalizedPath.split("/").filter(Boolean);
+      pathSegments.pop();
+      if (pathSegments.at(-1) === "api") {
+        pathSegments.push("v3");
+      }
+      url.pathname = `/${pathSegments.join("/")}`;
       url.search = "";
       url.hash = "";
       return url.toString().replace(/\/$/, "");
