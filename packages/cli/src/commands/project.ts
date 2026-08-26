@@ -110,15 +110,12 @@ export async function deriveStandaloneProject(
         );
       }
 
-      // Confirmation can take an arbitrary amount of time. The config lock
-      // remains held while waiting, but re-check before persisting so the
-      // decision is based on the state that exists at commit time.
-      const confirmedOverlap = await findOverlappingProjects(
+      // Project mappings cannot change while the config lock is held, but a
+      // daemon can start while the operator is deciding. Refresh only that
+      // liveness state before persisting the confirmed configuration.
+      const runningAfterConfirmation = await runningOverlaps(
         options.configDir,
-        config
-      );
-      const runningAfterConfirmation = confirmedOverlap.filter(
-        (entry) => entry.running
+        overlap
       );
       if (runningAfterConfirmation.length > 0) {
         throw new Error(
@@ -199,6 +196,7 @@ type OverlappingProject = {
   projectId: string;
   label: string;
   running: boolean;
+  workspaceDir: string;
 };
 
 /**
@@ -230,9 +228,29 @@ async function findOverlappingProjects(
       projectId: existing.projectId,
       label: existing.projectDir ?? existing.projectId,
       running: liveness.running,
+      workspaceDir: existing.repositoryDir ?? existing.workspaceDir,
     });
   }
   return overlaps;
+}
+
+async function runningOverlaps(
+  configDir: string,
+  overlaps: OverlappingProject[]
+): Promise<OverlappingProject[]> {
+  const refreshed = await Promise.all(
+    overlaps.map(async (overlap) => ({
+      ...overlap,
+      running: (
+        await resolveDaemonLiveness({
+          configDir,
+          projectId: overlap.projectId,
+          workspaceDir: overlap.workspaceDir,
+        })
+      ).running,
+    }))
+  );
+  return refreshed.filter((overlap) => overlap.running);
 }
 
 function mappingFor(config: CliProjectConfig): Mapping {
