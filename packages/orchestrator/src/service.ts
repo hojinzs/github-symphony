@@ -1214,7 +1214,7 @@ export class OrchestratorService {
         trackerDependencies
       );
       issueRecords = outcome.issueRecords;
-      lastError ??= outcome.lastError ?? null;
+      lastError = outcome.lastError ?? lastError;
       if (outcome.recovered) {
         recovered += 1;
       }
@@ -2593,6 +2593,7 @@ export class OrchestratorService {
     issue: TrackedIssue,
     options: {
       recovery?: IncompleteTurnRecoveryContext | null;
+      restart?: boolean;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
   ): Promise<OrchestratorRunRecord> {
@@ -4439,6 +4440,8 @@ export class OrchestratorService {
       status: "failed",
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
+      nextRetryAt: null,
+      retryKind: null,
       lastError: "Superseded by recovered run.",
     };
     await this.store.saveRun(supersededRecord);
@@ -4454,6 +4457,7 @@ export class OrchestratorService {
     try {
       restarted = await this.startRun(tenant, issue, {
         recovery,
+        restart: true,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
           nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
@@ -4497,11 +4501,58 @@ export class OrchestratorService {
           lastError: errorMessage,
         });
       }
-      nextIssueRecords = releaseIssueOrchestration(
-        nextIssueRecords,
-        run.issueId,
-        now
+      const existingIssueRecord = nextIssueRecords.find(
+        (record) =>
+          record.issueId === run.issueId ||
+          record.identifier === run.issueIdentifier
       );
+      const retryAttempt =
+        (existingIssueRecord?.retryEntry?.attempt ?? run.attempt) + 1;
+      const maxFailureRetries = await this.loadMaxFailureRetries(
+        tenant,
+        run.repository
+      );
+      const failureRetryCount =
+        error instanceof NonRetryableDispatchError
+          ? maxFailureRetries
+          : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
+      const retrySuppressed = failureRetryCount >= maxFailureRetries;
+      const retryPolicy = retrySuppressed
+        ? null
+        : await this.loadRetryPolicy(tenant, run.repository);
+      const retryDueAt = retrySuppressed
+        ? null
+        : (retryPolicy
+            ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+            : new Date(
+                now.getTime() +
+                  (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
+              )
+          ).toISOString();
+      nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey:
+          run.issueWorkspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: run.issueSubjectId,
+            },
+            run.issueIdentifier
+          ),
+        state: retrySuppressed ? "released" : "retry_queued",
+        failureRetryCount,
+        currentRunId: null,
+        retryEntry: retryDueAt
+          ? {
+              attempt: retryAttempt,
+              dueAt: retryDueAt,
+              error: errorMessage,
+            }
+          : null,
+        updatedAt: now.toISOString(),
+      });
       await this.store.saveProjectIssueOrchestrations(
         tenant.projectId,
         nextIssueRecords

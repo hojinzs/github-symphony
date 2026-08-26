@@ -445,30 +445,43 @@ describe("OrchestratorService", () => {
         ) => Promise<OrchestratorRunRecord>;
       }
     ).startRun.bind(service);
-    vi.spyOn(service as never, "startRun")
-      .mockRejectedValueOnce(new Error("restart checkout failed"))
-      .mockImplementation(startRun as never);
+    vi.spyOn(service as never, "startRun").mockImplementation(
+      async (tenant, issue, options) => {
+        if ((options as { restart?: boolean }).restart) {
+          throw new Error("restart checkout failed");
+        }
+        return startRun(tenant, issue, options);
+      }
+    );
 
     const result = await service.runOnce();
     const retryRun = await store.loadRun("run-retry");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(2);
+    expect(result.summary.dispatched).toBe(1);
     expect(result.summary.recovered).toBe(0);
     expect(result.health).toBe("degraded");
     expect(result.lastError).toContain("restart checkout failed");
     expect(retryRun).toMatchObject({
       status: "failed",
+      nextRetryAt: null,
+      retryKind: null,
       lastError: expect.stringContaining(
         "Worker spawn failed: Error: restart checkout failed"
       ),
     });
-    expect(spawnImpl).toHaveBeenCalledTimes(2);
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           issueId: "retry-issue",
-          state: "running",
+          state: "retry_queued",
+          currentRunId: null,
+          failureRetryCount: 2,
+          retryEntry: expect.objectContaining({
+            attempt: 3,
+            error: expect.stringContaining("restart checkout failed"),
+          }),
         }),
         expect.objectContaining({
           issueId: "healthy-issue",
