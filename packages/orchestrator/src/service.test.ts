@@ -6011,6 +6011,49 @@ Prefer focused changes.
     expect(workerEnv?.SYMPHONY_ISSUE_IDENTIFIER).toBe("acme/platform#1");
   });
 
+  it("injects the normalized planning phase into the dispatched worker prompt", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-execution-phase-prompt-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: createReadyStateWorkflow(
+          "execution_phase={{ execution_phase }}\n",
+          ["  rEaDy  "]
+        ),
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4307,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "READY")),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce();
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "execution_phase=planning"
+    );
+  });
+
   it("isolates an untrusted issue body from workflow instructions", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -13932,7 +13975,15 @@ Prefer focused changes.
   await writeFile(join(repositoryRoot, "WORKFLOW.md"), content, "utf8");
 }
 
-function createReadyStateWorkflow(prompt = "{{ issue.title }}\n"): string {
+function createReadyStateWorkflow(
+  prompt = "{{ issue.title }}\n",
+  planningStates: string[] = []
+): string {
+  const planningStatesYaml = planningStates.length
+    ? `  planning_states:\n${planningStates
+        .map((state) => `    - ${JSON.stringify(state)}`)
+        .join("\n")}\n`
+    : "";
   return `---
 tracker:
   kind: github-project
@@ -13944,7 +13995,7 @@ tracker:
     - Done
   blocker_check_states:
     - Ready
-hooks:
+${planningStatesYaml}hooks:
   commands: []
 polling:
   interval_ms: 30000
