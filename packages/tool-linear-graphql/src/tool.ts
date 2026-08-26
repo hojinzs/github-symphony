@@ -75,12 +75,14 @@ export function validateLinearGraphQLInvocation(
 export function resolveLinearAuthorizationHeader(
   config: LinearGraphQLToolConfig
 ): string {
-  if (config.authorizationHeader) {
-    return config.authorizationHeader;
+  const authorizationHeader = config.authorizationHeader?.trim();
+  if (authorizationHeader) {
+    return authorizationHeader;
   }
 
-  if (config.apiKey) {
-    return config.apiKey;
+  const apiKey = config.apiKey?.trim();
+  if (apiKey) {
+    return apiKey;
   }
 
   throw new Error(

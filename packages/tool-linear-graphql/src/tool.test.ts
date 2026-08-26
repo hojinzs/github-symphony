@@ -232,6 +232,24 @@ describe("resolveLinearAuthorizationHeader", () => {
       "lin_api_key"
     );
   });
+
+  it("normalizes raw credential values and fails closed when blank", () => {
+    expect(
+      resolveLinearAuthorizationHeader({
+        authorizationHeader: " Bearer runtime-token ",
+        apiKey: " lin_api_key ",
+      })
+    ).toBe("Bearer runtime-token");
+    expect(resolveLinearAuthorizationHeader({ apiKey: " lin_api_key \n" })).toBe(
+      "lin_api_key"
+    );
+    expect(() =>
+      resolveLinearAuthorizationHeader({
+        authorizationHeader: "  ",
+        apiKey: "\n",
+      })
+    ).toThrow("Linear GraphQL auth is not configured");
+  });
 });
 
 describe("createLinearGraphQLMcpServerEntry", () => {
@@ -261,5 +279,22 @@ describe("createLinearGraphQLMcpServerEntry", () => {
         LINEAR_API_KEY: "lin_api_key",
       },
     });
+  });
+
+  it("normalizes credentials and omits whitespace-only values", () => {
+    expect(
+      createLinearGraphQLMcpServerEntry({
+        linearAuthorization: " Bearer runtime-token ",
+        linearApiKey: " \n ",
+      }).env
+    ).toMatchObject({
+      LINEAR_AUTHORIZATION: "Bearer runtime-token",
+    });
+    expect(
+      createLinearGraphQLMcpServerEntry({
+        linearAuthorization: " \n ",
+        linearApiKey: " \t ",
+      }).env
+    ).not.toHaveProperty("LINEAR_AUTHORIZATION");
   });
 });

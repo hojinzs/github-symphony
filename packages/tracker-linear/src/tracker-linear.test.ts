@@ -967,6 +967,25 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
+  it("forwards normalized Linear credentials to the worker", () => {
+    vi.stubEnv("LINEAR_AUTHORIZATION", " Bearer runtime-token ");
+    vi.stubEnv("LINEAR_API_KEY", " lin_api_key ");
+
+    const env = linearTrackerAdapter.buildWorkerEnvironment(
+      makeProject(),
+      normalizeLinearIssue(makeProject(), "project-slug", {
+        id: "issue-1",
+        identifier: "eng-123",
+        state: { name: "Todo" },
+      })
+    );
+
+    expect(env).toMatchObject({
+      LINEAR_AUTHORIZATION: "Bearer runtime-token",
+      LINEAR_API_KEY: "lin_api_key",
+    });
+  });
+
   it("defaults blank tracker apiUrl to the Linear GraphQL endpoint", () => {
     const env = linearTrackerAdapter.buildWorkerEnvironment(
       makeProject({ apiUrl: "   " }),

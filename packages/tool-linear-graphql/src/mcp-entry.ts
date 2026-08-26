@@ -20,16 +20,18 @@ export function createLinearGraphQLMcpServerEntry(
   const linearGraphqlUrl = validateLinearGraphQLApiUrl(
     options.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_API_URL
   );
+  const linearAuthorization = options.linearAuthorization?.trim();
+  const linearApiKey = options.linearApiKey?.trim();
 
   return {
     command: "node",
     args: [resolveLinearGraphQLMcpServerEntryPoint(), "--server", "linear"],
     env: {
       LINEAR_GRAPHQL_URL: linearGraphqlUrl,
-      ...(options.linearAuthorization
-        ? { LINEAR_AUTHORIZATION: options.linearAuthorization }
+      ...(linearAuthorization
+        ? { LINEAR_AUTHORIZATION: linearAuthorization }
         : {}),
-      ...(options.linearApiKey ? { LINEAR_API_KEY: options.linearApiKey } : {}),
+      ...(linearApiKey ? { LINEAR_API_KEY: linearApiKey } : {}),
     },
   };
 }
