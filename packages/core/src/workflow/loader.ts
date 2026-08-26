@@ -44,6 +44,8 @@ export class WorkflowConfigStore {
       cached.envSignature === envSignature
     ) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
+        revision: createWorkflowRevision(cached.fingerprint),
+        loadedAt: cached.loadedAt,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -59,6 +61,8 @@ export class WorkflowConfigStore {
         loadedAt: new Date().toISOString(),
       });
       return toWorkflowResolution(workflowPath, workflow, {
+        revision: createWorkflowRevision(fingerprint),
+        loadedAt: this.cache.get(workflowPath)?.loadedAt ?? null,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -66,6 +70,8 @@ export class WorkflowConfigStore {
     } catch (error) {
       if (cached) {
         return toWorkflowResolution(workflowPath, cached.workflow, {
+          revision: createWorkflowRevision(cached.fingerprint),
+          loadedAt: cached.loadedAt,
           isValid: false,
           usedLastKnownGood: true,
           validationError:
@@ -88,6 +94,8 @@ export function createInvalidWorkflowResolution(
   validationError: string
 ): WorkflowResolution {
   return toWorkflowResolution(workflowPath, DEFAULT_WORKFLOW_DEFINITION, {
+    revision: null,
+    loadedAt: null,
     isValid: false,
     usedLastKnownGood: false,
     validationError,
@@ -102,6 +110,8 @@ function toWorkflowResolution(
   workflowPath: string | null,
   workflow: ParsedWorkflow,
   metadata: {
+    revision: string | null;
+    loadedAt: string | null;
     isValid: boolean;
     usedLastKnownGood: boolean;
     validationError: string | null;
@@ -114,8 +124,15 @@ function toWorkflowResolution(
     promptTemplate: workflow.promptTemplate,
     agentCommand: workflow.agentCommand,
     hookPath: workflow.hookPath ?? "",
+    revision: metadata.revision,
+    loadedAt: metadata.loadedAt,
     isValid: metadata.isValid,
     usedLastKnownGood: metadata.usedLastKnownGood,
     validationError: metadata.validationError,
   };
+}
+
+function createWorkflowRevision(fingerprint: string): string {
+  const digest = fingerprint.split(":").at(-1);
+  return digest ? `sha256:${digest.slice(0, 12)}` : "sha256:unknown";
 }

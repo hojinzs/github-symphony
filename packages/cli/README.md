@@ -372,6 +372,15 @@ Cache cleanup is conservative: locked entries, caches with linked worktrees, and
 
 Use a project folder as an orchestration instance decoupled from the repository it targets. The folder owns `WORKFLOW.md` (with `repository.slug: owner/name`), plus optional `.mcp.json`, `.env`, and `.agent/skills/`. Issue workspaces are populated as worktrees from a shared bare clone cache with `symphony/<project-slug>/<issue-id>` branches, so multiple projects can share one repository. `start` derives and caches configuration from the folder on every run; `status` and `stop` address the same runtime by folder without reading `WORKFLOW.md`.
 
+A running daemon defensively re-reads and resolves `WORKFLOW.md` at every
+reconciliation tick, so valid edits need no restart and apply at the next tick.
+The polling delay is capped at five minutes; lowering the interval waits for the
+already-scheduled tick before the new interval applies. The daemon intentionally
+does not use a filesystem watcher, a repository-local divergence from the
+upstream Symphony specification. `repo status` and `project status` expose the
+applied `workflow.revision` and `workflow.loadedAt`; dispatch events carry
+`workflowRevision`.
+
 ```bash
 cd <projectDir>
 gh-symphony project start                # Derive WORKFLOW.md and start this folder's project

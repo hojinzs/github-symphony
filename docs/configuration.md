@@ -8,6 +8,27 @@ and operational overrides.
 
 ## Workflow Lifecycle Policy
 
+## WORKFLOW.md Reload Semantics
+
+The orchestrator does not need a restart to apply a valid `WORKFLOW.md` edit.
+It defensively reads and resolves the file during every reconciliation tick;
+the next tick applies updated polling, concurrency, lifecycle, runtime, path,
+hook, and future-prompt configuration. The current tick completes using its
+already-resolved policy. Because polling is capped at five minutes, the maximum
+normal delay before an edit is observed is five minutes. A change that lowers
+`polling.interval_ms` first waits for the outstanding tick at the old interval,
+then uses the new interval.
+
+There is intentionally no `fs.watch`/`chokidar` watcher. This is a
+repository-local divergence from upstream Symphony §6.2 and §16.1: the
+repository meets the defensive detection/re-read acceptance behavior but does
+not provide immediate event-driven re-application. The status snapshot records
+the effective `workflow.revision` (a short SHA-256-derived identifier) and
+`workflow.loadedAt`; `run-dispatched` structured events record the same
+`workflowRevision`. Neither value contains workflow contents or environment
+values. See [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md) for
+the decision and scope.
+
 `tracker.blocker_check_states` selects the workflow states where unresolved
 `blocked_by` dependencies prevent dispatch. When the field is omitted, the
 default is `["Todo"]`, matching the Symphony candidate-selection rule. Set an

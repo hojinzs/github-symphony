@@ -1202,6 +1202,7 @@ export class OrchestratorService {
     let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     let rateLimits: Record<string, unknown> | null = null;
     let trackerRateLimits: Record<string, unknown> | null = null;
+    let workflowResolution: WorkflowResolution | null = null;
 
     let issueRecords = await this.store.loadProjectIssueOrchestrations(
       tenant.projectId
@@ -1242,6 +1243,10 @@ export class OrchestratorService {
     rateLimits = resolveProjectRateLimits(reconciledRuns, []);
 
     try {
+      workflowResolution = await this.loadProjectWorkflow(
+        tenant,
+        tenant.repository
+      );
       pollIntervalMs = await this.loadProjectPollInterval(tenant);
       const currentActiveRuns = (await this.store.loadAllRuns()).filter(
         (run) =>
@@ -1711,6 +1716,7 @@ export class OrchestratorService {
           issueIdentifier: issue.identifier,
           issueId: run.issueId,
           issueState: issue.state,
+          workflowRevision: workflowResolution?.revision ?? null,
           ...buildStructuredTrackerEventMetadata(tenant, issue),
         });
         this.logVerbose(
@@ -1983,6 +1989,7 @@ export class OrchestratorService {
       ),
       issueWorkspaces,
       warnings: await this.resolveWorkflowWarnings(tenant),
+      workflowResolution,
     });
     await this.store.saveProjectStatus({
       ...status,

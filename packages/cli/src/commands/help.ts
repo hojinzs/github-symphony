@@ -62,7 +62,7 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         name: "repo start",
         description:
-          "Start the orchestrator after validating tracker authentication",
+          "Start the orchestrator; WORKFLOW.md edits apply on the next tick",
       },
       {
         name: "repo start --daemon",

@@ -8,6 +8,7 @@ import type {
   OrchestratorRunRecord,
 } from "../contracts/status-surface.js";
 import type { IssueWorkspaceRecord } from "../domain/issue.js";
+import { DEFAULT_WORKFLOW_DEFINITION } from "../workflow/config.js";
 
 /**
  * Helper to create a minimal OrchestratorProjectConfig for testing
@@ -90,6 +91,35 @@ function mockIssueWorkspace(
 }
 
 describe("buildProjectSnapshot", () => {
+  it("exposes the workflow revision applied during the snapshot tick", () => {
+    const snapshot = buildProjectSnapshot({
+      project: mockProject(),
+      activeRuns: [],
+      summary: { dispatched: 0, suppressed: 0, recovered: 0 },
+      lastTickAt: "2026-08-26T12:00:00.000Z",
+      lastError: null,
+      workflowResolution: {
+        workflowPath: "/tmp/WORKFLOW.md",
+        workflow: DEFAULT_WORKFLOW_DEFINITION,
+        lifecycle: DEFAULT_WORKFLOW_DEFINITION.lifecycle,
+        promptTemplate: DEFAULT_WORKFLOW_DEFINITION.promptTemplate,
+        agentCommand: DEFAULT_WORKFLOW_DEFINITION.agentCommand,
+        hookPath: "",
+        revision: "sha256:123456789abc",
+        loadedAt: "2026-08-26T12:00:00.000Z",
+        isValid: true,
+        usedLastKnownGood: false,
+        validationError: null,
+      },
+    });
+
+    expect(snapshot.workflow).toEqual({
+      revision: "sha256:123456789abc",
+      loadedAt: "2026-08-26T12:00:00.000Z",
+      isValid: true,
+      usedLastKnownGood: false,
+    });
+  });
   it("returns idle health when no active runs and no error", () => {
     const input: SnapshotInput = {
       project: mockProject(),

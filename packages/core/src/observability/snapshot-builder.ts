@@ -11,6 +11,7 @@ import type {
   OrchestratorRunRecord,
   OrchestratorProjectConfig,
   ProjectStatusSnapshot,
+  WorkflowResolution,
 } from "../contracts/status-surface.js";
 import type { IssueWorkspaceRecord } from "../domain/issue.js";
 
@@ -31,6 +32,7 @@ export type SnapshotInput = {
   dispatchSuppressedUntil?: string | null;
   issueWorkspaces?: readonly IssueWorkspaceRecord[];
   warnings?: string[];
+  workflowResolution?: WorkflowResolution | null;
 };
 
 /**
@@ -54,6 +56,7 @@ export function buildProjectSnapshot(
     dispatchSuppressedUntil,
     issueWorkspaces,
     warnings,
+    workflowResolution,
   } = input;
   const cumulativeTokenUsageByIssue = aggregateTokenUsageByIssue(
     allRuns ?? activeRuns
@@ -67,6 +70,12 @@ export function buildProjectSnapshot(
       settings: project.tracker.settings,
     },
     lastTickAt,
+    workflow: {
+      revision: workflowResolution?.revision ?? null,
+      loadedAt: workflowResolution?.loadedAt ?? null,
+      isValid: workflowResolution?.isValid ?? false,
+      usedLastKnownGood: workflowResolution?.usedLastKnownGood ?? false,
+    },
     warnings: warnings ?? [],
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
     summary: {

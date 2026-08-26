@@ -730,6 +730,24 @@ fall back to `https://api.github.com/graphql`.
 
 `WORKFLOW.md` contains YAML front matter for lifecycle configuration and a Markdown body used as the agent prompt template.
 
+### Live reload and applied revision
+
+You do **not** need to restart a running daemon after editing `WORKFLOW.md`.
+The orchestrator defensively reads and resolves the file at every reconciliation
+tick, so a valid edit takes effect at the next tick. The normal polling delay is
+configured by `polling.interval_ms` and capped at five minutes; reducing that
+value still waits for the already-scheduled tick before the shorter interval is
+used. `agent.max_concurrent_agents` and lifecycle policy follow the same
+next-tick rule, while future worker prompts use the newly resolved policy.
+
+The daemon does not use a filesystem watcher. This is an intentional
+repository-local divergence from the upstream Symphony specification's watch
+requirement, documented in
+[ADR 2026-08-26](docs/adr/2026-08-26-workflow-reload-divergence.md). Inspect
+`repo status` or `project status` for `workflow.revision` and
+`workflow.loadedAt` to identify the policy currently applied by the latest
+tick; dispatch events also include `workflowRevision`.
+
 The generated file includes:
 
 - **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state (`Todo` with built-in defaults); an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
