@@ -9,6 +9,7 @@ import type { OrchestratorService } from "./service.js";
 
 function createMockService(): OrchestratorService {
   return {
+    setOwnerToken: vi.fn(),
     run: vi.fn().mockResolvedValue(undefined),
     runOnce: vi.fn().mockResolvedValue({
       projectId: "tenant-1",

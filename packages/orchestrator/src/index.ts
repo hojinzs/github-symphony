@@ -114,6 +114,7 @@ export async function runCli(
       projectId: parsed.projectId,
     });
     try {
+      service.setOwnerToken(lock.ownerToken);
       return await action();
     } finally {
       await (dependencies.releaseLock ?? releaseProjectLock)(lock);
@@ -176,6 +177,7 @@ export async function runCli(
             runtimeRoot,
             projectId: parsed.projectId,
           });
+          service.setOwnerToken(lock.ownerToken);
         }
 
         signalTarget.once("SIGINT", sigintHandler);

@@ -768,6 +768,12 @@ describe("start command foreground locking", () => {
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(configDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-03-17T00:00:00.000Z",
+    });
     run.mockResolvedValue(undefined);
 
     await startModule.default([], {

@@ -413,6 +413,7 @@ export class OrchestratorService {
   private reconcileRequested = false;
   private workerOrchestratorUrl: string | null = null;
   private workerOrchestratorToken: string | null = null;
+  private ownerToken: string | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -439,8 +440,15 @@ export class OrchestratorService {
       onTick?: OrchestratorTickHandler;
       assignedOnly?: boolean;
       rmImpl?: typeof rm;
+      ownerToken?: string;
     } = {}
-  ) {}
+  ) {
+    this.ownerToken = dependencies.ownerToken ?? null;
+  }
+
+  setOwnerToken(ownerToken: string): void {
+    this.ownerToken = ownerToken;
+  }
 
   setWorkerOrchestratorUrl(url: string, apiToken?: string): void {
     this.workerOrchestratorUrl = url;
@@ -1743,16 +1751,12 @@ export class OrchestratorService {
           ) ?? persistedRun;
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
-          if (
-            !activeRun ||
-            activeRun.processId === null ||
-            !this.isRunProcessRunning(activeRun)
-          ) {
+          if (!activeRun || activeRun.processId === null) {
             continue;
           }
-          const activeWorkerPid = activeRun.processId;
-          this.sendSignal(activeWorkerPid, "SIGTERM");
-          this.retireWorkerPid(activeWorkerPid);
+          if (!(await this.signalRunProcess(activeRun, "SIGTERM"))) {
+            continue;
+          }
           const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
             tenant,
             activeRun,
@@ -1787,9 +1791,9 @@ export class OrchestratorService {
           this.logVerbose(
             `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
           );
-          issueRecords = releaseIssueOrchestration(
+          issueRecords = await this.releaseRunIssueOrchestration(
             issueRecords,
-            issueRecord.issueId,
+            activeRun,
             now
           );
           suppressed += 1;
@@ -1809,9 +1813,11 @@ export class OrchestratorService {
           continue;
         }
 
-        if (activeRun?.processId) {
-          this.sendSignal(activeRun.processId, "SIGTERM");
-          this.retireWorkerPid(activeRun.processId);
+        if (
+          activeRun?.processId &&
+          !(await this.signalRunProcess(activeRun, "SIGTERM"))
+        ) {
+          continue;
         }
         if (activeRun) {
           const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
@@ -1858,11 +1864,13 @@ export class OrchestratorService {
             `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
           );
         }
-        issueRecords = releaseIssueOrchestration(
-          issueRecords,
-          issueRecord.issueId,
-          now
-        );
+        if (activeRun) {
+          issueRecords = await this.releaseRunIssueOrchestration(
+            issueRecords,
+            activeRun,
+            now
+          );
+        }
         suppressed += 1;
       }
 
@@ -1983,6 +1991,16 @@ export class OrchestratorService {
     if (workspaceRecords.length === 0) {
       return;
     }
+    const activeRunsByWorkspace = new Map(
+      (await this.store.loadAllRuns())
+        .filter(
+          (run) =>
+            run.projectId === tenant.projectId &&
+            isActiveRunRecordStatus(run.status) &&
+            run.issueWorkspaceKey
+        )
+        .map((run) => [run.issueWorkspaceKey!, run])
+    );
 
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const workflowCache = new Map<string, Promise<ProjectWorkflowResolution>>();
@@ -2010,6 +2028,12 @@ export class OrchestratorService {
 
     for (const workspaceRecord of workspaceRecords) {
       if (workspaceRecord.status === "removed") {
+        continue;
+      }
+
+      const activeRun = activeRunsByWorkspace.get(workspaceRecord.workspaceKey);
+      if (activeRun && !this.isRunOwnedByCurrentInstance(activeRun)) {
+        await this.recordOwnershipSkip(activeRun, "workspace-cleanup");
         continue;
       }
 
@@ -2864,6 +2888,7 @@ export class OrchestratorService {
       attempt: 1,
       processId,
       processIdentity,
+      ownerInstanceId: this.ownerToken,
       port: null,
       workingDirectory: repositoryDirectory,
       issueWorkspaceKey: workspaceKey,
@@ -3115,10 +3140,7 @@ export class OrchestratorService {
     );
 
     if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
-      if (this.isRunProcessRunning(run)) {
-        this.sendSignal(run.processId!, "SIGTERM");
-        this.retireWorkerPid(run.processId);
-      }
+      await this.signalRunProcess(run, "SIGTERM");
       const supersededRun: OrchestratorRunRecord = {
         ...run,
         status: "failed",
@@ -3178,7 +3200,7 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        this.sendSignal(run.processId!, "SIGTERM");
+        await this.signalRunProcess(run, "SIGTERM");
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {
@@ -3367,7 +3389,11 @@ export class OrchestratorService {
         `[run-completed] ${completedRun.runId} status=${completedRun.status}`
       );
       return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+        issueRecords: await this.releaseRunIssueOrchestration(
+          issueRecords,
+          run,
+          now
+        ),
         recovered: false,
       };
     }
@@ -3407,9 +3433,9 @@ export class OrchestratorService {
           `[run-completed] ${completedRun.runId} status=${completedRun.status}`
         );
         return {
-          issueRecords: releaseIssueOrchestration(
+          issueRecords: await this.releaseRunIssueOrchestration(
             issueRecords,
-            run.issueId,
+            run,
             now
           ),
           recovered: false,
@@ -4656,7 +4682,11 @@ export class OrchestratorService {
     );
 
     return {
-      issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+      issueRecords: await this.releaseRunIssueOrchestration(
+        issueRecords,
+        run,
+        now
+      ),
       recovered: false,
     };
   }
@@ -4918,6 +4948,74 @@ export class OrchestratorService {
       return true;
     }
     return liveLeaderIdentity === run.processIdentity;
+  }
+
+  private isRunOwnedByCurrentInstance(run: OrchestratorRunRecord): boolean {
+    // Programmatic service construction predates project-lock ownership. The
+    // CLI always injects an owner identity; retain the legacy behavior only
+    // for callers that have not opted into that lock contract.
+    if (!this.ownerToken) {
+      return true;
+    }
+    return Boolean(
+      run.ownerInstanceId && run.ownerInstanceId === this.ownerToken
+    );
+  }
+
+  private ownershipSkipReason(
+    run: OrchestratorRunRecord
+  ): "owner-token-missing" | "owner-token-mismatch" {
+    return !run.ownerInstanceId
+      ? "owner-token-missing"
+      : "owner-token-mismatch";
+  }
+
+  private async recordOwnershipSkip(
+    run: OrchestratorRunRecord,
+    operation: "signal" | "claim-release" | "workspace-cleanup"
+  ): Promise<void> {
+    const reason = this.ownershipSkipReason(run);
+    await this.store.appendRunEvent(run.runId, {
+      at: this.now().toISOString(),
+      event: "run-ownership-skipped",
+      projectId: run.projectId,
+      runId: run.runId,
+      issueIdentifier: run.issueIdentifier,
+      issueId: run.issueId,
+      operation,
+      reason,
+    });
+    this.logVerbose(
+      `[run-ownership-skipped] ${run.runId} operation=${operation} reason=${reason}`
+    );
+  }
+
+  private async signalRunProcess(
+    run: OrchestratorRunRecord,
+    signal: NodeJS.Signals
+  ): Promise<boolean> {
+    if (!this.isRunOwnedByCurrentInstance(run)) {
+      await this.recordOwnershipSkip(run, "signal");
+      return false;
+    }
+    if (!this.isRunProcessRunning(run)) {
+      return false;
+    }
+    this.sendSignal(run.processId!, signal);
+    this.retireWorkerPid(run.processId);
+    return true;
+  }
+
+  private async releaseRunIssueOrchestration(
+    issueRecords: IssueOrchestrationRecord[],
+    run: OrchestratorRunRecord,
+    now: Date
+  ): Promise<IssueOrchestrationRecord[]> {
+    if (!this.isRunOwnedByCurrentInstance(run)) {
+      await this.recordOwnershipSkip(run, "claim-release");
+      return issueRecords;
+    }
+    return releaseIssueOrchestration(issueRecords, run.issueId, now);
   }
 
   private sendSignal(processId: number, signal: NodeJS.Signals): void {

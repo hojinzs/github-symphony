@@ -57,6 +57,90 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(30_000)).toBe(30_000);
   });
 
+  it("guards worker signals by owner and process identity", async () => {
+    const appendRunEvent = vi.fn().mockResolvedValue(undefined);
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(
+      { appendRunEvent } as unknown as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "instance-b",
+        killImpl,
+        isProcessRunning: vi.fn().mockReturnValue(true),
+        getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
+      }
+    );
+    const signalRunProcess = (
+      service as unknown as {
+        signalRunProcess(
+          run: OrchestratorRunRecord,
+          signal: NodeJS.Signals
+        ): Promise<boolean>;
+      }
+    ).signalRunProcess.bind(service);
+    const run = {
+      runId: "run-1",
+      projectId: "tenant-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      processId: 4101,
+      processIdentity: "worker-current",
+      ownerInstanceId: "instance-a",
+    } as OrchestratorRunRecord;
+
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(false);
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(appendRunEvent).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        event: "run-ownership-skipped",
+        operation: "signal",
+        reason: "owner-token-mismatch",
+      })
+    );
+
+    const releaseRunIssueOrchestration = (
+      service as unknown as {
+        releaseRunIssueOrchestration(
+          issueRecords: IssueOrchestrationRecord[],
+          run: OrchestratorRunRecord,
+          now: Date
+        ): Promise<IssueOrchestrationRecord[]>;
+      }
+    ).releaseRunIssueOrchestration.bind(service);
+    const issueRecords = [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "workspace-1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-08-26T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      releaseRunIssueOrchestration(issueRecords, run, new Date())
+    ).resolves.toEqual(issueRecords);
+    expect(appendRunEvent).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        event: "run-ownership-skipped",
+        operation: "claim-release",
+        reason: "owner-token-mismatch",
+      })
+    );
+
+    run.ownerInstanceId = "instance-b";
+    run.processIdentity = "worker-reused";
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(false);
+    expect(killImpl).not.toHaveBeenCalled();
+
+    run.processIdentity = "worker-current";
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(true);
+    expect(killImpl).toHaveBeenCalledWith(4101, "SIGTERM");
+  });
+
   it("gives confirmed tracker progress a bounded clean-exit grace", () => {
     const run = {
       issueState: "Done",
@@ -12258,6 +12342,7 @@ Handle Linear issue.`,
       status: "running",
       attempt: 1,
       processId: 4208,
+      ownerInstanceId: "owner-a",
       port: 4603,
       workingDirectory: join(tempRoot, "active-run"),
       issueWorkspaceKey: null,
@@ -12290,7 +12375,19 @@ Handle Linear issue.`,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
+      ownerInstanceId: "owner-a",
     });
+    service.setOwnerToken("owner-a");
+    expect(await store.loadRun("run-1")).toMatchObject({
+      ownerInstanceId: "owner-a",
+    });
+    expect(
+      (
+        service as unknown as {
+          isRunOwnedByCurrentInstance(run: OrchestratorRunRecord): boolean;
+        }
+      ).isRunOwnedByCurrentInstance((await store.loadRun("run-1"))!)
+    ).toBe(true);
 
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");

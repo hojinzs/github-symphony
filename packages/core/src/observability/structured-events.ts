@@ -119,6 +119,17 @@ export type RunSuppressedEvent = {
   reason: string;
 };
 
+export type RunOwnershipSkippedEvent = {
+  at: string;
+  event: "run-ownership-skipped";
+  projectId: string;
+  runId: string;
+  issueIdentifier: string;
+  issueId: string;
+  operation: "signal" | "claim-release" | "workspace-cleanup";
+  reason: "owner-token-missing" | "owner-token-mismatch";
+};
+
 export type RunFinalizationDeferredEvent = {
   at: string;
   event: "run-finalization-deferred";
@@ -306,6 +317,7 @@ export type OrchestratorEvent =
   | RunRetriedEvent
   | RunFailedEvent
   | RunSuppressedEvent
+  | RunOwnershipSkippedEvent
   | RunFinalizationDeferredEvent
   | ConvergenceLockExpiredEvent
   | RecoveryQuarantinedEvent
