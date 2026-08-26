@@ -4179,7 +4179,9 @@ Test hook failures.
 
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(stderr.write).toHaveBeenCalledWith(
-      "[orchestrator] Workspace state refresh failed for tenant-1; continuing: tracker unavailable\n"
+      expect.stringContaining(
+        "[orchestrator] Workspace state refresh failed for tenant-1; continuing: Error: tracker unavailable"
+      )
     );
   });
 
