@@ -12,7 +12,6 @@ import * as p from "@clack/prompts";
 import type { GlobalOptions } from "../index.js";
 import {
   daemonPidPath,
-  httpStatusPath,
   orchestratorLogPath,
   writeJsonFile,
 } from "../config.js";
@@ -274,12 +273,6 @@ type ForegroundShutdownOptions = {
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
-};
-
-type HttpBindingState = {
-  host: string;
-  port: number;
-  endpoint: string;
 };
 
 const DEFAULT_HTTP_PORT = 4680;
@@ -577,21 +570,6 @@ async function closeHttpServer(server?: Server): Promise<void> {
       resolveClose();
     });
   });
-}
-
-async function writeHttpBindingState(
-  configDir: string,
-  projectId: string,
-  binding: HttpBindingState
-): Promise<void> {
-  await writeJsonFile(httpStatusPath(configDir, projectId), binding);
-}
-
-async function removeHttpBindingState(
-  configDir: string,
-  projectId: string
-): Promise<void> {
-  await rm(httpStatusPath(configDir, projectId), { force: true });
 }
 
 async function startHttpServer(input: {
@@ -998,7 +976,6 @@ const handler = async (
       instance = { ...instanceBase, pid: projectLock.pid, startedAt: projectLock.startedAt, heartbeatAt: projectLock.heartbeatAt, processIdentity: projectLock.processIdentity };
       await registerInstance(instance);
     }
-    await removeHttpBindingState(options.configDir, projectId);
 
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
@@ -1123,22 +1100,6 @@ const handler = async (
             ? workerHttpServer
             : null;
       if (httpServer) {
-        try {
-          await writeHttpBindingState(options.configDir, projectId, {
-            host: httpHost,
-            port: httpServer.port,
-            endpoint: httpServer.url,
-          });
-        } catch (error) {
-          logLine(
-            yellow("\u26A0"),
-            yellow(
-              `Failed to persist HTTP binding state (http.json): ${
-                error instanceof Error ? error.message : "Unknown error"
-              }`
-            )
-          );
-        }
         if (instance) {
           instance = { ...instance, endpoint: httpServer.url };
           await registerInstance(instance);
@@ -1236,18 +1197,6 @@ const handler = async (
                 }`
               );
             });
-            await removeHttpBindingState(options.configDir, projectId).catch(
-              (removeError) => {
-                logLine(
-                  yellow("\u26A0"),
-                  `Failed to remove HTTP state: ${
-                    removeError instanceof Error
-                      ? removeError.message
-                      : "Unknown error"
-                  }`
-                );
-              }
-            );
             return;
           }
         }
@@ -1295,15 +1244,6 @@ export async function shutdownForegroundOrchestrator(
     logLine(
       yellow("\u26A0"),
       `Failed to stop HTTP server: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
-  }
-
-  try {
-    await removeHttpBindingState(input.configDir, input.projectId);
-  } catch (error) {
-    logLine(
-      yellow("\u26A0"),
-      `Failed to remove HTTP state: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 

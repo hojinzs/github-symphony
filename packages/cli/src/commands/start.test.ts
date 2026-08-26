@@ -1281,23 +1281,6 @@ describe("start command foreground locking", () => {
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      const httpState = JSON.parse(
-        await readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ) as { host: string; port: number; endpoint: string };
-      expect(httpState).toEqual({
-        host: "127.0.0.1",
-        port: Number.parseInt(new URL(url).port, 10),
-        endpoint: url,
-      });
       const unauthenticated = await fetch(`${url}/api/v1/state`);
       expect(unauthenticated.status).toBe(401);
       await expect(unauthenticated.json()).resolves.toEqual({
@@ -1489,23 +1472,6 @@ describe("start command foreground locking", () => {
         onRefreshRequest: expect.any(Function),
       });
 
-      const httpState = JSON.parse(
-        await readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ) as { host: string; port: number; endpoint: string };
-      expect(httpState).toEqual({
-        host: "127.0.0.1",
-        port: Number.parseInt(new URL(url).port, 10),
-        endpoint: url,
-      });
       expect(stdout.output()).toContain("Web dashboard listening on");
       expect(stdout.output()).toContain("#token=custom%2Btoken%26value%25%23");
       expect(stdout.output()).not.toContain("#token=custom+token&value%#");
@@ -1873,9 +1839,6 @@ describe("start command foreground locking", () => {
 
       const url = await waitForHttpUrl(stdout.output);
       expect(url).toMatch(/^http:\/\/localhost:\d+$/);
-      expect(stdout.output()).toContain(
-        "Failed to persist HTTP binding state (http.json): disk full"
-      );
 
       process.emit("SIGINT");
       await startPromise;
