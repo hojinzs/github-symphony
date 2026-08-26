@@ -40,6 +40,7 @@ type LoaderKey =
   | "project"
   | "config"
   | "cache"
+  | "instances"
   | "version";
 
 type CliOptionValues = Partial<
@@ -94,6 +95,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
     cache: () => import("./commands/cache.js"),
+    instances: () => import("./commands/instances.js"),
     version: () => import("./commands/version.js"),
   };
 
@@ -534,6 +536,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const project = addGlobalOptions(
     program.command("project").description("Manage standalone projects")
   );
+  addGlobalOptions(program.command("instances").description("List orchestrator instances on this host")).action(async function (this: Command) {
+    markInvoked();
+    await invokeHandler("instances", [], this.optsWithGlobals<CliOptionValues>());
+  });
   addGlobalOptions(project.command("list").allowExcessArguments(false)).action(
     async function (this: Command) {
       markInvoked();

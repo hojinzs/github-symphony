@@ -55,6 +55,7 @@ import {
 } from "../github/gh-auth.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
+import { findLiveDuplicate, registerInstance, unregisterInstance, type InstanceEntry } from "../instances.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -292,6 +293,7 @@ function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
   assignedOnly?: boolean;
+  allowDuplicate?: boolean;
   bindAll: boolean;
   httpPort?: number;
   webPort?: number;
@@ -302,6 +304,7 @@ function parseStartArgs(args: string[]): {
     daemon: boolean;
     once: boolean;
     assignedOnly?: boolean;
+    allowDuplicate?: boolean;
     bindAll: boolean;
     httpPort?: number;
     webPort?: number;
@@ -327,6 +330,7 @@ function parseStartArgs(args: string[]): {
       parsed.assignedOnly = true;
       continue;
     }
+    if (arg === "--allow-duplicate") { parsed.allowDuplicate = true; continue; }
     if (arg === "--bind-all") {
       parsed.bindAll = true;
       continue;
@@ -925,6 +929,20 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
+  const instanceBase = {
+    projectId,
+    repo: `${projectConfig.repository.owner}/${projectConfig.repository.name}`,
+    repoPath: resolve(projectConfig.repositoryDir ?? projectConfig.projectDir ?? process.cwd()),
+    workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
+    runtimeRoot,
+    standalone: options.invocation === "project",
+  };
+  if (!parsed.allowDuplicate) {
+    const duplicate = await findLiveDuplicate(instanceBase);
+    if (duplicate && resolve(duplicate.runtimeRoot) !== runtimeRoot) {
+      throw new Error(`Project "${projectId}" is already running for ${instanceBase.repoPath} (PID ${duplicate.pid}). Use --allow-duplicate to override.`);
+    }
+  }
   let logLevel: OrchestratorLogLevel;
   const requestedLogLevel =
     parsed.logLevel ??
@@ -970,11 +988,16 @@ const handler = async (
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLock: ProjectLockHandle | null = null;
+  let instance: InstanceEntry | null = null;
   try {
     projectLock = await acquireProjectLock({
       runtimeRoot,
       projectId,
     });
+    if (projectLock) {
+      instance = { ...instanceBase, pid: projectLock.pid, startedAt: projectLock.startedAt, heartbeatAt: projectLock.heartbeatAt, processIdentity: projectLock.processIdentity };
+      await registerInstance(instance);
+    }
     await removeHttpBindingState(options.configDir, projectId);
 
     const store = createStore(runtimeRoot);
@@ -1116,6 +1139,10 @@ const handler = async (
             )
           );
         }
+        if (instance) {
+          instance = { ...instance, endpoint: httpServer.url };
+          await registerInstance(instance);
+        }
       }
 
       logLine(
@@ -1233,6 +1260,7 @@ const handler = async (
       }
     }
   } finally {
+    if (instance) await unregisterInstance(instance);
     await releaseProjectLock(projectLock);
   }
 };

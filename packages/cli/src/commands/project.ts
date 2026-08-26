@@ -18,6 +18,7 @@ import {
 } from "../config.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 import { standaloneProjectId } from "../standalone-project.js";
+import { listInstances } from "../instances.js";
 
 export { standaloneProjectId } from "../standalone-project.js";
 
@@ -395,7 +396,10 @@ const handler = async (
   const [subcommand, ...rest] = args;
 
   if (subcommand === "list" && rest.length === 0) {
-    const projects = await listStandaloneProjects(options.configDir);
+    const instances = (await listInstances()).filter((entry) => entry.standalone);
+    // Cached configs preserve the legacy discovery behavior until a project is
+    // running; active projects are supplied by the global registry above.
+    const projects = instances.length > 0 ? instances : await listStandaloneProjects(options.configDir);
     process.stdout.write(JSON.stringify(projects, null, 2) + "\n");
     return;
   }
