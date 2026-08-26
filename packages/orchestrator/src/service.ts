@@ -1214,6 +1214,7 @@ export class OrchestratorService {
         trackerDependencies
       );
       issueRecords = outcome.issueRecords;
+      lastError ??= outcome.lastError ?? null;
       if (outcome.recovered) {
         recovered += 1;
       }
@@ -3106,6 +3107,7 @@ export class OrchestratorService {
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
+    lastError?: string | null;
   }> {
     const now = this.now();
     const issueRecord = issueRecords.find(
@@ -3529,9 +3531,9 @@ export class OrchestratorService {
           "convergence_detected: repeated non-productive turns")
         : recovery || retryKind === "continuation"
           ? null
-          : (currentTrackerProgress?.state === "unknown"
+          : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : "Worker process exited unexpectedly."),
+            : "Worker process exited unexpectedly.",
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -3987,7 +3989,8 @@ export class OrchestratorService {
         return {
           state: "unknown",
           reason: "workflow-unavailable",
-          error: "Final tracker state unavailable: workflow policy could not be loaded.",
+          error:
+            "Final tracker state unavailable: workflow policy could not be loaded.",
         };
       }
       const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
@@ -4425,6 +4428,7 @@ export class OrchestratorService {
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
+    lastError?: string | null;
   }> {
     // Mark the old retrying record as terminal BEFORE creating a new run.
     // Without this, the old record stays in the store with status "retrying"
@@ -4477,6 +4481,7 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
+      const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
       const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
       if (failedPreparedRun) {
         await this.store.saveRun({
@@ -4484,7 +4489,12 @@ export class OrchestratorService {
           status: "failed",
           completedAt: now.toISOString(),
           updatedAt: now.toISOString(),
-          lastError: `Worker spawn failed: ${this.formatErrorMessage(error)}`,
+          lastError: errorMessage,
+        });
+      } else {
+        await this.store.saveRun({
+          ...supersededRecord,
+          lastError: errorMessage,
         });
       }
       nextIssueRecords = releaseIssueOrchestration(
@@ -4496,7 +4506,14 @@ export class OrchestratorService {
         tenant.projectId,
         nextIssueRecords
       );
-      throw error;
+      this.writeStderr(
+        `[orchestrator] restart failed for ${run.issueIdentifier}: ${this.formatErrorMessage(error)}`
+      );
+      return {
+        issueRecords: nextIssueRecords,
+        recovered: false,
+        lastError: errorMessage,
+      };
     }
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
