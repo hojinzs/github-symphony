@@ -109,6 +109,22 @@ export async function deriveStandaloneProject(
           "Standalone project start cancelled because tracker mappings overlap."
         );
       }
+
+      // Confirmation can take an arbitrary amount of time. The config lock
+      // remains held while waiting, but re-check before persisting so the
+      // decision is based on the state that exists at commit time.
+      const confirmedOverlap = await findOverlappingProjects(
+        options.configDir,
+        config
+      );
+      const runningAfterConfirmation = confirmedOverlap.filter(
+        (entry) => entry.running
+      );
+      if (runningAfterConfirmation.length > 0) {
+        throw new Error(
+          `Tracker mapping overlaps running project(s): ${describe(runningAfterConfirmation)}. Stop them or make the mappings disjoint with tracker.pickup_labels.`
+        );
+      }
     }
 
     await saveProjectConfigWithinLock(options.configDir, projectId, config);

@@ -403,8 +403,7 @@ async function isStaleConfigLock(path: string): Promise<boolean> {
     ) {
       return isExpiredConfigLockFile(path);
     }
-    const ageMs = Math.abs(Date.now() - Date.parse(record.startedAt));
-    if (!Number.isFinite(ageMs) || ageMs > CONFIG_LOCK_TTL_MS) {
+    if (!Number.isFinite(Date.parse(record.startedAt))) {
       return true;
     }
     try {
