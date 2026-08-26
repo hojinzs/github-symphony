@@ -55,7 +55,11 @@ export async function listInstances(now = Date.now()): Promise<ListedInstance[]>
       const lock = JSON.parse(await readFile(join(entry.runtimeRoot, "projects", entry.projectId, ".lock"), "utf8")) as Partial<InstanceEntry>;
       const identity = getProcessIdentity(entry.pid);
       const fresh = lock.heartbeatAt && Math.abs(now - Date.parse(lock.heartbeatAt)) <= TTL_MS;
-      const running = Boolean(identity && entry.processIdentity === identity && fresh);
+      const identityMatches =
+        entry.processIdentity === null ||
+        identity === null ||
+        entry.processIdentity === identity;
+      const running = Boolean(identityMatches && fresh);
       const pidRecord = parseDaemonPidRecord(
         await readFile(daemonPidPath(entry.runtimeRoot, entry.projectId), "utf8").catch(() => "")
       );
