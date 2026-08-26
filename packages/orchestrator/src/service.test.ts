@@ -4107,7 +4107,10 @@ Test hook failures.
     expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
       projectConfig,
       ["issue-1", "issue-2"],
-      expect.objectContaining({ fetchImpl: expect.any(Function) })
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+        workflowLifecycle: expect.any(Object),
+      })
     );
 
     await expect(
@@ -4127,6 +4130,56 @@ Test hook failures.
     ).resolves.toMatchObject({ status: "removed", lastError: null });
     expect(stderr.write).toHaveBeenCalledWith(
       "[orchestrator] Terminal workspace cleanup failed for acme/platform#1; continuing: Failed to remove workspace for acme/platform#1: disk busy\n"
+    );
+  });
+
+  it("continues dispatch when a workspace-only state refresh fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workspace-refresh-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#2");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-2",
+      issueIdentifier: "acme/platform#2",
+      workspacePath: join(tempRoot, "persisted-workspace"),
+      repositoryPath: join(tempRoot, "persisted-workspace", "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4106,
+      unref: vi.fn(),
+    });
+    const stderr = { write: vi.fn() };
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce(createTrackerResponse(repository))
+        .mockRejectedValueOnce(new Error("tracker unavailable")) as never,
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(stderr.write).toHaveBeenCalledWith(
+      "[orchestrator] Workspace state refresh failed for tenant-1; continuing: tracker unavailable\n"
     );
   });
 
