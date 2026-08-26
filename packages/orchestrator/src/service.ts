@@ -1330,6 +1330,31 @@ export class OrchestratorService {
         supplementalLinearIssues
       );
       let supplementalLinearRateLimitsRecorded = false;
+      const terminalWorkspaceIssueIds = [
+        ...new Set(
+          (await this.store.loadIssueWorkspaces(tenant.projectId))
+            .filter((workspace) => workspace.status !== "removed")
+            .map((workspace) => workspace.issueSubjectId)
+        ),
+      ];
+      const terminalWorkspaceIssues =
+        terminalWorkspaceIssueIds.length > 0
+          ? await trackerAdapter.fetchIssueStatesByIds(
+              tenant,
+              terminalWorkspaceIssueIds,
+              trackerDependencies
+            )
+          : [];
+      for (const issue of terminalWorkspaceIssues) {
+        if (!trackedIssuesByIdentifier.has(issue.identifier)) {
+          trackedIssuesByIdentifier.set(issue.identifier, issue);
+        }
+      }
+      const terminalWorkspaceRateLimits = getTrackedIssueListRateLimits(
+        terminalWorkspaceIssues
+      );
+      trackerRateLimits ??= terminalWorkspaceRateLimits;
+      rateLimits ??= terminalWorkspaceRateLimits;
       const syncedActiveRuns: OrchestratorRunRecord[] = [];
       for (const run of currentActiveRuns) {
         const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
