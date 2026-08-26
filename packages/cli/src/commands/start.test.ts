@@ -1280,7 +1280,7 @@ describe("start command foreground locking", () => {
         baseOptions(configDir)
       );
 
-      const url = await waitForHttpUrl(stdout.output);
+      await waitForHttpUrl(stdout.output);
       const unauthenticated = await fetch(`${url}/api/v1/state`);
       expect(unauthenticated.status).toBe(401);
       await expect(unauthenticated.json()).resolves.toEqual({
@@ -1463,7 +1463,7 @@ describe("start command foreground locking", () => {
         baseOptions(configDir)
       );
 
-      const url = await waitForHttpUrl(stdout.output);
+      await waitForHttpUrl(stdout.output);
       expect(startControlPlaneServer).toHaveBeenCalledWith({
         host: "127.0.0.1",
         port: 4680,
