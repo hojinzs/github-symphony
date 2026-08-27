@@ -229,7 +229,9 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       return [];
     }
 
-    return listLinearIssues(project, undefined, dependencies, issueIds);
+    return listLinearIssues(project, undefined, dependencies, issueIds, {
+      applyPickupLabels: true,
+    });
   },
 
   buildWorkerEnvironment(project, issue) {

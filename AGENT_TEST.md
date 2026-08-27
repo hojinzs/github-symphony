@@ -410,6 +410,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/17-retry-prompt-attempt.md`                | Verify continuation retry attempt reset and prompt rendering are covered by the Docker lifecycle path and unit assertions |
 | `e2e/scenarios/18-dispatchable-eligibility.md`            | Verify non-dispatchable tracker records do not start workers while retaining an explainable reason                         |
 | `e2e/scenarios/17-instance-registry.md`                   | Verify host-global instance listing, stale-registry diagnostics, and daemon PID recording only after lock acquisition     |
+| `e2e/scenarios/17-retry-fire-refresh.md`                  | Verify single-ID retry refresh, terminal cleanup, and retry backoff safety                                                |
 
 ## TC Writing Guide
 

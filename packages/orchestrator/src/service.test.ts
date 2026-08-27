@@ -5090,7 +5090,7 @@ Prefer focused changes.
     expect(waitImpl).not.toHaveBeenCalled();
   });
 
-  it("restarts only the current retrying run and fences it before spawn", async () => {
+  it("requeues an active retry when no orchestrator slot is available", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-"));
     const repository = await createRepositoryFixture(
@@ -5286,47 +5286,35 @@ Prefer focused changes.
       getProcessStartIdentity: (pid) => `worker-${pid}-started-once`,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
+    vi.spyOn(service as never, "hasRetryDispatchSlot").mockResolvedValue(false);
 
     const result = await service.runOnce();
 
-    expect(result.summary.recovered).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
-    expect(spawnImpl).toHaveBeenCalledWith(
-      "bash",
-      ["-lc", expect.stringMatching(/worker/)],
-      expect.objectContaining({
-        env: expect.objectContaining({
-          SYMPHONY_ISSUE_STATE: "Todo",
-          SYMPHONY_ISSUE_TITLE: "Test issue",
-          SYMPHONY_RESUME_THREAD_ID: "",
-          SYMPHONY_CUMULATIVE_TURN_COUNT: "0",
-          SYMPHONY_LAST_TURN_SUMMARY: "",
-        }),
-      })
-    );
+    expect(result.summary.recovered).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
     expect(listIssues).toHaveBeenCalled();
-
-    const runs = await store.loadAllRuns();
-    const recoveredRun = runs.find(
-      (run) => run.runId !== "run-1" && run.runId !== "run-stale"
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({ fetchImpl: expect.any(Function) })
     );
-    const staleRun = runs.find((run) => run.runId === "run-stale");
 
-    expect(staleRun).toMatchObject({
-      status: "failed",
-      nextRetryAt: null,
-      retryKind: null,
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      attempt: 3,
+      lastError: "no available orchestrator slots",
     });
-    expect(staleRun?.lastError).toBe(
-      `worker_lease_lost: run_not_current; superseded by current run ${recoveredRun?.runId}.`
-    );
-    expect(recoveredRun?.issueTitle).toBe("Test issue");
-    expect(recoveredRun?.issueState).toBe("Todo");
-    expect(recoveredRun?.processIdentity).toBe("worker-4102-started-once");
-    expect(recoveredRun?.threadId).toBeNull();
-    expect(recoveredRun?.cumulativeTurnCount).toBe(4);
-    expect(recoveredRun?.lastTurnSummary).toBe("turn/completed");
-    expect(recoveredRun?.turnCount).toBe(0);
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      currentRunId: "run-1",
+      failureRetryCount: 1,
+      retryEntry: expect.objectContaining({
+        attempt: 3,
+        error: "no available orchestrator slots",
+      }),
+    });
   });
 
   it("selects a live current run before reconciling dead-first duplicates", async () => {
@@ -5440,7 +5428,7 @@ Prefer focused changes.
     });
   });
 
-  it("releases a non-running retrying run when its issue becomes non-actionable", async () => {
+  it("cleans up and releases a terminal retry from the single-ID refresh", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retry-blocked-release-")
@@ -5496,6 +5484,26 @@ Prefer focused changes.
       nextRetryAt: "2026-03-08T00:00:20.000Z",
       runPhase: "failed",
     });
+    const workspacePath = resolveIssueWorkspaceDirectory(
+      store.projectDir("tenant-1"),
+      "acme_platform_1"
+    );
+    const sentinelPath = join(workspacePath, "sentinel.txt");
+    await mkdir(join(workspacePath, "repository"), { recursive: true });
+    await writeFile(sentinelPath, "cleanup me", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey: "acme_platform_1",
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath: join(workspacePath, "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
 
     const spawnImpl = vi.fn();
     const fetchImpl = vi.fn().mockImplementation(async (_url, init) => {
@@ -5542,7 +5550,7 @@ Prefer focused changes.
                           nodes: [
                             {
                               __typename: "ProjectV2ItemFieldSingleSelectValue",
-                              name: "Todo",
+                              name: "Done",
                               field: { name: "Status" },
                             },
                           ],
@@ -5591,6 +5599,7 @@ Prefer focused changes.
     expect(updatedRun?.lastError).toBe(
       "Retry canceled because the tracker issue is no longer actionable."
     );
+    expect(updatedRun?.issueState).toBe("Done");
     expect(issueRecords[0]).toMatchObject({
       issueId: "issue-1",
       completedOnce: false,
@@ -5599,6 +5608,10 @@ Prefer focused changes.
       currentRunId: null,
       retryEntry: null,
     });
+    await expect(readFile(sentinelPath, "utf8")).rejects.toThrow();
+    expect(
+      await store.loadIssueWorkspace("tenant-1", "acme_platform_1")
+    ).toMatchObject({ status: "removed" });
   });
 
   it("releases due retrying runs when the tracker issue is missing", async () => {
@@ -5686,7 +5699,11 @@ Prefer focused changes.
     expect(result.summary.recovered).toBe(0);
     expect(spawnImpl).not.toHaveBeenCalled();
     expect(listIssues).toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({ fetchImpl: expect.any(Function) })
+    );
     expect(updatedRun?.status).toBe("suppressed");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.runPhase).toBe("canceled_by_reconciliation");
@@ -5703,7 +5720,7 @@ Prefer focused changes.
     });
   });
 
-  it("keeps restarting due retrying runs when tracker eligibility cannot be confirmed", async () => {
+  it("requeues due retries when the single-ID refresh fails", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retry-transient-")
@@ -5810,10 +5827,34 @@ Prefer focused changes.
 
     const result = await service.runOnce();
 
-    expect(result.summary.recovered).toBe(1);
-    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(result.summary.recovered).toBe(0);
+    expect(spawnImpl).not.toHaveBeenCalled();
     expect(listIssues).toHaveBeenCalled();
-    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.objectContaining({ fetchImpl: expect.any(Function) })
+    );
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "retrying",
+      attempt: 3,
+      lastError: expect.stringContaining(
+        "retry refresh failed: tracker unavailable"
+      ),
+    });
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "retry_queued",
+      currentRunId: "run-1",
+      failureRetryCount: 1,
+      retryEntry: expect.objectContaining({
+        attempt: 3,
+        error: expect.stringContaining(
+          "retry refresh failed: tracker unavailable"
+        ),
+      }),
+    });
   });
 
   it("builds issue-specific debug status for a tracked issue", async () => {
