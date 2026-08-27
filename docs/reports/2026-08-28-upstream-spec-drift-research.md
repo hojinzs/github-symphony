@@ -1,7 +1,7 @@
 # Upstream Spec Drift Research (2026-08-28)
 
 Date: 2026-08-28
-Status: Research complete — no code changed; findings await triage into issues
+Status: Research complete — findings tracked in Epic #651 (sub-issues #652–#679); the spec sync itself (S0/#652) ships in PR #650 alongside this report
 Symphony Layers: Configuration, Coordination, Execution, Integration, Observability
 
 Baselines:

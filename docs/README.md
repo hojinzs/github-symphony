@@ -21,7 +21,7 @@ header metadata rather than directories.
 
 ## Living documents
 
-- [symphony-spec.md](symphony-spec.md) — upstream Symphony spec (Draft v1). **Read-only, never modify**
+- [symphony-spec.md](symphony-spec.md) — upstream Symphony spec, synced verbatim from [openai/symphony `SPEC.md`](https://github.com/openai/symphony/blob/main/SPEC.md) @ `8001b52` (2026-08-12). **Read-only, never modify** — resync only via a dedicated PR
 - [architecture.md](architecture.md) — maps spec components (§3.1) and layers (§3.2) to packages. Organized as per-layer slices; PRs that move code across layers/packages update the matching slice
 - [configuration.md](configuration.md) — configuration and environment variable reference (env loading order, standalone projects, skill layering)
 
