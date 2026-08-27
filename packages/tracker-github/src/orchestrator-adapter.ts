@@ -78,6 +78,8 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
       branchName: null,
       url: null,
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: null,
       updatedAt: null,

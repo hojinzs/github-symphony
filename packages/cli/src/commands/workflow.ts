@@ -123,6 +123,8 @@ const SAMPLE_ISSUE: TrackedIssue = {
   branchName: "feat/workflow-cli-preview",
   url: "https://github.com/octo/hello-world/issues/157",
   labels: ["enhancement", "cli"],
+  dispatchable: true,
+  assigneeId: null,
   blockedBy: [
     {
       id: "issue-120",
@@ -365,6 +367,12 @@ function normalizeIssue(value: unknown): TrackedIssue {
     ),
     url: readOptionalString(record.url, "url"),
     labels: readStringArray(record.labels, "labels"),
+    dispatchable:
+      record.dispatchable === undefined
+        ? true
+        : readRequiredBoolean(record.dispatchable, "dispatchable"),
+    assigneeId: readOptionalString(record.assigneeId, "assigneeId"),
+    dispatchReason: readOptionalString(record.dispatchReason, "dispatchReason"),
     blockedBy: readBlockers(record.blockedBy ?? record.blocked_by),
     createdAt: readOptionalString(
       record.createdAt ?? record.created_at,
@@ -413,6 +421,13 @@ function readOptionalString(value: unknown, field: string): string | null {
   }
   if (typeof value !== "string") {
     throw new Error(`Sample JSON field '${field}' must be a string.`);
+  }
+  return value;
+}
+
+function readRequiredBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`Sample JSON field '${field}' must be a boolean.`);
   }
   return value;
 }

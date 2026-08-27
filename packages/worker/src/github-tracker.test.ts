@@ -93,6 +93,8 @@ describe("normalizeGithubProjectItem", () => {
       branchName: null,
       url: "https://github.com/acme/platform/issues/42",
       labels: ["agent", "infra"],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [
         {
           id: "issue-9",

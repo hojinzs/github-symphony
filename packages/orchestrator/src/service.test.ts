@@ -369,6 +369,8 @@ describe("OrchestratorService", () => {
         updatedAt: "2026-03-08T00:00:00.000Z",
         url: "https://example.test/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         repository,
         tracker: { adapter: "github-project", issueId: "issue-1" },
@@ -385,6 +387,8 @@ describe("OrchestratorService", () => {
         updatedAt: "2026-03-08T00:00:01.000Z",
         url: "https://example.test/acme/platform/issues/2",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         repository,
         tracker: { adapter: "github-project", issueId: "issue-2" },
@@ -642,6 +646,8 @@ describe("OrchestratorService", () => {
       branchName: null,
       url: "https://example.test/acme/platform/issues/1",
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:00:00.000Z",
@@ -1752,6 +1758,8 @@ describe("OrchestratorService", () => {
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
@@ -4911,6 +4919,8 @@ Prefer focused changes.
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
@@ -8410,7 +8420,9 @@ Prefer focused changes.
       fetchIssueStatesByIds.mockRejectedValue(trackerState);
     } else {
       fetchIssueStatesByIds.mockResolvedValue(
-        trackerState === null ? [] : [{ id: "issue-1", state: trackerState }]
+        trackerState === null
+          ? []
+          : [{ id: "issue-1", state: trackerState, dispatchable: true }]
       );
     }
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
@@ -9713,6 +9725,8 @@ Prefer focused changes.
             branchName: null,
             url: "https://github.com/acme/platform/issues/1",
             labels: [],
+            dispatchable: true,
+            assigneeId: null,
             blockedBy: [],
             createdAt: "2026-03-08T00:00:00.000Z",
             updatedAt: "2026-03-08T00:05:00.000Z",
@@ -11650,6 +11664,8 @@ Prefer focused changes.
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
@@ -11674,6 +11690,8 @@ Prefer focused changes.
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
+        assigneeId: null,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:05:00.000Z",
@@ -12091,6 +12109,8 @@ Handle Linear issue.`,
       branchName: null,
       url: "https://linear.app/acme/issue/ENG-1",
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:00:00.000Z",

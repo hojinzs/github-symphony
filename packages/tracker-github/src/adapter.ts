@@ -483,6 +483,10 @@ export function normalizeProjectItem(
     branchName: null,
     url: item.content.url,
     labels: normalizeLabelNames(item.content.labels?.nodes ?? []),
+    dispatchable: true,
+    assigneeId:
+      item.content.assignees?.nodes?.find((assignee) => assignee?.login)?.login ??
+      null,
     blockedBy,
     createdAt: item.content.createdAt,
     updatedAt: trackedUpdatedAt,
@@ -538,6 +542,8 @@ function normalizePullRequestProjectItem(
     branchName: content.headRefName,
     url: content.url,
     labels: [],
+    dispatchable: true,
+    assigneeId: null,
     blockedBy: [],
     createdAt: content.createdAt,
     updatedAt: trackedUpdatedAt,
@@ -2199,6 +2205,8 @@ function normalizeIssueStateLookupNode(
       issue.__typename === "PullRequest" ? (issue.headRefName ?? null) : null,
     url,
     labels: [],
+    dispatchable: true,
+    assigneeId: null,
     blockedBy: [],
     createdAt: null,
     updatedAt: projectItem.updatedAt ?? issue.updatedAt,

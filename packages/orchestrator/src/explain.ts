@@ -17,6 +17,7 @@ export type DispatchExplainCheck = {
   id:
     | "repository_linked"
     | "project_item_present"
+    | "tracker_dispatchability"
     | "workflow_state"
     | "blockers"
     | "runtime_ownership"
@@ -104,6 +105,7 @@ export function explainIssueDispatch(
     };
   }
 
+  checks.push(explainTrackerDispatchability(issue));
   checks.push(explainWorkflowState(issue, input.lifecycle));
   checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
   checks.push(
@@ -129,7 +131,9 @@ export function explainIssueDispatch(
   const dispatchable = blocking.length === 0;
   const summary = dispatchable
     ? "Dispatchable: no blocking project, workflow, runtime, or budget condition was found."
-    : `Not dispatchable: ${blocking[0]!.message}`;
+    : blocking[0]!.id === "tracker_dispatchability"
+      ? `Not dispatchable: ${issue.dispatchReason?.trim() || "no reason was provided"}`
+      : `Not dispatchable: ${blocking[0]!.message}`;
 
   return {
     issue: {
@@ -150,7 +154,14 @@ export function isIssueCandidateEligibleWithReason(
   issue: TrackedIssue,
   lifecycle: WorkflowLifecycleConfig,
   issues: readonly TrackedIssue[]
-): { eligible: boolean; reason: "inactive_state" | "blocked" | null } {
+): {
+  eligible: boolean;
+  reason: "not_dispatchable" | "inactive_state" | "blocked" | null;
+} {
+  if (!issue.dispatchable) {
+    return { eligible: false, reason: "not_dispatchable" };
+  }
+
   if (!isStateActive(issue.state, lifecycle)) {
     return { eligible: false, reason: "inactive_state" };
   }
@@ -160,6 +171,26 @@ export function isIssueCandidateEligibleWithReason(
   }
 
   return { eligible: false, reason: "blocked" };
+}
+
+function explainTrackerDispatchability(
+  issue: TrackedIssue
+): DispatchExplainCheck {
+  if (issue.dispatchable) {
+    return {
+      id: "tracker_dispatchability",
+      status: "pass",
+      message: "Tracker marks this issue as dispatchable.",
+    };
+  }
+
+  const reason = issue.dispatchReason?.trim() || "no reason was provided";
+  return {
+    id: "tracker_dispatchability",
+    status: "block",
+    message: `not dispatchable: ${reason}`,
+    details: { dispatchReason: issue.dispatchReason ?? null },
+  };
 }
 
 export function hasConvergenceLockedRunForIssue(

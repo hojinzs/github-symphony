@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
-import { explainIssueDispatch } from "./explain.js";
+import {
+  explainIssueDispatch,
+  isIssueCandidateEligibleWithReason,
+} from "./explain.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
@@ -35,6 +38,8 @@ function makeIssue(
     branchName: null,
     url: null,
     labels: [],
+    dispatchable: true,
+    assigneeId: null,
     blockedBy: [],
     createdAt: null,
     updatedAt: null,
@@ -287,6 +292,40 @@ describe("explainIssueDispatch", () => {
         }),
       ])
     );
+  });
+
+  it("explains tracker dispatchability reasons", () => {
+    const issue = makeIssue({
+      identifier: "acme/repo#1",
+      dispatchable: false,
+      dispatchReason: "assigned to another agent",
+    });
+    const report = explainIssueDispatch({
+      identifier: issue.identifier,
+      issue,
+      projectRepository,
+      allIssues: [issue],
+      lifecycle,
+      issueRecords: [],
+      runs: [],
+      activeRunCount: 0,
+      maxConcurrentAgents: 3,
+      maxConcurrentAgentsByState: {},
+    });
+
+    expect(report.dispatchable).toBe(false);
+    expect(report.summary).toBe("Not dispatchable: assigned to another agent");
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: "tracker_dispatchability",
+        status: "block",
+        message: "not dispatchable: assigned to another agent",
+      })
+    );
+
+    expect(
+      isIssueCandidateEligibleWithReason(issue, lifecycle, [issue])
+    ).toEqual({ eligible: false, reason: "not_dispatchable" });
   });
 
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
@@ -628,6 +667,52 @@ describe("per-state concurrency limits", () => {
 describe("blocker eligibility", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("does not dispatch issues the tracker marks non-dispatchable", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dispatchable-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const issue = makeIssue({
+      identifier: "acme/platform#1",
+      state: "Todo",
+      dispatchable: false,
+      dispatchReason: "assigned to another agent",
+      repository,
+    });
+    const adapter: OrchestratorTrackerAdapter = {
+      listIssues: vi.fn().mockResolvedValue([issue]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi.fn().mockResolvedValue([issue]),
+      buildWorkerEnvironment: () => ({ GITHUB_PROJECT_ID: "project-123" }),
+      reviveIssue: vi.fn(),
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5200, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await expect(service.runOnce()).resolves.toMatchObject({
+      summary: expect.objectContaining({ dispatched: 0 }),
+    });
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it("dispatches unblocked issue and skips issue blocked by non-terminal blocker", async () => {
