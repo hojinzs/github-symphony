@@ -8,7 +8,10 @@ set -euo pipefail
 
 SCENARIO="${1:-happy}"
 TIMEOUT="${2:-30}"
-COMPOSE="docker compose -f docker-compose.e2e.yml"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/e2e/lib/compose-project.sh"
+configure_e2e_compose_project "$ROOT_DIR"
+COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml)
 HTTP_API_TOKEN="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
 
 RED='\033[0;31m'
@@ -20,21 +23,21 @@ log()  { echo -e "${GREEN}[e2e]${NC} $*"; }
 warn() { echo -e "${YELLOW}[e2e]${NC} $*"; }
 fail() { echo -e "${RED}[e2e]${NC} $*"; }
 orch_curl() {
-  $COMPOSE exec -T symphony-e2e curl \
+  "${COMPOSE[@]}" exec -T symphony-e2e curl \
     -H "Authorization: Bearer ${HTTP_API_TOKEN}" "$@"
 }
 unauthenticated_orch_curl() {
-  $COMPOSE exec -T symphony-e2e curl "$@"
+  "${COMPOSE[@]}" exec -T symphony-e2e curl "$@"
 }
 
 cleanup() {
   log "Cleaning up..."
-  $COMPOSE exec -T symphony-e2e sh -lc '
+  "${COMPOSE[@]}" exec -T symphony-e2e sh -lc '
     if [ -d /e2e/evidence ]; then
       find /e2e/evidence -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
     fi
   ' 2>/dev/null || true
-  $COMPOSE down --timeout 5 2>/dev/null || true
+  "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
   echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -42,12 +45,15 @@ trap cleanup EXIT
 # ── Setup ─────────────────────────────────────────────────────
 
 log "Scenario: ${SCENARIO} (timeout: ${TIMEOUT}s)"
+log "Compose project: ${COMPOSE_PROJECT_NAME}"
+
+assert_e2e_project_is_available docker-compose.e2e.yml
 
 echo "[]" > e2e/fixtures/issues.json
 
 # Set scenario in environment
 export STUB_SCENARIO="$SCENARIO"
-STUB_SCENARIO="$SCENARIO" $COMPOSE up -d --build 2>&1 | tail -1
+STUB_SCENARIO="$SCENARIO" "${COMPOSE[@]}" up -d --build 2>&1 | tail -1
 
 log "Waiting for dashboard state..."
 for i in $(seq 1 20); do
@@ -58,7 +64,7 @@ for i in $(seq 1 20); do
   fi
   if [ "$i" -eq 20 ]; then
     fail "Dashboard state did not become ready after 20s"
-    docker logs symphony-e2e 2>&1 | tail -20
+    "${COMPOSE[@]}" logs --tail 20 symphony-e2e
     exit 1
   fi
   sleep 1
@@ -176,11 +182,11 @@ done
 
 echo ""
 log "=== Worker Logs ==="
-docker exec symphony-e2e sh -c 'for f in $(find /e2e/work -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
+"${COMPOSE[@]}" exec -T symphony-e2e sh -c 'for f in $(find /e2e/work -name worker.log 2>/dev/null | sort | tail -1); do cat "$f"; done' 2>/dev/null || true
 
 echo ""
 log "=== Event Logs ==="
-docker exec symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
+"${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec cat {} \; 2>/dev/null' 2>/dev/null || true
 
 echo ""
 if [ "$SCENARIO" = "transition-race" ]; then
@@ -188,7 +194,7 @@ if [ "$SCENARIO" = "transition-race" ]; then
     fail "=== Result ==="
     fail "  Worker reached running:    $SAW_RUNNING"
     fail "FAILED"
-    docker logs symphony-e2e 2>&1 | tail -20
+    "${COMPOSE[@]}" logs --tail 20 symphony-e2e
     exit 1
   fi
   python3 - <<'PY'
@@ -231,7 +237,7 @@ PY
     fail "Scenario run id was not captured"
     exit 1
   fi
-  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" -e SCENARIO="$SCENARIO" symphony-e2e node --input-type=module -e '
+  "${COMPOSE[@]}" exec -T -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { execFileSync } from "node:child_process";
     const allScenarioRuns = execFileSync("find", [
@@ -272,11 +278,11 @@ PY
       throw new Error(`unexpected_run_outcome:${JSON.stringify({status: run.status, runPhase: run.runPhase})}`);
     }
   '
-  if ! docker logs symphony-e2e 2>&1 | grep -q 'api-progress readback.*"state":"Done"'; then
+  if ! "${COMPOSE[@]}" logs symphony-e2e | grep -q 'api-progress readback.*"state":"Done"'; then
     fail "Confirmed Done readback was not observed"
     exit 1
   fi
-  if [ "$SCENARIO" = "prompt-phase" ] && ! docker logs symphony-e2e 2>&1 | grep -q 'scenario=prompt-phase'; then
+  if [ "$SCENARIO" = "prompt-phase" ] && ! "${COMPOSE[@]}" logs symphony-e2e | grep -q 'scenario=prompt-phase'; then
     fail "Stub worker did not start under the prompt-phase scenario"
     exit 1
   fi
@@ -294,7 +300,7 @@ if [ "$SCENARIO" = "api-progress-unknown" ]; then
     fail "Worker did not reach running state"
     exit 1
   fi
-  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
+  "${COMPOSE[@]}" exec -T -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { execFileSync } from "node:child_process";
     const eventPaths = execFileSync("find", ["/e2e/work", "-path", `*/runs/${process.env.SCENARIO_RUN_ID}/events.ndjson`], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
@@ -317,7 +323,7 @@ if [ "$SCENARIO" = "api-progress-unknown" ]; then
 fi
 
 CONFIGURED_WORKSPACE_ROOT=false
-if docker exec symphony-e2e node --input-type=module -e '
+if "${COMPOSE[@]}" exec -T symphony-e2e node --input-type=module -e '
   import { existsSync, readFileSync } from "node:fs";
   import { dirname, resolve, sep } from "node:path";
   import { execFileSync } from "node:child_process";
@@ -363,6 +369,6 @@ else
   fail "  Configured workspace root: $CONFIGURED_WORKSPACE_ROOT"
   echo ""
   fail "FAILED"
-  docker logs symphony-e2e 2>&1 | tail -20
+  "${COMPOSE[@]}" logs --tail 20 symphony-e2e
   exit 1
 fi

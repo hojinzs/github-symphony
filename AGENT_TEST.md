@@ -137,13 +137,13 @@ rm -rf .runtime
 ```
 AI Agent
     │
-    │ docker compose -f docker-compose.e2e.yml up -d
-    │ curl http://localhost:4680/api/v1/state
-    │ docker logs symphony-e2e
+    │ docker compose --project-name <unique> -f docker-compose.e2e.yml up -d
+    │ docker compose --project-name <unique> exec symphony-e2e curl http://localhost:4680/api/v1/state
+    │ docker compose --project-name <unique> logs symphony-e2e
     │
     ▼
 ┌──────────────────────────────────────────────────┐
-│  Docker Container (symphony-e2e)                  │
+│  Docker Compose service (symphony-e2e)             │
 │                                                   │
 │  Orchestrator ──spawn──→ Stub Worker              │
 │       │                   (replaces Codex)        │
@@ -155,13 +155,14 @@ AI Agent
 │  /e2e/work (tmpfs, destroyed when the container stops) │
 │    └─ test-repo/.runtime/orchestrator             │
 │                                                   │
-│  :4680 dashboard API (exposed externally)         │
+│  :4680 dashboard API (available within Compose)    │
 └──────────────────────────────────────────────────┘
 ```
 
 - **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API
 - **Stub Worker** (`e2e/stub-worker.ts`): simulates worker behavior without the Codex AI
 - **Isolation**: the cloned work repo and repo-local orchestrator state live in the `/e2e/work` tmpfs and are destroyed when the container stops. The local `.runtime/` is unaffected
+- **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME` from the absolute worktree path and set a matching `SYMPHONY_E2E_IMAGE`. Set `SYMPHONY_E2E_PROJECT` to override the derived name. Containers, networks, volumes, and images are therefore isolated across worktrees; the dashboard is queried through `docker compose exec` rather than a shared host port.
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
 - **Golden path**: the container entrypoint boots the single-repo runtime in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all`.
 - **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used solely by the `kind: file` workflows of this Docker/local E2E setup to connect the mounted fixture to the `repo init` result.
@@ -199,6 +200,18 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 ```bash
 STUB_SCENARIO=fail docker compose -f docker-compose.e2e.yml up -d --build
 ```
+
+### Concurrent worktree regression
+
+From two separate worktrees, start the happy-path runner at the same time:
+
+```bash
+(cd /path/to/worktree-a && ./e2e/run-e2e.sh happy 60) &
+(cd /path/to/worktree-b && ./e2e/run-e2e.sh happy 60) &
+wait
+```
+
+Both commands must report `PASSED`. Each log prints a different `Compose project:` value, and each EXIT trap runs `docker compose --project-name <name> down --volumes --remove-orphans`, so neither runner removes the other runner's resources.
 
 ## How to Run E2E Tests
 
