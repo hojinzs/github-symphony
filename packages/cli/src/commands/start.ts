@@ -985,6 +985,7 @@ const handler = async (
     const service = new OrchestratorService(store, projectConfig, {
       logLevel,
       assignedOnly: parsed.assignedOnly,
+      ownerToken: projectLock.ownerToken,
       onTick: async (snapshot) => {
         try {
           if (authShutdownRequested) {

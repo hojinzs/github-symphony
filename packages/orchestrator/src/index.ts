@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { formatErrorForTerminal, hasVerboseFlag } from "@gh-symphony/core";
@@ -102,10 +103,14 @@ export async function runCli(
   const stdout = dependencies.stdout ?? process.stdout;
   const exitProcess = dependencies.exitProcess ?? process.exit;
   const signalTarget = dependencies.signalTarget ?? process;
+  const setUnscopedOwnerToken = (): void => {
+    service.setOwnerToken(`${process.pid}:${randomUUID()}`);
+  };
   const withProjectMutationLock = async <T>(
     action: () => Promise<T>
   ): Promise<T> => {
     if (!parsed.projectId) {
+      setUnscopedOwnerToken();
       return action();
     }
 
@@ -114,6 +119,7 @@ export async function runCli(
       projectId: parsed.projectId,
     });
     try {
+      service.setOwnerToken(lock.ownerToken);
       return await action();
     } finally {
       await (dependencies.releaseLock ?? releaseProjectLock)(lock);
@@ -176,6 +182,9 @@ export async function runCli(
             runtimeRoot,
             projectId: parsed.projectId,
           });
+          service.setOwnerToken(lock.ownerToken);
+        } else {
+          setUnscopedOwnerToken();
         }
 
         signalTarget.once("SIGINT", sigintHandler);

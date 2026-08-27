@@ -457,7 +457,7 @@ export function getProcessCwd(pid: number): string | null {
   }
 }
 
-function isProcessRunning(pid: number): boolean {
+export function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

@@ -14,11 +14,32 @@ import {
   acquireProjectLock,
   getProcessCwd,
   getProcessStartIdentity,
+  isProcessRunning,
   releaseProjectLock,
   renewProjectLock,
 } from "./lock.js";
 
 describe("project lock", () => {
+  it("treats only ESRCH as a non-running process probe", () => {
+    const kill = vi.spyOn(process, "kill");
+    kill.mockImplementation(() => {
+      const error = new Error(
+        "operation not permitted"
+      ) as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    });
+    expect(isProcessRunning(4321)).toBe(true);
+
+    kill.mockImplementation(() => {
+      const error = new Error("no such process") as NodeJS.ErrnoException;
+      error.code = "ESRCH";
+      throw error;
+    });
+    expect(isProcessRunning(4321)).toBe(false);
+    kill.mockRestore();
+  });
+
   it("resolves the current process working directory", () => {
     expect(getProcessCwd(process.pid)).toBe(resolve(process.cwd()));
     expect(getProcessStartIdentity(process.pid)).not.toBeNull();

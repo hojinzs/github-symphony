@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import {
@@ -55,6 +55,164 @@ describe("OrchestratorService", () => {
     expect(clampPollInterval(0)).toBe(1_000);
     expect(clampPollInterval(10 * 60_000)).toBe(5 * 60_000);
     expect(clampPollInterval(30_000)).toBe(30_000);
+  });
+
+  it("guards worker signals by owner and process identity", async () => {
+    const appendRunEvent = vi.fn().mockResolvedValue(undefined);
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(
+      { appendRunEvent } as unknown as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "4102:instance-b",
+        killImpl,
+        isProcessRunning: vi.fn().mockReturnValue(true),
+        isOwnerProcessRunning: vi.fn().mockReturnValue(true),
+        getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
+      }
+    );
+    const signalRunProcess = (
+      service as unknown as {
+        signalRunProcess(
+          run: OrchestratorRunRecord,
+          signal: NodeJS.Signals
+        ): Promise<"signaled" | "not-running" | "protected">;
+      }
+    ).signalRunProcess.bind(service);
+    const run = {
+      runId: "run-1",
+      projectId: "tenant-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      processId: 4101,
+      processIdentity: "worker-current",
+      ownerInstanceId: "4100:instance-a",
+    } as OrchestratorRunRecord;
+
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("protected");
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(appendRunEvent).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        event: "run-ownership-skipped",
+        operation: "signal",
+        reason: "owner-alive",
+      })
+    );
+
+    const releaseRunIssueOrchestration = (
+      service as unknown as {
+        releaseRunIssueOrchestration(
+          issueRecords: IssueOrchestrationRecord[],
+          run: OrchestratorRunRecord,
+          now: Date
+        ): Promise<IssueOrchestrationRecord[]>;
+      }
+    ).releaseRunIssueOrchestration.bind(service);
+    const issueRecords = [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "workspace-1",
+        state: "running",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-08-26T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      releaseRunIssueOrchestration(issueRecords, run, new Date())
+    ).resolves.toEqual(issueRecords);
+    expect(appendRunEvent).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        event: "run-ownership-skipped",
+        operation: "claim-release",
+        reason: "owner-alive",
+      })
+    );
+
+    run.ownerInstanceId = "4102:instance-b";
+    run.processIdentity = "worker-reused";
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("not-running");
+    expect(killImpl).not.toHaveBeenCalled();
+
+    run.processIdentity = "worker-current";
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
+    expect(killImpl).toHaveBeenCalledWith(4101, "SIGTERM");
+  });
+
+  it("recovers dead-owner and legacy runs without signalling a live foreign owner", async () => {
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(
+      {
+        appendRunEvent: vi.fn().mockResolvedValue(undefined),
+      } as unknown as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        killImpl,
+        isProcessRunning: (pid) => pid === 5101,
+        isOwnerProcessRunning: () => false,
+        getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
+      }
+    );
+    const signalRunProcess = (
+      service as unknown as {
+        signalRunProcess(
+          run: OrchestratorRunRecord,
+          signal: NodeJS.Signals
+        ): Promise<"signaled" | "not-running" | "protected">;
+      }
+    ).signalRunProcess.bind(service);
+    const run = {
+      runId: "run-1",
+      projectId: "tenant-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      processId: 5101,
+      processIdentity: "worker-current",
+      ownerInstanceId: "5102:dead-owner",
+    } as OrchestratorRunRecord;
+
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
+    run.ownerInstanceId = null;
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
+    expect(killImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("protects a live foreign owner with the default direct-PID probe", async () => {
+    const child = spawnChild(process.execPath, [
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", () => resolve());
+      child.once("error", reject);
+    });
+    try {
+      const service = new OrchestratorService(
+        {
+          appendRunEvent: vi.fn().mockResolvedValue(undefined),
+        } as unknown as OrchestratorFsStore,
+        {} as OrchestratorProjectConfig,
+        { ownerToken: "5200:current" }
+      );
+      const isRunProtectedByLiveOwner = (
+        service as unknown as {
+          isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+        }
+      ).isRunProtectedByLiveOwner.bind(service);
+
+      expect(
+        isRunProtectedByLiveOwner({
+          ownerInstanceId: `${child.pid}:foreign`,
+        } as OrchestratorRunRecord)
+      ).toBe(true);
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    }
   });
 
   it("gives confirmed tracker progress a bounded clean-exit grace", () => {
@@ -324,29 +482,63 @@ describe("OrchestratorService", () => {
 
   it("queues a non-exhausted restart failure with backoff", async () => {
     const now = new Date("2026-03-08T00:00:00.000Z");
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-restart-backoff-"));
-    const repository = await createRepositoryFixture(tempRoot, "acme", "platform", {
-      maxFailureRetries: 3,
-      retryBaseDelayMs: 1000,
-      retryMaxDelayMs: 1000,
-    });
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-restart-backoff-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+      }
+    );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     const run = {
-      runId: "run-retry", projectId: "tenant-1", projectSlug: "tenant-1",
-      issueId: "retry-issue", issueSubjectId: "retry-issue", issueIdentifier: "acme/platform#1",
-      issueState: "Todo", repository, status: "retrying", attempt: 2, processId: null,
-      port: 4601, workingDirectory: tempRoot, issueWorkspaceKey: "retry-issue",
-      workspaceRuntimeDir: tempRoot, workflowPath: null, retryKind: "failure",
-      createdAt: now.toISOString(), updatedAt: now.toISOString(), startedAt: now.toISOString(),
-      completedAt: null, lastError: "Worker process exited unexpectedly.", nextRetryAt: now.toISOString(),
-    } as OrchestratorRunRecord;
-    const issueRecords = [{
-      issueId: "retry-issue", identifier: "acme/platform#1", workspaceKey: "retry-issue",
-      completedOnce: false, failureRetryCount: 1, state: "running" as const,
-      currentRunId: run.runId, retryEntry: { attempt: 2, dueAt: now.toISOString(), error: run.lastError },
+      runId: "run-retry",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "retry-issue",
+      issueSubjectId: "retry-issue",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "retry-issue",
+      workspaceRuntimeDir: tempRoot,
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-    }];
+      startedAt: now.toISOString(),
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: now.toISOString(),
+    } as OrchestratorRunRecord;
+    const issueRecords = [
+      {
+        issueId: "retry-issue",
+        identifier: "acme/platform#1",
+        workspaceKey: "retry-issue",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "running" as const,
+        currentRunId: run.runId,
+        retryEntry: {
+          attempt: 2,
+          dueAt: now.toISOString(),
+          error: run.lastError,
+        },
+        updatedAt: now.toISOString(),
+      },
+    ];
     await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       reviveIssue: vi.fn().mockReturnValue({}),
@@ -360,16 +552,26 @@ describe("OrchestratorService", () => {
     );
 
     const outcome = await (service as never).restartRun(
-      projectConfig, run, issueRecords, now
+      projectConfig,
+      run,
+      issueRecords,
+      now
     );
 
     expect(outcome.recovered).toBe(false);
-    expect(outcome.issueRecords).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        issueId: "retry-issue", state: "retry_queued", failureRetryCount: 2,
-        retryEntry: expect.objectContaining({ attempt: 3, dueAt: "2026-03-08T00:00:01.000Z" }),
-      }),
-    ]));
+    expect(outcome.issueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "retry-issue",
+          state: "retry_queued",
+          failureRetryCount: 2,
+          retryEntry: expect.objectContaining({
+            attempt: 3,
+            dueAt: "2026-03-08T00:00:01.000Z",
+          }),
+        }),
+      ])
+    );
   });
 
   it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
@@ -4937,7 +5139,7 @@ Prefer focused changes.
     });
   });
 
-  it("releases due retrying runs when a Todo issue becomes blocked before restart", async () => {
+  it("releases a non-running retrying run when its issue becomes non-actionable", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retry-blocked-release-")
@@ -8432,7 +8634,7 @@ Prefer focused changes.
     expect(loadRetryPolicySpy).toHaveBeenCalled();
   });
 
-  it("terminates a running worker when lastEventAt exceeds the workflow stall timeout", async () => {
+  it("does not retry a stalled worker protected by a live foreign owner", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stall-"));
     const repository = await createRepositoryFixture(
@@ -8473,6 +8675,7 @@ Prefer focused changes.
       status: "running",
       attempt: 1,
       processId: 4106,
+      ownerInstanceId: "4107:foreign-owner",
       port: 4601,
       workingDirectory: join(tempRoot, "active-run"),
       issueWorkspaceKey: null,
@@ -8503,17 +8706,27 @@ Prefer focused changes.
         unref: vi.fn(),
       }) as never,
       killImpl,
-      isProcessRunning: (pid) => pid === 4106,
+      ownerToken: "4108:current-owner",
+      isProcessRunning: (pid) => pid === 4106 || pid === 4107,
+      isOwnerProcessRunning: (pid) => pid === 4107,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
     });
 
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
 
-    expect(killImpl).toHaveBeenCalledWith(4106, "SIGTERM");
-    expect(updatedRun?.status).toBe("retrying");
-    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:05:01.000Z");
-    expect(updatedRun?.retryKind).toBe("continuation");
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.retryKind).toBeNull();
+    expect(await store.loadRecentRunEvents("run-1", 10, "tenant-1")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "run-ownership-skipped",
+          message: "Skipped signal (owner-alive)",
+        }),
+      ])
+    );
   });
 
   it("formats stall detection as a structured verbose log when enabled", async () => {
@@ -12220,6 +12433,130 @@ Handle Linear issue.`,
     });
   });
 
+  it("releases a non-actionable claim when its run record is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-missing-run-reconciliation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "claimed",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Done")
+        ) as never,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "released", currentRunId: null });
+  });
+
+  it("releases a non-actionable claim whose worker process is dead", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dead-worker-release-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "claimed",
+        currentRunId: "run-1",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-1",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "issue-1",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "running",
+      attempt: 1,
+      processId: 999001,
+      processIdentity: "worker-x",
+      ownerInstanceId: "4100:instance-a",
+      port: 4601,
+      workingDirectory: join(tempRoot, "active-run"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "active-run", "workspace-runtime"),
+      workflowPath: null,
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: null,
+    } as OrchestratorRunRecord);
+
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Done")
+        ) as never,
+      spawnImpl: vi.fn() as never,
+      killImpl,
+      ownerToken: "4200:instance-b",
+      isProcessRunning: () => false,
+      isOwnerProcessRunning: () => false,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      await service.runOnce();
+    }
+
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "released", currentRunId: null });
+    expect(await store.loadRun("run-1")).toMatchObject({
+      status: "suppressed",
+      runPhase: "canceled_by_reconciliation",
+    });
+  });
+
   it("stops active runs when the tracker issue is deleted or moved out of scope", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -12258,6 +12595,7 @@ Handle Linear issue.`,
       status: "running",
       attempt: 1,
       processId: 4208,
+      ownerInstanceId: "owner-a",
       port: 4603,
       workingDirectory: join(tempRoot, "active-run"),
       issueWorkspaceKey: null,
@@ -12291,6 +12629,17 @@ Handle Linear issue.`,
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
     });
+    service.setOwnerToken("owner-a");
+    expect(await store.loadRun("run-1")).toMatchObject({
+      ownerInstanceId: "owner-a",
+    });
+    expect(
+      (
+        service as unknown as {
+          isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+        }
+      ).isRunProtectedByLiveOwner((await store.loadRun("run-1"))!)
+    ).toBe(false);
 
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");

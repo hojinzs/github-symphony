@@ -9,6 +9,7 @@ import type { OrchestratorService } from "./service.js";
 
 function createMockService(): OrchestratorService {
   return {
+    setOwnerToken: vi.fn(),
     run: vi.fn().mockResolvedValue(undefined),
     runOnce: vi.fn().mockResolvedValue({
       projectId: "tenant-1",
@@ -404,6 +405,22 @@ describe("orchestrator CLI", () => {
       expect(releaseLock.mock.invocationCallOrder[0]).toBeGreaterThan(
         (command === "recover" ? service.recover : service.runOnce).mock
           .invocationCallOrder[0]
+      );
+    }
+  );
+
+  it.each(["run", "run-once", "dispatch", "recover"])(
+    "assigns a process-scoped owner token for an unscoped %s mutation",
+    async (command) => {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "orchestrator-cli-"));
+      const service = createMockService();
+
+      await runCli([command, "--runtime-root", runtimeRoot], {
+        createService: () => service,
+      });
+
+      expect(service.setOwnerToken).toHaveBeenCalledWith(
+        expect.stringMatching(new RegExp(`^${process.pid}:`))
       );
     }
   );

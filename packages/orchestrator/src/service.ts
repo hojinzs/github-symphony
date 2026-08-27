@@ -69,7 +69,10 @@ import {
 import { globalBareRepositoryDirectory } from "./repository-cache.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import { OrchestratorFsStore } from "./fs-store.js";
-import { getProcessStartIdentity } from "./lock.js";
+import {
+  getProcessStartIdentity,
+  isProcessRunning as isDirectProcessRunning,
+} from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
@@ -413,6 +416,7 @@ export class OrchestratorService {
   private reconcileRequested = false;
   private workerOrchestratorUrl: string | null = null;
   private workerOrchestratorToken: string | null = null;
+  private ownerToken: string | null = null;
 
   constructor(
     readonly store: OrchestratorStateStore,
@@ -428,6 +432,7 @@ export class OrchestratorService {
       maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
+      isOwnerProcessRunning?: (pid: number) => boolean;
       getProcessStartIdentity?: (pid: number) => string | null;
       waitImpl?: (ms: number) => Promise<void>;
       stderr?: Pick<NodeJS.WriteStream, "write">;
@@ -439,8 +444,15 @@ export class OrchestratorService {
       onTick?: OrchestratorTickHandler;
       assignedOnly?: boolean;
       rmImpl?: typeof rm;
+      ownerToken?: string;
     } = {}
-  ) {}
+  ) {
+    this.ownerToken = dependencies.ownerToken ?? null;
+  }
+
+  setOwnerToken(ownerToken: string): void {
+    this.ownerToken = ownerToken;
+  }
 
   setWorkerOrchestratorUrl(url: string, apiToken?: string): void {
     this.workerOrchestratorUrl = url;
@@ -1743,16 +1755,14 @@ export class OrchestratorService {
           ) ?? persistedRun;
         const issue = trackedIssuesByIdentifier.get(issueRecord.identifier);
         if (!issue) {
+          if (!activeRun || activeRun.processId === null) {
+            continue;
+          }
           if (
-            !activeRun ||
-            activeRun.processId === null ||
-            !this.isRunProcessRunning(activeRun)
+            (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
           ) {
             continue;
           }
-          const activeWorkerPid = activeRun.processId;
-          this.sendSignal(activeWorkerPid, "SIGTERM");
-          this.retireWorkerPid(activeWorkerPid);
           const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
             tenant,
             activeRun,
@@ -1787,9 +1797,9 @@ export class OrchestratorService {
           this.logVerbose(
             `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
           );
-          issueRecords = releaseIssueOrchestration(
+          issueRecords = await this.releaseRunIssueOrchestration(
             issueRecords,
-            issueRecord.issueId,
+            activeRun,
             now
           );
           suppressed += 1;
@@ -1809,58 +1819,67 @@ export class OrchestratorService {
           continue;
         }
 
-        if (activeRun?.processId) {
-          this.sendSignal(activeRun.processId, "SIGTERM");
-          this.retireWorkerPid(activeRun.processId);
-        }
-        if (activeRun) {
-          const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
-          const terminalState =
-            !isArchivedProjectItem(issue) &&
-            issueLifecycle !== null &&
-            isStateTerminal(issue.state, issueLifecycle);
-          const recovery = terminalState
-            ? null
-            : await this.classifyIncompleteTurnDirtyWorkspace(
-                tenant,
-                activeRun,
-                now
-              );
-          const suppressedRun: OrchestratorRunRecord = {
-            ...activeRun,
-            status: "suppressed",
-            processId: null,
-            completedAt: now.toISOString(),
-            updatedAt: now.toISOString(),
-            runPhase: "canceled_by_reconciliation",
-            runtimeSession: recovery
-              ? buildRuntimeSession(
-                  activeRun.runtimeSession,
-                  recovery.sessionId,
-                  recovery.threadId,
-                  "completed",
-                  activeRun.runtimeSession?.startedAt ??
-                    activeRun.startedAt ??
-                    now.toISOString(),
-                  now.toISOString(),
-                  "incomplete-turn-dirty-workspace"
-                )
-              : activeRun.runtimeSession,
-            recovery,
-            lastError: recovery
-              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-              : terminalState
-                ? "Run suppressed because the tracker issue moved to a terminal state."
-                : "Run suppressed because the tracker state is no longer actionable.",
-          };
-          await this.store.saveRun(suppressedRun);
-          this.logVerbose(
-            `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+        if (!activeRun) {
+          issueRecords = releaseIssueOrchestration(
+            issueRecords,
+            issueRecord.issueId,
+            now
           );
+          suppressed += 1;
+          continue;
         }
-        issueRecords = releaseIssueOrchestration(
+
+        if (
+          (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
+        ) {
+          continue;
+        }
+        const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
+        const terminalState =
+          !isArchivedProjectItem(issue) &&
+          issueLifecycle !== null &&
+          isStateTerminal(issue.state, issueLifecycle);
+        const recovery = terminalState
+          ? null
+          : await this.classifyIncompleteTurnDirtyWorkspace(
+              tenant,
+              activeRun,
+              now
+            );
+        const suppressedRun: OrchestratorRunRecord = {
+          ...activeRun,
+          status: "suppressed",
+          processId: null,
+          completedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          runPhase: "canceled_by_reconciliation",
+          runtimeSession: recovery
+            ? buildRuntimeSession(
+                activeRun.runtimeSession,
+                recovery.sessionId,
+                recovery.threadId,
+                "completed",
+                activeRun.runtimeSession?.startedAt ??
+                  activeRun.startedAt ??
+                  now.toISOString(),
+                now.toISOString(),
+                "incomplete-turn-dirty-workspace"
+              )
+            : activeRun.runtimeSession,
+          recovery,
+          lastError: recovery
+            ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+            : terminalState
+              ? "Run suppressed because the tracker issue moved to a terminal state."
+              : "Run suppressed because the tracker state is no longer actionable.",
+        };
+        await this.store.saveRun(suppressedRun);
+        this.logVerbose(
+          `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+        );
+        issueRecords = await this.releaseRunIssueOrchestration(
           issueRecords,
-          issueRecord.issueId,
+          activeRun,
           now
         );
         suppressed += 1;
@@ -1983,6 +2002,16 @@ export class OrchestratorService {
     if (workspaceRecords.length === 0) {
       return;
     }
+    const activeRunsByWorkspace = new Map(
+      (await this.store.loadAllRuns())
+        .filter(
+          (run) =>
+            run.projectId === tenant.projectId &&
+            isActiveRunRecordStatus(run.status) &&
+            run.issueWorkspaceKey
+        )
+        .map((run) => [run.issueWorkspaceKey!, run])
+    );
 
     const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const workflowCache = new Map<string, Promise<ProjectWorkflowResolution>>();
@@ -2010,6 +2039,14 @@ export class OrchestratorService {
 
     for (const workspaceRecord of workspaceRecords) {
       if (workspaceRecord.status === "removed") {
+        continue;
+      }
+
+      const activeRun = activeRunsByWorkspace.get(workspaceRecord.workspaceKey);
+      if (activeRun && this.isRunProcessRunning(activeRun)) {
+        if (this.isRunProtectedByLiveOwner(activeRun)) {
+          await this.recordOwnershipSkip(activeRun, "workspace-cleanup");
+        }
         continue;
       }
 
@@ -2864,6 +2901,7 @@ export class OrchestratorService {
       attempt: 1,
       processId,
       processIdentity,
+      ownerInstanceId: this.ownerToken,
       port: null,
       workingDirectory: repositoryDirectory,
       issueWorkspaceKey: workspaceKey,
@@ -3115,9 +3153,8 @@ export class OrchestratorService {
     );
 
     if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
-      if (this.isRunProcessRunning(run)) {
-        this.sendSignal(run.processId!, "SIGTERM");
-        this.retireWorkerPid(run.processId);
+      if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
+        return { issueRecords, recovered: false };
       }
       const supersededRun: OrchestratorRunRecord = {
         ...run,
@@ -3178,7 +3215,9 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        this.sendSignal(run.processId!, "SIGTERM");
+        if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
+          return { issueRecords, recovered: false };
+        }
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {
@@ -3367,7 +3406,11 @@ export class OrchestratorService {
         `[run-completed] ${completedRun.runId} status=${completedRun.status}`
       );
       return {
-        issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+        issueRecords: await this.releaseRunIssueOrchestration(
+          issueRecords,
+          run,
+          now
+        ),
         recovered: false,
       };
     }
@@ -3407,9 +3450,9 @@ export class OrchestratorService {
           `[run-completed] ${completedRun.runId} status=${completedRun.status}`
         );
         return {
-          issueRecords: releaseIssueOrchestration(
+          issueRecords: await this.releaseRunIssueOrchestration(
             issueRecords,
-            run.issueId,
+            run,
             now
           ),
           recovered: false,
@@ -4656,7 +4699,11 @@ export class OrchestratorService {
     );
 
     return {
-      issueRecords: releaseIssueOrchestration(issueRecords, run.issueId, now),
+      issueRecords: await this.releaseRunIssueOrchestration(
+        issueRecords,
+        run,
+        now
+      ),
       recovered: false,
     };
   }
@@ -4920,6 +4967,75 @@ export class OrchestratorService {
     return liveLeaderIdentity === run.processIdentity;
   }
 
+  private isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean {
+    // CLI entry points inject a process-scoped token even when they do not
+    // acquire a project lock. Programmatic callers without a token retain the
+    // legacy behavior because they cannot establish ownership safely.
+    if (!this.ownerToken) {
+      return false;
+    }
+    if (!run.ownerInstanceId || run.ownerInstanceId === this.ownerToken) {
+      return false;
+    }
+    const ownerPid = parseOwnerProcessId(run.ownerInstanceId);
+    return ownerPid !== null && this.isOwnerProcessRunning(ownerPid);
+  }
+
+  private isOwnerProcessRunning(processId: number): boolean {
+    if (this.dependencies.isOwnerProcessRunning) {
+      return this.dependencies.isOwnerProcessRunning(processId);
+    }
+    return isDirectProcessRunning(processId);
+  }
+
+  private async recordOwnershipSkip(
+    run: OrchestratorRunRecord,
+    operation: "signal" | "claim-release" | "workspace-cleanup"
+  ): Promise<void> {
+    const reason = "owner-alive";
+    await this.store.appendRunEvent(run.runId, {
+      at: this.now().toISOString(),
+      event: "run-ownership-skipped",
+      projectId: run.projectId,
+      runId: run.runId,
+      issueIdentifier: run.issueIdentifier,
+      issueId: run.issueId,
+      operation,
+      reason,
+    });
+    this.logVerbose(
+      `[run-ownership-skipped] ${run.runId} operation=${operation} reason=${reason}`
+    );
+  }
+
+  private async signalRunProcess(
+    run: OrchestratorRunRecord,
+    signal: NodeJS.Signals
+  ): Promise<"signaled" | "not-running" | "protected"> {
+    if (this.isRunProtectedByLiveOwner(run)) {
+      await this.recordOwnershipSkip(run, "signal");
+      return "protected";
+    }
+    if (!this.isRunProcessRunning(run)) {
+      return "not-running";
+    }
+    this.sendSignal(run.processId!, signal);
+    this.retireWorkerPid(run.processId);
+    return "signaled";
+  }
+
+  private async releaseRunIssueOrchestration(
+    issueRecords: IssueOrchestrationRecord[],
+    run: OrchestratorRunRecord,
+    now: Date
+  ): Promise<IssueOrchestrationRecord[]> {
+    if (this.isRunProtectedByLiveOwner(run)) {
+      await this.recordOwnershipSkip(run, "claim-release");
+      return issueRecords;
+    }
+    return releaseIssueOrchestration(issueRecords, run.issueId, now);
+  }
+
   private sendSignal(processId: number, signal: NodeJS.Signals): void {
     try {
       const kill = this.dependencies.killImpl;
@@ -5167,6 +5283,12 @@ function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
     env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
+}
+
+function parseOwnerProcessId(ownerToken: string): number | null {
+  const separator = ownerToken.indexOf(":");
+  const pid = Number(ownerToken.slice(0, separator));
+  return separator > 0 && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
 function parseCommaSeparatedEnvList(value: string | undefined): string[] {

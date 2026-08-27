@@ -241,6 +241,7 @@ function getLevel(event: LoggedEvent): LogLevel {
     case "run-suppressed":
     case "run-retried":
     case "run-finalization-deferred":
+    case "run-ownership-skipped":
       return "warn";
     default:
       return "info";
