@@ -977,6 +977,24 @@ pnpm typecheck
 pnpm build
 ```
 
+## Security posture
+
+Today, GitHub Symphony is intended for trusted, operator-controlled
+environments: coding-agent children can receive tracker and broker credentials
+through their environment or generated MCP configuration. It is not suitable
+for untrusted agents until the host-side transport described in
+[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md) is deployed.
+
+By default, Codex uses `approval_policy: never` and the
+`danger-full-access` thread sandbox; Claude uses `bypassPermissions`.
+Operators can configure the Codex approval and sandbox settings, but must use
+least-privilege credentials, dedicated workspaces, and controls appropriate to
+their environment. The target transport keeps credentials in the Symphony host
+or a host-side broker, returns only bounded issue-aware tool results to agents,
+uses loopback-only local services with scoped session capabilities, and gives
+the child an isolated home/configuration directory rather than a host `gh auth`
+store. Authenticated Git transport is performed by the host.
+
 ## Community and security
 
 - [Contributing guide](CONTRIBUTING.md) — development setup, validation, and pull request expectations.
