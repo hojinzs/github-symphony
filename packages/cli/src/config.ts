@@ -403,26 +403,30 @@ async function isStaleConfigLock(path: string): Promise<boolean> {
     ) {
       return isExpiredConfigLockFile(path);
     }
-    const ageMs = Math.abs(Date.now() - Date.parse(record.startedAt));
-    if (!Number.isFinite(ageMs) || ageMs > CONFIG_LOCK_TTL_MS) {
+    if (!Number.isFinite(Date.parse(record.startedAt))) {
       return true;
     }
     try {
       process.kill(record.pid!, 0);
     } catch (error) {
-      return Boolean(
+      const processIsGone = Boolean(
         error &&
         typeof error === "object" &&
         "code" in error &&
         error.code === "ESRCH"
       );
+      return processIsGone || (await isExpiredConfigLockFile(path));
     }
     const actualIdentity = getProcessIdentity(record.pid!);
-    return Boolean(
-      record.processIdentity &&
-      actualIdentity &&
-      record.processIdentity !== actualIdentity
-    );
+    if (record.processIdentity && actualIdentity) {
+      return record.processIdentity !== actualIdentity;
+    }
+
+    // A process that is positively identified as the original owner can hold
+    // the lock through an arbitrarily long interactive confirmation. When
+    // identity is unavailable, retain the TTL recovery path for orphaned or
+    // recycled-PID locks instead of wedging the config directory forever.
+    return isExpiredConfigLockFile(path);
   } catch (error) {
     if (isFileMissing(error)) {
       return false;

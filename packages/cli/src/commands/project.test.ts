@@ -1,7 +1,15 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+
+const { confirmMock } = vi.hoisted(() => ({ confirmMock: vi.fn() }));
+
+vi.mock("@clack/prompts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@clack/prompts")>();
+  return { ...actual, confirm: confirmMock };
+});
+
 import { loadProjectConfig } from "../config.js";
 import { deriveStandaloneProject, standaloneProjectId } from "./project.js";
 import projectCommand from "./project.js";
@@ -157,6 +165,64 @@ describe("deriveStandaloneProject", () => {
     expect(
       results.filter((result) => result.status === "rejected")
     ).toHaveLength(1);
+  });
+
+  it("keeps an aged live lock through overlap confirmation", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
+    const existing = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    const first = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    const second = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
+    await Promise.all(
+      [existing, first, second].map((projectDir) =>
+        writeFile(join(projectDir, "WORKFLOW.md"), workflow, "utf8")
+      )
+    );
+    await deriveStandaloneProject(existing, { configDir });
+
+    const originalIsTTY = Object.getOwnPropertyDescriptor(
+      process.stdin,
+      "isTTY"
+    );
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: true,
+    });
+    let resolveConfirmation!: (value: boolean) => void;
+    const confirmation = new Promise<boolean>((resolve) => {
+      resolveConfirmation = resolve;
+    });
+    confirmMock
+      .mockImplementationOnce(() => confirmation)
+      .mockResolvedValue(false);
+
+    try {
+      const firstStart = deriveStandaloneProject(first, { configDir });
+      await vi.waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+
+      const lockPath = join(configDir, ".config.lock");
+      const lock = JSON.parse(await readFile(lockPath, "utf8")) as {
+        startedAt: string;
+      };
+      lock.startedAt = new Date(Date.now() - 31_000).toISOString();
+      await writeFile(lockPath, JSON.stringify(lock), "utf8");
+
+      const secondStart = deriveStandaloneProject(second, { configDir });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+
+      resolveConfirmation(true);
+      await expect(firstStart).resolves.toBeDefined();
+      await expect(secondStart).rejects.toThrow(
+        "Standalone project start cancelled"
+      );
+    } finally {
+      confirmMock.mockReset();
+      if (originalIsTTY) {
+        Object.defineProperty(process.stdin, "isTTY", originalIsTTY);
+      } else {
+        delete (process.stdin as { isTTY?: boolean }).isTTY;
+      }
+    }
   });
 
   it("preserves Linear label filters and normalizes overlapping states", async () => {

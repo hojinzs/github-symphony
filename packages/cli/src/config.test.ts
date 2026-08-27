@@ -19,6 +19,7 @@ import {
   saveGlobalConfig,
   saveProjectConfig,
   updateGlobalConfig,
+  withConfigLock,
 } from "./config.js";
 
 const originalCwd = process.cwd();
@@ -191,6 +192,48 @@ describe("config persistence", () => {
       projects: ["project-1"],
     });
     expect(await readdir(configDir)).toEqual(["config.json"]);
+  });
+
+  it("reclaims an aged lock whose live owner cannot be identified", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
+    const lockPath = join(configDir, ".config.lock");
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        ownerToken: "unverifiable-owner",
+        pid: process.pid,
+        startedAt: new Date(Date.now() - 31_000).toISOString(),
+        processIdentity: null,
+      }),
+      "utf8"
+    );
+    const expired = new Date(Date.now() - 31_000);
+    await utimes(lockPath, expired, expired);
+
+    await expect(
+      withConfigLock(configDir, async () => "acquired")
+    ).resolves.toBe("acquired");
+  });
+
+  it("reclaims an aged lock whose owner process is gone", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "cli-config-lock-"));
+    const lockPath = join(configDir, ".config.lock");
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        ownerToken: "dead-owner",
+        pid: 999_999_999,
+        startedAt: new Date(Date.now() - 31_000).toISOString(),
+        processIdentity: null,
+      }),
+      "utf8"
+    );
+    const expired = new Date(Date.now() - 31_000);
+    await utimes(lockPath, expired, expired);
+
+    await expect(
+      withConfigLock(configDir, async () => "acquired")
+    ).resolves.toBe("acquired");
   });
 
   it("reads structured and legacy daemon PID records", () => {
