@@ -2674,7 +2674,53 @@ describe("OrchestratorService", () => {
     });
     let currentTime = new Date("2026-03-08T00:05:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi.fn().mockResolvedValue(createTrackerResponse(repository)),
+      fetchImpl: vi.fn(async (_url, init) => {
+        const query = JSON.parse(String(init?.body)).query as string;
+        if (query.includes("query IssueStatesByIds")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                nodes: [
+                  {
+                    __typename: "Issue",
+                    id: "issue-1",
+                    number: 1,
+                    updatedAt: "2026-03-08T00:00:00.000Z",
+                    repository: {
+                      name: repository.name,
+                      url: `file://${repository.cloneUrl}`,
+                      owner: { login: repository.owner },
+                    },
+                    projectItems: {
+                      nodes: [
+                        {
+                          id: "item-1",
+                          isArchived: false,
+                          updatedAt: "2026-03-08T00:00:00.000Z",
+                          project: { id: "project-123" },
+                          fieldValues: {
+                            nodes: [
+                              {
+                                __typename:
+                                  "ProjectV2ItemFieldSingleSelectValue",
+                                name: "Todo",
+                                field: { name: "Status" },
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                      pageInfo: { endCursor: null, hasNextPage: false },
+                    },
+                  },
+                ],
+              },
+            }),
+            { headers: { "content-type": "application/json" } }
+          );
+        }
+        return createTrackerResponse(repository) as Response;
+      }) as never,
       spawnImpl: spawnImpl as never,
       isProcessRunning: () => false,
       now: () => currentTime,
