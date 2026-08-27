@@ -44,7 +44,7 @@ export class WorkflowConfigStore {
       cached.envSignature === envSignature
     ) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
-        revision: createWorkflowRevision(cached.fingerprint),
+        revision: createWorkflowRevision(cached.workflow),
         loadedAt: cached.loadedAt,
         isValid: true,
         usedLastKnownGood: false,
@@ -54,15 +54,16 @@ export class WorkflowConfigStore {
 
     try {
       const workflow = parseWorkflowMarkdown(markdown, env);
+      const loadedAt = new Date().toISOString();
       this.cache.set(workflowPath, {
         fingerprint,
         envSignature,
         workflow,
-        loadedAt: new Date().toISOString(),
+        loadedAt,
       });
       return toWorkflowResolution(workflowPath, workflow, {
-        revision: createWorkflowRevision(fingerprint),
-        loadedAt: this.cache.get(workflowPath)?.loadedAt ?? null,
+        revision: createWorkflowRevision(workflow),
+        loadedAt,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -70,7 +71,7 @@ export class WorkflowConfigStore {
     } catch (error) {
       if (cached) {
         return toWorkflowResolution(workflowPath, cached.workflow, {
-          revision: createWorkflowRevision(cached.fingerprint),
+          revision: createWorkflowRevision(cached.workflow),
           loadedAt: cached.loadedAt,
           isValid: false,
           usedLastKnownGood: true,
@@ -132,7 +133,6 @@ function toWorkflowResolution(
   };
 }
 
-function createWorkflowRevision(fingerprint: string): string {
-  const digest = fingerprint.split(":").at(-1);
-  return digest ? `sha256:${digest.slice(0, 12)}` : "sha256:unknown";
+function createWorkflowRevision(workflow: ParsedWorkflow): string {
+  return `sha256:${calculateWorkflowVersionHash(workflow).slice(0, 12)}`;
 }

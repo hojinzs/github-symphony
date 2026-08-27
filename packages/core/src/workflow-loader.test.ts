@@ -950,4 +950,27 @@ Broken prompt.
     expect(second.revision).toBe(first.revision);
     expect(second.loadedAt).toBe(first.loadedAt);
   });
+
+  it("changes the revision when environment resolution changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
+    tempDirs.push(root);
+    const workflowPath = join(root, "WORKFLOW.md");
+    const store = new WorkflowConfigStore();
+
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace("codex app-server", "$AGENT_COMMAND"),
+      "utf8"
+    );
+
+    const first = await store.load(workflowPath, {
+      AGENT_COMMAND: "codex app-server",
+    });
+    const second = await store.load(workflowPath, {
+      AGENT_COMMAND: "claude --print",
+    });
+
+    expect(second.revision).not.toBe(first.revision);
+    expect(second.agentCommand).toBe("claude --print");
+  });
 });

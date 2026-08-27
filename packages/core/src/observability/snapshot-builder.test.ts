@@ -135,6 +135,7 @@ describe("buildProjectSnapshot", () => {
     expect(snapshot.activeRuns).toHaveLength(0);
     expect(snapshot.retryQueue).toHaveLength(0);
     expect(snapshot.summary.activeRuns).toBe(0);
+    expect(snapshot.workflow).toBeUndefined();
   });
 
   it("returns running health when active runs present", () => {

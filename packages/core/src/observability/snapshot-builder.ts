@@ -70,12 +70,16 @@ export function buildProjectSnapshot(
       settings: project.tracker.settings,
     },
     lastTickAt,
-    workflow: {
-      revision: workflowResolution?.revision ?? null,
-      loadedAt: workflowResolution?.loadedAt ?? null,
-      isValid: workflowResolution?.isValid ?? false,
-      usedLastKnownGood: workflowResolution?.usedLastKnownGood ?? false,
-    },
+    ...(workflowResolution
+      ? {
+          workflow: {
+            revision: workflowResolution.revision,
+            loadedAt: workflowResolution.loadedAt,
+            isValid: workflowResolution.isValid,
+            usedLastKnownGood: workflowResolution.usedLastKnownGood,
+          },
+        }
+      : {}),
     warnings: warnings ?? [],
     health: lastError ? "degraded" : activeRuns.length > 0 ? "running" : "idle",
     summary: {
