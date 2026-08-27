@@ -429,6 +429,7 @@ export class OrchestratorService {
       maxAttempts?: number;
       killImpl?: (pid: number, signal?: NodeJS.Signals) => void;
       isProcessRunning?: (pid: number) => boolean;
+      isOwnerProcessRunning?: (pid: number) => boolean;
       getProcessStartIdentity?: (pid: number) => string | null;
       waitImpl?: (ms: number) => Promise<void>;
       stderr?: Pick<NodeJS.WriteStream, "write">;
@@ -1816,9 +1817,18 @@ export class OrchestratorService {
           continue;
         }
 
+        if (!activeRun) {
+          issueRecords = releaseIssueOrchestration(
+            issueRecords,
+            issueRecord.issueId,
+            now
+          );
+          suppressed += 1;
+          continue;
+        }
+
         if (
-          activeRun?.processId &&
-          (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
+          (await this.signalRunProcess(activeRun, "SIGTERM")) !== "signaled"
         ) {
           continue;
         }
@@ -1867,13 +1877,11 @@ export class OrchestratorService {
             `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
           );
         }
-        if (activeRun) {
-          issueRecords = await this.releaseRunIssueOrchestration(
-            issueRecords,
-            activeRun,
-            now
-          );
-        }
+        issueRecords = await this.releaseRunIssueOrchestration(
+          issueRecords,
+          activeRun,
+          now
+        );
         suppressed += 1;
       }
 
@@ -4970,22 +4978,26 @@ export class OrchestratorService {
       return false;
     }
     const ownerPid = parseOwnerProcessId(run.ownerInstanceId);
-    return ownerPid === null || this.isProcessRunning(ownerPid);
+    return ownerPid !== null && this.isOwnerProcessRunning(ownerPid);
   }
 
-  private ownershipSkipReason(
-    run: OrchestratorRunRecord
-  ): "owner-token-missing" | "owner-token-mismatch" {
-    return !run.ownerInstanceId
-      ? "owner-token-missing"
-      : "owner-token-mismatch";
+  private isOwnerProcessRunning(processId: number): boolean {
+    if (this.dependencies.isOwnerProcessRunning) {
+      return this.dependencies.isOwnerProcessRunning(processId);
+    }
+    try {
+      process.kill(processId, 0);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async recordOwnershipSkip(
     run: OrchestratorRunRecord,
     operation: "signal" | "claim-release" | "workspace-cleanup"
   ): Promise<void> {
-    const reason = this.ownershipSkipReason(run);
+    const reason = "owner-alive";
     await this.store.appendRunEvent(run.runId, {
       at: this.now().toISOString(),
       event: "run-ownership-skipped",

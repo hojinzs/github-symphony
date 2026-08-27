@@ -353,7 +353,7 @@ describe("logs command", () => {
         issueIdentifier: "acme/platform#4",
         issueId: "issue-4",
         operation: "signal",
-        reason: "owner-token-mismatch",
+        reason: "owner-alive",
       },
     ]);
     const stdout = captureWrites(process.stdout);
@@ -375,7 +375,7 @@ describe("logs command", () => {
       "run-finalization-deferred acme/platform#3 Finalization deferred 2/3 (tracker-read-failed)"
     );
     expect(output).toContain(
-      "run-ownership-skipped acme/platform#4 Skipped signal (owner-token-mismatch)"
+      "run-ownership-skipped acme/platform#4 Skipped signal (owner-alive)"
     );
     expect(output).not.toContain("hook-failed");
   });

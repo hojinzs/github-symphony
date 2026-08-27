@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, spawn as spawnChild } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import {
@@ -67,6 +67,7 @@ describe("OrchestratorService", () => {
         ownerToken: "4102:instance-b",
         killImpl,
         isProcessRunning: vi.fn().mockReturnValue(true),
+        isOwnerProcessRunning: vi.fn().mockReturnValue(true),
         getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
       }
     );
@@ -95,7 +96,7 @@ describe("OrchestratorService", () => {
       expect.objectContaining({
         event: "run-ownership-skipped",
         operation: "signal",
-        reason: "owner-token-mismatch",
+        reason: "owner-alive",
       })
     );
 
@@ -127,7 +128,7 @@ describe("OrchestratorService", () => {
       expect.objectContaining({
         event: "run-ownership-skipped",
         operation: "claim-release",
-        reason: "owner-token-mismatch",
+        reason: "owner-alive",
       })
     );
 
@@ -144,12 +145,15 @@ describe("OrchestratorService", () => {
   it("recovers dead-owner and legacy runs without signalling a live foreign owner", async () => {
     const killImpl = vi.fn();
     const service = new OrchestratorService(
-      { appendRunEvent: vi.fn().mockResolvedValue(undefined) } as unknown as OrchestratorFsStore,
+      {
+        appendRunEvent: vi.fn().mockResolvedValue(undefined),
+      } as unknown as OrchestratorFsStore,
       {} as OrchestratorProjectConfig,
       {
         ownerToken: "5100:current",
         killImpl,
         isProcessRunning: (pid) => pid === 5101,
+        isOwnerProcessRunning: () => false,
         getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
       }
     );
@@ -175,6 +179,40 @@ describe("OrchestratorService", () => {
     run.ownerInstanceId = null;
     await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
     expect(killImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("protects a live foreign owner with the default direct-PID probe", async () => {
+    const child = spawnChild(process.execPath, [
+      "-e",
+      "setInterval(() => {}, 1000)",
+    ]);
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", () => resolve());
+      child.once("error", reject);
+    });
+    try {
+      const service = new OrchestratorService(
+        {
+          appendRunEvent: vi.fn().mockResolvedValue(undefined),
+        } as unknown as OrchestratorFsStore,
+        {} as OrchestratorProjectConfig,
+        { ownerToken: "5200:current" }
+      );
+      const isRunProtectedByLiveOwner = (
+        service as unknown as {
+          isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
+        }
+      ).isRunProtectedByLiveOwner.bind(service);
+
+      expect(
+        isRunProtectedByLiveOwner({
+          ownerInstanceId: `${child.pid}:foreign`,
+        } as OrchestratorRunRecord)
+      ).toBe(true);
+    } finally {
+      child.kill();
+      await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    }
   });
 
   it("gives confirmed tracker progress a bounded clean-exit grace", () => {
@@ -8626,6 +8664,7 @@ Prefer focused changes.
       killImpl,
       ownerToken: "4108:current-owner",
       isProcessRunning: (pid) => pid === 4106 || pid === 4107,
+      isOwnerProcessRunning: (pid) => pid === 4107,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
     });
 
@@ -8642,7 +8681,7 @@ Prefer focused changes.
       expect.arrayContaining([
         expect.objectContaining({
           event: "run-ownership-skipped",
-          message: "Skipped signal (owner-token-mismatch)",
+          message: "Skipped signal (owner-alive)",
         }),
       ])
     );
@@ -12350,6 +12389,49 @@ Handle Linear issue.`,
       remaining: 1496,
       resource: "graphql",
     });
+  });
+
+  it("releases a non-actionable claim when its run record is missing", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-missing-run-reconciliation-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "claimed",
+        currentRunId: null,
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(
+          createTrackerResponseWithState(repository, "Done")
+        ) as never,
+      now: () => new Date("2026-03-08T00:05:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({ state: "released", currentRunId: null });
   });
 
   it("stops active runs when the tracker issue is deleted or moved out of scope", async () => {

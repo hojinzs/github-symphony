@@ -69,9 +69,9 @@ describe("event-formatter", () => {
         issueIdentifier: "acme/repo#1",
         issueId: "issue-1",
         operation: "signal",
-        reason: "owner-token-mismatch",
+        reason: "owner-alive",
       })
-    ).toBe("Skipped signal (owner-token-mismatch)");
+    ).toBe("Skipped signal (owner-alive)");
 
     expect(
       formatEventMessage({

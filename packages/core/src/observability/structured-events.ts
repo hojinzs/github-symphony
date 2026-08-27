@@ -127,7 +127,7 @@ export type RunOwnershipSkippedEvent = {
   issueIdentifier: string;
   issueId: string;
   operation: "signal" | "claim-release" | "workspace-cleanup";
-  reason: "owner-token-missing" | "owner-token-mismatch";
+  reason: "owner-alive";
 };
 
 export type RunFinalizationDeferredEvent = {
