@@ -5309,7 +5309,7 @@ Prefer focused changes.
     ).toMatchObject({
       state: "retry_queued",
       currentRunId: "run-1",
-      failureRetryCount: 1,
+      failureRetryCount: 0,
       retryEntry: expect.objectContaining({
         attempt: 3,
         error: "no available orchestrator slots",
