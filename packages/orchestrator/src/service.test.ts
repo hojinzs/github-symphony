@@ -3256,7 +3256,7 @@ Retry inconclusive work.
       `[worker-exited] ${runId} (code=0, signal=null)\n`
     );
     expect(output).toContain(
-      `[retry-scheduled] ${runId} kind=continuation attempt=2 nextAt=2026-03-08T00:00:01.000Z\n`
+      `[retry-scheduled] ${runId} kind=continuation attempt=1 nextAt=2026-03-08T00:00:01.000Z\n`
     );
     expect(output).toContain(`[run-completed] ${runId} status=retrying\n`);
   });
@@ -6467,6 +6467,56 @@ Prefer focused changes.
     );
   });
 
+  it("renders the persisted attempt when restarting a continuation", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-retry-attempt-prompt-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { rawWorkflow: createReadyStateWorkflow("retry_attempt={{ attempt }}\n") }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+
+    const workers: EventEmitter[] = [];
+    const spawnImpl = vi.fn().mockImplementation(() => {
+      const worker = new EventEmitter() as EventEmitter & {
+        pid: number;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      worker.pid = 4310 + workers.length;
+      worker.unref = vi.fn();
+      workers.push(worker);
+      return worker;
+    });
+    let now = new Date("2026-03-08T00:00:00.000Z");
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Ready")),
+      spawnImpl: spawnImpl as never,
+      now: () => now,
+    });
+
+    await service.runOnce();
+    workers[0]?.emit("close", 0, null);
+    await service.runOnce();
+
+    now = new Date("2026-03-08T00:00:01.000Z");
+    await service.runOnce();
+
+    const retryWorkerEnv = spawnImpl.mock.calls[1]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+    expect(retryWorkerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
+      "retry_attempt=1"
+    );
+  });
+
   it("isolates an untrusted issue body from workflow instructions", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -8331,6 +8381,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("retrying");
     expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:01.000Z");
     expect(updatedRun?.retryKind).toBe("continuation");
+    expect(updatedRun?.attempt).toBe(1);
     expect(updatedRun?.lastError).toBeNull();
     expect(issueRecords[0]?.completedOnce).toBe(true);
     expect(issueRecords[0]?.failureRetryCount).toBe(0);

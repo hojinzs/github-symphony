@@ -54,7 +54,7 @@ export type PromptPullRequestVariables = {
  *
  * - `issue` — normalized issue payload
  * - `pull_request_context` — normalized PR context and checkout guidance
- * - `attempt` — null for first execution, attempt number for retries
+ * - `attempt` — null for the first execution, a positive 1-based number for retries
  * - `execution_phase` — lifecycle phase derived from the issue state
  */
 export type PromptVariables = {

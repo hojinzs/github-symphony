@@ -2638,6 +2638,11 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     issue: TrackedIssue,
     options: {
+      /**
+       * Null for an initial execution, otherwise the persisted 1-based
+       * retry attempt exposed to workflow prompt rendering.
+       */
+      attempt?: number | null;
       recovery?: IncompleteTurnRecoveryContext | null;
       onPrepared?: (run: OrchestratorRunRecord) => Promise<void>;
     } = {}
@@ -2853,7 +2858,7 @@ export class OrchestratorService {
     }
     // Render the issue prompt from the workflow template
     const promptVariables = buildPromptVariables(issue, {
-      attempt: null, // first execution
+      attempt: options.attempt ?? null,
       executionPhase: resolveWorkflowExecutionPhase({
         issueState: issue.state,
         planningStates: workflow.lifecycle.planningStates,
@@ -3562,7 +3567,9 @@ export class OrchestratorService {
       ...runWithTokens,
       finalizationDeferralCount: 0,
       status: "retrying",
-      attempt: runWithTokens.attempt + 1,
+      // Continuations begin a fresh post-completion retry sequence. Failure
+      // retries retain their existing attempt progression.
+      attempt: retryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
       processId: null,
       updatedAt: now.toISOString(),
       nextRetryAt,
@@ -4507,6 +4514,7 @@ export class OrchestratorService {
     let restarted: OrchestratorRunRecord;
     try {
       restarted = await this.startRun(tenant, issue, {
+        attempt: run.attempt,
         recovery,
         onPrepared: async (candidate) => {
           preparedRun = candidate;
