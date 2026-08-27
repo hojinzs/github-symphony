@@ -36,13 +36,13 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 4. **Wait for stall detection** (depends on orchestrator stall timeout config)
    ```bash
    # Monitor logs for stall detection
-   docker logs symphony-e2e --tail 20
+   docker compose -f docker-compose.e2e.yml logs --tail 20 symphony-e2e
    # Expected: stall detection event, SIGTERM sent to worker
    ```
 
 5. **Verify graceful shutdown**
    ```bash
-   docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson' | tail -5
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson' | tail -5
    # Expected: events showing stall detection and worker termination
    ```
 
@@ -55,7 +55,7 @@ docker compose -f docker-compose.e2e.yml -f docker-compose.e2e.events.yml up -d 
 
 7. **Verify token usage artifact saved**
    ```bash
-   docker exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator -name token-usage.json -exec cat {} \;'
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'find /e2e/work/test-repo/.runtime/orchestrator -name token-usage.json -exec cat {} \;'
    # Expected: { "inputTokens": 150, "outputTokens": 42, "totalTokens": 192 }
    ```
 

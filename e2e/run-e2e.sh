@@ -38,10 +38,9 @@ cleanup() {
     fi
   ' 2>/dev/null || true
   "${COMPOSE[@]}" down --volumes --remove-orphans --timeout 5 2>/dev/null || true
+  remove_e2e_compose_image
   echo "[]" > e2e/fixtures/issues.json 2>/dev/null || true
 }
-trap cleanup EXIT
-
 # ── Setup ─────────────────────────────────────────────────────
 
 log "Scenario: ${SCENARIO} (timeout: ${TIMEOUT}s)"
@@ -50,6 +49,7 @@ log "Compose project: ${COMPOSE_PROJECT_NAME}"
 assert_e2e_project_is_available docker-compose.e2e.yml
 
 echo "[]" > e2e/fixtures/issues.json
+trap cleanup EXIT
 
 # Set scenario in environment
 export STUB_SCENARIO="$SCENARIO"
@@ -237,7 +237,7 @@ PY
     fail "Scenario run id was not captured"
     exit 1
   fi
-  "${COMPOSE[@]}" exec -T -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
+  "${COMPOSE[@]}" exec -T -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" -e SCENARIO="$SCENARIO" symphony-e2e node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { execFileSync } from "node:child_process";
     const allScenarioRuns = execFileSync("find", [
@@ -278,7 +278,7 @@ PY
       throw new Error(`unexpected_run_outcome:${JSON.stringify({status: run.status, runPhase: run.runPhase})}`);
     }
   '
-  if ! "${COMPOSE[@]}" logs symphony-e2e | grep -q 'api-progress readback.*"state":"Done"'; then
+  if ! "${COMPOSE[@]}" logs symphony-e2e 2>&1 | grep -q 'api-progress readback.*"state":"Done"'; then
     fail "Confirmed Done readback was not observed"
     exit 1
   fi

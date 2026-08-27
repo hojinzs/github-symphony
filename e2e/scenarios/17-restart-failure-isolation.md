@@ -19,7 +19,7 @@
 
    ```bash
    cp e2e/fixtures/restart-failure-isolation.json e2e/fixtures/issues.json
-   docker exec symphony-e2e node /e2e/seed/restart-failure.mjs
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e node /e2e/seed/restart-failure.mjs
    ```
 
 2. Trigger one refresh:
@@ -36,9 +36,9 @@
    ```bash
    curl --fail -H 'Authorization: Bearer e2e-http-token' \
      http://localhost:4680/api/v1/state
-   docker exec symphony-e2e cat \
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e cat \
      /e2e/work/test-repo/.runtime/orchestrator/projects/repository/runs/restart-failure-run/run.json
-   docker exec symphony-e2e cat \
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e cat \
      /e2e/work/test-repo/.runtime/orchestrator/projects/repository/issues.json
    ```
 

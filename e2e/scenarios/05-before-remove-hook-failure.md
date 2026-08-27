@@ -12,7 +12,7 @@ curl --retry 10 --retry-delay 2 http://localhost:4680/healthz
 
 1. Seed a failing `before_remove` hook into the E2E repository.
    ```bash
-   docker exec symphony-e2e sh -lc '
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -lc '
      cd /e2e/work/test-repo &&
      mkdir -p hooks &&
      cat > hooks/before_remove.sh <<'"'"'EOF'"'"'
@@ -44,7 +44,7 @@ EOF
 
 3. Wait until the issue workspace is created.
    ```bash
-   docker exec symphony-e2e sh -lc '
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -lc '
       for i in $(seq 1 20); do
         find /e2e/work/test-repo/.runtime/orchestrator -name workspace.json | grep -q . && exit 0
        sleep 1
@@ -88,7 +88,7 @@ EOF
 
 5. Poll until cleanup finishes, then inspect the workspace record and logs.
    ```bash
-   docker exec symphony-e2e sh -lc '
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -lc '
       for i in $(seq 1 20); do
         record=$(find /e2e/work/test-repo/.runtime/orchestrator -name workspace.json | head -n 1)
        [ -n "$record" ] || { sleep 1; continue; }
@@ -104,7 +104,7 @@ PY
      done
      exit 1
    '
-   docker logs symphony-e2e 2>&1 | grep 'before_remove hook failed'
+   docker compose -f docker-compose.e2e.yml logs symphony-e2e 2>&1 | grep 'before_remove hook failed'
    ```
 
 ## Expected

@@ -10,10 +10,11 @@ COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f docker-compose
 
 cleanup() {
   "${COMPOSE[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  remove_e2e_compose_image
 }
-trap cleanup EXIT
 
 assert_e2e_project_is_available docker-compose.e2e.yml
+trap cleanup EXIT
 
 "${COMPOSE[@]}" build symphony-e2e >/dev/null
 "${COMPOSE[@]}" run --rm --no-deps --entrypoint bash symphony-e2e -lc '

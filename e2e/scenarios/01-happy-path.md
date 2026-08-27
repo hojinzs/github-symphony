@@ -62,7 +62,7 @@ curl --fail --retry-all-errors --retry 10 --retry-delay 2 http://localhost:4680/
 
 9. **Verify event log**
    ```bash
-   docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
+   docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
    # Expected: run-dispatched and run-recovered events
    ```
 

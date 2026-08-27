@@ -155,14 +155,14 @@ AI Agent
 │  /e2e/work (tmpfs, destroyed when the container stops) │
 │    └─ test-repo/.runtime/orchestrator             │
 │                                                   │
-│  :4680 dashboard API (available within Compose)    │
+│  :4680 dashboard API (published to the host)       │
 └──────────────────────────────────────────────────┘
 ```
 
 - **File Tracker** (`@gh-symphony/tracker-file`): reads issues from a JSON file without the GitHub API
 - **Stub Worker** (`e2e/stub-worker.ts`): simulates worker behavior without the Codex AI
 - **Isolation**: the cloned work repo and repo-local orchestrator state live in the `/e2e/work` tmpfs and are destroyed when the container stops. The local `.runtime/` is unaffected
-- **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME` from the absolute worktree path and set a matching `SYMPHONY_E2E_IMAGE`. Set `SYMPHONY_E2E_PROJECT` to override the derived name. Containers, networks, volumes, and images are therefore isolated across worktrees; the dashboard is queried through `docker compose exec` rather than a shared host port.
+- **Compose isolation**: runner scripts derive `COMPOSE_PROJECT_NAME`, `SYMPHONY_E2E_IMAGE`, and `SYMPHONY_E2E_PORT` from the absolute worktree path. Set `SYMPHONY_E2E_PROJECT`, `SYMPHONY_E2E_IMAGE`, or `SYMPHONY_E2E_PORT` to override a derived value. Containers, networks, volumes, images, and runner host ports are isolated across worktrees; manual Compose keeps host port `4680` by default.
 - **Event mirroring (optional)**: with the `docker-compose.e2e.events.yml` override, `events.ndjson` is also replicated to the host's `./evidence/`
 - **Golden path**: the container entrypoint boots the single-repo runtime in the order `git clone /e2e/repos/test-owner/test-repo /e2e/work/test-repo → cd /e2e/work/test-repo → gh-symphony repo init → gh-symphony repo start --http 4680 --bind-all`.
 - **File tracker fixture**: `GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH` is a test-only environment variable used solely by the `kind: file` workflows of this Docker/local E2E setup to connect the mounted fixture to the `repo init` result.
@@ -192,8 +192,6 @@ Control worker behavior with the `STUB_SCENARIO` environment variable:
 | Restart failure isolation                                                    | `packages/orchestrator/src/service.test.ts` seeds a due retrying run whose restart checkout fails and verifies the failed run/project diagnostics, retained retry backoff, and healthy later-candidate dispatch within the same tick.                                                                                                                                                                                                                                                                                                                                                                           | TC-17 seeds the due retrying run with an unavailable clone source, performs one refresh, and checks the failed retry diagnostics, future retry entry, and same-tick healthy dispatch.                                                                                                                                                             |
 | Linear MCP runtime credentials                                               | `packages/tool-linear-graphql/src/tool.test.ts`, `packages/runtime-codex/src/runtime.test.ts`, and `packages/runtime-claude/src/mcp-compose.test.ts` verify that resolved Linear credentials reach the built-in MCP server and API keys are used as raw Authorization values. | The standard Docker `happy` scenario verifies the worker/runtime container path remains healthy; Linear network calls stay unit-covered because E2E uses the isolated file tracker and no live Linear credentials. |
 | Workflow reload revision signal                                              | `packages/core/src/workflow-loader.test.ts` proves the revision is short, content-derived, and non-secret; `packages/core/src/observability/snapshot-builder.test.ts` proves snapshots expose the applied revision; `packages/orchestrator/src/service.test.ts` proves dispatch events carry it and that polling/concurrency reload on the next tick.                                                                                                                                                                                                                                                           | Start the Docker E2E environment, inject the happy-path issue, then verify `/api/v1/state` has a `workflow.revision` matching `sha256:<12 hex chars>` and the run's `events.ndjson` has the same `workflowRevision` on `run-dispatched`.                                                                                                          |
-| Tracker dispatch eligibility                                                  | `packages/orchestrator/src/dispatch.test.ts` supplies a mock tracker issue with `dispatchable: false` and verifies that no worker is spawned; the same file verifies `repo explain` reports its `dispatchReason`.                                                                                                                                                                                                                                                                                                                                                                  | Start the Docker E2E environment, inject a `Ready` file-tracker issue with `dispatchable: false`, then verify `/api/v1/state` reports no active run and no `run-dispatched` event.                                                                                                  |
-| Per-tick terminal workspace cleanup with a filtered tracker candidate list   | `packages/orchestrator/src/service.test.ts` verifies that an omitted workspace-backed issue is refreshed with workflow-aware dependencies, reaches cleanup without reentering dispatch, and cannot interrupt dispatch if its best-effort refresh fails.                                                                                                                                                                                                                                                                                                                                                       | No Docker black-box confirmation yet: the Docker file tracker has no server-side terminal-state exclusion, so its scenarios cannot exercise this GitHub Project regression.                                                                                                                                                                  |
 
 `docker-compose.e2e.yml` uses `environment.STUB_SCENARIO: ${STUB_SCENARIO:-happy}`, so the scenario can be selected via a shell environment variable.
 
@@ -211,7 +209,7 @@ From two separate worktrees, start the happy-path runner at the same time:
 wait
 ```
 
-Both commands must report `PASSED`. Each log prints a different `Compose project:` value, and each EXIT trap runs `docker compose --project-name <name> down --volumes --remove-orphans`, so neither runner removes the other runner's resources.
+Both commands must report `PASSED`. Each log prints a different `Compose project:` value and derived host port, and each EXIT trap runs `docker compose --project-name <name> down --volumes --remove-orphans` before reclaiming only its derived image tag, so neither runner removes the other runner's resources or leaves its project-tagged image behind.
 
 ## How to Run E2E Tests
 
@@ -328,16 +326,16 @@ to verify the following.
 
 ```bash
 # Orchestrator logs
-docker logs symphony-e2e
+docker compose -f docker-compose.e2e.yml logs symphony-e2e
 
 # Event log (structured NDJSON, tmpfs by default)
-docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
+docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/events.ndjson'
 
 # Host mirror log (when the events override is enabled)
 tail -f evidence/runs/*/events.ndjson
 
 # Worker log (only stderr is captured)
-docker exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
+docker compose -f docker-compose.e2e.yml exec symphony-e2e sh -c 'cat /e2e/work/test-repo/.runtime/orchestrator/runs/*/worker.log'
 ```
 
 ### 7. Cleanup
