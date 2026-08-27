@@ -17,6 +17,7 @@ import {
   resolveRuntimeCommandBinary,
   type ClaudePreflightCheck,
 } from "@gh-symphony/runtime-claude";
+import { getSupportedTrackerKinds } from "@gh-symphony/orchestrator";
 import {
   fetchGithubProjectIssueByRepositoryAndNumber,
   fetchGithubProjectIssues,
@@ -696,7 +697,9 @@ async function checkWorkflow(
   }
 
   try {
-    const parsed = deps.parseWorkflowMarkdown(markdown, process.env);
+    const parsed = deps.parseWorkflowMarkdown(markdown, process.env, {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+    });
     return {
       status: "pass",
       command: parsed.agentCommand,

@@ -106,6 +106,12 @@ describe("parseWorkflowMarkdown", () => {
       "agent.max_turns",
     ],
     [
+      "non-positive global concurrency",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_concurrent_agents: 0\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_concurrent_agents",
+    ],
+    [
       "empty codex command",
       "---\ntracker:\n  kind: github-project\ncodex:\n  command: '   '\n---\nPrompt",
       "workflow_validation_error",
@@ -173,6 +179,53 @@ Prompt`);
     expect(thrown).toMatchObject({
       code: "workflow_validation_error",
       path: "agent.max_concurrent_agents_by_state.Ready",
+    });
+  });
+
+  it.each([
+    ["a string", "'2'"],
+    ["a decimal", "1.5"],
+  ])("preserves map-entry paths when concurrency is %s", (_name, value) => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: ${value}
+codex:
+  command: codex
+---
+Prompt`);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "agent.max_concurrent_agents_by_state.Ready",
+    });
+  });
+
+  it("preserves paths for unresolved environment-backed fields", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(
+        `---
+tracker:
+  kind: github-project
+codex:
+  command: ${"${UNSET_CODEX_COMMAND}"}
+---
+Prompt`,
+        {}
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "codex.command",
     });
   });
 

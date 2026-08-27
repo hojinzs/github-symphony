@@ -113,7 +113,7 @@ function parseWorkflowMarkdownInternal(
     ? readObject(frontMatter, "codex")
     : readRequiredObject(frontMatter, "codex");
 
-  const trackerKind = readRequiredString(tracker, "kind", env);
+  const trackerKind = readRequiredString(tracker, "kind", env, "tracker.kind");
   const supportedTrackerKinds =
     options.supportedTrackerKinds ?? DEFAULT_SUPPORTED_TRACKER_KINDS;
   if (!supportedTrackerKinds.includes(trackerKind)) {
@@ -187,19 +187,38 @@ function parseWorkflowMarkdownInternal(
     tracker: {
       kind: trackerKind,
       endpoint:
-        readOptionalString(tracker, "endpoint", env) ??
+        readOptionalString(tracker, "endpoint", env, "tracker.endpoint") ??
         (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
-      apiKey: readOptionalString(tracker, "api_key", env),
-      projectSlug: readOptionalString(tracker, "project_slug", env),
+      apiKey: readOptionalString(tracker, "api_key", env, "tracker.api_key"),
+      projectSlug: readOptionalString(
+        tracker,
+        "project_slug",
+        env,
+        "tracker.project_slug"
+      ),
       pickupLabels: readPickupLabelsConfig(tracker),
       activeStates,
       terminalStates,
-      projectId: readOptionalString(tracker, "project_id", env),
+      projectId: readOptionalString(
+        tracker,
+        "project_id",
+        env,
+        "tracker.project_id"
+      ),
       stateFieldName:
-        readOptionalString(tracker, "state_field", env) ??
-        DEFAULT_WORKFLOW_TRACKER.stateFieldName,
+        readOptionalString(
+          tracker,
+          "state_field",
+          env,
+          "tracker.state_field"
+        ) ?? DEFAULT_WORKFLOW_TRACKER.stateFieldName,
       priority: readPriorityConfig(tracker, env),
-      priorityFieldName: readOptionalString(tracker, "priority_field", env),
+      priorityFieldName: readOptionalString(
+        tracker,
+        "priority_field",
+        env,
+        "tracker.priority_field"
+      ),
       blockerCheckStates,
       planningStates,
     },
@@ -226,7 +245,7 @@ function parseWorkflowMarkdownInternal(
     },
     agent: {
       maxConcurrentAgents:
-        readOptionalIntegerLike(
+        readOptionalPositiveInteger(
           agent,
           "max_concurrent_agents",
           "agent.max_concurrent_agents"
@@ -292,7 +311,12 @@ function validateTrackerConfig(
     }
   }
 
-  const projectSlug = readOptionalString(tracker, "project_slug", env);
+  const projectSlug = readOptionalString(
+    tracker,
+    "project_slug",
+    env,
+    "tracker.project_slug"
+  );
   if (!projectSlug || projectSlug.trim().length === 0) {
     throw new Error(
       'Workflow front matter field "tracker.project_slug" is required for tracker.kind "linear".'
@@ -300,7 +324,12 @@ function validateTrackerConfig(
   }
 
   if ("endpoint" in tracker) {
-    const endpoint = readOptionalString(tracker, "endpoint", env);
+    const endpoint = readOptionalString(
+      tracker,
+      "endpoint",
+      env,
+      "tracker.endpoint"
+    );
     if (!endpoint || endpoint.trim().length === 0) {
       throw new Error(
         'Workflow front matter field "tracker.endpoint" must be a non-empty string when provided for tracker.kind "linear".'
@@ -879,11 +908,12 @@ function readOptionalWorkflowString(
 function readRequiredString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  path = key
 ): string {
-  const value = readOptionalString(input, key, env);
+  const value = readOptionalString(input, key, env, path);
   if (!value) {
-    throw new Error(`Workflow front matter field "${key}" is required.`);
+    throw new Error(`Workflow front matter field "${path}" is required.`);
   }
   return value;
 }
@@ -1025,7 +1055,9 @@ function readNumberMap(
       result[entryKey] = entryValue;
       continue;
     }
-    throw new Error(
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      `${path}.${entryKey}`,
       `Workflow front matter field "${path}.${entryKey}" must be an integer.`
     );
   }
@@ -1041,7 +1073,9 @@ function resolveEnvironmentValue(
   if (value.startsWith("env:") && envTokenMatch) {
     const resolved = env[envTokenMatch[1]];
     if (!resolved) {
-      throw new Error(
+      throw new WorkflowValidationError(
+        "workflow_validation_error",
+        path,
         `Workflow front matter field "${path}" requires environment variable ${envTokenMatch[1]}.`
       );
     }
@@ -1052,7 +1086,9 @@ function resolveEnvironmentValue(
   if (dollarEnvTokenMatch) {
     const resolved = env[dollarEnvTokenMatch[1]];
     if (!resolved) {
-      throw new Error(
+      throw new WorkflowValidationError(
+        "workflow_validation_error",
+        path,
         `Workflow front matter field "${path}" requires environment variable ${dollarEnvTokenMatch[1]}.`
       );
     }
@@ -1062,7 +1098,9 @@ function resolveEnvironmentValue(
   return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => {
     const resolved = env[name];
     if (!resolved) {
-      throw new Error(
+      throw new WorkflowValidationError(
+        "workflow_validation_error",
+        path,
         `Workflow front matter field "${path}" requires environment variable ${name}.`
       );
     }
