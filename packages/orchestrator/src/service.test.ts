@@ -8719,11 +8719,19 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("running");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.retryKind).toBeNull();
-    expect(await store.loadRecentRunEvents("run-1", 10, "tenant-1")).toEqual(
+    const events = (await readFile(
+      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+      "utf8"
+    ))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           event: "run-ownership-skipped",
-          message: "Skipped signal (owner-alive)",
+          reason: "owner-alive",
         }),
       ])
     );
