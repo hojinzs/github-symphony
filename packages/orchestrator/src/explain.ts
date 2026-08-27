@@ -17,6 +17,7 @@ export type DispatchExplainCheck = {
   id:
     | "repository_linked"
     | "project_item_present"
+    | "tracker_dispatchability"
     | "workflow_state"
     | "blockers"
     | "runtime_ownership"
@@ -104,6 +105,7 @@ export function explainIssueDispatch(
     };
   }
 
+  checks.push(explainTrackerDispatchability(issue));
   checks.push(explainWorkflowState(issue, input.lifecycle));
   checks.push(explainBlockers(issue, input.lifecycle, input.allIssues));
   checks.push(
@@ -151,6 +153,10 @@ export function isIssueCandidateEligibleWithReason(
   lifecycle: WorkflowLifecycleConfig,
   issues: readonly TrackedIssue[]
 ): { eligible: boolean; reason: "inactive_state" | "blocked" | null } {
+  if (!issue.dispatchable) {
+    return { eligible: false, reason: "inactive_state" };
+  }
+
   if (!isStateActive(issue.state, lifecycle)) {
     return { eligible: false, reason: "inactive_state" };
   }
@@ -160,6 +166,26 @@ export function isIssueCandidateEligibleWithReason(
   }
 
   return { eligible: false, reason: "blocked" };
+}
+
+function explainTrackerDispatchability(
+  issue: TrackedIssue
+): DispatchExplainCheck {
+  if (issue.dispatchable) {
+    return {
+      id: "tracker_dispatchability",
+      status: "pass",
+      message: "Tracker marks this issue as dispatchable.",
+    };
+  }
+
+  const reason = issue.dispatchReason?.trim() || "no reason was provided";
+  return {
+    id: "tracker_dispatchability",
+    status: "block",
+    message: `not dispatchable: ${reason}`,
+    details: { dispatchReason: issue.dispatchReason ?? null },
+  };
 }
 
 export function hasConvergenceLockedRunForIssue(

@@ -21,6 +21,8 @@ function createTrackedIssue(
     branchName: null,
     url: "https://github.com/acme/platform/issues/42",
     labels: [],
+    dispatchable: true,
+    assigneeId: null,
     blockedBy: [],
     createdAt: null,
     updatedAt: null,

@@ -4074,10 +4074,9 @@ export class OrchestratorService {
         };
       }
       return {
-        state: matchesWorkflowState(
-          issue.state,
-          resolution.lifecycle.activeStates
-        )
+        state:
+          issue.dispatchable &&
+          matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
           ? "active"
           : "non-actionable",
       };

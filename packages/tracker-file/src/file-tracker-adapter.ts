@@ -40,6 +40,14 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
   );
 }
 
+function normalizeIssueDefaults(entry: Record<string, unknown>): TrackedIssue {
+  return {
+    ...entry,
+    dispatchable: entry.dispatchable === false ? false : true,
+    assigneeId: typeof entry.assigneeId === "string" ? entry.assigneeId : null,
+  } as TrackedIssue;
+}
+
 async function readIssueEntries(
   issuesPath: string
 ): Promise<Record<string, unknown>[]> {
@@ -72,7 +80,7 @@ async function readValidIssues(
     const valid: TrackedIssue[] = [];
     for (let i = 0; i < entries.length; i++) {
       if (isValidIssueShape(entries[i])) {
-        valid.push(entries[i] as TrackedIssue);
+        valid.push(normalizeIssueDefaults(entries[i]));
       } else {
         process.stderr.write(
           `[tracker-file] Skipping invalid issue at index ${i} in ${issuesPath}\n`
@@ -272,6 +280,8 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
       branchName: null,
       url: null,
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: null,
       updatedAt: null,

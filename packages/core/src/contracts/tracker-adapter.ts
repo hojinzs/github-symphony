@@ -86,6 +86,12 @@ export type TrackedIssue = {
   branchName: string | null;
   url: string | null;
   labels: string[];
+  /** Whether this issue may enter the orchestration dispatch lifecycle. */
+  dispatchable: boolean;
+  /** Provider identity of the current assignee, when the provider exposes one. */
+  assigneeId: string | null;
+  /** Optional provider explanation for why the issue cannot be dispatched. */
+  dispatchReason?: string | null;
   blockedBy: BlockerRef[];
   createdAt: string | null;
   updatedAt: string | null;

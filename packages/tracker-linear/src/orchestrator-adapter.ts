@@ -60,6 +60,7 @@ type LinearIssueNode = {
   labels?: LinearConnection<{
     name?: string | null;
   }> | null;
+  assignee?: { id?: string | null } | null;
   inverseRelations?: LinearConnection<{
     type?: string | null;
     issue?: {
@@ -117,6 +118,9 @@ const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
       nodes {
         name
       }
+    }
+    assignee {
+      id
     }
     inverseRelations {
       nodes {
@@ -242,6 +246,8 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       branchName: null,
       url: null,
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: null,
       updatedAt: null,
@@ -418,6 +424,8 @@ export function normalizeLinearIssue(
     labels: (issue.labels?.nodes ?? [])
       .map((label) => label.name)
       .filter((label): label is string => typeof label === "string"),
+    dispatchable: true,
+    assigneeId: issue.assignee?.id ?? null,
     blockedBy: (issue.inverseRelations?.nodes ?? [])
       .filter((relation) => relation.type === "blocks")
       .map((relation) => ({
