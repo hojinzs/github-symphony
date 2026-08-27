@@ -200,7 +200,9 @@ function renderLegacyStatus(
         `    ${runIdDisplay}  ${run.issueIdentifier}  ${stateStr}  ${statusStr}`
       );
       if (
-        run.issueWorkspaceKey === deriveLegacyWorkspaceKey(run.issueIdentifier)
+        run.issueWorkspaceKey ===
+          deriveLegacyWorkspaceKey(run.issueIdentifier) &&
+        run.issueWorkspaceKey !== run.issueIdentifier
       ) {
         lines.push(`      Workspace key: legacy (${run.issueWorkspaceKey})`);
       }

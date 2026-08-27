@@ -103,6 +103,7 @@ async function createConfigFixture(
           {
             runId: "run-1",
             issueIdentifier: "acme/repo#1",
+            issueWorkspaceKey: "acme_repo_1",
             issueState: "In Progress",
             status: "running",
             retryKind: null,
@@ -190,6 +191,24 @@ afterEach(() => {
 });
 
 describe("status command", () => {
+  it("labels a suffixless legacy workspace key", async () => {
+    const configDir = await createConfigFixture();
+    const stdout = captureWrites(process.stdout);
+
+    try {
+      await statusCommand([], {
+        configDir,
+        verbose: false,
+        json: false,
+        noColor: true,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    expect(stdout.output()).toContain("Workspace key: legacy (acme_repo_1)");
+  });
+
   it("renders a stopped banner and restart hint when the PID file is missing", async () => {
     const configDir = await createConfigFixture();
     const stdout = captureWrites(process.stdout);
