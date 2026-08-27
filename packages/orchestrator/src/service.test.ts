@@ -8727,6 +8727,24 @@ Prefer focused changes.
         }),
       ])
     );
+
+    const events = (await readFile(
+      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+      "utf8"
+    ))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "run-ownership-skipped",
+          operation: "signal",
+          reason: "owner-alive",
+        }),
+      ])
+    );
   });
 
   it("formats stall detection as a structured verbose log when enabled", async () => {
