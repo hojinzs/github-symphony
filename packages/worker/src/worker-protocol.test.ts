@@ -50,8 +50,6 @@ type ActiveTurnTelemetry = {
   tokenUsageBaseline: TokenUsageSnapshot;
 };
 
-const MAX_CODEX_PROTOCOL_LINE_BYTES = 10 * 1024 * 1024;
-
 /**
  * Minimal fake child process for testing: provides stdin/stdout/stderr streams
  * and basic process lifecycle (pid, kill, exit events).
@@ -138,8 +136,6 @@ function createProtocolContext(options: {
   const pendingOrchestratorChannelPayloads: string[] = [];
   const maxPendingOrchestratorChannelPayloads = 16;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
-  let protocolFailure: Error | null = null;
-  let lineBuffer = "";
 
   const defaultOrchestratorChannelWriter = {
     write(chunk: string): boolean {
@@ -758,22 +754,6 @@ function createProtocolContext(options: {
     }
   }
 
-  function rejectPendingRequests(error: Error): void {
-    for (const pending of pendingRequests.values()) {
-      pending.reject(error);
-    }
-    pendingRequests.clear();
-  }
-
-  function failProtocol(error: Error): void {
-    if (protocolFailure) {
-      return;
-    }
-    protocolFailure = error;
-    rejectPendingRequests(error);
-    markTurnTerminalFailure("failed", error.message);
-  }
-
   function finalizeRunState(): void {
     runtimeState.runPhase = "finishing";
     runtimeState.status =
@@ -946,63 +926,6 @@ function createProtocolContext(options: {
     );
   }
 
-  function handleStdoutChunk(chunk: Buffer): void {
-    if (protocolFailure) {
-      return;
-    }
-
-    lineBuffer += chunk.toString("utf8");
-    const lines = lineBuffer.split("\n");
-    lineBuffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (Buffer.byteLength(line, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-        failProtocol(
-          new Error(
-            `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
-          )
-        );
-        return;
-      }
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        handleServerMessage(JSON.parse(trimmed) as Record<string, unknown>);
-      } catch {
-        logs.push(`[worker] codex stdout (non-JSON): ${trimmed}`);
-      }
-    }
-
-    if (Buffer.byteLength(lineBuffer, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-      failProtocol(
-        new Error(
-          `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
-        )
-      );
-    }
-  }
-
-  fake.child.on(
-    "exit",
-    (code: number | null, signal: NodeJS.Signals | null) => {
-      const error = new Error(
-        `port_exit: codex app-server exited with ${signal ?? code ?? "unknown"}`
-      );
-      rejectPendingRequests(error);
-      failProtocol(error);
-    }
-  );
-
-  fake.child.on("error", (cause: Error) => {
-    const error = new Error(
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-        ? `codex_not_found: ${cause.message}`
-        : `port_exit: ${cause.message}`
-    );
-    rejectPendingRequests(error);
-    failProtocol(error);
-  });
-
   return {
     fake,
     pendingRequests,
@@ -1013,7 +936,6 @@ function createProtocolContext(options: {
     waitForTurnCompletion,
     waitForTurnWithTimeout,
     handleServerMessage,
-    handleStdoutChunk,
     emitOrchestratorHeartbeat,
     waitForPendingOrchestratorChannelFlush,
     resolveTerminalOrchestratorChannelFlushTimeoutMs,
@@ -1815,46 +1737,6 @@ describe("turn timeout (3.6)", () => {
     );
   });
 
-  it("fails an active turn immediately when the codex port exits and rejects pending requests", async () => {
-    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
-    const turnWait = ctx.waitForTurnWithTimeout();
-    const pendingRequest = ctx.sendRequest("tool-1", "tool/list", {});
-    const pendingRejection = expect(pendingRequest).rejects.toThrow(
-      "port_exit: codex app-server exited with 1"
-    );
-
-    ctx.fake.emitExit(1, null);
-
-    await turnWait;
-    await pendingRejection;
-    expect(ctx.runtimeState.status).toBe("failed");
-    expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "port_exit: codex app-server exited with 1"
-    );
-    expect(ctx.pendingRequests.size).toBe(0);
-  });
-
-  it("maps a missing codex executable to codex_not_found", async () => {
-    const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
-    const turnWait = ctx.waitForTurnWithTimeout();
-    const pendingRequest = ctx.sendRequest("init-1", "initialize", {});
-    const pendingRejection = expect(pendingRequest).rejects.toThrow(
-      "codex_not_found: spawn codex ENOENT"
-    );
-    const error = Object.assign(new Error("spawn codex ENOENT"), {
-      code: "ENOENT",
-    });
-
-    ctx.fake.emitError(error);
-
-    await turnWait;
-    await pendingRejection;
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "codex_not_found: spawn codex ENOENT"
-    );
-  });
-
   it("resolves pending turn wait when turn/cancelled is received", async () => {
     const ctx = createProtocolContext({ turnTimeoutMs: 5000 });
 
@@ -1940,27 +1822,6 @@ describe("turn timeout (3.6)", () => {
     expect(ctx.runtimeState.runPhase).toBe("failed");
     expect(ctx.runtimeState.run.lastError).toBe(
       "turn_failed: tool execution failed"
-    );
-  });
-});
-
-describe("codex stdout framing", () => {
-  it("fails the protocol when an unterminated stdout line exceeds 10 MiB", async () => {
-    const ctx = createProtocolContext({});
-    const pendingRequest = ctx.sendRequest("thread-1", "thread/start", {});
-    const pendingRejection = expect(pendingRequest).rejects.toThrow(
-      "protocol_error: codex stdout line exceeded 10485760 bytes"
-    );
-
-    ctx.handleStdoutChunk(
-      Buffer.alloc(MAX_CODEX_PROTOCOL_LINE_BYTES + 1, 0x61)
-    );
-
-    await pendingRejection;
-    expect(ctx.runtimeState.status).toBe("failed");
-    expect(ctx.runtimeState.runPhase).toBe("failed");
-    expect(ctx.runtimeState.run.lastError).toBe(
-      "protocol_error: codex stdout line exceeded 10485760 bytes"
     );
   });
 });

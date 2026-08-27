@@ -64,15 +64,28 @@ export function createCodexProtocolLineFramer({
   onFailure: (error: Error) => void;
 }): (chunk: Buffer) => void {
   let lineBuffer = "";
+  let failed = false;
+
+  function fail(error: Error): void {
+    if (failed) {
+      return;
+    }
+    failed = true;
+    lineBuffer = "";
+    onFailure(error);
+  }
 
   return (chunk: Buffer): void => {
+    if (failed) {
+      return;
+    }
     lineBuffer += chunk.toString("utf8");
     const lines = lineBuffer.split("\n");
     lineBuffer = lines.pop() ?? "";
 
     for (const line of lines) {
       if (Buffer.byteLength(line, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-        onFailure(createCodexProtocolFrameError());
+        fail(createCodexProtocolFrameError());
         return;
       }
       const trimmed = line.trim();
@@ -87,7 +100,7 @@ export function createCodexProtocolLineFramer({
     }
 
     if (Buffer.byteLength(lineBuffer, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-      onFailure(createCodexProtocolFrameError());
+      fail(createCodexProtocolFrameError());
     }
   };
 }

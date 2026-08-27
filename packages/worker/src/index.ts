@@ -48,7 +48,7 @@ import {
   type WorkerNonCodexRuntimeAdapter,
   type WorkerNonCodexTurnResult,
 } from "./non-codex-runtime.js";
-import { resolveExitRunPhase } from "./run-phase.js";
+import { isTerminalRunPhase, resolveExitRunPhase } from "./run-phase.js";
 import {
   resolveClaudePreflightAuthMode,
   shouldExposeLinearGraphQLTool,
@@ -1087,6 +1087,16 @@ async function runCodexClientProtocol(
   let consecutiveNonProductiveTurns = 0;
   let consecutiveRefreshFailures = 0;
   let convergenceDetected = false;
+  let terminationRequested = false;
+
+  function requestChildTermination(): void {
+    terminationRequested = true;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // A terminal failure can race with normal child-process cleanup.
+    }
+  }
 
   function resolvePendingTurnCompletion(): void {
     if (turnCompletedResolve) {
@@ -1166,9 +1176,7 @@ async function runCodexClientProtocol(
       rejectPendingRequests(error);
       markTurnTerminalFailure("failed", error.message);
     },
-    terminate() {
-      child.kill("SIGTERM");
-    },
+    terminate: requestChildTermination,
   });
 
   function failProtocol(error: Error): void {
@@ -1176,9 +1184,8 @@ async function runCodexClientProtocol(
   }
 
   function sendMessage(msg: Record<string, unknown>): void {
-    const failure = protocolFailureGate.failure();
-    if (failure) {
-      throw failure;
+    if (protocolFailureGate.failure()) {
+      return;
     }
     const line = JSON.stringify(msg) + "\n";
     child.stdin?.write(line);
@@ -1251,13 +1258,7 @@ async function runCodexClientProtocol(
         process.stderr.write(
           `[worker] turn_timeout: turn exceeded ${turnTimeoutMs}ms — killing codex process\n`
         );
-        if (child.pid) {
-          try {
-            process.kill(child.pid, "SIGTERM");
-          } catch {
-            // Already gone.
-          }
-        }
+        requestChildTermination();
         reject(new Error("turn_timeout: turn exceeded time limit"));
       }, turnTimeoutMs);
 
@@ -1368,13 +1369,7 @@ async function runCodexClientProtocol(
     if (runtimeState.run) {
       runtimeState.run.lastError = reason;
     }
-    if (child.pid) {
-      try {
-        process.kill(child.pid, "SIGTERM");
-      } catch {
-        // Already gone.
-      }
-    }
+    requestChildTermination();
     if (activeTurnTelemetry) {
       emitTurnFailedEvent(
         activeTurnTelemetry,
@@ -1405,7 +1400,11 @@ async function runCodexClientProtocol(
           event.payload.threadId,
           event.payload.turnId,
           event.payload.arguments
-        );
+        ).catch((error: unknown) => {
+          process.stderr.write(
+            `[worker] dynamic tool call ${event.payload.callId} dispatch failed: ${error instanceof Error ? error.message : String(error)}\n`
+          );
+        });
         emitObservedAgentEvent(event);
         return true;
       case "agent.inputRequired":
@@ -1526,11 +1525,7 @@ async function runCodexClientProtocol(
       process.stderr.write(`[worker] ${reason}\n`);
       emitOrchestratorChannelEvent("worker_identity_violation");
       markTurnTerminalFailure("failed", reason);
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        // The codex process may already be gone.
-      }
+      requestChildTermination();
       return;
     }
 
@@ -1575,7 +1570,7 @@ async function runCodexClientProtocol(
   });
 
   child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-    if (runtimeState.runPhase === "finishing" || runtimeState.runPhase === "succeeded") {
+    if (terminationRequested || isTerminalRunPhase(runtimeState.runPhase)) {
       return;
     }
     const error = createCodexProtocolExitError(code, signal);

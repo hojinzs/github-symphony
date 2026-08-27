@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveExitRunPhase } from "./run-phase.js";
+import { isTerminalRunPhase, resolveExitRunPhase } from "./run-phase.js";
 
 describe("resolveExitRunPhase", () => {
   it("marks successful exits as succeeded from non-terminal phases", () => {
@@ -18,5 +18,12 @@ describe("resolveExitRunPhase", () => {
     expect(
       resolveExitRunPhase("timed_out", { code: 1, signal: "SIGTERM" })
     ).toBe("timed_out");
+  });
+
+  it("recognizes every terminal phase before a child exit is handled", () => {
+    expect(isTerminalRunPhase("failed")).toBe(true);
+    expect(isTerminalRunPhase("timed_out")).toBe(true);
+    expect(isTerminalRunPhase("canceled_by_reconciliation")).toBe(true);
+    expect(isTerminalRunPhase("streaming_turn")).toBe(false);
   });
 });

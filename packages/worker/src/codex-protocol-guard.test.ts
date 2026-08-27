@@ -31,9 +31,9 @@ describe("codex protocol guard", () => {
     expect(createCodexProtocolProcessError(missing).message).toBe(
       "codex_not_found: spawn codex ENOENT"
     );
-    expect(createCodexProtocolProcessError(new Error("stdin EPIPE")).message).toBe(
-      "port_exit: stdin EPIPE"
-    );
+    expect(
+      createCodexProtocolProcessError(new Error("stdin EPIPE")).message
+    ).toBe("port_exit: stdin EPIPE");
   });
 
   it("rejects a line larger than 10 MiB before unbounded buffering", () => {
@@ -51,6 +51,9 @@ describe("codex protocol guard", () => {
         message: `response_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`,
       })
     );
+
+    frame(Buffer.from("another oversized chunk"));
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
   });
 
   it("delivers the rendered prompt only in the first turn", () => {
