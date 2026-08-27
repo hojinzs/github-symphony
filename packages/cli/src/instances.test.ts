@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getProcessIdentity } from "@gh-symphony/orchestrator";
 import {
+  findLiveDuplicate,
   instancesRoot,
   instancesRootMode,
   listInstances,
@@ -49,6 +50,12 @@ describe("global instance registry", () => {
         phase: "implementation",
       }),
     ]);
+    await expect(
+      findLiveDuplicate({
+        projectId: entry.projectId,
+        repoPath: entry.repoPath,
+      })
+    ).resolves.toEqual(expect.objectContaining({ runtimeRoot }));
     await writeFile(
       join(runtimeRoot, "projects", entry.projectId, ".lock"),
       JSON.stringify({ heartbeatAt: "2000-01-01T00:00:00.000Z" })
@@ -61,6 +68,12 @@ describe("global instance registry", () => {
         uptimeMs: 0,
       }),
     ]);
+    await expect(
+      findLiveDuplicate({
+        projectId: entry.projectId,
+        repoPath: entry.repoPath,
+      })
+    ).resolves.toBeNull();
     await expect(listInstances()).resolves.toEqual([
       expect.objectContaining({ status: "stale-registry" }),
     ]);
