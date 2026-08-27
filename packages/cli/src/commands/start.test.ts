@@ -1440,18 +1440,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1523,18 +1511,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1652,18 +1628,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1793,46 +1757,19 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("keeps an existing http.json when lock acquisition fails", async () => {
+  it("propagates lock acquisition failures", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
-    const statePath = join(
-      configDir,
-      "orchestrator",
-      "workspaces",
-      "tenant-a",
-      "http.json"
-    );
-    await mkdir(join(configDir, "orchestrator", "workspaces", "tenant-a"), {
-      recursive: true,
-    });
-    await writeFile(
-      statePath,
-      JSON.stringify(
-        {
-          host: "0.0.0.0",
-          port: 4680,
-          endpoint: "http://localhost:4680",
-        },
-        null,
-        2
-      ) + "\n",
-      "utf8"
-    );
     acquireProjectLock.mockRejectedValue(new Error("lock busy"));
 
     await expect(
       startModule.default([], baseOptions(configDir))
     ).rejects.toThrow("lock busy");
-
-    await expect(readFile(statePath, "utf8")).resolves.toContain(
-      '"endpoint": "http://localhost:4680"'
-    );
   });
 
-  it("warns and keeps running when http.json persistence fails", async () => {
+  it("keeps the HTTP API available through a graceful shutdown", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1844,9 +1781,6 @@ describe("start command foreground locking", () => {
       startedAt: "2026-03-17T00:00:00.000Z",
     };
     acquireProjectLock.mockResolvedValue(lock);
-    vi.spyOn(configModule, "writeJsonFile").mockRejectedValueOnce(
-      new Error("disk full")
-    );
     let resolveRun: (() => void) | undefined;
     run.mockImplementation(
       () =>
