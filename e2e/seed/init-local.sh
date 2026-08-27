@@ -65,7 +65,7 @@ codex:
   turn_sandbox_policy: dangerFullAccess
   stall_timeout_ms: 60000
 ---
-You are an AI agent working on issue {{issue.identifier}}; phase={{execution_phase}}.
+You are an AI agent working on issue {{issue.identifier}}; phase={{execution_phase}}; retry_attempt={{attempt}}.
 This is an E2E test environment. Complete the task and report success.
 EOF
 

@@ -2497,6 +2497,7 @@ describe("OrchestratorService", () => {
     expect(retryRun).toMatchObject({
       status: "retrying",
       retryKind: "recovery",
+      attempt: 2,
       recovery: expect.objectContaining({
         kind: "incomplete-turn-dirty-workspace",
         dirtyFiles: ["partial.txt"],
@@ -6515,6 +6516,65 @@ Prefer focused changes.
     expect(retryWorkerEnv?.SYMPHONY_RENDERED_PROMPT).toContain(
       "retry_attempt=1"
     );
+  });
+
+  it("renders a queued failure retry attempt during ordinary dispatch", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-queued-retry-attempt-prompt-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        rawWorkflow: createReadyStateWorkflow("retry_attempt={{ attempt }}\n"),
+      }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 2,
+        state: "retry_queued",
+        currentRunId: null,
+        retryEntry: {
+          attempt: 3,
+          dueAt: "2026-03-08T00:00:00.000Z",
+          error: "Worker spawn failed: simulated failure",
+        },
+        updatedAt: "2026-03-07T23:59:00.000Z",
+      },
+    ]);
+
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4313,
+      unref: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(createTrackerResponseWithState(repository, "Ready")),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    await service.runOnce();
+
+    const workerEnv = spawnImpl.mock.calls[0]?.[2]?.env as
+      | Record<string, string>
+      | undefined;
+    expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain("retry_attempt=3");
+    const [issueRecord] = await store.loadProjectIssueOrchestrations(
+      "tenant-1"
+    );
+    const persistedRun = await store.loadRun(issueRecord?.currentRunId ?? "");
+    expect(persistedRun?.attempt).toBe(3);
   });
 
   it("isolates an untrusted issue body from workflow instructions", async () => {

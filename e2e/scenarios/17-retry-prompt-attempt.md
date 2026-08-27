@@ -1,26 +1,14 @@
-# TC-17: Retry prompt attempt rendering
+# Retry prompt attempt rendering
 
-## Setup
+This black-box scenario verifies issue #654. The first worker completion keeps
+the issue actionable, so the orchestrator schedules a continuation. The second
+worker exits with an error unless its rendered prompt contains
+`retry_attempt=1`, then confirms the issue is `Done` to stop the retry loop.
 
-Build the workspace and start the Docker E2E environment with the default
-`happy` stub scenario. Add the `Ready` fixture and trigger a refresh.
+```bash
+GH_SYMPHONY_HTTP_TOKEN=e2e-http-token ./e2e/run-e2e.sh retry-attempt 45
+```
 
-## Steps
-
-1. Wait for the stub worker to complete while the issue remains actionable.
-2. Confirm the orchestrator queues a `continuation` retry with a one-second
-   delay.
-3. Confirm the next worker dispatch starts from that queued continuation.
-4. Run `packages/orchestrator/src/service.test.ts` and
-   `packages/core/src/workflow/render.test.ts`.
-
-## Expected
-
-- The continuation retry record has `attempt: 1`, independent of earlier
-  failure retry counts.
-- The restarted worker's rendered prompt receives `attempt=1`.
-- An initial execution still receives a null template value.
-
-## Cleanup
-
-Remove the fixture issue and stop the Docker environment.
+The runner requires the retried worker to reach a successful terminal state;
+the stub's prompt assertion proves the persisted continuation attempt reached
+the worker environment rather than remaining in retry metadata.

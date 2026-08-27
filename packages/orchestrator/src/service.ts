@@ -1584,6 +1584,7 @@ export class OrchestratorService {
         let preparedRun: OrchestratorRunRecord | null = null;
         try {
           run = await this.startRun(tenant, issue, {
+            attempt: existingIssueRecord?.retryEntry?.attempt ?? null,
             recovery: recoveryContext,
             onPrepared: async (candidate) => {
               preparedRun = candidate;
@@ -2912,7 +2913,7 @@ export class OrchestratorService {
       issueState: issue.state,
       repository: issue.repository,
       status: "running",
-      attempt: 1,
+      attempt: options.attempt ?? 1,
       processId,
       processIdentity,
       ownerInstanceId: this.ownerToken,
@@ -3569,7 +3570,8 @@ export class OrchestratorService {
       status: "retrying",
       // Continuations begin a fresh post-completion retry sequence. Failure
       // retries retain their existing attempt progression.
-      attempt: retryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
+      attempt:
+        persistedRetryKind === "continuation" ? 1 : runWithTokens.attempt + 1,
       processId: null,
       updatedAt: now.toISOString(),
       nextRetryAt,

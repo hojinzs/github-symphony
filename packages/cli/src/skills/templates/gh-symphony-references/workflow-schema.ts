@@ -39,7 +39,7 @@ export function generateWorkflowSchemaReference(
     "| `issue.url` | Issue URL. |",
     "| `issue.repository` | Repository in `owner/name` form. |",
     "| `issue.number` | Issue number. |",
-    "| `attempt` | null on the initial execution; a positive, 1-based persisted attempt number on retries. Continuation retries restart at 1. |",
+    "| `attempt` | null on the initial execution; otherwise the persisted execution attempt. Failure retries retain the execution sequence (the first is 2); continuation retries restart at 1. |",
     "| `execution_phase` | Normalized lifecycle classification: `planning`, `implementation`, or null. Classification alone does not gate agent behavior. |",
     "",
     "Only these variables are supported by strict-mode prompt rendering.",
