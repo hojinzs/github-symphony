@@ -42,7 +42,9 @@ tracker token, and the source names of supported environment indirections (for
 example, `$MY_LINEAR_SECRET`). Configuration parsing must preserve those source
 names as secret metadata rather than only their resolved values. Local and
 remote launchers will remove every declared name from coding-agent child
-environments; the Codex and Claude runtime paths must not add them back.
+environments; the Codex and Claude runtime paths must not add them back. They
+will also give the child an isolated home/configuration directory: allowlisting
+`HOME` or `GH_CONFIG_DIR` must not make a host `gh auth` store readable.
 Generated Claude `mcp.json` must contain no literal tracker or broker
 credential.
 
@@ -55,6 +57,20 @@ removed, rather than passing a credential through the agent. It preserves
 non-agent host-side tracker operations, but agent tool access returns only in
 phase 2. This temporary loss of agent tool availability is the documented
 MCP-subprocess divergence until the host-owned transport ships.
+
+Authenticated Git transport follows the same boundary. The current child-side
+Git credential helper receives either a raw GitHub token or broker credentials
+and returns a password to Git, so merely stripping its environment variables
+would both break `git push` and leave an agent-readable token path through an
+allowlisted host home. #672 therefore removes that helper from child launches
+and moves authenticated fetch/push to a worker-host operation for the assigned
+branch. During phase 1, the child may make commits but cannot perform
+authenticated `git fetch`, `git pull`, `git push`, or `gh` commands that depend
+on host login; the worker performs the bounded post-run transport instead. This
+is a deliberately narrow compatibility regression, not a secret-name carve-out.
+No injected workflow skill currently invokes `github_graphql` or
+`linear_graphql`: workflow transitions continue through the orchestrator
+transition endpoint, so their state changes are unaffected by the MCP disablement.
 
 ### Phase 2 — execute tools at the host boundary (#673)
 
@@ -114,6 +130,13 @@ on normal completion, cancellation, timeout, and worker crash recovery. The
 port is an addressability detail, not an authorization boundary; the session
 token and loopback bind are both required.
 
+Both phase-2 launchers retain the isolated child home/configuration directory
+from phase 1. Agent preflight must not require `gh auth`, and neither `HOME`,
+`GH_CONFIG_DIR`, nor an inherited credential-helper configuration may expose a
+host GitHub login. The worker performs authenticated Git transport and tool
+calls with its host credential; the child receives only repository state and
+bounded results.
+
 ### Credential flow
 
 ```text
@@ -166,7 +189,7 @@ tracked as a divergence, not an alternative architecture.
 ## Consequences
 
 - Customer repository agents can use provider-native tracker operations without
-  possessing the corresponding tracker token.
+  possessing the corresponding tracker token or a readable host GitHub login.
 - Runtime-specific transports differ, but adapter contracts and host-side
   execution semantics remain the same.
 - Host lifecycle code owns session capability generation, loopback server
@@ -181,9 +204,11 @@ scope-narrowing requirements. `docs/symphony-spec.md` remains unchanged.
 
 Until #673 ships, the current agent-started MCP subprocess model is an
 intentional, documented repository-local divergence. #672 removes raw tracker
-and broker values from coding-agent environments and `mcp.json` and disables
-the agent-owned MCP path; it does not claim that the subprocess arrangement is
-conformant. #673 is the conformance-closing implementation.
+and broker values from coding-agent environments and `mcp.json`, isolates the
+child home/configuration directory, replaces child-authenticated Git transport
+with a host operation, and disables the agent-owned MCP path; it does not claim
+that the subprocess arrangement is conformant. #673 is the conformance-closing
+implementation.
 
 ## README security-posture draft for #675
 

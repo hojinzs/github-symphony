@@ -991,7 +991,9 @@ Operators can configure the Codex approval and sandbox settings, but must use
 least-privilege credentials, dedicated workspaces, and controls appropriate to
 their environment. The target transport keeps credentials in the Symphony host
 or a host-side broker, returns only bounded issue-aware tool results to agents,
-and uses loopback-only local services with scoped session capabilities.
+uses loopback-only local services with scoped session capabilities, and gives
+the child an isolated home/configuration directory rather than a host `gh auth`
+store. Authenticated Git transport is performed by the host.
 
 ## Community and security
 
