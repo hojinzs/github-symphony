@@ -12,6 +12,7 @@ const cancelMock = vi.fn();
 const getProcessIdentityMock = vi.fn();
 const getProcessCwdMock = vi.fn();
 const originalCwd = process.cwd();
+const originalInstancesDir = process.env.GH_SYMPHONY_INSTANCES_DIR;
 const ghAuthMocks = vi.hoisted(() => ({
   resolveGitHubAuth: vi.fn(),
 }));
@@ -20,6 +21,8 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   runCli: orchestratorRunCli,
   getProcessCwd: getProcessCwdMock,
   getProcessIdentity: getProcessIdentityMock,
+  resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
+    join(runtimeRoot, "projects", projectId, ".lock"),
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
 }));
@@ -66,6 +69,10 @@ beforeEach(() => {
   );
   getProcessCwdMock.mockReturnValue(process.cwd());
   ghAuthMocks.resolveGitHubAuth.mockReset();
+  process.env.GH_SYMPHONY_INSTANCES_DIR = join(
+    tmpdir(),
+    `cli-lifecycle-instances-${process.pid}-${Date.now()}`
+  );
   ghAuthMocks.resolveGitHubAuth.mockResolvedValue({
     source: "gh",
     token: "validated-token",
@@ -82,6 +89,7 @@ afterEach(() => {
   selectMock.mockReset();
   cancelMock.mockReset();
   ghAuthMocks.resolveGitHubAuth.mockReset();
+  process.env.GH_SYMPHONY_INSTANCES_DIR = originalInstancesDir;
   vi.restoreAllMocks();
   process.chdir(originalCwd);
   process.exitCode = undefined;
@@ -214,7 +222,7 @@ describe("lifecycle command integration", () => {
       projects: [createTenant("tenant-a", "acme", "platform")],
     });
 
-    spawnMock.mockImplementation(() => {
+    spawnMock.mockImplementation((_command, _args, options) => {
       const child = Object.assign(new EventEmitter(), {
         pid: 4321,
         stdout: { pipe: vi.fn() },
@@ -222,7 +230,13 @@ describe("lifecycle command integration", () => {
         unref: vi.fn(),
         kill: vi.fn(),
       });
-      queueMicrotask(() => child.emit("spawn"));
+      const readyPath = (options as { env?: Record<string, string> }).env?.[
+        "GH_SYMPHONY_DAEMON_READY_PATH"
+      ];
+      queueMicrotask(() => {
+        if (readyPath) void writeFile(readyPath, `${child.pid}\n`);
+        child.emit("spawn");
+      });
       return child;
     });
 

@@ -47,6 +47,7 @@ type LoaderKey =
 type CliOptionValues = Partial<
   GlobalOptions & {
     assignedOnly?: boolean;
+    allowDuplicate?: boolean;
     bindAll?: boolean;
     config?: string;
     daemon?: boolean;
@@ -576,6 +577,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--once", "Run a single orchestration tick and exit")
       .option("--assigned-only", "Limit this run to assigned issues")
       .option(
+        "--allow-duplicate",
+        "Allow a verified live instance for the same project in another runtime"
+      )
+      .option(
         "--bind-all",
         "Bind HTTP servers to all interfaces instead of localhost"
       )
@@ -597,6 +602,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
@@ -705,6 +711,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--once", "Run a single orchestration tick and exit")
       .option("--assigned-only", "Limit this run to assigned issues")
       .option(
+        "--allow-duplicate",
+        "Allow a verified live instance for the same project in another runtime"
+      )
+      .option(
         "--bind-all",
         "Bind HTTP servers to all interfaces instead of localhost"
       )
@@ -726,6 +736,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
