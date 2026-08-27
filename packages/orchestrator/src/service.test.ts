@@ -4165,11 +4165,38 @@ Test hook failures.
       unref: vi.fn(),
     });
     const stderr = { write: vi.fn() };
-    const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          title: "Dispatchable candidate",
+          description: null,
+          state: "Todo",
+          priority: null,
+          branchName: null,
+          url: "https://example.test/acme/platform/issues/1",
+          labels: [],
+          dispatchable: true,
+          assigneeId: null,
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: { adapter: "github-project", issueId: "issue-1" },
+          metadata: {},
+        },
+      ]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi
         .fn()
-        .mockResolvedValueOnce(createTrackerResponse(repository))
-        .mockRejectedValueOnce(new Error("tracker unavailable")) as never,
+        .mockRejectedValue(new Error("tracker unavailable")),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
       stderr,
