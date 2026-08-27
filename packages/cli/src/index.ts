@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { formatErrorForTerminal, hasVerboseFlag } from "@gh-symphony/core";
 import {
@@ -8,7 +9,7 @@ import {
   Option,
 } from "commander";
 import { setNoColor } from "./ansi.js";
-import { resolveConfigDir } from "./config.js";
+import { DEFAULT_CONFIG_DIR, resolveConfigDir } from "./config.js";
 import { renderCompletionScript } from "./completion.js";
 import { renderHelp } from "./commands/help.js";
 import { createRemovedCommandHandler } from "./commands/removed-command.js";
@@ -136,6 +137,15 @@ export function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
     process.env.NO_COLOR = "1";
   }
   setNoColor(options.noColor);
+
+  // Keep the host-level instance registry independent from a per-invocation
+  // runtime override. This value is inherited by daemon children.
+  if (!process.env.GH_SYMPHONY_INSTANCES_DIR) {
+    process.env.GH_SYMPHONY_INSTANCES_DIR = join(
+      process.env.GH_SYMPHONY_CONFIG_DIR || DEFAULT_CONFIG_DIR,
+      "instances"
+    );
+  }
 
   // The shared bare-clone cache and spawned child processes resolve the config
   // directory from the environment. Without exporting an explicit `--config`,

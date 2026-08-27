@@ -396,10 +396,20 @@ const handler = async (
   const [subcommand, ...rest] = args;
 
   if (subcommand === "list" && rest.length === 0) {
-    const instances = (await listInstances()).filter((entry) => entry.standalone);
-    // Cached configs preserve the legacy discovery behavior until a project is
-    // running; active projects are supplied by the global registry above.
-    const projects = instances.length > 0 ? instances : await listStandaloneProjects(options.configDir);
+    const instances = new Map(
+      (await listInstances())
+        .filter((entry) => entry.standalone)
+        .map((entry) => [entry.projectId, entry])
+    );
+    // Preserve the established cached-project schema. Live registry data is
+    // additive so stopped projects remain visible and JSON consumers have a
+    // stable base shape.
+    const projects = (await listStandaloneProjects(options.configDir)).map(
+      (project) => {
+        const instance = instances.get(project.projectId);
+        return instance ? { ...project, instance } : project;
+      }
+    );
     process.stdout.write(JSON.stringify(projects, null, 2) + "\n");
     return;
   }
