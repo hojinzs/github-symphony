@@ -4673,17 +4673,8 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[],
     now: Date,
     error: unknown,
-    preparedRun: OrchestratorRunRecord | null = null,
-    supersededRun: OrchestratorRunRecord = {
-      ...run,
-      status: "failed",
-      processId: null,
-      completedAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      nextRetryAt: null,
-      retryKind: null,
-      lastError: "Superseded by failed restart.",
-    }
+    preparedRun: OrchestratorRunRecord | null,
+    supersededRun: OrchestratorRunRecord
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;

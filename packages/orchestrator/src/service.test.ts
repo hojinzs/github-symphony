@@ -484,83 +484,7 @@ describe("OrchestratorService", () => {
     );
   });
 
-  it("queues a non-exhausted restart failure with backoff", async () => {
-    const now = new Date("2026-03-08T00:00:00.000Z");
-    const tempRoot = await mkdtemp(
-      join(tmpdir(), "orchestrator-restart-backoff-")
-    );
-    const repository = await createRepositoryFixture(
-      tempRoot,
-      "acme",
-      "platform",
-      {
-        maxFailureRetries: 3,
-        retryBaseDelayMs: 1000,
-        retryMaxDelayMs: 1000,
-      }
-    );
-    const store = new OrchestratorFsStore(tempRoot);
-    const projectConfig = createProjectConfig(tempRoot, repository);
-    const run = {
-      runId: "run-retry",
-      projectId: "tenant-1",
-      projectSlug: "tenant-1",
-      issueId: "retry-issue",
-      issueSubjectId: "retry-issue",
-      issueIdentifier: "acme/platform#1",
-      issueState: "Todo",
-      repository,
-      status: "retrying",
-      attempt: 2,
-      processId: null,
-      port: 4601,
-      workingDirectory: tempRoot,
-      issueWorkspaceKey: "retry-issue",
-      workspaceRuntimeDir: tempRoot,
-      workflowPath: null,
-      retryKind: "failure",
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      startedAt: now.toISOString(),
-      completedAt: null,
-      lastError: "Worker process exited unexpectedly.",
-      nextRetryAt: now.toISOString(),
-    } as OrchestratorRunRecord;
-    const issueRecords = [
-      {
-        issueId: "retry-issue",
-        identifier: "acme/platform#1",
-        workspaceKey: "retry-issue",
-        completedOnce: false,
-        failureRetryCount: 1,
-        state: "running" as const,
-        currentRunId: run.runId,
-        retryEntry: {
-          attempt: 2,
-          dueAt: now.toISOString(),
-          error: run.lastError,
-        },
-        updatedAt: now.toISOString(),
-      },
-    ];
-    await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
-      reviveIssue: vi.fn().mockReturnValue({}),
-    } as never);
-    const service = new OrchestratorService(store, projectConfig, {
-      now: () => now,
-      writeStderr: vi.fn(),
-    });
-    vi.spyOn(service as never, "startRun").mockRejectedValue(
-      new Error("restart checkout failed")
-    );
-
-    await expect(
-      (service as never).restartRun(projectConfig, run, issueRecords, now)
-    ).rejects.toThrow("restart checkout failed");
-  });
-
-  it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
+  it("queues a non-exhausted restart failure and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-restart-failure-")
@@ -569,7 +493,12 @@ describe("OrchestratorService", () => {
       tempRoot,
       "acme",
       "platform",
-      { maxConcurrentAgents: 2, maxFailureRetries: 2 }
+      {
+        maxConcurrentAgents: 2,
+        maxFailureRetries: 3,
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+      }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
@@ -696,20 +625,23 @@ describe("OrchestratorService", () => {
     expect(result.health).toBe("degraded");
     expect(result.lastError).toContain("restart worker spawn failed");
     expect(retryRun).toMatchObject({
-      status: "suppressed",
+      status: "failed",
       nextRetryAt: null,
       retryKind: null,
-      lastError: expect.stringContaining("max_failure_retries_exceeded"),
+      lastError: expect.stringContaining("restart worker spawn failed"),
     });
     expect(spawnImpl).toHaveBeenCalledTimes(2);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           issueId: "retry-issue",
-          state: "released",
+          state: "retry_queued",
           currentRunId: null,
           failureRetryCount: 2,
-          retryEntry: null,
+          retryEntry: expect.objectContaining({
+            attempt: 3,
+            dueAt: "2026-03-08T00:00:01.000Z",
+          }),
         }),
         expect.objectContaining({
           issueId: "healthy-issue",
@@ -722,7 +654,8 @@ describe("OrchestratorService", () => {
       "utf8"
     );
     expect(eventsRaw).toContain('"event":"run-restart-failed"');
-    expect(eventsRaw).toContain('"retrySuppressed":true');
+    expect(eventsRaw).toContain('"retrySuppressed":false');
+    expect(eventsRaw).toContain('"nextRetryAt":"2026-03-08T00:00:01.000Z"');
 
     const secondResult = await service.runOnce();
     expect(secondResult.summary.dispatched).toBe(0);
