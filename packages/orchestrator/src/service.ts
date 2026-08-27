@@ -4968,9 +4968,9 @@ export class OrchestratorService {
   }
 
   private isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean {
-    // Programmatic service construction predates project-lock ownership. The
-    // CLI always injects an owner identity; retain the legacy behavior only
-    // for callers that have not opted into that lock contract.
+    // CLI entry points inject a process-scoped token even when they do not
+    // acquire a project lock. Programmatic callers without a token retain the
+    // legacy behavior because they cannot establish ownership safely.
     if (!this.ownerToken) {
       return false;
     }
