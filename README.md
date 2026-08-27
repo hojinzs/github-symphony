@@ -979,20 +979,19 @@ pnpm build
 
 ## Security posture
 
-GitHub Symphony treats the coding-agent runtime and its workspace as a separate
-trust boundary. Tracker credentials are held by the Symphony host or a
-host-side credential broker; agents receive tool schemas and results, not raw
-tracker tokens. Provider-native tools are scoped to the selected adapter and
-the current normalized issue. Deployments should still use least-privilege
-credentials, dedicated workspace permissions, loopback-only local services,
-and the runtime approval/sandbox policy appropriate for their environment.
+Today, GitHub Symphony is intended for trusted, operator-controlled
+environments: coding-agent children can receive tracker and broker credentials
+through their environment or generated MCP configuration. It is not suitable
+for untrusted agents until the host-side transport described in
+[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md) is deployed.
 
-Host-side tool transport is being introduced in phases. The current
-MCP-subprocess implementation is a documented divergence and is not suitable
-for untrusted agents until phase 1 removes raw tracker values from coding-agent
-environments and workspace configuration. See
-[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md) for the target
-posture, remaining divergence, and removal plan.
+By default, Codex uses `approval_policy: never` and the
+`danger-full-access` thread sandbox; Claude uses `bypassPermissions`.
+Operators can configure the Codex approval and sandbox settings, but must use
+least-privilege credentials, dedicated workspaces, and controls appropriate to
+their environment. The target transport keeps credentials in the Symphony host
+or a host-side broker, returns only bounded issue-aware tool results to agents,
+and uses loopback-only local services with scoped session capabilities.
 
 ## Community and security
 

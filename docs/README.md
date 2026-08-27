@@ -53,5 +53,3 @@ Architecture documentation scoped to a single package lives in that package's
 
 See the [adr/](adr/) directory for the ADR list. When a newer decision replaces
 an older one, they are linked via the `Supersedes` header.
-
-- [2026-08-28 Agent Tool Isolation](adr/2026-08-28_agent-tool-isolation.md) — Accepted; host-side provider-native tool execution, runtime transports, and the temporary MCP-subprocess divergence.

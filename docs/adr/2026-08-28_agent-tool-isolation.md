@@ -36,36 +36,49 @@ available only to the host process or a host-owned broker.
 
 ### Phase 1 — remove tracker secrets from the child boundary (#672)
 
-Every tracker adapter will declare `secretEnvironmentNames()`. Local and
-remote launchers will remove those names from coding-agent child environments;
-the Codex and Claude runtime paths must not add them back. Generated Claude
-`mcp.json` must contain no literal tracker credential.
+Every tracker adapter will declare `secretEnvironmentNames()`. The declaration
+must cover raw tracker credentials, broker credentials that can exchange for a
+tracker token, and the source names of supported environment indirections (for
+example, `$MY_LINEAR_SECRET`). Configuration parsing must preserve those source
+names as secret metadata rather than only their resolved values. Local and
+remote launchers will remove every declared name from coding-agent child
+environments; the Codex and Claude runtime paths must not add them back.
+Generated Claude `mcp.json` must contain no literal tracker or broker
+credential.
 
 This phase is deliberately a security-boundary prerequisite, not completion of
-host-side execution. Where a legacy MCP subprocess still needs a credential to
-function, the host supplies it over a non-environment, non-workspace channel
-such as inherited stdin or a file descriptor. That short-lived compatibility
-path remains a documented divergence until phase 2, because the agent still
-initiates the MCP subprocess rather than receiving host-executed tool results.
+host-side execution. A legacy MCP subprocess started by the coding agent has no
+safe credential channel: its stdio is the JSON-RPC transport, and any inherited
+descriptor would be readable by the untrusted parent. Phase 1 therefore disables
+provider-native MCP tool exposure for a runtime once its raw credential is
+removed, rather than passing a credential through the agent. It preserves
+non-agent host-side tracker operations, but agent tool access returns only in
+phase 2. This temporary loss of agent tool availability is the documented
+MCP-subprocess divergence until the host-owned transport ships.
 
 ### Phase 2 — execute tools at the host boundary (#673)
 
-The worker executes the selected adapter's tool implementation with its
+The worker executes the selected adapter's bounded tool implementation with its
 configured adapter credential and a normalized, internal tool context:
 
 ```ts
-{
+type TrackerToolContext = {
   issue: {
-    (id, identifier, nativeRef);
-  }
-}
+    id: string;
+    identifier: string;
+    nativeRef: unknown;
+  };
+};
 ```
 
 `nativeRef` remains opaque to the scheduler and is used only by the adapter to
-narrow provider scope. Tool names, input schemas, mutation capability, scope
-constraints, result/error shape, and rate-limit behavior are published per
-adapter. A session snapshots the selected adapter's tool specifications at
-startup, so a configuration reload cannot change an in-flight session.
+narrow provider scope. The host must enforce that context in bounded,
+issue-aware operations; moving the existing arbitrary GraphQL forwarding paths
+host-side alone is not sufficient. Tool names, input schemas, mutation
+capability, scope constraints, result/error shape, and rate-limit behavior are
+published per adapter. A session snapshots the selected adapter's tool
+specifications at startup, so a configuration reload cannot change an
+in-flight session.
 
 #### Codex transport
 
@@ -138,8 +151,8 @@ remote workers. In both cases, the agent receives neither `LINEAR_API_KEY` nor
 Keeping the present subprocess model is convenient because both runtimes
 already compose MCP commands. It was rejected as the permanent architecture:
 
-- it leaves a §10.5/§15.3 MUST violation even if `mcp.json` no longer contains
-  a literal secret;
+- it leaves the unconditional §15.3 host-execution MUST unmet even if
+  `mcp.json` no longer contains a literal secret;
 - a child-started process makes credential inheritance and disk exposure harder
   to audit and reliably prevent;
 - Linear has no equivalent broker today, so a raw credential would remain
@@ -158,8 +171,8 @@ tracked as a divergence, not an alternative architecture.
   execution semantics remain the same.
 - Host lifecycle code owns session capability generation, loopback server
   teardown, structured tool failures, and tool-call observability.
-- Existing MCP subprocess behavior remains only for the bounded phase-1 bridge
-  and must be removed by #673.
+- Phase 1 temporarily removes agent access to provider-native MCP tools; #673
+  restores that access through the host-owned transport.
 
 ## Upstream conformance and divergence
 
@@ -167,29 +180,13 @@ The target architecture conforms to the upstream tool, secret-handling, and
 scope-narrowing requirements. `docs/symphony-spec.md` remains unchanged.
 
 Until #673 ships, the current agent-started MCP subprocess model is an
-intentional, documented repository-local divergence. #672 reduces exposure by
-removing raw tracker values from coding-agent environments and `mcp.json`, but
-does not claim that the subprocess arrangement itself is conformant. #673 is
-the conformance-closing implementation.
+intentional, documented repository-local divergence. #672 removes raw tracker
+and broker values from coding-agent environments and `mcp.json` and disables
+the agent-owned MCP path; it does not claim that the subprocess arrangement is
+conformant. #673 is the conformance-closing implementation.
 
 ## README security-posture draft for #675
 
-The following text is the proposed README section required by §15.1; #675 owns
-final wording and placement coordination:
-
-> ### Security posture
->
-> GitHub Symphony treats the coding-agent runtime and its workspace as a
-> separate trust boundary. Tracker credentials are held by the Symphony host or
-> a host-side credential broker; agents receive tool schemas and results, not
-> raw tracker tokens. Provider-native tools are scoped to the selected adapter
-> and the current normalized issue. Deployments should still use least-privilege
-> credentials, dedicated workspace permissions, loopback-only local services,
-> and the runtime approval/sandbox policy appropriate for their environment.
->
-> The host-side tool transport is being introduced in phases. The current
-> MCP-subprocess implementation is a documented divergence and is not suitable
-> for untrusted agents until phase 1 removes raw tracker values from
-> coding-agent environments and workspace configuration. Operators should track
-> the remaining divergence in this ADR until the host-side transport is
-> deployed.
+The §15.1 posture text now lives in [README.md](../../README.md#security-posture)
+so it has one authoritative copy. #675 owns final wording and placement
+coordination.
