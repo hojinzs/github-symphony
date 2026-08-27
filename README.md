@@ -391,7 +391,7 @@ cd <projectDir> && gh-symphony project start   # Start the project in this folde
 gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
 gh-symphony project status                     # Status for the project in this folder
 gh-symphony project stop                       # Stop its daemon
-gh-symphony project list                       # List projects started on this host, as JSON
+gh-symphony project list                       # List cached standalone projects (with live instance metadata when available)
 gh-symphony instances --json                    # List active repository and standalone instances
 ```
 

@@ -59,6 +59,9 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   releaseProjectLock: orchestratorMocks.releaseProjectLock,
   createStore: vi.fn(() => ({ kind: "store" })),
   getProcessIdentity: vi.fn((pid: number) => `process-${pid}`),
+  isProcessRunning: vi.fn(() => true),
+  resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
+    join(runtimeRoot, "projects", projectId, ".lock"),
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
@@ -181,7 +184,13 @@ beforeEach(() => {
   promptMocks.confirm.mockReset();
   promptMocks.confirm.mockResolvedValue(true);
   childProcessMocks.spawn.mockClear();
-  childProcessMocks.spawn.mockImplementation(() => createSpawnedChild(2468));
+  childProcessMocks.spawn.mockImplementation((_command, _args, options) =>
+    createSpawnedChild(
+      2468,
+      (options?.env as NodeJS.ProcessEnv | undefined)
+        ?.GH_SYMPHONY_DAEMON_READY_PATH
+    )
+  );
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = HTTP_API_TOKEN;
@@ -189,7 +198,10 @@ beforeEach(() => {
   serviceProjectConfigs.length = 0;
 });
 
-function createSpawnedChild(pid: number): EventEmitter & {
+function createSpawnedChild(
+  pid: number,
+  readyPath?: string
+): EventEmitter & {
   pid: number;
   unref: ReturnType<typeof vi.fn>;
   kill: ReturnType<typeof vi.fn>;
@@ -199,7 +211,10 @@ function createSpawnedChild(pid: number): EventEmitter & {
     unref: vi.fn(),
     kill: vi.fn(),
   });
-  queueMicrotask(() => child.emit("spawn"));
+  queueMicrotask(async () => {
+    if (readyPath) await writeFile(readyPath, `${pid}\n`);
+    child.emit("spawn");
+  });
   return child;
 }
 
@@ -902,6 +917,25 @@ describe("start command foreground locking", () => {
     expect(child?.unref).not.toHaveBeenCalled();
   });
 
+  it("does not write a PID file until the daemon child acquires its lock", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    childProcessMocks.spawn.mockImplementation(() => {
+      const child = createSpawnedChild(2468);
+      queueMicrotask(() => child.emit("exit", 1, null));
+      return child;
+    });
+
+    await expect(
+      startModule.default(["--daemon"], baseOptions(configDir))
+    ).rejects.toThrow("Daemon exited before acquiring the project lock");
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("tails completed worker logs from the flat runtime run path", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -1280,7 +1314,7 @@ describe("start command foreground locking", () => {
         baseOptions(configDir)
       );
 
-      await waitForHttpUrl(stdout.output);
+      const url = await waitForHttpUrl(stdout.output);
       const unauthenticated = await fetch(`${url}/api/v1/state`);
       expect(unauthenticated.status).toBe(401);
       await expect(unauthenticated.json()).resolves.toEqual({
