@@ -12423,7 +12423,6 @@ Handle Linear issue.`,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
       killImpl,
       isProcessRunning: vi.fn().mockReturnValue(true),
-      ownerInstanceId: "owner-a",
     });
     service.setOwnerToken("owner-a");
     expect(await store.loadRun("run-1")).toMatchObject({
