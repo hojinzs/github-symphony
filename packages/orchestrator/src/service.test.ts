@@ -628,7 +628,7 @@ describe("OrchestratorService", () => {
       status: "failed",
       nextRetryAt: null,
       retryKind: null,
-      lastError: expect.stringContaining("restart worker spawn failed"),
+      lastError: "Superseded by recovered run.",
     });
     expect(spawnImpl).toHaveBeenCalledTimes(2);
     expect(issueRecords).toEqual(
