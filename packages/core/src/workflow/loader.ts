@@ -9,6 +9,7 @@ type WorkflowCacheEntry = {
   fingerprint: string;
   envSignature: string;
   workflow: ParsedWorkflow;
+  revision: string;
   loadedAt: string;
 };
 
@@ -44,7 +45,7 @@ export class WorkflowConfigStore {
       cached.envSignature === envSignature
     ) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
-        revision: createWorkflowRevision(cached.workflow),
+        revision: cached.revision,
         loadedAt: cached.loadedAt,
         isValid: true,
         usedLastKnownGood: false,
@@ -54,15 +55,17 @@ export class WorkflowConfigStore {
 
     try {
       const workflow = parseWorkflowMarkdown(markdown, env);
+      const revision = createWorkflowRevision(workflow);
       const loadedAt = new Date().toISOString();
       this.cache.set(workflowPath, {
         fingerprint,
         envSignature,
         workflow,
+        revision,
         loadedAt,
       });
       return toWorkflowResolution(workflowPath, workflow, {
-        revision: createWorkflowRevision(workflow),
+        revision,
         loadedAt,
         isValid: true,
         usedLastKnownGood: false,
@@ -71,7 +74,7 @@ export class WorkflowConfigStore {
     } catch (error) {
       if (cached) {
         return toWorkflowResolution(workflowPath, cached.workflow, {
-          revision: createWorkflowRevision(cached.workflow),
+          revision: cached.revision,
           loadedAt: cached.loadedAt,
           isValid: false,
           usedLastKnownGood: true,

@@ -949,6 +949,13 @@ Broken prompt.
     expect(first.revision).not.toContain("Prefer focused changes.");
     expect(second.revision).toBe(first.revision);
     expect(second.loadedAt).toBe(first.loadedAt);
+    expect(
+      (
+        store as unknown as {
+          cache: Map<string, { revision: string }>;
+        }
+      ).cache.get(workflowPath)?.revision
+    ).toBe(first.revision);
   });
 
   it("changes the revision when environment resolution changes", async () => {
