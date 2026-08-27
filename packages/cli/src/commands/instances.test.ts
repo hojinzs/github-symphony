@@ -45,6 +45,7 @@ describe("instances command", () => {
     expect(write).toHaveBeenCalledWith(
       expect.stringContaining("implementation")
     );
+    expect(write).toHaveBeenCalledWith(expect.stringContaining("0s"));
   });
 
   it("emits the complete listing with --json", async () => {

@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   mkdir,
+  open,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -83,6 +86,7 @@ export async function unregisterInstance(
   entry: Pick<InstanceEntry, "runtimeRoot" | "projectId">
 ): Promise<void> {
   await rm(pathFor(entry), { force: true });
+  await forgetRuntimeRootIfInactive(entry.runtimeRoot);
 }
 
 export async function findLiveDuplicate(
@@ -174,15 +178,17 @@ export async function listInstances(
       pidRecord && !identityMatches(pidRecord.processIdentity, pidRecord.pid)
     );
     const phase = await readCurrentPhase(entry.runtimeRoot, entry.projectId);
+    const status = !running
+      ? "stale-registry"
+      : stalePidfile
+        ? "stale-pidfile"
+        : "running";
     output.push({
       ...entry,
-      phase,
-      status: !running
-        ? "stale-registry"
-        : stalePidfile
-          ? "stale-pidfile"
-          : "running",
-      uptimeMs: Math.max(0, now - Date.parse(entry.startedAt)),
+      phase: status === "stale-registry" ? null : phase,
+      ...(status === "stale-registry" ? { endpoint: undefined } : {}),
+      status,
+      uptimeMs: uptimeMs(entry.startedAt, now, status === "stale-registry"),
     });
   }
   output.push(...(await discoverUnregistered(registeredKeys, now)));
@@ -196,29 +202,107 @@ function instanceKey(
 }
 
 async function rememberRuntimeRoot(runtimeRoot: string): Promise<void> {
-  const path = join(instancesRoot(), RUNTIME_ROOTS_FILE);
-  const existing = await readJson(path).catch(() => []);
-  const roots = Array.isArray(existing)
+  await withRuntimeRootsLock(async () => {
+    const roots = await readRuntimeRoots();
+    const resolvedRoot = resolve(runtimeRoot);
+    if (!roots.includes(resolvedRoot)) {
+      await writeRuntimeRoots([...roots, resolvedRoot]);
+    }
+  });
+}
+
+async function forgetRuntimeRootIfInactive(runtimeRoot: string): Promise<void> {
+  const resolvedRoot = resolve(runtimeRoot);
+  await withRuntimeRootsLock(async () => {
+    if (await runtimeRootIsActive(resolvedRoot)) return;
+    const roots = await readRuntimeRoots();
+    await writeRuntimeRoots(roots.filter((root) => root !== resolvedRoot));
+  });
+}
+
+async function runtimeRootIsActive(runtimeRoot: string): Promise<boolean> {
+  const names = await readdir(instancesRoot()).catch(() => []);
+  for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    if (name === RUNTIME_ROOTS_FILE) continue;
+    const entry = await readJson(join(instancesRoot(), name)).catch(() => null);
+    if (isInstanceEntry(entry) && resolve(entry.runtimeRoot) === runtimeRoot) {
+      return true;
+    }
+  }
+  const projectIds = await readdir(join(runtimeRoot, "projects")).catch(
+    () => []
+  );
+  return (await Promise.all(
+    projectIds.map(async (projectId) => {
+      const lock = (await readJson(
+        resolveProjectLockPath(runtimeRoot, projectId)
+      ).catch(() => null)) as { pid?: unknown; heartbeatAt?: unknown; processIdentity?: unknown } | null;
+      return Boolean(
+        lock &&
+          typeof lock.pid === "number" &&
+          isFresh(
+            typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null,
+            Date.now()
+          ) &&
+          identityMatches(
+            typeof lock.processIdentity === "string"
+              ? lock.processIdentity
+              : null,
+            lock.pid
+          )
+      );
+    })
+  )).some(Boolean);
+}
+
+function runtimeRootsPath(): string {
+  return join(instancesRoot(), RUNTIME_ROOTS_FILE);
+}
+
+async function readRuntimeRoots(): Promise<string[]> {
+  const existing = await readJson(runtimeRootsPath()).catch(() => []);
+  return Array.isArray(existing)
     ? existing.filter((value): value is string => typeof value === "string")
     : [];
-  const resolvedRoot = resolve(runtimeRoot);
-  if (!roots.includes(resolvedRoot)) {
-    await writeFile(
-      path,
-      JSON.stringify([...roots, resolvedRoot], null, 2) + "\n",
-      { mode: FILE_MODE }
-    );
+}
+
+async function writeRuntimeRoots(roots: string[]): Promise<void> {
+  const path = runtimeRootsPath();
+  const temporaryPath = join(
+    instancesRoot(),
+    `.${RUNTIME_ROOTS_FILE}.${process.pid}.${randomUUID()}.tmp`
+  );
+  await writeFile(temporaryPath, JSON.stringify(roots, null, 2) + "\n", {
+    mode: FILE_MODE,
+  });
+  await rename(temporaryPath, path);
+}
+
+async function withRuntimeRootsLock<T>(operation: () => Promise<T>): Promise<T> {
+  await ensureInstancesRoot();
+  const lockPath = join(instancesRoot(), `.${RUNTIME_ROOTS_FILE}.lock`);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx", FILE_MODE);
+      try {
+        return await operation();
+      } finally {
+        await handle.close();
+        await rm(lockPath, { force: true });
+      }
+    } catch (error) {
+      if (!isAlreadyExists(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
   }
+  throw new Error("Timed out waiting to update the instance runtime-root index.");
 }
 
 async function discoverUnregistered(
   registeredKeys: Set<string>,
   now: number
 ): Promise<ListedInstance[]> {
-  const roots = await readJson(join(instancesRoot(), RUNTIME_ROOTS_FILE)).catch(
-    () => []
-  );
-  if (!Array.isArray(roots)) return [];
+  const roots = await readRuntimeRoots();
   const discovered: ListedInstance[] = [];
   for (const runtimeRoot of roots.filter(
     (value): value is string => typeof value === "string"
@@ -286,11 +370,17 @@ async function discoverUnregistered(
         standalone: config?.workflowSource?.type === "external",
         phase: await readCurrentPhase(runtimeRoot, projectId),
         status: "unregistered",
-        uptimeMs: Math.max(0, now - Date.parse(lock.startedAt)),
+        uptimeMs: uptimeMs(lock.startedAt, now),
       });
     }
   }
   return discovered;
+}
+
+function uptimeMs(startedAt: string, now: number, stale = false): number {
+  if (stale) return 0;
+  const started = Date.parse(startedAt);
+  return Number.isFinite(started) ? Math.max(0, now - started) : 0;
 }
 
 async function readCurrentPhase(
@@ -318,6 +408,15 @@ function isMissing(error: unknown): boolean {
     "code" in error &&
     ((error as { code?: string }).code === "ENOENT" ||
       (error as { code?: string }).code === "ENOTDIR")
+  );
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "EEXIST"
   );
 }
 

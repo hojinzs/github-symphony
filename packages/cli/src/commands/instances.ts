@@ -53,7 +53,10 @@ export default async function instancesCommand(
 
 function formatUptime(uptimeMs: number): string {
   const seconds = Math.floor(uptimeMs / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  const days = Math.floor(seconds / 86_400);
   const hours = Math.floor(seconds / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days}d ${Math.floor((seconds % 86_400) / 3_600)}h`;
   return `${hours}h ${minutes}m`;
 }

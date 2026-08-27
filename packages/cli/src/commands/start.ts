@@ -285,6 +285,7 @@ const DEFAULT_HTTP_PORT = 4680;
 const DEFAULT_HTTP_HOST = "127.0.0.1";
 const BIND_ALL_HTTP_HOST = "0.0.0.0";
 const HTTP_API_TOKEN_ENV = "GH_SYMPHONY_HTTP_TOKEN";
+const DAEMON_LOCK_WAIT_MS = 10_000;
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
@@ -1233,8 +1234,8 @@ const handler = async (
       }
     }
   } finally {
-    if (instance) await unregisterInstance(instance);
     await releaseProjectLock(projectLock);
+    if (instance) await unregisterInstance(instance);
   }
 };
 
@@ -1420,6 +1421,7 @@ async function waitForChildLock(
       child.off("error", onError);
       child.off("exit", onExit);
       clearInterval(timer);
+      clearTimeout(timeout);
     };
     const onError = (error: Error) => {
       cleanup();
@@ -1433,6 +1435,14 @@ async function waitForChildLock(
         )
       );
     };
+    const onTimeout = () => {
+      cleanup();
+      reject(
+        new Error(
+          "Daemon did not acquire the project lock within 10 seconds. See the daemon log for its startup error."
+        )
+      );
+    };
     const timer = setInterval(() => {
       readFile(readyPath, "utf8")
         .then((value) => {
@@ -1443,6 +1453,7 @@ async function waitForChildLock(
         })
         .catch(() => undefined);
     }, 20);
+    const timeout = setTimeout(onTimeout, DAEMON_LOCK_WAIT_MS);
     child.once("error", onError);
     child.once("exit", onExit);
   });

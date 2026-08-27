@@ -124,6 +124,7 @@ const githubClient = await import("../github/client.js");
 const originalGithubToken = process.env.GITHUB_GRAPHQL_TOKEN;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
 const originalHttpApiToken = process.env.GH_SYMPHONY_HTTP_TOKEN;
+const originalInstancesDir = process.env.GH_SYMPHONY_INSTANCES_DIR;
 
 beforeEach(() => {
   acquireProjectLock.mockReset();
@@ -194,6 +195,10 @@ beforeEach(() => {
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = HTTP_API_TOKEN;
+  process.env.GH_SYMPHONY_INSTANCES_DIR = join(
+    tmpdir(),
+    `cli-start-instances-${process.pid}-${Date.now()}`
+  );
   serviceDependencies.length = 0;
   serviceProjectConfigs.length = 0;
 });
@@ -224,6 +229,7 @@ afterEach(() => {
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = originalHttpApiToken;
+  process.env.GH_SYMPHONY_INSTANCES_DIR = originalInstancesDir;
 });
 
 function forceTty(value: boolean): () => void {
