@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  buildIssueIdentityHeader,
   classifySessionExit,
   DEFAULT_AGENT_INPUT_REQUIRED_REASON,
   parseWorkflowMarkdown,
@@ -55,7 +54,7 @@ import {
   shouldExposeLinearGraphQLTool,
   resolveWorkerRuntimeRoute,
 } from "./runtime-routing.js";
-import { buildContinuationTurnInput } from "./thread-resume.js";
+import { buildCodexTurnInput } from "./codex-turn-input.js";
 import { runWorkerIdentityPreflight } from "./identity-preflight.js";
 import {
   findCwdBoundaryViolation,
@@ -73,6 +72,12 @@ import {
   updateRefreshFailureCount,
 } from "./turn-lease.js";
 import { persistTokenUsageArtifact, type TokenUsage } from "./token-usage.js";
+import {
+  createCodexProtocolExitError,
+  createCodexProtocolFailureGate,
+  createCodexProtocolLineFramer,
+  createCodexProtocolProcessError,
+} from "./codex-protocol-guard.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -168,8 +173,6 @@ let orchestratorHeartbeatTimer: NodeJS.Timeout | null = null;
 const MAX_PENDING_ORCHESTRATOR_CHANNEL_PAYLOADS = 16;
 const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
 const ORCHESTRATOR_CHANNEL_HEARTBEAT_INTERVAL_MS = 10_000;
-const MAX_CODEX_PROTOCOL_LINE_BYTES = 10 * 1024 * 1024;
-
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
   issueTitleValue: string | undefined
@@ -1059,10 +1062,6 @@ async function runCodexClientProtocol(
   // Pipe codex stderr to our stderr for observability
   child.stderr?.pipe(process.stderr);
 
-  // Buffer to accumulate incomplete lines from codex stdout
-  let lineBuffer = "";
-  let protocolFailure: Error | null = null;
-
   // Accumulate streaming delta events so they log as a single line
   let deltaBuffer: { itemId: string; text: string } | null = null;
 
@@ -1162,16 +1161,25 @@ async function runCodexClientProtocol(
     pendingRequests.clear();
   }
 
+  const protocolFailureGate = createCodexProtocolFailureGate({
+    onFailure(error) {
+      rejectPendingRequests(error);
+      markTurnTerminalFailure("failed", error.message);
+    },
+    terminate() {
+      child.kill("SIGTERM");
+    },
+  });
+
   function failProtocol(error: Error): void {
-    if (protocolFailure) {
-      return;
-    }
-    protocolFailure = error;
-    rejectPendingRequests(error);
-    markTurnTerminalFailure("failed", error.message);
+    protocolFailureGate.fail(error);
   }
 
   function sendMessage(msg: Record<string, unknown>): void {
+    const failure = protocolFailureGate.failure();
+    if (failure) {
+      throw failure;
+    }
     const line = JSON.stringify(msg) + "\n";
     child.stdin?.write(line);
   }
@@ -1181,6 +1189,10 @@ async function runCodexClientProtocol(
     method: string,
     params: Record<string, unknown>
   ): Promise<unknown> {
+    const failure = protocolFailureGate.failure();
+    if (failure) {
+      return Promise.reject(failure);
+    }
     return new Promise((resolve, reject) => {
       pendingRequests.set(id, { resolve, reject });
       sendMessage({ jsonrpc: "2.0", id, method, params });
@@ -1548,63 +1560,34 @@ async function runCodexClientProtocol(
     }
   }
 
-  // Wire up line-delimited JSON parsing from codex stdout
+  // Wire up line-delimited JSON parsing from codex stdout.
+  const frameCodexStdout = createCodexProtocolLineFramer({
+    onMessage: handleServerMessage,
+    onNonJson: (line) => {
+      process.stderr.write(`[worker] codex stdout (non-JSON): ${line}\n`);
+    },
+    onFailure: failProtocol,
+  });
   child.stdout.on("data", (chunk: Buffer) => {
-    if (protocolFailure) {
-      return;
-    }
-    lineBuffer += chunk.toString("utf8");
-    const lines = lineBuffer.split("\n");
-    lineBuffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (Buffer.byteLength(line, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-        failProtocol(
-          new Error(
-            `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
-          )
-        );
-        return;
-      }
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const msg = JSON.parse(trimmed) as Record<string, unknown>;
-        handleServerMessage(msg);
-      } catch {
-        // Non-JSON output from codex (e.g. startup logs); ignore
-        process.stderr.write(`[worker] codex stdout (non-JSON): ${trimmed}\n`);
-      }
-    }
-
-    if (Buffer.byteLength(lineBuffer, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
-      failProtocol(
-        new Error(
-          `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
-        )
-      );
+    if (!protocolFailureGate.failure()) {
+      frameCodexStdout(chunk);
     }
   });
 
   child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-    const error = new Error(
-      `port_exit: codex app-server exited with ${signal ?? code ?? "unknown"}`
-    );
-    process.stderr.write(`[worker] ${error.message}\n`);
-    rejectPendingRequests(error);
-    if (runtimeState.runPhase === "streaming_turn") {
-      failProtocol(error);
+    if (runtimeState.runPhase === "finishing" || runtimeState.runPhase === "succeeded") {
+      return;
     }
+    const error = createCodexProtocolExitError(code, signal);
+    process.stderr.write(`[worker] ${error.message}\n`);
+    failProtocol(error);
   });
 
   child.on("error", (cause: Error) => {
-    const error = new Error(
-      (cause as NodeJS.ErrnoException).code === "ENOENT"
-        ? `codex_not_found: ${cause.message}`
-        : `port_exit: ${cause.message}`
-    );
-    rejectPendingRequests(error);
-    failProtocol(error);
+    failProtocol(createCodexProtocolProcessError(cause));
+  });
+  child.stdin.on("error", (cause: Error) => {
+    failProtocol(createCodexProtocolProcessError(cause));
   });
 
   try {
@@ -1746,19 +1729,14 @@ async function runCodexClientProtocol(
 
       // #507: continuation turns carry the engine-owned identity header so
       // the agent never loses its issue binding after the initial prompt.
-      const turnInput = isFirstTurn
-        ? renderedPrompt
-        : [
-            buildIssueIdentityHeader({
-              issueIdentifier: issueIdentifier || "the assigned issue",
-              issueTitle: env.SYMPHONY_ISSUE_TITLE ?? null,
-            }),
-            "",
-            buildContinuationTurnInput({
-              continuationGuidance,
-              cumulativeTurnCount: turn,
-            }),
-          ].join("\n");
+      const turnInput = buildCodexTurnInput({
+        isFirstTurn,
+        renderedPrompt,
+        issueIdentifier,
+        issueTitle: env.SYMPHONY_ISSUE_TITLE,
+        continuationGuidance,
+        cumulativeTurnCount: turn,
+      });
 
       process.stderr.write(
         `[worker] starting codex turn ${turnCount}/${maxTurns}${isFirstTurn ? " (initial)" : " (continuation)"}\n`
@@ -1990,7 +1968,8 @@ async function runCodexClientProtocol(
       }
     } else if (
       errMsg.startsWith("port_exit:") ||
-      errMsg.startsWith("protocol_error:")
+      errMsg.startsWith("response_error:") ||
+      errMsg.startsWith("codex_not_found:")
     ) {
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
