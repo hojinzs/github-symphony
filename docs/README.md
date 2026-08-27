@@ -21,7 +21,7 @@ header metadata rather than directories.
 
 ## Living documents
 
-- [symphony-spec.md](symphony-spec.md) — upstream Symphony spec (Draft v1). **Read-only, never modify**
+- [symphony-spec.md](symphony-spec.md) — upstream Symphony spec, synced verbatim from [openai/symphony `SPEC.md`](https://github.com/openai/symphony/blob/main/SPEC.md) @ `8001b52` (2026-08-12). **Read-only, never modify** — resync only via a dedicated PR
 - [architecture.md](architecture.md) — maps spec components (§3.1) and layers (§3.2) to packages. Organized as per-layer slices; PRs that move code across layers/packages update the matching slice
 - [configuration.md](configuration.md) — configuration and environment variable reference (env loading order, standalone projects, skill layering)
 
@@ -47,6 +47,7 @@ Architecture documentation scoped to a single package lives in that package's
 | [2026-06-25-spec-gap-analysis.md](reports/2026-06-25-spec-gap-analysis.md)                                       | Retired — living-map upkeep stopped, final snapshot |
 | [2026-07-06-risk-audit-report.md](reports/2026-07-06-risk-audit-report.md)                                       | Awaiting review (issues not filed)                  |
 | [2026-07-19-github-api-rate-limit-audit.md](reports/2026-07-19-github-api-rate-limit-audit.md)                   | Partially implemented (R1.5 shipped)                |
+| [2026-08-28-upstream-spec-drift-research.md](reports/2026-08-28-upstream-spec-drift-research.md)                 | Research complete — awaiting triage into issues     |
 
 ## adr/
 
