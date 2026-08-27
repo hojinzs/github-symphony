@@ -69,7 +69,10 @@ import {
 import { globalBareRepositoryDirectory } from "./repository-cache.js";
 import { excludeRuntimeSkillsFromGit, injectLayeredSkills } from "./skills.js";
 import { OrchestratorFsStore } from "./fs-store.js";
-import { getProcessStartIdentity } from "./lock.js";
+import {
+  getProcessStartIdentity,
+  isProcessRunning as isDirectProcessRunning,
+} from "./lock.js";
 import { PersistentIssueCommentCache } from "./issue-comment-cache.js";
 import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
@@ -1756,8 +1759,7 @@ export class OrchestratorService {
             continue;
           }
           if (
-            (await this.signalRunProcess(activeRun, "SIGTERM")) ===
-            "protected"
+            (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
           ) {
             continue;
           }
@@ -1828,55 +1830,53 @@ export class OrchestratorService {
         }
 
         if (
-          (await this.signalRunProcess(activeRun, "SIGTERM")) !== "signaled"
+          (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
         ) {
           continue;
         }
-        if (activeRun) {
-          const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
-          const terminalState =
-            !isArchivedProjectItem(issue) &&
-            issueLifecycle !== null &&
-            isStateTerminal(issue.state, issueLifecycle);
-          const recovery = terminalState
-            ? null
-            : await this.classifyIncompleteTurnDirtyWorkspace(
-                tenant,
-                activeRun,
-                now
-              );
-          const suppressedRun: OrchestratorRunRecord = {
-            ...activeRun,
-            status: "suppressed",
-            processId: null,
-            completedAt: now.toISOString(),
-            updatedAt: now.toISOString(),
-            runPhase: "canceled_by_reconciliation",
-            runtimeSession: recovery
-              ? buildRuntimeSession(
-                  activeRun.runtimeSession,
-                  recovery.sessionId,
-                  recovery.threadId,
-                  "completed",
-                  activeRun.runtimeSession?.startedAt ??
-                    activeRun.startedAt ??
-                    now.toISOString(),
+        const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
+        const terminalState =
+          !isArchivedProjectItem(issue) &&
+          issueLifecycle !== null &&
+          isStateTerminal(issue.state, issueLifecycle);
+        const recovery = terminalState
+          ? null
+          : await this.classifyIncompleteTurnDirtyWorkspace(
+              tenant,
+              activeRun,
+              now
+            );
+        const suppressedRun: OrchestratorRunRecord = {
+          ...activeRun,
+          status: "suppressed",
+          processId: null,
+          completedAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          runPhase: "canceled_by_reconciliation",
+          runtimeSession: recovery
+            ? buildRuntimeSession(
+                activeRun.runtimeSession,
+                recovery.sessionId,
+                recovery.threadId,
+                "completed",
+                activeRun.runtimeSession?.startedAt ??
+                  activeRun.startedAt ??
                   now.toISOString(),
-                  "incomplete-turn-dirty-workspace"
-                )
-              : activeRun.runtimeSession,
-            recovery,
-            lastError: recovery
-              ? "Run suppressed with recoverable incomplete-turn dirty workspace."
-              : terminalState
-                ? "Run suppressed because the tracker issue moved to a terminal state."
-                : "Run suppressed because the tracker state is no longer actionable.",
-          };
-          await this.store.saveRun(suppressedRun);
-          this.logVerbose(
-            `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
-          );
-        }
+                now.toISOString(),
+                "incomplete-turn-dirty-workspace"
+              )
+            : activeRun.runtimeSession,
+          recovery,
+          lastError: recovery
+            ? "Run suppressed with recoverable incomplete-turn dirty workspace."
+            : terminalState
+              ? "Run suppressed because the tracker issue moved to a terminal state."
+              : "Run suppressed because the tracker state is no longer actionable.",
+        };
+        await this.store.saveRun(suppressedRun);
+        this.logVerbose(
+          `[run-completed] ${suppressedRun.runId} status=${suppressedRun.status}`
+        );
         issueRecords = await this.releaseRunIssueOrchestration(
           issueRecords,
           activeRun,
@@ -4985,12 +4985,7 @@ export class OrchestratorService {
     if (this.dependencies.isOwnerProcessRunning) {
       return this.dependencies.isOwnerProcessRunning(processId);
     }
-    try {
-      process.kill(processId, 0);
-      return true;
-    } catch {
-      return false;
-    }
+    return isDirectProcessRunning(processId);
   }
 
   private async recordOwnershipSkip(

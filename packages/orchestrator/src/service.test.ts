@@ -482,29 +482,63 @@ describe("OrchestratorService", () => {
 
   it("queues a non-exhausted restart failure with backoff", async () => {
     const now = new Date("2026-03-08T00:00:00.000Z");
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-restart-backoff-"));
-    const repository = await createRepositoryFixture(tempRoot, "acme", "platform", {
-      maxFailureRetries: 3,
-      retryBaseDelayMs: 1000,
-      retryMaxDelayMs: 1000,
-    });
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-restart-backoff-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      {
+        maxFailureRetries: 3,
+        retryBaseDelayMs: 1000,
+        retryMaxDelayMs: 1000,
+      }
+    );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     const run = {
-      runId: "run-retry", projectId: "tenant-1", projectSlug: "tenant-1",
-      issueId: "retry-issue", issueSubjectId: "retry-issue", issueIdentifier: "acme/platform#1",
-      issueState: "Todo", repository, status: "retrying", attempt: 2, processId: null,
-      port: 4601, workingDirectory: tempRoot, issueWorkspaceKey: "retry-issue",
-      workspaceRuntimeDir: tempRoot, workflowPath: null, retryKind: "failure",
-      createdAt: now.toISOString(), updatedAt: now.toISOString(), startedAt: now.toISOString(),
-      completedAt: null, lastError: "Worker process exited unexpectedly.", nextRetryAt: now.toISOString(),
-    } as OrchestratorRunRecord;
-    const issueRecords = [{
-      issueId: "retry-issue", identifier: "acme/platform#1", workspaceKey: "retry-issue",
-      completedOnce: false, failureRetryCount: 1, state: "running" as const,
-      currentRunId: run.runId, retryEntry: { attempt: 2, dueAt: now.toISOString(), error: run.lastError },
+      runId: "run-retry",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "retry-issue",
+      issueSubjectId: "retry-issue",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "retry-issue",
+      workspaceRuntimeDir: tempRoot,
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-    }];
+      startedAt: now.toISOString(),
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: now.toISOString(),
+    } as OrchestratorRunRecord;
+    const issueRecords = [
+      {
+        issueId: "retry-issue",
+        identifier: "acme/platform#1",
+        workspaceKey: "retry-issue",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "running" as const,
+        currentRunId: run.runId,
+        retryEntry: {
+          attempt: 2,
+          dueAt: now.toISOString(),
+          error: run.lastError,
+        },
+        updatedAt: now.toISOString(),
+      },
+    ];
     await store.saveProjectIssueOrchestrations("tenant-1", issueRecords);
     vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
       reviveIssue: vi.fn().mockReturnValue({}),
@@ -518,16 +552,26 @@ describe("OrchestratorService", () => {
     );
 
     const outcome = await (service as never).restartRun(
-      projectConfig, run, issueRecords, now
+      projectConfig,
+      run,
+      issueRecords,
+      now
     );
 
     expect(outcome.recovered).toBe(false);
-    expect(outcome.issueRecords).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        issueId: "retry-issue", state: "retry_queued", failureRetryCount: 2,
-        retryEntry: expect.objectContaining({ attempt: 3, dueAt: "2026-03-08T00:00:01.000Z" }),
-      }),
-    ]));
+    expect(outcome.issueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "retry-issue",
+          state: "retry_queued",
+          failureRetryCount: 2,
+          retryEntry: expect.objectContaining({
+            attempt: 3,
+            dueAt: "2026-03-08T00:00:01.000Z",
+          }),
+        }),
+      ])
+    );
   });
 
   it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
@@ -5095,7 +5139,7 @@ Prefer focused changes.
     });
   });
 
-  it("releases due retrying runs when a Todo issue becomes blocked before restart", async () => {
+  it("releases a non-running retrying run when its issue becomes non-actionable", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-retry-blocked-release-")
@@ -8675,9 +8719,7 @@ Prefer focused changes.
     expect(updatedRun?.status).toBe("running");
     expect(updatedRun?.nextRetryAt).toBeNull();
     expect(updatedRun?.retryKind).toBeNull();
-    expect(
-      await store.loadRecentRunEvents("run-1", 10, "tenant-1")
-    ).toEqual(
+    expect(await store.loadRecentRunEvents("run-1", 10, "tenant-1")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           event: "run-ownership-skipped",
