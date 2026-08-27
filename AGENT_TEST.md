@@ -406,6 +406,7 @@ idle → [inject issue + refresh]
 | `e2e/scenarios/16-planning-phase-prompt.md`               | Verify normalized `planning_states` classification reaches the dispatched prompt                                          |
 | `e2e/scenarios/16-repo-embedded-workspace-root.md`        | Verify repo-embedded issue workspaces use `workspace.root` while workspace records remain in orchestrator state           |
 | `e2e/scenarios/17-retry-prompt-attempt.md`                | Verify continuation retry attempt reset and prompt rendering are covered by the Docker lifecycle path and unit assertions |
+| `e2e/scenarios/18-dispatchable-eligibility.md`            | Verify non-dispatchable tracker records do not start workers while retaining an explainable reason                         |
 
 ## TC Writing Guide
 
