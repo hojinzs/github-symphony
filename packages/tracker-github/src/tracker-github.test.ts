@@ -4804,6 +4804,11 @@ describe("resolveTrackerAdapter", () => {
         tracker: {
           adapter: "github-project",
           bindingId: "project-123",
+          priority: {
+            source: "project-field",
+            field: "Priority",
+            values: { High: 1 },
+          },
           settings: {
             projectId: "project-123",
           },
@@ -4828,9 +4833,9 @@ describe("resolveTrackerAdapter", () => {
           expect(body.query).toContain("isArchived");
           expect(body.query).toContain("... on Issue");
           expect(body.query).toContain("... on PullRequest");
-          expect(body.query).not.toContain("blockedBy(");
-          expect(body.query).not.toContain("labels(");
-          expect(body.query).not.toContain("assignees(");
+          expect(body.query).toContain("blockedBy(first: 100)");
+          expect(body.query).toContain("labels(first: 20)");
+          expect(body.query).toContain("assignees(first: 20)");
           expect(body.variables.issueIds).toEqual(["issue-1", "issue-2"]);
 
           return new Response(
@@ -4844,6 +4849,22 @@ describe("resolveTrackerAdapter", () => {
                     number: 1,
                     title: "First issue",
                     state: "In Progress",
+                    body: "Refresh the normalized snapshot.",
+                    labels: ["routable", "priority-high"],
+                    assignees: ["octocat"],
+                    priorityName: "High",
+                    priorityOptionId: "priority-high",
+                    blockedBy: [
+                      {
+                        id: "issue-9",
+                        number: 9,
+                        state: "OPEN",
+                        repository: {
+                          name: "dependencies",
+                          owner: { login: "acme" },
+                        },
+                      },
+                    ],
                   }),
                   makeIssueStateLookupNode({
                     projectId: "project-123",
@@ -4871,6 +4892,24 @@ describe("resolveTrackerAdapter", () => {
       "acme/platform#2",
     ]);
     expect(issues.map((issue) => issue.state)).toEqual(["In Progress", "Done"]);
+    expect(issues[0]).toMatchObject({
+      title: "First issue",
+      description: "Refresh the normalized snapshot.",
+      priority: 1,
+      labels: ["priority-high", "routable"],
+      blockedBy: [
+        {
+          id: "issue-9",
+          identifier: "acme/dependencies#9",
+          state: null,
+        },
+      ],
+      createdAt: "2026-03-13T00:00:00.000Z",
+      updatedAt: "2026-03-14T00:00:00.000Z",
+      metadata: {
+        assignees: ["octocat"],
+      },
+    });
   });
 
   it("returns archived issue states explicitly from the by-id lookup", async () => {
@@ -4987,7 +5026,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issues[0]?.tracker.itemId).toBe("item-pr-1");
   });
 
-  it("fails loudly when refreshed Project metadata omits the state field", async () => {
+  it("fails loudly when a refreshed Project item omits the state field", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
       bindingId: "project-123",
@@ -5792,6 +5831,17 @@ function makeIssueStateLookupNode(input: {
   number: number;
   title: string;
   state: string;
+  body?: string | null;
+  labels?: string[];
+  assignees?: string[];
+  blockedBy?: Array<{
+    id: string;
+    number: number;
+    state: string | null;
+    repository: { name: string; owner: { login: string } };
+  }>;
+  priorityName?: string;
+  priorityOptionId?: string;
   isArchived?: boolean;
   pageInfo?: {
     endCursor: string | null;
@@ -5802,7 +5852,25 @@ function makeIssueStateLookupNode(input: {
     __typename: "Issue" as const,
     id: input.issueId,
     number: input.number,
+    title: input.title,
+    body: input.body ?? null,
+    url: `https://github.com/acme/platform/issues/${input.number}`,
+    state: "OPEN",
+    createdAt: "2026-03-13T00:00:00.000Z",
     updatedAt: "2026-03-14T00:00:00.000Z",
+    labels: {
+      nodes: (input.labels ?? []).map((name) => ({ name })),
+    },
+    assignees: {
+      nodes: (input.assignees ?? []).map((login) => ({ login })),
+    },
+    blockedBy: {
+      nodes: input.blockedBy ?? [],
+    },
+    closedByPullRequestsReferences: {
+      nodes: [],
+      pageInfo: { hasNextPage: false },
+    },
     repository: {
       name: "platform",
       url: "https://github.com/acme/platform",
@@ -5822,6 +5890,17 @@ function makeIssueStateLookupNode(input: {
                 name: input.state,
                 field: { name: "Status" },
               },
+              ...(input.priorityName
+                ? [
+                    {
+                      __typename:
+                        "ProjectV2ItemFieldSingleSelectValue" as const,
+                      name: input.priorityName,
+                      optionId: input.priorityOptionId,
+                      field: { name: "Priority" },
+                    },
+                  ]
+                : []),
             ],
           },
         },
