@@ -16,6 +16,7 @@ export type CliErrorCode =
 export function writeCliError(input: {
   code: CliErrorCode;
   message: string;
+  path?: string;
   json?: boolean;
   exitCode?: number;
   usage?: string;
@@ -27,6 +28,7 @@ export function writeCliError(input: {
         {
           error: {
             code: input.code,
+            ...(input.path ? { path: input.path } : {}),
             message: input.message,
           },
         },

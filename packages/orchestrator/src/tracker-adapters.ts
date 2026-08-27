@@ -12,6 +12,11 @@ const localAdapters = new Map<string, OrchestratorTrackerAdapter>([
   ["linear", linearTrackerAdapter],
 ]);
 
+/** Adapter-owned tracker kinds supplied to workflow validation at the boundary. */
+export function getSupportedTrackerKinds(): readonly string[] {
+  return ["github-project", ...localAdapters.keys()];
+}
+
 export function resolveTrackerAdapter(
   tracker: OrchestratorTrackerConfig
 ): OrchestratorTrackerAdapter {

@@ -51,6 +51,7 @@ export class WorkflowValidationError extends Error {
   }
 }
 
+/** Compatibility list for consumers that do not own a tracker-adapter registry. */
 export const DEFAULT_SUPPORTED_TRACKER_KINDS = [
   "github-project",
   "linear",
@@ -68,10 +69,11 @@ export function parseWorkflowMarkdown(
     if (error instanceof WorkflowValidationError) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : "Invalid workflow definition.";
+    const message =
+      error instanceof Error ? error.message : "Invalid workflow definition.";
     throw new WorkflowValidationError(
       "workflow_validation_error",
-      inferWorkflowErrorPath(message),
+      "front_matter",
       message
     );
   }
@@ -137,24 +139,37 @@ function parseWorkflowMarkdownInternal(
 
   const maxConcurrentAgentsByState = readNumberMap(
     agent,
-    "max_concurrent_agents_by_state"
+    "max_concurrent_agents_by_state",
+    "agent.max_concurrent_agents_by_state",
+    { positive: true }
   );
 
   const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
   const codexConfig = {
-    command: readOptionalNonEmptyString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND,
+    command:
+      readOptionalNonEmptyString(codex, "command", env, "codex.command") ??
+      DEFAULT_AGENT_COMMAND,
     approvalPolicy: readOptionalString(codex, "approval_policy", env),
     threadSandbox: readOptionalString(codex, "thread_sandbox", env),
     turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
     turnTimeoutMs:
-      readOptionalIntegerLike(codex, "turn_timeout_ms") ??
-      DEFAULT_TURN_TIMEOUT_MS,
+      readOptionalIntegerLike(
+        codex,
+        "turn_timeout_ms",
+        "codex.turn_timeout_ms"
+      ) ?? DEFAULT_TURN_TIMEOUT_MS,
     readTimeoutMs:
-      readOptionalIntegerLike(codex, "read_timeout_ms") ??
-      DEFAULT_READ_TIMEOUT_MS,
+      readOptionalIntegerLike(
+        codex,
+        "read_timeout_ms",
+        "codex.read_timeout_ms"
+      ) ?? DEFAULT_READ_TIMEOUT_MS,
     stallTimeoutMs:
-      readOptionalIntegerLike(codex, "stall_timeout_ms") ??
-      DEFAULT_STALL_TIMEOUT_MS,
+      readOptionalIntegerLike(
+        codex,
+        "stall_timeout_ms",
+        "codex.stall_timeout_ms"
+      ) ?? DEFAULT_STALL_TIMEOUT_MS,
   };
   const agentCommand = resolveWorkflowRuntimeCommand({
     runtime,
@@ -190,8 +205,11 @@ function parseWorkflowMarkdownInternal(
     },
     polling: {
       intervalMs:
-        readOptionalIntegerLike(polling, "interval_ms") ??
-        DEFAULT_POLL_INTERVAL_MS,
+        readOptionalIntegerLike(
+          polling,
+          "interval_ms",
+          "polling.interval_ms"
+        ) ?? DEFAULT_POLL_INTERVAL_MS,
     },
     repository: readOptionalExtensionObject(frontMatter, "repository"),
     workspace: {
@@ -208,21 +226,33 @@ function parseWorkflowMarkdownInternal(
     },
     agent: {
       maxConcurrentAgents:
-        readOptionalIntegerLike(agent, "max_concurrent_agents") ??
-        DEFAULT_MAX_CONCURRENT_AGENTS,
+        readOptionalIntegerLike(
+          agent,
+          "max_concurrent_agents",
+          "agent.max_concurrent_agents"
+        ) ?? DEFAULT_MAX_CONCURRENT_AGENTS,
       maxRetryBackoffMs:
-        readOptionalIntegerLike(agent, "max_retry_backoff_ms") ??
-        DEFAULT_MAX_RETRY_BACKOFF_MS,
+        readOptionalIntegerLike(
+          agent,
+          "max_retry_backoff_ms",
+          "agent.max_retry_backoff_ms"
+        ) ?? DEFAULT_MAX_RETRY_BACKOFF_MS,
       maxConcurrentAgentsByState,
       maxFailureRetries:
-        readOptionalIntegerLike(agent, "max_failure_retries") ??
-        DEFAULT_MAX_FAILURE_RETRIES,
+        readOptionalIntegerLike(
+          agent,
+          "max_failure_retries",
+          "agent.max_failure_retries"
+        ) ?? DEFAULT_MAX_FAILURE_RETRIES,
       maxTurns:
         readOptionalPositiveInteger(agent, "max_turns", "agent.max_turns") ??
         DEFAULT_MAX_TURNS,
       retryBaseDelayMs:
-        readOptionalIntegerLike(agent, "retry_base_delay_ms") ??
-        DEFAULT_BASE_DELAY_MS,
+        readOptionalIntegerLike(
+          agent,
+          "retry_base_delay_ms",
+          "agent.retry_base_delay_ms"
+        ) ?? DEFAULT_BASE_DELAY_MS,
     },
     runtime,
     codex: codexConfig,
@@ -376,7 +406,15 @@ function parseFrontMatter(
   const lines = frontMatter.replace(/\r\n/g, "\n").split("\n");
   let value: WorkflowFrontMatterNode;
   try {
-    [value] = parseBlock(lines, 0, 0);
+    const root = lines.find(
+      (line) => line.trim() && !line.trim().startsWith("#")
+    );
+    value =
+      root &&
+      findMappingSeparator(root.trim()) < 0 &&
+      !root.trim().startsWith("- ")
+        ? parseScalar(root)
+        : parseBlock(lines, 0, 0)[0];
   } catch (error) {
     if (error instanceof WorkflowValidationError) {
       throw error;
@@ -397,11 +435,6 @@ function parseFrontMatter(
   }
 
   return value as Record<string, WorkflowFrontMatterNode>;
-}
-
-function inferWorkflowErrorPath(message: string): string {
-  const field = message.match(/field "([^"]+)"/);
-  return field?.[1] ?? "front_matter";
 }
 
 function parseBlock(
@@ -818,16 +851,17 @@ function readRequiredObject(
 function readOptionalString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  path = key
 ): string | null {
   const value = input[key];
   if (value === undefined || value === null) {
     return null;
   }
   if (typeof value !== "string") {
-    throw new Error(`Workflow front matter field "${key}" must be a string.`);
+    throw new Error(`Workflow front matter field "${path}" must be a string.`);
   }
-  return resolveEnvironmentValue(value, env);
+  return resolveEnvironmentValue(value, env, path);
 }
 
 function readOptionalWorkflowString(
@@ -914,7 +948,8 @@ function readOptionalBoolean(
 
 function readOptionalIntegerLike(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  path = key
 ): number | null {
   const value = input[key];
   if (value === undefined || value === null) {
@@ -923,7 +958,11 @@ function readOptionalIntegerLike(
   if (typeof value === "number" && Number.isInteger(value)) {
     return value;
   }
-  throw new Error(`Workflow front matter field "${key}" must be an integer.`);
+  throw new WorkflowValidationError(
+    "workflow_validation_error",
+    path,
+    `Workflow front matter field "${path}" must be an integer.`
+  );
 }
 
 function readOptionalPositiveInteger(
@@ -931,7 +970,7 @@ function readOptionalPositiveInteger(
   key: string,
   path: string
 ): number | null {
-  const value = readOptionalIntegerLike(input, key);
+  const value = readOptionalIntegerLike(input, key, path);
   if (value !== null && value <= 0) {
     throw new WorkflowValidationError(
       "workflow_validation_error",
@@ -945,14 +984,15 @@ function readOptionalPositiveInteger(
 function readOptionalNonEmptyString(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  path: string
 ): string | null {
-  const value = readOptionalString(input, key, env);
+  const value = readOptionalString(input, key, env, path);
   if (value !== null && value.trim().length === 0) {
     throw new WorkflowValidationError(
       "workflow_validation_error",
-      `codex.${key}`,
-      `Workflow front matter field "codex.${key}" must be a non-empty string when provided.`
+      path,
+      `Workflow front matter field "${path}" must be a non-empty string when provided.`
     );
   }
   return value;
@@ -961,7 +1001,8 @@ function readOptionalNonEmptyString(
 function readNumberMap(
   input: Record<string, WorkflowFrontMatterNode>,
   key: string,
-  path = key
+  path = key,
+  options: { positive?: boolean } = {}
 ): Record<string, number> {
   const value = input[key];
   if (value === undefined || value === null) {
@@ -974,6 +1015,13 @@ function readNumberMap(
   const result: Record<string, number> = {};
   for (const [entryKey, entryValue] of Object.entries(value)) {
     if (typeof entryValue === "number" && Number.isInteger(entryValue)) {
+      if (options.positive && entryValue <= 0) {
+        throw new WorkflowValidationError(
+          "workflow_validation_error",
+          `${path}.${entryKey}`,
+          `Workflow front matter field "${path}.${entryKey}" must be a positive integer.`
+        );
+      }
       result[entryKey] = entryValue;
       continue;
     }
@@ -986,14 +1034,15 @@ function readNumberMap(
 
 function resolveEnvironmentValue(
   value: string,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  path: string
 ): string {
   const envTokenMatch = value.match(/^(?:env:)?([A-Z0-9_]+)$/);
   if (value.startsWith("env:") && envTokenMatch) {
     const resolved = env[envTokenMatch[1]];
     if (!resolved) {
       throw new Error(
-        `Workflow front matter requires environment variable ${envTokenMatch[1]}.`
+        `Workflow front matter field "${path}" requires environment variable ${envTokenMatch[1]}.`
       );
     }
     return resolved;
@@ -1004,7 +1053,7 @@ function resolveEnvironmentValue(
     const resolved = env[dollarEnvTokenMatch[1]];
     if (!resolved) {
       throw new Error(
-        `Workflow front matter requires environment variable ${dollarEnvTokenMatch[1]}.`
+        `Workflow front matter field "${path}" requires environment variable ${dollarEnvTokenMatch[1]}.`
       );
     }
     return resolved;
@@ -1014,7 +1063,7 @@ function resolveEnvironmentValue(
     const resolved = env[name];
     if (!resolved) {
       throw new Error(
-        `Workflow front matter requires environment variable ${name}.`
+        `Workflow front matter field "${path}" requires environment variable ${name}.`
       );
     }
     return resolved;

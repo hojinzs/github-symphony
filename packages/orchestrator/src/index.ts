@@ -29,6 +29,7 @@ export * from "./explain.js";
 export * from "./repository-cache.js";
 export {
   findGithubProjectIssue,
+  getSupportedTrackerKinds,
   resolveTrackerAdapter,
 } from "./tracker-adapters.js";
 export {

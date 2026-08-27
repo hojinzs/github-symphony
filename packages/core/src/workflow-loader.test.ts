@@ -63,13 +63,54 @@ Prefer focused changes.
 
 describe("parseWorkflowMarkdown", () => {
   it.each([
-    ["invalid YAML", "---\ntracker:\n   kind: github-project\n---\nPrompt", "workflow_parse_error", "front_matter"],
-    ["non-map front matter", "---\n- tracker\n---\nPrompt", "workflow_front_matter_not_a_map", "front_matter"],
-    ["unsupported tracker", "---\ntracker:\n  kind: jira\ncodex:\n  command: codex\n---\nPrompt", "workflow_validation_error", "tracker.kind"],
-    ["string integer", "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: '2'\ncodex:\n  command: codex\n---\nPrompt", "workflow_validation_error", "max_turns"],
-    ["non-positive hook timeout", "---\ntracker:\n  kind: github-project\nhooks:\n  timeout_ms: 0\ncodex:\n  command: codex\n---\nPrompt", "workflow_validation_error", "hooks.timeout_ms"],
-    ["non-positive turn limit", "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: -1\ncodex:\n  command: codex\n---\nPrompt", "workflow_validation_error", "agent.max_turns"],
-    ["empty codex command", "---\ntracker:\n  kind: github-project\ncodex:\n  command: '   '\n---\nPrompt", "workflow_validation_error", "codex.command"],
+    [
+      "invalid YAML",
+      "---\ntracker:\n   kind: github-project\n---\nPrompt",
+      "workflow_parse_error",
+      "front_matter",
+    ],
+    [
+      "non-map front matter",
+      "---\n- tracker\n---\nPrompt",
+      "workflow_front_matter_not_a_map",
+      "front_matter",
+    ],
+    [
+      "scalar front matter",
+      "---\nhello\n---\nPrompt",
+      "workflow_front_matter_not_a_map",
+      "front_matter",
+    ],
+    [
+      "unsupported tracker",
+      "---\ntracker:\n  kind: jira\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "tracker.kind",
+    ],
+    [
+      "string integer",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: '2'\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_turns",
+    ],
+    [
+      "non-positive hook timeout",
+      "---\ntracker:\n  kind: github-project\nhooks:\n  timeout_ms: 0\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "hooks.timeout_ms",
+    ],
+    [
+      "non-positive turn limit",
+      "---\ntracker:\n  kind: github-project\nagent:\n  max_turns: -1\ncodex:\n  command: codex\n---\nPrompt",
+      "workflow_validation_error",
+      "agent.max_turns",
+    ],
+    [
+      "empty codex command",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: '   '\n---\nPrompt",
+      "workflow_validation_error",
+      "codex.command",
+    ],
   ])("returns a typed error for %s", (_name, markdown, code, path) => {
     try {
       parseWorkflowMarkdown(markdown);
@@ -95,6 +136,44 @@ Prompt`);
     expect(workflow.hooks.timeoutMs).toBeGreaterThan(0);
     expect(workflow.agent.maxTurns).toBeGreaterThan(0);
     expect(workflow.agent.maxConcurrentAgentsByState).toEqual({ Ready: 2 });
+  });
+
+  it("accepts tracker kinds injected by the adapter boundary", () => {
+    const workflow = parseWorkflowMarkdown(
+      `---
+tracker:
+  kind: custom-tracker
+codex:
+  command: codex
+---
+Prompt`,
+      process.env,
+      { supportedTrackerKinds: ["custom-tracker"] }
+    );
+
+    expect(workflow.tracker.kind).toBe("custom-tracker");
+  });
+
+  it("rejects non-positive per-state concurrency overrides", () => {
+    let thrown: unknown;
+    try {
+      parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+agent:
+  max_concurrent_agents_by_state:
+    Ready: -1
+codex:
+  command: codex
+---
+Prompt`);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "workflow_validation_error",
+      path: "agent.max_concurrent_agents_by_state.Ready",
+    });
   });
 
   it("parses spec-shaped yaml front matter and prompt body", () => {

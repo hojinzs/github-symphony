@@ -1040,6 +1040,7 @@ const handler = async (
     if (error instanceof WorkflowValidationError) {
       writeCliError({
         code: error.code,
+        path: error.path,
         message: `${error.path}: ${error.message}`,
         json: options.json,
       });

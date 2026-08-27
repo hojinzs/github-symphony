@@ -34,21 +34,23 @@ same metadata for automation.
 ## WORKFLOW.md Front-matter Validation
 
 `gh-symphony workflow validate` and `gh-symphony repo doctor` use the same
-strict parser as workflow loading. Failures include a stable error code and a
-field path so automation can distinguish malformed YAML from a policy error.
+strict parser as workflow loading. Failures include a stable error code; the
+`workflow validate --json` error also exposes its field path separately.
 
-| Rule | Required value | Error code/path |
-| --- | --- | --- |
-| Front matter syntax | A valid YAML mapping | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter` |
-| Numeric fields | YAML integers; quoted numeric strings and fractions are rejected | `workflow_validation_error` at the field path |
-| `hooks.timeout_ms` | A positive integer when provided | `workflow_validation_error` at `hooks.timeout_ms` |
-| `agent.max_turns` | A positive integer when provided | `workflow_validation_error` at `agent.max_turns` |
-| `codex.command` | A non-empty string when provided | `workflow_validation_error` at `codex.command` |
-| `tracker.kind` | One of `github-project`, `linear`, or `file` | `workflow_validation_error` at `tracker.kind` |
+| Rule                | Required value                                                                                                             | Error code/path                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Front matter syntax | A valid YAML mapping                                                                                                       | `workflow_parse_error` or `workflow_front_matter_not_a_map` at `front_matter` |
+| Numeric fields      | YAML integers; quoted numeric strings and fractions are rejected, including priority maps and per-state concurrency values | `workflow_validation_error` at the field path                                 |
+| `hooks.timeout_ms`  | A positive integer when provided                                                                                           | `workflow_validation_error` at `hooks.timeout_ms`                             |
+| `agent.max_turns`   | A positive integer when provided                                                                                           | `workflow_validation_error` at `agent.max_turns`                              |
+| `codex.command`     | A non-empty string when provided                                                                                           | `workflow_validation_error` at `codex.command`                                |
+| `tracker.kind`      | One of `github-project`, `linear`, or `file`                                                                               | `workflow_validation_error` at `tracker.kind`                                 |
 
 Omitted optional values retain their documented defaults. Per-state concurrency
 maps remain supported through `agent.max_concurrent_agents_by_state` and their
-values also must be YAML integers.
+values must be positive YAML integers. This repository intentionally rejects an
+invalid override rather than ignoring it, so invalid configuration cannot silently
+disable dispatch for a state.
 
 ## Workflow Lifecycle Policy
 
