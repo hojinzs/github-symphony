@@ -64,7 +64,7 @@ for i in $(seq 1 20); do
   fi
   if [ "$i" -eq 20 ]; then
     fail "Dashboard state did not become ready after 20s"
-    "${COMPOSE[@]}" logs --tail 20 symphony-e2e
+    "${COMPOSE[@]}" logs --tail 20 symphony-e2e 2>&1
     exit 1
   fi
   sleep 1
@@ -194,7 +194,7 @@ if [ "$SCENARIO" = "transition-race" ]; then
     fail "=== Result ==="
     fail "  Worker reached running:    $SAW_RUNNING"
     fail "FAILED"
-    "${COMPOSE[@]}" logs --tail 20 symphony-e2e
+    "${COMPOSE[@]}" logs --tail 20 symphony-e2e 2>&1
     exit 1
   fi
   python3 - <<'PY'
@@ -282,7 +282,7 @@ PY
     fail "Confirmed Done readback was not observed"
     exit 1
   fi
-  if [ "$SCENARIO" = "prompt-phase" ] && ! "${COMPOSE[@]}" logs symphony-e2e | grep -q 'scenario=prompt-phase'; then
+  if [ "$SCENARIO" = "prompt-phase" ] && ! "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'grep -R -q "scenario=prompt-phase" /e2e/work'; then
     fail "Stub worker did not start under the prompt-phase scenario"
     exit 1
   fi
@@ -369,6 +369,6 @@ else
   fail "  Configured workspace root: $CONFIGURED_WORKSPACE_ROOT"
   echo ""
   fail "FAILED"
-  "${COMPOSE[@]}" logs --tail 20 symphony-e2e
+  "${COMPOSE[@]}" logs --tail 20 symphony-e2e 2>&1
   exit 1
 fi
