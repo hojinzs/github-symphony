@@ -48,6 +48,8 @@
   `lastError`, and clears its `nextRetryAt` and `retryKind` fields.
 - The retrying issue is `retry_queued` with `failureRetryCount: 2` and a
   future retry entry, so it is not immediately dispatched again.
+- `restart-failure-run/events.ndjson` records a `run-restart-failed` event
+  with the restart error and scheduled retry timestamp.
 - Candidate `#21` is dispatched during the same refresh tick.
 - The project is `degraded` and retains the restart error in `lastError`.
 
