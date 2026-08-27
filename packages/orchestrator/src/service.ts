@@ -311,6 +311,22 @@ function matchesTargetIssueIdentifier(
 
 class NonRetryableDispatchError extends Error {}
 
+class RestartRunFailure extends Error {
+  constructor(
+    readonly originalError: unknown,
+    readonly issueRecords: IssueOrchestrationRecord[],
+    readonly preparedRun: OrchestratorRunRecord | null,
+    readonly supersededRun: OrchestratorRunRecord,
+    readonly restartedAt: Date
+  ) {
+    super(
+      originalError instanceof Error
+        ? originalError.message
+        : String(originalError ?? "unknown restart error")
+    );
+  }
+}
+
 function resolvePullRequestBranchCheckoutTarget(
   issue: TrackedIssue
 ): { headRefName: string } | null {
@@ -1233,19 +1249,17 @@ export class OrchestratorService {
           trackerDependencies
         );
       } catch (error) {
-        const retryIsDue =
-          run.status === "retrying" &&
-          run.nextRetryAt !== null &&
-          new Date(run.nextRetryAt).getTime() <= now.getTime();
-        if (!retryIsDue) {
+        if (!(error instanceof RestartRunFailure)) {
           throw error;
         }
         outcome = await this.handleRestartRunFailure(
           tenant,
           run,
-          issueRecords,
-          now,
-          error
+          error.issueRecords,
+          error.restartedAt,
+          error.originalError,
+          error.preparedRun,
+          error.supersededRun
         );
       }
       issueRecords = outcome.issueRecords;
@@ -4551,23 +4565,23 @@ export class OrchestratorService {
     const supersededRecord: OrchestratorRunRecord = {
       ...run,
       status: "failed",
+      processId: null,
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,
       retryKind: null,
       lastError: "Superseded by recovered run.",
     };
-    await this.store.saveRun(supersededRecord);
-
-    const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
-      tenant,
-      run
-    );
-    const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
     let nextIssueRecords = issueRecords;
     let preparedRun: OrchestratorRunRecord | null = null;
     let restarted: OrchestratorRunRecord;
     try {
+      await this.store.saveRun(supersededRecord);
+      const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
+        tenant,
+        run
+      );
+      const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
         recovery,
@@ -4598,14 +4612,12 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
-      return this.handleRestartRunFailure(
-        tenant,
-        run,
-        nextIssueRecords,
-        now,
+      throw new RestartRunFailure(
         error,
+        nextIssueRecords,
         preparedRun,
-        supersededRecord
+        supersededRecord,
+        now
       );
     }
     const recoveredRecord: OrchestratorRunRecord = {
@@ -4665,6 +4677,7 @@ export class OrchestratorService {
     supersededRun: OrchestratorRunRecord = {
       ...run,
       status: "failed",
+      processId: null,
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,

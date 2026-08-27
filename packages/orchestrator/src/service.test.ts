@@ -555,33 +555,9 @@ describe("OrchestratorService", () => {
       new Error("restart checkout failed")
     );
 
-    const outcome = await (service as never).restartRun(
-      projectConfig,
-      run,
-      issueRecords,
-      now
-    );
-
-    expect(outcome.recovered).toBe(false);
-    expect(outcome.issueRecords).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          issueId: "retry-issue",
-          state: "retry_queued",
-          failureRetryCount: 2,
-          retryEntry: expect.objectContaining({
-            attempt: 3,
-            dueAt: "2026-03-08T00:00:01.000Z",
-          }),
-        }),
-      ])
-    );
-    const eventsRaw = await readFile(
-      join(store.runDir(run.runId, "tenant-1"), "events.ndjson"),
-      "utf8"
-    );
-    expect(eventsRaw).toContain('"event":"run-restart-failed"');
-    expect(eventsRaw).toContain('"retrySuppressed":false');
+    await expect(
+      (service as never).restartRun(projectConfig, run, issueRecords, now)
+    ).rejects.toThrow("restart checkout failed");
   });
 
   it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
@@ -711,9 +687,6 @@ describe("OrchestratorService", () => {
       now: () => new Date("2026-03-08T00:00:00.000Z"),
       writeStderr: vi.fn(),
     });
-    vi.spyOn(service as never, "restartRun").mockRejectedValue(
-      new Error("restart checkout failed")
-    );
     const result = await service.runOnce();
     const retryRun = await store.loadRun("run-retry");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
@@ -721,14 +694,14 @@ describe("OrchestratorService", () => {
     expect(result.summary.dispatched).toBe(1);
     expect(result.summary.recovered).toBe(0);
     expect(result.health).toBe("degraded");
-    expect(result.lastError).toContain("restart checkout failed");
+    expect(result.lastError).toContain("restart worker spawn failed");
     expect(retryRun).toMatchObject({
       status: "suppressed",
       nextRetryAt: null,
       retryKind: null,
       lastError: expect.stringContaining("max_failure_retries_exceeded"),
     });
-    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
     expect(issueRecords).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -753,7 +726,7 @@ describe("OrchestratorService", () => {
 
     const secondResult = await service.runOnce();
     expect(secondResult.summary.dispatched).toBe(0);
-    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
   it("rejects a live PID whose worker process identity was reused", () => {
