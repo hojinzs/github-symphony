@@ -213,11 +213,18 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
   },
 
   buildWorkerEnvironment(project, issue) {
+    const linearAuthorization = process.env.LINEAR_AUTHORIZATION?.trim();
+    const linearApiKey = process.env.LINEAR_API_KEY?.trim();
+
     return {
       LINEAR_GRAPHQL_URL: resolveLinearEndpoint(project.tracker),
       LINEAR_ISSUE_ID: issue.id,
       LINEAR_ISSUE_IDENTIFIER: issue.identifier,
       SYMPHONY_TRACKER_KIND: "linear",
+      ...(linearAuthorization
+        ? { LINEAR_AUTHORIZATION: linearAuthorization }
+        : {}),
+      ...(linearApiKey ? { LINEAR_API_KEY: linearApiKey } : {}),
     };
   },
 

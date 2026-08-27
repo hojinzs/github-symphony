@@ -189,13 +189,11 @@ describe("composeClaudeMcpConfig", () => {
           ],
           env: {
             LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
+            LINEAR_API_KEY: "lin_api_key",
           },
         },
       },
     });
-    expect(JSON.stringify(await readJson(result.finalPath))).not.toContain(
-      "lin_api_key"
-    );
   });
 
   it("does not add linear_graphql for non-Linear tracker sessions", async () => {

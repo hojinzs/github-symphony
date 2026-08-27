@@ -129,6 +129,8 @@ function createSymphonyMcpServers(
   if (env.SYMPHONY_TRACKER_KIND === "linear") {
     mergedServers.linear_graphql = createLinearGraphQLMcpServerEntry({
       linearGraphqlUrl: env.LINEAR_GRAPHQL_URL,
+      linearApiKey: env.LINEAR_API_KEY,
+      linearAuthorization: env.LINEAR_AUTHORIZATION,
     });
   } else {
     delete mergedServers.linear_graphql;

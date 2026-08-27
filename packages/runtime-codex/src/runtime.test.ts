@@ -61,6 +61,8 @@ describe("createLinearGraphQLToolDefinition", () => {
   it("builds a runtime tool definition for Linear GraphQL access", () => {
     const tool = createLinearGraphQLToolDefinition({
       linearGraphqlUrl: "https://api.linear.app/graphql",
+      linearAuthorization: "Bearer runtime-token",
+      linearApiKey: "lin_api_key",
     });
 
     expect(tool.name).toBe("linear_graphql");
@@ -68,6 +70,8 @@ describe("createLinearGraphQLToolDefinition", () => {
     expect(tool.args[0]).toContain("mcp-server.js");
     expect(tool.env).toEqual({
       LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
+      LINEAR_AUTHORIZATION: "Bearer runtime-token",
+      LINEAR_API_KEY: "lin_api_key",
     });
   });
 });
@@ -299,8 +303,8 @@ describe("buildCodexRuntimePlan", () => {
     );
     expect(linearTool?.env).toEqual({
       LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
+      LINEAR_API_KEY: "lin_api_key",
     });
-    expect(JSON.stringify(linearTool)).not.toContain("lin_api_key");
   });
 });
 
