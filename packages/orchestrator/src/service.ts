@@ -1754,7 +1754,10 @@ export class OrchestratorService {
           if (!activeRun || activeRun.processId === null) {
             continue;
           }
-          if (!(await this.signalRunProcess(activeRun, "SIGTERM"))) {
+          if (
+            (await this.signalRunProcess(activeRun, "SIGTERM")) ===
+            "protected"
+          ) {
             continue;
           }
           const recovery = await this.classifyIncompleteTurnDirtyWorkspace(
@@ -1815,7 +1818,7 @@ export class OrchestratorService {
 
         if (
           activeRun?.processId &&
-          !(await this.signalRunProcess(activeRun, "SIGTERM"))
+          (await this.signalRunProcess(activeRun, "SIGTERM")) === "protected"
         ) {
           continue;
         }
@@ -2032,8 +2035,10 @@ export class OrchestratorService {
       }
 
       const activeRun = activeRunsByWorkspace.get(workspaceRecord.workspaceKey);
-      if (activeRun && !this.isRunOwnedByCurrentInstance(activeRun)) {
-        await this.recordOwnershipSkip(activeRun, "workspace-cleanup");
+      if (activeRun && this.isRunProcessRunning(activeRun)) {
+        if (this.isRunProtectedByLiveOwner(activeRun)) {
+          await this.recordOwnershipSkip(activeRun, "workspace-cleanup");
+        }
         continue;
       }
 
@@ -3140,7 +3145,9 @@ export class OrchestratorService {
     );
 
     if (issueRecord?.currentRunId && issueRecord.currentRunId !== run.runId) {
-      await this.signalRunProcess(run, "SIGTERM");
+      if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
+        return { issueRecords, recovered: false };
+      }
       const supersededRun: OrchestratorRunRecord = {
         ...run,
         status: "failed",
@@ -3200,7 +3207,9 @@ export class OrchestratorService {
             `[orchestrator] stuck worker detected for ${run.runId} (elapsed ${elapsedSeconds}s > ${timeoutSeconds}s) — sending SIGTERM`
           );
         }
-        await this.signalRunProcess(run, "SIGTERM");
+        if ((await this.signalRunProcess(run, "SIGTERM")) === "protected") {
+          return { issueRecords, recovered: false };
+        }
         // Fall through: treat as a normal exit and retry.
       } else {
         const runningRecord: OrchestratorRunRecord = {
@@ -4950,16 +4959,18 @@ export class OrchestratorService {
     return liveLeaderIdentity === run.processIdentity;
   }
 
-  private isRunOwnedByCurrentInstance(run: OrchestratorRunRecord): boolean {
+  private isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean {
     // Programmatic service construction predates project-lock ownership. The
     // CLI always injects an owner identity; retain the legacy behavior only
     // for callers that have not opted into that lock contract.
     if (!this.ownerToken) {
-      return true;
+      return false;
     }
-    return Boolean(
-      run.ownerInstanceId && run.ownerInstanceId === this.ownerToken
-    );
+    if (!run.ownerInstanceId || run.ownerInstanceId === this.ownerToken) {
+      return false;
+    }
+    const ownerPid = parseOwnerProcessId(run.ownerInstanceId);
+    return ownerPid === null || this.isProcessRunning(ownerPid);
   }
 
   private ownershipSkipReason(
@@ -4993,17 +5004,17 @@ export class OrchestratorService {
   private async signalRunProcess(
     run: OrchestratorRunRecord,
     signal: NodeJS.Signals
-  ): Promise<boolean> {
-    if (!this.isRunOwnedByCurrentInstance(run)) {
+  ): Promise<"signaled" | "not-running" | "protected"> {
+    if (this.isRunProtectedByLiveOwner(run)) {
       await this.recordOwnershipSkip(run, "signal");
-      return false;
+      return "protected";
     }
     if (!this.isRunProcessRunning(run)) {
-      return false;
+      return "not-running";
     }
     this.sendSignal(run.processId!, signal);
     this.retireWorkerPid(run.processId);
-    return true;
+    return "signaled";
   }
 
   private async releaseRunIssueOrchestration(
@@ -5011,7 +5022,7 @@ export class OrchestratorService {
     run: OrchestratorRunRecord,
     now: Date
   ): Promise<IssueOrchestrationRecord[]> {
-    if (!this.isRunOwnedByCurrentInstance(run)) {
+    if (this.isRunProtectedByLiveOwner(run)) {
       await this.recordOwnershipSkip(run, "claim-release");
       return issueRecords;
     }
@@ -5265,6 +5276,12 @@ function isWorkflowHookExecutionAllowed(env: Record<string, string>): boolean {
   const value =
     env[WORKFLOW_HOOK_APPROVAL_ENV] ?? process.env[WORKFLOW_HOOK_APPROVAL_ENV];
   return value === "1" || value?.toLowerCase() === "true";
+}
+
+function parseOwnerProcessId(ownerToken: string): number | null {
+  const separator = ownerToken.indexOf(":");
+  const pid = Number(ownerToken.slice(0, separator));
+  return separator > 0 && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
 function parseCommaSeparatedEnvList(value: string | undefined): string[] {

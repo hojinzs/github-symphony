@@ -62,6 +62,19 @@ describe("event-formatter", () => {
 
     expect(
       formatEventMessage({
+        at: "2026-03-16T00:01:30.000Z",
+        event: "run-ownership-skipped",
+        projectId: "project-1",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        issueId: "issue-1",
+        operation: "signal",
+        reason: "owner-token-mismatch",
+      })
+    ).toBe("Skipped signal (owner-token-mismatch)");
+
+    expect(
+      formatEventMessage({
         at: "2026-03-16T00:02:00.000Z",
         event: "workspace-cleanup",
         workspaceKey: "workspace-2",

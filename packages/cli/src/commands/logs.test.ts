@@ -345,6 +345,16 @@ describe("logs command", () => {
         maxDeferrals: 3,
         exhausted: false,
       },
+      {
+        at: "2026-03-16T00:03:00.000Z",
+        event: "run-ownership-skipped",
+        projectId: "tenant-a",
+        runId: "run-1",
+        issueIdentifier: "acme/platform#4",
+        issueId: "issue-4",
+        operation: "signal",
+        reason: "owner-token-mismatch",
+      },
     ]);
     const stdout = captureWrites(process.stdout);
 
@@ -363,6 +373,9 @@ describe("logs command", () => {
     expect(output).toContain("run-suppressed acme/platform#2");
     expect(output).toContain(
       "run-finalization-deferred acme/platform#3 Finalization deferred 2/3 (tracker-read-failed)"
+    );
+    expect(output).toContain(
+      "run-ownership-skipped acme/platform#4 Skipped signal (owner-token-mismatch)"
     );
     expect(output).not.toContain("hook-failed");
   });

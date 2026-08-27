@@ -64,7 +64,7 @@ describe("OrchestratorService", () => {
       { appendRunEvent } as unknown as OrchestratorFsStore,
       {} as OrchestratorProjectConfig,
       {
-        ownerToken: "instance-b",
+        ownerToken: "4102:instance-b",
         killImpl,
         isProcessRunning: vi.fn().mockReturnValue(true),
         getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
@@ -75,7 +75,7 @@ describe("OrchestratorService", () => {
         signalRunProcess(
           run: OrchestratorRunRecord,
           signal: NodeJS.Signals
-        ): Promise<boolean>;
+        ): Promise<"signaled" | "not-running" | "protected">;
       }
     ).signalRunProcess.bind(service);
     const run = {
@@ -85,10 +85,10 @@ describe("OrchestratorService", () => {
       issueIdentifier: "acme/platform#1",
       processId: 4101,
       processIdentity: "worker-current",
-      ownerInstanceId: "instance-a",
+      ownerInstanceId: "4100:instance-a",
     } as OrchestratorRunRecord;
 
-    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(false);
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("protected");
     expect(killImpl).not.toHaveBeenCalled();
     expect(appendRunEvent).toHaveBeenCalledWith(
       "run-1",
@@ -131,14 +131,50 @@ describe("OrchestratorService", () => {
       })
     );
 
-    run.ownerInstanceId = "instance-b";
+    run.ownerInstanceId = "4102:instance-b";
     run.processIdentity = "worker-reused";
-    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(false);
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("not-running");
     expect(killImpl).not.toHaveBeenCalled();
 
     run.processIdentity = "worker-current";
-    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe(true);
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
     expect(killImpl).toHaveBeenCalledWith(4101, "SIGTERM");
+  });
+
+  it("recovers dead-owner and legacy runs without signalling a live foreign owner", async () => {
+    const killImpl = vi.fn();
+    const service = new OrchestratorService(
+      { appendRunEvent: vi.fn().mockResolvedValue(undefined) } as unknown as OrchestratorFsStore,
+      {} as OrchestratorProjectConfig,
+      {
+        ownerToken: "5100:current",
+        killImpl,
+        isProcessRunning: (pid) => pid === 5101,
+        getProcessStartIdentity: vi.fn().mockReturnValue("worker-current"),
+      }
+    );
+    const signalRunProcess = (
+      service as unknown as {
+        signalRunProcess(
+          run: OrchestratorRunRecord,
+          signal: NodeJS.Signals
+        ): Promise<"signaled" | "not-running" | "protected">;
+      }
+    ).signalRunProcess.bind(service);
+    const run = {
+      runId: "run-1",
+      projectId: "tenant-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      processId: 5101,
+      processIdentity: "worker-current",
+      ownerInstanceId: "5102:dead-owner",
+    } as OrchestratorRunRecord;
+
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
+    run.ownerInstanceId = null;
+    await expect(signalRunProcess(run, "SIGTERM")).resolves.toBe("signaled");
+    expect(killImpl).toHaveBeenCalledTimes(2);
   });
 
   it("gives confirmed tracker progress a bounded clean-exit grace", () => {
@@ -8516,7 +8552,7 @@ Prefer focused changes.
     expect(loadRetryPolicySpy).toHaveBeenCalled();
   });
 
-  it("terminates a running worker when lastEventAt exceeds the workflow stall timeout", async () => {
+  it("does not retry a stalled worker protected by a live foreign owner", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-stall-"));
     const repository = await createRepositoryFixture(
@@ -8557,6 +8593,7 @@ Prefer focused changes.
       status: "running",
       attempt: 1,
       processId: 4106,
+      ownerInstanceId: "4107:foreign-owner",
       port: 4601,
       workingDirectory: join(tempRoot, "active-run"),
       issueWorkspaceKey: null,
@@ -8587,17 +8624,28 @@ Prefer focused changes.
         unref: vi.fn(),
       }) as never,
       killImpl,
-      isProcessRunning: (pid) => pid === 4106,
+      ownerToken: "4108:current-owner",
+      isProcessRunning: (pid) => pid === 4106 || pid === 4107,
       now: () => new Date("2026-03-08T00:05:00.000Z"),
     });
 
     await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
 
-    expect(killImpl).toHaveBeenCalledWith(4106, "SIGTERM");
-    expect(updatedRun?.status).toBe("retrying");
-    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:05:01.000Z");
-    expect(updatedRun?.retryKind).toBe("continuation");
+    expect(killImpl).not.toHaveBeenCalled();
+    expect(updatedRun?.status).toBe("running");
+    expect(updatedRun?.nextRetryAt).toBeNull();
+    expect(updatedRun?.retryKind).toBeNull();
+    expect(
+      await store.loadRecentRunEvents("run-1", 10, "tenant-1")
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "run-ownership-skipped",
+          message: "Skipped signal (owner-token-mismatch)",
+        }),
+      ])
+    );
   });
 
   it("formats stall detection as a structured verbose log when enabled", async () => {
@@ -12384,10 +12432,10 @@ Handle Linear issue.`,
     expect(
       (
         service as unknown as {
-          isRunOwnedByCurrentInstance(run: OrchestratorRunRecord): boolean;
+          isRunProtectedByLiveOwner(run: OrchestratorRunRecord): boolean;
         }
-      ).isRunOwnedByCurrentInstance((await store.loadRun("run-1"))!)
-    ).toBe(true);
+      ).isRunProtectedByLiveOwner((await store.loadRun("run-1"))!)
+    ).toBe(false);
 
     const snapshot = await service.runOnce();
     const updatedRun = await store.loadRun("run-1");
