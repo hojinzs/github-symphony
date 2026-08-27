@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import {
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
+  deriveLegacyWorkspaceKey,
   extractIssueNumberFromIdentifier,
   extractIssueNumbersFromBranch,
 } from "@gh-symphony/core";
@@ -76,6 +77,7 @@ export function evaluateWorkerIdentityPreflight(input: {
       [
         deriveIssueWorkspaceKey(identity, issueIdentifier),
         deriveIssueWorkspaceKey(issueIdentifier),
+        deriveLegacyWorkspaceKey(issueIdentifier),
         identity.issueSubjectId
           ? deriveLegacyIssueWorkspaceKey(identity)
           : null,

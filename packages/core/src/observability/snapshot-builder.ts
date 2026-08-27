@@ -92,6 +92,7 @@ export function buildProjectSnapshot(
     activeRuns: activeRuns.map((run) => ({
       runId: run.runId,
       issueIdentifier: run.issueIdentifier,
+      issueWorkspaceKey: run.issueWorkspaceKey ?? null,
       issueState: run.issueState,
       status: run.status,
       retryKind: run.retryKind,

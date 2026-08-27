@@ -1,6 +1,7 @@
 import {
   isStateActive,
   isStateTerminal,
+  deriveLegacyWorkspaceKey,
   isRecoveryWorkspaceActionable,
   matchesWorkflowState,
   type IssueWorkspaceRecord,
@@ -448,12 +449,15 @@ function explainRuntimeOwnership(
   const activeRun = runs.find(
     (run) => run.issueId === issue.id && isActiveRunRecordStatus(run.status)
   );
+  const legacyWorkspaceKey =
+    record?.workspaceKey === deriveLegacyWorkspaceKey(issue.identifier) &&
+    record.workspaceKey !== issue.identifier;
 
   if (activeRun) {
     return {
       id: "runtime_ownership",
       status: "block",
-      message: `Existing ${activeRun.status} run ${activeRun.runId} already owns the issue.`,
+      message: `${legacyWorkspaceKey ? `Workspace key: legacy (${record.workspaceKey}). ` : ""}Existing ${activeRun.status} run ${activeRun.runId} already owns the issue.`,
       details: {
         runId: activeRun.runId,
         status: activeRun.status,
@@ -562,8 +566,7 @@ function explainRuntimeOwnership(
   return {
     id: "runtime_ownership",
     status: "pass",
-    message:
-      "No active run, retry, convergence lock, or suppression owns the issue.",
+    message: `${legacyWorkspaceKey ? `Workspace key: legacy (${record.workspaceKey}). ` : ""}No active run, retry, convergence lock, or suppression owns the issue.`,
     details: record
       ? {
           orchestrationState: record.state,

@@ -2,6 +2,7 @@ import type { GlobalOptions } from "../index.js";
 import {
   DEFAULT_POLL_INTERVAL_MS,
   WorkflowConfigStore,
+  deriveLegacyWorkspaceKey,
   type ProjectStatusSnapshot,
 } from "@gh-symphony/core";
 import { readFile } from "node:fs/promises";
@@ -198,6 +199,11 @@ function renderLegacyStatus(
       lines.push(
         `    ${runIdDisplay}  ${run.issueIdentifier}  ${stateStr}  ${statusStr}`
       );
+      if (
+        run.issueWorkspaceKey === deriveLegacyWorkspaceKey(run.issueIdentifier)
+      ) {
+        lines.push(`      Workspace key: legacy (${run.issueWorkspaceKey})`);
+      }
     }
     lines.push("");
   } else {

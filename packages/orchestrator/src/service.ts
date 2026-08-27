@@ -18,6 +18,7 @@ import {
   buildProjectSnapshot,
   deriveIssueWorkspaceKey,
   deriveLegacyIssueWorkspaceKey,
+  deriveLegacyWorkspaceKey,
   executeWorkspaceHook,
   isStateTerminal,
   isMatchingIssueRun,
@@ -2681,21 +2682,23 @@ export class OrchestratorService {
       identity,
       issue.identifier
     );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
-      identity,
-      tenant.projectId
+    const legacyWorkspaceKeys = [
+      deriveLegacyWorkspaceKey(issue.identifier),
+      deriveLegacyIssueWorkspaceKey(identity, tenant.projectId),
+    ].filter(
+      (key, index, keys) =>
+        key !== preferredWorkspaceKey && keys.indexOf(key) === index
     );
-    const existingWorkspaceRecord =
-      (await this.store.loadIssueWorkspace(
+    let existingWorkspaceRecord = await this.store.loadIssueWorkspace(
+      tenant.projectId,
+      preferredWorkspaceKey
+    );
+    for (const legacyWorkspaceKey of legacyWorkspaceKeys) {
+      existingWorkspaceRecord ??= await this.store.loadIssueWorkspace(
         tenant.projectId,
-        preferredWorkspaceKey
-      )) ??
-      (legacyWorkspaceKey === preferredWorkspaceKey
-        ? null
-        : await this.store.loadIssueWorkspace(
-            tenant.projectId,
-            legacyWorkspaceKey
-          ));
+        legacyWorkspaceKey
+      );
+    }
     const workspaceKey =
       existingWorkspaceRecord?.workspaceKey ?? preferredWorkspaceKey;
     const issueWorkspacePath = resolveIssueWorkspaceDirectory(
@@ -5389,9 +5392,12 @@ export class OrchestratorService {
       identity,
       issue.identifier
     );
-    const legacyWorkspaceKey = deriveLegacyIssueWorkspaceKey(
-      identity,
-      tenant.projectId
+    const legacyWorkspaceKeys = [
+      deriveLegacyWorkspaceKey(issue.identifier),
+      deriveLegacyIssueWorkspaceKey(identity, tenant.projectId),
+    ].filter(
+      (key, index, keys) =>
+        key !== preferredWorkspaceKey && keys.indexOf(key) === index
     );
     const orchestrationRecord = (
       await this.store.loadProjectIssueOrchestrations(tenant.projectId)
@@ -5407,12 +5413,16 @@ export class OrchestratorService {
         tenant.projectId,
         preferredWorkspaceKey
       )) ??
-      (legacyWorkspaceKey === preferredWorkspaceKey
-        ? null
-        : await this.store.loadIssueWorkspace(
+      (await (async () => {
+        for (const legacyWorkspaceKey of legacyWorkspaceKeys) {
+          const record = await this.store.loadIssueWorkspace(
             tenant.projectId,
             legacyWorkspaceKey
-          ));
+          );
+          if (record) return record;
+        }
+        return null;
+      })());
 
     if (!workspaceRecord || workspaceRecord.status === "removed") {
       return;

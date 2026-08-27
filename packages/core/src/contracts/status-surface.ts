@@ -380,6 +380,7 @@ export type ProjectStatusSnapshot = {
   activeRuns: Array<{
     runId: string;
     issueIdentifier: string;
+    issueWorkspaceKey?: string | null;
     issueState: string;
     status: OrchestratorRunStatus;
     retryKind: RetryKind | null;

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveIssueWorkspaceKey } from "@gh-symphony/core";
+import {
+  deriveIssueWorkspaceKey,
+  deriveLegacyWorkspaceKey,
+} from "@gh-symphony/core";
 import {
   evaluateWorkerIdentityPreflight,
   normalizeRepositoryUrl,
@@ -67,6 +70,21 @@ describe("evaluateWorkerIdentityPreflight", () => {
     if (!result.ok) {
       expect(result.reason).toContain("cannot be derived");
     }
+  });
+
+  it("accepts a suffixless legacy workspace key", () => {
+    expect(
+      evaluateWorkerIdentityPreflight({
+        env: {
+          ...baseEnv,
+          SYMPHONY_ISSUE_WORKSPACE_KEY: deriveLegacyWorkspaceKey(
+            baseEnv.SYMPHONY_ISSUE_IDENTIFIER
+          ),
+        },
+        originUrl: "https://github.com/acme/platform.git",
+        currentBranch: "feat/507-identity",
+      })
+    ).toEqual({ ok: true });
   });
 
   it("fails closed when the checked-out branch belongs to another issue", () => {

@@ -14127,6 +14127,7 @@ Workspace prompt.
     const run = (await store.loadAllRuns()).find(
       (candidate) => candidate.projectId === projectConfig.projectId
     );
+    expect(run?.issueWorkspaceKey).toBe(workspaceKey);
     await expect(
       store.loadRecentRunEvents(run!.runId, 20, projectConfig.projectId)
     ).resolves.toEqual(
