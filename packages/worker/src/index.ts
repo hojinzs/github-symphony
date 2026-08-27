@@ -168,6 +168,7 @@ let orchestratorHeartbeatTimer: NodeJS.Timeout | null = null;
 const MAX_PENDING_ORCHESTRATOR_CHANNEL_PAYLOADS = 16;
 const ORCHESTRATOR_CHANNEL_FLUSH_TIMEOUT_MS = 250;
 const ORCHESTRATOR_CHANNEL_HEARTBEAT_INTERVAL_MS = 10_000;
+const MAX_CODEX_PROTOCOL_LINE_BYTES = 10 * 1024 * 1024;
 
 function composeTurnTitle(
   issueIdentifierValue: string | undefined,
@@ -627,7 +628,10 @@ async function startAssignedRun() {
       runtimeState.runPhase = "failed";
 
       if (runtimeState.run) {
-        runtimeState.run.lastError = error.message;
+        runtimeState.run.lastError =
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? `codex_not_found: ${error.message}`
+            : error.message;
       }
       void persistSessionTokenUsageArtifact(launcherEnv);
     });
@@ -1057,6 +1061,7 @@ async function runCodexClientProtocol(
 
   // Buffer to accumulate incomplete lines from codex stdout
   let lineBuffer = "";
+  let protocolFailure: Error | null = null;
 
   // Accumulate streaming delta events so they log as a single line
   let deltaBuffer: { itemId: string; text: string } | null = null;
@@ -1148,6 +1153,22 @@ async function runCodexClientProtocol(
       emitTurnFailedEvent(activeTurnTelemetry, lastError);
       activeTurnTelemetry = null;
     }
+  }
+
+  function rejectPendingRequests(error: Error): void {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+  }
+
+  function failProtocol(error: Error): void {
+    if (protocolFailure) {
+      return;
+    }
+    protocolFailure = error;
+    rejectPendingRequests(error);
+    markTurnTerminalFailure("failed", error.message);
   }
 
   function sendMessage(msg: Record<string, unknown>): void {
@@ -1529,11 +1550,22 @@ async function runCodexClientProtocol(
 
   // Wire up line-delimited JSON parsing from codex stdout
   child.stdout.on("data", (chunk: Buffer) => {
+    if (protocolFailure) {
+      return;
+    }
     lineBuffer += chunk.toString("utf8");
     const lines = lineBuffer.split("\n");
     lineBuffer = lines.pop() ?? "";
 
     for (const line of lines) {
+      if (Buffer.byteLength(line, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
+        failProtocol(
+          new Error(
+            `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
+          )
+        );
+        return;
+      }
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
@@ -1544,6 +1576,35 @@ async function runCodexClientProtocol(
         process.stderr.write(`[worker] codex stdout (non-JSON): ${trimmed}\n`);
       }
     }
+
+    if (Buffer.byteLength(lineBuffer, "utf8") > MAX_CODEX_PROTOCOL_LINE_BYTES) {
+      failProtocol(
+        new Error(
+          `protocol_error: codex stdout line exceeded ${MAX_CODEX_PROTOCOL_LINE_BYTES} bytes`
+        )
+      );
+    }
+  });
+
+  child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+    const error = new Error(
+      `port_exit: codex app-server exited with ${signal ?? code ?? "unknown"}`
+    );
+    process.stderr.write(`[worker] ${error.message}\n`);
+    rejectPendingRequests(error);
+    if (runtimeState.runPhase === "streaming_turn") {
+      failProtocol(error);
+    }
+  });
+
+  child.on("error", (cause: Error) => {
+    const error = new Error(
+      (cause as NodeJS.ErrnoException).code === "ENOENT"
+        ? `codex_not_found: ${cause.message}`
+        : `port_exit: ${cause.message}`
+    );
+    rejectPendingRequests(error);
+    failProtocol(error);
   });
 
   try {
@@ -1570,7 +1631,6 @@ async function runCodexClientProtocol(
 
     const baseThreadParams = {
       cwd: plan.cwd,
-      developerInstructions: renderedPrompt,
       approvalPolicy,
       sandbox: threadSandbox,
       config: {
@@ -1925,6 +1985,13 @@ async function runCodexClientProtocol(
       }
     } else if (errMsg.startsWith("turn_timeout:")) {
       runtimeState.runPhase = "timed_out";
+      if (runtimeState.run) {
+        runtimeState.run.lastError = errMsg;
+      }
+    } else if (
+      errMsg.startsWith("port_exit:") ||
+      errMsg.startsWith("protocol_error:")
+    ) {
       if (runtimeState.run) {
         runtimeState.run.lastError = errMsg;
       }
