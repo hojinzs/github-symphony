@@ -662,6 +662,173 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-restart-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxConcurrentAgents: 2, maxFailureRetries: 2 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "retry-issue",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 1,
+        state: "running",
+        currentRunId: "run-retry",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:00.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
+    ]);
+    await store.saveRun({
+      runId: "run-retry",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "retry-issue",
+      issueSubjectId: "retry-issue",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: join(tempRoot, "retry-workspace"),
+      issueWorkspaceKey: "acme_platform_1",
+      workspaceRuntimeDir: join(tempRoot, "retry-workspace", ".runtime"),
+      workflowPath: null,
+      retryKind: "failure",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      startedAt: "2026-03-08T00:00:00.000Z",
+      completedAt: null,
+      lastError: "Worker process exited unexpectedly.",
+      nextRetryAt: "2026-03-08T00:00:00.000Z",
+    });
+
+    const retryIssue = {
+      id: "retry-issue",
+      identifier: "acme/platform#1",
+      number: 1,
+      title: "Retrying issue",
+      description: null,
+      priority: 1,
+      state: "Todo",
+      branchName: null,
+      url: "https://example.test/acme/platform/issues/1",
+      labels: [],
+      blockedBy: [],
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      repository,
+      tracker: {
+        adapter: "github-project" as const,
+        bindingId: "project-123",
+        itemId: "item-1",
+      },
+      metadata: {},
+    };
+    const healthyIssue = {
+      ...retryIssue,
+      id: "healthy-issue",
+      identifier: "acme/platform#2",
+      number: 2,
+      title: "Healthy candidate",
+      priority: 2,
+      state: "Todo",
+      url: "https://example.test/acme/platform/issues/2",
+      tracker: { ...retryIssue.tracker, itemId: "item-2" },
+    };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([retryIssue, healthyIssue]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi
+        .fn()
+        .mockResolvedValue([{ ...retryIssue, state: "Todo" }]),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn().mockReturnValue({ ...retryIssue, state: "Todo" }),
+    });
+    const spawnImpl = vi.fn(
+      (
+        _command: string,
+        _args: string[],
+        options: { env?: NodeJS.ProcessEnv }
+      ) => {
+        if (options.env?.SYMPHONY_ISSUE_ID === "retry-issue") {
+          throw new Error("restart worker spawn failed");
+        }
+        return {
+          pid: 4100,
+          stderr: null,
+          on: vi.fn(),
+          unref: vi.fn(),
+        };
+      }
+    );
+    const service = new OrchestratorService(store, projectConfig, {
+      concurrency: 2,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      writeStderr: vi.fn(),
+    });
+    const result = await service.runOnce();
+    const retryRun = await store.loadRun("run-retry");
+    const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(result.summary.recovered).toBe(0);
+    expect(result.health).toBe("degraded");
+    expect(result.lastError).toContain("restart worker spawn failed");
+    expect(retryRun).toMatchObject({
+      status: "suppressed",
+      nextRetryAt: null,
+      retryKind: null,
+      lastError: expect.stringContaining("max_failure_retries_exceeded"),
+    });
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
+    expect(issueRecords).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueId: "retry-issue",
+          state: "released",
+          currentRunId: null,
+          failureRetryCount: 2,
+          retryEntry: null,
+        }),
+        expect.objectContaining({
+          issueId: "healthy-issue",
+          state: "running",
+        }),
+      ])
+    );
+    const eventsRaw = await readFile(
+      join(store.runDir("run-retry", "tenant-1"), "events.ndjson"),
+      "utf8"
+    );
+    expect(eventsRaw).toContain('"event":"run-restart-failed"');
+    expect(eventsRaw).toContain('"retrySuppressed":true');
+
+    const secondResult = await service.runOnce();
+    expect(secondResult.summary.dispatched).toBe(0);
+    expect(spawnImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a live PID whose worker process identity was reused", () => {
     const service = new OrchestratorService(
       {
