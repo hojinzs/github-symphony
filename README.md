@@ -977,6 +977,23 @@ pnpm typecheck
 pnpm build
 ```
 
+## Security posture
+
+GitHub Symphony treats the coding-agent runtime and its workspace as a separate
+trust boundary. Tracker credentials are held by the Symphony host or a
+host-side credential broker; agents receive tool schemas and results, not raw
+tracker tokens. Provider-native tools are scoped to the selected adapter and
+the current normalized issue. Deployments should still use least-privilege
+credentials, dedicated workspace permissions, loopback-only local services,
+and the runtime approval/sandbox policy appropriate for their environment.
+
+Host-side tool transport is being introduced in phases. The current
+MCP-subprocess implementation is a documented divergence and is not suitable
+for untrusted agents until phase 1 removes raw tracker values from coding-agent
+environments and workspace configuration. See
+[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md) for the target
+posture, remaining divergence, and removal plan.
+
 ## Community and security
 
 - [Contributing guide](CONTRIBUTING.md) — development setup, validation, and pull request expectations.
