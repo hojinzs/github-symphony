@@ -5,7 +5,6 @@ import type {
   OrchestratorTrackerConfig,
   TrackedIssueList,
 } from "@gh-symphony/core";
-import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -18,15 +17,7 @@ import {
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project, dependencies = {}) {
     const issues = await listProjectIssues(project, dependencies);
-    const filtered = filterIssuesByPickupLabels(
-      issues,
-      project
-    ) as TrackedIssueList;
-    if (filtered !== issues) {
-      filtered.rateLimits = (issues as TrackedIssueList).rateLimits;
-      filtered.skippedItems = (issues as TrackedIssueList).skippedItems;
-    }
-    return filtered;
+    return applyPickupLabelDispatchability(issues, project);
   },
 
   async listIssuesByStates(project, states, dependencies = {}) {
@@ -163,6 +154,50 @@ export async function findGithubProjectIssue(
     parsed.number,
     dependencies.fetchImpl
   );
+}
+
+function applyPickupLabelDispatchability(
+  issues: TrackedIssueList,
+  project: Parameters<OrchestratorTrackerAdapter["listIssues"]>[0]
+): TrackedIssueList {
+  const pickupLabels = project.tracker.settings?.pickupLabels;
+  if (
+    !pickupLabels ||
+    typeof pickupLabels !== "object" ||
+    Array.isArray(pickupLabels)
+  ) {
+    return issues;
+  }
+
+  const config = pickupLabels as Record<string, unknown>;
+  const include = readPickupLabels(config.include);
+  const exclude = new Set(readPickupLabels(config.exclude));
+  if (include.length === 0 && exclude.size === 0) {
+    return issues;
+  }
+
+  const result = issues.map((issue) => {
+    const labels = new Set(issue.labels);
+    const excludedLabel = [...exclude].find((label) => labels.has(label));
+    const included = include.length === 0 || include.some((label) => labels.has(label));
+    if (!issue.dispatchable || (!excludedLabel && included)) {
+      return issue;
+    }
+
+    const dispatchReason = excludedLabel
+      ? `Issue has excluded pickup label "${excludedLabel}".`
+      : `Issue is missing a required pickup label (${include.join(", ")}).`;
+    return { ...issue, dispatchable: false, dispatchReason };
+  }) as TrackedIssueList;
+  result.rateLimits = issues.rateLimits;
+  result.skippedItems = issues.skippedItems;
+  return result;
+}
+
+function readPickupLabels(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((label): label is string => typeof label === "string")
+    : [];
 }
 
 async function listProjectIssues(
