@@ -9,6 +9,7 @@ type WorkflowCacheEntry = {
   fingerprint: string;
   envSignature: string;
   workflow: ParsedWorkflow;
+  revision: string;
   loadedAt: string;
 };
 
@@ -44,6 +45,8 @@ export class WorkflowConfigStore {
       cached.envSignature === envSignature
     ) {
       return toWorkflowResolution(workflowPath, cached.workflow, {
+        revision: cached.revision,
+        loadedAt: cached.loadedAt,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -52,13 +55,18 @@ export class WorkflowConfigStore {
 
     try {
       const workflow = parseWorkflowMarkdown(markdown, env);
+      const revision = createWorkflowRevision(workflow);
+      const loadedAt = new Date().toISOString();
       this.cache.set(workflowPath, {
         fingerprint,
         envSignature,
         workflow,
-        loadedAt: new Date().toISOString(),
+        revision,
+        loadedAt,
       });
       return toWorkflowResolution(workflowPath, workflow, {
+        revision,
+        loadedAt,
         isValid: true,
         usedLastKnownGood: false,
         validationError: null,
@@ -66,6 +74,8 @@ export class WorkflowConfigStore {
     } catch (error) {
       if (cached) {
         return toWorkflowResolution(workflowPath, cached.workflow, {
+          revision: cached.revision,
+          loadedAt: cached.loadedAt,
           isValid: false,
           usedLastKnownGood: true,
           validationError:
@@ -88,6 +98,8 @@ export function createInvalidWorkflowResolution(
   validationError: string
 ): WorkflowResolution {
   return toWorkflowResolution(workflowPath, DEFAULT_WORKFLOW_DEFINITION, {
+    revision: null,
+    loadedAt: null,
     isValid: false,
     usedLastKnownGood: false,
     validationError,
@@ -102,6 +114,8 @@ function toWorkflowResolution(
   workflowPath: string | null,
   workflow: ParsedWorkflow,
   metadata: {
+    revision: string | null;
+    loadedAt: string | null;
     isValid: boolean;
     usedLastKnownGood: boolean;
     validationError: string | null;
@@ -114,8 +128,14 @@ function toWorkflowResolution(
     promptTemplate: workflow.promptTemplate,
     agentCommand: workflow.agentCommand,
     hookPath: workflow.hookPath ?? "",
+    revision: metadata.revision,
+    loadedAt: metadata.loadedAt,
     isValid: metadata.isValid,
     usedLastKnownGood: metadata.usedLastKnownGood,
     validationError: metadata.validationError,
   };
+}
+
+function createWorkflowRevision(workflow: ParsedWorkflow): string {
+  return `sha256:${calculateWorkflowVersionHash(workflow).slice(0, 12)}`;
 }

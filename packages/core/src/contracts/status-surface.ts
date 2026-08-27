@@ -342,6 +342,14 @@ export type ProjectStatusSnapshot = {
     settings?: Record<string, OrchestratorTrackerSettingValue>;
   };
   lastTickAt: string;
+  /** Workflow revision applied during the most recent reconciliation tick. */
+  workflow?: {
+    /** Short SHA-256-derived identifier; never includes workflow contents or environment values. */
+    revision: string | null;
+    loadedAt: string | null;
+    isValid: boolean;
+    usedLastKnownGood: boolean;
+  };
   /** Non-fatal configuration conditions that operators should review. */
   warnings?: string[];
   health: "idle" | "running" | "degraded";
@@ -455,6 +463,9 @@ export type WorkflowResolution = {
   promptTemplate: string;
   agentCommand: string;
   hookPath: string;
+  /** Short SHA-256-derived identifier for the effective workflow contents. */
+  revision: string | null;
+  loadedAt: string | null;
   isValid: boolean;
   usedLastKnownGood: boolean;
   validationError: string | null;

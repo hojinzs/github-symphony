@@ -73,6 +73,8 @@ export type RunDispatchedEvent = {
   issueIdentifier: string;
   issueState?: string;
   issueId?: string;
+  /** Workflow revision applied when this run was dispatched. */
+  workflowRevision?: string | null;
   sessionId?: string;
   tracker?: TrackerEventMetadata;
   issue?: IssueEventMetadata;

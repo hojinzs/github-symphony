@@ -12070,6 +12070,7 @@ Handle Linear issue.`,
           },
           issueIdentifier: "ENG-1",
           issueId: "linear-issue-1",
+          workflowRevision: expect.stringMatching(/^sha256:[a-f0-9]{12}$/),
         }),
       ])
     );

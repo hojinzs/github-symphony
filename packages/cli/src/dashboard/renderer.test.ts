@@ -38,6 +38,25 @@ describe("renderDashboard", () => {
     expect(output).toContain("Agents");
   });
 
+  it("renders the applied workflow revision when available", () => {
+    const snapshot = loadFixture("idle");
+    snapshot.workflow = {
+      revision: "sha256:123456789abc",
+      loadedAt: "2026-03-13T05:00:00Z",
+      isValid: true,
+      usedLastKnownGood: false,
+    };
+
+    const output = renderDashboard([snapshot], {
+      terminalWidth: 115,
+      noColor: true,
+      now: NOW,
+    });
+
+    expect(output).toContain("Workflow");
+    expect(output).toContain("sha256:123456789abc");
+  });
+
   it("renders stopped daemon health and restart guidance", () => {
     const snapshot = loadFixture("idle");
     const output = renderDashboard([snapshot], {

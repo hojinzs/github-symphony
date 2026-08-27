@@ -155,6 +155,15 @@ function renderLegacyStatus(
   );
   lines.push("");
 
+  if (snapshot.workflow) {
+    const revision = snapshot.workflow.revision ?? "unavailable";
+    const loadedAt = snapshot.workflow.loadedAt
+      ? relativeTime(snapshot.workflow.loadedAt)
+      : "unknown";
+    lines.push(`  Workflow: ${revision} · loaded ${loadedAt}`);
+    lines.push("");
+  }
+
   // Summary stats
   const dispatchedStr = apply(`Dispatched   ${snapshot.summary.dispatched}`);
   const activeRunsStr = apply(`Active Runs  ${snapshot.summary.activeRuns}`);

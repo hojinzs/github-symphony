@@ -231,6 +231,14 @@ function buildSummaryLines(
   const limitStr = hasLimits ? "active" : "standard";
   lines.push(`  ${c.dim("Rate Limits")}  ${limitStr}`);
 
+  for (const snapshot of snapshots) {
+    if (!snapshot.workflow) continue;
+    const revision = snapshot.workflow.revision ?? "unavailable";
+    lines.push(
+      `  ${c.dim("Workflow")}  ${formatRepositoryDisplay(snapshot)}  ${revision}`
+    );
+  }
+
   const runtimeStatus = options.runtimeStatus;
   const primarySnapshot = snapshots[0];
   if (runtimeStatus && primarySnapshot) {

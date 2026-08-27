@@ -934,4 +934,50 @@ Broken prompt.
     expect(second.usedLastKnownGood).toBe(true);
     expect(second.validationError).toContain("command");
   });
+
+  it("exposes a stable, content-derived revision without workflow contents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
+    tempDirs.push(root);
+    const workflowPath = join(root, "WORKFLOW.md");
+    const store = new WorkflowConfigStore();
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+    const first = await store.load(workflowPath);
+    const second = await store.load(workflowPath);
+
+    expect(first.revision).toMatch(/^sha256:[a-f0-9]{12}$/);
+    expect(first.revision).not.toContain("Prefer focused changes.");
+    expect(second.revision).toBe(first.revision);
+    expect(second.loadedAt).toBe(first.loadedAt);
+    expect(
+      (
+        store as unknown as {
+          cache: Map<string, { revision: string }>;
+        }
+      ).cache.get(workflowPath)?.revision
+    ).toBe(first.revision);
+  });
+
+  it("changes the revision when environment resolution changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workflow-loader-"));
+    tempDirs.push(root);
+    const workflowPath = join(root, "WORKFLOW.md");
+    const store = new WorkflowConfigStore();
+
+    await writeFile(
+      workflowPath,
+      SAMPLE_WORKFLOW.replace("codex app-server", "$AGENT_COMMAND"),
+      "utf8"
+    );
+
+    const first = await store.load(workflowPath, {
+      AGENT_COMMAND: "codex app-server",
+    });
+    const second = await store.load(workflowPath, {
+      AGENT_COMMAND: "claude --print",
+    });
+
+    expect(second.revision).not.toBe(first.revision);
+    expect(second.agentCommand).toBe("claude --print");
+  });
 });
