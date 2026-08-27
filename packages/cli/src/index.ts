@@ -546,9 +546,17 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const project = addGlobalOptions(
     program.command("project").description("Manage standalone projects")
   );
-  addGlobalOptions(program.command("instances").description("List orchestrator instances on this host")).action(async function (this: Command) {
+  addGlobalOptions(
+    program
+      .command("instances")
+      .description("List orchestrator instances on this host")
+  ).action(async function (this: Command) {
     markInvoked();
-    await invokeHandler("instances", [], this.optsWithGlobals<CliOptionValues>());
+    await invokeHandler(
+      "instances",
+      [],
+      this.optsWithGlobals<CliOptionValues>()
+    );
   });
   addGlobalOptions(project.command("list").allowExcessArguments(false)).action(
     async function (this: Command) {

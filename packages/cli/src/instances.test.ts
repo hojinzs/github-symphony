@@ -27,7 +27,12 @@ describe("global instance registry", () => {
     });
     await writeFile(
       join(runtimeRoot, "projects", entry.projectId, ".lock"),
-      JSON.stringify({ heartbeatAt: new Date().toISOString() })
+      JSON.stringify({
+        pid: entry.pid,
+        startedAt: entry.startedAt,
+        heartbeatAt: new Date().toISOString(),
+        processIdentity: entry.processIdentity,
+      })
     );
     await writeFile(
       join(runtimeRoot, "projects", entry.projectId, "status.json"),
@@ -56,6 +61,21 @@ describe("global instance registry", () => {
     await registerInstance(entry);
     await expect(instancesRootMode()).resolves.toBe(0o700);
     await unregisterInstance(entry);
+    await writeFile(
+      join(runtimeRoot, "projects", entry.projectId, ".lock"),
+      JSON.stringify({
+        pid: entry.pid,
+        startedAt: entry.startedAt,
+        heartbeatAt: new Date().toISOString(),
+        processIdentity: entry.processIdentity,
+      })
+    );
+    await expect(listInstances()).resolves.toEqual([
+      expect.objectContaining({
+        status: "unregistered",
+        projectId: entry.projectId,
+      }),
+    ]);
   });
 });
 

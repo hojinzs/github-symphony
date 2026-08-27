@@ -17,11 +17,13 @@ import {
   daemonPidPath,
   parseDaemonPidRecord,
   DEFAULT_CONFIG_DIR,
+  projectConfigPath,
 } from "./config.js";
 
 const TTL_MS = 60_000;
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
+const RUNTIME_ROOTS_FILE = "runtime-roots.json";
 
 export type InstanceEntry = {
   projectId: string;
@@ -71,6 +73,7 @@ async function ensureInstancesRoot(): Promise<void> {
 
 export async function registerInstance(entry: InstanceEntry): Promise<void> {
   await ensureInstancesRoot();
+  await rememberRuntimeRoot(entry.runtimeRoot);
   await writeFile(pathFor(entry), JSON.stringify(entry, null, 2) + "\n", {
     mode: FILE_MODE,
   });
@@ -134,13 +137,16 @@ export async function listInstances(
   }
 
   const output: ListedInstance[] = [];
+  const registeredKeys = new Set<string>();
   for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    if (name === RUNTIME_ROOTS_FILE) continue;
     const entryPath = join(instancesRoot(), name);
     let entry: InstanceEntry;
     try {
       const parsed = await readJson(entryPath);
       if (!isInstanceEntry(parsed)) continue;
       entry = parsed;
+      registeredKeys.add(instanceKey(entry));
     } catch {
       continue;
     }
@@ -179,7 +185,112 @@ export async function listInstances(
       uptimeMs: Math.max(0, now - Date.parse(entry.startedAt)),
     });
   }
+  output.push(...(await discoverUnregistered(registeredKeys, now)));
   return output;
+}
+
+function instanceKey(
+  entry: Pick<InstanceEntry, "runtimeRoot" | "projectId">
+): string {
+  return `${resolve(entry.runtimeRoot)}\0${entry.projectId}`;
+}
+
+async function rememberRuntimeRoot(runtimeRoot: string): Promise<void> {
+  const path = join(instancesRoot(), RUNTIME_ROOTS_FILE);
+  const existing = await readJson(path).catch(() => []);
+  const roots = Array.isArray(existing)
+    ? existing.filter((value): value is string => typeof value === "string")
+    : [];
+  const resolvedRoot = resolve(runtimeRoot);
+  if (!roots.includes(resolvedRoot)) {
+    await writeFile(
+      path,
+      JSON.stringify([...roots, resolvedRoot], null, 2) + "\n",
+      { mode: FILE_MODE }
+    );
+  }
+}
+
+async function discoverUnregistered(
+  registeredKeys: Set<string>,
+  now: number
+): Promise<ListedInstance[]> {
+  const roots = await readJson(join(instancesRoot(), RUNTIME_ROOTS_FILE)).catch(
+    () => []
+  );
+  if (!Array.isArray(roots)) return [];
+  const discovered: ListedInstance[] = [];
+  for (const runtimeRoot of roots.filter(
+    (value): value is string => typeof value === "string"
+  )) {
+    const projectIds = await readdir(join(runtimeRoot, "projects")).catch(
+      () => []
+    );
+    for (const projectId of projectIds) {
+      if (registeredKeys.has(instanceKey({ runtimeRoot, projectId }))) continue;
+      const lock = (await readJson(
+        resolveProjectLockPath(runtimeRoot, projectId)
+      ).catch(() => null)) as {
+        pid?: unknown;
+        startedAt?: unknown;
+        heartbeatAt?: unknown;
+        processIdentity?: unknown;
+        cwd?: unknown;
+      } | null;
+      if (
+        !lock ||
+        typeof lock.pid !== "number" ||
+        typeof lock.startedAt !== "string" ||
+        !isFresh(
+          typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null,
+          now
+        ) ||
+        !identityMatches(
+          typeof lock.processIdentity === "string"
+            ? lock.processIdentity
+            : null,
+          lock.pid
+        )
+      )
+        continue;
+      const config = (await readJson(
+        projectConfigPath(runtimeRoot, projectId)
+      ).catch(() => null)) as {
+        repository?: { owner?: string; name?: string };
+        repositoryDir?: string;
+        projectDir?: string;
+        workspaceDir?: string;
+        workflowSource?: { type?: string };
+      } | null;
+      discovered.push({
+        projectId,
+        repo:
+          config?.repository?.owner && config.repository.name
+            ? `${config.repository.owner}/${config.repository.name}`
+            : "unknown",
+        repoPath: resolve(
+          config?.repositoryDir ??
+            config?.projectDir ??
+            (typeof lock.cwd === "string" ? lock.cwd : runtimeRoot)
+        ),
+        workspacePath: resolve(config?.workspaceDir ?? runtimeRoot),
+        runtimeRoot: resolve(runtimeRoot),
+        pid: lock.pid,
+        startedAt: lock.startedAt,
+        heartbeatAt:
+          typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null,
+        processIdentity:
+          typeof lock.processIdentity === "string"
+            ? lock.processIdentity
+            : null,
+        standalone: config?.workflowSource?.type === "external",
+        phase: await readCurrentPhase(runtimeRoot, projectId),
+        status: "unregistered",
+        uptimeMs: Math.max(0, now - Date.parse(lock.startedAt)),
+      });
+    }
+  }
+  return discovered;
 }
 
 async function readCurrentPhase(
