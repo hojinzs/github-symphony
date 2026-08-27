@@ -1,5 +1,19 @@
 # @gh-symphony/cli
 
+## 0.11.1
+
+### Patch Changes
+
+- [#637](https://github.com/hojinzs/github-symphony/pull/637) [`5cfa036`](https://github.com/hojinzs/github-symphony/commit/5cfa036b4fb1a40cb95fb709a94418e59d202550) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Fix [#634](https://github.com/hojinzs/github-symphony/issues/634) by forwarding Linear runtime credentials to built-in MCP servers and sending API keys as raw Authorization values.
+
+- [#638](https://github.com/hojinzs/github-symphony/pull/638) [`7b3598d`](https://github.com/hojinzs/github-symphony/commit/7b3598da0d39e38896da4527efdad15cb5e63e69) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Map subpath-hosted GHES GraphQL endpoints to their `/api/v3` REST base URL ([#602](https://github.com/hojinzs/github-symphony/issues/602)).
+
+- [#633](https://github.com/hojinzs/github-symphony/pull/633) [`0e6139a`](https://github.com/hojinzs/github-symphony/commit/0e6139ad44b63a71d85dd99bcce697656566ba0e) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Expose standalone `project` commands and supported `project start` runtime flags in CLI help, reject misspelled runtime options, and clarify the `--assigned-only` migration guidance for [#625](https://github.com/hojinzs/github-symphony/issues/625).
+
+- [#636](https://github.com/hojinzs/github-symphony/pull/636) [`7f61a70`](https://github.com/hojinzs/github-symphony/commit/7f61a7002226e2a33c22524e71e706702ae952b9) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep standalone project-start serialization intact while an operator confirms an overlapping mapping ([#607](https://github.com/hojinzs/github-symphony/issues/607)).
+
+- [#642](https://github.com/hojinzs/github-symphony/pull/642) [`610a98e`](https://github.com/hojinzs/github-symphony/commit/610a98e19336d7c9737df2fb5ea45a8cea271619) Thanks [@moncher-dev](https://github.com/moncher-dev)! - Keep reconciliation dispatching healthy issues when a restarted run fails to start ([#606](https://github.com/hojinzs/github-symphony/issues/606)).
+
 ## 0.11.0
 
 ### Minor Changes
