@@ -1716,9 +1716,11 @@ export class OrchestratorService {
           issueIdentifier: issue.identifier,
           issueId: run.issueId,
           issueState: issue.state,
-          workflowRevision: (
-            await this.loadProjectWorkflow(tenant, issue.repository)
-          ).revision,
+          workflowRevision:
+            (await this.loadProjectWorkflow(tenant, issue.repository))
+              .revision ??
+            workflowResolution?.revision ??
+            null,
           ...buildStructuredTrackerEventMetadata(tenant, issue),
         });
         this.logVerbose(

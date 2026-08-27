@@ -6,8 +6,6 @@ committed `WORKFLOW.md` settings for workflow policy, and use environment
 variables for host-specific authentication, Enterprise endpoints, local paths,
 and operational overrides.
 
-## Workflow Lifecycle Policy
-
 ## WORKFLOW.md Reload Semantics
 
 The orchestrator does not need a restart to apply a valid `WORKFLOW.md` edit.
@@ -28,6 +26,12 @@ the effective `workflow.revision` (a short SHA-256-derived identifier) and
 `workflowRevision`. Neither value contains workflow contents or environment
 values. See [ADR 2026-08-26](adr/2026-08-26-workflow-reload-divergence.md) for
 the decision and scope.
+
+Human-readable `gh-symphony repo status`, `gh-symphony project status`, and
+their `--watch` dashboards show the applied revision; `--json` exposes the
+same metadata for automation.
+
+## Workflow Lifecycle Policy
 
 `tracker.blocker_check_states` selects the workflow states where unresolved
 `blocked_by` dependencies prevent dispatch. When the field is omitted, the
