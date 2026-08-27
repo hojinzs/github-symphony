@@ -41,6 +41,14 @@ function createTrackedIssue(
 }
 
 describe("buildPromptVariables", () => {
+  it("exposes a positive retry attempt to Liquid templates", () => {
+    const variables = buildPromptVariables(createTrackedIssue(), {
+      attempt: 2,
+    });
+
+    expect(renderPrompt("attempt={{ attempt }}", variables)).toBe("attempt=2");
+  });
+
   it("keeps legacy issue prompts working and defaults content type to Issue", () => {
     const variables = buildPromptVariables(createTrackedIssue(), {
       attempt: null,

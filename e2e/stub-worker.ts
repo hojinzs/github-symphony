@@ -7,6 +7,7 @@
  *   stall           — starting(2s) → running(∞), waits for SIGTERM
  *   slow            — starting(2s) → running(30s) → completed, exit 0
  *   prompt-phase    — validates the rendered planning phase, then completes
+ *   retry-attempt   — validates attempt=1 on the continuation dispatch, then completes
  *   transition-race — requests Ready → In review, then stalls for reconciliation
  *   api-progress    — requests Ready → Done, confirms readback, then completes
  *   api-progress-unknown — confirms Done, removes the canonical item, then completes
@@ -32,6 +33,7 @@ type Scenario =
   | "stall"
   | "slow"
   | "prompt-phase"
+  | "retry-attempt"
   | "transition-race"
   | "api-progress"
   | "api-progress-unknown";
@@ -41,6 +43,7 @@ const VALID_SCENARIOS: ReadonlySet<string> = new Set([
   "stall",
   "slow",
   "prompt-phase",
+  "retry-attempt",
   "transition-race",
   "api-progress",
   "api-progress-unknown",
@@ -62,6 +65,7 @@ const SCENARIO_DURATIONS: Record<Scenario, { startMs: number; runMs: number }> =
     stall: { startMs: 2000, runMs: Infinity },
     slow: { startMs: 2000, runMs: 30000 },
     "prompt-phase": { startMs: 2000, runMs: 1000 },
+    "retry-attempt": { startMs: 100, runMs: 100 },
     "transition-race": { startMs: 2000, runMs: Infinity },
     "api-progress": { startMs: 2000, runMs: 1000 },
     "api-progress-unknown": { startMs: 2000, runMs: 1000 },
@@ -295,6 +299,24 @@ async function run() {
       `stub_prompt_phase_missing:${JSON.stringify(RENDERED_PROMPT.slice(0, 200))}`
     );
   }
+  const retryAttempt =
+    SCENARIO === "retry-attempt"
+      ? /retry_attempt=(\d*)(?=[.\s]|$)/.exec(RENDERED_PROMPT)?.[1]
+      : undefined;
+  if (SCENARIO === "retry-attempt" && retryAttempt === undefined) {
+    throw new Error(
+      `stub_retry_attempt_marker_missing:${JSON.stringify(RENDERED_PROMPT.slice(0, 200))}`
+    );
+  }
+  if (
+    SCENARIO === "retry-attempt" &&
+    retryAttempt !== "" &&
+    retryAttempt !== "1"
+  ) {
+    throw new Error(
+      `stub_retry_attempt_unexpected:${JSON.stringify(RENDERED_PROMPT.slice(0, 200))}`
+    );
+  }
 
   // Local and Docker builds emit the worker into different directories; find
   // the built core package relative to the emitted worker rather than /app.
@@ -325,7 +347,8 @@ async function run() {
   if (
     SCENARIO === "api-progress" ||
     SCENARIO === "api-progress-unknown" ||
-    SCENARIO === "prompt-phase"
+    SCENARIO === "prompt-phase" ||
+    (SCENARIO === "retry-attempt" && retryAttempt === "1")
   ) {
     await requestAndConfirmApiProgress();
   }

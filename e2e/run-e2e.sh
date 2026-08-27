@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -161,7 +161,7 @@ assert any(
   if [ "$RUN_STATUS" = "retrying" ]; then
     SAW_RETRY=true
     # Worker completed and orchestrator saw the exit — remove issues to stop retry loop
-    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ]; then
+    if [ "$SCENARIO" != "transition-race" ] && [ "$SCENARIO" != "api-progress" ] && [ "$SCENARIO" != "api-progress-unknown" ] && [ "$SCENARIO" != "prompt-phase" ] && [ "$SCENARIO" != "retry-attempt" ]; then
       echo "[]" > e2e/fixtures/issues.json
     fi
   fi
@@ -214,7 +214,7 @@ PY
   exit 0
 fi
 
-if [ "$SCENARIO" = "api-progress" ] || [ "$SCENARIO" = "prompt-phase" ]; then
+if [ "$SCENARIO" = "api-progress" ] || [ "$SCENARIO" = "prompt-phase" ] || [ "$SCENARIO" = "retry-attempt" ]; then
   if [ "$SAW_RUNNING" != true ]; then
     fail "Worker did not reach running state"
     exit 1
@@ -231,20 +231,36 @@ PY
     fail "Scenario run id was not captured"
     exit 1
   fi
-  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" symphony-e2e node --input-type=module -e '
+  docker exec -e SCENARIO_RUN_ID="$SCENARIO_RUN_ID" -e SCENARIO="$SCENARIO" symphony-e2e node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { execFileSync } from "node:child_process";
+    const allScenarioRuns = execFileSync("find", [
+      "/e2e/work",
+      "-path",
+      "*/runs/*/run.json",
+    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+    if (process.env.SCENARIO === "retry-attempt") {
+      if (allScenarioRuns.length !== 2) {
+        throw new Error(`expected_initial_and_retry_runs:${JSON.stringify(allScenarioRuns)}`);
+      }
+      const retries = allScenarioRuns
+        .map((path) => JSON.parse(readFileSync(path, "utf8")))
+        .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+      if (
+        retries[0]?.runPhase !== "succeeded" ||
+        retries[1]?.status !== "succeeded" ||
+        retries[1]?.runPhase !== "succeeded"
+      ) {
+        throw new Error(`retry_attempt_run_not_succeeded:${JSON.stringify(retries)}`);
+      }
+      process.exit(0);
+    }
     const paths = execFileSync("find", [
       "/e2e/work",
       "-path",
       `*/runs/${process.env.SCENARIO_RUN_ID}/run.json`,
     ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (paths.length !== 1) throw new Error(`expected_one_scenario_run:${JSON.stringify(paths)}`);
-    const allScenarioRuns = execFileSync("find", [
-      "/e2e/work",
-      "-path",
-      "*/runs/*/run.json",
-    ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
     if (allScenarioRuns.length !== 1) {
       throw new Error(`unexpected_replacement_runs:${JSON.stringify(allScenarioRuns)}`);
     }
