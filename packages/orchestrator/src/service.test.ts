@@ -5142,12 +5142,24 @@ Prefer focused changes.
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",
-      "platform"
+      "platform",
+      { maxConcurrentAgents: 1 }
     );
     const store = new OrchestratorFsStore(tempRoot);
     const projectConfig = createProjectConfig(tempRoot, repository);
     await store.saveProjectConfig(projectConfig);
     await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-occupied",
+        identifier: "acme/platform#2",
+        workspaceKey: "acme_platform_2",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "running",
+        currentRunId: "run-occupied",
+        retryEntry: null,
+        updatedAt: "2026-03-08T00:00:00.000Z",
+      },
       {
         issueId: "issue-1",
         identifier: "acme/platform#1",
@@ -5332,8 +5344,6 @@ Prefer focused changes.
       getProcessStartIdentity: (pid) => `worker-${pid}-started-once`,
       now: () => new Date("2026-03-08T00:01:00.000Z"),
     });
-    vi.spyOn(service as never, "hasRetryDispatchSlot").mockResolvedValue(false);
-
     const result = await service.runOnce();
 
     expect(result.summary.recovered).toBe(0);
@@ -5347,20 +5357,106 @@ Prefer focused changes.
 
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "retrying",
-      attempt: 3,
+      attempt: 2,
       lastError: "no available orchestrator slots",
     });
     expect(
-      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[1]
     ).toMatchObject({
       state: "retry_queued",
       currentRunId: "run-1",
       failureRetryCount: 0,
       retryEntry: expect.objectContaining({
-        attempt: 3,
+        attempt: 2,
         error: "no available orchestrator slots",
       }),
     });
+  });
+
+  it("lets due retry reservations make progress without exceeding running capacity", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-retry-slot-"));
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform",
+      { maxConcurrentAgents: 1 }
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const service = new OrchestratorService(store, projectConfig);
+    const now = new Date("2026-03-08T00:01:00.000Z");
+    const run = {
+      runId: "run-1",
+      issueId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+    } as OrchestratorRunRecord;
+    const dueReservation = {
+      issueId: "issue-1",
+      identifier: "acme/platform#1",
+      workspaceKey: "acme_platform_1",
+      completedOnce: false,
+      failureRetryCount: 0,
+      state: "retry_queued" as const,
+      currentRunId: "run-1",
+      retryEntry: {
+        attempt: 2,
+        dueAt: "2026-03-08T00:00:00.000Z",
+        error: "worker failed",
+      },
+      updatedAt: "2026-03-08T00:00:00.000Z",
+    };
+    const hasRetryDispatchSlot = (
+      service as unknown as {
+        hasRetryDispatchSlot: (
+          tenant: typeof projectConfig,
+          currentRun: OrchestratorRunRecord,
+          records: IssueOrchestrationRecord[],
+          currentTime: Date
+        ) => Promise<boolean>;
+      }
+    ).hasRetryDispatchSlot.bind(service);
+
+    expect(
+      await hasRetryDispatchSlot(projectConfig, run, [dueReservation], now)
+    ).toBe(true);
+    expect(
+      await hasRetryDispatchSlot(
+        projectConfig,
+        run,
+        [
+          {
+            ...dueReservation,
+            state: "running",
+            currentRunId: "run-occupied",
+          },
+          dueReservation,
+        ],
+        now
+      )
+    ).toBe(false);
+    expect(
+      await hasRetryDispatchSlot(
+        projectConfig,
+        run,
+        [
+          dueReservation,
+          {
+            ...dueReservation,
+            issueId: "issue-2",
+            identifier: "acme/platform#2",
+            currentRunId: "run-2",
+          },
+          {
+            ...dueReservation,
+            issueId: "issue-3",
+            identifier: "acme/platform#3",
+            currentRunId: "run-3",
+          },
+        ],
+        now
+      )
+    ).toBe(true);
   });
 
   it("selects a live current run before reconciling dead-first duplicates", async () => {

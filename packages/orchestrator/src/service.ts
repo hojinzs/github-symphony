@@ -195,6 +195,17 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isDueRetryReservation(
+  record: IssueOrchestrationRecord,
+  now: Date
+): boolean {
+  if (record.state !== "retry_queued" || record.currentRunId === null) {
+    return false;
+  }
+  const dueAtMs = parseTimestampMs(record.retryEntry?.dueAt);
+  return dueAtMs !== null && dueAtMs <= now.getTime();
+}
+
 function parseFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -3331,14 +3342,14 @@ export class OrchestratorService {
           now
         );
       }
-      if (!(await this.hasRetryDispatchSlot(tenant, run, issueRecords))) {
+      if (!(await this.hasRetryDispatchSlot(tenant, run, issueRecords, now))) {
         return this.requeueRetryingRun(
           tenant,
           runWithTokens,
           issueRecords,
           now,
           "no available orchestrator slots",
-          { countFailure: false }
+          { countFailure: false, advanceAttempt: false }
         );
       }
 
@@ -4133,7 +4144,10 @@ export class OrchestratorService {
       }
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
-        return { action: "release", issue };
+        return {
+          action: "requeue",
+          error: "retry refresh failed: workflow policy unavailable",
+        };
       }
       if (isStateTerminal(issue.state, resolution.lifecycle)) {
         return { action: "release", issue, terminal: true };
@@ -4782,18 +4796,21 @@ export class OrchestratorService {
   private async hasRetryDispatchSlot(
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
-    issueRecords: IssueOrchestrationRecord[]
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date
   ): Promise<boolean> {
     const concurrency = await this.getProjectConcurrency(tenant);
     const claimed = issueRecords.filter(
       (record) =>
         isIssueOrchestrationClaimedState(record.state) &&
-        (record.state !== "retry_queued" || record.currentRunId !== null)
+        (record.state !== "retry_queued" || record.currentRunId !== null) &&
+        !isDueRetryReservation(record, now)
     ).length;
     const retryAlreadyClaimsSlot = issueRecords.some(
       (record) =>
         record.currentRunId === run.runId &&
-        isIssueOrchestrationClaimedState(record.state)
+        isIssueOrchestrationClaimedState(record.state) &&
+        !isDueRetryReservation(record, now)
     );
     return claimed + (retryAlreadyClaimsSlot ? 0 : 1) <= concurrency;
   }
@@ -4804,7 +4821,7 @@ export class OrchestratorService {
     issueRecords: IssueOrchestrationRecord[],
     now: Date,
     error: string,
-    options: { countFailure?: boolean } = {}
+    options: { countFailure?: boolean; advanceAttempt?: boolean } = {}
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
@@ -4814,7 +4831,9 @@ export class OrchestratorService {
         record.issueId === run.issueId ||
         record.identifier === run.issueIdentifier
     );
-    const attempt = (issueRecord?.retryEntry?.attempt ?? run.attempt) + 1;
+    const attempt =
+      (issueRecord?.retryEntry?.attempt ?? run.attempt) +
+      (options.advanceAttempt === false ? 0 : 1);
     const failureRetryCount =
       (issueRecord?.failureRetryCount ?? 0) +
       (options.countFailure === false ? 0 : 1);
@@ -4830,7 +4849,11 @@ export class OrchestratorService {
     const dueAt = suppressed
       ? null
       : (retryPolicy
-          ? scheduleRetryAt(now, attempt, retryPolicy)
+          ? options.advanceAttempt === false
+            ? new Date(
+                now.getTime() + (await this.loadProjectPollInterval(tenant))
+              )
+            : scheduleRetryAt(now, attempt, retryPolicy)
           : new Date(
               now.getTime() +
                 (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
