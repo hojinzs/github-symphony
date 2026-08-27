@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   createInvalidWorkflowResolution,
   createDefaultWorkflowResolution,
+  formatWorkflowValidationError,
   WorkflowConfigStore,
   type RepositoryRef,
   type WorkflowResolution,
@@ -501,7 +502,7 @@ export async function loadWorkflowFile(
 
     return createInvalidWorkflowResolution(
       workflowPath,
-      error instanceof Error ? error.message : "workflow_parse_error"
+      formatWorkflowValidationError(error)
     );
   }
 }

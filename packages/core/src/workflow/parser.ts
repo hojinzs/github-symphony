@@ -31,12 +31,56 @@ type WorkflowFrontMatterNode =
 
 export type ParseWorkflowOptions = {
   compatibilityMode?: "strict" | "legacy";
+  supportedTrackerKinds?: readonly string[];
 };
+
+export type WorkflowValidationErrorCode =
+  | "workflow_parse_error"
+  | "workflow_front_matter_not_a_map"
+  | "workflow_validation_error";
+
+/** A stable, machine-readable error raised while reading WORKFLOW.md. */
+export class WorkflowValidationError extends Error {
+  constructor(
+    public readonly code: WorkflowValidationErrorCode,
+    public readonly path: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "WorkflowValidationError";
+  }
+}
+
+export const DEFAULT_SUPPORTED_TRACKER_KINDS = [
+  "github-project",
+  "linear",
+  "file",
+] as const;
 
 export function parseWorkflowMarkdown(
   markdown: string,
   env: NodeJS.ProcessEnv = process.env,
   options: ParseWorkflowOptions = {}
+): ParsedWorkflow {
+  try {
+    return parseWorkflowMarkdownInternal(markdown, env, options);
+  } catch (error) {
+    if (error instanceof WorkflowValidationError) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Invalid workflow definition.";
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      inferWorkflowErrorPath(message),
+      message
+    );
+  }
+}
+
+function parseWorkflowMarkdownInternal(
+  markdown: string,
+  env: NodeJS.ProcessEnv,
+  options: ParseWorkflowOptions
 ): ParsedWorkflow {
   const compatibilityMode = options.compatibilityMode ?? "strict";
   const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -45,7 +89,11 @@ export function parseWorkflowMarkdown(
     if (compatibilityMode === "legacy") {
       return parseLegacyWorkflowMarkdown(markdown);
     }
-    throw new Error("WORKFLOW.md must use YAML front matter.");
+    throw new WorkflowValidationError(
+      "workflow_parse_error",
+      "front_matter",
+      "WORKFLOW.md must use YAML front matter."
+    );
   }
 
   const [, rawFrontMatter, rawPromptTemplate = ""] = frontMatterMatch;
@@ -64,6 +112,15 @@ export function parseWorkflowMarkdown(
     : readRequiredObject(frontMatter, "codex");
 
   const trackerKind = readRequiredString(tracker, "kind", env);
+  const supportedTrackerKinds =
+    options.supportedTrackerKinds ?? DEFAULT_SUPPORTED_TRACKER_KINDS;
+  if (!supportedTrackerKinds.includes(trackerKind)) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      "tracker.kind",
+      `Unsupported workflow tracker.kind "${trackerKind}". Supported values: ${supportedTrackerKinds.join(", ")}.`
+    );
+  }
   validateTrackerConfig(tracker, trackerKind, env);
   const activeStates =
     readStringList(tracker, "active_states") ??
@@ -85,7 +142,7 @@ export function parseWorkflowMarkdown(
 
   const runtime = hasRuntime ? parseRuntimeConfig(runtimeNode, env) : null;
   const codexConfig = {
-    command: readOptionalString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND,
+    command: readOptionalNonEmptyString(codex, "command", env) ?? DEFAULT_AGENT_COMMAND,
     approvalPolicy: readOptionalString(codex, "approval_policy", env),
     threadSandbox: readOptionalString(codex, "thread_sandbox", env),
     turnSandboxPolicy: readOptionalString(codex, "turn_sandbox_policy", env),
@@ -146,7 +203,8 @@ export function parseWorkflowMarkdown(
       afterRun: readOptionalString(hooks, "after_run", env),
       beforeRemove: readOptionalString(hooks, "before_remove", env),
       timeoutMs:
-        readOptionalIntegerLike(hooks, "timeout_ms") ?? DEFAULT_HOOK_TIMEOUT_MS,
+        readOptionalPositiveInteger(hooks, "timeout_ms", "hooks.timeout_ms") ??
+        DEFAULT_HOOK_TIMEOUT_MS,
     },
     agent: {
       maxConcurrentAgents:
@@ -160,7 +218,8 @@ export function parseWorkflowMarkdown(
         readOptionalIntegerLike(agent, "max_failure_retries") ??
         DEFAULT_MAX_FAILURE_RETRIES,
       maxTurns:
-        readOptionalIntegerLike(agent, "max_turns") ?? DEFAULT_MAX_TURNS,
+        readOptionalPositiveInteger(agent, "max_turns", "agent.max_turns") ??
+        DEFAULT_MAX_TURNS,
       retryBaseDelayMs:
         readOptionalIntegerLike(agent, "retry_base_delay_ms") ??
         DEFAULT_BASE_DELAY_MS,
@@ -315,13 +374,34 @@ function parseFrontMatter(
   frontMatter: string
 ): Record<string, WorkflowFrontMatterNode> {
   const lines = frontMatter.replace(/\r\n/g, "\n").split("\n");
-  const [value] = parseBlock(lines, 0, 0);
+  let value: WorkflowFrontMatterNode;
+  try {
+    [value] = parseBlock(lines, 0, 0);
+  } catch (error) {
+    if (error instanceof WorkflowValidationError) {
+      throw error;
+    }
+    throw new WorkflowValidationError(
+      "workflow_parse_error",
+      "front_matter",
+      error instanceof Error ? error.message : "Invalid YAML front matter."
+    );
+  }
 
   if (!value || Array.isArray(value) || typeof value !== "object") {
-    throw new Error("Workflow front matter must be a YAML object.");
+    throw new WorkflowValidationError(
+      "workflow_front_matter_not_a_map",
+      "front_matter",
+      "Workflow front matter must be a YAML object."
+    );
   }
 
   return value as Record<string, WorkflowFrontMatterNode>;
+}
+
+function inferWorkflowErrorPath(message: string): string {
+  const field = message.match(/field "([^"]+)"/);
+  return field?.[1] ?? "front_matter";
 }
 
 function parseBlock(
@@ -840,13 +920,42 @@ function readOptionalIntegerLike(
   if (value === undefined || value === null) {
     return null;
   }
-  if (typeof value === "number") {
+  if (typeof value === "number" && Number.isInteger(value)) {
     return value;
   }
-  if (typeof value === "string" && /^-?\d+$/.test(value)) {
-    return Number.parseInt(value, 10);
-  }
   throw new Error(`Workflow front matter field "${key}" must be an integer.`);
+}
+
+function readOptionalPositiveInteger(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  path: string
+): number | null {
+  const value = readOptionalIntegerLike(input, key);
+  if (value !== null && value <= 0) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      path,
+      `Workflow front matter field "${path}" must be a positive integer.`
+    );
+  }
+  return value;
+}
+
+function readOptionalNonEmptyString(
+  input: Record<string, WorkflowFrontMatterNode>,
+  key: string,
+  env: NodeJS.ProcessEnv
+): string | null {
+  const value = readOptionalString(input, key, env);
+  if (value !== null && value.trim().length === 0) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      `codex.${key}`,
+      `Workflow front matter field "codex.${key}" must be a non-empty string when provided.`
+    );
+  }
+  return value;
 }
 
 function readNumberMap(
@@ -864,12 +973,8 @@ function readNumberMap(
 
   const result: Record<string, number> = {};
   for (const [entryKey, entryValue] of Object.entries(value)) {
-    if (typeof entryValue === "number") {
+    if (typeof entryValue === "number" && Number.isInteger(entryValue)) {
       result[entryKey] = entryValue;
-      continue;
-    }
-    if (typeof entryValue === "string" && /^-?\d+$/.test(entryValue)) {
-      result[entryKey] = Number.parseInt(entryValue, 10);
       continue;
     }
     throw new Error(

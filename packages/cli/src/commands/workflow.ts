@@ -4,6 +4,7 @@ import {
   buildPromptVariables,
   type OrchestratorProjectConfig,
   parseWorkflowMarkdown,
+  WorkflowValidationError,
   renderPrompt,
   resolveWorkflowExecutionPhase,
   type TrackedIssue,
@@ -23,6 +24,7 @@ import {
   validateGitHubToken,
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
+import { writeCliError } from "../cli-error.js";
 import {
   buildPriorityConfigDiagnostics,
   type PriorityDiagnostic,
@@ -1035,6 +1037,14 @@ const handler = async (
         return;
     }
   } catch (error) {
+    if (error instanceof WorkflowValidationError) {
+      writeCliError({
+        code: error.code,
+        message: `${error.path}: ${error.message}`,
+        json: options.json,
+      });
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Workflow command failed: ${message}\n`);
     process.exitCode = 1;

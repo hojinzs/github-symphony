@@ -1,6 +1,9 @@
 export type CliErrorCode =
   | "invalid_arguments"
   | "missing_workflow_file"
+  | "workflow_parse_error"
+  | "workflow_front_matter_not_a_map"
+  | "workflow_validation_error"
   | "repository_initialization_failed"
   | "missing_repository_runtime_config"
   | "status_snapshot_unavailable"
