@@ -33,6 +33,7 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
     typeof e.id === "string" &&
     typeof e.identifier === "string" &&
     typeof e.state === "string" &&
+    (e.dispatchable === undefined || typeof e.dispatchable === "boolean") &&
     e.repository !== null &&
     typeof e.repository === "object" &&
     e.tracker !== null &&
@@ -43,7 +44,7 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
 function normalizeIssueDefaults(entry: Record<string, unknown>): TrackedIssue {
   return {
     ...entry,
-    dispatchable: entry.dispatchable === false ? false : true,
+    dispatchable: entry.dispatchable === undefined ? true : entry.dispatchable,
     assigneeId: typeof entry.assigneeId === "string" ? entry.assigneeId : null,
   } as TrackedIssue;
 }

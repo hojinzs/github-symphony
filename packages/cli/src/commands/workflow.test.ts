@@ -288,6 +288,46 @@ Prompt {{ issue.identifier }}
     expect(stdout.output()).toContain("Attempt=3");
   });
 
+  it("rejects a malformed dispatchability gate in a preview sample", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-preview-dispatchable-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const samplePath = join(root, "sample-issue.json");
+    const stderr = captureWrites(process.stderr);
+
+    await writeFile(workflowPath, SAMPLE_WORKFLOW, "utf8");
+    await writeFile(
+      samplePath,
+      JSON.stringify({
+        id: "sample-1",
+        identifier: "acme/api#9",
+        number: 9,
+        title: "Malformed dispatchability",
+        state: "Ready",
+        labels: [],
+        dispatchable: "false",
+        blocked_by: [],
+        repository: { owner: "acme", name: "api" },
+      }),
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(
+        ["preview", "--file", workflowPath, "--sample", samplePath],
+        { configDir: root, verbose: false, json: false, noColor: false }
+      );
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain(
+      "Sample JSON field 'dispatchable' must be a boolean."
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
   it("loads a live GitHub Project issue for preview rendering", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-preview-live-"));
     const workflowPath = join(root, "WORKFLOW.md");

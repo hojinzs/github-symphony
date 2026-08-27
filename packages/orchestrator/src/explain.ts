@@ -131,7 +131,9 @@ export function explainIssueDispatch(
   const dispatchable = blocking.length === 0;
   const summary = dispatchable
     ? "Dispatchable: no blocking project, workflow, runtime, or budget condition was found."
-    : `Not dispatchable: ${blocking[0]!.message}`;
+    : blocking[0]!.id === "tracker_dispatchability"
+      ? `Not dispatchable: ${issue.dispatchReason?.trim() || "no reason was provided"}`
+      : `Not dispatchable: ${blocking[0]!.message}`;
 
   return {
     issue: {
@@ -152,9 +154,12 @@ export function isIssueCandidateEligibleWithReason(
   issue: TrackedIssue,
   lifecycle: WorkflowLifecycleConfig,
   issues: readonly TrackedIssue[]
-): { eligible: boolean; reason: "inactive_state" | "blocked" | null } {
+): {
+  eligible: boolean;
+  reason: "not_dispatchable" | "inactive_state" | "blocked" | null;
+} {
   if (!issue.dispatchable) {
-    return { eligible: false, reason: "inactive_state" };
+    return { eligible: false, reason: "not_dispatchable" };
   }
 
   if (!isStateActive(issue.state, lifecycle)) {

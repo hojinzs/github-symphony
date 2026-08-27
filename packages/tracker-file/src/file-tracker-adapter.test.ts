@@ -124,6 +124,24 @@ describe("fileTrackerAdapter", () => {
       expect(issues[1].id).toBe("issue-1");
     });
 
+    it("skips entries with a malformed dispatchability gate", async () => {
+      const issuesPath = join(testDir, "malformed-dispatchability.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          sampleIssue,
+          { ...sampleIssue, id: "issue-2", dispatchable: "false" },
+          { ...sampleIssue, id: "issue-3", dispatchable: null },
+        ])
+      );
+
+      await expect(
+        fileTrackerAdapter.listIssues(makeProject(issuesPath))
+      ).resolves.toEqual([
+        expect.objectContaining({ id: "issue-1", dispatchable: true }),
+      ]);
+    });
+
     it("fails loudly when file contains truncated JSON", async () => {
       const issuesPath = join(testDir, "truncated.json");
       await writeFile(issuesPath, '[{"id":');

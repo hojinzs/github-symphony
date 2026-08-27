@@ -967,6 +967,17 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
+  it("preserves the Linear native assignee id when normalizing an issue", () => {
+    expect(
+      normalizeLinearIssue(makeProject(), "project-slug", {
+        id: "issue-1",
+        identifier: "eng-123",
+        state: { name: "Todo" },
+        assignee: { id: "user-1" },
+      }).assigneeId
+    ).toBe("user-1");
+  });
+
   it("forwards normalized Linear credentials to the worker", () => {
     vi.stubEnv("LINEAR_AUTHORIZATION", " Bearer runtime-token ");
     vi.stubEnv("LINEAR_API_KEY", " lin_api_key ");

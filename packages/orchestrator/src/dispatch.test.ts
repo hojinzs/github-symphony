@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorService, sortCandidatesForDispatch } from "./service.js";
-import { explainIssueDispatch } from "./explain.js";
+import {
+  explainIssueDispatch,
+  isIssueCandidateEligibleWithReason,
+} from "./explain.js";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorRunRecord,
@@ -311,7 +314,7 @@ describe("explainIssueDispatch", () => {
     });
 
     expect(report.dispatchable).toBe(false);
-    expect(report.summary).toContain("not dispatchable: assigned to another agent");
+    expect(report.summary).toBe("Not dispatchable: assigned to another agent");
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         id: "tracker_dispatchability",
@@ -319,6 +322,10 @@ describe("explainIssueDispatch", () => {
         message: "not dispatchable: assigned to another agent",
       })
     );
+
+    expect(
+      isIssueCandidateEligibleWithReason(issue, lifecycle, [issue])
+    ).toEqual({ eligible: false, reason: "not_dispatchable" });
   });
 
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
@@ -663,7 +670,9 @@ describe("blocker eligibility", () => {
   });
 
   it("does not dispatch issues the tracker marks non-dispatchable", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-dispatchable-"));
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-dispatchable-")
+    );
     const repository = await createRepositoryFixture(
       tempRoot,
       "acme",

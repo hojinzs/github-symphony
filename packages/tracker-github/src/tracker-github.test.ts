@@ -491,6 +491,22 @@ describe("resolveTrackerAdapter", () => {
     );
   });
 
+  it("preserves the first GitHub assignee login when normalizing a project item", () => {
+    const issue = normalizeGithubProjectItem(
+      "project-123",
+      makeProjectItem({
+        itemId: "item-assigned",
+        issueId: "issue-assigned",
+        number: 1,
+        title: "Assigned issue",
+        assignees: ["machine-user", "other-user"],
+      }),
+      DEFAULT_WORKFLOW_LIFECYCLE
+    );
+
+    expect(issue?.assigneeId).toBe("machine-user");
+  });
+
   it("normalizes archived items when lifecycle.stateFieldName is empty", () => {
     const issue = normalizeGithubProjectItem(
       "project-123",
