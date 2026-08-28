@@ -18,7 +18,6 @@ import {
   isActiveRunRecordStatus,
   parseIssueIdentifier,
   resolveConvergenceLockTtlMs,
-  resolveCanonicalSubjectIssues,
   resolveTrackerAdapter,
   type DispatchExplainReport,
 } from "@gh-symphony/orchestrator";
@@ -161,10 +160,14 @@ const handler = async (
       readRuns(runtimeRoot, projectConfig.projectId),
       readJsonFile<ProjectStatusSnapshot>(join(runtimeRoot, "status.json")),
     ]);
-  const canonicalIssues = resolveCanonicalSubjectIssues(issues);
+  const canonicalIssues =
+    trackerAdapter.resolveCanonicalIssues?.(issues) ?? issues;
   const canonicalIssue =
-    canonicalIssues.find((candidate) =>
-      matchesExplainIdentifier(candidate, identifier)
+    canonicalIssues.find(
+      (candidate) =>
+        trackerAdapter.matchesIssueIdentifier?.(candidate, identifier) ??
+        candidate.identifier.trim().toLowerCase() ===
+          identifier.trim().toLowerCase()
     ) ?? issue;
 
   let workflow: ExplainWorkflowSettings;
@@ -227,33 +230,6 @@ const handler = async (
 };
 
 export default handler;
-
-function matchesExplainIdentifier(
-  issue: {
-    identifier: string;
-    metadata: {
-      linkedPullRequests?: unknown;
-    };
-  },
-  identifier: string
-): boolean {
-  const normalizedIdentifier = identifier.trim().toLowerCase();
-  if (issue.identifier.trim().toLowerCase() === normalizedIdentifier) {
-    return true;
-  }
-
-  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-    ? issue.metadata.linkedPullRequests
-    : [];
-  return linkedPullRequests.some(
-    (pullRequest) =>
-      typeof pullRequest === "object" &&
-      pullRequest !== null &&
-      "identifier" in pullRequest &&
-      typeof pullRequest.identifier === "string" &&
-      pullRequest.identifier.trim().toLowerCase() === normalizedIdentifier
-  );
-}
 
 type ExplainWorkflowSettings = {
   lifecycle: WorkflowLifecycleConfig;

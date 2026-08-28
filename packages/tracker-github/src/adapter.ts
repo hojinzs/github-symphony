@@ -494,13 +494,17 @@ export function normalizeProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
-    metadata: withIssueMetadata(
-      fieldValues,
-      item.content.state ?? null,
+    nativeRef: {
+      itemId: item.id,
+      contentType: "Issue",
+      sourceState: item.content.state ?? null,
       linkedPullRequests,
       linkedPullRequestsTruncated,
-      isArchived
-    ),
+    } as TrackedIssue["nativeRef"],
+    contentType: "Issue",
+    linkedPullRequests,
+    isArchived,
+    metadata: {},
     rateLimits,
   };
 }
@@ -546,12 +550,17 @@ function normalizePullRequestProjectItem(
       bindingId: projectId,
       itemId: item.id,
     },
-    metadata: withGitHubMetadata(fieldValues, {
+    nativeRef: {
+      itemId: item.id,
       contentType: "PullRequest",
       pullRequest,
       linkedPullRequests: [],
-      isArchived: item.isArchived === true,
-    }),
+    } as TrackedIssue["nativeRef"],
+    contentType: "PullRequest",
+    linkedPullRequests: [],
+    pullRequest,
+    isArchived: item.isArchived === true,
+    metadata: {},
     rateLimits,
   };
 }
@@ -1968,7 +1977,7 @@ function getRepositoryDispatchReason(
 function getPullRequestHeadDispatchReason(
   issue: GitHubTrackedIssue
 ): string | null {
-  const pullRequest = issue.metadata.pullRequest;
+  const pullRequest = issue.pullRequest;
   if (!pullRequest) {
     return null;
   }
@@ -1976,15 +1985,21 @@ function getPullRequestHeadDispatchReason(
   const headRepository = pullRequest.headRepository;
   const sameRepository =
     headRepository != null &&
-    headRepository.owner.toLowerCase() === issue.repository.owner.toLowerCase() &&
+    headRepository.owner.toLowerCase() ===
+      issue.repository.owner.toLowerCase() &&
     headRepository.name.toLowerCase() === issue.repository.name.toLowerCase();
   return sameRepository
     ? null
     : `Fork pull requests are unsupported for automatic checkout/push (${headRepository ? `${headRepository.owner}/${headRepository.name}` : "unknown fork"} -> ${issue.repository.owner}/${issue.repository.name}).`;
 }
 
-function getDispatchabilityReasonCategory(reason: string | null | undefined): string {
-  if (reason?.startsWith("Issue is not assigned") || reason?.startsWith("Pull request items")) {
+function getDispatchabilityReasonCategory(
+  reason: string | null | undefined
+): string {
+  if (
+    reason?.startsWith("Issue is not assigned") ||
+    reason?.startsWith("Pull request items")
+  ) {
     return "assignment";
   }
   if (reason?.startsWith("Repository ")) {
@@ -2326,41 +2341,6 @@ function normalizeLabelNames(
   return nodes
     .flatMap((label) => (label?.name ? [label.name.toLowerCase()] : []))
     .sort();
-}
-
-function withGitHubMetadata(
-  fieldValues: Record<string, string>,
-  metadata: Record<string, unknown>
-): TrackedIssue["metadata"] {
-  return {
-    ...fieldValues,
-    ...metadata,
-  } as TrackedIssue["metadata"];
-}
-
-function withIssueMetadata(
-  fieldValues: Record<string, string>,
-  sourceState: string | null,
-  linkedPullRequests: GitHubPullRequestMetadata[],
-  linkedPullRequestsTruncated = false,
-  isArchived = false
-): TrackedIssue["metadata"] {
-  if (
-    linkedPullRequests.length === 0 &&
-    !linkedPullRequestsTruncated &&
-    !isArchived
-  ) {
-    return sourceState === null
-      ? fieldValues
-      : withGitHubMetadata(fieldValues, { sourceState });
-  }
-
-  return withGitHubMetadata(fieldValues, {
-    sourceState,
-    linkedPullRequests,
-    linkedPullRequestsTruncated,
-    isArchived,
-  });
 }
 
 async function resolveIssueProjectItemForStateLookup(

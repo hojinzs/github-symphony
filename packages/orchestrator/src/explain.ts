@@ -318,7 +318,7 @@ function explainProjectItemPresent(
     message: issue
       ? "Issue is present in the bound GitHub Project item set."
       : `Issue ${identifier} was not returned by the bound GitHub Project item set.`,
-    details: issue ? { itemId: issue.tracker.itemId } : undefined,
+    details: issue ? { itemId: issue.tracker.itemId ?? null } : undefined,
     hint: issue
       ? undefined
       : "Add the issue to the GitHub Project or run 'gh-symphony repo status' to confirm the repository runtime.",
@@ -378,9 +378,7 @@ export function findActiveLinkedPullRequest(
     return null;
   }
 
-  const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-    ? issue.metadata.linkedPullRequests
-    : [];
+  const linkedPullRequests = issue.linkedPullRequests ?? [];
   for (const pullRequest of linkedPullRequests) {
     const projectState =
       typeof pullRequest.projectState === "string"

@@ -37,6 +37,7 @@ function createTrackedIssue(
       bindingId: "project-123",
       itemId: "item-1",
     },
+    nativeRef: null,
     metadata: {},
     ...overrides,
   };
@@ -89,9 +90,8 @@ describe("buildPromptVariables", () => {
   it("exposes linked pull request context to Liquid templates", () => {
     const variables = buildPromptVariables(
       createTrackedIssue({
-        metadata: {
-          contentType: "Issue",
-          linkedPullRequests: [
+        contentType: "Issue",
+        linkedPullRequests: [
             {
               id: "pr-1",
               number: 7,
@@ -110,8 +110,7 @@ describe("buildPromptVariables", () => {
                 cloneUrl: "https://github.com/acme/platform.git",
               },
             },
-          ],
-        },
+        ],
       }),
       { attempt: null }
     );
@@ -148,9 +147,7 @@ describe("buildPromptVariables", () => {
         state: "Ready",
         branchName: "feature/pr-metadata",
         url: "https://github.com/acme/platform/pull/9",
-        metadata: {
-          contentType: "PullRequest",
-        },
+        contentType: "PullRequest",
       }),
       { attempt: null }
     );
@@ -190,9 +187,8 @@ describe("buildPromptVariables", () => {
   it("renders PR lists without whitespace-only list artifacts", () => {
     const variables = buildPromptVariables(
       createTrackedIssue({
-        metadata: {
-          contentType: "Issue",
-          linkedPullRequests: [
+        contentType: "Issue",
+        linkedPullRequests: [
             {
               id: "pr-7",
               number: 7,
@@ -223,8 +219,7 @@ describe("buildPromptVariables", () => {
                 cloneUrl: "https://github.com/acme/platform.git",
               },
             },
-          ],
-        },
+        ],
       }),
       { attempt: null }
     );
@@ -259,9 +254,8 @@ describe("buildPromptVariables", () => {
         state: "In review",
         branchName: "feature/pr-metadata",
         url: "https://github.com/acme/platform/pull/9",
-        metadata: {
-          contentType: "PullRequest",
-          pullRequest: {
+        contentType: "PullRequest",
+        pullRequest: {
             id: "pr-9",
             number: 9,
             identifier: "acme/platform#9",
@@ -270,8 +264,8 @@ describe("buildPromptVariables", () => {
             projectState: "In review",
             headRefName: "feature/pr-metadata",
             baseRefName: "main",
-          },
-          linkedPullRequests: [
+        },
+        linkedPullRequests: [
             {
               id: "pr-8",
               number: 8,
@@ -280,8 +274,7 @@ describe("buildPromptVariables", () => {
               state: "OPEN",
               projectState: "Ready",
             },
-          ],
-        },
+        ],
       }),
       { attempt: null }
     );

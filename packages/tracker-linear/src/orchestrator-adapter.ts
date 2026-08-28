@@ -273,8 +273,19 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
         bindingId: project.tracker.bindingId,
         itemId: run.issueId,
       },
+      nativeRef: { itemId: run.issueId },
+      isArchived: false,
       metadata: {},
     };
+  },
+
+  getTrackerItemId(issue) {
+    const itemId = issue.nativeRef?.itemId;
+    return typeof itemId === "string" ? itemId : null;
+  },
+
+  buildStructuredEventMetadata(project) {
+    return { projectSlug: project.tracker.bindingId };
   },
 };
 
@@ -477,9 +488,8 @@ export function normalizeLinearIssue(
       bindingId: project.tracker.bindingId,
       itemId: id,
     },
-    metadata: {
-      projectSlug,
-    },
+    nativeRef: { itemId: id, projectSlug },
+    metadata: {},
     rateLimits: options.rateLimits ?? null,
   };
 }

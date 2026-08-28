@@ -27,6 +27,7 @@ import * as trackerAdapters from "./tracker-adapters.js";
 function makeIssue(
   overrides: Partial<TrackedIssue> & { identifier: string }
 ): TrackedIssue {
+  const metadata = overrides.metadata ?? {};
   return {
     id: overrides.identifier,
     identifier: overrides.identifier,
@@ -53,8 +54,12 @@ function makeIssue(
       bindingId: "proj-1",
       itemId: "item-1",
     },
-    metadata: {},
+    metadata,
     ...overrides,
+    contentType: overrides.contentType ?? metadata.contentType,
+    linkedPullRequests:
+      overrides.linkedPullRequests ?? metadata.linkedPullRequests,
+    pullRequest: overrides.pullRequest ?? metadata.pullRequest,
   };
 }
 
@@ -1497,6 +1502,69 @@ describe("targeted canonical subject dispatch", () => {
     }
   );
 
+  it("does not post an advisory when the canonical Issue is already active", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-linked-pr-active-canonical-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(
+      tempRoot,
+      repository.cloneUrl,
+      repository.owner,
+      repository.name
+    );
+    await store.saveProjectConfig(projectConfig);
+
+    const issue = makeIssue({
+      id: "issue-active",
+      identifier: "acme/platform#10",
+      state: "Todo",
+      repository,
+      metadata: {
+        contentType: "Issue",
+        linkedPullRequests: [
+          makePullRequestContext(repository, 110, "feature/pr-110"),
+        ],
+      },
+    });
+    const linkedPullRequest = makeIssue({
+      id: "pr-active",
+      identifier: "acme/platform#110",
+      state: "In Progress",
+      repository,
+      metadata: {
+        contentType: "PullRequest",
+        pullRequest: makePullRequestContext(repository, 110, "feature/pr-110"),
+      },
+    });
+    const adapter = createDispatchAdapter(repository, [
+      issue,
+      linkedPullRequest,
+    ]);
+    const upsertIssueComment = vi.fn().mockResolvedValue({
+      outcome: "created",
+      rateLimits: null,
+    });
+    adapter.upsertIssueComment = upsertIssueComment;
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue(adapter);
+
+    const spawnImpl = vi.fn().mockReturnValue({ pid: 5410, unref: vi.fn() });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+    });
+
+    const result = await service.runOnce({ issueIdentifier: issue.identifier });
+
+    expect(result.summary.dispatched).toBe(1);
+    expect(upsertIssueComment).not.toHaveBeenCalled();
+  });
+
   it("aggregates advisory GraphQL costs in a no-run poll without run events", async () => {
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-linked-pr-advisory-rate-limits-")
@@ -2234,6 +2302,69 @@ function createDispatchAdapter(
           itemId: run.issueId,
         },
       }),
+    getTrackerItemId: (issue) =>
+      (typeof issue.nativeRef?.itemId === "string"
+        ? issue.nativeRef.itemId
+        : issue.tracker.itemId) ?? null,
+    resolveCanonicalIssues: (candidates) => {
+      const pullRequests = new Map(
+        candidates
+          .filter((issue) => issue.contentType === "PullRequest")
+          .map((issue) => [issue.id, issue])
+      );
+      const linked = new Set<string>();
+      return candidates
+        .flatMap((issue) => {
+          if (issue.contentType === "PullRequest") {
+            return [];
+          }
+          const references = issue.linkedPullRequests ?? [];
+          for (const reference of references) linked.add(reference.id);
+          const resolved = references.map((reference) => {
+            const projectItem = pullRequests.get(reference.id);
+            return projectItem
+              ? { ...reference, projectState: projectItem.state }
+              : reference;
+          });
+          return [
+            references.some((reference) => pullRequests.has(reference.id))
+              ? {
+                  ...issue,
+                  linkedPullRequests: resolved,
+                }
+              : issue,
+          ];
+        })
+        .concat(
+          candidates.filter(
+            (issue) =>
+              issue.contentType === "PullRequest" &&
+              !linked.has(issue.id)
+          )
+        );
+    },
+    matchesIssueIdentifier: (issue, identifier) =>
+      issue.identifier === identifier ||
+      issue.linkedPullRequests?.some(
+        (pullRequest) => pullRequest.identifier === identifier
+      ) === true,
+    findActiveLinkedPullRequest: (issue, lifecycle) => {
+      const states = new Set(
+        lifecycle.activeStates.map((state) => state.toLowerCase())
+      );
+      const pullRequest = issue.linkedPullRequests?.find(
+        (candidate) =>
+          typeof candidate.projectState === "string" &&
+          states.has(candidate.projectState.toLowerCase())
+      );
+      return pullRequest?.projectState
+        ? {
+            id: pullRequest.id,
+            identifier: pullRequest.identifier,
+            projectState: pullRequest.projectState,
+          }
+        : null;
+    },
   };
 }
 

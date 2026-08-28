@@ -42,8 +42,17 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
 }
 
 function normalizeIssueDefaults(entry: Record<string, unknown>): TrackedIssue {
+  const tracker =
+    entry.tracker && typeof entry.tracker === "object"
+      ? (entry.tracker as Record<string, unknown>)
+      : {};
+  const nativeRef =
+    entry.nativeRef && typeof entry.nativeRef === "object"
+      ? entry.nativeRef
+      : { itemId: typeof tracker.itemId === "string" ? tracker.itemId : null };
   return {
     ...entry,
+    nativeRef,
     dispatchable: entry.dispatchable === undefined ? true : entry.dispatchable,
     assigneeId: typeof entry.assigneeId === "string" ? entry.assigneeId : null,
   } as TrackedIssue;
@@ -152,6 +161,11 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
     const issues = await readValidIssues(project);
     const ids = new Set(issueIds);
     return issues.filter((issue) => ids.has(issue.id));
+  },
+
+  getTrackerItemId(issue) {
+    const itemId = issue.nativeRef?.itemId;
+    return typeof itemId === "string" ? itemId : null;
   },
 
   resolveTerminalFact(issue) {
@@ -292,6 +306,8 @@ export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
         bindingId: project.tracker.bindingId,
         itemId: run.issueId,
       },
+      nativeRef: { itemId: run.issueId },
+      isArchived: false,
       metadata: {},
     };
   },

@@ -17,12 +17,30 @@ export class TrackerRateLimitError extends Error {
   }
 }
 
+/**
+ * A tracker adapter detected a permanent, provider-specific dispatch
+ * constraint. The orchestrator uses this shared classification to avoid
+ * retrying a run that cannot succeed without a tracker-side change.
+ */
+export class NonRetryableTrackerAdapterError extends Error {
+  readonly name = "NonRetryableTrackerAdapterError";
+}
+
 export type TrackerAdapterKind = "github-project" | (string & {});
 
 export type TrackerBindingSummary = {
   adapter: TrackerAdapterKind;
   bindingId: string;
 };
+
+/** JSON-safe, non-secret provider reference data. The orchestrator treats it as opaque. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 
 export type BlockerRef = {
   id: string | null;
@@ -34,7 +52,7 @@ export type TrackedIssueContentType = "Issue" | "PullRequest";
 
 export type TrackedPullRequestContext = {
   id: string;
-  number: number;
+  number?: number;
   identifier: string;
   url: string | null;
   /**
@@ -67,10 +85,13 @@ export type TrackedPullRequestContext = {
 };
 
 export type TrackedIssueMetadata = {
+  /** @deprecated Provider payload belongs in nativeRef and adapter hooks. */
   contentType?: TrackedIssueContentType;
-  /** Source-provider state, distinct from the workflow/project state. */
+  /** @deprecated Provider payload belongs in nativeRef and adapter hooks. */
   sourceState?: string | null;
+  /** @deprecated Provider payload belongs in nativeRef and adapter hooks. */
   linkedPullRequests?: TrackedPullRequestContext[];
+  /** @deprecated Provider payload belongs in nativeRef and adapter hooks. */
   pullRequest?: TrackedPullRequestContext;
   [key: string]: unknown;
 };
@@ -78,7 +99,7 @@ export type TrackedIssueMetadata = {
 export type TrackedIssue = {
   id: string;
   identifier: string;
-  number: number;
+  number?: number;
   title: string;
   description: string | null;
   priority: number | null;
@@ -102,8 +123,19 @@ export type TrackedIssue = {
     url?: string;
   };
   tracker: TrackerBindingSummary & {
-    itemId: string;
+    /** @deprecated Kept only for third-party adapter source compatibility. */
+    itemId?: string;
   };
+  /** Opaque, non-secret provider identity data; only the adapter may inspect it. */
+  nativeRef?: Record<string, JsonValue> | null;
+  /** Provider-independent subject classification supplied by the adapter. */
+  contentType?: TrackedIssueContentType;
+  /** Adapter-resolved linked pull-request context for policy and prompts. */
+  linkedPullRequests?: TrackedPullRequestContext[];
+  /** Adapter-resolved pull-request context when the tracked item is a PR. */
+  pullRequest?: TrackedPullRequestContext;
+  /** Provider-independent lifecycle fact for Project/archive-like records. */
+  isArchived?: boolean;
   metadata: TrackedIssueMetadata;
   rateLimits?: Record<string, unknown> | null;
 };
@@ -208,6 +240,26 @@ export type OrchestratorTrackerAdapter = {
     project: OrchestratorProjectConfig,
     run: OrchestratorRunRecord
   ): TrackedIssue;
+  /** Resolve provider-specific issue/PR cards to their dispatchable subjects. */
+  resolveCanonicalIssues?(issues: readonly TrackedIssue[]): TrackedIssue[];
+  /** Match a provider-specific alias (such as a linked pull request) to a subject. */
+  matchesIssueIdentifier?(issue: TrackedIssue, identifier: string): boolean;
+  /** Return the provider project-item identity used for state mutations. */
+  getTrackerItemId?(issue: TrackedIssue): string | null;
+  /** Resolve an adapter-owned checkout branch for a canonical issue or PR card. */
+  resolveBranchCheckoutTarget?(
+    issue: TrackedIssue
+  ): { headRefName: string } | null;
+  /** Return an adapter-owned active linked PR fact for a canonical issue. */
+  findActiveLinkedPullRequest?(
+    issue: TrackedIssue,
+    lifecycle: WorkflowLifecycleConfig
+  ): { id: string; identifier: string; projectState: string } | null;
+  /** Provider-specific structured event fields that are safe to expose. */
+  buildStructuredEventMetadata?(
+    project: OrchestratorProjectConfig,
+    issue: TrackedIssue
+  ): Record<string, unknown>;
   resolveTerminalFact?(issue: TrackedIssue): TrackerTerminalFact | null;
   requestState?(
     project: OrchestratorProjectConfig,

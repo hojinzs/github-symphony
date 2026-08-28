@@ -14,6 +14,7 @@ import {
 } from "./adapter.js";
 import {
   findGithubProjectIssue,
+  githubProjectTrackerAdapter,
   resolveTrackerAdapter,
 } from "./orchestrator-adapter.js";
 import {
@@ -28,6 +29,47 @@ afterEach(() => {
   vi.useRealTimers();
   resetGitHubRateLimitCacheForTests();
   resetPriorityOptionOrderCacheForTests();
+});
+
+describe("GitHub canonical subject adapter hook", () => {
+  it("merges a linked PR Project state without exposing native data to callers", () => {
+    const issue = makeTrackedIssue();
+    issue.nativeRef = {
+      itemId: "item-1",
+      contentType: "Issue",
+      linkedPullRequests: [
+        {
+          id: "pr-7",
+          identifier: "acme/platform#7",
+          state: "OPEN",
+        },
+      ],
+    };
+    const pullRequest: TrackedIssue = {
+      ...makeTrackedIssue(),
+      id: "pr-7",
+      identifier: "acme/platform#7",
+      state: "In progress",
+      nativeRef: {
+        itemId: "item-pr-7",
+        contentType: "PullRequest",
+      },
+    };
+
+    const canonical = githubProjectTrackerAdapter.resolveCanonicalIssues?.([
+      issue,
+      pullRequest,
+    ]);
+
+    expect(canonical).toHaveLength(1);
+    expect(canonical?.[0]?.identifier).toBe(issue.identifier);
+    expect(
+      githubProjectTrackerAdapter.matchesIssueIdentifier?.(
+        canonical?.[0] ?? issue,
+        pullRequest.identifier
+      )
+    ).toBe(true);
+  });
 });
 
 describe("resolveTrackerAdapter", () => {
@@ -49,9 +91,7 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issue?.state).toBe("Archived");
-    expect(issue?.metadata).toMatchObject({
-      isArchived: true,
-    });
+    expect(issue?.isArchived).toBe(true);
   });
 
   it("normalizes blocker refs into the workflow lifecycle state domain", () => {
@@ -388,7 +428,7 @@ describe("resolveTrackerAdapter", () => {
         itemId: "item-1",
       },
     });
-    expect(issue?.metadata).toEqual({ Status: "Ready" });
+    expect(issue?.metadata).toEqual({});
   });
 
   it("skips and emits an event when a Project item omits the configured state field", () => {
@@ -555,8 +595,7 @@ describe("resolveTrackerAdapter", () => {
         cloneUrl: "https://github.com/acme/platform.git",
       },
     });
-    expect(issue?.metadata).toMatchObject({
-      Status: "Ready",
+    expect(issue).toMatchObject({
       contentType: "PullRequest",
       linkedPullRequests: [],
       pullRequest: {
@@ -587,8 +626,8 @@ describe("resolveTrackerAdapter", () => {
         updatedAt: "2026-03-14T00:00:00.000Z",
       },
     });
-    expect(issue?.metadata.pullRequest).not.toHaveProperty("labels");
-    expect(issue?.metadata.pullRequest).not.toHaveProperty("assignees");
+    expect(issue?.pullRequest).not.toHaveProperty("labels");
+    expect(issue?.pullRequest).not.toHaveProperty("assignees");
   });
 
   it("preserves fork head repository metadata when normalizing PullRequest Project items", () => {
@@ -610,7 +649,7 @@ describe("resolveTrackerAdapter", () => {
       DEFAULT_WORKFLOW_LIFECYCLE
     );
 
-    expect(issue?.metadata.pullRequest).toMatchObject({
+    expect(issue?.pullRequest).toMatchObject({
       id: "pr-8",
       identifier: "acme/platform#8",
       headRefName: "feature/pr-metadata",
@@ -695,9 +734,7 @@ describe("resolveTrackerAdapter", () => {
       DEFAULT_WORKFLOW_LIFECYCLE
     );
 
-    const metadata = issue?.metadata as Record<string, unknown> | undefined;
-
-    const linkedPullRequests = metadata?.linkedPullRequests as unknown[];
+    const linkedPullRequests = issue?.linkedPullRequests ?? [];
 
     expect(linkedPullRequests).toEqual([
       expect.objectContaining({
@@ -717,7 +754,9 @@ describe("resolveTrackerAdapter", () => {
     ]);
     expect(linkedPullRequests[0]).not.toHaveProperty("labels");
     expect(linkedPullRequests[0]).not.toHaveProperty("assignees");
-    expect(metadata?.linkedPullRequestsTruncated).toBe(false);
+    expect(issue?.nativeRef).toMatchObject({
+      linkedPullRequestsTruncated: false,
+    });
   });
 
   it("keeps the source issue state distinct from the Project status", () => {
@@ -738,7 +777,7 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issue?.state).toBe("Todo");
-    expect(issue?.metadata.sourceState).toBe("CLOSED");
+    expect(issue?.nativeRef).toMatchObject({ sourceState: "CLOSED" });
   });
 
   it("marks Issue linked pull request metadata as truncated when GitHub has another page", () => {
@@ -780,11 +819,9 @@ describe("resolveTrackerAdapter", () => {
       DEFAULT_WORKFLOW_LIFECYCLE
     );
 
-    const metadata = issue?.metadata as Record<string, unknown> | undefined;
-
-    expect(metadata?.linkedPullRequests).toHaveLength(20);
-    expect(metadata?.linkedPullRequestsTruncated).toBe(true);
-    expect(metadata?.linkedPullRequests).toEqual(
+    expect(issue?.linkedPullRequests).toHaveLength(20);
+    expect(issue?.nativeRef).toMatchObject({ linkedPullRequestsTruncated: true });
+    expect(issue?.linkedPullRequests).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "pr-20",
@@ -5011,9 +5048,7 @@ describe("resolveTrackerAdapter", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({
       state: "Archived",
-      metadata: {
-        isArchived: true,
-      },
+      isArchived: true,
     });
   });
 
@@ -5095,21 +5130,19 @@ describe("resolveTrackerAdapter", () => {
       title: "Add refresh normalization",
       description: "PR body",
       createdAt: "2026-03-13T00:00:00.000Z",
-      metadata: {
-        contentType: "PullRequest",
-        pullRequest: {
-          title: "Add refresh normalization",
-          body: "PR body",
-          state: "OPEN",
-          isDraft: false,
-          merged: false,
-          baseRefName: "main",
-          headRepository: {
-            owner: "acme",
-            name: "fork",
-          },
-          createdAt: "2026-03-13T00:00:00.000Z",
+      contentType: "PullRequest",
+      pullRequest: {
+        title: "Add refresh normalization",
+        body: "PR body",
+        state: "OPEN",
+        isDraft: false,
+        merged: false,
+        baseRefName: "main",
+        headRepository: {
+          owner: "acme",
+          name: "fork",
         },
+        createdAt: "2026-03-13T00:00:00.000Z",
       },
     });
   });
@@ -6146,6 +6179,7 @@ function makeTrackedIssue(): TrackedIssue {
       bindingId: "project-123",
       itemId: "item-1",
     },
+    nativeRef: { itemId: "item-1", contentType: "Issue" },
     metadata: {
       contentType: "Issue",
     },

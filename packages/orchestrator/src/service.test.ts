@@ -1186,6 +1186,7 @@ describe("OrchestratorService", () => {
         fetchIssueStatesByIds: vi.fn(),
         buildWorkerEnvironment: vi.fn(),
         reviveIssue: vi.fn(),
+        getTrackerItemId: vi.fn().mockReturnValue("item-1"),
         requestState,
         upsertTransitionComment,
       });
@@ -1911,6 +1912,7 @@ describe("OrchestratorService", () => {
               ? "acme/platform#2"
               : null,
         }),
+        getTrackerItemId: vi.fn().mockReturnValue("item-1"),
         requestState,
       });
       const info = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -6868,9 +6870,8 @@ Prefer focused changes.
       | Record<string, string>
       | undefined;
     expect(workerEnv?.SYMPHONY_RENDERED_PROMPT).toContain("retry_attempt=3");
-    const [issueRecord] = await store.loadProjectIssueOrchestrations(
-      "tenant-1"
-    );
+    const [issueRecord] =
+      await store.loadProjectIssueOrchestrations("tenant-1");
     const persistedRun = await store.loadRun(issueRecord?.currentRunId ?? "");
     expect(persistedRun?.attempt).toBe(3);
   });
@@ -9135,10 +9136,12 @@ Prefer focused changes.
       ])
     );
 
-    const events = (await readFile(
-      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-      "utf8"
-    ))
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -12322,15 +12325,19 @@ Handle archived item reconciliation.`,
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.any(Object)
+    );
     expect(killImpl).toHaveBeenCalledWith(4209, "SIGTERM");
     expect(updatedRun).toMatchObject({
       status: "suppressed",
-      issueState: "In Progress",
+      issueState: "Archived",
       processId: null,
       runPhase: "canceled_by_reconciliation",
       lastError:
-        "Run suppressed because the tracker issue is no longer tracked.",
+        "Run suppressed because the tracker state is no longer actionable.",
     });
     expect(issueRecords[0]?.state).toBe("released");
     expect(snapshot.activeRuns).toHaveLength(0);
@@ -12433,6 +12440,9 @@ Handle Linear issue.`,
         LINEAR_ISSUE_ID: "linear-issue-1",
       }),
       reviveIssue: vi.fn(),
+      buildStructuredEventMetadata: vi.fn().mockReturnValue({
+        projectSlug: "symphony-0c79b11b75ea",
+      }),
     });
 
     const service = new OrchestratorService(store, projectConfig, {
@@ -12645,6 +12655,9 @@ Handle Linear issue.`,
         LINEAR_ISSUE_ID: "linear-issue-1",
       }),
       reviveIssue: vi.fn(),
+      buildStructuredEventMetadata: vi.fn().mockReturnValue({
+        projectSlug: "symphony-0c79b11b75ea",
+      }),
     });
 
     const service = new OrchestratorService(store, projectConfig, {
@@ -13079,7 +13092,11 @@ Handle Linear issue.`,
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(fetchIssueStatesByIds).not.toHaveBeenCalled();
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1"],
+      expect.any(Object)
+    );
     expect(listIssues).toHaveBeenCalledTimes(1);
     expect(killImpl).toHaveBeenCalledWith(4208, "SIGTERM");
     expect(updatedRun).toMatchObject({
