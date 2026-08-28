@@ -898,14 +898,21 @@ describe("worktree-cache issue workspaces", () => {
       })
     ).resolves.toBe(repositoryDirectory);
 
-    execSync(
-      `git -C "${repositoryDirectory}" checkout -b symphony/issue-1-agent-work`
-    );
+    configureGitIdentity(repositoryDirectory);
+    await writeFile(join(repositoryDirectory, "unpushed.txt"), "keep\n");
+    execSync(`git -C "${repositoryDirectory}" add unpushed.txt`);
+    execSync(`git -C "${repositoryDirectory}" commit -m "Keep unpushed work"`);
+    const unpushedCommit = execSync(
+      `git -C "${repositoryDirectory}" rev-parse HEAD`,
+      { encoding: "utf8" }
+    ).trim();
+    const cleanupResults: unknown[] = [];
     await removeIssueWorkspaceWorktree({
       repository,
       repositoryDirectory,
       projectSlug: "project-one",
       issueIdentifier: "acme/platform#1",
+      onBranchCleanup: (result) => cleanupResults.push(result),
     });
     await expect(access(repositoryDirectory)).rejects.toMatchObject({
       code: "ENOENT",
@@ -921,22 +928,122 @@ describe("worktree-cache issue workspaces", () => {
     const bareDirectory = globalBareRepositoryDirectory({ repository });
     expect(
       execSync(
-        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/issue-1-agent-work`,
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/project-one/acme-platform-1`,
         { encoding: "utf8" }
       )
-    ).toContain("refs/heads/symphony/issue-1-agent-work");
-    await expect(
-      ensureIssueWorkspaceRepository({
-        repository,
-        issueWorkspacePath: join(tempRoot, "workspaces", "issue-1-revived"),
-        existingWorkspace: false,
-        populateStrategy: "worktree-cache",
-        projectSlug: "project-one",
-        issueIdentifier: "acme/platform#1",
-      })
-    ).resolves.toBe(
+    ).toContain("refs/heads/symphony/project-one/acme-platform-1");
+    expect(cleanupResults).toContainEqual({
+      branch: "symphony/project-one/acme-platform-1",
+      outcome: "retained",
+      reason: "unreachable-from-origin",
+    });
+    const revivedDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "issue-1-revived"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#1",
+    });
+    expect(revivedDirectory).toBe(
       join(tempRoot, "workspaces", "issue-1-revived", "repository")
     );
+    expect(
+      execSync(`git -C "${revivedDirectory}" rev-parse HEAD`, {
+        encoding: "utf8",
+      }).trim()
+    ).toBe(unpushedCommit);
+  });
+
+  it("collects a pushed branch created from a configured template", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const repositoryDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "custom-template"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#14",
+      branchTemplate: "agents/{project_slug}/{sanitized_issue_id}",
+    });
+    const branch = "agents/project-one/acme-platform-14";
+    execSync(`git -C "${repositoryDirectory}" push origin ${branch}`);
+
+    await removeIssueWorkspaceWorktree({
+      repository,
+      repositoryDirectory,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#14",
+    });
+
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+    expect(() =>
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/${branch}`
+      )
+    ).toThrow();
+  });
+
+  it("collects pushed agent branches but retains branches linked to another worktree", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const firstDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "first"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#12",
+    });
+    const secondDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "second"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#13",
+    });
+
+    configureGitIdentity(firstDirectory);
+    execSync(`git -C "${firstDirectory}" checkout -b feat/592-pushed`);
+    await writeFile(join(firstDirectory, "pushed.txt"), "pushed\n");
+    execSync(`git -C "${firstDirectory}" add pushed.txt`);
+    execSync(`git -C "${firstDirectory}" commit -m "Add pushed work"`);
+    execSync(`git -C "${firstDirectory}" push origin feat/592-pushed`);
+    execSync(`git -C "${secondDirectory}" checkout -b symphony/issue-active`);
+
+    const cleanupResults: unknown[] = [];
+    await removeIssueWorkspaceWorktree({
+      repository,
+      repositoryDirectory: firstDirectory,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#12",
+      onBranchCleanup: (result) => cleanupResults.push(result),
+    });
+
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+    expect(() =>
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/feat/592-pushed`
+      )
+    ).toThrow();
+    expect(
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/issue-active`,
+        { encoding: "utf8" }
+      )
+    ).toContain("refs/heads/symphony/issue-active");
+    expect(cleanupResults).toContainEqual({
+      branch: "feat/592-pushed",
+      outcome: "deleted",
+      reason: null,
+    });
+    expect(cleanupResults).toContainEqual({
+      branch: "symphony/issue-active",
+      outcome: "retained",
+      reason: "linked-worktree",
+    });
   });
 
   it("requires a project-scoped identity for fresh worktree population", async () => {
@@ -1141,6 +1248,13 @@ function readGitBranch(repositoryDirectory: string): string {
   return execSync(`git -C "${repositoryDirectory}" branch --show-current`, {
     encoding: "utf8",
   }).trim();
+}
+
+function configureGitIdentity(repositoryDirectory: string): void {
+  execSync(`git -C "${repositoryDirectory}" config user.name "Test User"`);
+  execSync(
+    `git -C "${repositoryDirectory}" config user.email "test@example.com"`
+  );
 }
 
 describe("sanitizeRepositoryCloneUrl", () => {

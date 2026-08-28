@@ -295,6 +295,10 @@ To request rework, move the canonical Issue card to ${activeStates}.`;
 export class OrchestratorService {
   private readonly projectPollIntervals = new Map<string, number>();
   private readonly activeWorkerPids = new Set<number>();
+  private readonly workerExitResults = new Map<
+    string,
+    { code: number | null; signal: NodeJS.Signals | null }
+  >();
   private readonly workerStderrBuffers = new Map<string, string>();
   private readonly workerStderrDecoders = new Map<string, StringDecoder>();
   private readonly lastKnownGoodWorkflows = new Map<
@@ -3074,6 +3078,19 @@ export class OrchestratorService {
       this.logVerbose(
         `[worker-exited] ${runId} (code=${code ?? "null"}, signal=${signal ?? "null"})`
       );
+      // Make the exit result visible before the serialized persistence write.
+      // A polling tick may already own the serialization slot; it must still
+      // classify this completed process as abnormal rather than hot-retrying it.
+      this.workerExitResults.set(runId, { code, signal });
+      void this.runSerialized(() =>
+        this.recordWorkerExit(runId, code, signal)
+      ).catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : String(error ?? "unknown");
+        this.writeStderr(
+          `[orchestrator] failed to record worker exit for ${runId}: ${message}`
+        );
+      });
     };
     const finalizeWorkerStderr = (
       code: number | null,
@@ -3293,6 +3310,14 @@ export class OrchestratorService {
       executionPhase: workerInfo.executionPhase ?? run.executionPhase ?? null,
       runPhase: workerInfo.runPhase ?? run.runPhase ?? null,
       rateLimits: workerInfo.rateLimits ?? run.rateLimits ?? null,
+      workerExitCode: workerInfo.workerExitCode,
+      workerExitSignal: workerInfo.workerExitSignal,
+      lastError:
+        workerInfo.lastError ??
+        run.lastError ??
+        (workerInfo.workerExitSignal
+          ? `worker terminated by ${workerInfo.workerExitSignal}`
+          : null),
     };
     const workerSessionId = workerInfo.sessionId;
 
@@ -3508,9 +3533,21 @@ export class OrchestratorService {
       }
     }
 
-    // Determine retry kind: continuation (issue still actionable) vs failure
+    // A worker that reports a failed turn exited abnormally, even when the
+    // tracker still considers its issue actionable. That must use failure
+    // backoff rather than the short continuation retry delay.
+    const userInputRequired =
+      workerInfo.exitClassification === "user-input-required";
+    const abnormalWorkerExit =
+      !userInputRequired &&
+      ((runWithTokens.workerExitCode != null &&
+        runWithTokens.workerExitCode !== 0) ||
+        runWithTokens.workerExitSignal != null ||
+        runWithTokens.runPhase === "failed");
     const retryKind =
-      convergenceDetected || currentTrackerProgress?.state === "unknown"
+      abnormalWorkerExit ||
+      convergenceDetected ||
+      currentTrackerProgress?.state === "unknown"
         ? "failure"
         : await this.classifyRetryKind(tenant, run, trackerDependencies);
     const persistedRetryKind = recovery ? "recovery" : retryKind;
@@ -3627,7 +3664,8 @@ export class OrchestratorService {
           ? null
           : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : "Worker process exited unexpectedly.",
+            : (runWithTokens.lastError ??
+              "Worker process exited unexpectedly."),
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -4325,9 +4363,12 @@ export class OrchestratorService {
     executionPhase: OrchestratorRunRecord["executionPhase"];
     runPhase: OrchestratorRunRecord["runPhase"];
     rateLimits: Record<string, unknown> | null;
+    workerExitCode: number | null;
+    workerExitSignal: string | null;
   }> {
     const latestRun =
       (await this.store.loadRun(run.runId, run.projectId)) ?? run;
+    const pendingExit = this.workerExitResults.get(run.runId);
     const persistedTokenUsage =
       await this.readPersistedWorkerTokenUsage(latestRun);
     return {
@@ -4344,7 +4385,29 @@ export class OrchestratorService {
       executionPhase: latestRun.executionPhase ?? null,
       runPhase: latestRun.runPhase ?? null,
       rateLimits: latestRun.rateLimits ?? null,
+      workerExitCode: pendingExit?.code ?? latestRun.workerExitCode ?? null,
+      workerExitSignal:
+        pendingExit?.signal ?? latestRun.workerExitSignal ?? null,
     };
+  }
+
+  private async recordWorkerExit(
+    runId: string,
+    workerExitCode: number | null,
+    workerExitSignal: NodeJS.Signals | null
+  ): Promise<void> {
+    const run = await this.store.loadRun(runId, this.projectConfig.projectId);
+    if (!run || run.status !== "running") {
+      this.workerExitResults.delete(runId);
+      return;
+    }
+    await this.store.saveRun({
+      ...run,
+      workerExitCode,
+      workerExitSignal,
+      updatedAt: this.now().toISOString(),
+    });
+    this.workerExitResults.delete(runId);
   }
 
   private async readPersistedWorkerTokenUsage(
@@ -5359,22 +5422,20 @@ export class OrchestratorService {
 
     if (tenant.populateStrategy === "worktree-cache") {
       try {
-        const cleanupWorkflow =
-          workflowResolution ??
-          (await this.loadProjectWorkflow(tenant, issue.repository));
-        const repositoryExtension =
-          isUsableWorkflowResolution(cleanupWorkflow) &&
-          isRecord(cleanupWorkflow.workflow.repository)
-            ? cleanupWorkflow.workflow.repository
-            : null;
         await removeIssueWorkspaceWorktree({
           repository: issue.repository,
           repositoryDirectory: workspaceRecord.repositoryPath,
           projectSlug: tenant.slug,
           issueIdentifier: issue.identifier,
-          branchTemplate: repositoryExtension
-            ? readOptionalStringValue(repositoryExtension.branch_template)
-            : null,
+          onBranchCleanup: (result) => {
+            this.writeStderr(
+              `${JSON.stringify({
+                event: "cache-agent-branch-cleanup",
+                issueIdentifier: issue.identifier,
+                ...result,
+              })}\n`
+            );
+          },
         });
       } catch (error) {
         const removalError = this.formatErrorMessage(error);
