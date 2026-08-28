@@ -37,6 +37,7 @@ function createTrackedIssue(
       bindingId: "project-123",
       itemId: "item-1",
     },
+    nativeRef: null,
     metadata: {},
     ...overrides,
   };

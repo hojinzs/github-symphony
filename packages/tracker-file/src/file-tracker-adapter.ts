@@ -42,8 +42,17 @@ function isValidIssueShape(entry: unknown): entry is TrackedIssue {
 }
 
 function normalizeIssueDefaults(entry: Record<string, unknown>): TrackedIssue {
+  const tracker =
+    entry.tracker && typeof entry.tracker === "object"
+      ? (entry.tracker as Record<string, unknown>)
+      : {};
+  const nativeRef =
+    entry.nativeRef && typeof entry.nativeRef === "object"
+      ? entry.nativeRef
+      : { itemId: typeof tracker.itemId === "string" ? tracker.itemId : null };
   return {
     ...entry,
+    nativeRef,
     dispatchable: entry.dispatchable === undefined ? true : entry.dispatchable,
     assigneeId: typeof entry.assigneeId === "string" ? entry.assigneeId : null,
   } as TrackedIssue;

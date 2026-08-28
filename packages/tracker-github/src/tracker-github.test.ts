@@ -14,6 +14,7 @@ import {
 } from "./adapter.js";
 import {
   findGithubProjectIssue,
+  githubProjectTrackerAdapter,
   resolveTrackerAdapter,
 } from "./orchestrator-adapter.js";
 import {
@@ -28,6 +29,47 @@ afterEach(() => {
   vi.useRealTimers();
   resetGitHubRateLimitCacheForTests();
   resetPriorityOptionOrderCacheForTests();
+});
+
+describe("GitHub canonical subject adapter hook", () => {
+  it("merges a linked PR Project state without exposing native data to callers", () => {
+    const issue = makeTrackedIssue();
+    issue.nativeRef = {
+      itemId: "item-1",
+      contentType: "Issue",
+      linkedPullRequests: [
+        {
+          id: "pr-7",
+          identifier: "acme/platform#7",
+          state: "OPEN",
+        },
+      ],
+    };
+    const pullRequest: TrackedIssue = {
+      ...makeTrackedIssue(),
+      id: "pr-7",
+      identifier: "acme/platform#7",
+      state: "In progress",
+      nativeRef: {
+        itemId: "item-pr-7",
+        contentType: "PullRequest",
+      },
+    };
+
+    const canonical = githubProjectTrackerAdapter.resolveCanonicalIssues?.([
+      issue,
+      pullRequest,
+    ]);
+
+    expect(canonical).toHaveLength(1);
+    expect(canonical?.[0]?.identifier).toBe(issue.identifier);
+    expect(
+      githubProjectTrackerAdapter.matchesIssueIdentifier?.(
+        canonical?.[0] ?? issue,
+        pullRequest.identifier
+      )
+    ).toBe(true);
+  });
 });
 
 describe("resolveTrackerAdapter", () => {
@@ -6146,6 +6188,7 @@ function makeTrackedIssue(): TrackedIssue {
       bindingId: "project-123",
       itemId: "item-1",
     },
+    nativeRef: { itemId: "item-1", contentType: "Issue" },
     metadata: {
       contentType: "Issue",
     },

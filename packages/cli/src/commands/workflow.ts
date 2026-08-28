@@ -150,6 +150,7 @@ const SAMPLE_ISSUE: TrackedIssue = {
     bindingId: "sample-binding",
     itemId: "sample-item",
   },
+  nativeRef: { itemId: "sample-item" },
   metadata: {},
 };
 
@@ -398,6 +399,9 @@ function normalizeIssue(value: unknown): TrackedIssue {
     tracker: {
       adapter: "github-project",
       bindingId: "preview-sample",
+      itemId: readOptionalString(record.itemId, "itemId") ?? "preview-sample",
+    },
+    nativeRef: {
       itemId: readOptionalString(record.itemId, "itemId") ?? "preview-sample",
     },
     metadata: {},
