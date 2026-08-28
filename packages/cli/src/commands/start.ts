@@ -19,6 +19,7 @@ import {
   OrchestratorService,
   acquireProjectLock,
   createStore,
+  getSupportedTrackerKinds,
   getProcessIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
@@ -31,6 +32,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -202,6 +204,36 @@ async function preflightRepoStartAuth(
   }
 
   return { ok: true };
+}
+
+async function preflightWorkflowStart(
+  projectConfig: OrchestratorProjectConfig
+): Promise<boolean> {
+  const configuredPath = projectConfig.workflowSource?.path;
+  const repositoryDirectory =
+    projectConfig.repositoryDir ?? projectConfig.repository.path;
+  const workflowPath =
+    configuredPath ??
+    (repositoryDirectory ? join(repositoryDirectory, "WORKFLOW.md") : null);
+  if (!workflowPath) {
+    // Legacy managed-project configs did not record a workflow source. Repo
+    // init now persists one, while existing installations keep their prior
+    // runtime behavior until they are reinitialized.
+    return true;
+  }
+
+  try {
+    parseWorkflowMarkdown(await readFile(workflowPath, "utf8"), process.env, {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+    });
+    return true;
+  } catch (error) {
+    process.stderr.write(
+      `Workflow preflight failed for ${workflowPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
+    );
+    process.exitCode = 1;
+    return false;
+  }
 }
 
 type GitHubAuthRuntimeError =
@@ -958,6 +990,9 @@ const handler = async (
         : REPO_START_COMMAND,
   });
   if (!authPreflight.ok) {
+    return;
+  }
+  if (!(await preflightWorkflowStart(projectConfig))) {
     return;
   }
   const httpApiToken = resolveHttpApiToken();

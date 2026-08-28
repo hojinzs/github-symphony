@@ -62,6 +62,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   isProcessRunning: vi.fn(() => true),
   resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
     join(runtimeRoot, "projects", projectId, ".lock"),
+  getSupportedTrackerKinds: () => ["github-project", "linear", "file"],
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
@@ -296,6 +297,33 @@ describe("shutdownForegroundOrchestrator", () => {
 });
 
 describe("start command foreground locking", () => {
+  it("fails before constructing the daemon when the configured workflow is invalid", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const workflowPath = join(configDir, "invalid-workflow.md");
+    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = { type: "repo", path: workflowPath };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    await writeFile(workflowPath, "not a workflow", "utf8");
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain("Workflow preflight failed");
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
   it.each([
     [
       "not_installed",
@@ -844,15 +872,29 @@ describe("start command foreground locking", () => {
   });
 
   it("starts the active external project daemon from its project directory", async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "standalone-project-"));
+    const workflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-1
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
     const configDir = await createConfigFixture({
       activeProject: "standalone",
       projects: [
         {
           ...createProject("standalone", "acme", "platform"),
-          projectDir: "/tmp/standalone-project",
+          projectDir,
           workflowSource: {
             type: "external",
-            path: "/tmp/standalone-project/WORKFLOW.md",
+            path: workflowPath,
           },
         },
         createProject("other-project", "beta", "api"),
@@ -870,7 +912,7 @@ describe("start command foreground locking", () => {
     }
 
     expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
-      cwd: "/tmp/standalone-project",
+      cwd: projectDir,
       env: expect.objectContaining({
         GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
         GH_SYMPHONY_DAEMON_PROJECT_ID: "standalone",
@@ -882,7 +924,7 @@ describe("start command foreground locking", () => {
         "utf8"
       )
     ) as { cwd: string };
-    expect(pidRecord.cwd).toBe("/tmp/standalone-project");
+    expect(pidRecord.cwd).toBe(projectDir);
     expect(stdout.output()).toContain("Stop with: gh-symphony project stop");
   });
 

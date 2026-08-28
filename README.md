@@ -569,7 +569,7 @@ gh-symphony repo recover --dry-run       # Preview what would be recovered
 
 ### Repository Runtime
 
-`gh-symphony repo init` binds the orchestrator to the cwd repository. It reads `WORKFLOW.md`, infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`.
+`gh-symphony repo init` binds the orchestrator to the cwd repository. It reads `WORKFLOW.md` (or `--workflow-file <path>`), infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`. The selected absolute workflow path is persisted and validated before `repo start` or `project start` launches the daemon.
 
 For Linear tracker repositories, `WORKFLOW.md` remains the source of truth:
 

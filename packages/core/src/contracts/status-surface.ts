@@ -26,7 +26,7 @@ export type OrchestratorTrackerConfig = {
 };
 
 export type WorkflowSource =
-  | { type: "repo" }
+  | { type: "repo"; path?: string }
   | { type: "external"; path: string };
 
 export type PopulateStrategy = "clone" | "worktree-cache";
@@ -122,7 +122,20 @@ function normalizeWorkflowSource(
     );
   }
   if (workflowSource.type === "repo") {
-    return { type: "repo" };
+    if (workflowSource.path === undefined) {
+      return { type: "repo" };
+    }
+    if (typeof workflowSource.path !== "string" || !workflowSource.path) {
+      throw new Error(
+        `Project ${JSON.stringify(config.projectId)} repository workflow source path must be a non-empty absolute path.`
+      );
+    }
+    if (!isAbsolute(workflowSource.path)) {
+      throw new Error(
+        `Project ${JSON.stringify(config.projectId)} repository workflow source path ${JSON.stringify(workflowSource.path)} must be absolute.`
+      );
+    }
+    return { type: "repo", path: workflowSource.path };
   }
   if (workflowSource.type !== "external") {
     throw new Error(

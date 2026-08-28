@@ -1103,7 +1103,6 @@ export class OrchestratorService {
     issueIdentifier?: string,
     trackerDependencies: OrchestratorTrackerDependencies = {}
   ): Promise<ProjectStatusSnapshot> {
-    const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
     const now = this.now();
     const convergenceLockTtlMs = resolveConvergenceLockTtlMs(process.env);
     let lastError: string | null = null;
@@ -1176,6 +1175,7 @@ export class OrchestratorService {
     rateLimits = resolveProjectRateLimits(reconciledRuns, []);
 
     try {
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
       workflowResolution = await this.loadProjectWorkflow(
         tenant,
         tenant.repository
@@ -2533,14 +2533,13 @@ export class OrchestratorService {
       repository.name
     );
     const environment = this.resolveProjectEnvironment(tenant);
-    const resolution =
-      tenant.workflowSource?.type === "external"
-        ? await loadWorkflowFile(tenant.workflowSource.path, environment)
-        : await loadRepositoryWorkflow(
-            this.resolveWorkflowRepositoryDirectory(repository),
-            repository,
-            environment
-          );
+    const resolution = tenant.workflowSource?.path
+      ? await loadWorkflowFile(tenant.workflowSource.path, environment)
+      : await loadRepositoryWorkflow(
+          this.resolveWorkflowRepositoryDirectory(repository),
+          repository,
+          environment
+        );
     return this.resolveWorkflowResolution(repository, cacheRoot, resolution);
   }
 
