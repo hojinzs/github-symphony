@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { OrchestratorProjectConfig, TrackedIssue } from "@gh-symphony/core";
+import type {
+  OrchestratorProjectConfig,
+  TrackedIssue,
+} from "@gh-symphony/core";
 import {
   filterIssuesByPickupLabels,
   resolvePickupLabelDispatchReason,
@@ -49,8 +52,33 @@ describe("resolvePickupLabelDispatchReason", () => {
     expect(resolvePickupLabelDispatchReason(missing, project)).toBe(
       "Issue is missing a required pickup label (alpha)."
     );
-    expect(filterIssuesByPickupLabels([included, excluded, missing], project)).toEqual([
-      included,
-    ]);
+    expect(
+      filterIssuesByPickupLabels([included, excluded, missing], project)
+    ).toEqual([included]);
+  });
+
+  it("normalizes both configured and tracker labels", () => {
+    const mixedCaseProject = {
+      tracker: {
+        adapter: "file" as const,
+        bindingId: "test",
+        settings: {
+          pickupLabels: {
+            include: [" Agent ", "agent", ""],
+            exclude: [" BLOCKED "],
+          },
+        },
+      },
+    } as Pick<OrchestratorProjectConfig, "tracker">;
+
+    expect(
+      resolvePickupLabelDispatchReason(issue(["  AGENT  "]), mixedCaseProject)
+    ).toBeNull();
+    expect(
+      resolvePickupLabelDispatchReason(
+        issue(["agent", "blocked"]),
+        mixedCaseProject
+      )
+    ).toBe('Issue has excluded pickup label "blocked".');
   });
 });

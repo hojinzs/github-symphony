@@ -52,6 +52,25 @@ values must be positive YAML integers. This repository intentionally rejects an
 invalid override rather than ignoring it, so invalid configuration cannot silently
 disable dispatch for a state.
 
+## Label and Timestamp Normalization
+
+Core normalizes workflow pickup labels and tracker-provided labels before label
+matching: it trims surrounding whitespace, lowercases values, drops blanks, and
+deduplicates while keeping the first occurrence. Thus `" Agent "`, `"agent"`,
+and `"AGENT"` are the same label. The same `normalizeLabels` helper is the
+shared implementation for current pickup-label handling and future
+`tracker.required_labels` configuration support.
+
+`parseTrackerTimestamp` accepts RFC 3339 timestamps and returns a canonical ISO
+8601 UTC string; malformed values return `null`. It is intentionally a core
+utility only in this change: tracker-adapter adoption is deferred, so existing
+adapter behavior is unchanged.
+
+For dispatch priority, see [ADR 2026-08-28](adr/2026-08-28_priority-mapping-documented-different-mapping.md).
+The repository intentionally keeps integer priorities in ascending order and
+places `null` or non-integers last, a documented different mapping under
+Symphony specification §8.2 and §11.3. Linear priority `0` maps to `null`.
+
 ## Workflow Lifecycle Policy
 
 `tracker.blocker_check_states` selects the workflow states where the GitHub and
