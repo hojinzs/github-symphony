@@ -1038,7 +1038,7 @@ Prompt body.
   });
 
   it("rejects comma-separated required labels with the field path", () => {
-    try {
+    expect(() =>
       parseWorkflowMarkdown(`---
 tracker:
   kind: github-project
@@ -1048,13 +1048,12 @@ codex:
 ---
 Prompt body.
 `);
-      throw new Error("Expected parsing to fail.");
-    } catch (error) {
-      expect(error).toMatchObject({
+    ).toThrow(
+      expect.objectContaining({
         code: "workflow_validation_error",
         path: "tracker.required_labels",
-      });
-    }
+      })
+    );
   });
 
   it("defaults omitted required labels to an empty list", () => {

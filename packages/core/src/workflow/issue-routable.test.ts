@@ -36,7 +36,7 @@ describe("issueRoutable", () => {
     ).toEqual({ routable: true });
   });
 
-  it("preserves empty required labels as unsatisfied", () => {
+  it("keeps empty required labels unsatisfied even with blank issue labels", () => {
     expect(
       issueRoutable(issue({ labels: ["ready", "  "] }), {
         ...DEFAULT_WORKFLOW_LIFECYCLE,

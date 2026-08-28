@@ -260,6 +260,44 @@ Prompt {{ issue.identifier }}
     );
   });
 
+  it("includes normalized required labels in JSON validation output", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "workflow-validate-required-labels-")
+    );
+    const workflowPath = join(root, "WORKFLOW.md");
+    const stdout = captureWrites(process.stdout);
+
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  required_labels: [" Ready ", Agent]
+codex:
+  command: codex app-server
+---
+Prompt {{ issue.identifier }}
+`,
+      "utf8"
+    );
+
+    try {
+      await workflowCommand(["validate", "--file", workflowPath], {
+        configDir: root,
+        verbose: false,
+        json: true,
+        noColor: false,
+      });
+    } finally {
+      stdout.restore();
+    }
+
+    const report = JSON.parse(stdout.output()) as {
+      summary: { requiredLabels: string[] };
+    };
+    expect(report.summary.requiredLabels).toEqual(["ready", "agent"]);
+  });
+
   it("previews a workflow with the built-in sample issue", async () => {
     const root = await mkdtemp(join(tmpdir(), "workflow-preview-"));
     const workflowPath = join(root, "WORKFLOW.md");
