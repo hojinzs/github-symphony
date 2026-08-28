@@ -557,6 +557,33 @@ describe("linearTrackerAdapter", () => {
     }
   });
 
+  it("applies pickup labels when refreshing issues by canonical ID", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          issues: {
+            nodes: [linearIssueNode("ENG-1", ["agent"])],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      })
+    );
+
+    const issues = await linearTrackerAdapter.fetchIssueStatesByIds(
+      makeProject({
+        settings: {
+          projectSlug: "symphony-0c79b11b75ea",
+          activeStates: "Todo",
+          pickupLabels: { include: ["dev-ready"] },
+        },
+      }),
+      ["ENG-1"],
+      { fetchImpl, token: "linear-token" }
+    );
+
+    expect(issues).toEqual([]);
+  });
+
   it("skips issues with any configured exclude pickup label", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {

@@ -195,6 +195,17 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isDueRetryReservation(
+  record: IssueOrchestrationRecord,
+  now: Date
+): boolean {
+  if (record.state !== "retry_queued" || record.currentRunId === null) {
+    return false;
+  }
+  const dueAtMs = parseTimestampMs(record.retryEntry?.dueAt);
+  return dueAtMs !== null && dueAtMs <= now.getTime();
+}
+
 function parseFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -3301,17 +3312,61 @@ export class OrchestratorService {
         };
       }
 
-      if (
-        (await this.resolveRetryRestartAction(
+      const retryAction = await this.resolveRetryRestartAction(
+        tenant,
+        run,
+        trackerDependencies
+      );
+      if (retryAction.action === "requeue") {
+        return this.requeueRetryingRun(
           tenant,
-          run,
-          trackerDependencies
-        )) === "release"
-      ) {
-        return this.releaseRetryingRun(runWithTokens, issueRecords, now);
+          runWithTokens,
+          issueRecords,
+          now,
+          retryAction.error
+        );
+      }
+      if (retryAction.action === "release") {
+        if (retryAction.issue && retryAction.terminal) {
+          try {
+            await this.cleanupTerminalIssueWorkspace(
+              tenant,
+              retryAction.issue,
+              now
+            );
+          } catch (error) {
+            this.writeStderr(
+              `[orchestrator] Terminal workspace cleanup failed for ${retryAction.issue.identifier}; continuing: ${this.formatErrorMessage(error)}\n`
+            );
+          }
+        }
+        return this.releaseRetryingRun(
+          retryAction.issue
+            ? { ...runWithTokens, issueState: retryAction.issue.state }
+            : runWithTokens,
+          issueRecords,
+          now
+        );
+      }
+      if (!(await this.hasRetryDispatchSlot(tenant, run, issueRecords, now))) {
+        return this.requeueRetryingRun(
+          tenant,
+          runWithTokens,
+          issueRecords,
+          now,
+          "no available orchestrator slots",
+          { countFailure: false, advanceAttempt: false }
+        );
       }
 
-      return this.restartRun(tenant, run, issueRecords, now, workerSessionId);
+      return this.restartRun(
+        tenant,
+        run,
+        issueRecords,
+        now,
+        workerSessionId,
+        retryAction.issue
+      );
     }
 
     if (run.issueWorkspaceKey) {
@@ -4072,29 +4127,47 @@ export class OrchestratorService {
     tenant: OrchestratorProjectConfig,
     run: OrchestratorRunRecord,
     trackerDependencies: OrchestratorTrackerDependencies = {}
-  ): Promise<"restart" | "release"> {
+  ): Promise<
+    | { action: "restart"; issue: TrackedIssue }
+    | { action: "release"; issue?: TrackedIssue; terminal?: boolean }
+    | { action: "requeue"; error: string }
+  > {
     try {
-      const eligibleContext = await this.fetchTrackedIssueEligibilityContext(
+      const trackerAdapter = resolveTrackerAdapter(tenant.tracker);
+      const issues = await trackerAdapter.fetchIssueStatesByIds(
         tenant,
-        run.issueIdentifier,
-        trackerDependencies
+        [run.issueSubjectId],
+        {
+          ...this.createTrackerDependencies(),
+          ...trackerDependencies,
+        }
       );
-      if (!eligibleContext) {
-        return "release";
+      const issue = issues.find(
+        (candidate) => candidate.id === run.issueSubjectId
+      );
+      if (!issue) {
+        return { action: "release" };
       }
       const resolution = await this.loadProjectWorkflow(tenant, run.repository);
       if (!isUsableWorkflowResolution(resolution)) {
-        return "restart";
+        return {
+          action: "requeue",
+          error: "retry refresh failed: workflow policy unavailable",
+        };
       }
-      return this.isIssueCandidateEligible(
-        eligibleContext.issue,
-        resolution.lifecycle,
-        eligibleContext.issues
-      )
-        ? "restart"
-        : "release";
-    } catch {
-      return "restart";
+      if (isStateTerminal(issue.state, resolution.lifecycle)) {
+        return { action: "release", issue, terminal: true };
+      }
+      return this.isIssueCandidateEligible(issue, resolution.lifecycle, [issue])
+        ? { action: "restart", issue }
+        : { action: "release", issue };
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : this.formatErrorMessage(error);
+      return {
+        action: "requeue",
+        error: `retry refresh failed: ${detail}`,
+      };
     }
   }
 
@@ -4458,7 +4531,8 @@ export class OrchestratorService {
     run: OrchestratorRunRecord,
     issueRecords: IssueOrchestrationRecord[],
     now: Date,
-    sessionId?: string | null
+    sessionId?: string | null,
+    refreshedIssue?: TrackedIssue
   ): Promise<{
     issueRecords: IssueOrchestrationRecord[];
     recovered: boolean;
@@ -4483,10 +4557,9 @@ export class OrchestratorService {
     let restarted: OrchestratorRunRecord;
     try {
       await this.store.saveRun(supersededRecord);
-      const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
-        tenant,
-        run
-      );
+      const issue =
+        refreshedIssue ??
+        resolveTrackerAdapter(tenant.tracker).reviveIssue(tenant, run);
       const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
@@ -4721,6 +4794,121 @@ export class OrchestratorService {
         run,
         now
       ),
+      recovered: false,
+    };
+  }
+
+  private async hasRetryDispatchSlot(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date
+  ): Promise<boolean> {
+    const concurrency = await this.getProjectConcurrency(tenant);
+    const claimed = issueRecords.filter(
+      (record) =>
+        isIssueOrchestrationClaimedState(record.state) &&
+        (record.state !== "retry_queued" || record.currentRunId !== null) &&
+        !isDueRetryReservation(record, now)
+    ).length;
+    // Due reservations are intentionally excluded above, so retry fire normally
+    // reaches this as false. Keep the self-claim guard for any future caller
+    // that checks a non-due retry; otherwise that caller would double-count its
+    // own reservation and could incorrectly requeue it.
+    const retryAlreadyClaimsSlot = issueRecords.some(
+      (record) =>
+        record.currentRunId === run.runId &&
+        isIssueOrchestrationClaimedState(record.state) &&
+        !isDueRetryReservation(record, now)
+    );
+    return claimed + (retryAlreadyClaimsSlot ? 0 : 1) <= concurrency;
+  }
+
+  private async requeueRetryingRun(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date,
+    error: string,
+    options: { countFailure?: boolean; advanceAttempt?: boolean } = {}
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+  }> {
+    const issueRecord = issueRecords.find(
+      (record) =>
+        record.issueId === run.issueId ||
+        record.identifier === run.issueIdentifier
+    );
+    const attempt =
+      (issueRecord?.retryEntry?.attempt ?? run.attempt) +
+      (options.advanceAttempt === false ? 0 : 1);
+    const failureRetryCount =
+      (issueRecord?.failureRetryCount ?? 0) +
+      (options.countFailure === false ? 0 : 1);
+    const maxFailureRetries = await this.loadMaxFailureRetries(
+      tenant,
+      run.repository
+    );
+    const suppressed =
+      options.countFailure !== false && failureRetryCount >= maxFailureRetries;
+    const retryPolicy = suppressed
+      ? null
+      : await this.loadRetryPolicy(tenant, run.repository);
+    const dueAt = suppressed
+      ? null
+      : (retryPolicy
+          ? options.advanceAttempt === false
+            ? new Date(
+                now.getTime() + (await this.loadProjectPollInterval(tenant))
+              )
+            : scheduleRetryAt(now, attempt, retryPolicy)
+          : new Date(
+              now.getTime() +
+                (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
+            )
+        ).toISOString();
+    const lastError = suppressed
+      ? [
+          `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+          `failureRetryCount=${failureRetryCount}.`,
+          `maxFailureRetries=${maxFailureRetries}.`,
+          error,
+        ].join(" ")
+      : error;
+    await this.store.saveRun({
+      ...run,
+      status: suppressed ? "suppressed" : "retrying",
+      attempt,
+      processId: null,
+      updatedAt: now.toISOString(),
+      completedAt: suppressed ? now.toISOString() : null,
+      nextRetryAt: dueAt,
+      // Requeueing only postpones a due retry; it must not discard the
+      // recovery context that snapshot consumers use to expose dirty-workspace
+      // recovery details.
+      retryKind: suppressed ? null : (run.retryKind ?? "failure"),
+      lastError,
+    });
+    return {
+      issueRecords: upsertIssueOrchestration(issueRecords, {
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey:
+          run.issueWorkspaceKey ??
+          deriveIssueWorkspaceKey(
+            {
+              adapter: tenant.tracker.adapter,
+              issueSubjectId: run.issueSubjectId,
+            },
+            run.issueIdentifier
+          ),
+        state: suppressed ? "released" : "retry_queued",
+        failureRetryCount,
+        currentRunId: suppressed ? null : run.runId,
+        retryEntry: dueAt ? { attempt, dueAt, error } : null,
+        updatedAt: now.toISOString(),
+      }),
       recovered: false,
     };
   }
