@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { WorkflowValidationError } from "@gh-symphony/core";
 import type {
   OrchestratorTrackerAdapter,
   OrchestratorProjectConfig,
@@ -135,6 +136,30 @@ function buildTrackerStateResult(
 }
 
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
+  validateProviderConfig(provider) {
+    const path = provider.path;
+    if (typeof path !== "string" || path.trim().length === 0) {
+      return [
+        new WorkflowValidationError(
+          "workflow_validation_error",
+          "tracker.provider.path",
+          "path is required by the file tracker adapter."
+        ),
+      ];
+    }
+    return [];
+  },
+
+  defaultLifecycle() {
+    return {
+      stateFieldName: "Status",
+      activeStates: ["Ready", "In Progress"],
+      terminalStates: ["Done", "Cancelled"],
+      blockerCheckStates: ["Ready"],
+      planningStates: [],
+    };
+  },
+
   secretEnvironmentNames() {
     return [];
   },

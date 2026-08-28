@@ -87,6 +87,38 @@ describe("linearTrackerAdapter", () => {
     });
   });
 
+  it("validates provider-owned Linear keys and documents lifecycle defaults", () => {
+    expect(
+      linearTrackerAdapter.validateProviderConfig?.({
+        endpoint: "https://linear.test/graphql",
+        api_key: "$LINEAR_API_KEY",
+        project_slug: "platform",
+        pickup_labels: { include: ["agent"] },
+      })
+    ).toEqual([]);
+    expect(linearTrackerAdapter.defaultLifecycle?.()).toEqual({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+      blockerCheckStates: ["Todo"],
+      planningStates: [],
+    });
+    expect(
+      linearTrackerAdapter
+        .validateProviderConfig?.({
+          api_key: "lin_secret",
+          project_id: "legacy-project",
+          teamId: "legacy-team",
+        })
+        .map((error) => error.path)
+    ).toEqual([
+      "tracker.provider.project_slug",
+      "tracker.provider.api_key",
+      "tracker.provider.project_id",
+      "tracker.provider.teamId",
+    ]);
+  });
+
   it("queries Linear by project slug and state names with cursor pagination", async () => {
     const fetchImpl = vi
       .fn()

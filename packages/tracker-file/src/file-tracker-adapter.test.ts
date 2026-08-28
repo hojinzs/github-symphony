@@ -68,6 +68,22 @@ describe("fileTrackerAdapter", () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
+  it("validates the provider path and documents file lifecycle defaults", () => {
+    expect(
+      fileTrackerAdapter.validateProviderConfig?.({ path: "/tmp/issues.json" })
+    ).toEqual([]);
+    expect(fileTrackerAdapter.defaultLifecycle?.()).toEqual({
+      stateFieldName: "Status",
+      activeStates: ["Ready", "In Progress"],
+      terminalStates: ["Done", "Cancelled"],
+      blockerCheckStates: ["Ready"],
+      planningStates: [],
+    });
+    expect(fileTrackerAdapter.validateProviderConfig?.({})).toMatchObject([
+      { path: "tracker.provider.path" },
+    ]);
+  });
+
   describe("listIssues", () => {
     it("reads issues from a JSON file", async () => {
       const issuesPath = join(testDir, "issues.json");

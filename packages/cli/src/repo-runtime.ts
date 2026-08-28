@@ -132,14 +132,13 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     trackerSettings.priorityFieldName = workflow.tracker.priorityFieldName;
   }
   if (trackerAdapter === "file") {
-    if (!process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH) {
+    const issuesPath = resolveFileProviderPath(workflow.tracker.provider.path);
+    if (typeof issuesPath !== "string" || !issuesPath.trim()) {
       throw new Error(
-        "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH to point to the issues fixture."
+        'File tracker repo init requires WORKFLOW.md field "tracker.provider.path" to point to the issues fixture.'
       );
     }
-    // E2E-only escape hatch for binding the file tracker to a mounted fixture.
-    trackerSettings.issuesPath =
-      process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
+    trackerSettings.issuesPath = issuesPath;
   }
   const workspaceDir = workflow.workspace.root
     ? resolve(repoDir, workflow.workspace.root)
@@ -220,6 +219,17 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     workflowPath,
     repository,
   };
+}
+
+function resolveFileProviderPath(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  if (!value.startsWith("$")) {
+    return value;
+  }
+  const name = value.slice(1);
+  return /^[A-Z_][A-Z0-9_]*$/.test(name) ? process.env[name] ?? null : null;
 }
 
 function validateRepoInitWorkflow(

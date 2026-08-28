@@ -89,6 +89,18 @@ codex:
 Handle {{issue.identifier}}.
 `;
 
+const FILE_WORKFLOW = `---
+tracker:
+  kind: file
+  provider:
+    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+    project_id: e2e-test
+codex:
+  command: codex app-server
+---
+Prompt body.
+`;
+
 async function createGitRepo(remoteName = "platform"): Promise<string> {
   const repoDir = await mkdtemp(join(tmpdir(), "repo-init-"));
   execFileSync("git", ["-C", repoDir, "init"]);
@@ -874,10 +886,7 @@ Handle {{issue.identifier}}.
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      VALID_WORKFLOW.replace("github-project", "file").replace(
-        "PVT_project_123",
-        "e2e-test"
-      ),
+      FILE_WORKFLOW,
       "utf8"
     );
     process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH =
@@ -923,9 +932,9 @@ Handle {{issue.identifier}}.
     const originalIssuesPath = process.env.GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH;
     await writeFile(
       join(repoDir, "WORKFLOW.md"),
-      VALID_WORKFLOW.replace("github-project", "file").replace(
-        "PVT_project_123",
-        "e2e-test"
+      FILE_WORKFLOW.replace(
+        "    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH\n    project_id: e2e-test\n",
+        ""
       ),
       "utf8"
     );
@@ -947,7 +956,7 @@ Handle {{issue.identifier}}.
 
     expect(process.exitCode).toBe(1);
     expect(stderr.output()).toContain(
-      "File tracker repo init requires GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH"
+      'File tracker repo init requires WORKFLOW.md field "tracker.provider.path"'
     );
   });
 });

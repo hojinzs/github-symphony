@@ -130,6 +130,42 @@ planning/human-review execution phase. Linear `blocked_by` metadata is derived
 from inverse relations of type `blocks`; source-side relations describe issues
 blocked by the current issue and are not blockers of it.
 
+## Linear and file tracker providers
+
+Tracker-specific configuration belongs in `tracker.provider`. The former flat
+keys remain deprecated, non-breaking aliases: `gh-symphony doctor` renders the
+normalized provider block so operators can migrate without changing behavior.
+
+```yaml
+tracker:
+  kind: linear
+  provider:
+    endpoint: https://api.linear.app/graphql # optional
+    api_key: $LINEAR_API_KEY                 # required environment reference
+    project_slug: platform                   # required Linear project slug
+    pickup_labels:
+      include: [agent]
+      exclude: [blocked]
+```
+
+Linear scopes polling with `project_slug`; it does not accept `project_id`,
+`projectId`, `team`, or `teamId` as aliases. `api_key` must be a `$VAR`
+reference so secrets remain outside committed workflow policy. Its documented
+lifecycle default is `Todo`/`In Progress` active, `Done` terminal, `Todo`
+blocker-check, and no planning states.
+
+```yaml
+tracker:
+  kind: file
+  provider:
+    path: $GH_SYMPHONY_FILE_TRACKER_ISSUES_PATH
+    project_id: e2e-test
+```
+
+The file adapter is for local and Docker E2E fixtures. `provider.path` is the
+required JSON fixture path; its defaults are `Ready`/`In Progress` active,
+`Done`/`Cancelled` terminal, `Ready` blocker-check, and no planning states.
+
 ## `GH_SYMPHONY_CONFIG_DIR` and Repository Runtimes
 
 `GH_SYMPHONY_CONFIG_DIR` (or `--config <dir>`) selects the shared CLI registry
