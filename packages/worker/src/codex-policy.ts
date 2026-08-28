@@ -9,7 +9,11 @@
  * is user-configurable; update these lists when the targeted Codex protocol
  * changes.
  */
-export const APPROVAL_POLICIES = ["never", "on-request", "untrusted"] as const;
+/**
+ * Operator approval is not implemented. Restrict the worker to the one
+ * posture that cannot emit an approval request and leave no request pending.
+ */
+export const APPROVAL_POLICIES = ["never"] as const;
 export type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number];
 
 export const THREAD_SANDBOX_MODES = [

@@ -1108,6 +1108,40 @@ Render with env indirection.
     expect(workflow.agentCommand).toBe("custom-app-server");
   });
 
+  it.each(["on-request", "untrusted"])(
+    "rejects unsupported Codex approval policy %s before worker launch",
+    (approvalPolicy) => {
+      expect(() =>
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  approval_policy: ${approvalPolicy}
+---
+Prompt body.
+`)
+      ).toThrow(
+        'Workflow front matter field "codex.approval_policy" supports only "never" because approval requests cannot be handled.'
+      );
+
+      try {
+        parseWorkflowMarkdown(`---
+tracker:
+  kind: github-project
+codex:
+  approval_policy: ${approvalPolicy}
+---
+Prompt body.
+`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(WorkflowValidationError);
+        expect((error as WorkflowValidationError).path).toBe(
+          "codex.approval_policy"
+        );
+      }
+    }
+  );
+
   it("parses runtime-only claude-print front matter", () => {
     const workflow = parseWorkflowMarkdown(`---
 tracker:

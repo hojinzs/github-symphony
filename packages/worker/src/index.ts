@@ -1180,6 +1180,7 @@ async function runCodexClientProtocol(
   let consecutiveRefreshFailures = 0;
   let convergenceDetected = false;
   let terminationRequested = false;
+  let resetTurnTimeout: (() => void) | null = null;
 
   function requestChildTermination(): void {
     terminationRequested = true;
@@ -1342,26 +1343,35 @@ async function runCodexClientProtocol(
   }
 
   /**
-   * Wait for turn completion with an absolute timeout. Kills the codex
-   * process if the turn exceeds `turn_timeout_ms`.
+   * Wait for turn completion with a silence timeout. Every app-server output
+   * resets the deadline, so `turn_timeout_ms` is not a total turn cap.
    */
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let timer: NodeJS.Timeout;
+      const timeout = () => {
         process.stderr.write(
-          `[worker] turn_timeout: turn exceeded ${turnTimeoutMs}ms — killing codex process\n`
+          `[worker] turn_timeout: no app-server output for ${turnTimeoutMs}ms — killing codex process\n`
         );
         requestChildTermination();
-        reject(new Error("turn_timeout: turn exceeded time limit"));
-      }, turnTimeoutMs);
+        reject(new Error("turn_timeout: silence interval exceeded"));
+      };
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(timeout, turnTimeoutMs);
+      };
+      timer = setTimeout(timeout, turnTimeoutMs);
+      resetTurnTimeout = arm;
 
       waitForTurnCompletion().then(
         () => {
           clearTimeout(timer);
+          resetTurnTimeout = null;
           resolve();
         },
         (error) => {
           clearTimeout(timer);
+          resetTurnTimeout = null;
           reject(error);
         }
       );
@@ -1491,6 +1501,10 @@ async function runCodexClientProtocol(
   }
 
   function handleServerMessage(msg: Record<string, unknown>): void {
+    // §10.6: every app-server output extends the active turn's silence
+    // deadline, including JSON-RPC responses and server notifications.
+    resetTurnTimeout?.();
+
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
       const id = String(msg.id);

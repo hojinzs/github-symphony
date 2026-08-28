@@ -150,6 +150,7 @@ function createProtocolContext(options: {
   const pendingOrchestratorChannelPayloads: string[] = [];
   const maxPendingOrchestratorChannelPayloads = 16;
   let activeTurnTelemetry: ActiveTurnTelemetry | null = null;
+  let resetTurnTimeout: (() => void) | null = null;
 
   const defaultOrchestratorChannelWriter = {
     write(chunk: string): boolean {
@@ -674,18 +675,27 @@ function createProtocolContext(options: {
 
   function waitForTurnWithTimeout(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout>;
+      const timeout = () => {
         killCalled = true;
-        reject(new Error("turn_timeout: turn exceeded time limit"));
-      }, turnTimeoutMs);
+        reject(new Error("turn_timeout: silence interval exceeded"));
+      };
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(timeout, turnTimeoutMs);
+      };
+      timer = setTimeout(timeout, turnTimeoutMs);
+      resetTurnTimeout = arm;
 
       waitForTurnCompletion().then(
         () => {
           clearTimeout(timer);
+          resetTurnTimeout = null;
           resolve();
         },
         (error) => {
           clearTimeout(timer);
+          resetTurnTimeout = null;
           reject(error);
         }
       );
@@ -904,6 +914,8 @@ function createProtocolContext(options: {
   }
 
   function handleServerMessage(msg: Record<string, unknown>): void {
+    resetTurnTimeout?.();
+
     // JSON-RPC response to our requests
     if ("id" in msg && msg.id != null && ("result" in msg || "error" in msg)) {
       const id = String(msg.id);
@@ -1452,10 +1464,10 @@ describe("read timeout (3.5)", () => {
     expect(result).toEqual({ serverInfo: { name: "codex", version: "1.0" } });
   });
 
-  it("includes env-derived approval and sandbox settings in protocol requests", () => {
+  it("includes the supported approval and sandbox settings in protocol requests", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
     sendStartupRequestsForEnv(ctx, {
-      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_APPROVAL_POLICY: "never",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
@@ -1471,7 +1483,7 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandbox: "workspace-write",
           dynamicTools: TEST_DYNAMIC_TOOLS,
         },
@@ -1485,7 +1497,7 @@ describe("read timeout (3.5)", () => {
           input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
@@ -1496,7 +1508,7 @@ describe("read timeout (3.5)", () => {
     const ctx = createProtocolContext({ readTimeoutMs: 500 });
 
     await sendStartupHandshake(ctx, {
-      SYMPHONY_APPROVAL_POLICY: "on-request",
+      SYMPHONY_APPROVAL_POLICY: "never",
       SYMPHONY_ISSUE_IDENTIFIER: "acme/repo#1",
       SYMPHONY_ISSUE_TITLE: "Test issue",
       SYMPHONY_THREAD_SANDBOX: "workspace-write",
@@ -1526,7 +1538,7 @@ describe("read timeout (3.5)", () => {
         method: "thread/start",
         params: {
           cwd: "/tmp",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandbox: "workspace-write",
           dynamicTools: TEST_DYNAMIC_TOOLS,
         },
@@ -1540,7 +1552,7 @@ describe("read timeout (3.5)", () => {
           input: [{ type: "text", text: "test prompt" }],
           cwd: "/tmp",
           title: "acme/repo#1: Test issue",
-          approvalPolicy: "on-request",
+          approvalPolicy: "never",
           sandboxPolicy: { type: "dangerFullAccess" },
         },
       },
@@ -1723,20 +1735,38 @@ describe("turn timeout (3.6)", () => {
     vi.useRealTimers();
   });
 
-  it("rejects with turn_timeout when turn exceeds limit", async () => {
+  it("rejects with turn_timeout when a turn is silent beyond the limit", async () => {
     const ctx = createProtocolContext({ turnTimeoutMs: 1000 });
 
     const promise = ctx.waitForTurnWithTimeout();
 
     // Attach rejection handler BEFORE advancing timers to avoid unhandled rejection
     const rejection = expect(promise).rejects.toThrow(
-      "turn_timeout: turn exceeded time limit"
+      "turn_timeout: silence interval exceeded"
     );
 
     await vi.advanceTimersByTimeAsync(1001);
     await rejection;
 
     expect(ctx.killCalled).toBe(true);
+  });
+
+  it("allows a long turn when app-server output arrives before each deadline", async () => {
+    const ctx = createProtocolContext({ turnTimeoutMs: 1000 });
+    const promise = ctx.waitForTurnWithTimeout();
+
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({ method: "codex/event/item_updated", params: {} });
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({ method: "codex/event/item_updated", params: {} });
+    await vi.advanceTimersByTimeAsync(900);
+    ctx.handleServerMessage({
+      method: CODEX_PROTOCOL_EVENT_NAMES.turnCompleted,
+      params: {},
+    });
+
+    await promise;
+    expect(ctx.killCalled).toBe(false);
   });
 
   it("resolves normally when turn completes within limit", async () => {
