@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import {
+  DEFAULT_WORKFLOW_LIFECYCLE,
   parseWorkflowMarkdown,
   WorkflowValidationError,
   redactObservabilitySecrets,
@@ -701,6 +702,9 @@ async function checkWorkflow(
   try {
     const parsed = deps.parseWorkflowMarkdown(markdown, environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
+      trackerAdapter: {
+        defaultLifecycle: () => DEFAULT_WORKFLOW_LIFECYCLE,
+      },
     });
     return {
       status: "pass",
