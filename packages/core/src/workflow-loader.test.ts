@@ -260,7 +260,7 @@ Prompt`,
     });
   });
 
-  it("promotes deprecated flat tracker keys into provider without replacing explicit provider values", () => {
+  it("promotes flat tracker keys while retaining provider-owned values", () => {
     const workflow = parseWorkflowMarkdown(
       `---
 tracker:
@@ -292,9 +292,13 @@ Prompt`,
     expect(workflow.tracker.deprecatedKeys).toEqual([
       "api_key",
       "project_slug",
+      "endpoint",
       "state_field",
     ]);
     expect(workflow.tracker.apiKey).toBe("token");
+    expect(workflow.tracker.endpoint).toBe(
+      "https://provider.example.test/graphql"
+    );
   });
 
   it("projects provider aliases onto compatibility fields", () => {
@@ -320,6 +324,35 @@ Prompt`,
       projectId: "project-123",
       apiKey: "token",
       endpoint: "https://provider.example.test/graphql",
+    });
+  });
+
+  it("uses provider values consistently when deprecated flat keys coexist", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
+tracker:
+  kind: linear
+  project_id: flat-project
+  api_key: flat-key
+  endpoint: https://flat.example.test
+  state_field: Flat state
+  active_states: [Todo]
+  terminal_states: [Done]
+  provider:
+    project_id: provider-project
+    api_key: provider-key
+    endpoint: https://provider.example.test
+    state_field: Provider state
+codex:
+  command: codex
+---
+Prompt`);
+
+    expect(workflow.tracker).toMatchObject({
+      projectId: "provider-project",
+      apiKey: "provider-key",
+      endpoint: "https://provider.example.test",
+      stateFieldName: "Provider state",
+      deprecatedKeys: ["api_key", "project_id", "endpoint", "state_field"],
     });
   });
 
@@ -416,16 +449,20 @@ Prompt`,
     expect(workflow.tracker.projectSlug).toBe("symphony-0c79b11b75ea");
   });
 
-  it("requires lifecycle configuration without an adapter default", () => {
-    expect(() =>
-      parseWorkflowMarkdownStrict(`---
+  it("preserves lifecycle defaults until adapters provide their own", () => {
+    const workflow = parseWorkflowMarkdownStrict(`---
 tracker:
   kind: github-project
 codex:
   command: codex
 ---
-Prompt`)
-    ).toThrow(/tracker.active_states/);
+Prompt`);
+
+    expect(workflow.lifecycle).toMatchObject({
+      stateFieldName: "Status",
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Done"],
+    });
   });
 
   it("uses lifecycle defaults for legacy sectioned workflows", () => {

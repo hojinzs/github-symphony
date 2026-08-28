@@ -148,10 +148,10 @@ function parseWorkflowMarkdownInternal(
   const provider = readProviderConfig(tracker);
   const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
   const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
-  const legacyLifecycle =
-    compatibilityMode === "legacy" || deprecatedKeys.length > 0
-      ? DEFAULT_WORKFLOW_LIFECYCLE
-      : undefined;
+  // Keep existing workflows usable while tracker adapters adopt defaultLifecycle.
+  // Adapter-provided defaults still take precedence, so this fallback can be
+  // removed once every supported adapter owns its lifecycle defaults.
+  const legacyLifecycle = DEFAULT_WORKFLOW_LIFECYCLE;
   const activeStates =
     readStringList(tracker, "active_states", { rejectCommaString: true }) ??
     defaultLifecycle?.activeStates ??
@@ -163,17 +163,17 @@ function parseWorkflowMarkdownInternal(
     legacyLifecycle?.terminalStates ??
     readRequiredLifecycleStates("terminal_states");
   const blockerCheckStates =
-    readStringList(tracker, "blocker_check_states") ??
     readProviderStringList(provider, "blocker_check_states") ??
+    readStringList(tracker, "blocker_check_states") ??
     (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
-    readStringList(tracker, "planning_states") ??
     readProviderStringList(provider, "planning_states") ??
+    readStringList(tracker, "planning_states") ??
     defaultLifecycle?.planningStates ??
     DEFAULT_WORKFLOW_TRACKER.planningStates;
   const stateFieldName =
-    readOptionalString(tracker, "state_field", env, "tracker.state_field") ??
     readProviderOptionalString(provider, "state_field", env) ??
+    readOptionalString(tracker, "state_field", env, "tracker.state_field") ??
     defaultLifecycle?.stateFieldName ??
     legacyLifecycle?.stateFieldName ??
     readRequiredLifecycleStateField();
@@ -233,34 +233,36 @@ function parseWorkflowMarkdownInternal(
       provider,
       deprecatedKeys,
       endpoint:
-        readOptionalString(tracker, "endpoint", env, "tracker.endpoint") ??
         readProviderOptionalString(provider, "endpoint", env) ??
+        readOptionalString(tracker, "endpoint", env, "tracker.endpoint") ??
         (trackerKind === "linear" ? DEFAULT_LINEAR_GRAPHQL_URL : null),
       apiKey:
-        readOptionalString(tracker, "api_key", env, "tracker.api_key") ??
-        readProviderOptionalString(provider, "api_key", env),
+        readProviderOptionalString(provider, "api_key", env) ??
+        readOptionalString(tracker, "api_key", env, "tracker.api_key"),
       projectSlug:
+        readProviderOptionalString(provider, "project_slug", env) ??
         readOptionalString(
           tracker,
           "project_slug",
           env,
           "tracker.project_slug"
-        ) ?? readProviderOptionalString(provider, "project_slug", env),
+        ),
       pickupLabels: readPickupLabelsConfig(tracker, provider),
       activeStates,
       terminalStates,
       projectId:
-        readOptionalString(tracker, "project_id", env, "tracker.project_id") ??
-        readProviderOptionalString(provider, "project_id", env),
+        readProviderOptionalString(provider, "project_id", env) ??
+        readOptionalString(tracker, "project_id", env, "tracker.project_id"),
       stateFieldName,
       priority: readPriorityConfig(tracker, provider, env),
       priorityFieldName:
+        readProviderOptionalString(provider, "priority_field", env) ??
         readOptionalString(
           tracker,
           "priority_field",
           env,
           "tracker.priority_field"
-        ) ?? readProviderOptionalString(provider, "priority_field", env),
+        ),
       blockerCheckStates,
       planningStates,
     },
@@ -370,9 +372,9 @@ function promoteDeprecatedTrackerKeys(
     if (tracker[key] === undefined || tracker[key] === null) {
       continue;
     }
+    deprecatedKeys.push(key);
     if (!(key in provider)) {
       provider[key] = tracker[key];
-      deprecatedKeys.push(key);
     }
   }
   return deprecatedKeys;
@@ -462,7 +464,7 @@ function readPickupLabelsConfig(
   provider: Record<string, unknown>
 ): ParsedWorkflow["tracker"]["pickupLabels"] {
   const value =
-    tracker.pickup_labels ?? tracker.pickupLabels ?? provider.pickup_labels;
+    provider.pickup_labels ?? tracker.pickup_labels ?? tracker.pickupLabels;
   if (value === undefined || value === null) {
     return DEFAULT_WORKFLOW_TRACKER.pickupLabels;
   }
@@ -484,7 +486,7 @@ function readPriorityConfig(
   provider: Record<string, unknown>,
   env: NodeJS.ProcessEnv
 ): WorkflowPriorityConfig | null {
-  const priorityValue = tracker.priority ?? provider.priority;
+  const priorityValue = provider.priority ?? tracker.priority;
   if (priorityValue === undefined || priorityValue === null) {
     return null;
   }
