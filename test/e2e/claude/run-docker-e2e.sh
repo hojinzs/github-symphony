@@ -3,28 +3,33 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$root_dir"
+source "$root_dir/e2e/lib/compose-project.sh"
+configure_e2e_compose_project "$root_dir"
+e2e_compose=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml)
+claude_compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}-claude" -f test/e2e/claude/docker-compose.yml)
 
 http_api_token="${GH_SYMPHONY_HTTP_TOKEN:-e2e-http-token}"
 
-mkdir -p evidence
-echo "[]" > e2e/fixtures/issues.json
-
 cleanup() {
-  docker compose -f docker-compose.e2e.yml down --remove-orphans >/dev/null 2>&1 || true
-  docker compose -f test/e2e/claude/docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true
+  "${e2e_compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  remove_e2e_compose_image
+  "${claude_compose[@]}" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   echo "[]" > e2e/fixtures/issues.json
 }
+assert_e2e_project_is_available docker-compose.e2e.yml
+assert_e2e_project_is_available test/e2e/claude/docker-compose.yml "${COMPOSE_PROJECT_NAME}-claude"
+mkdir -p evidence
+echo "[]" > e2e/fixtures/issues.json
 trap cleanup EXIT
-
-docker compose -f docker-compose.e2e.yml up -d --build
+"${e2e_compose[@]}" up -d --build
 (
-  curl --fail --retry-all-errors --retry 20 --retry-delay 2 http://localhost:4680/healthz
+  "${e2e_compose[@]}" exec -T symphony-e2e curl --fail --retry-all-errors --retry 20 --retry-delay 2 http://localhost:4680/healthz
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
-  curl --fail -H "Authorization: Bearer ${http_api_token}" \
+  "${e2e_compose[@]}" exec -T symphony-e2e curl --fail -H "Authorization: Bearer ${http_api_token}" \
     -X POST http://localhost:4680/api/v1/refresh
   deadline=$((SECONDS + 90))
   while ((SECONDS < deadline)); do
-    state="$(curl -fsS -H "Authorization: Bearer ${http_api_token}" \
+    state="$("${e2e_compose[@]}" exec -T symphony-e2e curl -fsS -H "Authorization: Bearer ${http_api_token}" \
       http://localhost:4680/api/v1/state)"
     if jq -e '.summary.activeRuns >= 1 or (.activeRuns | length) >= 1' >/dev/null <<<"$state"; then
       exit 0
@@ -36,7 +41,7 @@ docker compose -f docker-compose.e2e.yml up -d --build
 ) &
 codex_pid="$!"
 
-docker compose -f test/e2e/claude/docker-compose.yml up --build --abort-on-container-exit --exit-code-from claude-e2e &
+"${claude_compose[@]}" up --build --abort-on-container-exit --exit-code-from claude-e2e &
 claude_pid="$!"
 
 codex_status=0

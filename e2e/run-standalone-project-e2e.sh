@@ -3,10 +3,21 @@ set -euo pipefail
 
 # This bypasses the repo-embedded entrypoint and dispatches two folder-addressed
 # standalone projects once against the same local seed repository.
-COMPOSE="docker compose -f docker-compose.e2e.yml"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/e2e/lib/compose-project.sh"
+configure_e2e_compose_project "$ROOT_DIR"
+COMPOSE=(docker compose --project-name "$COMPOSE_PROJECT_NAME" -f docker-compose.e2e.yml)
 
-${COMPOSE} build symphony-e2e >/dev/null
-${COMPOSE} run --rm --no-deps --entrypoint bash symphony-e2e -lc '
+cleanup() {
+  "${COMPOSE[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  remove_e2e_compose_image
+}
+
+assert_e2e_project_is_available docker-compose.e2e.yml
+trap cleanup EXIT
+
+"${COMPOSE[@]}" build symphony-e2e >/dev/null
+"${COMPOSE[@]}" run --rm --no-deps --entrypoint bash symphony-e2e -lc '
 set -euo pipefail
 
 export HOME=/tmp/standalone-home

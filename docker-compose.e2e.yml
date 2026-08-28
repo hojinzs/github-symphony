@@ -1,11 +1,9 @@
 services:
   symphony-e2e:
-    container_name: symphony-e2e
+    image: ${SYMPHONY_E2E_IMAGE:-gh-symphony-e2e:e2e}
     build:
       context: .
       dockerfile: docker/orchestrator-e2e.Dockerfile
-    ports:
-      - "4680:4680"
     volumes:
       - ./e2e/fixtures:/e2e/fixtures
     tmpfs:

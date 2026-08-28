@@ -44,6 +44,9 @@ jobs:
       - name: Run tests with coverage
         run: npx vitest run --coverage.enabled --coverage.reporter=json-summary --coverage.reporter=json
 
+      - name: Compose project helper test
+        run: pnpm e2e:compose-project-test
+
       - name: Package entrypoint smoke test
         run: pnpm --filter @gh-symphony/cli test:package
 
