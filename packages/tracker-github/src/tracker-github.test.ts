@@ -734,7 +734,7 @@ describe("resolveTrackerAdapter", () => {
       DEFAULT_WORKFLOW_LIFECYCLE
     );
 
-    const linkedPullRequests = issue?.linkedPullRequests;
+    const linkedPullRequests = issue?.linkedPullRequests ?? [];
 
     expect(linkedPullRequests).toEqual([
       expect.objectContaining({
