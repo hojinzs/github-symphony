@@ -6,7 +6,10 @@ import type {
   TrackedIssue,
   TrackedIssueList,
 } from "@gh-symphony/core";
-import { resolvePickupLabelDispatchReason } from "@gh-symphony/core";
+import {
+  NonRetryableTrackerAdapterError,
+  resolvePickupLabelDispatchReason,
+} from "@gh-symphony/core";
 import {
   fetchGithubIssueStatesByIds,
   fetchGithubProjectIssueByRepositoryAndNumber,
@@ -131,6 +134,10 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
                 ...(issue.nativeRef ?? {}),
                 linkedPullRequests: resolved,
               } as TrackedIssue["nativeRef"],
+              metadata: {
+                ...issue.metadata,
+                linkedPullRequests: resolved,
+              },
             }
           : issue
       );
@@ -168,7 +175,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
         : (native.linkedPullRequests?.[0] ?? null);
     if (!pullRequest) {
       if (native.contentType === "PullRequest") {
-        throw new Error(
+        throw new NonRetryableTrackerAdapterError(
           `Cannot checkout pull request branch for ${issue.identifier}: missing pull request reference.`
         );
       }
@@ -176,20 +183,21 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
     }
     const headRefName = pullRequest.headRefName?.trim();
     if (!headRefName) {
-      throw new Error(
+      throw new NonRetryableTrackerAdapterError(
         `Cannot checkout pull request branch for ${pullRequest.identifier}: missing headRefName.`
       );
     }
     const headRepository = pullRequest.headRepository ?? null;
     if (
       !headRepository ||
-      headRepository.owner.toLowerCase() !== issue.repository.owner.toLowerCase() ||
+      headRepository.owner.toLowerCase() !==
+        issue.repository.owner.toLowerCase() ||
       headRepository.name.toLowerCase() !== issue.repository.name.toLowerCase()
     ) {
       const source = headRepository
         ? `${headRepository.owner}/${headRepository.name}`
         : "unknown fork";
-      throw new Error(
+      throw new NonRetryableTrackerAdapterError(
         `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
       );
     }

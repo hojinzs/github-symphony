@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_MAX_FAILURE_RETRIES,
   DEFAULT_WORKFLOW_LIFECYCLE,
+  NonRetryableTrackerAdapterError,
   TrackerRateLimitError,
   assertIssueOrchestrationTransition,
   attributeDirtyWorkToIssue,
@@ -231,8 +232,6 @@ function trackerItemId(
 ): string | null {
   return adapter.getTrackerItemId?.(issue) ?? issue.tracker.itemId ?? null;
 }
-
-class NonRetryableDispatchError extends Error {}
 
 class RestartRunFailure extends Error {
   constructor(
@@ -1192,11 +1191,16 @@ export class OrchestratorService {
         );
       }
       const canonicalIssues = resolveCanonicalIssues(trackerAdapter, issues);
-      const terminalCandidateIssues = (issueIdentifier
-        ? canonicalIssues.filter((issue) =>
-            matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
-          )
-        : canonicalIssues
+      const terminalCandidateIssues = (
+        issueIdentifier
+          ? canonicalIssues.filter((issue) =>
+              matchesTargetIssueIdentifier(
+                trackerAdapter,
+                issue,
+                issueIdentifier
+              )
+            )
+          : canonicalIssues
       ).filter((issue) => issue.dispatchable);
       const terminalCandidateReconciliation =
         await this.reconcileTerminalCandidates(
@@ -1222,14 +1226,15 @@ export class OrchestratorService {
       const trackedIssuesByIdentifier = new Map<string, TrackedIssue>(
         canonicalIssues.map((issue) => [issue.identifier, issue])
       );
-      const missingLinearActiveIssueIds =
-        [
-          ...new Set(
-            currentActiveRuns
-              .filter((run) => !trackedIssuesByIdentifier.has(run.issueIdentifier))
-              .map((run) => run.issueId)
-          ),
-        ];
+      const missingLinearActiveIssueIds = [
+        ...new Set(
+          currentActiveRuns
+            .filter(
+              (run) => !trackedIssuesByIdentifier.has(run.issueIdentifier)
+            )
+            .map((run) => run.issueId)
+        ),
+      ];
       const supplementalLinearIssues =
         missingLinearActiveIssueIds.length > 0
           ? await trackerAdapter.fetchIssueStatesByIds(
@@ -1278,9 +1283,10 @@ export class OrchestratorService {
         }
       }
       const cleanupIssuesByIdentifier = new Map<string, TrackedIssue>(
-        [...trackedIssuesByIdentifier.values(), ...workspaceIssuesMissingFromPoll].map(
-          (issue) => [issue.identifier, issue]
-        )
+        [
+          ...trackedIssuesByIdentifier.values(),
+          ...workspaceIssuesMissingFromPoll,
+        ].map((issue) => [issue.identifier, issue])
       );
       const syncedActiveRuns: OrchestratorRunRecord[] = [];
       for (const run of currentActiveRuns) {
@@ -1302,7 +1308,11 @@ export class OrchestratorService {
             at: now.toISOString(),
             event: "tracker.fetchByIds",
             projectId: tenant.projectId,
-            ...buildStructuredTrackerEventMetadata(tenant, currentIssue),
+            ...buildStructuredTrackerEventMetadata(
+              tenant,
+              trackerAdapter,
+              currentIssue
+            ),
             rateLimits: eventRateLimits,
           });
         }
@@ -1352,11 +1362,16 @@ export class OrchestratorService {
             matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
           )
         : trackedActionableIssues;
-      const targetedIssues = (issueIdentifier
-        ? canonicalIssues.filter((issue: TrackedIssue) =>
-            matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
-          )
-        : canonicalIssues
+      const targetedIssues = (
+        issueIdentifier
+          ? canonicalIssues.filter((issue: TrackedIssue) =>
+              matchesTargetIssueIdentifier(
+                trackerAdapter,
+                issue,
+                issueIdentifier
+              )
+            )
+          : canonicalIssues
       ).filter((issue) => issue.dispatchable);
       const advisoryRateLimits =
         await this.publishLinkedPullRequestActiveAdvisories(
@@ -1579,7 +1594,7 @@ export class OrchestratorService {
             ? existingIssueRecord.failureRetryCount
             : 0;
           const failureRetryCount =
-            error instanceof NonRetryableDispatchError
+            error instanceof NonRetryableTrackerAdapterError
               ? maxFailureRetries
               : priorFailureRetryCount + 1;
           const retrySuppressed = failureRetryCount >= maxFailureRetries;
@@ -1663,7 +1678,7 @@ export class OrchestratorService {
           at: now.toISOString(),
           event: "tracker.list",
           projectId: tenant.projectId,
-          ...buildStructuredTrackerEventMetadata(tenant, issue),
+          ...buildStructuredTrackerEventMetadata(tenant, trackerAdapter, issue),
           rateLimits: eventRateLimits,
         });
         await this.store.appendRunEvent(run.runId, {
@@ -1676,7 +1691,7 @@ export class OrchestratorService {
           workflowRevision: (
             await this.loadProjectWorkflow(tenant, issue.repository)
           ).revision,
-          ...buildStructuredTrackerEventMetadata(tenant, issue),
+          ...buildStructuredTrackerEventMetadata(tenant, trackerAdapter, issue),
         });
         this.logVerbose(
           `[dispatch] Issue ${issue.identifier} → run ${run.runId}`
@@ -1699,7 +1714,11 @@ export class OrchestratorService {
             at: now.toISOString(),
             event: "tracker.list",
             projectId: tenant.projectId,
-            ...buildStructuredTrackerEventMetadata(tenant, activeIssue),
+            ...buildStructuredTrackerEventMetadata(
+              tenant,
+              trackerAdapter,
+              activeIssue
+            ),
             rateLimits: listRateLimits,
           });
           listRateLimitsRecorded = true;
@@ -2294,10 +2313,7 @@ export class OrchestratorService {
     }
 
     for (const issue of issues) {
-      if (
-        issue.isArchived === true ||
-        claimedIssueIds.has(issue.id)
-      ) {
+      if (issue.isArchived === true || claimedIssueIds.has(issue.id)) {
         continue;
       }
 
@@ -2430,6 +2446,10 @@ export class OrchestratorService {
       const lifecycle = resolution.lifecycle;
 
       if (isStateTerminal(issue.state, lifecycle)) {
+        continue;
+      }
+
+      if (matchesWorkflowState(issue.state, lifecycle.activeStates)) {
         continue;
       }
 
@@ -2664,7 +2684,8 @@ export class OrchestratorService {
         configuredWorkspacePath: issueWorkspacePath,
       });
     }
-    const pullRequestBranch = trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
+    const pullRequestBranch =
+      trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
 
     // #507: dirty recovery may only reuse the workspace when the dirty state
     // is attributable to this run's issue. Otherwise quarantine the workspace
@@ -4032,8 +4053,8 @@ export class OrchestratorService {
         state:
           issue.dispatchable &&
           matchesWorkflowState(issue.state, resolution.lifecycle.activeStates)
-          ? "active"
-          : "non-actionable",
+            ? "active"
+            : "non-actionable",
       };
     } catch (error) {
       const errorMessage =
@@ -4580,7 +4601,7 @@ export class OrchestratorService {
       run.repository
     );
     const failureRetryCount =
-      error instanceof NonRetryableDispatchError
+      error instanceof NonRetryableTrackerAdapterError
         ? maxFailureRetries
         : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
     const retrySuppressed = failureRetryCount >= maxFailureRetries;
@@ -5420,6 +5441,7 @@ function resolveProjectRateLimits(
 
 function buildStructuredTrackerEventMetadata(
   tenant: OrchestratorProjectConfig,
+  adapter: OrchestratorTrackerAdapter,
   issue: TrackedIssue
 ): {
   tracker: { adapter: string; projectSlug?: string };
@@ -5428,6 +5450,7 @@ function buildStructuredTrackerEventMetadata(
   return {
     tracker: {
       adapter: issue.tracker.adapter,
+      ...adapter.buildStructuredEventMetadata?.(tenant, issue),
     },
     issue: {
       identifier: issue.identifier,

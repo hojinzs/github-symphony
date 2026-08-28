@@ -17,6 +17,15 @@ export class TrackerRateLimitError extends Error {
   }
 }
 
+/**
+ * A tracker adapter detected a permanent, provider-specific dispatch
+ * constraint. The orchestrator uses this shared classification to avoid
+ * retrying a run that cannot succeed without a tracker-side change.
+ */
+export class NonRetryableTrackerAdapterError extends Error {
+  readonly name = "NonRetryableTrackerAdapterError";
+}
+
 export type TrackerAdapterKind = "github-project" | (string & {});
 
 export type TrackerBindingSummary = {
@@ -232,7 +241,9 @@ export type OrchestratorTrackerAdapter = {
   /** Return the provider project-item identity used for state mutations. */
   getTrackerItemId?(issue: TrackedIssue): string | null;
   /** Resolve an adapter-owned checkout branch for a canonical issue or PR card. */
-  resolveBranchCheckoutTarget?(issue: TrackedIssue): { headRefName: string } | null;
+  resolveBranchCheckoutTarget?(
+    issue: TrackedIssue
+  ): { headRefName: string } | null;
   /** Return an adapter-owned active linked PR fact for a canonical issue. */
   findActiveLinkedPullRequest?(
     issue: TrackedIssue,

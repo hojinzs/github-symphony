@@ -281,6 +281,10 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     const itemId = issue.nativeRef?.itemId;
     return typeof itemId === "string" ? itemId : null;
   },
+
+  buildStructuredEventMetadata(project) {
+    return { projectSlug: project.tracker.bindingId };
+  },
 };
 
 async function listLinearIssues(
