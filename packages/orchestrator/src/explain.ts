@@ -51,7 +51,6 @@ export type ExplainDispatchInput = {
   identifier: string;
   issue: TrackedIssue | null;
   projectRepository: RepositoryRef | null;
-  allIssues: readonly TrackedIssue[];
   lifecycle: WorkflowLifecycleConfig;
   issueRecords: readonly IssueOrchestrationRecord[];
   issueWorkspaces?: readonly IssueWorkspaceRecord[];

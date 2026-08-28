@@ -54,12 +54,19 @@ disable dispatch for a state.
 
 ## Workflow Lifecycle Policy
 
-`tracker.blocker_check_states` selects the workflow states where unresolved
-`blocked_by` dependencies prevent dispatch. When the field is omitted, the
-default is `["Todo"]`, matching the Symphony candidate-selection rule. Set an
-explicit empty list (`blocker_check_states: []`) only when blocker gating should
-be disabled. This opt-out is an intentional repository-level divergence from
-the vendored Symphony specification's unconditional blocker rule. Omitting
+`tracker.blocker_check_states` selects the workflow states where the GitHub and
+Linear adapters derive `dispatchable: false` from unresolved `blocked_by`
+dependencies. The orchestrator consumes that normalized result and does not
+interpret provider blocker semantics. When the field is omitted, the default is
+`["Todo"]`, matching the Symphony candidate-selection rule. Set an explicit
+empty list (`blocker_check_states: []`) only when adapter blocker derivation
+should be disabled. This opt-out is an intentional repository-level divergence
+from the vendored Symphony specification's unconditional blocker rule.
+
+GitHub source-closed blockers and blockers whose Project workflow state is in
+`tracker.terminal_states` are resolved. Linear uses its workflow-state relation
+data directly. In both adapters, `blocked_by` remains best-effort metadata and
+`dispatchReason` identifies an unresolved dependency. Omitting
 `planning_states` keeps planning disabled; blocker defaults do not enable the
 planning/human-review execution phase. Linear `blocked_by` metadata is derived
 from inverse relations of type `blocks`; source-side relations describe issues

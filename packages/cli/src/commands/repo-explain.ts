@@ -203,7 +203,6 @@ const handler = async (
     identifier,
     issue: canonicalIssue,
     projectRepository: projectConfig.repository ?? null,
-    allIssues: canonicalIssues,
     lifecycle: workflow.lifecycle,
     issueRecords: issueRecords ?? [],
     issueWorkspaces,

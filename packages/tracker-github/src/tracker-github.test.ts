@@ -820,7 +820,9 @@ describe("resolveTrackerAdapter", () => {
     );
 
     expect(issue?.linkedPullRequests).toHaveLength(20);
-    expect(issue?.nativeRef).toMatchObject({ linkedPullRequestsTruncated: true });
+    expect(issue?.nativeRef).toMatchObject({
+      linkedPullRequestsTruncated: true,
+    });
     expect(issue?.linkedPullRequests).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -4593,6 +4595,53 @@ describe("resolveTrackerAdapter", () => {
     });
   });
 
+  it("treats a project-terminal GitHub blocker as resolved", async () => {
+    const adapter = resolveTrackerAdapter({
+      adapter: "github-project",
+      bindingId: "project-123",
+      settings: { projectId: "project-123", blockerCheckStates: "Ready" },
+    });
+    const issues = await adapter.listIssues(makeProjectConfig(), {
+      token: "dependencies-token",
+      workflowLifecycle: {
+        stateFieldName: "Status",
+        activeStates: ["Ready"],
+        terminalStates: ["Done"],
+        planningStates: [],
+      },
+      workflowTracker: {
+        blockerCheckStates: ["Ready"],
+        terminalStates: ["Done"],
+      },
+      fetchImpl: async () =>
+        makeJsonResponse(
+          makeProjectItemsPayload([
+            makeProjectItem({
+              itemId: "item-1",
+              issueId: "issue-1",
+              number: 1,
+              title: "Dependent issue",
+              assignees: [],
+              state: "Ready",
+              blockedBy: [{ id: "issue-2", number: 2, state: "OPEN" }],
+            }),
+            makeProjectItem({
+              itemId: "item-2",
+              issueId: "issue-2",
+              number: 2,
+              title: "Project-complete blocker",
+              assignees: [],
+              state: "Done",
+            }),
+          ])
+        ),
+    });
+
+    expect(issues.find((issue) => issue.id === "issue-1")).toMatchObject({
+      dispatchable: true,
+    });
+  });
+
   it("reuses a shared project item cache across listIssues and listIssuesByStates", async () => {
     const adapter = resolveTrackerAdapter({
       adapter: "github-project",
@@ -4954,6 +5003,16 @@ describe("resolveTrackerAdapter", () => {
       ["issue-1", "issue-2"],
       {
         token: "dependencies-token",
+        workflowLifecycle: {
+          stateFieldName: "Status",
+          activeStates: ["Todo"],
+          terminalStates: ["Done"],
+          planningStates: [],
+        },
+        workflowTracker: {
+          blockerCheckStates: ["Todo"],
+          terminalStates: ["Done"],
+        },
         fetchImpl: async (_url, init) => {
           const body = JSON.parse(String(init?.body)) as {
             query: string;
@@ -4985,7 +5044,7 @@ describe("resolveTrackerAdapter", () => {
                     issueId: "issue-1",
                     number: 1,
                     title: "First issue",
-                    state: "In Progress",
+                    state: "Todo",
                     body: "Refresh the normalized snapshot.",
                     labels: ["routable", "priority-high"],
                     assignees: ["octocat"],
@@ -5028,7 +5087,7 @@ describe("resolveTrackerAdapter", () => {
       "acme/platform#1",
       "acme/platform#2",
     ]);
-    expect(issues.map((issue) => issue.state)).toEqual(["In Progress", "Done"]);
+    expect(issues.map((issue) => issue.state)).toEqual(["Todo", "Done"]);
     expect(issues[0]).toMatchObject({
       title: "First issue",
       description: "Refresh the normalized snapshot.",
@@ -5044,6 +5103,9 @@ describe("resolveTrackerAdapter", () => {
       createdAt: "2026-03-13T00:00:00.000Z",
       updatedAt: "2026-03-14T00:00:00.000Z",
       assigneeId: "octocat",
+      dispatchable: false,
+      dispatchReason:
+        "Blocked by unresolved GitHub issue: acme/dependencies#9.",
     });
   });
 

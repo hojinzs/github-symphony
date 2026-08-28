@@ -279,7 +279,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -309,7 +308,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -328,9 +326,10 @@ describe("explainIssueDispatch", () => {
       })
     );
 
-    expect(
-      isIssueCandidateEligibleWithReason(issue, lifecycle, [issue])
-    ).toEqual({ eligible: false, reason: "not_dispatchable" });
+    expect(isIssueCandidateEligibleWithReason(issue, lifecycle)).toEqual({
+      eligible: false,
+      reason: "not_dispatchable",
+    });
   });
 
   it("explains active linked PR cards when the canonical Issue is inactive", () => {
@@ -355,7 +354,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -390,7 +388,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -417,7 +414,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [run],
@@ -458,7 +454,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [run],
@@ -506,7 +501,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       issueWorkspaces: [
@@ -538,7 +532,6 @@ describe("explainIssueDispatch", () => {
       identifier: issue.identifier,
       issue,
       projectRepository,
-      allIssues: [issue],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -560,7 +553,6 @@ describe("explainIssueDispatch", () => {
       identifier: "other/repo#1",
       issue: null,
       projectRepository,
-      allIssues: [],
       lifecycle,
       issueRecords: [],
       runs: [],
@@ -2337,8 +2329,7 @@ function createDispatchAdapter(
         .concat(
           candidates.filter(
             (issue) =>
-              issue.contentType === "PullRequest" &&
-              !linked.has(issue.id)
+              issue.contentType === "PullRequest" && !linked.has(issue.id)
           )
         );
     },

@@ -24,8 +24,8 @@ Start the Docker E2E environment with an empty issue fixture.
 
 - The blocked tracker record is evaluated without starting a worker.
 - `test-owner/test-repo#21` is absent from `activeRuns`, and no
-   `run-dispatched` event is written for that identifier. The unblocked `#20`
-   fixture record may dispatch.
+  `run-dispatched` event is written for that identifier. The unblocked `#20`
+  fixture record may dispatch.
 - The same reason is available to the dispatch explain surface for the issue.
 - This scenario verifies that the scheduler respects adapter-provided
   dispatchability. GitHub and Linear adapter unit tests cover blocker

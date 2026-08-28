@@ -575,7 +575,7 @@ export async function fetchProjectIssues(
     config.filterTerminalStates === false
       ? null
       : buildTerminalStatesQuery(config.lifecycle);
-  const issues: GitHubTrackedIssue[] = [];
+  let issues: GitHubTrackedIssue[] = [];
   let cursor: string | null = null;
   let pageCount = 0;
   let unfilteredCount: number | null = null;
@@ -643,19 +643,26 @@ export async function fetchProjectIssues(
       const issue = applyDispatchabilityRules(normalized, item, {
         currentUserLogin,
         repositoryFilter: config.repositoryFilter,
-        blockerCheckStates: config.blockerCheckStates ?? [],
       });
-      if (!issue.dispatchable) {
-        const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
-        nonDispatchableByReason[reason] =
-          (nonDispatchableByReason[reason] ?? 0) + 1;
-      }
       return [issue];
     });
 
     issues.push(...pageIssues);
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor);
+
+  issues = applyBlockerDispatchabilityRules(
+    issues,
+    config.blockerCheckStates ?? [],
+    config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE
+  );
+  for (const issue of issues) {
+    if (!issue.dispatchable) {
+      const reason = getDispatchabilityReasonCategory(issue.dispatchReason);
+      nonDispatchableByReason[reason] =
+        (nonDispatchableByReason[reason] ?? 0) + 1;
+    }
+  }
 
   if (stateFilterQuery && unfilteredCount !== null && filteredCount !== null) {
     emitProjectItemsStateFilterEvent({
@@ -708,7 +715,7 @@ export async function fetchIssueStatesByIds(
     return [];
   }
 
-  const issues: GitHubTrackedIssue[] = [];
+  let issues: GitHubTrackedIssue[] = [];
   const cycleConfig = beginGraphQLRateLimitCycle(config);
   const priorityOptionIds =
     !config.priority && config.priorityFieldName
@@ -759,6 +766,12 @@ export async function fetchIssueStatesByIds(
       }
     }
   }
+
+  issues = applyBlockerDispatchabilityRules(
+    issues,
+    config.blockerCheckStates ?? [],
+    config.lifecycle ?? DEFAULT_WORKFLOW_LIFECYCLE
+  );
 
   const rateLimits = finalizeGraphQLRateLimitCycle(
     latestRateLimits,
@@ -1927,23 +1940,44 @@ function applyDispatchabilityRules(
   options: {
     currentUserLogin: string | null;
     repositoryFilter: { owner: string; name: string } | null | undefined;
-    blockerCheckStates: readonly string[];
   }
 ): GitHubTrackedIssue {
   const reason =
     getAssignedOnlyDispatchReason(item, options.currentUserLogin) ??
     getRepositoryDispatchReason(issue, options.repositoryFilter) ??
-    getPullRequestHeadDispatchReason(issue) ??
-    getBlockerDispatchReason(issue, options.blockerCheckStates);
+    getPullRequestHeadDispatchReason(issue);
 
   return reason
     ? { ...issue, dispatchable: false, dispatchReason: reason }
     : issue;
 }
 
+function applyBlockerDispatchabilityRules(
+  issues: readonly GitHubTrackedIssue[],
+  blockerCheckStates: readonly string[],
+  lifecycle: WorkflowLifecycleConfig
+): GitHubTrackedIssue[] {
+  return issues.map((issue) => {
+    if (!issue.dispatchable) {
+      return issue;
+    }
+    const reason = getBlockerDispatchReason(
+      issue,
+      blockerCheckStates,
+      lifecycle,
+      issues
+    );
+    return reason
+      ? { ...issue, dispatchable: false, dispatchReason: reason }
+      : issue;
+  });
+}
+
 function getBlockerDispatchReason(
   issue: GitHubTrackedIssue,
-  blockerCheckStates: readonly string[]
+  blockerCheckStates: readonly string[],
+  lifecycle: WorkflowLifecycleConfig,
+  issues: readonly GitHubTrackedIssue[]
 ): string | null {
   if (
     !matchesState(issue.state, blockerCheckStates) ||
@@ -1951,9 +1985,23 @@ function getBlockerDispatchReason(
   ) {
     return null;
   }
-  const unresolved = issue.blockedBy.filter(
-    (blocker) => blocker.state?.trim().toLowerCase() !== "closed"
-  );
+  const unresolved = issue.blockedBy.filter((blocker) => {
+    if (blocker.state?.trim().toLowerCase() === "closed") {
+      return false;
+    }
+    const projectIssue = issues.find(
+      (candidate) =>
+        candidate.id === blocker.id ||
+        candidate.identifier === blocker.identifier
+    );
+    return !(
+      projectIssue &&
+      lifecycle.terminalStates.some(
+        (state) =>
+          state.trim().toLowerCase() === projectIssue.state.trim().toLowerCase()
+      )
+    );
+  });
   if (unresolved.length === 0) {
     return null;
   }
