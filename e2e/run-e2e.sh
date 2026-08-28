@@ -3,7 +3,7 @@ set -euo pipefail
 
 # E2E Test Runner — polls the standalone dashboard until the scenario completes.
 # Usage: ./e2e/run-e2e.sh [scenario] [timeout_seconds]
-#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt
+#   scenario: happy (default), fail, stall, slow, transition-race, api-progress, api-progress-unknown, prompt-phase, retry-attempt, non-dispatchable
 #   timeout:  30 (default)
 
 SCENARIO="${1:-happy}"
@@ -103,7 +103,13 @@ log "Initial state: idle"
 
 # ── Inject issues ─────────────────────────────────────────────
 
-cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
+if [ "$SCENARIO" = "non-dispatchable" ]; then
+  cp e2e/fixtures/non-dispatchable.json e2e/fixtures/issues.json
+else
+  cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
+fi
+
+INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt', ''))")
 
 REFRESH_RESPONSE=$(
   orch_curl -sS -X POST -w '\n__CURL_STATUS__:%{http_code}' \
@@ -119,6 +125,49 @@ if [ "$REFRESH_STATUS" != "202" ]; then
 fi
 
 log "Issues injected; refresh trigger accepted (202). Falling back to polling until dispatch is observed"
+
+if [ "$SCENARIO" = "non-dispatchable" ]; then
+  for i in $(seq 1 "$TIMEOUT"); do
+    STATUS_JSON=$(orch_curl -s http://localhost:4680/api/v1/state)
+    LAST_TICK=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt', ''))")
+    if [ -n "$LAST_TICK" ] && [ "$LAST_TICK" != "$INITIAL_LAST_TICK" ]; then
+      break
+    fi
+    if [ "$i" = "$TIMEOUT" ]; then
+      fail "Refresh reconciliation did not complete before timeout"
+      exit 1
+    fi
+    sleep 1
+  done
+  ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['activeRuns'])")
+  if [ "$ACTIVE" != "0" ]; then
+    fail "Non-dispatchable issue started a worker"
+    exit 1
+  fi
+  EXPLAIN_JSON=$("${COMPOSE[@]}" exec -T -w /e2e/work/test-repo -e GITHUB_GRAPHQL_TOKEN=e2e-token symphony-e2e \
+    node /app/packages/cli/dist/index.js repo explain test-owner/test-repo#1 --json)
+  echo "$EXPLAIN_JSON" | python3 -c '
+import json
+import sys
+
+report = json.load(sys.stdin)
+assert report["dispatchable"] is False, report
+assert report["summary"] == "Not dispatchable: fixture eligibility gate: assigned to another agent", report
+checks = {check["id"]: check for check in report["checks"]}
+assert checks["tracker_dispatchability"]["status"] == "block", checks
+assert checks["tracker_dispatchability"]["details"]["dispatchReason"] == "fixture eligibility gate: assigned to another agent", checks
+'
+  if "${COMPOSE[@]}" exec -T symphony-e2e sh -c 'find /e2e/work -name events.ndjson -exec grep -H "run-dispatched" {} + 2>/dev/null | grep -q .'; then
+    fail "Non-dispatchable issue wrote a run-dispatched event"
+    exit 1
+  fi
+  log "=== Result ==="
+  log "  Worker dispatched: NO"
+  log "  Explain reason:    fixture eligibility gate: assigned to another agent"
+  echo ""
+  log "PASSED"
+  exit 0
+fi
 
 # ── Poll for dispatch ─────────────────────────────────────────
 

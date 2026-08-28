@@ -11,6 +11,7 @@
     "url": null,
     "labels": [],
     "dispatchable": false,
+    "dispatchReason": "fixture eligibility gate: assigned to another agent",
     "assigneeId": null,
     "blockedBy": [],
     "createdAt": "2026-03-17T00:00:00Z",

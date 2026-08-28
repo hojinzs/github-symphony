@@ -54,6 +54,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
   immediately counts as a running claim. Exhausted capacity is requeued for
   the polling interval without consuming failure budget or increasing retry
   backoff.
+- Project workflow and polling policy load before tracker candidates are fetched. The scheduler then applies only the normalized `TrackedIssue.dispatchable` gate before loading issue-specific workflow or starting a worker. It does not encode provider assignment, repository-scope, label, or fork rules; each tracker adapter derives those rules and supplies an explainable `dispatchReason` with non-dispatchable candidates.
 - Initial prompt rendering receives the execution phase derived from the configured planning and active states.
 - Confirmed tracker transitions outside the configured active states are recorded on the active run. When the canonical item becomes non-actionable, reconciliation gives the worker a bounded clean-exit grace; successful finalization then re-reads the current canonical state and preserves `succeeded` only while it remains non-actionable. An unavailable final read persists a warning-level `run-finalization-deferred` event with a discriminated cause and defers classification for up to three consecutive reconciliation ticks; the third unknown read enters the existing failure-retry path so the run cannot remain pinned. The tick counter intentionally follows reconciliation opportunities rather than wall-clock time, so adaptive polling can stretch the elapsed grace window by up to the configured 10× poll multiplier while preserving a deterministic provider-read budget. A known active or non-actionable result resets the streak. This failure-retry treatment after a successful worker exit intentionally diverges from the upstream specification's normal-exit continuation retry: the repository prioritizes bounded finalization and eventual suppression when canonical state cannot be established, and retains the tracker cause in retry diagnostics instead of reporting a worker failure. Per-turn `state-read` requests do not reload or rewrite workflow snapshots.
 - Before dispatch, active candidates carrying an adapter-provided terminal fact are converged to the workflow terminal state and suppressed from worker startup.
@@ -73,8 +74,8 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; it returns all active scoped items and derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
-- Linear: `packages/tracker-linear`
-- File-based (E2E only): `packages/tracker-file`
+- Linear: `packages/tracker-linear`; it derives provider-native assignment and pickup-label eligibility as the same normalized `dispatchable` contract.
+- File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 
 ### 6. Observability — events and status surfaces
