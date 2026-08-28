@@ -58,16 +58,11 @@ function createFakeChild(): {
   child: ChildProcessWithoutNullStreams;
   stdout: PassThrough;
   stdin: PassThrough;
-  emitExit: (code: number | null, signal: string | null) => void;
-  emitError: (error: Error) => void;
-  killed: boolean;
 } {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const emitter = new EventEmitter();
-  let killed = false;
-
   const child = {
     pid: 12345,
     stdin,
@@ -76,20 +71,13 @@ function createFakeChild(): {
     once: emitter.once.bind(emitter),
     on: emitter.on.bind(emitter),
     emit: emitter.emit.bind(emitter),
-    kill: () => {
-      killed = true;
-    },
+    kill: () => {},
   } as unknown as ChildProcessWithoutNullStreams;
 
   return {
     child,
     stdout,
     stdin,
-    emitExit: (code, signal) => emitter.emit("exit", code, signal),
-    emitError: (error) => emitter.emit("error", error),
-    get killed() {
-      return killed;
-    },
   };
 }
 

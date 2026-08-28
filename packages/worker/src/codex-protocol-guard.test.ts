@@ -5,6 +5,7 @@ import {
   createCodexProtocolLineFramer,
   createCodexProtocolProcessError,
   MAX_CODEX_PROTOCOL_LINE_BYTES,
+  shouldFailOnCodexChildExit,
 } from "./codex-protocol-guard.js";
 import { buildCodexTurnInput } from "./codex-turn-input.js";
 
@@ -34,6 +35,27 @@ describe("codex protocol guard", () => {
     expect(
       createCodexProtocolProcessError(new Error("stdin EPIPE")).message
     ).toBe("port_exit: stdin EPIPE");
+  });
+
+  it("does not reclassify worker-requested or terminal child exits", () => {
+    expect(
+      shouldFailOnCodexChildExit({
+        terminationRequested: true,
+        runPhase: "streaming_turn",
+      })
+    ).toBe(false);
+    expect(
+      shouldFailOnCodexChildExit({
+        terminationRequested: false,
+        runPhase: "timed_out",
+      })
+    ).toBe(false);
+    expect(
+      shouldFailOnCodexChildExit({
+        terminationRequested: false,
+        runPhase: "streaming_turn",
+      })
+    ).toBe(true);
   });
 
   it("rejects a line larger than 10 MiB before unbounded buffering", () => {

@@ -48,7 +48,7 @@ import {
   type WorkerNonCodexRuntimeAdapter,
   type WorkerNonCodexTurnResult,
 } from "./non-codex-runtime.js";
-import { isTerminalRunPhase, resolveExitRunPhase } from "./run-phase.js";
+import { resolveExitRunPhase } from "./run-phase.js";
 import {
   resolveClaudePreflightAuthMode,
   shouldExposeLinearGraphQLTool,
@@ -77,6 +77,7 @@ import {
   createCodexProtocolFailureGate,
   createCodexProtocolLineFramer,
   createCodexProtocolProcessError,
+  shouldFailOnCodexChildExit,
 } from "./codex-protocol-guard.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
@@ -165,6 +166,7 @@ console.log(
 );
 
 let childProcess: ChildProcess | null = null;
+let workerTerminationRequested = false;
 let runtimeAdapter: AgentRuntimeAdapter | null = null;
 let shutdownPromise: Promise<void> | null = null;
 let orchestratorChannelDrainPending = false;
@@ -199,6 +201,7 @@ function shutdown(signal: NodeJS.Signals) {
 
   shutdownPromise = (async () => {
     if (childProcess?.pid) {
+      workerTerminationRequested = true;
       try {
         process.kill(childProcess.pid, "SIGTERM");
       } catch {
@@ -1091,6 +1094,7 @@ async function runCodexClientProtocol(
 
   function requestChildTermination(): void {
     terminationRequested = true;
+    workerTerminationRequested = true;
     try {
       child.kill("SIGTERM");
     } catch {
@@ -1570,7 +1574,12 @@ async function runCodexClientProtocol(
   });
 
   child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-    if (terminationRequested || isTerminalRunPhase(runtimeState.runPhase)) {
+    if (
+      !shouldFailOnCodexChildExit({
+        terminationRequested: terminationRequested || workerTerminationRequested,
+        runPhase: runtimeState.runPhase,
+      })
+    ) {
       return;
     }
     const error = createCodexProtocolExitError(code, signal);

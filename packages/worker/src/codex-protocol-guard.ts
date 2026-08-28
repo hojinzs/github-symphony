@@ -1,4 +1,17 @@
+import type { RunAttemptPhase } from "@gh-symphony/core";
+import { isTerminalRunPhase } from "./run-phase.js";
+
 export const MAX_CODEX_PROTOCOL_LINE_BYTES = 10 * 1024 * 1024;
+
+export function shouldFailOnCodexChildExit({
+  terminationRequested,
+  runPhase,
+}: {
+  terminationRequested: boolean;
+  runPhase: RunAttemptPhase | null;
+}): boolean {
+  return !terminationRequested && !isTerminalRunPhase(runPhase);
+}
 
 export function createCodexProtocolExitError(
   code: number | null,
