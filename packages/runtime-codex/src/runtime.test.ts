@@ -99,6 +99,14 @@ describe("createCodexDynamicToolSpecs", () => {
     expect(specs[0]).not.toHaveProperty("command");
     expect(specs[0]).not.toHaveProperty("env");
   });
+
+  it("takes a stable copy of the startup tool definitions", () => {
+    const tools = [createGitHubGraphQLToolDefinition({})];
+    const specs = createCodexDynamicToolSpecs(tools);
+    tools[0]!.name = "changed_after_startup";
+
+    expect(specs[0]?.name).toBe("github_graphql");
+  });
 });
 
 describe("buildCodexRuntimePlan", () => {
