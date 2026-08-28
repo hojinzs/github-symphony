@@ -30,6 +30,7 @@ export function resolveLocalRuntimeLaunchConfig(
     workingDirectory,
     projectDirectory: env.SYMPHONY_PROJECT_DIR,
     trustRepoConfig: env.SYMPHONY_TRUST_REPO_CONFIG === "true",
+    trackerSecretEnvironmentNames: readTrackerSecretEnvironmentNames(env),
     githubToken: env.GITHUB_GRAPHQL_TOKEN,
     githubTokenBrokerUrl: env.GITHUB_TOKEN_BROKER_URL,
     githubTokenBrokerSecret: env.GITHUB_TOKEN_BROKER_SECRET,
@@ -50,6 +51,19 @@ export function resolveLocalRuntimeLaunchConfig(
     orchestratorRunId: env.SYMPHONY_RUN_ID,
     orchestratorToken: env.SYMPHONY_ORCHESTRATOR_TOKEN,
   };
+}
+
+function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
+  try {
+    const names = JSON.parse(
+      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
+    );
+    return Array.isArray(names)
+      ? names.filter((name): name is string => typeof name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function runLocalRuntimeLauncher(

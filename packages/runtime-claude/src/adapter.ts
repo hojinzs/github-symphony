@@ -11,7 +11,10 @@ import type {
   AgentRuntimeEventSubscription,
   AgentEvent,
 } from "@gh-symphony/core";
-import { extractEnvForClaude } from "@gh-symphony/core";
+import {
+  collectMcpSecretEnvironmentNames,
+  extractEnvForClaude,
+} from "@gh-symphony/core";
 import {
   buildClaudePrintArgv,
   type ClaudePrintArgvOptions,
@@ -373,6 +376,7 @@ export class ClaudePrintRuntimeAdapter implements AgentRuntimeAdapter<
         args: argv,
         cwd: input.cwd ?? this.config.workingDirectory,
         env: buildClaudeSpawnEnv({
+          workingDirectory: this.config.workingDirectory,
           inheritProcessEnv: this.config.inheritProcessEnv === true,
           configEnv: this.config.env,
           inputEnv: input.env,
@@ -562,6 +566,7 @@ const DEFAULT_INHERITED_ENV_KEYS = [
 ] as const;
 
 function buildClaudeSpawnEnv(options: {
+  workingDirectory: string;
   inheritProcessEnv: boolean;
   configEnv?: NodeJS.ProcessEnv;
   inputEnv?: NodeJS.ProcessEnv;
@@ -572,7 +577,11 @@ function buildClaudeSpawnEnv(options: {
       ...options.configEnv,
       ...options.inputEnv,
     };
-    stripGitHubTrackerSecrets(env);
+    stripTrackerSecretsWhenBrokered(
+      env,
+      options.workingDirectory,
+      options.configEnv
+    );
     return env;
   }
 
@@ -586,16 +595,35 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
-  stripGitHubTrackerSecrets(env);
+  stripTrackerSecretsWhenBrokered(
+    env,
+    options.workingDirectory,
+    options.configEnv
+  );
 
   return env;
 }
 
-function stripGitHubTrackerSecrets(env: NodeJS.ProcessEnv): void {
-  delete env.GH_TOKEN;
-  delete env.GH_ENTERPRISE_TOKEN;
-  delete env.GITHUB_TOKEN;
-  delete env.GITHUB_GRAPHQL_TOKEN;
+function stripTrackerSecretsWhenBrokered(
+  env: NodeJS.ProcessEnv,
+  workingDirectory: string,
+  configEnv?: NodeJS.ProcessEnv
+): void {
+  if (!env.GITHUB_TOKEN_BROKER_URL || !env.GITHUB_TOKEN_BROKER_SECRET) {
+    return;
+  }
+  const declaredNames = readTrackerSecretEnvironmentNames(env);
+  for (const name of [
+    ...declaredNames,
+    ...collectMcpSecretEnvironmentNames({
+      repositoryDir: workingDirectory,
+      projectDir: configEnv?.SYMPHONY_PROJECT_DIR,
+      trustRepoConfig: configEnv?.SYMPHONY_TRUST_REPO_CONFIG === "true",
+      secretEnvironmentNames: declaredNames,
+    }),
+  ]) {
+    delete env[name];
+  }
 }
 
 type PreparedClaudeSession = {
@@ -694,6 +722,9 @@ function buildClaudeMcpTokenEnvironment(options: {
       };
 
   return {
+    ...(source.GITHUB_TOKEN_BROKER_URL && source.GITHUB_TOKEN_BROKER_SECRET
+      ? {}
+      : { GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN }),
     GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
     GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
     GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
@@ -708,4 +739,17 @@ function buildClaudeMcpTokenEnvironment(options: {
     WORKSPACE_RUNTIME_DIR:
       options.runtimeDirectory ?? source.WORKSPACE_RUNTIME_DIR,
   };
+}
+
+function readTrackerSecretEnvironmentNames(env: NodeJS.ProcessEnv): string[] {
+  try {
+    const names = JSON.parse(
+      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
+    );
+    return Array.isArray(names)
+      ? names.filter((name): name is string => typeof name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }

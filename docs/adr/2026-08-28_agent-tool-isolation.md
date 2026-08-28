@@ -38,50 +38,38 @@ available only to the host process or a host-owned broker.
 
 Phase 1 is delivered in two parts. Phase 1a (#672) adds adapter secret
 metadata, removes raw GitHub tracker tokens from Codex and Claude coding-agent
-children, and prevents Claude `mcp.json` from storing literal tracker tokens.
-It deliberately preserves the GitHub broker credentials needed by the existing
-`github_graphql` tool and Git workflow. Linear has no broker, so its raw
-credential remains a documented temporary Phase 1a divergence even though the
-Linear adapter declares it as secret metadata. Phase 1b (#700) completes the
-child-boundary isolation alongside #673's host-owned transport release.
+children when a GitHub token broker is configured, and prevents Claude
+`mcp.json` from storing literal tracker tokens in that mode. The broker
+credentials remain for the existing `github_graphql` tool and Git workflow.
+Without a broker, raw GitHub and Linear credentials remain a documented
+temporary Phase 1a divergence so existing agent Git and MCP workflows do not
+lose capability; the worker warns operators about this path. Phase 1b (#700)
+removes that condition alongside #673's host-owned transport release.
 
 ### Phase 1 — remove tracker secrets from the child boundary (#672)
 
-Every tracker adapter will declare `secretEnvironmentNames()`. The declaration
-must cover raw tracker credentials, broker credentials that can exchange for a
-tracker token, and the source names of supported environment indirections (for
-example, `$MY_LINEAR_SECRET`). Configuration parsing must preserve those source
-names as secret metadata rather than only their resolved values. Local and
-remote launchers will remove every declared name from coding-agent child
-environments; the Codex and Claude runtime paths must not add them back. They
-will also give the child an isolated home/configuration directory: allowlisting
-`HOME` or `GH_CONFIG_DIR` must not make a host `gh auth` store readable.
-Generated Claude `mcp.json` must contain no literal tracker or broker
-credential.
+Every tracker adapter declares `secretEnvironmentNames()`. The declaration
+covers raw tracker credentials and supported MCP `$VAR` indirection source
+names are retained as metadata while configuration is resolved. When a GitHub
+token broker is configured, local and remote launchers remove every declared
+GitHub name from coding-agent child environments; the Codex and Claude runtime
+paths must not add them back. Generated Claude `mcp.json` must contain no
+literal tracker or broker credential in this mode.
 
 This phase is deliberately a security-boundary prerequisite, not completion of
 host-side execution. A legacy MCP subprocess started by the coding agent has no
 safe credential channel: its stdio is the JSON-RPC transport, and any inherited
-descriptor would be readable by the untrusted parent. Phase 1 therefore disables
-provider-native MCP tool exposure for a runtime once its raw credential is
-removed, rather than passing a credential through the agent. It preserves
-non-agent host-side tracker operations, but agent tool access returns only in
-phase 2. This temporary loss of agent tool availability is the documented
-MCP-subprocess divergence until the host-owned transport ships.
+descriptor would be readable by the untrusted parent. The host-owned transport
+in phase 2 removes that limitation.
 
 Authenticated Git transport follows the same boundary. The current child-side
 Git credential helper receives either a raw GitHub token or broker credentials
-and returns a password to Git, so merely stripping its environment variables
-would both break `git push` and leave an agent-readable token path through an
-allowlisted host home. #672 therefore removes that helper from child launches
-and moves authenticated fetch/push to a worker-host operation for the assigned
-branch. During phase 1, the child may make commits but cannot perform
-authenticated `git fetch`, `git pull`, `git push`, or `gh` commands that depend
-on host login; the worker performs the bounded post-run transport instead. This
-is a deliberately narrow compatibility regression, not a secret-name carve-out.
-No injected workflow skill currently invokes `github_graphql` or
-`linear_graphql`: workflow transitions continue through the orchestrator
-transition endpoint, so their state changes are unaffected by the MCP disablement.
+and returns a password to Git. Phase 1a keeps the helper and raw credential only
+for brokerless compatibility; with a broker it uses the broker path and removes
+raw aliases from the child. Phase 1b moves authenticated fetch/push to a
+worker-host operation for the assigned branch and removes the temporary
+brokerless path. Workflow transitions continue through the orchestrator
+transition endpoint and are unaffected by this sequencing.
 
 ### Phase 2 — execute tools at the host boundary (#673)
 

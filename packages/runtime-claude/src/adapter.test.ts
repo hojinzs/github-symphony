@@ -307,6 +307,13 @@ describe("ClaudePrintRuntimeAdapter", () => {
       {
         workingDirectory: "/workspace",
         inheritProcessEnv: true,
+        env: {
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+          GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_TOKEN",
+          ]),
+        },
       },
       { spawnImpl }
     );
@@ -512,6 +519,13 @@ describe("ClaudePrintRuntimeAdapter", () => {
       workingDirectory: workspaceRoot,
       runtimeDirectory: runtimeRoot,
       inheritProcessEnv: true,
+      env: {
+        GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+        GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+        SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+          "GITHUB_GRAPHQL_TOKEN",
+        ]),
+      },
     });
 
     await adapter.prepare({ runId: "run-1" });
@@ -566,6 +580,12 @@ describe("ClaudePrintRuntimeAdapter", () => {
     tempRoots.push(workspaceRoot);
     const env = {
       GITHUB_GRAPHQL_TOKEN: "first-token",
+      GITHUB_GRAPHQL_API_URL: "https://first.example/graphql",
+      SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+        "GITHUB_GRAPHQL_TOKEN",
+      ]),
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
     };
 
     const adapter = new ClaudePrintRuntimeAdapter({
@@ -582,10 +602,13 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(await readFile(mcpConfigPath, "utf8")).not.toContain("first-token");
 
     env.GITHUB_GRAPHQL_TOKEN = "second-token";
+    env.GITHUB_GRAPHQL_API_URL = "https://second.example/graphql";
     await adapter.prepare({ runId: "run-2" });
     const replacedConfig = await readFile(mcpConfigPath, "utf8");
     expect(replacedConfig).not.toContain("second-token");
     expect(replacedConfig).not.toContain("first-token");
+    expect(replacedConfig).toContain("https://second.example/graphql");
+    expect(replacedConfig).not.toContain("https://first.example/graphql");
 
     await adapter.shutdown();
   });
@@ -720,7 +743,10 @@ describe("ClaudePrintRuntimeAdapter", () => {
     expect(calls[0]).toContain("--session-id");
     expect(calls[0]).toContain("session-first");
     const session = JSON.parse(
-      await readFile(join(runtimeRoot, "runs", "run-1", "claude-session.json"), "utf8")
+      await readFile(
+        join(runtimeRoot, "runs", "run-1", "claude-session.json"),
+        "utf8"
+      )
     ) as Record<string, unknown>;
     expect(session).toMatchObject({
       protocol: "claude-print",
@@ -761,9 +787,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     await adapter.spawnTurn({ messages: [] });
     await adapter.spawnTurn({ messages: [] });
 
-    expect(calls[1]).toEqual(
-      expect.arrayContaining(["--resume", "session-1"])
-    );
+    expect(calls[1]).toEqual(expect.arrayContaining(["--resume", "session-1"]));
     expect(calls[1]).not.toContain("--fork-session");
   });
 
@@ -930,7 +954,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
           stub.stdout.write(
             '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"session-fresh","errors":["No conversation found with session ID: session-fresh"]}\n'
           );
-          stub.stderr.write("No conversation found with session ID: session-fresh\n");
+          stub.stderr.write(
+            "No conversation found with session ID: session-fresh\n"
+          );
           stub.stdout.end();
           stub.stderr.end();
           stub.child.emit("close", 1, null);
@@ -981,7 +1007,10 @@ describe("ClaudePrintRuntimeAdapter", () => {
       },
     ]);
     const session = JSON.parse(
-      await readFile(join(runtimeRoot, "runs", "run-1", "claude-session.json"), "utf8")
+      await readFile(
+        join(runtimeRoot, "runs", "run-1", "claude-session.json"),
+        "utf8"
+      )
     ) as Record<string, unknown>;
     expect(session.sessionId).toBe("session-new");
     expect(session.protocol).toBe("claude-print");
@@ -1001,7 +1030,9 @@ describe("ClaudePrintRuntimeAdapter", () => {
           stub.stdout.write(
             '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"session-prev","errors":["No conversation found with session ID: session-prev"]}\n'
           );
-          stub.stderr.write("No conversation found with session ID: session-prev\n");
+          stub.stderr.write(
+            "No conversation found with session ID: session-prev\n"
+          );
           stub.stdout.end();
           stub.stderr.end();
           stub.child.emit("close", 1, null);

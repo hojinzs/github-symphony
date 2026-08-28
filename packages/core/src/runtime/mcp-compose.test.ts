@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { composeMcpServers, McpConfigError } from "./mcp-compose.js";
+import {
+  collectMcpSecretEnvironmentNames,
+  composeMcpServers,
+  McpConfigError,
+} from "./mcp-compose.js";
 
 const roots: string[] = [];
 
@@ -29,6 +33,28 @@ afterEach(async () =>
 );
 
 describe("composeMcpServers", () => {
+  it("preserves $VAR source names for declared secrets", async () => {
+    const { project, repo } = await fixture();
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          github: {
+            command: "node",
+            env: { GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT" },
+          },
+        },
+      })
+    );
+
+    expect(
+      collectMcpSecretEnvironmentNames({
+        repositoryDir: repo,
+        projectDir: project,
+        secretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+      })
+    ).toEqual(["MY_ORG_PAT"]);
+  });
   it("orders repo, global, project, then immutable builtins", async () => {
     const { repo, project, home } = await fixture();
     await writeFile(

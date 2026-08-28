@@ -40,6 +40,12 @@ describe("createGitHubGraphQLToolDefinition", () => {
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
+      trackerSecretEnvironmentNames: [
+        "GH_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_GRAPHQL_TOKEN",
+      ],
       githubProjectId: "project-123",
     });
 
@@ -110,6 +116,19 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
     expect(plan.env.GITHUB_TOKEN).toBeUndefined();
     expect(plan.env.GH_TOKEN).toBeUndefined();
+    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBe("runtime-secret");
+  });
+
+  it("keeps the raw GitHub credential for brokerless compatibility", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      githubToken: "raw-github-token",
+      trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+    });
+
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
     expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
   });
 
