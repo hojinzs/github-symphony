@@ -3664,7 +3664,8 @@ export class OrchestratorService {
           ? null
           : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : (runWithTokens.lastError ?? "Worker process exited unexpectedly."),
+            : (runWithTokens.lastError ??
+              "Worker process exited unexpectedly."),
       recovery,
     };
     await this.store.saveRun(retryRecord);
@@ -5421,22 +5422,20 @@ export class OrchestratorService {
 
     if (tenant.populateStrategy === "worktree-cache") {
       try {
-        const cleanupWorkflow =
-          workflowResolution ??
-          (await this.loadProjectWorkflow(tenant, issue.repository));
-        const repositoryExtension =
-          isUsableWorkflowResolution(cleanupWorkflow) &&
-          isRecord(cleanupWorkflow.workflow.repository)
-            ? cleanupWorkflow.workflow.repository
-            : null;
         await removeIssueWorkspaceWorktree({
           repository: issue.repository,
           repositoryDirectory: workspaceRecord.repositoryPath,
           projectSlug: tenant.slug,
           issueIdentifier: issue.identifier,
-          branchTemplate: repositoryExtension
-            ? readOptionalStringValue(repositoryExtension.branch_template)
-            : null,
+          onBranchCleanup: (result) => {
+            this.writeStderr(
+              `${JSON.stringify({
+                event: "cache-agent-branch-cleanup",
+                issueIdentifier: issue.identifier,
+                ...result,
+              })}\n`
+            );
+          },
         });
       } catch (error) {
         const removalError = this.formatErrorMessage(error);

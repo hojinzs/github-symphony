@@ -4060,7 +4060,7 @@ Retry inconclusive work.
       repositoryDirectory: repositoryPath,
       projectSlug: "tenant-1",
       issueIdentifier: "acme/platform#1",
-      branchTemplate: null,
+      onBranchCleanup: expect.any(Function),
     });
     expect(savedStatus?.recovery).toBeNull();
     expect(preservedRun?.recovery).toMatchObject({
@@ -9478,12 +9478,10 @@ Prefer focused changes.
 
     await service.runOnce();
 
-    const events = (
-      await readFile(
-        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-        "utf8"
-      )
-    )
+    const events = (await readFile(
+      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+      "utf8"
+    ))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
