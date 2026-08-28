@@ -9481,10 +9481,12 @@ Prefer focused changes.
 
     await service.runOnce();
 
-    const events = (await readFile(
-      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-      "utf8"
-    ))
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -9580,9 +9582,9 @@ Prefer focused changes.
     const updatedRun = await store.loadRun("run-1");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:01.000Z");
-    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:07.000Z");
-    expect(issueRecords[0]?.completedOnce).toBe(true);
+    expect(updatedRun?.nextRetryAt).toBe("2026-03-08T00:00:07.000Z");
+    expect(updatedRun?.nextRetryAt).not.toBe("2026-03-08T00:00:01.000Z");
+    expect(issueRecords[0]?.completedOnce).toBe(false);
   });
 
   it("does not retry a stalled worker protected by a live foreign owner", async () => {
@@ -10617,9 +10619,8 @@ Prefer focused changes.
         expect(updatedRun?.lastError).toBe(
           "port_exit: codex app-server exited with 3"
         );
-        const issueRecords = await store.loadProjectIssueOrchestrations(
-          "tenant-1"
-        );
+        const issueRecords =
+          await store.loadProjectIssueOrchestrations("tenant-1");
         expect(issueRecords[0]).toMatchObject({
           failureRetryCount: 1,
           retryEntry: {

@@ -257,9 +257,9 @@ Prompt`,
       stateFieldName: "Workflow",
       activeStates: ["Queued"],
       terminalStates: ["Closed"],
-      blockerCheckStates: ["Queued"],
       planningStates: [],
     });
+    expect(workflow.tracker.blockerCheckStates).toEqual(["Queued"]);
   });
 
   it("promotes flat tracker keys while retaining provider-owned values", () => {
