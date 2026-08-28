@@ -21,6 +21,15 @@ import {
 } from "./adapter.js";
 
 export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
+  secretEnvironmentNames() {
+    return [
+      "GH_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_TOKEN",
+      "GITHUB_GRAPHQL_TOKEN",
+    ];
+  },
+
   async listIssues(project, dependencies = {}) {
     const issues = await listProjectIssues(project, dependencies);
     return applyPickupLabelDispatchability(issues, project);

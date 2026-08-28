@@ -117,6 +117,19 @@ const INHERITED_ENV_ALLOWLIST = new Set([
 const WORKFLOW_HOOK_APPROVAL_ENV = "SYMPHONY_ALLOW_WORKFLOW_HOOKS";
 const WORKFLOW_HOOK_ENV_ALLOWLIST_ENV = "SYMPHONY_WORKFLOW_HOOK_ENV_ALLOWLIST";
 
+function resolveTrackerSecretEnvironmentNames(
+  trackerAdapter: OrchestratorTrackerAdapter
+): string[] {
+  const declaration = trackerAdapter.secretEnvironmentNames;
+  if (typeof declaration !== "function") {
+    console.error(
+      "[orchestrator] tracker adapter is missing required secretEnvironmentNames(); no tracker credentials will be declared for child-boundary filtering"
+    );
+    return [];
+  }
+  return declaration.call(trackerAdapter);
+}
+
 export function clampPollInterval(intervalMs: number): number {
   return Math.min(
     MAX_POLL_INTERVAL_MS,
@@ -2994,7 +3007,10 @@ export class OrchestratorService {
           SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
           SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
           SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
-          SYMPHONY_TRACKER_ITEM_ID: trackerItemId(trackerAdapter, issue) ?? "",
+          SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
+            resolveTrackerSecretEnvironmentNames(trackerAdapter)
+          ),
           TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
           TARGET_REPOSITORY_NAME: issue.repository.name,

@@ -10,7 +10,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { composeClaudeMcpConfig } from "./mcp-compose.js";
 
 const tempRoots: string[] = [];
@@ -28,6 +28,7 @@ async function readJson(path: string): Promise<Record<string, unknown>> {
 
 describe("composeClaudeMcpConfig", () => {
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await Promise.all(
       tempRoots.splice(0).map((root) =>
         rm(root, {
@@ -464,5 +465,38 @@ describe("composeClaudeMcpConfig", () => {
         },
       },
     });
+  });
+
+  it("removes a declared secret value from a custom MCP env key when brokered", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    const runtimeRoot = await createTempWorkspace();
+    await writeFile(
+      join(workspaceRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          custom_github: {
+            command: "node",
+            env: { CUSTOM_TOKEN: "$GITHUB_GRAPHQL_TOKEN" },
+          },
+        },
+      })
+    );
+
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "raw-github-token");
+
+    const result = await composeClaudeMcpConfig(workspaceRoot, false, {
+      GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+      GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
+      SYMPHONY_TRACKER_KIND: "github",
+      SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+        "GITHUB_GRAPHQL_TOKEN",
+      ]),
+      SYMPHONY_TRUST_REPO_CONFIG: "true",
+      WORKSPACE_RUNTIME_DIR: runtimeRoot,
+    });
+
+    expect(JSON.stringify(await readJson(result.finalPath))).not.toContain(
+      "raw-github-token"
+    );
   });
 });

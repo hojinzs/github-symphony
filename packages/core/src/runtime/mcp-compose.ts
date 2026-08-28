@@ -21,6 +21,69 @@ export type McpCompositionOptions = {
 
 export class McpConfigError extends Error {}
 
+/** Returns source variable names used for declared secret keys in trusted MCP config. */
+export function collectMcpSecretEnvironmentNames(options: {
+  repositoryDir: string;
+  projectDir?: string;
+  trustRepoConfig?: boolean;
+  secretEnvironmentNames: readonly string[];
+  homeDir?: string;
+}): string[] {
+  const paths = [
+    ...(options.trustRepoConfig
+      ? [join(options.repositoryDir, ".mcp.json")]
+      : []),
+    join(options.homeDir ?? homedir(), ".gh-symphony", "mcp.json"),
+    ...(options.projectDir ? [join(options.projectDir, ".mcp.json")] : []),
+  ];
+  const declaredSecrets = new Set(options.secretEnvironmentNames);
+  const sourceNames = new Set<string>();
+
+  for (const path of paths) {
+    const config = readMcpConfig(path);
+    const servers =
+      config && isRecord(config.mcpServers) ? config.mcpServers : {};
+    for (const server of Object.values(servers)) {
+      if (!isRecord(server) || !isRecord(server.env)) continue;
+      for (const [key, value] of Object.entries(server.env)) {
+        const match =
+          declaredSecrets.has(key) &&
+          typeof value === "string" &&
+          value.match(/^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/);
+        if (match) sourceNames.add(match[1]);
+      }
+    }
+  }
+
+  return [...sourceNames].sort();
+}
+
+/** Removes declared tracker credentials from already-resolved MCP server envs. */
+export function stripMcpServerSecretEnvironmentValues(
+  servers: Record<string, McpServerDefinition>,
+  secretEnvironmentNames: readonly string[],
+  secretEnvironmentValues: readonly string[] = []
+): Record<string, McpServerDefinition> {
+  const secretNames = new Set(secretEnvironmentNames);
+  const secretValues = new Set(secretEnvironmentValues);
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [
+      name,
+      server.env
+        ? {
+            ...server,
+            env: Object.fromEntries(
+              Object.entries(server.env).filter(
+                ([key, value]) =>
+                  !secretNames.has(key) && !secretValues.has(value)
+              )
+            ),
+          }
+        : server,
+    ])
+  );
+}
+
 /** Combines trusted MCP declarations without allowing a sidecar to replace builtins. */
 export function composeMcpServers(
   options: McpCompositionOptions

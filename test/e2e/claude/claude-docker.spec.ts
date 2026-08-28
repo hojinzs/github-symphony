@@ -19,6 +19,12 @@ type Invocation = {
   resumeId: string | null;
   forkSession: boolean;
   resultSessionId: string;
+  trackerCredentialEnvironment: {
+    githubGraphqlToken: boolean;
+    githubToken: boolean;
+    ghToken: boolean;
+    githubTokenBrokerSecret: boolean;
+  };
 };
 
 type IssueFixture = {
@@ -112,6 +118,15 @@ Worker prompt.
           CLAUDE_STUB_SCENARIO: "success",
           ANTHROPIC_API_KEY: "stub-anthropic-key",
           GITHUB_GRAPHQL_TOKEN: "stub-token",
+          GITHUB_TOKEN: "stub-github-token",
+          GH_TOKEN: "stub-gh-token",
+          GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
+          GITHUB_TOKEN_BROKER_SECRET: "stub-broker-secret",
+          SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify([
+            "GITHUB_GRAPHQL_TOKEN",
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+          ]),
           GITHUB_PROJECT_ID: "stub-project",
           WORKING_DIRECTORY: workspace,
           WORKSPACE_RUNTIME_DIR: runtimeRoot,
@@ -135,6 +150,15 @@ Worker prompt.
     expect(result.stderr).toContain('"type":"turn_completed"');
     expect(result.stderr).not.toContain("sending codex initialize");
     expect(result.stderr).not.toContain("codex client protocol");
+    const invocations = await readStubInvocations(logDir);
+    // Claude preflight invokes the stub once before the adapter-launched child.
+    expect(invocations.length).toBeGreaterThanOrEqual(2);
+    expect(invocations.at(-1)?.trackerCredentialEnvironment).toEqual({
+      githubGraphqlToken: false,
+      githubToken: false,
+      ghToken: false,
+      githubTokenBrokerSecret: true,
+    });
   });
 
   it("keeps --resume within an intra-run continuation without --fork-session", async () => {
@@ -382,6 +406,15 @@ async function appendIssueStatusEvent(root: string, status: string) {
   );
 }
 
+async function readStubInvocations(logDir: string): Promise<Invocation[]> {
+  const raw = await readFile(join(logDir, "invocations.ndjson"), "utf8");
+  return raw
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Invocation);
+}
+
 async function appendRunEvents(
   runDirectory: string,
   argv: readonly string[],
@@ -466,7 +499,10 @@ async function createTurnLeaseServer(): Promise<{
     ) {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
-        JSON.stringify({ acquired: true, expiresAt: "2026-04-26T01:00:00.000Z" })
+        JSON.stringify({
+          acquired: true,
+          expiresAt: "2026-04-26T01:00:00.000Z",
+        })
       );
       return;
     }
@@ -486,7 +522,9 @@ async function createTurnLeaseServer(): Promise<{
     url: `http://127.0.0.1:${address.port}`,
     close: () =>
       new Promise<void>((resolveServer, rejectServer) => {
-        server.close((error) => (error ? rejectServer(error) : resolveServer()));
+        server.close((error) =>
+          error ? rejectServer(error) : resolveServer()
+        );
       }),
   };
 }

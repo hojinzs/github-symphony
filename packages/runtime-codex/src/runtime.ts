@@ -9,6 +9,8 @@ import {
   shouldReuseAgentCredentialCache,
   writeAgentCredentialCache,
   composeMcpServers,
+  collectMcpSecretEnvironmentNames,
+  stripMcpServerSecretEnvironmentValues,
   type AgentRuntimeAdapter,
   type AgentRuntimeCredentialBrokerResponse,
   type AgentEvent,
@@ -69,6 +71,8 @@ export type CodexRuntimeConfig = {
   orchestratorToken?: string;
   projectDirectory?: string;
   trustRepoConfig?: boolean;
+  trackerSecretEnvironmentNames?: readonly string[];
+  trackerKind?: string;
 };
 
 export type CodexRuntimePlan = {
@@ -554,7 +558,13 @@ function resolveRuntimeProcessEnv(
 export function buildCodexRuntimePlan(
   config: CodexRuntimeConfig
 ): CodexRuntimePlan {
-  const githubTool = createGitHubGraphQLToolDefinition(config);
+  const usesGitHubTokenBroker = Boolean(
+    config.githubTokenBrokerUrl && config.githubTokenBrokerSecret
+  );
+  const githubTool = createGitHubGraphQLToolDefinition({
+    ...config,
+    githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,
+  });
   const linearTool = config.enableLinearGraphqlTool
     ? createLinearGraphQLToolDefinition({
         linearGraphqlUrl: config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
@@ -580,10 +590,37 @@ export function buildCodexRuntimePlan(
   if (!config.enableLinearGraphqlTool) {
     delete servers.linear_graphql;
   }
-  const tools = Object.entries(servers).map(
+  const secretEnvironmentNames = [
+    ...(config.trackerSecretEnvironmentNames ?? []),
+    ...collectMcpSecretEnvironmentNames({
+      repositoryDir: config.workingDirectory,
+      projectDir: config.projectDirectory,
+      trustRepoConfig: config.trustRepoConfig,
+      secretEnvironmentNames: config.trackerSecretEnvironmentNames ?? [],
+    }),
+  ];
+  const brokeredGitHubTracker =
+    usesGitHubTokenBroker && config.trackerKind !== "linear";
+  const tools = Object.entries(
+    brokeredGitHubTracker
+      ? stripMcpServerSecretEnvironmentValues(
+          servers,
+          secretEnvironmentNames,
+          [
+            ...secretEnvironmentNames.map(
+              (name) => config.extraEnv?.[name] ?? process.env[name]
+            ),
+            config.githubToken,
+          ].filter((value): value is string => value !== undefined)
+        )
+      : servers
+  ).map(
     ([name, server]) => builtins[name] ?? createMcpToolDefinition(name, server)
   );
-  const gitCredentialHelper = createGitCredentialHelperEnvironment(config);
+  const gitCredentialHelper = createGitCredentialHelperEnvironment({
+    ...config,
+    githubToken: usesGitHubTokenBroker ? undefined : config.githubToken,
+  });
 
   const agentCommand = parseAgentCommand(
     config.agentCommand ?? "codex app-server"
@@ -623,7 +660,7 @@ export function buildCodexRuntimePlan(
         LINEAR_AUTHORIZATION: undefined,
       };
 
-  return {
+  const plan = {
     cwd: config.workingDirectory,
     command: agentCommand.command,
     args: agentCommand.args,
@@ -646,6 +683,17 @@ export function buildCodexRuntimePlan(
     },
     tools,
   };
+
+  // A broker can serve GitHub tools and Git without exposing raw tracker
+  // credentials to the coding-agent process. Brokerless deployments retain
+  // them temporarily for Phase 1a compatibility (#700 removes this path).
+  if (brokeredGitHubTracker) {
+    for (const name of secretEnvironmentNames) {
+      delete plan.env[name];
+    }
+  }
+
+  return plan;
 }
 
 export function launchCodexAppServer(

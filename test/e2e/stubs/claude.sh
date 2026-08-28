@@ -127,6 +127,12 @@ const record = {
   resumeId: process.env.RESUME_ID || null,
   forkSession: process.env.FORK_SESSION === "true",
   resultSessionId: process.env.RESULT_SESSION_ID,
+  trackerCredentialEnvironment: {
+    githubGraphqlToken: Boolean(process.env.GITHUB_GRAPHQL_TOKEN),
+    githubToken: Boolean(process.env.GITHUB_TOKEN),
+    ghToken: Boolean(process.env.GH_TOKEN),
+    githubTokenBrokerSecret: Boolean(process.env.GITHUB_TOKEN_BROKER_SECRET),
+  },
 };
 fs.appendFileSync(process.env.INVOCATIONS_FILE, JSON.stringify(record) + "\n");
 '

@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { composeMcpServers, McpConfigError } from "./mcp-compose.js";
+import {
+  collectMcpSecretEnvironmentNames,
+  composeMcpServers,
+  McpConfigError,
+  stripMcpServerSecretEnvironmentValues,
+} from "./mcp-compose.js";
 
 const roots: string[] = [];
 
@@ -29,6 +34,73 @@ afterEach(async () =>
 );
 
 describe("composeMcpServers", () => {
+  it("removes resolved tracker secret values from composed server environments", () => {
+    expect(
+      stripMcpServerSecretEnvironmentValues(
+        {
+          github: {
+            command: "node",
+            env: {
+              GITHUB_GRAPHQL_TOKEN: "resolved-indirect-secret",
+              GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+            },
+          },
+        },
+        ["GITHUB_GRAPHQL_TOKEN", "MY_ORG_PAT"]
+      )
+    ).toEqual({
+      github: {
+        command: "node",
+        env: { GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql" },
+      },
+    });
+  });
+
+  it("removes a declared secret value even when a custom key references it", () => {
+    expect(
+      stripMcpServerSecretEnvironmentValues(
+        {
+          github: {
+            command: "node",
+            env: {
+              CUSTOM_TOKEN: "resolved-secret",
+              GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql",
+            },
+          },
+        },
+        ["GITHUB_GRAPHQL_TOKEN"],
+        ["resolved-secret"]
+      )
+    ).toEqual({
+      github: {
+        command: "node",
+        env: { GITHUB_GRAPHQL_API_URL: "https://api.github.com/graphql" },
+      },
+    });
+  });
+
+  it("preserves $VAR source names for declared secrets", async () => {
+    const { project, repo } = await fixture();
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          github: {
+            command: "node",
+            env: { GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT" },
+          },
+        },
+      })
+    );
+
+    expect(
+      collectMcpSecretEnvironmentNames({
+        repositoryDir: repo,
+        projectDir: project,
+        secretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+      })
+    ).toEqual(["MY_ORG_PAT"]);
+  });
   it("orders repo, global, project, then immutable builtins", async () => {
     const { repo, project, home } = await fixture();
     await writeFile(

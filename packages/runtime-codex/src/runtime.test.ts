@@ -40,6 +40,12 @@ describe("createGitHubGraphQLToolDefinition", () => {
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
       githubTokenCachePath: "/workspace-runtime/.github-token.json",
+      trackerSecretEnvironmentNames: [
+        "GH_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_GRAPHQL_TOKEN",
+      ],
       githubProjectId: "project-123",
     });
 
@@ -81,6 +87,7 @@ describe("buildCodexRuntimePlan", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
+      githubToken: "raw-github-token",
       githubTokenBrokerUrl:
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
@@ -106,6 +113,23 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
     expect(plan.env.CODEX_HOME).toBeUndefined();
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN).toBeUndefined();
+    expect(plan.env.GH_TOKEN).toBeUndefined();
+    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN_BROKER_SECRET).toBe("runtime-secret");
+  });
+
+  it("keeps the raw GitHub credential for brokerless compatibility", () => {
+    const plan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      githubToken: "raw-github-token",
+      trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+    });
+
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
+    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
   });
 
   it("preserves CODEX_HOME when explicitly provided by the environment", () => {
@@ -194,6 +218,48 @@ describe("buildCodexRuntimePlan", () => {
       expect(plan.env.VENDOR_SECRET).toBeUndefined();
     } finally {
       delete process.env.MCP_VENDOR_SECRET;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes indirect tracker credentials from brokered tool definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-mcp-tracker-secret-"));
+    const workspace = join(root, "workspace");
+    const project = join(root, "project");
+    await Promise.all([mkdir(workspace), mkdir(project)]);
+    await writeFile(
+      join(project, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          org_github: {
+            command: "node",
+            env: {
+              GITHUB_GRAPHQL_TOKEN: "$MY_ORG_PAT",
+              CUSTOM_TOKEN: "$GITHUB_GRAPHQL_TOKEN",
+            },
+          },
+        },
+      })
+    );
+    process.env.MY_ORG_PAT = "indirect-github-secret";
+    try {
+      const plan = buildCodexRuntimePlan({
+        projectId: "workspace-123",
+        workingDirectory: workspace,
+        projectDirectory: project,
+        githubToken: "raw-github-token",
+        extraEnv: { GITHUB_GRAPHQL_TOKEN: "raw-github-token" },
+        githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+        githubTokenBrokerSecret: "broker-secret",
+        trackerSecretEnvironmentNames: ["GITHUB_GRAPHQL_TOKEN"],
+      });
+      expect(JSON.stringify(plan.tools)).not.toContain(
+        "indirect-github-secret"
+      );
+      expect(JSON.stringify(plan.tools)).not.toContain("raw-github-token");
+      expect(plan.env.MY_ORG_PAT).toBeUndefined();
+    } finally {
+      delete process.env.MY_ORG_PAT;
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -305,6 +371,18 @@ describe("buildCodexRuntimePlan", () => {
       LINEAR_GRAPHQL_URL: "https://api.linear.app/graphql",
       LINEAR_API_KEY: "lin_api_key",
     });
+
+    const brokeredLinearPlan = buildCodexRuntimePlan({
+      projectId: "workspace-123",
+      workingDirectory: "/tmp/workspace-123",
+      trackerKind: "linear",
+      enableLinearGraphqlTool: true,
+      linearApiKey: "lin_api_key",
+      githubTokenBrokerUrl: "https://broker.example/runtime-credentials",
+      githubTokenBrokerSecret: "broker-secret",
+      trackerSecretEnvironmentNames: ["LINEAR_API_KEY"],
+    });
+    expect(brokeredLinearPlan.env.LINEAR_API_KEY).toBe("lin_api_key");
   });
 });
 

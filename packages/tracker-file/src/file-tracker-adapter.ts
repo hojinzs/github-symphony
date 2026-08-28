@@ -135,6 +135,10 @@ function buildTrackerStateResult(
 }
 
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
+  secretEnvironmentNames() {
+    return [];
+  },
+
   async listIssues(project) {
     return filterIssuesByPickupLabels(await readValidIssues(project), project);
   },

@@ -980,11 +980,14 @@ pnpm build
 
 ## Security posture
 
-Today, GitHub Symphony is intended for trusted, operator-controlled
-environments: coding-agent children can receive tracker and broker credentials
-through their environment or generated MCP configuration. It is not suitable
-for untrusted agents until the host-side transport described in
-[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md) is deployed.
+GitHub Symphony is intended for trusted, operator-controlled environments.
+With a configured GitHub token broker, Phase 1a keeps raw GitHub tracker-token
+aliases out of Codex and Claude coding-agent children, and Claude's generated
+MCP configuration does not store literal tracker tokens. Brokerless GitHub and
+Linear deployments temporarily retain raw tracker credentials so Git and MCP
+workflows continue; workers warn operators to configure the broker or wait for
+#700. The host-owned transport is described in
+[ADR 2026-08-28](docs/adr/2026-08-28_agent-tool-isolation.md).
 
 By default, Codex uses `approval_policy: never` and the
 `danger-full-access` thread sandbox; Claude uses `bypassPermissions`.

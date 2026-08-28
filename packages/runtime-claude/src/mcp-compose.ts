@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { createGitHubGraphQLMcpServerEntry } from "@gh-symphony/tool-github-graphql";
 import { createLinearGraphQLMcpServerEntry } from "@gh-symphony/tool-linear-graphql";
-import { composeMcpServers, readMcpConfig } from "@gh-symphony/core";
+import {
+  composeMcpServers,
+  readMcpConfig,
+  stripMcpServerSecretEnvironmentValues,
+} from "@gh-symphony/core";
 
 export type ClaudeMcpTokenEnvironment = {
   GITHUB_GRAPHQL_TOKEN?: string;
@@ -19,6 +23,7 @@ export type ClaudeMcpTokenEnvironment = {
   WORKSPACE_RUNTIME_DIR?: string;
   SYMPHONY_PROJECT_DIR?: string;
   SYMPHONY_TRUST_REPO_CONFIG?: string;
+  SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES?: string;
 };
 
 export type ClaudeMcpCompositionResult = {
@@ -38,7 +43,7 @@ export async function composeClaudeMcpConfig(
   );
   const trustRepoConfig =
     symphonyTokenEnv.SYMPHONY_TRUST_REPO_CONFIG === "true";
-  const mcpServers = composeMcpServers({
+  let mcpServers = composeMcpServers({
     repositoryDir: workspaceRoot,
     projectDir: symphonyTokenEnv.SYMPHONY_PROJECT_DIR,
     trustRepoConfig,
@@ -47,6 +52,23 @@ export async function composeClaudeMcpConfig(
   });
   if (symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear") {
     delete mcpServers.linear_graphql;
+  }
+  if (
+    symphonyTokenEnv.SYMPHONY_TRACKER_KIND !== "linear" &&
+    symphonyTokenEnv.GITHUB_TOKEN_BROKER_URL &&
+    symphonyTokenEnv.GITHUB_TOKEN_BROKER_SECRET
+  ) {
+    const trackerSecretEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...symphonyTokenEnv,
+    };
+    mcpServers = stripMcpServerSecretEnvironmentValues(
+      mcpServers,
+      readTrackerSecretEnvironmentNames(symphonyTokenEnv),
+      readTrackerSecretEnvironmentNames(symphonyTokenEnv)
+        .map((name) => trackerSecretEnvironment[name])
+        .filter((value): value is string => value !== undefined)
+    );
   }
   const repositoryConfig = trustRepoConfig
     ? readMcpConfig(join(workspaceRoot, ".mcp.json"))
@@ -69,6 +91,21 @@ export async function composeClaudeMcpConfig(
         : ["--mcp-config", finalPath],
     cleanupPath: finalPath,
   };
+}
+
+function readTrackerSecretEnvironmentNames(
+  env: ClaudeMcpTokenEnvironment
+): string[] {
+  try {
+    const names = JSON.parse(
+      env.SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES ?? "[]"
+    );
+    return Array.isArray(names)
+      ? names.filter((name): name is string => typeof name === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 async function ensureSecureConfigParent(path: string): Promise<void> {
