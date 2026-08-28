@@ -2853,7 +2853,6 @@ export class OrchestratorService {
           workspacePath: issueWorkspacePath,
           repositoryPath: repositoryDirectory,
           eventRunId: runId,
-          state: issue.state,
         }
       );
       if (!isSuccessfulHookResult(afterCreateResult)) {
