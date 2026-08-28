@@ -12919,6 +12919,7 @@ Handle archived item reconciliation.`,
 tracker:
   kind: linear
   project_slug: symphony-0c79b11b75ea
+  state_field: Status
   active_states:
     - Todo
     - In Progress
