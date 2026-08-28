@@ -2996,7 +2996,7 @@ export class OrchestratorService {
           SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
           SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
           SYMPHONY_TRACKER_SECRET_ENVIRONMENT_NAMES: JSON.stringify(
-            trackerAdapter.secretEnvironmentNames()
+            trackerAdapter.secretEnvironmentNames?.() ?? []
           ),
           TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
