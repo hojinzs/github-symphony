@@ -225,7 +225,7 @@ describe("deriveStandaloneProject", () => {
     }
   });
 
-  it("preserves Linear label filters and normalizes overlapping states", async () => {
+  it("preserves Linear label filters and normalizes overlapping states and labels", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "cli-standalone-config-"));
     const first = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
     const second = await mkdtemp(join(tmpdir(), "cli-standalone-project-"));
@@ -233,7 +233,9 @@ describe("deriveStandaloneProject", () => {
       writeFile(join(first, "WORKFLOW.md"), linearWorkflow, "utf8"),
       writeFile(
         join(second, "WORKFLOW.md"),
-        linearWorkflow.replace(" Todo ", "todo"),
+        linearWorkflow
+          .replace(" Todo ", "todo")
+          .replace("team-a", '" Team-A "'),
         "utf8"
       ),
     ]);

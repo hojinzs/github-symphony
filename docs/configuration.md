@@ -61,15 +61,18 @@ and `"AGENT"` are the same label. The same `normalizeLabels` helper is the
 shared implementation for current pickup-label handling and future
 `tracker.required_labels` configuration support.
 
-`parseTrackerTimestamp` accepts RFC 3339 timestamps and returns a canonical ISO
-8601 UTC string; malformed values return `null`. It is intentionally a core
+`parseTrackerTimestamp` accepts RFC 3339 timestamps, including lowercase `t` /
+`z` designators and leap seconds, and returns a canonical ISO 8601 UTC string;
+malformed values return `null`. It is intentionally a core
 utility only in this change: tracker-adapter adoption is deferred, so existing
 adapter behavior is unchanged.
 
 For dispatch priority, see [ADR 2026-08-28](adr/2026-08-28_priority-mapping-documented-different-mapping.md).
-The repository intentionally keeps integer priorities in ascending order and
-places `null` or non-integers last, a documented different mapping under
-Symphony specification §8.2 and §11.3. Linear priority `0` maps to `null`.
+The repository intentionally keeps numeric priorities, including non-integers,
+in ascending order and places `null` last, a documented different mapping under
+Symphony specification §8.2 and §11.3. Linear priority `0` currently passes
+through the adapter and sorts before positive values; normalization to `null`
+is pending adapter work in #660-B.
 
 ## Workflow Lifecycle Policy
 

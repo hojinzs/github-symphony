@@ -114,6 +114,10 @@ Examples of generated validation guidance include `make test`, `just build`, `uv
 
 You can further customize the agent's behavior by editing `WORKFLOW.md` — this is the policy layer that controls what the agent does at each workflow phase.
 
+Pickup-label eligibility comparison is case-insensitive and ignores surrounding
+whitespace: `Agent`, `agent`, and `" AGENT "` are the same label. Do not use
+labels that differ only by case or outer whitespace as separate pickup gates.
+
 Lifecycle generation enables blocker checks for the first configured active
 state (`Todo` with built-in defaults) while leaving planning states disabled.
 An explicit `tracker.blocker_check_states: []` disables blocker gating; this is
