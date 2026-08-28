@@ -1388,7 +1388,7 @@ async function startDaemon(
   );
 
   try {
-    await waitForChildLock(child, readyPath);
+    await waitForChildLock(child, readyPath, logPath);
     if (!child.pid) {
       throw new Error("Daemon process started without a PID.");
     }
@@ -1427,7 +1427,8 @@ async function startDaemon(
 
 async function waitForChildLock(
   child: ChildProcess,
-  readyPath: string
+  readyPath: string,
+  logPath: string
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
@@ -1440,11 +1441,19 @@ async function waitForChildLock(
       cleanup();
       reject(error);
     };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const onExit = async (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
       cleanup();
+      const ready = await readFile(readyPath, "utf8").catch(() => "");
+      if (ready.trim() === String(child.pid)) {
+        resolve();
+        return;
+      }
       reject(
         new Error(
-          `Daemon exited before acquiring the project lock (code: ${code ?? "none"}, signal: ${signal ?? "none"}).`
+          `Daemon exited before acquiring the project lock (code: ${code ?? "none"}, signal: ${signal ?? "none"}). See ${logPath}.`
         )
       );
     };
@@ -1452,7 +1461,7 @@ async function waitForChildLock(
       cleanup();
       reject(
         new Error(
-          "Daemon did not acquire the project lock within 10 seconds. See the daemon log for its startup error."
+          `Daemon did not acquire the project lock within 10 seconds. See ${logPath} for its startup error.`
         )
       );
     };

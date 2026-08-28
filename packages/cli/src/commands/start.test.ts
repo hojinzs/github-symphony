@@ -938,6 +938,11 @@ describe("start command foreground locking", () => {
       startModule.default(["--daemon"], baseOptions(configDir))
     ).rejects.toThrow("Daemon exited before acquiring the project lock");
     await expect(
+      startModule.default(["--daemon"], baseOptions(configDir))
+    ).rejects.toThrow(
+      join(configDir, "projects", "tenant-a", "orchestrator.log")
+    );
+    await expect(
       readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
