@@ -12,4 +12,8 @@ returned `assignee.id` with the authenticated Linear viewer instead of adding
 an `assignee.isMe` GraphQL filter. This keeps unassigned and other-user issues
 observable while preventing their dispatch. The scheduler consumes only the
 normalized eligibility result; it does not interpret Linear identities.
-Pickup-label eligibility is also derived here before candidate dispatch.
+Pickup labels are applied by this adapter as a candidate-listing filter rather
+than retained `dispatchable: false` records, so label-ineligible Linear issues
+are not available to explain surfaces. This repository-level adapter behavior
+diverges from the upstream scheduler-owned label boundary and from GitHub's
+retained, reason-bearing pickup-label records.

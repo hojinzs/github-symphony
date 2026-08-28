@@ -74,7 +74,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 ### 5. Integration — tracker adapters (tracker-specific code lives only here)
 
 - GitHub Project V2: `packages/tracker-github` (including the adapter-owned linked-PR canonical-subject extension; opaque `nativeRef` data never crosses into orchestration). Source issue state and linked-PR metadata remain distinct from Project workflow status; it returns all active scoped items and derives GitHub assignment, repository-scope, pickup-label, and fork-PR eligibility as `dispatchable` with an explainable reason.
-- Linear: `packages/tracker-linear`; it derives provider-native assignment and pickup-label eligibility as the same normalized `dispatchable` contract.
+- Linear: `packages/tracker-linear`; it derives provider-native assignment eligibility as the normalized `dispatchable` contract. Its pickup labels instead filter the candidate list before dispatch, so label-ineligible Linear items are not retained for explain surfaces as `dispatchable: false` records. This adapter-side label filtering is a repository-level divergence from the upstream scheduler-owned label boundary and differs from the GitHub adapter's retained, reason-bearing records.
 - File-based (E2E only): `packages/tracker-file`; fixtures may set `dispatchable` and `dispatchReason` directly to exercise the adapter-neutral scheduler gate.
 - GitHub-specific planning/approval/PR-reporting extensions: `packages/extension-github-workflow`
 

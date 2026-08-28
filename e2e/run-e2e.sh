@@ -109,7 +109,7 @@ else
   cp e2e/fixtures/happy-path.json e2e/fixtures/issues.json
 fi
 
-INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt', ''))")
+INITIAL_LAST_TICK=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt') or '')" 2>/dev/null || echo '')
 
 REFRESH_RESPONSE=$(
   orch_curl -sS -X POST -w '\n__CURL_STATUS__:%{http_code}' \
@@ -124,22 +124,32 @@ if [ "$REFRESH_STATUS" != "202" ]; then
   exit 1
 fi
 
-log "Issues injected; refresh trigger accepted (202). Falling back to polling until dispatch is observed"
+log "Issues injected; refresh trigger accepted (202). Polling for reconciliation"
 
 if [ "$SCENARIO" = "non-dispatchable" ]; then
+  # A tick can have started before the fixture copy, then publish after the
+  # refresh request. Waiting for two new tick start timestamps means the
+  # second observed tick must have started after that older tick finished.
+  # It therefore cannot have read the pre-injection fixture.
+  PREVIOUS_LAST_TICK="$INITIAL_LAST_TICK"
+  TICKS_SEEN=0
   for i in $(seq 1 "$TIMEOUT"); do
-    STATUS_JSON=$(orch_curl -s http://localhost:4680/api/v1/state)
-    LAST_TICK=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt', ''))")
-    if [ -n "$LAST_TICK" ] && [ "$LAST_TICK" != "$INITIAL_LAST_TICK" ]; then
-      break
+    STATUS_JSON=$(orch_curl -s http://localhost:4680/api/v1/state 2>/dev/null || echo '{}')
+    LAST_TICK=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('lastTickAt') or '')" 2>/dev/null || echo '')
+    if [ -n "$LAST_TICK" ] && [ "$LAST_TICK" != "$PREVIOUS_LAST_TICK" ]; then
+      PREVIOUS_LAST_TICK="$LAST_TICK"
+      TICKS_SEEN=$((TICKS_SEEN + 1))
+      if [ "$TICKS_SEEN" -ge 2 ]; then
+        break
+      fi
     fi
     if [ "$i" = "$TIMEOUT" ]; then
-      fail "Refresh reconciliation did not complete before timeout"
+      fail "Two post-injection reconciliation ticks did not complete before timeout"
       exit 1
     fi
     sleep 1
   done
-  ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['activeRuns'])")
+  ACTIVE=$(echo "$STATUS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['activeRuns'])" 2>/dev/null || echo '?')
   if [ "$ACTIVE" != "0" ]; then
     fail "Non-dispatchable issue started a worker"
     exit 1

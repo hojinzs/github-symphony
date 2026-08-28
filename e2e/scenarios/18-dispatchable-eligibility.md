@@ -14,7 +14,7 @@ Start the Docker E2E environment with an empty issue fixture.
 
 1. Inject one active `Ready` file-tracker issue with `dispatchable: false` and
    a non-empty `dispatchReason`.
-2. Trigger `/api/v1/refresh` and wait through one reconciliation interval.
+2. Trigger `/api/v1/refresh` and wait through two post-injection reconciliation ticks.
 3. Read `/api/v1/state` and the run event log.
 4. Run `node /app/packages/cli/dist/index.js repo explain test-owner/test-repo#1 --json`
    in the container and inspect the `tracker_dispatchability` check.
@@ -28,7 +28,7 @@ Start the Docker E2E environment with an empty issue fixture.
 ## Automated Docker command
 
 ```bash
-./e2e/run-e2e.sh non-dispatchable 15
+./e2e/run-e2e.sh non-dispatchable 30
 ```
 
 ## Cleanup
