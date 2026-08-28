@@ -6,6 +6,7 @@ import {
   AgentRuntimeResolutionError,
   CODEX_PROTOCOL_EVENT_NAMES,
   buildCodexRuntimePlan,
+  createCodexDynamicToolSpecs,
   createCodexRuntimeAdapter,
   createGitCredentialHelperEnvironment,
   createGitHubGraphQLToolDefinition,
@@ -79,6 +80,24 @@ describe("createLinearGraphQLToolDefinition", () => {
       LINEAR_AUTHORIZATION: "Bearer runtime-token",
       LINEAR_API_KEY: "lin_api_key",
     });
+  });
+});
+
+describe("createCodexDynamicToolSpecs", () => {
+  it("advertises schemas without process or credential details", () => {
+    const specs = createCodexDynamicToolSpecs([
+      createGitHubGraphQLToolDefinition({ githubToken: "host-secret" }),
+    ]);
+
+    expect(specs).toEqual([
+      expect.objectContaining({
+        type: "function",
+        name: "github_graphql",
+        inputSchema: expect.objectContaining({ required: ["query"] }),
+      }),
+    ]);
+    expect(specs[0]).not.toHaveProperty("command");
+    expect(specs[0]).not.toHaveProperty("env");
   });
 });
 

@@ -45,6 +45,29 @@ export type RuntimeToolDefinition = {
   };
 };
 
+/**
+ * The subset of a provider-native tool definition that is safe to advertise
+ * to the Codex app-server. Credentials and process-launch details deliberately
+ * stay on the host side of the runtime boundary.
+ */
+export type CodexDynamicToolSpec = {
+  type: "function";
+  name: string;
+  description: string;
+  inputSchema: RuntimeToolDefinition["inputSchema"];
+};
+
+export function createCodexDynamicToolSpecs(
+  tools: readonly RuntimeToolDefinition[]
+): CodexDynamicToolSpec[] {
+  return tools.map(({ name, description, inputSchema }) => ({
+    type: "function",
+    name,
+    description,
+    inputSchema,
+  }));
+}
+
 export type CodexRuntimeConfig = {
   projectId: string;
   workingDirectory: string;
