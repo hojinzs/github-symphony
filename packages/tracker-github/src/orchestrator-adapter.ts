@@ -5,6 +5,7 @@ import type {
   OrchestratorTrackerConfig,
   TrackedIssue,
   TrackedIssueList,
+  TrackedPullRequestContext,
 } from "@gh-symphony/core";
 import {
   NonRetryableTrackerAdapterError,
@@ -86,6 +87,7 @@ export const githubProjectTrackerAdapter: OrchestratorTrackerAdapter = {
         itemId: run.trackerItemId ?? "",
       },
       nativeRef: { itemId: run.trackerItemId ?? "" },
+      isArchived: false,
       metadata: {},
     };
   },
@@ -280,15 +282,7 @@ type GitHubNativeRef = {
   itemId?: string;
   contentType?: "Issue" | "PullRequest";
   sourceState?: string | null;
-  linkedPullRequests?: Array<{
-    id: string;
-    identifier: string;
-    state: string | null;
-    merged?: boolean | null;
-    projectState?: string | null;
-    headRefName?: string | null;
-    headRepository?: { owner: string; name: string } | null;
-  }>;
+  linkedPullRequests?: TrackedPullRequestContext[];
   pullRequest?: NonNullable<GitHubNativeRef["linkedPullRequests"]>[number];
 };
 

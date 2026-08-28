@@ -271,8 +271,10 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "linear",
         bindingId: project.tracker.bindingId,
+        itemId: run.issueId,
       },
       nativeRef: { itemId: run.issueId },
+      isArchived: false,
       metadata: {},
     };
   },
