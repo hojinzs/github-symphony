@@ -3664,7 +3664,8 @@ export class OrchestratorService {
           ? null
           : currentTrackerProgress?.state === "unknown"
             ? currentTrackerProgress.error
-            : (runWithTokens.lastError ?? "Worker process exited unexpectedly."),
+            : (runWithTokens.lastError ??
+              "Worker process exited unexpectedly."),
       recovery,
     };
     await this.store.saveRun(retryRecord);
