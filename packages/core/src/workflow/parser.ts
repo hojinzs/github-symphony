@@ -147,35 +147,39 @@ function parseWorkflowMarkdownInternal(
     options.resolveTrackerAdapter?.(trackerKind) ?? options.trackerAdapter;
   const provider = readProviderConfig(tracker);
   const deprecatedKeys = promoteDeprecatedTrackerKeys(tracker, provider);
-  const providerErrors = trackerAdapter?.validateProviderConfig?.(provider);
-  if (providerErrors && providerErrors.length > 0) {
-    throw providerErrors[0];
-  }
   const defaultLifecycle = trackerAdapter?.defaultLifecycle?.();
   const legacyLifecycle =
-    compatibilityMode === "legacy" ? DEFAULT_WORKFLOW_LIFECYCLE : undefined;
+    compatibilityMode === "legacy" || deprecatedKeys.length > 0
+      ? DEFAULT_WORKFLOW_LIFECYCLE
+      : undefined;
   const activeStates =
-    readStringList(tracker, "active_states") ??
+    readStringList(tracker, "active_states", { rejectCommaString: true }) ??
     defaultLifecycle?.activeStates ??
     legacyLifecycle?.activeStates ??
     readRequiredLifecycleStates("active_states");
   const terminalStates =
-    readStringList(tracker, "terminal_states") ??
+    readStringList(tracker, "terminal_states", { rejectCommaString: true }) ??
     defaultLifecycle?.terminalStates ??
     legacyLifecycle?.terminalStates ??
     readRequiredLifecycleStates("terminal_states");
   const blockerCheckStates =
     readStringList(tracker, "blocker_check_states") ??
+    readProviderStringList(provider, "blocker_check_states") ??
     (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
     readStringList(tracker, "planning_states") ??
+    readProviderStringList(provider, "planning_states") ??
     defaultLifecycle?.planningStates ??
     DEFAULT_WORKFLOW_TRACKER.planningStates;
   const stateFieldName =
     readOptionalString(tracker, "state_field", env, "tracker.state_field") ??
+    readProviderOptionalString(provider, "state_field", env) ??
     defaultLifecycle?.stateFieldName ??
     legacyLifecycle?.stateFieldName ??
     readRequiredLifecycleStateField();
+  throwProviderValidationErrors(
+    trackerAdapter?.validateProviderConfig?.(provider) ?? []
+  );
 
   const maxConcurrentAgentsByState = readNumberMap(
     agent,
@@ -242,22 +246,14 @@ function parseWorkflowMarkdownInternal(
           env,
           "tracker.project_slug"
         ) ?? readProviderOptionalString(provider, "project_slug", env),
-      pickupLabels: readPickupLabelsConfig(tracker),
+      pickupLabels: readPickupLabelsConfig(tracker, provider),
       activeStates,
       terminalStates,
       projectId:
         readOptionalString(tracker, "project_id", env, "tracker.project_id") ??
         readProviderOptionalString(provider, "project_id", env),
-      stateFieldName:
-        readOptionalString(
-          tracker,
-          "state_field",
-          env,
-          "tracker.state_field"
-        ) ??
-        readProviderOptionalString(provider, "state_field", env) ??
-        stateFieldName,
-      priority: readPriorityConfig(tracker, env),
+      stateFieldName,
+      priority: readPriorityConfig(tracker, provider, env),
       priorityFieldName:
         readOptionalString(
           tracker,
@@ -322,8 +318,7 @@ function parseWorkflowMarkdownInternal(
     runtime,
     codex: codexConfig,
     lifecycle: {
-      stateFieldName:
-        readOptionalString(tracker, "state_field", env) ?? stateFieldName,
+      stateFieldName,
       activeStates,
       terminalStates,
       blockerCheckStates,
@@ -375,9 +370,9 @@ function promoteDeprecatedTrackerKeys(
     if (tracker[key] === undefined || tracker[key] === null) {
       continue;
     }
-    deprecatedKeys.push(key);
     if (!(key in provider)) {
       provider[key] = tracker[key];
+      deprecatedKeys.push(key);
     }
   }
   return deprecatedKeys;
@@ -402,6 +397,50 @@ function readProviderOptionalString(
   return resolveEnvironmentValue(value, env, `tracker.provider.${key}`);
 }
 
+function readProviderStringList(
+  provider: Record<string, unknown>,
+  key: string
+): string[] | undefined {
+  const value = provider[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw new WorkflowValidationError(
+      "workflow_validation_error",
+      `tracker.provider.${key}`,
+      `Workflow front matter field "tracker.provider.${key}" must be an array of strings.`
+    );
+  }
+  return value;
+}
+
+function throwProviderValidationErrors(
+  errors: WorkflowValidationError[]
+): void {
+  if (errors.length === 0) {
+    return;
+  }
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  const [first, ...remaining] = errors;
+  throw new WorkflowValidationError(
+    first.code,
+    first.path,
+    `${first.message} (${remaining.length} additional provider validation ${remaining.length === 1 ? "error" : "errors"}: ${remaining.map((error) => error.message).join("; ")})`
+  );
+}
+
 function readRequiredLifecycleStates(key: string): never {
   throw new WorkflowValidationError(
     "workflow_validation_error",
@@ -419,9 +458,11 @@ function readRequiredLifecycleStateField(): never {
 }
 
 function readPickupLabelsConfig(
-  tracker: Record<string, WorkflowFrontMatterNode>
+  tracker: Record<string, WorkflowFrontMatterNode>,
+  provider: Record<string, unknown>
 ): ParsedWorkflow["tracker"]["pickupLabels"] {
-  const value = tracker.pickup_labels ?? tracker.pickupLabels;
+  const value =
+    tracker.pickup_labels ?? tracker.pickupLabels ?? provider.pickup_labels;
   if (value === undefined || value === null) {
     return DEFAULT_WORKFLOW_TRACKER.pickupLabels;
   }
@@ -440,13 +481,20 @@ function readPickupLabelsConfig(
 
 function readPriorityConfig(
   tracker: Record<string, WorkflowFrontMatterNode>,
+  provider: Record<string, unknown>,
   env: NodeJS.ProcessEnv
 ): WorkflowPriorityConfig | null {
-  if (tracker.priority === undefined || tracker.priority === null) {
+  const priorityValue = tracker.priority ?? provider.priority;
+  if (priorityValue === undefined || priorityValue === null) {
     return null;
   }
 
-  const priority = readObject(tracker, "priority", "tracker.priority");
+  if (Array.isArray(priorityValue) || typeof priorityValue !== "object") {
+    throw new Error(
+      'Workflow front matter field "tracker.provider.priority" must be an object when provided.'
+    );
+  }
+  const priority = priorityValue as Record<string, WorkflowFrontMatterNode>;
   const source = readRequiredString(priority, "source", env);
   const keys = new Set(Object.keys(priority));
 
@@ -504,6 +552,15 @@ function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
 
   return {
     ...DEFAULT_WORKFLOW_DEFINITION,
+    tracker: {
+      ...DEFAULT_WORKFLOW_DEFINITION.tracker,
+      activeStates: DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
+      terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
+      stateFieldName: DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
+      blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
+      planningStates: DEFAULT_WORKFLOW_LIFECYCLE.planningStates,
+    },
+    lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,
     promptTemplate: promptGuidelines,
     format: "legacy-sectioned",
   };
@@ -1000,18 +1057,25 @@ function readRequiredString(
 
 function readStringList(
   input: Record<string, WorkflowFrontMatterNode>,
-  key: string
+  key: string,
+  options: { rejectCommaString?: boolean } = {}
 ): string[] | undefined {
   const value = input[key];
   if (value === undefined || value === null) {
     return undefined;
+  }
+  if (typeof value === "string" && !options.rejectCommaString) {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   }
   if (
     !Array.isArray(value) ||
     value.some((entry) => typeof entry !== "string")
   ) {
     throw new Error(
-      `Workflow front matter field "${key}" must be an array of strings.`
+      `Workflow front matter field "${key}" must be an array of strings${options.rejectCommaString ? "" : " or comma-separated string"}.`
     );
   }
   return value as string[];

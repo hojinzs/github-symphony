@@ -94,10 +94,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
   }
   const workflow = parseWorkflowMarkdown(
     await readFile(workflowPath, "utf8"),
-    process.env,
-    {
-      compatibilityMode: "legacy",
-    }
+    process.env
   );
   validateRepoInitWorkflow(workflow);
   const repository = resolveRepository(repoDir);

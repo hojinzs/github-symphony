@@ -814,7 +814,6 @@ function validateWorkflow(
 ): WorkflowValidationReport {
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
-    compatibilityMode: "legacy",
   });
   const samplePhase = resolveWorkflowExecutionPhase({
     issueState: SAMPLE_ISSUE.state,
@@ -963,7 +962,6 @@ async function runPreview(
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
-    compatibilityMode: "legacy",
   });
   if (
     flags.issue &&
