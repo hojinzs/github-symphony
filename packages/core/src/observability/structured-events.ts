@@ -89,6 +89,19 @@ export type RunRecoveredEvent = {
   issueId?: string;
 };
 
+export type RunRestartFailedEvent = {
+  at: string;
+  event: "run-restart-failed";
+  projectId?: string;
+  runId: string;
+  issueIdentifier: string;
+  issueId?: string;
+  attempt: number;
+  error: string;
+  retrySuppressed: boolean;
+  nextRetryAt?: string;
+};
+
 export type RunRetriedEvent = {
   at: string;
   event: "run-retried";
@@ -316,6 +329,7 @@ export type OrchestratorEvent =
   | TrackerTransitionCommentEvent
   | RunDispatchedEvent
   | RunRecoveredEvent
+  | RunRestartFailedEvent
   | RunRetriedEvent
   | RunFailedEvent
   | RunSuppressedEvent

@@ -148,6 +148,35 @@ describe("event-formatter", () => {
     ).toBe("Recovered existing run");
   });
 
+  it("formats scheduled and suppressed restart failures", () => {
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-restart-failed",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        attempt: 2,
+        error: "workspace checkout failed",
+        retrySuppressed: false,
+        nextRetryAt: "2026-03-16T00:02:00.000Z",
+      })
+    ).toBe("Restart failed; retry scheduled: workspace checkout failed");
+
+    expect(
+      formatEventMessage({
+        at: "2026-03-16T00:01:00.000Z",
+        event: "run-restart-failed",
+        runId: "run-1",
+        issueIdentifier: "acme/repo#1",
+        attempt: 3,
+        error: "workspace checkout failed",
+        retrySuppressed: true,
+      })
+    ).toBe(
+      "Restart failed and retries were suppressed: workspace checkout failed"
+    );
+  });
+
   it("formats finalization deferrals with diagnostic context", () => {
     expect(
       formatEventMessage({

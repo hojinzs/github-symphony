@@ -311,6 +311,22 @@ function matchesTargetIssueIdentifier(
 
 class NonRetryableDispatchError extends Error {}
 
+class RestartRunFailure extends Error {
+  constructor(
+    readonly originalError: unknown,
+    readonly issueRecords: IssueOrchestrationRecord[],
+    readonly preparedRun: OrchestratorRunRecord | null,
+    readonly supersededRun: OrchestratorRunRecord,
+    readonly restartedAt: Date
+  ) {
+    super(
+      originalError instanceof Error
+        ? originalError.message
+        : String(originalError ?? "unknown restart error")
+    );
+  }
+}
+
 function resolvePullRequestBranchCheckoutTarget(
   issue: TrackedIssue
 ): { headRefName: string } | null {
@@ -1220,12 +1236,32 @@ export class OrchestratorService {
       now
     );
     for (const run of activeRuns) {
-      const outcome = await this.reconcileRun(
-        tenant,
-        run,
-        issueRecords,
-        trackerDependencies
-      );
+      let outcome: {
+        issueRecords: IssueOrchestrationRecord[];
+        recovered: boolean;
+        lastError?: string | null;
+      };
+      try {
+        outcome = await this.reconcileRun(
+          tenant,
+          run,
+          issueRecords,
+          trackerDependencies
+        );
+      } catch (error) {
+        if (!(error instanceof RestartRunFailure)) {
+          throw error;
+        }
+        outcome = await this.handleRestartRunFailure(
+          tenant,
+          run,
+          error.issueRecords,
+          error.restartedAt,
+          error.originalError,
+          error.preparedRun,
+          error.supersededRun
+        );
+      }
       issueRecords = outcome.issueRecords;
       lastError = outcome.lastError ?? lastError;
       if (outcome.recovered) {
@@ -4529,23 +4565,23 @@ export class OrchestratorService {
     const supersededRecord: OrchestratorRunRecord = {
       ...run,
       status: "failed",
+      processId: null,
       completedAt: now.toISOString(),
       updatedAt: now.toISOString(),
       nextRetryAt: null,
       retryKind: null,
       lastError: "Superseded by recovered run.",
     };
-    await this.store.saveRun(supersededRecord);
-
-    const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
-      tenant,
-      run
-    );
-    const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
     let nextIssueRecords = issueRecords;
     let preparedRun: OrchestratorRunRecord | null = null;
     let restarted: OrchestratorRunRecord;
     try {
+      await this.store.saveRun(supersededRecord);
+      const issue = resolveTrackerAdapter(tenant.tracker).reviveIssue(
+        tenant,
+        run
+      );
+      const recovery = await this.resolveRetryRunRecoveryContext(tenant, run);
       restarted = await this.startRun(tenant, issue, {
         attempt: run.attempt,
         recovery,
@@ -4576,106 +4612,13 @@ export class OrchestratorService {
         },
       });
     } catch (error) {
-      const errorMessage = `Worker spawn failed: ${this.formatErrorMessage(error)}`;
-      const failedPreparedRun = preparedRun as OrchestratorRunRecord | null;
-      const existingIssueRecord = nextIssueRecords.find(
-        (record) =>
-          record.issueId === run.issueId ||
-          record.identifier === run.issueIdentifier
+      throw new RestartRunFailure(
+        error,
+        nextIssueRecords,
+        preparedRun,
+        supersededRecord,
+        now
       );
-      const retryAttempt =
-        (existingIssueRecord?.retryEntry?.attempt ?? run.attempt) + 1;
-      const maxFailureRetries = await this.loadMaxFailureRetries(
-        tenant,
-        run.repository
-      );
-      const failureRetryCount =
-        error instanceof NonRetryableDispatchError
-          ? maxFailureRetries
-          : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
-      const retrySuppressed = failureRetryCount >= maxFailureRetries;
-      const suppressionError = [
-        `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
-        `failureRetryCount=${failureRetryCount}.`,
-        `maxFailureRetries=${maxFailureRetries}.`,
-        errorMessage,
-      ].join(" ");
-      if (failedPreparedRun) {
-        await this.store.saveRun({
-          ...failedPreparedRun,
-          status: retrySuppressed ? "suppressed" : "failed",
-          completedAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-          nextRetryAt: null,
-          retryKind: null,
-          lastError: retrySuppressed ? suppressionError : errorMessage,
-        });
-        // A prepared restart produces both this terminal record and the
-        // superseded retry record. Mark both as suppressed at the retry
-        // limit so equal update timestamps cannot let the stale failed record
-        // bypass issue-level retry suppression during this tick.
-        if (retrySuppressed) {
-          await this.store.saveRun({
-            ...supersededRecord,
-            status: "suppressed",
-            lastError: suppressionError,
-          });
-        }
-      } else {
-        await this.store.saveRun({
-          ...supersededRecord,
-          status: retrySuppressed ? "suppressed" : "failed",
-          lastError: retrySuppressed ? suppressionError : errorMessage,
-        });
-      }
-      const retryPolicy = retrySuppressed
-        ? null
-        : await this.loadRetryPolicy(tenant, run.repository);
-      const retryDueAt = retrySuppressed
-        ? null
-        : (retryPolicy
-            ? scheduleRetryAt(now, retryAttempt, retryPolicy)
-            : new Date(
-                now.getTime() +
-                  (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
-              )
-          ).toISOString();
-      nextIssueRecords = upsertIssueOrchestration(nextIssueRecords, {
-        issueId: run.issueId,
-        identifier: run.issueIdentifier,
-        workspaceKey:
-          run.issueWorkspaceKey ??
-          deriveIssueWorkspaceKey(
-            {
-              adapter: tenant.tracker.adapter,
-              issueSubjectId: run.issueSubjectId,
-            },
-            run.issueIdentifier
-          ),
-        state: retrySuppressed ? "released" : "retry_queued",
-        failureRetryCount,
-        currentRunId: null,
-        retryEntry: retryDueAt
-          ? {
-              attempt: retryAttempt,
-              dueAt: retryDueAt,
-              error: errorMessage,
-            }
-          : null,
-        updatedAt: now.toISOString(),
-      });
-      await this.store.saveProjectIssueOrchestrations(
-        tenant.projectId,
-        nextIssueRecords
-      );
-      this.writeStderr(
-        `[orchestrator] restart failed for ${run.issueIdentifier}: ${this.formatErrorMessage(error)}`
-      );
-      return {
-        issueRecords: nextIssueRecords,
-        recovered: false,
-        lastError: errorMessage,
-      };
     }
     const recoveredRecord: OrchestratorRunRecord = {
       ...restarted,
@@ -4721,6 +4664,124 @@ export class OrchestratorService {
         updatedAt: now.toISOString(),
       }),
       recovered: true,
+    };
+  }
+
+  private async handleRestartRunFailure(
+    tenant: OrchestratorProjectConfig,
+    run: OrchestratorRunRecord,
+    issueRecords: IssueOrchestrationRecord[],
+    now: Date,
+    error: unknown,
+    preparedRun: OrchestratorRunRecord | null,
+    supersededRun: OrchestratorRunRecord
+  ): Promise<{
+    issueRecords: IssueOrchestrationRecord[];
+    recovered: boolean;
+    lastError: string;
+  }> {
+    const errorMessage = `Run restart failed: ${this.formatErrorMessage(error)}`;
+    const existingIssueRecord = issueRecords.find(
+      (record) =>
+        record.issueId === run.issueId ||
+        record.identifier === run.issueIdentifier
+    );
+    const retryAttempt =
+      (existingIssueRecord?.retryEntry?.attempt ?? run.attempt) + 1;
+    const maxFailureRetries = await this.loadMaxFailureRetries(
+      tenant,
+      run.repository
+    );
+    const failureRetryCount =
+      error instanceof NonRetryableDispatchError
+        ? maxFailureRetries
+        : (existingIssueRecord?.failureRetryCount ?? 0) + 1;
+    const retrySuppressed = failureRetryCount >= maxFailureRetries;
+    const suppressionError = [
+      `Run suppressed: ${MAX_FAILURE_RETRIES_EXCEEDED_REASON}.`,
+      `failureRetryCount=${failureRetryCount}.`,
+      `maxFailureRetries=${maxFailureRetries}.`,
+      errorMessage,
+    ].join(" ");
+    if (preparedRun) {
+      await this.store.saveRun({
+        ...preparedRun,
+        status: retrySuppressed ? "suppressed" : "failed",
+        completedAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        nextRetryAt: null,
+        retryKind: null,
+        lastError: retrySuppressed ? suppressionError : errorMessage,
+      });
+      if (retrySuppressed) {
+        await this.store.saveRun({
+          ...supersededRun,
+          status: "suppressed",
+          lastError: suppressionError,
+        });
+      }
+    } else {
+      await this.store.saveRun({
+        ...supersededRun,
+        status: retrySuppressed ? "suppressed" : "failed",
+        lastError: retrySuppressed ? suppressionError : errorMessage,
+      });
+    }
+    const retryPolicy = retrySuppressed
+      ? null
+      : await this.loadRetryPolicy(tenant, run.repository);
+    const retryDueAt = retrySuppressed
+      ? null
+      : (retryPolicy
+          ? scheduleRetryAt(now, retryAttempt, retryPolicy)
+          : new Date(
+              now.getTime() +
+                (this.dependencies.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS)
+            )
+        ).toISOString();
+    const nextIssueRecords = upsertIssueOrchestration(issueRecords, {
+      issueId: run.issueId,
+      identifier: run.issueIdentifier,
+      workspaceKey:
+        run.issueWorkspaceKey ??
+        deriveIssueWorkspaceKey(
+          {
+            adapter: tenant.tracker.adapter,
+            issueSubjectId: run.issueSubjectId,
+          },
+          run.issueIdentifier
+        ),
+      state: retrySuppressed ? "released" : "retry_queued",
+      failureRetryCount,
+      currentRunId: null,
+      retryEntry: retryDueAt
+        ? { attempt: retryAttempt, dueAt: retryDueAt, error: errorMessage }
+        : null,
+      updatedAt: now.toISOString(),
+    });
+    await this.store.saveProjectIssueOrchestrations(
+      tenant.projectId,
+      nextIssueRecords
+    );
+    await this.store.appendRunEvent(run.runId, {
+      at: now.toISOString(),
+      event: "run-restart-failed",
+      projectId: run.projectId,
+      runId: run.runId,
+      issueIdentifier: run.issueIdentifier,
+      issueId: run.issueId,
+      attempt: retryAttempt,
+      error: errorMessage,
+      retrySuppressed,
+      nextRetryAt: retryDueAt ?? undefined,
+    } as OrchestratorEvent);
+    this.writeStderr(
+      `[orchestrator] restart failed for ${run.issueIdentifier}: ${this.formatErrorMessage(error)}`
+    );
+    return {
+      issueRecords: nextIssueRecords,
+      recovered: false,
+      lastError: errorMessage,
     };
   }
 

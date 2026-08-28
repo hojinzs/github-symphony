@@ -22,6 +22,10 @@ export function formatEventMessage(event: OrchestratorEvent): string | null {
         : "Dispatched";
     case "run-recovered":
       return "Recovered existing run";
+    case "run-restart-failed":
+      return event.retrySuppressed
+        ? `Restart failed and retries were suppressed: ${event.error}`
+        : `Restart failed; retry scheduled: ${event.error}`;
     case "run-retried":
       return `Retry ${event.attempt} scheduled (${event.retryKind})`;
     case "run-finalization-deferred":
