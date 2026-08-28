@@ -117,7 +117,10 @@ async function repoInit(args: string[], options: GlobalOptions): Promise<void> {
   }
 
   try {
-    const result = await initRepoRuntime(flags);
+    const result = await initRepoRuntime({
+      ...flags,
+      ...(options.configDirOverride ? { configDir: options.configDir } : {}),
+    });
     if (options.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + "\n");
       return;

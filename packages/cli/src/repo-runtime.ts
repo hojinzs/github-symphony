@@ -26,6 +26,7 @@ import {
 import {
   saveGlobalConfig,
   saveProjectConfig,
+  updateGlobalConfig,
   type CliProjectConfig,
 } from "./config.js";
 import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
@@ -33,6 +34,7 @@ import { resolveRepoRuntimeRoot } from "./orchestrator-runtime.js";
 export type RepoInitFlags = {
   repoDir: string;
   workflowFile?: string;
+  configDir?: string;
 };
 
 const INTERNAL_PROJECT_ID = "repository";
@@ -180,6 +182,15 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     activeProject: INTERNAL_PROJECT_ID,
     projects: [INTERNAL_PROJECT_ID],
   });
+
+  const configDir = flags.configDir ? resolve(flags.configDir) : runtimeRoot;
+  if (configDir !== runtimeRoot) {
+    await saveProjectConfig(configDir, INTERNAL_PROJECT_ID, projectConfig);
+    await updateGlobalConfig(configDir, (config) => ({
+      activeProject: INTERNAL_PROJECT_ID,
+      projects: Array.from(new Set([...config.projects, INTERNAL_PROJECT_ID])),
+    }));
+  }
 
   const orchestratorConfig: OrchestratorProjectConfig = {
     projectId: INTERNAL_PROJECT_ID,

@@ -222,6 +222,20 @@ describe("inspectManagedProjectSelection", () => {
     });
   });
 
+  it("resolves the repository config written to a fresh config directory", async () => {
+    const configDir = await createConfigFixture(
+      [createProject("repository")],
+      "repository"
+    );
+
+    const result = await inspectManagedProjectSelection({ configDir });
+
+    expect(result).toMatchObject({
+      kind: "resolved",
+      projectId: "repository",
+    });
+  });
+
   it("keeps an explicit selector ahead of the cached standalone cwd", async () => {
     const projectADir = await mkdtemp(join(tmpdir(), "standalone-a-"));
     const projectAId = standaloneProjectId(projectADir);

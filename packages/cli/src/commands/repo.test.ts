@@ -11,6 +11,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CliProjectConfig } from "../config.js";
+import {
+  loadGlobalConfig,
+  loadProjectConfig,
+  saveGlobalConfig,
+} from "../config.js";
 
 async function loadRepoCommand() {
   vi.resetModules();
@@ -117,6 +122,32 @@ afterEach(() => {
 });
 
 describe("repo init runtime migration", () => {
+  it("writes repository selection to an explicit config directory", async () => {
+    const repoDir = await createGitRepo();
+    const configDir = await mkdtemp(join(tmpdir(), "repo-init-config-dir-"));
+    const repoCommand = await loadRepoCommand();
+    await writeFile(join(repoDir, "WORKFLOW.md"), VALID_WORKFLOW, "utf8");
+    await saveGlobalConfig(configDir, {
+      activeProject: "standalone",
+      projects: ["standalone"],
+    });
+
+    await repoCommand(["init", "--repo-dir", repoDir], {
+      ...baseOptions(configDir),
+      configDirOverride: true,
+    });
+
+    await expect(loadGlobalConfig(configDir)).resolves.toEqual({
+      activeProject: "repository",
+      projects: ["standalone", "repository"],
+    });
+    await expect(
+      loadProjectConfig(configDir, "repository")
+    ).resolves.toMatchObject({
+      repository: { owner: "acme", name: "platform" },
+    });
+  });
+
   it("preserves an explicit global config override for repo subcommands", async () => {
     const { repoOptions } = await loadRepoModule();
     const configDir = join(tmpdir(), "captured-runtime");
