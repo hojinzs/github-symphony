@@ -391,6 +391,15 @@ gh-symphony project list                 # List cached standalone projects
 gh-symphony doctor --project-dir <projectDir>
 ```
 
+### Host Instances
+
+`gh-symphony instances` lists repository and standalone orchestrators registered on this host. Use `--json` for automation. A verified live cross-runtime duplicate is rejected by default; pass `--allow-duplicate` to `repo start` or `project start` only when intentional isolation is required.
+
+```bash
+gh-symphony instances
+gh-symphony instances --json
+```
+
 ## Diagnostics
 
 `gh-symphony doctor` validates the most common first-run prerequisites in one pass. `gh-symphony doctor --smoke` is the recommended final preflight before `gh-symphony repo start --once`: it resolves the active managed project, checks the GitHub Project binding, confirms the repository and target issue are readable through the project, renders `WORKFLOW.md` for that issue, verifies the runtime command, workspace root, and configured hook paths, and exits without dispatching a worker.
@@ -469,7 +478,7 @@ Setup:
   config set          Set a configuration value
   config edit         Open config in $EDITOR
 
-Orchestration:
+Orchestration (current repository):
   repo init           Bind .runtime/orchestrator to the cwd repository
   repo start          Start the orchestrator (foreground)
   repo start --once   Run a single orchestration tick and exit
@@ -482,7 +491,10 @@ Orchestration:
   repo explain        Explain why an issue is not dispatching
   completion <shell>  Print shell completion for bash/zsh/fish
 
-Standalone Projects:
+Orchestration (host):
+  instances           List registered orchestrator instances on this host
+
+Orchestration (standalone project):
   project list        List cached standalone projects as JSON
   project start       Start the cwd project folder (`project start --help` lists runtime flags)
   project status      Show the cwd project folder's status

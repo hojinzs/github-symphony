@@ -24,7 +24,6 @@ export const DEFAULT_CONFIG_DIR = join(homedir(), ".gh-symphony");
 export const CONFIG_FILE = "config.json";
 export const DAEMON_PID_FILE = "daemon.pid";
 export const ORCHESTRATOR_LOG_FILE = "orchestrator.log";
-export const HTTP_STATUS_FILE = "http.json";
 export const REPO_RUNTIME_DIR = join(".runtime", "orchestrator");
 const CONFIG_LOCK_FILE = ".config.lock";
 const CONFIG_LOCK_TTL_MS = 30_000;
@@ -123,13 +122,6 @@ export function orchestratorWorkspaceRuntimeDir(
   projectId: string
 ): string {
   return join(configDir, "orchestrator", "workspaces", projectId);
-}
-
-export function httpStatusPath(configDir: string, projectId: string): string {
-  return join(
-    orchestratorWorkspaceRuntimeDir(configDir, projectId),
-    HTTP_STATUS_FILE
-  );
 }
 
 export async function loadGlobalConfig(

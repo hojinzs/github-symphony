@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { formatErrorForTerminal, hasVerboseFlag } from "@gh-symphony/core";
 import {
@@ -8,7 +9,7 @@ import {
   Option,
 } from "commander";
 import { setNoColor } from "./ansi.js";
-import { resolveConfigDir } from "./config.js";
+import { DEFAULT_CONFIG_DIR, resolveConfigDir } from "./config.js";
 import { renderCompletionScript } from "./completion.js";
 import { renderHelp } from "./commands/help.js";
 import { createRemovedCommandHandler } from "./commands/removed-command.js";
@@ -40,11 +41,13 @@ type LoaderKey =
   | "project"
   | "config"
   | "cache"
+  | "instances"
   | "version";
 
 type CliOptionValues = Partial<
   GlobalOptions & {
     assignedOnly?: boolean;
+    allowDuplicate?: boolean;
     bindAll?: boolean;
     config?: string;
     daemon?: boolean;
@@ -94,6 +97,7 @@ const COMMANDS: Record<LoaderKey, () => Promise<{ default: CommandHandler }>> =
     project: () => import("./commands/project.js"),
     config: () => import("./commands/config-cmd.js"),
     cache: () => import("./commands/cache.js"),
+    instances: () => import("./commands/instances.js"),
     version: () => import("./commands/version.js"),
   };
 
@@ -134,6 +138,15 @@ export function resolveGlobalOptions(values: CliOptionValues): GlobalOptions {
     process.env.NO_COLOR = "1";
   }
   setNoColor(options.noColor);
+
+  // Keep the host-level instance registry independent from a per-invocation
+  // runtime override. This value is inherited by daemon children.
+  if (!process.env.GH_SYMPHONY_INSTANCES_DIR) {
+    process.env.GH_SYMPHONY_INSTANCES_DIR = join(
+      process.env.GH_SYMPHONY_CONFIG_DIR || DEFAULT_CONFIG_DIR,
+      "instances"
+    );
+  }
 
   // The shared bare-clone cache and spawned child processes resolve the config
   // directory from the environment. Without exporting an explicit `--config`,
@@ -534,6 +547,18 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
   const project = addGlobalOptions(
     program.command("project").description("Manage standalone projects")
   );
+  addGlobalOptions(
+    program
+      .command("instances")
+      .description("List orchestrator instances on this host")
+  ).action(async function (this: Command) {
+    markInvoked();
+    await invokeHandler(
+      "instances",
+      [],
+      this.optsWithGlobals<CliOptionValues>()
+    );
+  });
   addGlobalOptions(project.command("list").allowExcessArguments(false)).action(
     async function (this: Command) {
       markInvoked();
@@ -551,6 +576,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("-d, --daemon", "Start in daemon mode")
       .option("--once", "Run a single orchestration tick and exit")
       .option("--assigned-only", "Limit this run to assigned issues")
+      .option(
+        "--allow-duplicate",
+        "Allow a verified live instance for the same project in another runtime"
+      )
       .option(
         "--bind-all",
         "Bind HTTP servers to all interfaces instead of localhost"
@@ -573,6 +602,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);
@@ -681,6 +711,10 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
       .option("--once", "Run a single orchestration tick and exit")
       .option("--assigned-only", "Limit this run to assigned issues")
       .option(
+        "--allow-duplicate",
+        "Allow a verified live instance for the same project in another runtime"
+      )
+      .option(
         "--bind-all",
         "Bind HTTP servers to all interfaces instead of localhost"
       )
@@ -702,6 +736,7 @@ function createProgram(): { program: Command; wasInvoked: () => boolean } {
     pushOption(args, "--daemon", values.daemon);
     pushOption(args, "--once", values.once);
     pushOption(args, "--assigned-only", values.assignedOnly);
+    pushOption(args, "--allow-duplicate", values.allowDuplicate);
     pushOption(args, "--bind-all", values.bindAll);
     pushOption(args, "--http", values.http);
     pushOption(args, "--web", values.web);

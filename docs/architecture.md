@@ -41,6 +41,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
   diagnostic selection: `packages/cli/src/config.ts`, `packages/cli/src/project-selection.ts`,
   `commands/project.ts`; `workspaceDir` is the issue-workspace root in both modes, while
   repo-embedded configs additionally carry `repositoryDir` for daemon CWD/liveness
+- Cross-runtime instance index and host-level `instances` CLI surface: `packages/cli/src/instances.ts`, `commands/instances.ts`. The index is advisory; lock heartbeat and process identity remain the liveness authority.
 - Environment variables and `.env` loading order: [configuration.md](configuration.md)
 
 ### 3. Coordination — the orchestrator
@@ -75,6 +76,7 @@ touches a layer, check that its slice (and the linked documents) still holds.
 - Operator HTTP control plane (bearer auth, redaction): `packages/control-plane`
 - Browser dashboard: `packages/dashboard` — details in [../packages/control-plane/README.md](../packages/control-plane/README.md)
 - Runtime state files: `.runtime/orchestrator/` (`workspaces/<id>/`, `runs/<run-id>/`)
+- Instance registry: `${GH_SYMPHONY_INSTANCES_DIR:-${GH_SYMPHONY_CONFIG_DIR:-~/.gh-symphony}/instances/}` (mode `0700`; one file per runtime/project). Daemon runtime overrides do not change this inherited host index.
 
 ## Package dependency graph
 

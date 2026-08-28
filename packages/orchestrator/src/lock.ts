@@ -349,7 +349,7 @@ export function assertValidProjectId(projectId: string): void {
   }
 }
 
-function resolveProjectLockPath(
+export function resolveProjectLockPath(
   runtimeRoot: string,
   projectId: string
 ): string {

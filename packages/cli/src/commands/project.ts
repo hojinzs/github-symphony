@@ -18,6 +18,7 @@ import {
 } from "../config.js";
 import { resolveDaemonLiveness } from "../daemon-liveness.js";
 import { standaloneProjectId } from "../standalone-project.js";
+import { listInstances } from "../instances.js";
 
 export { standaloneProjectId } from "../standalone-project.js";
 
@@ -395,7 +396,20 @@ const handler = async (
   const [subcommand, ...rest] = args;
 
   if (subcommand === "list" && rest.length === 0) {
-    const projects = await listStandaloneProjects(options.configDir);
+    const instances = new Map(
+      (await listInstances())
+        .filter((entry) => entry.standalone)
+        .map((entry) => [entry.projectId, entry])
+    );
+    // Preserve the established cached-project schema. Live registry data is
+    // additive so stopped projects remain visible and JSON consumers have a
+    // stable base shape.
+    const projects = (await listStandaloneProjects(options.configDir)).map(
+      (project) => {
+        const instance = instances.get(project.projectId);
+        return instance ? { ...project, instance } : project;
+      }
+    );
     process.stdout.write(JSON.stringify(projects, null, 2) + "\n");
     return;
   }

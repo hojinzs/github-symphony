@@ -391,10 +391,11 @@ cd <projectDir> && gh-symphony project start   # Start the project in this folde
 gh-symphony project start --project-dir <dir>  # ...or name the folder explicitly
 gh-symphony project status                     # Status for the project in this folder
 gh-symphony project stop                       # Stop its daemon
-gh-symphony project list                       # List projects started on this host, as JSON
+gh-symphony project list                       # List cached standalone projects (with live instance metadata when available)
+gh-symphony instances --json                    # List active repository and standalone instances
 ```
 
-The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.pickup_labels`, which the GitHub, Linear, and file trackers all apply when listing dispatch candidates. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
+The project folder is the source of truth and the address: every command derives the runtime from the folder's `WORKFLOW.md` on each start, so editing the workflow takes effect on the next start with no registration step. `project start --help` lists its runtime flags, including `--once`, `--daemon`, `--assigned-only`, `--allow-duplicate`, `--bind-all`, `--http`, `--web`, `--log-level`, and `--project-dir`. A verified live instance for the same project in another runtime is rejected by default; use `--allow-duplicate` only for intentional isolation. Starting refuses a tracker mapping that overlaps a project already running against the same repository, and asks for confirmation when the overlapping project is stopped. Two projects on one repository stay disjoint through `tracker.pickup_labels`, which the GitHub, Linear, and file trackers all apply when listing dispatch candidates. `repository.clone_url` overrides the derived clone URL for mirrors, Enterprise hosts, or local paths. See [docs/configuration.md](docs/configuration.md) for the project `.env` loading order and skill layering details.
 
 ### Official Container Deployment
 

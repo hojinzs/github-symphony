@@ -301,6 +301,7 @@ describe("Commander CLI entrypoint", () => {
     expect(output).toContain("--daemon");
     expect(output).toContain("--once");
     expect(output).toContain("--assigned-only");
+    expect(output).toContain("--allow-duplicate");
     expect(output).toContain("--bind-all");
     expect(output).toContain("--http [port]");
     expect(output).toContain("--web [port]");

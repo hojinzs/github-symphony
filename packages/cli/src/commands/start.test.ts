@@ -59,6 +59,9 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   releaseProjectLock: orchestratorMocks.releaseProjectLock,
   createStore: vi.fn(() => ({ kind: "store" })),
   getProcessIdentity: vi.fn((pid: number) => `process-${pid}`),
+  isProcessRunning: vi.fn(() => true),
+  resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
+    join(runtimeRoot, "projects", projectId, ".lock"),
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
@@ -121,6 +124,7 @@ const githubClient = await import("../github/client.js");
 const originalGithubToken = process.env.GITHUB_GRAPHQL_TOKEN;
 const originalLinearApiKey = process.env.LINEAR_API_KEY;
 const originalHttpApiToken = process.env.GH_SYMPHONY_HTTP_TOKEN;
+const originalInstancesDir = process.env.GH_SYMPHONY_INSTANCES_DIR;
 
 beforeEach(() => {
   acquireProjectLock.mockReset();
@@ -181,15 +185,28 @@ beforeEach(() => {
   promptMocks.confirm.mockReset();
   promptMocks.confirm.mockResolvedValue(true);
   childProcessMocks.spawn.mockClear();
-  childProcessMocks.spawn.mockImplementation(() => createSpawnedChild(2468));
+  childProcessMocks.spawn.mockImplementation((_command, _args, options) =>
+    createSpawnedChild(
+      2468,
+      (options?.env as NodeJS.ProcessEnv | undefined)
+        ?.GH_SYMPHONY_DAEMON_READY_PATH
+    )
+  );
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = HTTP_API_TOKEN;
+  process.env.GH_SYMPHONY_INSTANCES_DIR = join(
+    tmpdir(),
+    `cli-start-instances-${process.pid}-${Date.now()}`
+  );
   serviceDependencies.length = 0;
   serviceProjectConfigs.length = 0;
 });
 
-function createSpawnedChild(pid: number): EventEmitter & {
+function createSpawnedChild(
+  pid: number,
+  readyPath?: string
+): EventEmitter & {
   pid: number;
   unref: ReturnType<typeof vi.fn>;
   kill: ReturnType<typeof vi.fn>;
@@ -199,7 +216,10 @@ function createSpawnedChild(pid: number): EventEmitter & {
     unref: vi.fn(),
     kill: vi.fn(),
   });
-  queueMicrotask(() => child.emit("spawn"));
+  queueMicrotask(async () => {
+    if (readyPath) await writeFile(readyPath, `${pid}\n`);
+    child.emit("spawn");
+  });
   return child;
 }
 
@@ -209,6 +229,7 @@ afterEach(() => {
   process.env.GITHUB_GRAPHQL_TOKEN = originalGithubToken;
   process.env.LINEAR_API_KEY = originalLinearApiKey;
   process.env.GH_SYMPHONY_HTTP_TOKEN = originalHttpApiToken;
+  process.env.GH_SYMPHONY_INSTANCES_DIR = originalInstancesDir;
 });
 
 function forceTty(value: boolean): () => void {
@@ -902,6 +923,30 @@ describe("start command foreground locking", () => {
     expect(child?.unref).not.toHaveBeenCalled();
   });
 
+  it("does not write a PID file until the daemon child acquires its lock", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    childProcessMocks.spawn.mockImplementation(() => {
+      const child = createSpawnedChild(2468);
+      queueMicrotask(() => child.emit("exit", 1, null));
+      return child;
+    });
+
+    await expect(
+      startModule.default(["--daemon"], baseOptions(configDir))
+    ).rejects.toThrow("Daemon exited before acquiring the project lock");
+    await expect(
+      startModule.default(["--daemon"], baseOptions(configDir))
+    ).rejects.toThrow(
+      join(configDir, "projects", "tenant-a", "orchestrator.log")
+    );
+    await expect(
+      readFile(join(configDir, "projects", "tenant-a", "daemon.pid"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("tails completed worker logs from the flat runtime run path", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
@@ -1281,23 +1326,6 @@ describe("start command foreground locking", () => {
       );
 
       const url = await waitForHttpUrl(stdout.output);
-      const httpState = JSON.parse(
-        await readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ) as { host: string; port: number; endpoint: string };
-      expect(httpState).toEqual({
-        host: "127.0.0.1",
-        port: Number.parseInt(new URL(url).port, 10),
-        endpoint: url,
-      });
       const unauthenticated = await fetch(`${url}/api/v1/state`);
       expect(unauthenticated.status).toBe(401);
       await expect(unauthenticated.json()).resolves.toEqual({
@@ -1423,18 +1451,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1480,7 +1496,7 @@ describe("start command foreground locking", () => {
         baseOptions(configDir)
       );
 
-      const url = await waitForHttpUrl(stdout.output);
+      await waitForHttpUrl(stdout.output);
       expect(startControlPlaneServer).toHaveBeenCalledWith({
         host: "127.0.0.1",
         port: 4680,
@@ -1489,23 +1505,6 @@ describe("start command foreground locking", () => {
         onRefreshRequest: expect.any(Function),
       });
 
-      const httpState = JSON.parse(
-        await readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ) as { host: string; port: number; endpoint: string };
-      expect(httpState).toEqual({
-        host: "127.0.0.1",
-        port: Number.parseInt(new URL(url).port, 10),
-        endpoint: url,
-      });
       expect(stdout.output()).toContain("Web dashboard listening on");
       expect(stdout.output()).toContain("#token=custom%2Btoken%26value%25%23");
       expect(stdout.output()).not.toContain("#token=custom+token&value%#");
@@ -1523,18 +1522,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1652,18 +1639,6 @@ describe("start command foreground locking", () => {
 
       process.emit("SIGINT");
       await startPromise;
-      await expect(
-        readFile(
-          join(
-            configDir,
-            "orchestrator",
-            "workspaces",
-            "tenant-a",
-            "http.json"
-          ),
-          "utf8"
-        )
-      ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       stdout.restore();
     }
@@ -1793,46 +1768,19 @@ describe("start command foreground locking", () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it("keeps an existing http.json when lock acquisition fails", async () => {
+  it("propagates lock acquisition failures", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
     });
-    const statePath = join(
-      configDir,
-      "orchestrator",
-      "workspaces",
-      "tenant-a",
-      "http.json"
-    );
-    await mkdir(join(configDir, "orchestrator", "workspaces", "tenant-a"), {
-      recursive: true,
-    });
-    await writeFile(
-      statePath,
-      JSON.stringify(
-        {
-          host: "0.0.0.0",
-          port: 4680,
-          endpoint: "http://localhost:4680",
-        },
-        null,
-        2
-      ) + "\n",
-      "utf8"
-    );
     acquireProjectLock.mockRejectedValue(new Error("lock busy"));
 
     await expect(
       startModule.default([], baseOptions(configDir))
     ).rejects.toThrow("lock busy");
-
-    await expect(readFile(statePath, "utf8")).resolves.toContain(
-      '"endpoint": "http://localhost:4680"'
-    );
   });
 
-  it("warns and keeps running when http.json persistence fails", async () => {
+  it("keeps the HTTP API available through a graceful shutdown", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -1844,9 +1792,6 @@ describe("start command foreground locking", () => {
       startedAt: "2026-03-17T00:00:00.000Z",
     };
     acquireProjectLock.mockResolvedValue(lock);
-    vi.spyOn(configModule, "writeJsonFile").mockRejectedValueOnce(
-      new Error("disk full")
-    );
     let resolveRun: (() => void) | undefined;
     run.mockImplementation(
       () =>
@@ -1873,9 +1818,6 @@ describe("start command foreground locking", () => {
 
       const url = await waitForHttpUrl(stdout.output);
       expect(url).toMatch(/^http:\/\/localhost:\d+$/);
-      expect(stdout.output()).toContain(
-        "Failed to persist HTTP binding state (http.json): disk full"
-      );
 
       process.emit("SIGINT");
       await startPromise;

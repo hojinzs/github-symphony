@@ -50,7 +50,7 @@ describe("standalone project lifecycle command", () => {
       .mockImplementation(() => true);
 
     await projectCommand(
-      ["start", "--daemon", "--project-dir", projectDir],
+      ["start", "--daemon", "--allow-duplicate", "--project-dir", projectDir],
       baseOptions(configDir)
     );
     await projectCommand(["list"], { ...baseOptions(configDir), json: true });
@@ -68,7 +68,7 @@ describe("standalone project lifecycle command", () => {
       stdout.mock.calls.map(([chunk]) => String(chunk)).join("")
     ).toContain(projectDir);
     expect(startMock).toHaveBeenCalledWith(
-      ["--daemon"],
+      ["--daemon", "--allow-duplicate"],
       expect.objectContaining({ configDir, invocation: "project", projectId })
     );
     expect(statusMock).toHaveBeenCalledWith(

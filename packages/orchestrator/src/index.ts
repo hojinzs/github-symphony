@@ -13,7 +13,9 @@ import {
   getProcessCwd,
   getProcessIdentity,
   getProcessStartIdentity,
+  isProcessRunning,
   releaseProjectLock,
+  resolveProjectLockPath,
   renewProjectLock,
   type ProjectLockHandle,
 } from "./lock.js";
@@ -38,7 +40,9 @@ export {
   getProcessCwd,
   getProcessIdentity,
   getProcessStartIdentity,
+  isProcessRunning,
   releaseProjectLock,
+  resolveProjectLockPath,
   renewProjectLock,
   type ProjectLockHandle,
 };

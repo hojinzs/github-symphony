@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -12,7 +12,6 @@ import * as p from "@clack/prompts";
 import type { GlobalOptions } from "../index.js";
 import {
   daemonPidPath,
-  httpStatusPath,
   orchestratorLogPath,
   writeJsonFile,
 } from "../config.js";
@@ -55,6 +54,12 @@ import {
 } from "../github/gh-auth.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
+import {
+  findLiveDuplicate,
+  registerInstance,
+  unregisterInstance,
+  type InstanceEntry,
+} from "../instances.js";
 
 function timestamp(): string {
   const now = new Date();
@@ -70,6 +75,7 @@ function logLine(icon: string, msg: string): void {
 
 const REPO_START_COMMAND = "gh-symphony repo start";
 const DAEMON_PROJECT_ID_ENV = "GH_SYMPHONY_DAEMON_PROJECT_ID";
+const DAEMON_READY_PATH_ENV = "GH_SYMPHONY_DAEMON_READY_PATH";
 
 type RepoStartAuthPreflightResult =
   | { ok: true; githubAuthSource?: GitHubAuthSource }
@@ -270,21 +276,17 @@ type ForegroundShutdownOptions = {
   httpServer?: Server;
   workerHttpServer?: Server;
   projectLock?: ProjectLockHandle | null;
+  instance?: InstanceEntry | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
-};
-
-type HttpBindingState = {
-  host: string;
-  port: number;
-  endpoint: string;
 };
 
 const DEFAULT_HTTP_PORT = 4680;
 const DEFAULT_HTTP_HOST = "127.0.0.1";
 const BIND_ALL_HTTP_HOST = "0.0.0.0";
 const HTTP_API_TOKEN_ENV = "GH_SYMPHONY_HTTP_TOKEN";
+const DAEMON_LOCK_WAIT_MS = 10_000;
 
 // ── Arg parsing ───────────────────────────────────────────────────────────────
 
@@ -292,6 +294,7 @@ function parseStartArgs(args: string[]): {
   daemon: boolean;
   once: boolean;
   assignedOnly?: boolean;
+  allowDuplicate?: boolean;
   bindAll: boolean;
   httpPort?: number;
   webPort?: number;
@@ -302,6 +305,7 @@ function parseStartArgs(args: string[]): {
     daemon: boolean;
     once: boolean;
     assignedOnly?: boolean;
+    allowDuplicate?: boolean;
     bindAll: boolean;
     httpPort?: number;
     webPort?: number;
@@ -325,6 +329,10 @@ function parseStartArgs(args: string[]): {
     }
     if (arg === "--assigned-only") {
       parsed.assignedOnly = true;
+      continue;
+    }
+    if (arg === "--allow-duplicate") {
+      parsed.allowDuplicate = true;
       continue;
     }
     if (arg === "--bind-all") {
@@ -573,21 +581,6 @@ async function closeHttpServer(server?: Server): Promise<void> {
       resolveClose();
     });
   });
-}
-
-async function writeHttpBindingState(
-  configDir: string,
-  projectId: string,
-  binding: HttpBindingState
-): Promise<void> {
-  await writeJsonFile(httpStatusPath(configDir, projectId), binding);
-}
-
-async function removeHttpBindingState(
-  configDir: string,
-  projectId: string
-): Promise<void> {
-  await rm(httpStatusPath(configDir, projectId), { force: true });
 }
 
 async function startHttpServer(input: {
@@ -925,6 +918,24 @@ const handler = async (
 
   const runtimeRoot = resolveRuntimeRoot(options.configDir);
   const projectId = projectConfig.projectId;
+  const instanceBase = {
+    projectId,
+    repo: `${projectConfig.repository.owner}/${projectConfig.repository.name}`,
+    repoPath: resolve(
+      projectConfig.repositoryDir ?? projectConfig.projectDir ?? process.cwd()
+    ),
+    workspacePath: resolve(projectConfig.workspaceDir ?? process.cwd()),
+    runtimeRoot,
+    standalone: options.invocation === "project",
+  };
+  if (!parsed.allowDuplicate) {
+    const duplicate = await findLiveDuplicate(instanceBase);
+    if (duplicate && resolve(duplicate.runtimeRoot) !== runtimeRoot) {
+      throw new Error(
+        `Project "${projectId}" is already running for ${instanceBase.repoPath} (PID ${duplicate.pid}). Use --allow-duplicate to override.`
+      );
+    }
+  }
   let logLevel: OrchestratorLogLevel;
   const requestedLogLevel =
     parsed.logLevel ??
@@ -961,6 +972,7 @@ const handler = async (
       parsed.webPort,
       parsed.assignedOnly === true,
       parsed.bindAll,
+      parsed.allowDuplicate === true,
       httpApiToken,
       projectConfig.projectDir,
       projectId
@@ -970,12 +982,26 @@ const handler = async (
 
   // ── 5.1: Foreground mode with live logging ────────────────────────────────
   let projectLock: ProjectLockHandle | null = null;
+  let instance: InstanceEntry | null = null;
   try {
     projectLock = await acquireProjectLock({
       runtimeRoot,
       projectId,
     });
-    await removeHttpBindingState(options.configDir, projectId);
+    if (projectLock) {
+      instance = {
+        ...instanceBase,
+        pid: projectLock.pid,
+        startedAt: projectLock.startedAt,
+        heartbeatAt: projectLock.heartbeatAt,
+        processIdentity: projectLock.processIdentity,
+      };
+      await registerInstance(instance);
+      const readyPath = process.env[DAEMON_READY_PATH_ENV];
+      if (readyPath) {
+        await writeFile(readyPath, `${projectLock.pid}\n`, { mode: 0o600 });
+      }
+    }
 
     const store = createStore(runtimeRoot);
     let prevSnapshot: ProjectStatusSnapshot | null = null;
@@ -1053,6 +1079,7 @@ const handler = async (
         httpServer: httpServer?.server,
         workerHttpServer: workerHttpServer?.server,
         projectLock: heldLock,
+        instance,
         service,
       });
       return shutdownPromise;
@@ -1100,21 +1127,9 @@ const handler = async (
             ? workerHttpServer
             : null;
       if (httpServer) {
-        try {
-          await writeHttpBindingState(options.configDir, projectId, {
-            host: httpHost,
-            port: httpServer.port,
-            endpoint: httpServer.url,
-          });
-        } catch (error) {
-          logLine(
-            yellow("\u26A0"),
-            yellow(
-              `Failed to persist HTTP binding state (http.json): ${
-                error instanceof Error ? error.message : "Unknown error"
-              }`
-            )
-          );
+        if (instance) {
+          instance = { ...instance, endpoint: httpServer.url };
+          await registerInstance(instance);
         }
       }
 
@@ -1209,18 +1224,6 @@ const handler = async (
                 }`
               );
             });
-            await removeHttpBindingState(options.configDir, projectId).catch(
-              (removeError) => {
-                logLine(
-                  yellow("\u26A0"),
-                  `Failed to remove HTTP state: ${
-                    removeError instanceof Error
-                      ? removeError.message
-                      : "Unknown error"
-                  }`
-                );
-              }
-            );
             return;
           }
         }
@@ -1234,6 +1237,7 @@ const handler = async (
     }
   } finally {
     await releaseProjectLock(projectLock);
+    if (instance) await unregisterInstance(instance);
   }
 };
 
@@ -1271,21 +1275,23 @@ export async function shutdownForegroundOrchestrator(
   }
 
   try {
-    await removeHttpBindingState(input.configDir, input.projectId);
-  } catch (error) {
-    logLine(
-      yellow("\u26A0"),
-      `Failed to remove HTTP state: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
-  }
-
-  try {
     await (input.releaseLock ?? releaseProjectLock)(input.projectLock);
   } catch (error) {
     logLine(
       yellow("\u26A0"),
       `Failed to release project lock: ${error instanceof Error ? error.message : "Unknown error"}`
     );
+  }
+
+  if (input.instance) {
+    try {
+      await unregisterInstance(input.instance);
+    } catch (error) {
+      logLine(
+        yellow("⚠"),
+        `Failed to unregister instance: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
   }
 
   return (input.exit ?? process.exit)(process.exitCode ?? 0);
@@ -1335,6 +1341,7 @@ async function startDaemon(
   webPort?: number,
   assignedOnly = false,
   bindAll = false,
+  allowDuplicate = false,
   httpApiToken = resolveHttpApiToken(),
   projectDir?: string,
   selectedProjectId?: string
@@ -1344,6 +1351,11 @@ async function startDaemon(
 
   const { closeSync, openSync } = await import("node:fs");
   const logFd = openSync(logPath, "a");
+  const pidPath = daemonPidPath(options.configDir, projectId);
+  const readyPath = join(
+    dirname(pidPath),
+    `.daemon-ready-${randomBytes(12).toString("hex")}`
+  );
 
   const child = spawn(
     process.execPath,
@@ -1352,6 +1364,7 @@ async function startDaemon(
       "repo",
       "start",
       ...(options.verbose ? ["--verbose"] : []),
+      ...(allowDuplicate ? ["--allow-duplicate"] : []),
       ...(assignedOnly ? ["--assigned-only"] : []),
       ...(bindAll ? ["--bind-all"] : []),
       ...(httpPort !== undefined ? ["--http", String(httpPort)] : []),
@@ -1363,6 +1376,7 @@ async function startDaemon(
       env: {
         ...process.env,
         GH_SYMPHONY_CONFIG_DIR: resolve(options.configDir),
+        [DAEMON_READY_PATH_ENV]: readyPath,
         ...(selectedProjectId
           ? { [DAEMON_PROJECT_ID_ENV]: selectedProjectId }
           : {}),
@@ -1373,9 +1387,8 @@ async function startDaemon(
     }
   );
 
-  const pidPath = daemonPidPath(options.configDir, projectId);
   try {
-    await waitForChildSpawn(child);
+    await waitForChildLock(child, readyPath, logPath);
     if (!child.pid) {
       throw new Error("Daemon process started without a PID.");
     }
@@ -1398,6 +1411,7 @@ async function startDaemon(
     }
     throw error;
   } finally {
+    await rm(readyPath, { force: true });
     closeSync(logFd);
   }
 
@@ -1411,21 +1425,58 @@ async function startDaemon(
   }
 }
 
-async function waitForChildSpawn(child: ChildProcess): Promise<void> {
+async function waitForChildLock(
+  child: ChildProcess,
+  readyPath: string,
+  logPath: string
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
-      child.off("spawn", onSpawn);
       child.off("error", onError);
-    };
-    const onSpawn = () => {
-      cleanup();
-      resolve();
+      child.off("exit", onExit);
+      clearInterval(timer);
+      clearTimeout(timeout);
     };
     const onError = (error: Error) => {
       cleanup();
       reject(error);
     };
-    child.once("spawn", onSpawn);
+    const onExit = async (
+      code: number | null,
+      signal: NodeJS.Signals | null
+    ) => {
+      cleanup();
+      const ready = await readFile(readyPath, "utf8").catch(() => "");
+      if (ready.trim() === String(child.pid)) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Daemon exited before acquiring the project lock (code: ${code ?? "none"}, signal: ${signal ?? "none"}). See ${logPath}.`
+        )
+      );
+    };
+    const onTimeout = () => {
+      cleanup();
+      reject(
+        new Error(
+          `Daemon did not acquire the project lock within 10 seconds. See ${logPath} for its startup error.`
+        )
+      );
+    };
+    const timer = setInterval(() => {
+      readFile(readyPath, "utf8")
+        .then((value) => {
+          if (value.trim() === String(child.pid)) {
+            cleanup();
+            resolve();
+          }
+        })
+        .catch(() => undefined);
+    }, 20);
+    const timeout = setTimeout(onTimeout, DAEMON_LOCK_WAIT_MS);
     child.once("error", onError);
+    child.once("exit", onExit);
   });
 }
