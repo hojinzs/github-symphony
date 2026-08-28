@@ -480,12 +480,12 @@ export class OrchestratorService {
             [run.issueSubjectId],
             this.createTrackerDependencies()
           );
-          canonicalItemId =
-            trackerItemId(
-              trackerAdapter,
-              refreshed.find((issue) => issue.id === run.issueSubjectId) ??
-                ({ id: "" } as TrackedIssue)
-            ) ?? "";
+          const refreshedSubject = refreshed.find(
+            (issue) => issue.id === run.issueSubjectId
+          );
+          canonicalItemId = refreshedSubject
+            ? (trackerItemId(trackerAdapter, refreshedSubject) ?? "")
+            : "";
           if (!canonicalItemId) {
             const result = rejected("canonical_tracker_item_missing");
             await this.runSerialized(() =>
@@ -798,12 +798,12 @@ export class OrchestratorService {
           [run.issueSubjectId],
           trackerDependencies
         );
-        canonicalItemId =
-          trackerItemId(
-            trackerAdapter,
-            refreshed.find((issue) => issue.id === run.issueSubjectId) ??
-              ({ id: "" } as TrackedIssue)
-          ) ?? "";
+        const refreshedSubject = refreshed.find(
+          (issue) => issue.id === run.issueSubjectId
+        );
+        canonicalItemId = refreshedSubject
+          ? (trackerItemId(trackerAdapter, refreshedSubject) ?? "")
+          : "";
       }
       if (!canonicalItemId) {
         return { confirmed: false, state: null };

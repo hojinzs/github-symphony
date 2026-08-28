@@ -500,18 +500,11 @@ export function normalizeProjectItem(
       sourceState: item.content.state ?? null,
       linkedPullRequests,
       linkedPullRequestsTruncated,
-      projectFieldValues: fieldValues,
     } as TrackedIssue["nativeRef"],
     contentType: "Issue",
     linkedPullRequests,
     isArchived,
-    metadata: withIssueMetadata(
-      fieldValues,
-      item.content.state ?? null,
-      linkedPullRequests,
-      linkedPullRequestsTruncated,
-      isArchived
-    ),
+    metadata: {},
     rateLimits,
   };
 }
@@ -562,18 +555,12 @@ function normalizePullRequestProjectItem(
       contentType: "PullRequest",
       pullRequest,
       linkedPullRequests: [],
-      projectFieldValues: fieldValues,
     } as TrackedIssue["nativeRef"],
     contentType: "PullRequest",
     linkedPullRequests: [],
     pullRequest,
     isArchived: item.isArchived === true,
-    metadata: withGitHubMetadata(fieldValues, {
-      contentType: "PullRequest",
-      pullRequest,
-      linkedPullRequests: [],
-      isArchived: item.isArchived === true,
-    }),
+    metadata: {},
     rateLimits,
   };
 }
