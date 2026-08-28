@@ -180,7 +180,6 @@ function parseWorkflowMarkdownInternal(
       explicitProviderKeys,
       "blocker_check_states"
     ) ??
-    defaultLifecycle?.blockerCheckStates ??
     (activeStates[0] ? [activeStates[0]] : []);
   const planningStates =
     readNormalizedStringList(
@@ -625,7 +624,7 @@ function parseLegacyWorkflowMarkdown(markdown: string): ParsedWorkflow {
       activeStates: DEFAULT_WORKFLOW_LIFECYCLE.activeStates,
       terminalStates: DEFAULT_WORKFLOW_LIFECYCLE.terminalStates,
       stateFieldName: DEFAULT_WORKFLOW_LIFECYCLE.stateFieldName,
-      blockerCheckStates: DEFAULT_WORKFLOW_LIFECYCLE.blockerCheckStates,
+      blockerCheckStates: [DEFAULT_WORKFLOW_LIFECYCLE.activeStates[0]!],
       planningStates: DEFAULT_WORKFLOW_LIFECYCLE.planningStates,
     },
     lifecycle: DEFAULT_WORKFLOW_LIFECYCLE,

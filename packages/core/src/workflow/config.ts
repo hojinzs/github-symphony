@@ -229,7 +229,6 @@ export const DEFAULT_WORKFLOW_DEFINITION: ParsedWorkflow = {
     stateFieldName: "",
     activeStates: [],
     terminalStates: [],
-    blockerCheckStates: [],
     planningStates: [],
   },
   format: "default",
