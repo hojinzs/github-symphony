@@ -564,9 +564,11 @@ async function startAssignedRun() {
     });
     runtimeState.runPhase = "launching_agent";
     if (shouldWarnAboutBrokerlessTrackerCredential(launcherEnv)) {
-      process.stderr.write(
-        "[warn] tracker credential is passed to the coding-agent child; configure the token broker or wait for #700\n"
-      );
+      const warning =
+        launcherEnv.SYMPHONY_TRACKER_KIND === "linear"
+          ? "[warn] linear tracker credential is passed to the coding-agent child; no Linear broker exists yet — removed in #700\n"
+          : "[warn] github tracker credential is passed to the coding-agent child; configure the token broker or wait for #700\n";
+      process.stderr.write(warning);
     }
 
     if (route === "runtime-adapter") {
@@ -1605,7 +1607,8 @@ async function runCodexClientProtocol(
   child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
     if (
       !shouldFailOnCodexChildExit({
-        terminationRequested: terminationRequested || workerTerminationRequested,
+        terminationRequested:
+          terminationRequested || workerTerminationRequested,
         runPhase: runtimeState.runPhase,
       })
     ) {
