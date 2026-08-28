@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -200,13 +200,20 @@ tracker:
 agent:
   max_concurrent_agents: 2
 codex:
-  command: codex app-server
+  command: $SYMPHONY_REPO_EXPLAIN_COMMAND
 ---
 Follow the issue instructions.
 `,
       "utf8"
     );
     await seedRepoRuntime(configDir, workflowPath);
+    const projectDir = join(configDir, "projects", "repository");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      join(projectDir, ".env"),
+      "SYMPHONY_REPO_EXPLAIN_COMMAND=codex app-server\n",
+      "utf8"
+    );
     vi.spyOn(ghAuth, "getGhToken").mockReturnValue("gho_test");
     vi.stubGlobal("fetch", vi.fn(mockProjectItemsFetch));
 

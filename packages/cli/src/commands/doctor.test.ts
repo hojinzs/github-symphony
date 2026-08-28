@@ -449,7 +449,12 @@ describe("runDoctorDiagnostics", () => {
     const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
     await writeFile(
       projectWorkflowPath,
-      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nStandalone prompt\n",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: $SYMPHONY_DOCTOR_COMMAND\n---\nStandalone prompt\n",
+      "utf8"
+    );
+    await writeFile(
+      join(projectDir, ".env"),
+      "SYMPHONY_DOCTOR_COMMAND=fake-agent\n",
       "utf8"
     );
     const emptyCwd = await mkdtemp(join(tmpdir(), "doctor-cwd-"));

@@ -32,7 +32,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown, readEnvFile } from "@gh-symphony/core";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -54,6 +54,7 @@ import {
   runGhAuthLogin,
   runGhAuthRefresh,
 } from "../github/gh-auth.js";
+import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 import {
@@ -217,15 +218,11 @@ async function preflightWorkflowStart(
     return true;
   }
 
-  const projectDirectory =
-    projectConfig.projectDir ??
-    join(runtimeRoot, "projects", projectConfig.projectId);
-  const environment = {
-    ...readEnvFile(join(projectDirectory, ".env")),
-    ...process.env,
-  };
-
   try {
+    const environment = resolveManagedProjectEnvironment(
+      projectConfig,
+      runtimeRoot
+    );
     parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
     });
