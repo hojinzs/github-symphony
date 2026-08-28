@@ -1306,11 +1306,12 @@ export class OrchestratorService {
         );
       }
       const canonicalIssues = resolveCanonicalSubjectIssues(issues);
-      const terminalCandidateIssues = issueIdentifier
+      const terminalCandidateIssues = (issueIdentifier
         ? canonicalIssues.filter((issue) =>
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
-        : canonicalIssues;
+        : canonicalIssues
+      ).filter((issue) => issue.dispatchable);
       const terminalCandidateReconciliation =
         await this.reconcileTerminalCandidates(
           tenant,
@@ -1465,11 +1466,12 @@ export class OrchestratorService {
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
         : trackedActionableIssues;
-      const targetedIssues = issueIdentifier
+      const targetedIssues = (issueIdentifier
         ? canonicalIssues.filter((issue: TrackedIssue) =>
             matchesTargetIssueIdentifier(issue, issueIdentifier)
           )
-        : canonicalIssues;
+        : canonicalIssues
+      ).filter((issue) => issue.dispatchable);
       const advisoryRateLimits =
         await this.publishLinkedPullRequestActiveAdvisories(
           tenant,
