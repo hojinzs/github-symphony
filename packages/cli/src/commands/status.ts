@@ -213,6 +213,25 @@ function renderLegacyStatus(
     lines.push("");
   }
 
+  const idleLegacyWorkspaces = (snapshot.issueWorkspaces ?? []).filter(
+    (workspace) =>
+      workspace.status === "active" &&
+      workspace.workspaceKey === deriveLegacyWorkspaceKey(workspace.issueIdentifier) &&
+      workspace.workspaceKey !== workspace.issueIdentifier &&
+      !snapshot.activeRuns.some(
+        (run) => run.issueWorkspaceKey === workspace.workspaceKey
+      )
+  );
+  if (idleLegacyWorkspaces.length > 0) {
+    lines.push("  Legacy Workspaces:");
+    for (const workspace of idleLegacyWorkspaces) {
+      lines.push(
+        `    ${workspace.issueIdentifier}  Workspace key: legacy (${workspace.workspaceKey})`
+      );
+    }
+    lines.push("");
+  }
+
   // Retry queue
   if (snapshot.retryQueue.length > 0) {
     lines.push("  Retry Queue:");

@@ -9361,10 +9361,12 @@ Prefer focused changes.
     expect(
       (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
     ).toMatchObject({ state: "retry_queued", failureRetryCount: 1 });
-    const events = (await readFile(
-      join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
-      "utf8"
-    ))
+    const events = (
+      await readFile(
+        join(store.runDir("run-1", "tenant-1"), "events.ndjson"),
+        "utf8"
+      )
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -14138,6 +14140,53 @@ Workspace prompt.
         }),
       ])
     );
+  });
+
+  it("does not adopt a colliding legacy workspace owned by another issue", async () => {
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-legacy-workspace-collision-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    await store.saveIssueWorkspace({
+      workspaceKey: "a_b",
+      projectId: projectConfig.projectId,
+      adapter: "github-project",
+      issueSubjectId: "issue-a-space-b",
+      issueIdentifier: "a b",
+      workspacePath: join(tempRoot, "a_b"),
+      repositoryPath: join(tempRoot, "a_b", "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    const service = new OrchestratorService(store, projectConfig);
+    const loadWorkspaceForIssue = (
+      service as unknown as {
+        loadWorkspaceForIssue(
+          projectId: string,
+          adapter: "github-project",
+          issueSubjectId: string,
+          issueIdentifier: string
+        ): Promise<unknown>;
+      }
+    ).loadWorkspaceForIssue.bind(service);
+
+    await expect(
+      loadWorkspaceForIssue(
+        projectConfig.projectId,
+        "github-project",
+        "issue-a-slash-b",
+        "a/b"
+      )
+    ).resolves.toBeNull();
   });
 
   it("loads a configured repo workflow and warns when it shadows the repository workflow", async () => {
