@@ -2768,6 +2768,7 @@ describe("OrchestratorService", () => {
                     __typename: "Issue",
                     id: "issue-1",
                     number: 1,
+                    body: null,
                     updatedAt: "2026-03-08T00:00:00.000Z",
                     repository: {
                       name: repository.name,
@@ -7064,9 +7065,20 @@ Prefer focused changes.
     });
     let now = new Date("2026-03-08T00:00:00.000Z");
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValue(createTrackerResponseWithState(repository, "Ready")),
+      fetchImpl: vi.fn(async (_url, init) => {
+        const query = JSON.parse(String(init?.body)).query as string;
+        if (query.includes("query IssueStatesByIds")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                nodes: [makeTrackerIssueStateLookupNode(repository, "Ready")],
+              },
+            }),
+            { headers: { "content-type": "application/json" } }
+          );
+        }
+        return createTrackerResponseWithState(repository, "Ready") as Response;
+      }) as never,
       spawnImpl: spawnImpl as never,
       now: () => now,
     });
@@ -15870,6 +15882,7 @@ function makeTrackerIssueStateLookupNode(
     id: "issue-1",
     number: 1,
     title: "Test issue",
+    body: null,
     url: `https://example.test/${repository.owner}/${repository.name}/issues/1`,
     createdAt: "2026-03-08T00:00:00.000Z",
     updatedAt: "2026-03-08T00:00:00.000Z",
