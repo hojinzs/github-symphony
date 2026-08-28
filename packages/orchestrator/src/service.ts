@@ -4875,7 +4875,10 @@ export class OrchestratorService {
       updatedAt: now.toISOString(),
       completedAt: suppressed ? now.toISOString() : null,
       nextRetryAt: dueAt,
-      retryKind: suppressed ? null : "failure",
+      // Requeueing only postpones a due retry; it must not discard the
+      // recovery context that snapshot consumers use to expose dirty-workspace
+      // recovery details.
+      retryKind: suppressed ? null : (run.retryKind ?? "failure"),
       lastError,
     });
     return {

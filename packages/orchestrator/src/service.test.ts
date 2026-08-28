@@ -666,6 +666,89 @@ describe("OrchestratorService", () => {
     expect(spawnImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves recovery kind when postponing a due retry", async () => {
+    const now = new Date("2026-03-08T00:00:00.000Z");
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-requeue-kind-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    const run = {
+      runId: "run-recovery",
+      projectId: "tenant-1",
+      projectSlug: "tenant-1",
+      issueId: "retry-issue",
+      issueSubjectId: "retry-issue",
+      issueIdentifier: "acme/platform#1",
+      issueState: "Todo",
+      repository,
+      status: "retrying",
+      attempt: 2,
+      processId: null,
+      port: 4601,
+      workingDirectory: tempRoot,
+      issueWorkspaceKey: "retry-issue",
+      workspaceRuntimeDir: tempRoot,
+      workflowPath: null,
+      retryKind: "recovery",
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      startedAt: now.toISOString(),
+      completedAt: null,
+      lastError: "worker failed",
+      nextRetryAt: now.toISOString(),
+    } as OrchestratorRunRecord;
+    const issueRecords: IssueOrchestrationRecord[] = [
+      {
+        issueId: run.issueId,
+        identifier: run.issueIdentifier,
+        workspaceKey: run.issueWorkspaceKey,
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: run.runId,
+        retryEntry: {
+          attempt: run.attempt,
+          dueAt: now.toISOString(),
+          error: run.lastError,
+        },
+        updatedAt: now.toISOString(),
+      },
+    ];
+    const service = new OrchestratorService(store, projectConfig, {
+      now: () => now,
+    });
+    const requeueRetryingRun = (
+      service as unknown as {
+        requeueRetryingRun: (
+          tenant: OrchestratorProjectConfig,
+          retryRun: OrchestratorRunRecord,
+          records: IssueOrchestrationRecord[],
+          currentTime: Date,
+          error: string
+        ) => Promise<unknown>;
+      }
+    ).requeueRetryingRun.bind(service);
+
+    await requeueRetryingRun(
+      projectConfig,
+      run,
+      issueRecords,
+      now,
+      "retry refresh failed"
+    );
+
+    expect(await store.loadRun(run.runId)).toMatchObject({
+      status: "retrying",
+      retryKind: "recovery",
+    });
+  });
+
   it("suppresses an exhausted restart failure and dispatches healthy candidates", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
@@ -5293,6 +5376,7 @@ Prefer focused changes.
         branchName: null,
         url: "https://github.com/acme/platform/issues/1",
         labels: [],
+        dispatchable: true,
         blockedBy: [],
         createdAt: "2026-03-08T00:00:00.000Z",
         updatedAt: "2026-03-08T00:00:00.000Z",
@@ -5358,6 +5442,7 @@ Prefer focused changes.
     expect(await store.loadRun("run-1")).toMatchObject({
       status: "retrying",
       attempt: 2,
+      retryKind: "failure",
       lastError: "no available orchestrator slots",
     });
     expect(
