@@ -81,6 +81,7 @@ describe("buildCodexRuntimePlan", () => {
     const plan = buildCodexRuntimePlan({
       projectId: "workspace-123",
       workingDirectory: "/tmp/workspace-123",
+      githubToken: "raw-github-token",
       githubTokenBrokerUrl:
         "https://broker.example/api/workspaces/workspace-123/runtime-credentials",
       githubTokenBrokerSecret: "runtime-secret",
@@ -106,6 +107,10 @@ describe("buildCodexRuntimePlan", () => {
     expect(plan.env.WORKER_PROFILE).toBe("test");
     expect(plan.env.OPENAI_API_KEY).toBe("sk-ready-runtime");
     expect(plan.env.CODEX_HOME).toBeUndefined();
+    expect(plan.env.GITHUB_GRAPHQL_TOKEN).toBeUndefined();
+    expect(plan.env.GITHUB_TOKEN).toBeUndefined();
+    expect(plan.env.GH_TOKEN).toBeUndefined();
+    expect(plan.tools[0]?.env.GITHUB_GRAPHQL_TOKEN).toBe("raw-github-token");
   });
 
   it("preserves CODEX_HOME when explicitly provided by the environment", () => {

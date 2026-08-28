@@ -34,6 +34,17 @@ The host is the worker/orchestrator side of the Symphony runtime boundary; the
 coding-agent runtime is the untrusted child side. Adapter credentials remain
 available only to the host process or a host-owned broker.
 
+### Implementation sequencing
+
+Phase 1 is delivered in two parts. Phase 1a (#672) adds adapter secret
+metadata, removes raw GitHub tracker tokens from Codex and Claude coding-agent
+children, and prevents Claude `mcp.json` from storing literal tracker tokens.
+It deliberately preserves the GitHub broker credentials needed by the existing
+`github_graphql` tool and Git workflow. Linear has no broker, so its raw
+credential remains a documented temporary Phase 1a divergence even though the
+Linear adapter declares it as secret metadata. Phase 1b (#700) completes the
+child-boundary isolation alongside #673's host-owned transport release.
+
 ### Phase 1 — remove tracker secrets from the child boundary (#672)
 
 Every tracker adapter will declare `secretEnvironmentNames()`. The declaration

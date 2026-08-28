@@ -1000,6 +1000,12 @@ describe("resolveTrackerAdapter", () => {
     expect(adapter.listIssues).toBeTypeOf("function");
     expect(adapter.listIssuesByStates).toBeTypeOf("function");
     expect(adapter.fetchIssueStatesByIds).toBeTypeOf("function");
+    expect(adapter.secretEnvironmentNames()).toEqual([
+      "GH_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_TOKEN",
+      "GITHUB_GRAPHQL_TOKEN",
+    ]);
     expect(adapter.buildWorkerEnvironment).toBeTypeOf("function");
     expect(adapter.reviveIssue).toBeTypeOf("function");
   });

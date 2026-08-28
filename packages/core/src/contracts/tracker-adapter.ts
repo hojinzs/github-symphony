@@ -228,6 +228,8 @@ export type OrchestratorTrackerAdapter = {
   ) => WorkflowValidationError[];
   /** Supplies lifecycle defaults when a workflow intentionally omits them. */
   defaultLifecycle?: () => WorkflowLifecycleConfig;
+  /** Names whose values authenticate this tracker and must not reach agents. */
+  secretEnvironmentNames(): string[];
   listIssues(
     project: OrchestratorProjectConfig,
     dependencies?: OrchestratorTrackerDependencies

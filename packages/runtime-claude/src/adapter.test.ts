@@ -315,7 +315,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
       messages: [],
     });
 
-    expect(calls[0]?.GITHUB_TOKEN).toBe("from-process-env");
+    expect(calls[0]?.GITHUB_TOKEN).toBeUndefined();
   });
 
   it("uses configured args and strict mcp isolation for spawned argv", async () => {
@@ -502,7 +502,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
     ).toBeUndefined();
   });
 
-  it("can opt in to inheriting host MCP credentials during prepare", async () => {
+  it("never writes inherited GitHub credentials into the MCP config", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "host-token";
     const workspaceRoot = await mkdtemp(join(tmpdir(), "claude-adapter-"));
     const runtimeRoot = join(workspaceRoot, "runtime");
@@ -516,7 +516,7 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.prepare({ runId: "run-1" });
 
-    expect(await readFile(join(runtimeRoot, "mcp.json"), "utf8")).toContain(
+    expect(await readFile(join(runtimeRoot, "mcp.json"), "utf8")).not.toContain(
       "host-token"
     );
   });
@@ -579,12 +579,12 @@ describe("ClaudePrintRuntimeAdapter", () => {
 
     await adapter.prepare({ runId: "run-1" });
     const mcpConfigPath = join(runtimeRoot, "mcp.json");
-    expect(await readFile(mcpConfigPath, "utf8")).toContain("first-token");
+    expect(await readFile(mcpConfigPath, "utf8")).not.toContain("first-token");
 
     env.GITHUB_GRAPHQL_TOKEN = "second-token";
     await adapter.prepare({ runId: "run-2" });
     const replacedConfig = await readFile(mcpConfigPath, "utf8");
-    expect(replacedConfig).toContain("second-token");
+    expect(replacedConfig).not.toContain("second-token");
     expect(replacedConfig).not.toContain("first-token");
 
     await adapter.shutdown();

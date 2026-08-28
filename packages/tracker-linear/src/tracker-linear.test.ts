@@ -1052,11 +1052,15 @@ describe("linearTrackerAdapter", () => {
     expect(env).not.toHaveProperty("LINEAR_TEAM_ID");
   });
 
+  it("declares Linear credential environment names", () => {
+    expect(linearTrackerAdapter.secretEnvironmentNames()).toEqual([
+      "LINEAR_API_KEY",
+      "LINEAR_AUTHORIZATION",
+    ]);
+  });
+
   it("derives assignedOnly eligibility through the normalizer options object", () => {
-    const issue = normalizeLinearIssue(
-      makeProject(),
-      "project-slug",
-      {
+    const issue = normalizeLinearIssue(makeProject(), "project-slug", {
         id: "issue-1",
         identifier: "eng-123",
         state: { name: "Todo" },

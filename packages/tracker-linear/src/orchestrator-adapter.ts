@@ -195,6 +195,10 @@ const LINEAR_ISSUES_BY_IDENTIFIERS_QUERY = /* GraphQL */ `
 `;
 
 export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
+  secretEnvironmentNames() {
+    return ["LINEAR_API_KEY", "LINEAR_AUTHORIZATION"];
+  },
+
   async listIssues(project, dependencies = {}) {
     const issues = await listLinearIssues(
       project,

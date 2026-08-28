@@ -29,6 +29,13 @@ const DIRECT_AGENT_ENV_KEYS = [
   "OPENAI_PROJECT",
 ] as const;
 
+const GITHUB_TRACKER_SECRET_ENVIRONMENT_NAMES = [
+  "GH_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_TOKEN",
+  "GITHUB_GRAPHQL_TOKEN",
+] as const;
+
 export type RuntimeToolDefinition = {
   name: string;
   description: string;
@@ -623,7 +630,7 @@ export function buildCodexRuntimePlan(
         LINEAR_AUTHORIZATION: undefined,
       };
 
-  return {
+  const plan = {
     cwd: config.workingDirectory,
     command: agentCommand.command,
     args: agentCommand.args,
@@ -646,6 +653,14 @@ export function buildCodexRuntimePlan(
     },
     tools,
   };
+
+  // Built-in MCP tools receive their own tool environment. Do not copy raw
+  // GitHub credentials into the coding-agent environment while composing it.
+  for (const name of GITHUB_TRACKER_SECRET_ENVIRONMENT_NAMES) {
+    delete plan.env[name];
+  }
+
+  return plan;
 }
 
 export function launchCodexAppServer(

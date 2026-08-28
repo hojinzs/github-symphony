@@ -567,11 +567,13 @@ function buildClaudeSpawnEnv(options: {
   inputEnv?: NodeJS.ProcessEnv;
 }): NodeJS.ProcessEnv {
   if (options.inheritProcessEnv) {
-    return {
+    const env = {
       ...process.env,
       ...options.configEnv,
       ...options.inputEnv,
     };
+    stripGitHubTrackerSecrets(env);
+    return env;
   }
 
   const env: NodeJS.ProcessEnv = {};
@@ -584,8 +586,16 @@ function buildClaudeSpawnEnv(options: {
   }
 
   Object.assign(env, options.configEnv, options.inputEnv);
+  stripGitHubTrackerSecrets(env);
 
   return env;
+}
+
+function stripGitHubTrackerSecrets(env: NodeJS.ProcessEnv): void {
+  delete env.GH_TOKEN;
+  delete env.GH_ENTERPRISE_TOKEN;
+  delete env.GITHUB_TOKEN;
+  delete env.GITHUB_GRAPHQL_TOKEN;
 }
 
 type PreparedClaudeSession = {
@@ -684,7 +694,6 @@ function buildClaudeMcpTokenEnvironment(options: {
       };
 
   return {
-    GITHUB_GRAPHQL_TOKEN: source.GITHUB_GRAPHQL_TOKEN,
     GITHUB_GRAPHQL_API_URL: source.GITHUB_GRAPHQL_API_URL,
     GITHUB_TOKEN_BROKER_URL: source.GITHUB_TOKEN_BROKER_URL,
     GITHUB_TOKEN_BROKER_SECRET: source.GITHUB_TOKEN_BROKER_SECRET,
