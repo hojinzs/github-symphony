@@ -35,6 +35,7 @@ export type HookExecutionOptions = {
 };
 
 const DEFAULT_HOOK_TIMEOUT_MS = 60_000;
+export const MAX_HOOK_OUTPUT_BYTES = 4 * 1024;
 
 export async function executeHook(
   options: HookExecutionOptions
@@ -62,9 +63,20 @@ export async function executeHook(
       stdio: "pipe",
     });
 
-    const stderrChunks: Buffer[] = [];
+    // Drain both pipes so a verbose hook cannot block on the OS pipe buffer.
+    // Retain only the bounded diagnostic suffix used by the orchestrator.
+    let stderr = "";
+    const appendOutput = (current: string, chunk: Buffer): string => {
+      const combined = current + chunk.toString("utf8");
+      return combined.length > MAX_HOOK_OUTPUT_BYTES
+        ? combined.slice(-MAX_HOOK_OUTPUT_BYTES)
+        : combined;
+    };
+    child.stdout?.on("data", () => {
+      // Output is deliberately discarded after draining.
+    });
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
+      stderr = appendOutput(stderr, chunk);
     });
 
     if (timeoutMs > 0) {
@@ -87,7 +99,7 @@ export async function executeHook(
         clearTimeout(timer);
       }
       const durationMs = Date.now() - start;
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+      const errorOutput = stderr.trim();
 
       if (timedOut) {
         resolveResult({
@@ -106,7 +118,7 @@ export async function executeHook(
           outcome: "failure",
           exitCode: code,
           durationMs,
-          error: stderr || `Hook "${kind}" exited with code ${code}`,
+          error: errorOutput || `Hook "${kind}" exited with code ${code}`,
         });
         return;
       }
@@ -253,9 +265,7 @@ export function buildHookExecutionEnv(
   return Object.fromEntries(
     Object.entries(env).filter(([key]) => {
       return (
-        allowed.has(key) ||
-        key.startsWith("SYMPHONY_") ||
-        key.startsWith("LC_")
+        allowed.has(key) || key.startsWith("SYMPHONY_") || key.startsWith("LC_")
       );
     })
   );
@@ -263,7 +273,9 @@ export function buildHookExecutionEnv(
 
 function resolveHookCommandSpawn(
   command: string
-): { ok: true; command: string; args: string[] } | { ok: false; error: string } {
+):
+  | { ok: true; command: string; args: string[] }
+  | { ok: false; error: string } {
   const trimmed = command.trim();
   if (!trimmed) {
     return { ok: false, error: "Hook command is empty." };
