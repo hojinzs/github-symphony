@@ -200,15 +200,11 @@ export async function removeIssueWorkspaceWorktree(input: {
   projectSlug: string;
   issueIdentifier: string;
   branchTemplate?: string | null;
+  onBranchCleanup?: (result: AgentBranchCleanupResult) => void;
 }): Promise<void> {
   if (await isDirectory(join(input.repositoryDirectory, ".git"))) {
     return;
   }
-  const branch = renderIssueBranchName({
-    template: input.branchTemplate,
-    projectSlug: input.projectSlug,
-    issueIdentifier: input.issueIdentifier,
-  });
   await withGlobalBareRepositoryCache(
     { repository: input.repository },
     async (bare) => {
@@ -222,12 +218,133 @@ export async function removeIssueWorkspaceWorktree(input: {
           input.repositoryDirectory,
         ])
       );
-      await ignoreMissingBranch(
-        runGitCommand(["-C", bare, "branch", "-D", branch])
-      );
       await runGitCommand(["-C", bare, "worktree", "prune"]);
+      for (const result of await pruneReachableAgentBranches(bare)) {
+        input.onBranchCleanup?.(result);
+      }
     }
   );
+}
+
+export type AgentBranchCleanupResult = {
+  branch: string;
+  outcome: "deleted" | "retained";
+  reason: "linked-worktree" | "unreachable-from-origin" | null;
+};
+
+/**
+ * Removes cache-local agent branches only after their complete history is
+ * already retained by an origin tracking ref. The bare cache is shared, so a
+ * branch with an unpushed tip must remain available for recovery indefinitely.
+ */
+async function pruneReachableAgentBranches(
+  bareDirectory: string
+): Promise<AgentBranchCleanupResult[]> {
+  const [branches, linkedBranches, originRefs] = await Promise.all([
+    listGitRefs(bareDirectory, "refs/heads/"),
+    listLinkedWorktreeBranches(bareDirectory),
+    listGitRefs(bareDirectory, "refs/remotes/origin/"),
+  ]);
+  const results: AgentBranchCleanupResult[] = [];
+
+  for (const branch of branches.filter(isCacheAgentBranch)) {
+    if (linkedBranches.has(branch)) {
+      results.push({
+        branch,
+        outcome: "retained",
+        reason: "linked-worktree",
+      });
+      continue;
+    }
+    const reachable = await isReachableFromAnyOriginRef(
+      bareDirectory,
+      branch,
+      originRefs
+    );
+    if (!reachable) {
+      results.push({
+        branch,
+        outcome: "retained",
+        reason: "unreachable-from-origin",
+      });
+      continue;
+    }
+    // `branch -D` can discard commits; `branch -d` checks against the bare
+    // repository's HEAD rather than the origin refs we intentionally use as
+    // the durability proof. Delete the exact ref only after that proof.
+    await runGitCommand([
+      "-C",
+      bareDirectory,
+      "update-ref",
+      "-d",
+      `refs/heads/${branch}`,
+    ]);
+    results.push({ branch, outcome: "deleted", reason: null });
+  }
+  return results;
+}
+
+function isCacheAgentBranch(branch: string): boolean {
+  return branch.startsWith("feat/") || branch.startsWith("symphony/");
+}
+
+async function listGitRefs(
+  bareDirectory: string,
+  prefix: string
+): Promise<string[]> {
+  const output = await runGitCommandCapture([
+    "-C",
+    bareDirectory,
+    "for-each-ref",
+    "--format=%(refname)",
+    prefix,
+  ]);
+  return output
+    .split("\n")
+    .map((ref) => ref.trim())
+    .filter(Boolean)
+    .map((ref) => ref.slice(prefix.length));
+}
+
+async function listLinkedWorktreeBranches(
+  bareDirectory: string
+): Promise<Set<string>> {
+  const output = await runGitCommandCapture([
+    "-C",
+    bareDirectory,
+    "worktree",
+    "list",
+    "--porcelain",
+  ]);
+  return new Set(
+    output
+      .split("\n")
+      .filter((line) => line.startsWith("branch refs/heads/"))
+      .map((line) => line.slice("branch refs/heads/".length))
+  );
+}
+
+async function isReachableFromAnyOriginRef(
+  bareDirectory: string,
+  branch: string,
+  originRefs: string[]
+): Promise<boolean> {
+  for (const originRef of originRefs) {
+    try {
+      await runGitCommand([
+        "-C",
+        bareDirectory,
+        "merge-base",
+        "--is-ancestor",
+        `refs/heads/${branch}`,
+        `refs/remotes/origin/${originRef}`,
+      ]);
+      return true;
+    } catch {
+      // Try each origin ref: a non-zero exit means the branch tip is absent.
+    }
+  }
+  return false;
 }
 
 async function ensureIssueWorkspaceWorktree(input: {
@@ -349,16 +466,6 @@ async function ignoreMissingWorktree(command: Promise<void>): Promise<void> {
     await command;
   } catch (error) {
     if (!hasGitError(error, "is not a working tree")) {
-      throw error;
-    }
-  }
-}
-
-async function ignoreMissingBranch(command: Promise<void>): Promise<void> {
-  try {
-    await command;
-  } catch (error) {
-    if (!hasGitError(error, "not found")) {
       throw error;
     }
   }

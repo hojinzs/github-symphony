@@ -901,11 +901,16 @@ describe("worktree-cache issue workspaces", () => {
     execSync(
       `git -C "${repositoryDirectory}" checkout -b symphony/issue-1-agent-work`
     );
+    await writeFile(join(repositoryDirectory, "unpushed.txt"), "keep\n");
+    execSync(`git -C "${repositoryDirectory}" add unpushed.txt`);
+    execSync(`git -C "${repositoryDirectory}" commit -m "Keep unpushed work"`);
+    const cleanupResults: unknown[] = [];
     await removeIssueWorkspaceWorktree({
       repository,
       repositoryDirectory,
       projectSlug: "project-one",
       issueIdentifier: "acme/platform#1",
+      onBranchCleanup: (result) => cleanupResults.push(result),
     });
     await expect(access(repositoryDirectory)).rejects.toMatchObject({
       code: "ENOENT",
@@ -925,6 +930,11 @@ describe("worktree-cache issue workspaces", () => {
         { encoding: "utf8" }
       )
     ).toContain("refs/heads/symphony/issue-1-agent-work");
+    expect(cleanupResults).toContainEqual({
+      branch: "symphony/issue-1-agent-work",
+      outcome: "retained",
+      reason: "unreachable-from-origin",
+    });
     await expect(
       ensureIssueWorkspaceRepository({
         repository,
@@ -937,6 +947,66 @@ describe("worktree-cache issue workspaces", () => {
     ).resolves.toBe(
       join(tempRoot, "workspaces", "issue-1-revived", "repository")
     );
+  });
+
+  it("collects pushed agent branches but retains branches linked to another worktree", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "orchestrator-worktree-"));
+    const repository = await createRepositoryFixture(tempRoot);
+    const firstDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "first"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#12",
+    });
+    const secondDirectory = await ensureIssueWorkspaceRepository({
+      repository,
+      issueWorkspacePath: join(tempRoot, "workspaces", "second"),
+      existingWorkspace: false,
+      populateStrategy: "worktree-cache",
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#13",
+    });
+
+    execSync(`git -C "${firstDirectory}" checkout -b feat/592-pushed`);
+    await writeFile(join(firstDirectory, "pushed.txt"), "pushed\n");
+    execSync(`git -C "${firstDirectory}" add pushed.txt`);
+    execSync(`git -C "${firstDirectory}" commit -m "Add pushed work"`);
+    execSync(`git -C "${firstDirectory}" push origin feat/592-pushed`);
+    execSync(`git -C "${secondDirectory}" checkout -b symphony/issue-active`);
+
+    const cleanupResults: unknown[] = [];
+    await removeIssueWorkspaceWorktree({
+      repository,
+      repositoryDirectory: firstDirectory,
+      projectSlug: "project-one",
+      issueIdentifier: "acme/platform#12",
+      onBranchCleanup: (result) => cleanupResults.push(result),
+    });
+
+    const bareDirectory = globalBareRepositoryDirectory({ repository });
+    expect(() =>
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/feat/592-pushed`
+      )
+    ).toThrow();
+    expect(
+      execSync(
+        `git -C "${bareDirectory}" show-ref --verify refs/heads/symphony/issue-active`,
+        { encoding: "utf8" }
+      )
+    ).toContain("refs/heads/symphony/issue-active");
+    expect(cleanupResults).toContainEqual({
+      branch: "feat/592-pushed",
+      outcome: "deleted",
+      reason: null,
+    });
+    expect(cleanupResults).toContainEqual({
+      branch: "symphony/issue-active",
+      outcome: "retained",
+      reason: "linked-worktree",
+    });
   });
 
   it("requires a project-scoped identity for fresh worktree population", async () => {

@@ -5437,6 +5437,15 @@ export class OrchestratorService {
           branchTemplate: repositoryExtension
             ? readOptionalStringValue(repositoryExtension.branch_template)
             : null,
+          onBranchCleanup: (result) => {
+            this.writeStderr(
+              `${JSON.stringify({
+                event: "cache-agent-branch-cleanup",
+                issueIdentifier: issue.identifier,
+                ...result,
+              })}\n`
+            );
+          },
         });
       } catch (error) {
         const removalError = this.formatErrorMessage(error);
