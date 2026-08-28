@@ -751,7 +751,7 @@ tick; dispatch events also include `workflowRevision`.
 
 The generated file includes:
 
-- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state (`Todo` with built-in defaults); an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
+- **Lifecycle**: `active_states`, `terminal_states`, explicit `blocker_check_states`, and `planning_states` derived from the status column mapping. Lifecycle state names are matched case-insensitively after trimming. Missing blocker configuration defaults to the first active state; an explicit `blocker_check_states: []` disables blocker gating as an intentional spec divergence. Planning remains disabled unless configured explicitly.
 - **Runtime**: `agent_command` derived from `gh-symphony workflow init`
 - **Hooks**: `after_create` hook path
 - **Scheduler**: `poll_interval_ms`

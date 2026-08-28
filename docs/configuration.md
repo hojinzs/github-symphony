@@ -148,6 +148,14 @@ catches up on the next issue populate.
 
 ## Workflow Lifecycle Phases
 
+Tracker-specific settings belong in `tracker.provider`. Core preserves every
+provider key without interpreting it, while the selected tracker adapter
+validates that block. Older flat tracker keys remain supported as deprecated
+aliases and are normalized into `provider`; new workflows should use the
+provider block. `active_states` and `terminal_states` must be YAML lists (not
+comma-separated strings) and must be configured explicitly unless the selected
+adapter supplies lifecycle defaults.
+
 `tracker.active_states` controls dispatch eligibility, while
 `tracker.planning_states` classifies states for prompt policy and status
 surfaces. Classification is independent of dispatch eligibility: a matching

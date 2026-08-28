@@ -4,6 +4,7 @@ import type {
   OrchestratorProjectConfig,
 } from "./status-surface.js";
 import type { WorkflowLifecycleConfig } from "../workflow/lifecycle.js";
+import type { WorkflowValidationError } from "../workflow/parser.js";
 
 export class TrackerRateLimitError extends Error {
   readonly name: string = "TrackerRateLimitError";
@@ -218,6 +219,15 @@ export type TrackerTerminalFact = {
 };
 
 export type OrchestratorTrackerAdapter = {
+  /**
+   * Validates configuration owned by this tracker provider. Optional while
+   * adapter packages migrate to the provider-config contract.
+   */
+  validateProviderConfig?: (
+    provider: Record<string, unknown>
+  ) => WorkflowValidationError[];
+  /** Supplies lifecycle defaults when a workflow intentionally omits them. */
+  defaultLifecycle?: () => WorkflowLifecycleConfig;
   listIssues(
     project: OrchestratorProjectConfig,
     dependencies?: OrchestratorTrackerDependencies
