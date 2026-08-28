@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -20,7 +20,6 @@ import {
   normalizeCodexRuntimeEvents,
   prepareCodexRuntimePlan,
   type CodexRuntimePlan,
-  type RuntimeToolDefinition,
 } from "@gh-symphony/runtime-codex";
 import {
   formatClaudePreflightText,
@@ -62,10 +61,6 @@ import {
 } from "./workspace-boundary.js";
 import { resolveMaxTurns } from "./turn-limits.js";
 import {
-  extractToolRateLimitPayload,
-  guardDynamicToolRateLimit,
-} from "./tool-rate-limit.js";
-import {
   acquireTurnLease,
   refreshTrackerState,
   resolveRefreshFailureThreshold,
@@ -79,6 +74,10 @@ import {
   createCodexProtocolProcessError,
   shouldFailOnCodexChildExit,
 } from "./codex-protocol-guard.js";
+import {
+  createTrackerToolContext,
+  executeCodexDynamicToolCall,
+} from "./codex-dynamic-tools.js";
 
 const launcherEnv = loadLauncherEnvironment(process.env);
 type TokenUsageSnapshot = TokenUsage;
@@ -1310,84 +1309,6 @@ async function runCodexClientProtocol(
     });
   }
 
-  async function dispatchDynamicToolCall(
-    callId: string,
-    toolName: string,
-    threadId: string,
-    turnId: string,
-    args: unknown
-  ): Promise<void> {
-    // Find the tool definition to get command + env
-    const toolDef = plan.tools.find(
-      (t: RuntimeToolDefinition) => t.name === toolName
-    );
-    if (!toolDef) {
-      process.stderr.write(
-        `[worker] unknown dynamic tool: ${toolName}; sending error response\n`
-      );
-      sendMessage({
-        jsonrpc: "2.0",
-        method: "dynamic_tool_call_response",
-        params: {
-          callId,
-          threadId,
-          turnId,
-          contentItems: [
-            {
-              type: "input_text",
-              text: `Tool "${toolName}" is not registered.`,
-            },
-          ],
-          isError: true,
-        },
-      });
-      return;
-    }
-
-    const inputJson = JSON.stringify(args ?? {});
-    process.stderr.write(
-      `[worker] executing dynamic tool "${toolName}" (callId=${callId})\n`
-    );
-
-    try {
-      const output = await runToolProcess(
-        toolDef,
-        inputJson,
-        runtimeState.agentGitHubRateLimits ?? runtimeState.rateLimits
-      );
-      const toolRateLimits = extractToolRateLimitPayload(output);
-      if (toolRateLimits) {
-        applyRateLimitUpdate(`tool.${toolName}`, toolRateLimits, "agent-tool");
-        emitOrchestratorChannelEvent("agent.rateLimit");
-      }
-      sendMessage({
-        jsonrpc: "2.0",
-        method: "dynamic_tool_call_response",
-        params: {
-          callId,
-          threadId,
-          turnId,
-          contentItems: [{ type: "input_text", text: output }],
-          isError: false,
-        },
-      });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[worker] tool "${toolName}" failed: ${errMsg}\n`);
-      sendMessage({
-        jsonrpc: "2.0",
-        method: "dynamic_tool_call_response",
-        params: {
-          callId,
-          threadId,
-          turnId,
-          contentItems: [{ type: "input_text", text: errMsg }],
-          isError: true,
-        },
-      });
-    }
-  }
-
   function emitObservedAgentEvent(event: AgentEvent): void {
     if (event.payload.suppressUpdate) {
       return;
@@ -1419,27 +1340,6 @@ async function runCodexClientProtocol(
   function handleAgentEvent(event: AgentEvent): boolean {
     switch (event.name) {
       case "agent.turnStarted":
-        emitObservedAgentEvent(event);
-        return true;
-      case "agent.toolCallRequested":
-        if (!event.payload.threadId || !event.payload.turnId) {
-          process.stderr.write(
-            `[worker] dynamic tool call ${event.payload.callId} is missing threadId/turnId; cannot send response\n`
-          );
-          emitObservedAgentEvent(event);
-          return true;
-        }
-        void dispatchDynamicToolCall(
-          event.payload.callId,
-          event.payload.toolName,
-          event.payload.threadId,
-          event.payload.turnId,
-          event.payload.arguments
-        ).catch((error: unknown) => {
-          process.stderr.write(
-            `[worker] dynamic tool call ${event.payload.callId} dispatch failed: ${error instanceof Error ? error.message : String(error)}\n`
-          );
-        });
         emitObservedAgentEvent(event);
         return true;
       case "agent.inputRequired":
@@ -1547,6 +1447,26 @@ async function runCodexClientProtocol(
       return;
     }
 
+    if (msg.method === "item/tool/call" && msg.id != null) {
+      const params = msg.params as Record<string, unknown> | undefined;
+      const toolName = typeof params?.tool === "string" ? params.tool : "";
+      const callId = typeof params?.callId === "string" ? params.callId : "";
+      process.stderr.write(
+        `[worker] executing host dynamic tool "${toolName}" (callId=${callId})\n`
+      );
+      void executeCodexDynamicToolCall(
+        toolName,
+        params?.arguments,
+        createTrackerToolContext(env),
+        env,
+        {},
+        plan.dynamicTools.map((tool) => tool.name)
+      ).then((result) => {
+        sendMessage({ jsonrpc: "2.0", id: msg.id, result });
+      });
+      return;
+    }
+
     // Track the timestamp of every server-initiated notification/event.
     // This powers stall detection in the orchestrator (§4.1.6 last_codex_timestamp).
     runtimeState.lastEventAt = new Date().toISOString();
@@ -1638,27 +1558,16 @@ async function runCodexClientProtocol(
     // Step 2: Notify codex that initialization is complete.
     sendMessage({ jsonrpc: "2.0", method: "initialized", params: {} });
 
-    // Step 3: thread/start with rendered prompt and MCP server tool definitions
-    const mcpServers: Record<string, unknown> = {};
-    for (const t of plan.tools) {
-      mcpServers[t.name] = {
-        command: t.command,
-        args: t.args,
-        env: t.env,
-      };
-    }
-
+    // Step 3: snapshot host-owned provider tool specs at session startup.
     const baseThreadParams = {
       cwd: plan.cwd,
       approvalPolicy,
       sandbox: threadSandbox,
-      config: {
-        mcp_servers: mcpServers,
-      },
+      dynamicTools: plan.dynamicTools,
     };
 
     process.stderr.write(
-      `[worker] starting codex thread (mcp_servers: ${Object.keys(mcpServers).join(", ")})\n`
+      `[worker] starting codex thread (dynamicTools: ${plan.dynamicTools.map((tool) => tool.name).join(", ")})\n`
     );
 
     const threadResult = (await sendRequestWithTimeout(
@@ -2250,52 +2159,4 @@ function failWorkerTurnGate(event: string, reason: string): void {
   }
   process.stderr.write(`[worker] ${event}: ${reason}\n`);
   emitOrchestratorChannelEvent(event);
-}
-
-/**
- * Run a tool process with the given input (stdin), capture stdout as result.
- */
-function runToolProcess(
-  toolDef: RuntimeToolDefinition,
-  inputJson: string,
-  rateLimits: Record<string, unknown> | null
-): Promise<string> {
-  return guardDynamicToolRateLimit(toolDef.name, rateLimits).then(
-    () =>
-      new Promise((resolve, reject) => {
-        const toolEnv = {
-          ...process.env,
-          ...toolDef.env,
-        };
-
-        const toolProc = spawn(toolDef.command, toolDef.args, {
-          env: toolEnv,
-          stdio: "pipe",
-        });
-
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-
-        toolProc.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
-        toolProc.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
-
-        toolProc.once("error", (err) => reject(err));
-        toolProc.once("exit", (code) => {
-          const output = Buffer.concat(stdout).toString("utf8").trim();
-          if (code === 0) {
-            resolve(output || "{}");
-          } else {
-            const errOutput = Buffer.concat(stderr).toString("utf8").trim();
-            reject(
-              new Error(
-                `Tool exited with code ${code ?? "unknown"}: ${errOutput || output}`
-              )
-            );
-          }
-        });
-
-        toolProc.stdin?.write(inputJson);
-        toolProc.stdin?.end();
-      })
-  );
 }

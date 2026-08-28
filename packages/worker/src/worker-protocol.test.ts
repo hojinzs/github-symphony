@@ -26,6 +26,20 @@ import {
 } from "@gh-symphony/runtime-codex";
 import { resolveCodexPolicySettings } from "./codex-policy.js";
 
+const TEST_DYNAMIC_TOOLS = [
+  {
+    type: "function",
+    name: "github_graphql",
+    description: "Execute GitHub GraphQL.",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+] as const;
+
 // ---------------------------------------------------------------------------
 // Protocol primitives — replicated exactly from packages/worker/src/index.ts
 // ---------------------------------------------------------------------------
@@ -1003,6 +1017,7 @@ function sendStartupRequestsForEnv(
     cwd: "/tmp",
     approvalPolicy,
     sandbox: threadSandbox,
+    dynamicTools: TEST_DYNAMIC_TOOLS,
   });
   void ctx.sendRequest("turn-1", "turn/start", {
     threadId: "thread-1",
@@ -1052,6 +1067,7 @@ async function sendStartupHandshake(
     cwd: "/tmp",
     approvalPolicy,
     sandbox: threadSandbox,
+    dynamicTools: TEST_DYNAMIC_TOOLS,
   });
 
   ctx.handleServerMessage({
@@ -1421,6 +1437,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           approvalPolicy: "on-request",
           sandbox: "workspace-write",
+          dynamicTools: TEST_DYNAMIC_TOOLS,
         },
       },
       {
@@ -1475,6 +1492,7 @@ describe("read timeout (3.5)", () => {
           cwd: "/tmp",
           approvalPolicy: "on-request",
           sandbox: "workspace-write",
+          dynamicTools: TEST_DYNAMIC_TOOLS,
         },
       },
       {
@@ -1513,6 +1531,7 @@ describe("read timeout (3.5)", () => {
         cwd: "/tmp",
         approvalPolicy: "never",
         sandbox: "danger-full-access",
+        dynamicTools: TEST_DYNAMIC_TOOLS,
       },
     });
     expect(messages[1]).toEqual({

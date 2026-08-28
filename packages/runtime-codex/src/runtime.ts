@@ -104,6 +104,7 @@ export type CodexRuntimePlan = {
   args: string[];
   env: NodeJS.ProcessEnv;
   tools: RuntimeToolDefinition[];
+  dynamicTools: CodexDynamicToolSpec[];
 };
 
 export class AgentRuntimeResolutionError extends Error {}
@@ -155,7 +156,7 @@ export const CODEX_PROTOCOL_EVENT_NAMES = {
   turnCompleted: "turn/completed",
   turnFailed: "turn/failed",
   turnCancelled: "turn/cancelled",
-  toolCallRequested: "dynamic_tool_call_request",
+  toolCallRequested: "item/tool/call",
   inputRequired: "item/tool/requestUserInput",
   rateLimit: "turn/rate_limit",
   messageDelta: "item/message/delta",
@@ -660,29 +661,6 @@ export function buildCodexRuntimePlan(
       ? { SYMPHONY_ORCHESTRATOR_TOKEN: config.orchestratorToken }
       : {}),
   };
-  const linearGraphqlEnv = config.enableLinearGraphqlTool
-    ? {
-        LINEAR_GRAPHQL_TOOL_NAME: "linear_graphql",
-        LINEAR_GRAPHQL_URL:
-          config.linearGraphqlUrl ?? DEFAULT_LINEAR_GRAPHQL_URL,
-        ...(config.linearAuthorization
-          ? {
-              LINEAR_AUTHORIZATION: config.linearAuthorization,
-            }
-          : {}),
-        ...(config.linearApiKey
-          ? {
-              LINEAR_API_KEY: config.linearApiKey,
-            }
-          : {}),
-      }
-    : {
-        LINEAR_GRAPHQL_TOOL_NAME: "",
-        LINEAR_GRAPHQL_URL: undefined,
-        LINEAR_API_KEY: undefined,
-        LINEAR_AUTHORIZATION: undefined,
-      };
-
   const plan = {
     cwd: config.workingDirectory,
     command: agentCommand.command,
@@ -693,27 +671,25 @@ export function buildCodexRuntimePlan(
       ...config.agentEnv,
       CODEX_PROJECT_ID: config.projectId,
       GITHUB_PROJECT_ID: config.githubProjectId ?? "",
-      GITHUB_GRAPHQL_TOOL_NAME: githubTool.name,
-      GITHUB_GRAPHQL_TOOL_COMMAND: [
-        githubTool.command,
-        ...githubTool.args,
-      ].join(" "),
-      ...linearGraphqlEnv,
       ...orchestratorRunEnv,
       ...agentEnv,
       ...gitCredentialHelper,
-      ...Object.assign({}, ...builtinTools.map((tool) => tool.env)),
-    },
+    } as NodeJS.ProcessEnv,
     tools,
+    dynamicTools: createCodexDynamicToolSpecs(builtinTools),
   };
 
-  // A broker can serve GitHub tools and Git without exposing raw tracker
-  // credentials to the coding-agent process. Brokerless deployments retain
-  // them temporarily for Phase 1a compatibility (#700 removes this path).
-  if (brokeredGitHubTracker) {
-    for (const name of secretEnvironmentNames) {
-      delete plan.env[name];
-    }
+  // Dynamic tools execute in the worker host, so credentials are never part
+  // of the Codex child environment. Git credential-helper compatibility is
+  // deliberately retained until #700 moves authenticated Git transport too.
+  for (const name of new Set([
+    ...secretEnvironmentNames,
+    "GITHUB_GRAPHQL_TOKEN",
+    "LINEAR_API_KEY",
+    "LINEAR_AUTHORIZATION",
+    "LINEAR_GRAPHQL_URL",
+  ])) {
+    delete plan.env[name];
   }
 
   return plan;
