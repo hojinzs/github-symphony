@@ -79,12 +79,10 @@ async function loadRepositoryProjectFromCwd(
     null;
   for (const projectId of projectIds) {
     const projectConfig = await loadProjectConfig(configDir, projectId);
-    const repositoryDir = projectConfig?.repositoryDir
-      ? resolve(projectConfig.repositoryDir)
-      : undefined;
-    if (!repositoryDir) {
+    if (!projectConfig?.repositoryDir) {
       continue;
     }
+    const repositoryDir = resolve(projectConfig.repositoryDir);
     const pathToCwd = relative(repositoryDir, resolvedCwd);
     const containsCwd =
       pathToCwd === "" ||
