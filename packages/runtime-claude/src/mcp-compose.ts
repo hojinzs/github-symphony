@@ -58,13 +58,15 @@ export async function composeClaudeMcpConfig(
     symphonyTokenEnv.GITHUB_TOKEN_BROKER_URL &&
     symphonyTokenEnv.GITHUB_TOKEN_BROKER_SECRET
   ) {
+    const trackerSecretEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...symphonyTokenEnv,
+    };
     mcpServers = stripMcpServerSecretEnvironmentValues(
       mcpServers,
       readTrackerSecretEnvironmentNames(symphonyTokenEnv),
       readTrackerSecretEnvironmentNames(symphonyTokenEnv)
-        .map(
-          (name) => symphonyTokenEnv[name as keyof ClaudeMcpTokenEnvironment]
-        )
+        .map((name) => trackerSecretEnvironment[name])
         .filter((value): value is string => value !== undefined)
     );
   }

@@ -10,7 +10,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { composeClaudeMcpConfig } from "./mcp-compose.js";
 
 const tempRoots: string[] = [];
@@ -28,6 +28,7 @@ async function readJson(path: string): Promise<Record<string, unknown>> {
 
 describe("composeClaudeMcpConfig", () => {
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await Promise.all(
       tempRoots.splice(0).map((root) =>
         rm(root, {
@@ -481,8 +482,9 @@ describe("composeClaudeMcpConfig", () => {
       })
     );
 
+    vi.stubEnv("GITHUB_GRAPHQL_TOKEN", "raw-github-token");
+
     const result = await composeClaudeMcpConfig(workspaceRoot, false, {
-      GITHUB_GRAPHQL_TOKEN: "raw-github-token",
       GITHUB_TOKEN_BROKER_URL: "https://broker.example/runtime-credentials",
       GITHUB_TOKEN_BROKER_SECRET: "broker-secret",
       SYMPHONY_TRACKER_KIND: "github",
