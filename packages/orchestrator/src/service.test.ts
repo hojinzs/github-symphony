@@ -2826,9 +2826,10 @@ describe("OrchestratorService", () => {
       }),
     });
 
-    vi.spyOn(service as never, "resolveRetryRunRecoveryContext").mockRejectedValueOnce(
-      new Error("git status unavailable")
-    );
+    vi.spyOn(
+      service as never,
+      "resolveRetryRunRecoveryContext"
+    ).mockRejectedValueOnce(new Error("git status unavailable"));
     currentTime = new Date("2026-03-08T00:06:01.000Z");
     const restartFailure = await service.runOnce();
     const retryAfterRecoveryFailure = await store.loadRun(
@@ -2856,7 +2857,6 @@ describe("OrchestratorService", () => {
         ),
       },
     });
-
   });
 
   it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {
@@ -5847,6 +5847,71 @@ Prefer focused changes.
     expect(
       await store.loadIssueWorkspace("tenant-1", "acme_platform_1")
     ).toMatchObject({ status: "removed" });
+
+    await mkdir(join(workspacePath, "repository"), { recursive: true });
+    await writeFile(sentinelPath, "retry cleanup", "utf8");
+    await store.saveIssueWorkspace({
+      workspaceKey: "acme_platform_1",
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-1",
+      issueIdentifier: "acme/platform#1",
+      workspacePath,
+      repositoryPath: join(workspacePath, "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    await store.saveProjectIssueOrchestrations("tenant-1", [
+      {
+        issueId: "issue-1",
+        identifier: "acme/platform#1",
+        workspaceKey: "acme_platform_1",
+        completedOnce: false,
+        failureRetryCount: 0,
+        state: "retry_queued",
+        currentRunId: "run-2",
+        retryEntry: {
+          attempt: 2,
+          dueAt: "2026-03-08T00:00:20.000Z",
+          error: "Worker process exited unexpectedly.",
+        },
+        updatedAt: "2026-03-08T00:00:10.000Z",
+      },
+    ]);
+    await store.saveRun({
+      ...updatedRun!,
+      runId: "run-2",
+      status: "retrying",
+      nextRetryAt: "2026-03-08T00:00:20.000Z",
+      runPhase: "failed",
+    });
+
+    const cleanupFailureService = new OrchestratorService(
+      store,
+      projectConfig,
+      {
+        fetchImpl: fetchImpl as never,
+        spawnImpl: spawnImpl as never,
+        rmImpl: vi.fn().mockRejectedValue(new Error("workspace busy")),
+        now: () => new Date("2026-03-08T00:01:00.000Z"),
+      }
+    );
+    const cleanupFailure = await cleanupFailureService.runOnce();
+    expect(cleanupFailure.summary.recovered).toBe(0);
+    expect((await store.loadRun("run-2"))?.status).toBe("suppressed");
+    expect(
+      (await store.loadProjectIssueOrchestrations("tenant-1"))[0]
+    ).toMatchObject({
+      state: "released",
+      currentRunId: null,
+      retryEntry: null,
+    });
+    await expect(readFile(sentinelPath, "utf8")).resolves.toBe("retry cleanup");
+    expect(
+      await store.loadIssueWorkspace("tenant-1", "acme_platform_1")
+    ).toMatchObject({ status: "cleanup_pending" });
   });
 
   it("releases due retrying runs when the tracker issue is missing", async () => {

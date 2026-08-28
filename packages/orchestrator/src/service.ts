@@ -3328,11 +3328,17 @@ export class OrchestratorService {
       }
       if (retryAction.action === "release") {
         if (retryAction.issue && retryAction.terminal) {
-          await this.cleanupTerminalIssueWorkspace(
-            tenant,
-            retryAction.issue,
-            now
-          );
+          try {
+            await this.cleanupTerminalIssueWorkspace(
+              tenant,
+              retryAction.issue,
+              now
+            );
+          } catch (error) {
+            this.writeStderr(
+              `[orchestrator] Terminal workspace cleanup failed for ${retryAction.issue.identifier}; continuing: ${this.formatErrorMessage(error)}\n`
+            );
+          }
         }
         return this.releaseRetryingRun(
           retryAction.issue
