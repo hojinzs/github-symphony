@@ -734,6 +734,8 @@ describe("OrchestratorService", () => {
       branchName: null,
       url: "https://example.test/acme/platform/issues/1",
       labels: [],
+      dispatchable: true,
+      assigneeId: null,
       blockedBy: [],
       createdAt: "2026-03-08T00:00:00.000Z",
       updatedAt: "2026-03-08T00:00:00.000Z",
