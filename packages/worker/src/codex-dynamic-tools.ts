@@ -60,7 +60,7 @@ export async function executeCodexDynamicToolCall(
   try {
     let result: unknown;
     if (!allowedToolNames.includes(toolName)) {
-      return failure("unknown_tool", `Tool \"${toolName}\" is not supported.`);
+      return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
     }
     switch (toolName) {
       case "github_graphql":
@@ -88,7 +88,7 @@ export async function executeCodexDynamicToolCall(
             );
         break;
       default:
-        return failure("unknown_tool", `Tool \"${toolName}\" is not supported.`);
+        return failure("unknown_tool", `Tool "${toolName}" is not supported.`);
     }
 
     // Keep the context at this host-only boundary. It is intentionally not
