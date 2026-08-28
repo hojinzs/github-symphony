@@ -71,7 +71,6 @@ type WorkflowCommandDependencies = {
   getGitHubTokenWithSource: typeof getGhTokenWithSource;
   resolveManagedProjectSelection: typeof inspectManagedProjectSelection;
   resolveTrackerAdapter: typeof resolveTrackerAdapter;
-  resolveWorkflowConfigTrackerAdapter: typeof resolveWorkflowConfigTrackerAdapter;
   validateGitHubToken: typeof validateGitHubToken;
 };
 
@@ -169,7 +168,6 @@ const workflowCommandDependencies: WorkflowCommandDependencies = {
   getGitHubTokenWithSource: getGhTokenWithSource,
   resolveManagedProjectSelection: inspectManagedProjectSelection,
   resolveTrackerAdapter,
-  resolveWorkflowConfigTrackerAdapter,
   validateGitHubToken,
 };
 
@@ -188,8 +186,6 @@ export function resetWorkflowCommandDependenciesForTest(): void {
   workflowCommandDependencies.resolveManagedProjectSelection =
     inspectManagedProjectSelection;
   workflowCommandDependencies.resolveTrackerAdapter = resolveTrackerAdapter;
-  workflowCommandDependencies.resolveWorkflowConfigTrackerAdapter =
-    resolveWorkflowConfigTrackerAdapter;
   workflowCommandDependencies.validateGitHubToken = validateGitHubToken;
 }
 
@@ -820,8 +816,7 @@ function validateWorkflow(
 ): WorkflowValidationReport {
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
-    resolveTrackerAdapter: workflowCommandDependencies
-      .resolveWorkflowConfigTrackerAdapter,
+    resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
   });
   const samplePhase = resolveWorkflowExecutionPhase({
     issueState: SAMPLE_ISSUE.state,
@@ -973,8 +968,7 @@ async function runPreview(
   const { workflowPath, markdown } = await loadWorkflowMarkdown(flags.file);
   const workflow = parseWorkflowMarkdown(markdown, process.env, {
     supportedTrackerKinds: getSupportedTrackerKinds(),
-    resolveTrackerAdapter: workflowCommandDependencies
-      .resolveWorkflowConfigTrackerAdapter,
+    resolveTrackerAdapter: resolveWorkflowConfigTrackerAdapter,
   });
   if (
     flags.issue &&

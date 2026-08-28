@@ -201,6 +201,7 @@ Prompt {{ issue.identifier }}
     const providerBlock = stdout
       .output()
       .match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+    expect(stdout.output()).toContain("tracker.project_id=project-123");
     expect(providerBlock).toContain("pickup_labels:\n      include:");
     expect(providerBlock).toContain("priority:\n      source:");
     const migrated = parseWorkflowMarkdown(
