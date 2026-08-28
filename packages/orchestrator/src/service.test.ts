@@ -2812,6 +2812,8 @@ describe("OrchestratorService", () => {
 
     const scheduled = await service.runOnce();
     const retryRun = await store.loadRun("run-crashed", "tenant-1");
+    const retryIssueRecords =
+      await store.loadProjectIssueOrchestrations("tenant-1");
 
     expect(scheduled.summary.dispatched).toBe(0);
     expect(retryRun).toMatchObject({
@@ -2857,6 +2859,35 @@ describe("OrchestratorService", () => {
         ),
       },
     });
+
+    await store.saveRun(retryRun!);
+    await store.saveProjectIssueOrchestrations("tenant-1", retryIssueRecords);
+    currentTime = new Date("2026-03-08T00:07:02.000Z");
+    const restarted = await service.runOnce();
+    const recoveryRun = (await store.loadAllRuns()).find(
+      (run) => run.runId !== "run-crashed" && run.retryKind === "recovery"
+    );
+    const recoverySpawnEnv = spawnImpl.mock.calls.at(-1)?.[2]?.env;
+
+    expect(restarted.summary.recovered).toBe(1);
+    expect(recoveryRun).toMatchObject({
+      status: "running",
+      retryKind: "recovery",
+      recovery: expect.objectContaining({
+        kind: "incomplete-turn-dirty-workspace",
+        dirtyFiles: ["partial.txt"],
+        sessionId: "thread-1-turn-7",
+        threadId: "thread-1",
+      }),
+    });
+    expect(recoverySpawnEnv?.SYMPHONY_RECOVERY_KIND).toBe(
+      "incomplete-turn-dirty-workspace"
+    );
+    expect(
+      execSync(`git -C ${shell(repositoryDirectory)} status --porcelain`, {
+        encoding: "utf8",
+      })
+    ).toContain("?? partial.txt");
   });
 
   it("clears legacy issue-budget and cross-session resume env before spawning a worker", async () => {
