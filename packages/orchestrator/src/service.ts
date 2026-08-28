@@ -2546,9 +2546,14 @@ export class OrchestratorService {
   private async resolveWorkflowWarnings(
     tenant: OrchestratorProjectConfig
   ): Promise<string[]> {
-    if (tenant.workflowSource?.type !== "external") {
+    if (!tenant.workflowSource?.path) {
       return [];
     }
+
+    const workflowSourceLabel =
+      tenant.workflowSource.type === "external"
+        ? "External workflow source"
+        : "Configured workflow source";
 
     const localRepositoryDirectory = this.resolveLocalRepositoryDirectory(
       tenant.repository
@@ -2566,7 +2571,7 @@ export class OrchestratorService {
       try {
         await access(repositoryWorkflowPath);
         return [
-          `External workflow source ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
+          `${workflowSourceLabel} ${tenant.workflowSource.path} shadows repository WORKFLOW.md at ${repositoryWorkflowPath}.`,
         ];
       } catch {
         return [];
@@ -2579,7 +2584,7 @@ export class OrchestratorService {
     // repository on this host, so read the committed file from there.
     return (await this.repositoryCacheContainsWorkflow(tenant.repository))
       ? [
-          `External workflow source ${tenant.workflowSource.path} shadows WORKFLOW.md committed to ${tenant.repository.owner}/${tenant.repository.name}.`,
+          `${workflowSourceLabel} ${tenant.workflowSource.path} shadows WORKFLOW.md committed to ${tenant.repository.owner}/${tenant.repository.name}.`,
         ]
       : [];
   }

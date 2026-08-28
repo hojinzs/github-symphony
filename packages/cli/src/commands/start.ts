@@ -32,7 +32,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
-import { parseWorkflowMarkdown } from "@gh-symphony/core";
+import { parseWorkflowMarkdown, readEnvFile } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -207,29 +207,39 @@ async function preflightRepoStartAuth(
 }
 
 async function preflightWorkflowStart(
-  projectConfig: OrchestratorProjectConfig
+  projectConfig: OrchestratorProjectConfig,
+  runtimeRoot: string
 ): Promise<boolean> {
   const configuredPath = projectConfig.workflowSource?.path;
-  const repositoryDirectory =
-    projectConfig.repositoryDir ?? projectConfig.repository.path;
-  const workflowPath =
-    configuredPath ??
-    (repositoryDirectory ? join(repositoryDirectory, "WORKFLOW.md") : null);
-  if (!workflowPath) {
-    // Legacy managed-project configs did not record a workflow source. Repo
-    // init now persists one, while existing installations keep their prior
-    // runtime behavior until they are reinitialized.
+  if (!configuredPath) {
+    // Legacy managed-project configs rely on the daemon's repository lookup,
+    // including its default workflow fallback. Avoid a divergent preflight.
     return true;
   }
 
+  const projectDirectory =
+    projectConfig.projectDir ??
+    join(runtimeRoot, "projects", projectConfig.projectId);
+  const environment = {
+    ...readEnvFile(join(projectDirectory, ".env")),
+    ...process.env,
+  };
+
   try {
-    parseWorkflowMarkdown(await readFile(workflowPath, "utf8"), process.env, {
+    parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
     });
     return true;
   } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      process.stderr.write(
+        `Configured workflow not found at ${configuredPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+      );
+      process.exitCode = 1;
+      return false;
+    }
     process.stderr.write(
-      `Workflow preflight failed for ${workflowPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
+      `Workflow preflight failed for ${configuredPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
     );
     process.exitCode = 1;
     return false;
@@ -992,7 +1002,7 @@ const handler = async (
   if (!authPreflight.ok) {
     return;
   }
-  if (!(await preflightWorkflowStart(projectConfig))) {
+  if (!(await preflightWorkflowStart(projectConfig, runtimeRoot))) {
     return;
   }
   const httpApiToken = resolveHttpApiToken();

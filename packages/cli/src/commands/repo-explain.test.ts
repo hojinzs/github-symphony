@@ -178,9 +178,56 @@ Follow the issue instructions.
     expect(stdout.output()).toContain("gh-symphony repo status");
     expect(stdout.output()).toContain("gh-symphony repo logs --issue");
   });
+
+  it("uses the persisted repo workflow path for the explanation report", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "repo-explain-persisted-"));
+    const workflowDir = await mkdtemp(
+      join(tmpdir(), "repo-explain-persisted-workflow-")
+    );
+    const workflowPath = join(workflowDir, "custom-workflow.md");
+    const stdout = captureWrites(process.stdout);
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: PVT_test
+  state_field: Status
+  active_states:
+    - Ready
+  terminal_states:
+    - Done
+agent:
+  max_concurrent_agents: 2
+codex:
+  command: codex app-server
+---
+Follow the issue instructions.
+`,
+      "utf8"
+    );
+    await seedRepoRuntime(configDir, workflowPath);
+    vi.spyOn(ghAuth, "getGhToken").mockReturnValue("gho_test");
+    vi.stubGlobal("fetch", vi.fn(mockProjectItemsFetch));
+
+    try {
+      await repoExplainCommand(["acme/widgets#42"], baseOptions(configDir));
+    } finally {
+      stdout.restore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(stdout.output()).toContain(
+      "Dispatchable: no blocking project, workflow, runtime, or budget condition was found."
+    );
+  });
 });
 
-async function seedRepoRuntime(configDir: string): Promise<void> {
+async function seedRepoRuntime(
+  configDir: string,
+  workflowPath?: string
+): Promise<void> {
   const projectId = "repository";
   await saveGlobalConfig(configDir, {
     activeProject: projectId,
@@ -203,6 +250,9 @@ async function seedRepoRuntime(configDir: string): Promise<void> {
         projectId: "PVT_test",
       },
     },
+    ...(workflowPath
+      ? { workflowSource: { type: "repo" as const, path: workflowPath } }
+      : {}),
   });
 }
 

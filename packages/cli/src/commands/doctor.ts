@@ -2058,7 +2058,7 @@ export async function runDoctorDiagnostics(
 
   const externalWorkflowPath =
     resolvedProjectConfig?.kind === "resolved" &&
-    resolvedProjectConfig.projectConfig.workflowSource?.type === "external"
+    resolvedProjectConfig.projectConfig.workflowSource?.path
       ? resolvedProjectConfig.projectConfig.workflowSource.path
       : null;
   const workflow = await checkWorkflow(

@@ -174,6 +174,7 @@ const handler = async (
   try {
     workflow = await loadExplainWorkflow({
       explicitWorkflowPath: parsed.workflowPath,
+      configuredWorkflowPath: projectConfig.workflowSource?.path,
       repository: workflowRepository,
       runs,
     });
@@ -246,6 +247,7 @@ class RepoExplainWorkflowError extends Error {
 
 async function loadExplainWorkflow(input: {
   explicitWorkflowPath?: string;
+  configuredWorkflowPath?: string;
   repository: RepositoryRef;
   runs: readonly OrchestratorRunRecord[];
 }): Promise<ExplainWorkflowSettings> {
@@ -279,12 +281,16 @@ async function loadExplainWorkflow(input: {
 
 function resolveExplainWorkflowCandidates(input: {
   explicitWorkflowPath?: string;
+  configuredWorkflowPath?: string;
   repository: RepositoryRef;
   runs: readonly OrchestratorRunRecord[];
 }): string[] {
   const paths: string[] = [];
   if (input.explicitWorkflowPath) {
     paths.push(resolve(input.explicitWorkflowPath));
+  }
+  if (input.configuredWorkflowPath) {
+    paths.push(resolve(input.configuredWorkflowPath));
   }
   if (input.repository.path) {
     paths.push(join(resolve(input.repository.path), "WORKFLOW.md"));

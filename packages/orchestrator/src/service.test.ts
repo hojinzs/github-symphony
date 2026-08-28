@@ -362,13 +362,16 @@ describe("OrchestratorService", () => {
       issueRecords: [],
       recovered: true,
     });
-    vi.spyOn(service as never, "selectCurrentRunsForReconciliation").mockResolvedValue(
-      []
-    );
+    vi.spyOn(
+      service as never,
+      "selectCurrentRunsForReconciliation"
+    ).mockResolvedValue([]);
     vi.spyOn(service as never, "reconcileRun").mockImplementation(reconcileRun);
-    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockImplementation(() => {
-      throw new Error("Unsupported tracker adapter: retired-kind");
-    });
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockImplementation(
+      () => {
+        throw new Error("Unsupported tracker adapter: retired-kind");
+      }
+    );
 
     const snapshot = await (
       service as unknown as {
@@ -378,12 +381,7 @@ describe("OrchestratorService", () => {
       }
     ).reconcileProject(projectConfig);
 
-    expect(reconcileRun).toHaveBeenCalledWith(
-      projectConfig,
-      activeRun,
-      [],
-      {}
-    );
+    expect(reconcileRun).toHaveBeenCalledWith(projectConfig, activeRun, [], {});
     expect(snapshot.lastError).toContain("Unsupported tracker adapter");
     expect(snapshot.summary.recovered).toBe(1);
   });
@@ -14010,7 +14008,7 @@ Workspace prompt.
     );
   });
 
-  it("loads only an external workflow and warns when it shadows the repository workflow", async () => {
+  it("loads a configured repo workflow and warns when it shadows the repository workflow", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-external-workflow-")
@@ -14027,7 +14025,7 @@ Workspace prompt.
     );
     const projectConfig = {
       ...createProjectConfig(tempRoot, repository),
-      workflowSource: { type: "external" as const, path: externalWorkflowPath },
+      workflowSource: { type: "repo" as const, path: externalWorkflowPath },
     };
     await store.saveProjectConfig(projectConfig);
     await writeFile(
@@ -14059,7 +14057,7 @@ Workspace prompt.
     expect(snapshot.summary.dispatched).toBe(1);
     expect(workerEnv?.SYMPHONY_WORKFLOW_PATH).toBe(externalWorkflowPath);
     expect(snapshot.warnings).toEqual([
-      `External workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
+      `Configured workflow source ${externalWorkflowPath} shadows repository WORKFLOW.md at ${join(repository.path, "WORKFLOW.md")}.`,
     ]);
   });
 

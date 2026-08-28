@@ -297,7 +297,7 @@ describe("shutdownForegroundOrchestrator", () => {
 });
 
 describe("start command foreground locking", () => {
-  it("fails before constructing the daemon when the configured workflow is invalid", async () => {
+  it("fails before constructing the daemon for an unsupported tracker kind", async () => {
     const configDir = await createConfigFixture({
       activeProject: "tenant-a",
       projects: [createProject("tenant-a", "acme", "platform")],
@@ -309,7 +309,17 @@ describe("start command foreground locking", () => {
     ) as CliProjectConfig;
     project.workflowSource = { type: "repo", path: workflowPath };
     await writeFile(projectPath, JSON.stringify(project), "utf8");
-    await writeFile(workflowPath, "not a workflow", "utf8");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: retired-kind
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
     const stderr = captureWrites(process.stderr);
 
     try {
@@ -319,6 +329,77 @@ describe("start command foreground locking", () => {
     }
 
     expect(stderr.output()).toContain("Workflow preflight failed");
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("uses the managed project .env when preflighting a configured workflow", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectDir = join(configDir, "projects", "tenant-a");
+    const workflowPath = join(projectDir, "custom-workflow.md");
+    const projectPath = join(projectDir, "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = { type: "repo", path: workflowPath };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    await writeFile(
+      projectDir + "/.env",
+      "WORKFLOW_CODEX_COMMAND=codex app-server\n",
+      "utf8"
+    );
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-1
+codex:
+  command: $WORKFLOW_CODEX_COMMAND
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(projectDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-08-28T00:00:00.000Z",
+    });
+
+    await startModule.default([], baseOptions(configDir));
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("reports a remediation when the explicitly configured workflow is missing", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = {
+      type: "repo",
+      path: join(configDir, "missing-workflow.md"),
+    };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain("Configured workflow not found");
     expect(acquireProjectLock).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);

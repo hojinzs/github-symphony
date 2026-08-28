@@ -438,7 +438,7 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
-  it("reads the registered project WORKFLOW.md for standalone projects", async () => {
+  it("reads the registered project WORKFLOW.md for repo sources", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
@@ -463,7 +463,7 @@ describe("runDoctorDiagnostics", () => {
           projectConfig: {
             ...createProjectConfig(workspaceDir),
             projectDir,
-            workflowSource: { type: "external", path: projectWorkflowPath },
+            workflowSource: { type: "repo", path: projectWorkflowPath },
           } as never,
         }),
         getProjectDetail: (async () =>
