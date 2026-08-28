@@ -609,18 +609,22 @@ describe("OrchestratorService", () => {
         };
       }
     );
+    const writeStderr = vi.fn();
     const service = new OrchestratorService(store, projectConfig, {
       concurrency: 2,
       fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: spawnImpl as never,
       now: () => new Date("2026-03-08T00:00:00.000Z"),
-      writeStderr: vi.fn(),
+      writeStderr,
     });
     const result = await service.runOnce();
     const retryRun = await store.loadRun("run-retry");
     const issueRecords = await store.loadProjectIssueOrchestrations("tenant-1");
 
-    expect(result.summary.dispatched).toBe(1);
+    expect(
+      result.summary.dispatched,
+      writeStderr.mock.calls.flat().join("\n")
+    ).toBe(1);
     expect(result.summary.recovered).toBe(0);
     expect(result.health).toBe("degraded");
     expect(result.lastError).toContain("restart worker spawn failed");
