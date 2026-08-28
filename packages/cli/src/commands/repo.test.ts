@@ -311,6 +311,24 @@ describe("repo init runtime migration", () => {
     );
   });
 
+  it("persists the explicit repo workflow file for daemon loading", async () => {
+    const repoDir = await createGitRepo();
+    const workflowPath = join(repoDir, "policy", "custom-workflow.md");
+    const { initRepoRuntime } = await loadRepoRuntimeModule();
+    await mkdir(join(repoDir, "policy"), { recursive: true });
+    await writeFile(workflowPath, VALID_WORKFLOW, "utf8");
+
+    await initRepoRuntime({
+      repoDir,
+      workflowFile: "policy/custom-workflow.md",
+    });
+
+    expect((await readRepoProjectConfig(repoDir)).workflowSource).toEqual({
+      type: "repo",
+      path: workflowPath,
+    });
+  });
+
   it("enforces private permissions on a pre-existing workspace root", async () => {
     const repoDir = await createGitRepo();
     const workspaceDir = join(repoDir, ".runtime", "symphony-workspaces");

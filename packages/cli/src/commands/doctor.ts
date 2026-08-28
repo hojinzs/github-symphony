@@ -47,6 +47,7 @@ import {
 } from "../github/gh-auth.js";
 import type { GlobalOptions } from "../index.js";
 import { resolveRuntimeRoot } from "../orchestrator-runtime.js";
+import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import {
   buildPriorityConfigDiagnostics,
   buildPriorityDriftDiagnostics,
@@ -673,7 +674,8 @@ async function checkGitInstallation(
 async function checkWorkflow(
   repoRoot: string,
   deps: Pick<DoctorDependencies, "readFile" | "parseWorkflowMarkdown">,
-  externalWorkflowPath?: string | null
+  externalWorkflowPath?: string | null,
+  environment: NodeJS.ProcessEnv = process.env
 ): Promise<WorkflowCheckState> {
   // A standalone project owns its policy outside the repository, so the cwd
   // lookup would report a missing file for a perfectly healthy setup.
@@ -697,7 +699,7 @@ async function checkWorkflow(
   }
 
   try {
-    const parsed = deps.parseWorkflowMarkdown(markdown, process.env, {
+    const parsed = deps.parseWorkflowMarkdown(markdown, environment, {
       supportedTrackerKinds: getSupportedTrackerKinds(),
     });
     return {
@@ -2058,13 +2060,19 @@ export async function runDoctorDiagnostics(
 
   const externalWorkflowPath =
     resolvedProjectConfig?.kind === "resolved" &&
-    resolvedProjectConfig.projectConfig.workflowSource?.type === "external"
+    resolvedProjectConfig.projectConfig.workflowSource?.path
       ? resolvedProjectConfig.projectConfig.workflowSource.path
       : null;
   const workflow = await checkWorkflow(
     process.cwd(),
     deps,
-    externalWorkflowPath
+    externalWorkflowPath,
+    resolvedProjectConfig.kind === "resolved"
+      ? resolveManagedProjectEnvironment(
+          resolvedProjectConfig.projectConfig,
+          runtimeRoot
+        )
+      : process.env
   );
   if (workflow.status === "pass") {
     checks.push(

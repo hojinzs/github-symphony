@@ -127,6 +127,8 @@ gh-symphony repo init
 gh-symphony repo start
 ```
 
+`repo init --workflow-file <path>` stores the resolved absolute path as the repository workflow source. Both `repo start` and `project start` validate that configured workflow before daemon startup; an invalid workflow exits with a clear preflight error instead of repeatedly failing dispatch ticks.
+
 The first dispatch re-populates worktrees beneath the configured root. Keep the
 archived directory until needed branches or uncommitted files have been
 recovered; then remove it. Archiving the state and its cache together avoids

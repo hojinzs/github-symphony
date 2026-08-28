@@ -166,6 +166,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
       priority: workflow.tracker.priority,
       settings: trackerSettings,
     },
+    workflowSource: { type: "repo", path: workflowPath },
   };
 
   await mkdir(runtimeRoot, { recursive: true });
@@ -184,6 +185,7 @@ export async function initRepoRuntime(flags: RepoInitFlags): Promise<{
     repositoryDir: repoDir,
     repository,
     tracker: projectConfig.tracker,
+    workflowSource: { type: "repo", path: workflowPath },
   };
   await writeJsonFile(join(runtimeRoot, "project.json"), orchestratorConfig);
 

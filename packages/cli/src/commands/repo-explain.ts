@@ -25,6 +25,7 @@ import { bold, green, red, stripAnsi, yellow } from "../ansi.js";
 import { loadActiveProjectConfig } from "../config.js";
 import { getGhToken, GhAuthError } from "../github/gh-auth.js";
 import { writeCliError } from "../cli-error.js";
+import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 
 type RepoExplainFlags = {
   identifier?: string;
@@ -174,8 +175,10 @@ const handler = async (
   try {
     workflow = await loadExplainWorkflow({
       explicitWorkflowPath: parsed.workflowPath,
+      configuredWorkflowPath: projectConfig.workflowSource?.path,
       repository: workflowRepository,
       runs,
+      environment: resolveManagedProjectEnvironment(projectConfig, runtimeRoot),
     });
   } catch (error) {
     if (error instanceof RepoExplainWorkflowError) {
@@ -246,8 +249,10 @@ class RepoExplainWorkflowError extends Error {
 
 async function loadExplainWorkflow(input: {
   explicitWorkflowPath?: string;
+  configuredWorkflowPath?: string;
   repository: RepositoryRef;
   runs: readonly OrchestratorRunRecord[];
+  environment: NodeJS.ProcessEnv;
 }): Promise<ExplainWorkflowSettings> {
   const workflowPaths = resolveExplainWorkflowCandidates(input);
   if (workflowPaths.length === 0) {
@@ -259,7 +264,10 @@ async function loadExplainWorkflow(input: {
   const failures: string[] = [];
   for (const workflowPath of workflowPaths) {
     try {
-      const resolution = await new WorkflowConfigStore().load(workflowPath);
+      const resolution = await new WorkflowConfigStore().load(
+        workflowPath,
+        input.environment
+      );
       return {
         lifecycle: resolution.lifecycle,
         maxConcurrentAgents: resolution.workflow.agent.maxConcurrentAgents,
@@ -279,12 +287,16 @@ async function loadExplainWorkflow(input: {
 
 function resolveExplainWorkflowCandidates(input: {
   explicitWorkflowPath?: string;
+  configuredWorkflowPath?: string;
   repository: RepositoryRef;
   runs: readonly OrchestratorRunRecord[];
 }): string[] {
   const paths: string[] = [];
   if (input.explicitWorkflowPath) {
     paths.push(resolve(input.explicitWorkflowPath));
+  }
+  if (input.configuredWorkflowPath) {
+    paths.push(resolve(input.configuredWorkflowPath));
   }
   if (input.repository.path) {
     paths.push(join(resolve(input.repository.path), "WORKFLOW.md"));

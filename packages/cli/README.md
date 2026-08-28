@@ -280,7 +280,7 @@ gh-symphony repo start               # Start this repository
 gh-symphony repo stop                # Stop this repository
 ```
 
-`gh-symphony repo init` reads `WORKFLOW.md`, infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`.
+`gh-symphony repo init` reads `WORKFLOW.md` (or `--workflow-file <path>`), infers `owner/name` from the Git remote, and writes per-repo runtime state under `.runtime/orchestrator/`. The selected workflow path is persisted and startup validates it before launching the daemon.
 
 ### Why Is My Issue Not Running?
 

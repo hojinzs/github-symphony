@@ -438,7 +438,7 @@ beforeEach(() => {
 });
 
 describe("runDoctorDiagnostics", () => {
-  it("reads the registered project WORKFLOW.md for standalone projects", async () => {
+  it("reads the registered project WORKFLOW.md for repo sources", async () => {
     const configDir = await mkdtemp(join(tmpdir(), "doctor-config-"));
     const workspaceDir = join(configDir, "workspaces");
     await prepareDoctorPaths(configDir, workspaceDir);
@@ -449,7 +449,12 @@ describe("runDoctorDiagnostics", () => {
     const projectWorkflowPath = join(projectDir, "WORKFLOW.md");
     await writeFile(
       projectWorkflowPath,
-      "---\ntracker:\n  kind: github-project\ncodex:\n  command: fake-agent\n---\nStandalone prompt\n",
+      "---\ntracker:\n  kind: github-project\ncodex:\n  command: $SYMPHONY_DOCTOR_COMMAND\n---\nStandalone prompt\n",
+      "utf8"
+    );
+    await writeFile(
+      join(projectDir, ".env"),
+      "SYMPHONY_DOCTOR_COMMAND=fake-agent\n",
       "utf8"
     );
     const emptyCwd = await mkdtemp(join(tmpdir(), "doctor-cwd-"));
@@ -463,7 +468,7 @@ describe("runDoctorDiagnostics", () => {
           projectConfig: {
             ...createProjectConfig(workspaceDir),
             projectDir,
-            workflowSource: { type: "external", path: projectWorkflowPath },
+            workflowSource: { type: "repo", path: projectWorkflowPath },
           } as never,
         }),
         getProjectDetail: (async () =>

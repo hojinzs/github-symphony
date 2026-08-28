@@ -19,6 +19,7 @@ import {
   OrchestratorService,
   acquireProjectLock,
   createStore,
+  getSupportedTrackerKinds,
   getProcessIdentity,
   releaseProjectLock,
   resolveOrchestratorLogLevel,
@@ -31,6 +32,7 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
+import { parseWorkflowMarkdown } from "@gh-symphony/core";
 import {
   DashboardFsReader,
   isAuthorizedApiRequest,
@@ -52,6 +54,7 @@ import {
   runGhAuthLogin,
   runGhAuthRefresh,
 } from "../github/gh-auth.js";
+import { resolveManagedProjectEnvironment } from "../managed-project-environment.js";
 import { GitHubApiError, GitHubScopeError } from "../github/client.js";
 import { formatRepositoryDisplay } from "../format/repository.js";
 import {
@@ -202,6 +205,42 @@ async function preflightRepoStartAuth(
   }
 
   return { ok: true };
+}
+
+async function preflightWorkflowStart(
+  projectConfig: OrchestratorProjectConfig,
+  runtimeRoot: string
+): Promise<boolean> {
+  const configuredPath = projectConfig.workflowSource?.path;
+  if (!configuredPath) {
+    // Legacy managed-project configs rely on the daemon's repository lookup,
+    // including its default workflow fallback. Avoid a divergent preflight.
+    return true;
+  }
+
+  try {
+    const environment = resolveManagedProjectEnvironment(
+      projectConfig,
+      runtimeRoot
+    );
+    parseWorkflowMarkdown(await readFile(configuredPath, "utf8"), environment, {
+      supportedTrackerKinds: getSupportedTrackerKinds(),
+    });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      process.stderr.write(
+        `Configured workflow not found at ${configuredPath}. Restore the file or run 'gh-symphony repo init --workflow-file <path>'.\n`
+      );
+      process.exitCode = 1;
+      return false;
+    }
+    process.stderr.write(
+      `Workflow preflight failed for ${configuredPath}: ${error instanceof Error ? error.message : "Invalid workflow definition."}\n`
+    );
+    process.exitCode = 1;
+    return false;
+  }
 }
 
 type GitHubAuthRuntimeError =
@@ -958,6 +997,9 @@ const handler = async (
         : REPO_START_COMMAND,
   });
   if (!authPreflight.ok) {
+    return;
+  }
+  if (!(await preflightWorkflowStart(projectConfig, runtimeRoot))) {
     return;
   }
   const httpApiToken = resolveHttpApiToken();

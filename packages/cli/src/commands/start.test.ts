@@ -62,6 +62,7 @@ vi.mock("@gh-symphony/orchestrator", () => ({
   isProcessRunning: vi.fn(() => true),
   resolveProjectLockPath: (runtimeRoot: string, projectId: string) =>
     join(runtimeRoot, "projects", projectId, ".lock"),
+  getSupportedTrackerKinds: () => ["github-project", "linear", "file"],
   resolveOrchestratorLogLevel: (value?: string | null) =>
     value === "verbose" ? "verbose" : "normal",
   OrchestratorService: class {
@@ -296,6 +297,114 @@ describe("shutdownForegroundOrchestrator", () => {
 });
 
 describe("start command foreground locking", () => {
+  it("fails before constructing the daemon for an unsupported tracker kind", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const workflowPath = join(configDir, "invalid-workflow.md");
+    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = { type: "repo", path: workflowPath };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: retired-kind
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain("Workflow preflight failed");
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("uses the managed project .env when preflighting a configured workflow", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectDir = join(configDir, "projects", "tenant-a");
+    const workflowPath = join(projectDir, "custom-workflow.md");
+    const projectPath = join(projectDir, "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = { type: "repo", path: workflowPath };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    await writeFile(
+      projectDir + "/.env",
+      "WORKFLOW_CODEX_COMMAND=codex app-server\n",
+      "utf8"
+    );
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-1
+codex:
+  command: $WORKFLOW_CODEX_COMMAND
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
+    acquireProjectLock.mockResolvedValue({
+      lockPath: join(projectDir, ".lock"),
+      ownerToken: "owner",
+      pid: 1234,
+      startedAt: "2026-08-28T00:00:00.000Z",
+    });
+
+    await startModule.default([], baseOptions(configDir));
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("reports a remediation when the explicitly configured workflow is missing", async () => {
+    const configDir = await createConfigFixture({
+      activeProject: "tenant-a",
+      projects: [createProject("tenant-a", "acme", "platform")],
+    });
+    const projectPath = join(configDir, "projects", "tenant-a", "project.json");
+    const project = JSON.parse(
+      await readFile(projectPath, "utf8")
+    ) as CliProjectConfig;
+    project.workflowSource = {
+      type: "repo",
+      path: join(configDir, "missing-workflow.md"),
+    };
+    await writeFile(projectPath, JSON.stringify(project), "utf8");
+    const stderr = captureWrites(process.stderr);
+
+    try {
+      await startModule.default([], baseOptions(configDir));
+    } finally {
+      stderr.restore();
+    }
+
+    expect(stderr.output()).toContain("Configured workflow not found");
+    expect(acquireProjectLock).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
   it.each([
     [
       "not_installed",
@@ -844,15 +953,29 @@ describe("start command foreground locking", () => {
   });
 
   it("starts the active external project daemon from its project directory", async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "standalone-project-"));
+    const workflowPath = join(projectDir, "WORKFLOW.md");
+    await writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-project
+  project_id: project-1
+codex:
+  command: codex app-server
+---
+Handle {{issue.identifier}}.\n`,
+      "utf8"
+    );
     const configDir = await createConfigFixture({
       activeProject: "standalone",
       projects: [
         {
           ...createProject("standalone", "acme", "platform"),
-          projectDir: "/tmp/standalone-project",
+          projectDir,
           workflowSource: {
             type: "external",
-            path: "/tmp/standalone-project/WORKFLOW.md",
+            path: workflowPath,
           },
         },
         createProject("other-project", "beta", "api"),
@@ -870,7 +993,7 @@ describe("start command foreground locking", () => {
     }
 
     expect(childProcessMocks.spawn.mock.calls[0]?.[2]).toMatchObject({
-      cwd: "/tmp/standalone-project",
+      cwd: projectDir,
       env: expect.objectContaining({
         GH_SYMPHONY_CONFIG_DIR: resolve(configDir),
         GH_SYMPHONY_DAEMON_PROJECT_ID: "standalone",
@@ -882,7 +1005,7 @@ describe("start command foreground locking", () => {
         "utf8"
       )
     ) as { cwd: string };
-    expect(pidRecord.cwd).toBe("/tmp/standalone-project");
+    expect(pidRecord.cwd).toBe(projectDir);
     expect(stdout.output()).toContain("Stop with: gh-symphony project stop");
   });
 
