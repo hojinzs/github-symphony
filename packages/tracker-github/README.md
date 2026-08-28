@@ -12,5 +12,9 @@ GitHub Project polling, issue normalization, and tracker-facing configuration va
   cross-tracker identifier.
 - With `--assigned-only`, items assigned to another user stay visible but are
   non-dispatchable. Repository scope and fork PR heads are handled the same
-  way. Blocker semantics remain outside this adapter until their dedicated
-  migration.
+  way.
+- Blocker eligibility is derived here, not by orchestration core. For states
+  selected by the workflow's `blocker_check_states`, unresolved GitHub
+  `blockedBy` issues produce `dispatchable: false` and a `dispatchReason`.
+  `blockedBy` remains best-effort provider metadata; closed blockers do not
+  prevent dispatch.
