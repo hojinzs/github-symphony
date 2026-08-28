@@ -92,12 +92,6 @@ type LinearIssueFilter = {
   state?: { name: { in: string[] } };
   id?: { in: string[] };
   identifier?: { in: string[] };
-  assignee?: { isMe: { eq: true } };
-};
-
-type PickupLabelConfig = {
-  include: string[];
-  exclude: string[];
 };
 
 const LINEAR_ISSUE_FIELDS = /* GraphQL */ `
@@ -194,9 +188,7 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
     return listLinearIssues(
       project,
       project.tracker.settings?.activeStates,
-      dependencies,
-      undefined,
-      { applyPickupLabels: true }
+      dependencies
     );
   },
 
@@ -266,8 +258,7 @@ async function listLinearIssues(
   project: OrchestratorProjectConfig,
   stateNamesInput: unknown,
   dependencies: OrchestratorTrackerDependencies,
-  issueIds?: readonly string[],
-  options: { applyPickupLabels?: boolean } = {}
+  issueIds?: readonly string[]
 ): Promise<TrackedIssueList> {
   const config = resolveLinearTrackerConfig(project, dependencies);
   const client = createLinearGraphqlClient(config, dependencies.fetchImpl);
@@ -288,22 +279,20 @@ async function listLinearIssues(
       issueIds && issueIds.every(isLinearIdentifier)
         ? issueIds.map((identifier) => identifier.trim().toUpperCase())
         : undefined,
-    assignedOnly: config.assignedOnly,
     pageSize: config.pageSize,
     maxPages: config.maxPages,
   });
 
   const fetchedIssues = result.nodes.map((node) =>
-    normalizeLinearIssue(project, config.projectSlug, node, result.rateLimits)
+    normalizeLinearIssue(
+      project,
+      config.projectSlug,
+      node,
+      config.assignedOnly,
+      result.rateLimits
+    )
   ) as TrackedIssueList;
-  const filteredIssues = options.applyPickupLabels
-    ? filterIssuesByPickupLabels(
-        fetchedIssues,
-        config.pickupLabels,
-        config.projectSlug
-      )
-    : fetchedIssues;
-  Object.defineProperty(filteredIssues, "rateLimits", {
+  Object.defineProperty(fetchedIssues, "rateLimits", {
     configurable: true,
     enumerable: false,
     value: result.rateLimits,
@@ -313,11 +302,13 @@ async function listLinearIssues(
   if (config.assignedOnly) {
     emitAssignedOnlyFilterEvent({
       projectSlug: config.projectSlug,
-      includedCount: filteredIssues.length,
+      includedCount: fetchedIssues.filter((issue) => issue.dispatchable).length,
+      excludedCount: fetchedIssues.filter((issue) => !issue.dispatchable)
+        .length,
     });
   }
 
-  return filteredIssues;
+  return fetchedIssues;
 }
 
 async function fetchPaginatedLinearIssues(
@@ -327,7 +318,6 @@ async function fetchPaginatedLinearIssues(
     stateNames?: string[];
     issueIds?: string[];
     issueIdentifiers?: string[];
-    assignedOnly: boolean;
     pageSize: number;
     maxPages: number;
   }
@@ -376,7 +366,6 @@ function buildLinearIssueFilter(input: {
   stateNames?: string[];
   issueIds?: string[];
   issueIdentifiers?: string[];
-  assignedOnly: boolean;
 }): LinearIssueFilter {
   return {
     project: { slugId: { eq: input.projectSlug } },
@@ -385,7 +374,6 @@ function buildLinearIssueFilter(input: {
       : input.issueIds
         ? { id: { in: input.issueIds } }
         : { state: { name: { in: input.stateNames ?? [] } } }),
-    ...(input.assignedOnly ? { assignee: { isMe: { eq: true } } } : {}),
   };
 }
 
@@ -400,6 +388,7 @@ export function normalizeLinearIssue(
   project: OrchestratorProjectConfig,
   projectSlug: string,
   issue: LinearIssueNode,
+  assignedOnly = false,
   rateLimits: Record<string, unknown> | null = null
 ): TrackedIssue {
   const id = requireString(issue.id, "Linear issue id");
@@ -424,7 +413,7 @@ export function normalizeLinearIssue(
     labels: (issue.labels?.nodes ?? [])
       .map((label) => label.name)
       .filter((label): label is string => typeof label === "string"),
-    dispatchable: true,
+    dispatchable: !assignedOnly || Boolean(issue.assignee?.id),
     assigneeId: issue.assignee?.id ?? null,
     blockedBy: (issue.inverseRelations?.nodes ?? [])
       .filter((relation) => relation.type === "blocks")
@@ -610,7 +599,6 @@ function resolveLinearTrackerConfig(
         DEFAULT_LINEAR_PAGE_TIMEOUT_MS,
       MAX_LINEAR_PAGE_TIMEOUT_MS
     ),
-    pickupLabels: resolvePickupLabels(project.tracker),
     projectSlug,
     token,
   };
@@ -687,39 +675,6 @@ function readBooleanSetting(
   return value === true || value === "true";
 }
 
-function resolvePickupLabels(
-  tracker: OrchestratorTrackerConfig
-): PickupLabelConfig {
-  const pickupLabels =
-    readObjectSetting(tracker, "pickupLabels") ??
-    readObjectSetting(tracker, "pickup_labels");
-
-  return {
-    include: normalizeConfiguredLabels(
-      readStringArray(pickupLabels?.include) ?? []
-    ),
-    exclude: normalizeConfiguredLabels(
-      readStringArray(pickupLabels?.exclude) ?? []
-    ),
-  };
-}
-
-function readObjectSetting(
-  tracker: OrchestratorTrackerConfig,
-  key: string
-): Record<string, unknown> | undefined {
-  const value = tracker.settings?.[key];
-  if (
-    value === undefined ||
-    value === null ||
-    Array.isArray(value) ||
-    typeof value !== "object"
-  ) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
 function readStringArray(value: unknown): string[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -736,77 +691,17 @@ function readStringArray(value: unknown): string[] | undefined {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-function normalizeConfiguredLabels(labels: string[]): string[] {
-  return Array.from(
-    new Set(
-      labels.map((label) => label.trim()).filter((label) => label.length > 0)
-    )
-  );
-}
-
-function filterIssuesByPickupLabels(
-  issues: TrackedIssueList,
-  config: PickupLabelConfig,
-  projectSlug: string
-): TrackedIssueList {
-  if (config.include.length === 0 && config.exclude.length === 0) {
-    return issues;
-  }
-
-  const includeLabels = new Set(config.include);
-  const excludeLabels = new Set(config.exclude);
-  const filtered = issues.filter((issue) => {
-    const issueLabels = new Set(issue.labels);
-    if (config.exclude.some((label) => issueLabels.has(label))) {
-      return false;
-    }
-    return (
-      includeLabels.size === 0 ||
-      config.include.some((label) => issueLabels.has(label))
-    );
-  }) as TrackedIssueList;
-
-  emitPickupLabelFilterEvent({
-    projectSlug,
-    include: [...includeLabels],
-    exclude: [...excludeLabels],
-    includedCount: filtered.length,
-    excludedCount: issues.length - filtered.length,
-  });
-
-  return filtered;
-}
-
 function emitAssignedOnlyFilterEvent(input: {
   projectSlug: string;
   includedCount: number;
+  excludedCount: number;
 }): void {
   console.info(
     JSON.stringify({
       event: "tracker-assigned-only-filtered",
       tracker: "linear",
       projectSlug: input.projectSlug,
-      assigneeFilter: "isMe",
-      includedCount: input.includedCount,
-      excludedCount: null,
-    })
-  );
-}
-
-function emitPickupLabelFilterEvent(input: {
-  projectSlug: string;
-  include: string[];
-  exclude: string[];
-  includedCount: number;
-  excludedCount: number;
-}): void {
-  console.info(
-    JSON.stringify({
-      event: "tracker-pickup-label-filtered",
-      tracker: "linear",
-      projectSlug: input.projectSlug,
-      include: input.include,
-      exclude: input.exclude,
+      assigneeFilter: "assignee.id",
       includedCount: input.includedCount,
       excludedCount: input.excludedCount,
     })

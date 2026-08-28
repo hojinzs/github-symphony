@@ -8,7 +8,6 @@ import type {
   TrackerStateRequest,
   TrackerStateResult,
 } from "@gh-symphony/core";
-import { filterIssuesByPickupLabels } from "@gh-symphony/core";
 
 function requireTrackerSetting(
   project: OrchestratorProjectConfig,
@@ -127,7 +126,7 @@ function buildTrackerStateResult(
 
 export const fileTrackerAdapter: OrchestratorTrackerAdapter = {
   async listIssues(project) {
-    return filterIssuesByPickupLabels(await readValidIssues(project), project);
+    return readValidIssues(project);
   },
 
   async listIssuesByStates(project, states) {

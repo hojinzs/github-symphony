@@ -81,7 +81,7 @@ describe("fileTrackerAdapter", () => {
       expect(issues[0].state).toBe("Ready");
     });
 
-    it("filters issues using configured pickup labels", async () => {
+    it("returns configured pickup-label issues for orchestration-side filtering", async () => {
       const issuesPath = join(testDir, "issues.json");
       await writeFile(
         issuesPath,
@@ -98,6 +98,30 @@ describe("fileTrackerAdapter", () => {
 
       await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
         expect.objectContaining({ id: "issue-1" }),
+        expect.objectContaining({ id: "issue-2" }),
+      ]);
+    });
+
+    it("preserves fixture dispatchability and assigneeId defaults", async () => {
+      const issuesPath = join(testDir, "dispatchability.json");
+      await writeFile(
+        issuesPath,
+        JSON.stringify([
+          sampleIssue,
+          {
+            ...sampleIssue,
+            id: "issue-2",
+            dispatchable: false,
+            assigneeId: "linear-user-2",
+          },
+        ])
+      );
+
+      await expect(
+        fileTrackerAdapter.listIssues(makeProject(issuesPath))
+      ).resolves.toMatchObject([
+        { id: "issue-1", dispatchable: true, assigneeId: null },
+        { id: "issue-2", dispatchable: false, assigneeId: "linear-user-2" },
       ]);
     });
 
@@ -223,9 +247,9 @@ describe("fileTrackerAdapter", () => {
         pickupLabels: { include: ["alpha"] },
       };
 
-      await expect(fileTrackerAdapter.listIssues(project)).resolves.toEqual([
-        expect.objectContaining({ id: "alpha" }),
-      ]);
+      await expect(
+        fileTrackerAdapter.listIssues(project)
+      ).resolves.toHaveLength(2);
       await expect(
         fileTrackerAdapter.listIssuesByStates(project, ["Ready"])
       ).resolves.toHaveLength(2);
