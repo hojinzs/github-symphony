@@ -276,6 +276,7 @@ type ForegroundShutdownOptions = {
   httpServer?: Server;
   workerHttpServer?: Server;
   projectLock?: ProjectLockHandle | null;
+  instance?: InstanceEntry | null;
   service?: { shutdown(): Promise<void> };
   exit?: (code?: number) => never;
   releaseLock?: typeof releaseProjectLock;
@@ -1078,6 +1079,7 @@ const handler = async (
         httpServer: httpServer?.server,
         workerHttpServer: workerHttpServer?.server,
         projectLock: heldLock,
+        instance,
         service,
       });
       return shutdownPromise;
@@ -1279,6 +1281,17 @@ export async function shutdownForegroundOrchestrator(
       yellow("\u26A0"),
       `Failed to release project lock: ${error instanceof Error ? error.message : "Unknown error"}`
     );
+  }
+
+  if (input.instance) {
+    try {
+      await unregisterInstance(input.instance);
+    } catch (error) {
+      logLine(
+        yellow("⚠"),
+        `Failed to unregister instance: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
   }
 
   return (input.exit ?? process.exit)(process.exitCode ?? 0);

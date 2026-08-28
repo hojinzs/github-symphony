@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   chmod,
   mkdir,
-  open,
   readdir,
   readFile,
   rename,
@@ -38,7 +37,7 @@ export type InstanceEntry = {
   startedAt: string;
   heartbeatAt: string | null;
   processIdentity: string | null;
-  endpoint?: string;
+  endpoint?: string | null;
   phase?: string | null;
   standalone?: boolean;
 };
@@ -76,6 +75,7 @@ async function ensureInstancesRoot(): Promise<void> {
 
 export async function registerInstance(entry: InstanceEntry): Promise<void> {
   await ensureInstancesRoot();
+  await sweepStaleRecords();
   await rememberRuntimeRoot(entry.runtimeRoot);
   await writeFile(pathFor(entry), JSON.stringify(entry, null, 2) + "\n", {
     mode: FILE_MODE,
@@ -83,9 +83,15 @@ export async function registerInstance(entry: InstanceEntry): Promise<void> {
 }
 
 export async function unregisterInstance(
-  entry: Pick<InstanceEntry, "runtimeRoot" | "projectId">
+  entry: Pick<InstanceEntry, "runtimeRoot" | "projectId" | "pid" | "startedAt">
 ): Promise<void> {
-  await rm(pathFor(entry), { force: true });
+  const current = await readJson(pathFor(entry)).catch(() => null);
+  if (
+    !isInstanceEntry(current) ||
+    (current.pid === entry.pid && current.startedAt === entry.startedAt)
+  ) {
+    await rm(pathFor(entry), { force: true });
+  }
   await forgetRuntimeRootIfInactive(entry.runtimeRoot);
 }
 
@@ -186,7 +192,7 @@ export async function listInstances(
     output.push({
       ...entry,
       phase: status === "stale-registry" ? null : phase,
-      ...(status === "stale-registry" ? { endpoint: undefined } : {}),
+      ...(status === "stale-registry" ? { endpoint: null } : {}),
       status,
       uptimeMs: uptimeMs(entry.startedAt, now, status === "stale-registry"),
     });
@@ -202,22 +208,18 @@ function instanceKey(
 }
 
 async function rememberRuntimeRoot(runtimeRoot: string): Promise<void> {
-  await withRuntimeRootsLock(async () => {
-    const roots = await readRuntimeRoots();
-    const resolvedRoot = resolve(runtimeRoot);
-    if (!roots.includes(resolvedRoot)) {
-      await writeRuntimeRoots([...roots, resolvedRoot]);
-    }
-  });
+  const roots = await readRuntimeRoots();
+  const resolvedRoot = resolve(runtimeRoot);
+  if (!roots.includes(resolvedRoot)) {
+    await writeRuntimeRoots([...roots, resolvedRoot]);
+  }
 }
 
 async function forgetRuntimeRootIfInactive(runtimeRoot: string): Promise<void> {
   const resolvedRoot = resolve(runtimeRoot);
-  await withRuntimeRootsLock(async () => {
-    if (await runtimeRootIsActive(resolvedRoot)) return;
-    const roots = await readRuntimeRoots();
-    await writeRuntimeRoots(roots.filter((root) => root !== resolvedRoot));
-  });
+  if (await runtimeRootIsActive(resolvedRoot)) return;
+  const roots = await readRuntimeRoots();
+  await writeRuntimeRoots(roots.filter((root) => root !== resolvedRoot));
 }
 
 async function runtimeRootIsActive(runtimeRoot: string): Promise<boolean> {
@@ -232,13 +234,18 @@ async function runtimeRootIsActive(runtimeRoot: string): Promise<boolean> {
   const projectIds = await readdir(join(runtimeRoot, "projects")).catch(
     () => []
   );
-  return (await Promise.all(
-    projectIds.map(async (projectId) => {
-      const lock = (await readJson(
-        resolveProjectLockPath(runtimeRoot, projectId)
-      ).catch(() => null)) as { pid?: unknown; heartbeatAt?: unknown; processIdentity?: unknown } | null;
-      return Boolean(
-        lock &&
+  return (
+    await Promise.all(
+      projectIds.map(async (projectId) => {
+        const lock = (await readJson(
+          resolveProjectLockPath(runtimeRoot, projectId)
+        ).catch(() => null)) as {
+          pid?: unknown;
+          heartbeatAt?: unknown;
+          processIdentity?: unknown;
+        } | null;
+        return Boolean(
+          lock &&
           typeof lock.pid === "number" &&
           isFresh(
             typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null,
@@ -250,9 +257,10 @@ async function runtimeRootIsActive(runtimeRoot: string): Promise<boolean> {
               : null,
             lock.pid
           )
-      );
-    })
-  )).some(Boolean);
+        );
+      })
+    )
+  ).some(Boolean);
 }
 
 function runtimeRootsPath(): string {
@@ -278,24 +286,28 @@ async function writeRuntimeRoots(roots: string[]): Promise<void> {
   await rename(temporaryPath, path);
 }
 
-async function withRuntimeRootsLock<T>(operation: () => Promise<T>): Promise<T> {
-  await ensureInstancesRoot();
-  const lockPath = join(instancesRoot(), `.${RUNTIME_ROOTS_FILE}.lock`);
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const handle = await open(lockPath, "wx", FILE_MODE);
-      try {
-        return await operation();
-      } finally {
-        await handle.close();
-        await rm(lockPath, { force: true });
-      }
-    } catch (error) {
-      if (!isAlreadyExists(error)) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+async function sweepStaleRecords(): Promise<void> {
+  const names = await readdir(instancesRoot()).catch(() => []);
+  for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+    if (name === RUNTIME_ROOTS_FILE) continue;
+    const entryPath = join(instancesRoot(), name);
+    const entry = await readJson(entryPath).catch(() => null);
+    if (!isInstanceEntry(entry)) continue;
+    const lock = (await readJson(
+      resolveProjectLockPath(entry.runtimeRoot, entry.projectId)
+    ).catch(() => null)) as { heartbeatAt?: unknown } | null;
+    if (
+      !lock ||
+      !isFresh(
+        typeof lock.heartbeatAt === "string" ? lock.heartbeatAt : null,
+        Date.now()
+      ) ||
+      !identityMatches(entry.processIdentity, entry.pid)
+    ) {
+      await rm(entryPath, { force: true });
+      await forgetRuntimeRootIfInactive(entry.runtimeRoot);
     }
   }
-  throw new Error("Timed out waiting to update the instance runtime-root index.");
 }
 
 async function discoverUnregistered(
@@ -408,15 +420,6 @@ function isMissing(error: unknown): boolean {
     "code" in error &&
     ((error as { code?: string }).code === "ENOENT" ||
       (error as { code?: string }).code === "ENOTDIR")
-  );
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code?: string }).code === "EEXIST"
   );
 }
 

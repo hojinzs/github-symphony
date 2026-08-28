@@ -63,7 +63,7 @@ describe("global instance registry", () => {
     await expect(listInstances()).resolves.toEqual([
       expect.objectContaining({
         status: "stale-registry",
-        endpoint: undefined,
+        endpoint: null,
         phase: null,
         uptimeMs: 0,
       }),
@@ -95,6 +95,50 @@ describe("global instance registry", () => {
       expect.objectContaining({
         status: "unregistered",
         projectId: entry.projectId,
+      }),
+    ]);
+  });
+
+  it("prunes stale records on registration without deleting a successor", async () => {
+    const root = await mkdirTemp();
+    process.env.GH_SYMPHONY_INSTANCES_DIR = join(root, "instances");
+    const runtimeRoot = join(root, "runtime-a");
+    const entry = entryFor(runtimeRoot);
+    await mkdir(join(runtimeRoot, "projects", entry.projectId), {
+      recursive: true,
+    });
+    await writeFile(
+      join(runtimeRoot, "projects", entry.projectId, ".lock"),
+      JSON.stringify({
+        pid: entry.pid,
+        heartbeatAt: new Date().toISOString(),
+        processIdentity: entry.processIdentity,
+      })
+    );
+    await registerInstance(entry);
+    const successor = {
+      ...entry,
+      pid: entry.pid + 1,
+      startedAt: "2099-01-01T00:00:00.000Z",
+    };
+    await registerInstance(successor);
+    await unregisterInstance(entry);
+    await expect(listInstances()).resolves.toEqual([
+      expect.objectContaining({
+        pid: successor.pid,
+        startedAt: successor.startedAt,
+      }),
+    ]);
+
+    await writeFile(
+      join(runtimeRoot, "projects", entry.projectId, ".lock"),
+      JSON.stringify({ heartbeatAt: "2000-01-01T00:00:00.000Z" })
+    );
+    await registerInstance({ ...entry, projectId: "project-b" });
+    await expect(listInstances()).resolves.toEqual([
+      expect.objectContaining({
+        projectId: "project-b",
+        status: "stale-registry",
       }),
     ]);
   });
