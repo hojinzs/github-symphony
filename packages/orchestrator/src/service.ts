@@ -78,7 +78,6 @@ import { resolveTrackerAdapter } from "./tracker-adapters.js";
 import {
   getConvergenceLockStatus,
   resolveConvergenceLockTtlMs,
-  findActiveLinkedPullRequest,
   isActiveRunRecordStatus,
   isIssueCandidateEligibleWithReason,
   isIssueOrchestrationClaimedState,
@@ -208,89 +207,11 @@ function parseFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-export function resolveCanonicalSubjectIssues(
+function resolveCanonicalIssues(
+  adapter: OrchestratorTrackerAdapter,
   issues: readonly TrackedIssue[]
 ): TrackedIssue[] {
-  const pullRequestsById = new Map<string, TrackedIssue>();
-  const pullRequestsByIdentifier = new Map<string, TrackedIssue>();
-
-  for (const issue of issues) {
-    if (issue.metadata.contentType !== "PullRequest") {
-      continue;
-    }
-
-    pullRequestsById.set(issue.id, issue);
-    pullRequestsByIdentifier.set(issue.identifier, issue);
-  }
-
-  const linkedPullRequestIds = new Set<string>();
-  const linkedPullRequestIdentifiers = new Set<string>();
-  const canonicalIssues: TrackedIssue[] = [];
-
-  for (const issue of issues) {
-    if (issue.metadata.contentType === "PullRequest") {
-      continue;
-    }
-
-    const linkedPullRequests = Array.isArray(issue.metadata.linkedPullRequests)
-      ? issue.metadata.linkedPullRequests
-      : [];
-    if (linkedPullRequests.length === 0) {
-      canonicalIssues.push(issue);
-      continue;
-    }
-
-    let mergedAnyProjectItem = false;
-    const mergedLinkedPullRequests = linkedPullRequests.map((pullRequest) => {
-      linkedPullRequestIds.add(pullRequest.id);
-      linkedPullRequestIdentifiers.add(pullRequest.identifier);
-
-      const projectPullRequest =
-        pullRequestsById.get(pullRequest.id) ??
-        pullRequestsByIdentifier.get(pullRequest.identifier);
-      if (!projectPullRequest) {
-        return pullRequest;
-      }
-
-      mergedAnyProjectItem = true;
-      return {
-        ...pullRequest,
-        projectState: projectPullRequest.state,
-        projectItemId: projectPullRequest.tracker.itemId,
-        tracker: projectPullRequest.tracker,
-        priority: projectPullRequest.priority,
-      };
-    });
-
-    canonicalIssues.push(
-      mergedAnyProjectItem
-        ? {
-            ...issue,
-            metadata: {
-              ...issue.metadata,
-              linkedPullRequests: mergedLinkedPullRequests,
-            },
-          }
-        : issue
-    );
-  }
-
-  for (const pullRequest of issues) {
-    if (pullRequest.metadata.contentType !== "PullRequest") {
-      continue;
-    }
-
-    if (
-      linkedPullRequestIds.has(pullRequest.id) ||
-      linkedPullRequestIdentifiers.has(pullRequest.identifier)
-    ) {
-      continue;
-    }
-
-    canonicalIssues.push(pullRequest);
-  }
-
-  return canonicalIssues;
+  return adapter.resolveCanonicalIssues?.(issues) ?? [...issues];
 }
 
 function matchesTargetIssueIdentifier(
@@ -327,51 +248,6 @@ class RestartRunFailure extends Error {
         : String(originalError ?? "unknown restart error")
     );
   }
-}
-
-function resolvePullRequestBranchCheckoutTarget(
-  issue: TrackedIssue
-): { headRefName: string } | null {
-  const pullRequest =
-    issue.metadata.contentType === "PullRequest"
-      ? (issue.metadata.pullRequest ?? issue.metadata.linkedPullRequests?.[0])
-      : (issue.metadata.linkedPullRequests?.[0] ?? null);
-
-  if (!pullRequest) {
-    if (issue.metadata.contentType === "PullRequest") {
-      throw new NonRetryableDispatchError(
-        `Cannot checkout pull request branch for ${issue.identifier}: missing pull request metadata.`
-      );
-    }
-
-    return null;
-  }
-
-  const headRefName = pullRequest.headRefName?.trim();
-  if (!headRefName) {
-    throw new NonRetryableDispatchError(
-      `Cannot checkout pull request branch for ${pullRequest.identifier}: missing headRefName.`
-    );
-  }
-
-  const headRepository = pullRequest.headRepository ?? null;
-  const sameOwner =
-    headRepository?.owner.toLowerCase() ===
-    issue.repository.owner.toLowerCase();
-  const sameName =
-    headRepository?.name.toLowerCase() === issue.repository.name.toLowerCase();
-  if (!headRepository || !sameOwner || !sameName) {
-    const source = headRepository
-      ? `${headRepository.owner}/${headRepository.name}`
-      : "unknown fork";
-    // PR-content items are excluded earlier by tracker dispatchability; this
-    // remains for issues linked to a fork PR.
-    throw new NonRetryableDispatchError(
-      `Cannot checkout pull request branch for ${pullRequest.identifier}: fork pull requests are unsupported for automatic checkout/push (${source} -> ${issue.repository.owner}/${issue.repository.name}).`
-    );
-  }
-
-  return { headRefName };
 }
 
 function buildLinkedPullRequestActiveAdvisoryMarker(
@@ -606,8 +482,11 @@ export class OrchestratorService {
             this.createTrackerDependencies()
           );
           canonicalItemId =
-            refreshed.find((issue) => issue.id === run.issueSubjectId)?.tracker
-              .itemId ?? "";
+            trackerItemId(
+              trackerAdapter,
+              refreshed.find((issue) => issue.id === run.issueSubjectId) ??
+                ({ id: "" } as TrackedIssue)
+            ) ?? "";
           if (!canonicalItemId) {
             const result = rejected("canonical_tracker_item_missing");
             await this.runSerialized(() =>
@@ -921,8 +800,11 @@ export class OrchestratorService {
           trackerDependencies
         );
         canonicalItemId =
-          refreshed.find((issue) => issue.id === run.issueSubjectId)?.tracker
-            .itemId ?? "";
+          trackerItemId(
+            trackerAdapter,
+            refreshed.find((issue) => issue.id === run.issueSubjectId) ??
+              ({ id: "" } as TrackedIssue)
+          ) ?? "";
       }
       if (!canonicalItemId) {
         return { confirmed: false, state: null };
@@ -1309,10 +1191,10 @@ export class OrchestratorService {
           `[orchestrator] skipped ${skippedItems.length} item(s) for ${tenant.projectId}: ${[...new Set(skippedItems.map((item) => item.identifier))].join(", ")} (${[...new Set(skippedItems.map((item) => item.reason))].join(", ")})`
         );
       }
-      const canonicalIssues = resolveCanonicalSubjectIssues(issues);
+      const canonicalIssues = resolveCanonicalIssues(trackerAdapter, issues);
       const terminalCandidateIssues = (issueIdentifier
         ? canonicalIssues.filter((issue) =>
-            matchesTargetIssueIdentifier(issue, issueIdentifier)
+            matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
           )
         : canonicalIssues
       ).filter((issue) => issue.dispatchable);
@@ -1341,17 +1223,13 @@ export class OrchestratorService {
         canonicalIssues.map((issue) => [issue.identifier, issue])
       );
       const missingLinearActiveIssueIds =
-        tenant.tracker.adapter === "linear"
-          ? [
-              ...new Set(
-                currentActiveRuns
-                  .filter(
-                    (run) => !trackedIssuesByIdentifier.has(run.issueIdentifier)
-                  )
-                  .map((run) => run.issueId)
-              ),
-            ]
-          : [];
+        [
+          ...new Set(
+            currentActiveRuns
+              .filter((run) => !trackedIssuesByIdentifier.has(run.issueIdentifier))
+              .map((run) => run.issueId)
+          ),
+        ];
       const supplementalLinearIssues =
         missingLinearActiveIssueIds.length > 0
           ? await trackerAdapter.fetchIssueStatesByIds(
@@ -1385,7 +1263,8 @@ export class OrchestratorService {
       let workspaceIssuesMissingFromPoll: TrackedIssue[] = [];
       if (workspaceIssueIdsMissingFromPoll.length > 0) {
         try {
-          workspaceIssuesMissingFromPoll = resolveCanonicalSubjectIssues(
+          workspaceIssuesMissingFromPoll = resolveCanonicalIssues(
+            trackerAdapter,
             await trackerAdapter.fetchIssueStatesByIds(
               tenant,
               workspaceIssueIdsMissingFromPoll,
@@ -1470,12 +1349,12 @@ export class OrchestratorService {
       };
       const actionableCandidates = issueIdentifier
         ? trackedActionableIssues.filter((issue: TrackedIssue) =>
-            matchesTargetIssueIdentifier(issue, issueIdentifier)
+            matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
           )
         : trackedActionableIssues;
       const targetedIssues = (issueIdentifier
         ? canonicalIssues.filter((issue: TrackedIssue) =>
-            matchesTargetIssueIdentifier(issue, issueIdentifier)
+            matchesTargetIssueIdentifier(trackerAdapter, issue, issueIdentifier)
           )
         : canonicalIssues
       ).filter((issue) => issue.dispatchable);
@@ -1922,7 +1801,7 @@ export class OrchestratorService {
         }
         const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
         const terminalState =
-          !isArchivedProjectItem(issue) &&
+          issue.isArchived !== true &&
           issueLifecycle !== null &&
           isStateTerminal(issue.state, issueLifecycle);
         const recovery = terminalState
@@ -1975,7 +1854,7 @@ export class OrchestratorService {
       for (const issue of cleanupIssuesByIdentifier.values()) {
         const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
         if (
-          isArchivedProjectItem(issue) ||
+          issue.isArchived === true ||
           issueLifecycle === null ||
           !isStateTerminal(issue.state, issueLifecycle)
         ) {
@@ -2416,8 +2295,7 @@ export class OrchestratorService {
 
     for (const issue of issues) {
       if (
-        isArchivedProjectItem(issue) ||
-        issue.metadata.contentType === "PullRequest" ||
+        issue.isArchived === true ||
         claimedIssueIds.has(issue.id)
       ) {
         continue;
@@ -2460,7 +2338,7 @@ export class OrchestratorService {
             tenant,
             {
               issueSubjectId: issue.id,
-              itemId: issue.tracker.itemId,
+              itemId: trackerItemId(trackerAdapter, issue) ?? "",
               request: {
                 type: "transition-request",
                 expectedState: issue.state,
@@ -2489,7 +2367,7 @@ export class OrchestratorService {
           projectId: tenant.projectId,
           issueIdentifier: issue.identifier,
           issueId: issue.id,
-          trackerItemId: issue.tracker.itemId,
+          trackerItemId: trackerItemId(trackerAdapter, issue) ?? "",
           terminalFact: terminalFact.kind,
           linkedPullRequest: terminalFact.relatedIdentifier,
           expectedState: issue.state,
@@ -2517,7 +2395,7 @@ export class OrchestratorService {
     lifecycle: WorkflowLifecycleConfig,
     issues: readonly TrackedIssue[]
   ): boolean {
-    if (isArchivedProjectItem(issue)) {
+    if (issue.isArchived === true) {
       return false;
     }
 
@@ -2538,10 +2416,7 @@ export class OrchestratorService {
     let rateLimits: Record<string, unknown> | null = null;
 
     for (const issue of issues) {
-      if (
-        isArchivedProjectItem(issue) ||
-        issue.metadata.contentType === "PullRequest"
-      ) {
+      if (issue.isArchived === true) {
         continue;
       }
 
@@ -2558,7 +2433,10 @@ export class OrchestratorService {
         continue;
       }
 
-      const linkedPullRequest = findActiveLinkedPullRequest(issue, lifecycle);
+      const linkedPullRequest = trackerAdapter.findActiveLinkedPullRequest?.(
+        issue,
+        lifecycle
+      );
       if (!linkedPullRequest) {
         continue;
       }
@@ -2786,7 +2664,7 @@ export class OrchestratorService {
         configuredWorkspacePath: issueWorkspacePath,
       });
     }
-    const pullRequestBranch = resolvePullRequestBranchCheckoutTarget(issue);
+    const pullRequestBranch = trackerAdapter.resolveBranchCheckoutTarget?.(issue) ?? null;
 
     // #507: dirty recovery may only reuse the workspace when the dirty state
     // is attributable to this run's issue. Otherwise quarantine the workspace
@@ -2984,7 +2862,7 @@ export class OrchestratorService {
       projectSlug: tenant.slug,
       issueId: issue.id,
       issueSubjectId,
-      trackerItemId: issue.tracker.itemId,
+      trackerItemId: trackerItemId(trackerAdapter, issue) ?? "",
       issueIdentifier: issue.identifier,
       issueTitle: issue.title,
       issueState: issue.state,
@@ -3071,7 +2949,7 @@ export class OrchestratorService {
           SYMPHONY_ISSUE_WORKSPACE_KEY: workspaceKey,
           SYMPHONY_TRACKER_ADAPTER: issue.tracker.adapter,
           SYMPHONY_TRACKER_BINDING_ID: issue.tracker.bindingId,
-          SYMPHONY_TRACKER_ITEM_ID: issue.tracker.itemId,
+          SYMPHONY_TRACKER_ITEM_ID: trackerItemId(trackerAdapter, issue) ?? "",
           TARGET_REPOSITORY_CLONE_URL: issue.repository.cloneUrl,
           TARGET_REPOSITORY_OWNER: issue.repository.owner,
           TARGET_REPOSITORY_NAME: issue.repository.name,
@@ -5201,7 +5079,7 @@ export class OrchestratorService {
     now: Date,
     workflowResolution?: ProjectWorkflowResolution
   ): Promise<void> {
-    if (isArchivedProjectItem(issue)) {
+    if (issue.isArchived === true) {
       return;
     }
 
@@ -5547,18 +5425,9 @@ function buildStructuredTrackerEventMetadata(
   tracker: { adapter: string; projectSlug?: string };
   issue: { identifier: string; id: string };
 } {
-  const projectSlug =
-    typeof issue.metadata.projectSlug === "string"
-      ? issue.metadata.projectSlug
-      : tenant.tracker.adapter === "linear" &&
-          typeof tenant.tracker.settings?.projectSlug === "string"
-        ? tenant.tracker.settings.projectSlug
-        : undefined;
-
   return {
     tracker: {
       adapter: issue.tracker.adapter,
-      ...(projectSlug ? { projectSlug } : {}),
     },
     issue: {
       identifier: issue.identifier,
@@ -6060,10 +5929,6 @@ function releaseIssueOrchestration(
     retryEntry: null,
     updatedAt: now.toISOString(),
   });
-}
-
-function isArchivedProjectItem(issue: TrackedIssue): boolean {
-  return issue.metadata.isArchived === true;
 }
 
 function buildTerminalCandidateFailure(

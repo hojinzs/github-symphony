@@ -271,7 +271,6 @@ export const linearTrackerAdapter: OrchestratorTrackerAdapter = {
       tracker: {
         adapter: "linear",
         bindingId: project.tracker.bindingId,
-        itemId: run.issueId,
       },
       nativeRef: { itemId: run.issueId },
       metadata: {},
@@ -481,7 +480,6 @@ export function normalizeLinearIssue(
     tracker: {
       adapter: "linear",
       bindingId: project.tracker.bindingId,
-      itemId: id,
     },
     nativeRef: { itemId: id, projectSlug },
     metadata: {},
