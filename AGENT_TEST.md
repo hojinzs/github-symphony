@@ -21,6 +21,11 @@ pnpm lint && pnpm test && pnpm typecheck && pnpm build
 
 All four must pass before the work is considered complete.
 
+> **Agent environment note:** agent and orchestrator processes inherit their
+> parent shell environment. When reproducing a test failure, run the test with
+> the relevant `GH_SYMPHONY_*` variables both unset and explicitly set; test
+> suites that mutate `process.env` must restore their own controlled values.
+
 ## Local E2E Tests (without Docker)
 
 How to run E2E tests directly on the local machine without Docker. All state is stored under `.runtime/`.
