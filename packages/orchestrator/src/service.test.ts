@@ -3968,7 +3968,7 @@ Test hook failures.
     );
   });
 
-  it("continues terminal cleanup after a workspace deletion fails", async () => {
+  it("continues terminal cleanup after a state-by-ID refresh finds terminal workspaces", async () => {
     process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
     const tempRoot = await mkdtemp(
       join(tmpdir(), "orchestrator-terminal-cleanup-continue-")
@@ -4055,24 +4055,44 @@ Test hook failures.
       }
       await rm(workspacePath, { recursive: true, force: true });
     });
+    const fetchIssueStatesByIds = vi.fn(async (_project, issueIds) =>
+      issueIds.map((issueId) => {
+        const number = issueId === "issue-1" ? 1 : 2;
+        return {
+          id: issueId,
+          identifier: `acme/platform#${number}`,
+          number,
+          title: "Terminal issue",
+          description: null,
+          priority: null,
+          state: "Done",
+          branchName: null,
+          url: `https://github.com/acme/platform/issues/${number}`,
+          labels: [],
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: {
+            adapter: "github-project" as const,
+            bindingId: "project-123",
+            itemId: `item-${number}`,
+          },
+          metadata: {},
+        };
+      })
+    );
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds,
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
     const service = new OrchestratorService(store, projectConfig, {
-      fetchImpl: vi
-        .fn()
-        .mockResolvedValueOnce(createEmptyTrackerResponse())
-        .mockResolvedValueOnce(
-          createTrackerResponseWithItems(repository, [
-            {
-              id: "issue-1",
-              identifier: "acme/platform#1",
-              state: "Done",
-            },
-            {
-              id: "issue-2",
-              identifier: "acme/platform#2",
-              state: "Done",
-            },
-          ])
-        ) as never,
+      fetchImpl: vi.fn().mockResolvedValue(createEmptyTrackerResponse()),
       spawnImpl: vi.fn().mockReturnValue({
         pid: 4105,
         unref: vi.fn(),
@@ -4082,7 +4102,16 @@ Test hook failures.
       rmImpl,
     });
 
-    await service.run({ once: true });
+    await service.runOnce();
+
+    expect(fetchIssueStatesByIds).toHaveBeenCalledWith(
+      projectConfig,
+      ["issue-1", "issue-2"],
+      expect.objectContaining({
+        fetchImpl: expect.any(Function),
+        workflowLifecycle: expect.any(Object),
+      })
+    );
 
     await expect(
       readFile(join(failedWorkspacePath, "sentinel.txt"), "utf8")
@@ -4101,6 +4130,85 @@ Test hook failures.
     ).resolves.toMatchObject({ status: "removed", lastError: null });
     expect(stderr.write).toHaveBeenCalledWith(
       "[orchestrator] Terminal workspace cleanup failed for acme/platform#1; continuing: Failed to remove workspace for acme/platform#1: disk busy\n"
+    );
+  });
+
+  it("continues dispatch when a workspace-only state refresh fails", async () => {
+    process.env.GITHUB_GRAPHQL_TOKEN = "test-token";
+    const tempRoot = await mkdtemp(
+      join(tmpdir(), "orchestrator-workspace-refresh-failure-")
+    );
+    const repository = await createRepositoryFixture(
+      tempRoot,
+      "acme",
+      "platform"
+    );
+    const store = new OrchestratorFsStore(tempRoot);
+    const projectConfig = createProjectConfig(tempRoot, repository);
+    await store.saveProjectConfig(projectConfig);
+    const workspaceKey = deriveIssueWorkspaceKey("acme/platform#2");
+    await store.saveIssueWorkspace({
+      workspaceKey,
+      projectId: "tenant-1",
+      adapter: "github-project",
+      issueSubjectId: "issue-2",
+      issueIdentifier: "acme/platform#2",
+      workspacePath: join(tempRoot, "persisted-workspace"),
+      repositoryPath: join(tempRoot, "persisted-workspace", "repository"),
+      status: "active",
+      createdAt: "2026-03-08T00:00:00.000Z",
+      updatedAt: "2026-03-08T00:00:00.000Z",
+      lastError: null,
+    });
+    const spawnImpl = vi.fn().mockReturnValue({
+      pid: 4106,
+      unref: vi.fn(),
+    });
+    const stderr = { write: vi.fn() };
+    vi.spyOn(trackerAdapters, "resolveTrackerAdapter").mockReturnValue({
+      listIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-1",
+          identifier: "acme/platform#1",
+          title: "Dispatchable candidate",
+          description: null,
+          state: "Todo",
+          priority: null,
+          branchName: null,
+          url: "https://example.test/acme/platform/issues/1",
+          labels: [],
+          dispatchable: true,
+          assigneeId: null,
+          blockedBy: [],
+          createdAt: "2026-03-08T00:00:00.000Z",
+          updatedAt: "2026-03-08T00:00:00.000Z",
+          repository,
+          tracker: { adapter: "github-project", issueId: "issue-1" },
+          metadata: {},
+        },
+      ]),
+      listIssuesByStates: vi.fn().mockResolvedValue([]),
+      fetchIssueStatesByIds: vi
+        .fn()
+        .mockRejectedValue(new Error("tracker unavailable")),
+      buildWorkerEnvironment: vi.fn().mockReturnValue({
+        GITHUB_PROJECT_ID: "project-123",
+      }),
+      reviveIssue: vi.fn(),
+    });
+    const service = new OrchestratorService(store, projectConfig, {
+      spawnImpl: spawnImpl as never,
+      now: () => new Date("2026-03-08T00:00:00.000Z"),
+      stderr,
+    });
+
+    await service.runOnce();
+
+    expect(spawnImpl).toHaveBeenCalledTimes(1);
+    expect(stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[orchestrator] Workspace state refresh failed for tenant-1; continuing: Error: tracker unavailable"
+      )
     );
   });
 

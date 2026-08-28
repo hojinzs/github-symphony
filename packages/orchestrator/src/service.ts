@@ -1330,6 +1330,38 @@ export class OrchestratorService {
         supplementalLinearIssues
       );
       let supplementalLinearRateLimitsRecorded = false;
+      const trackedIssueSubjectIds = new Set(
+        [...trackedIssuesByIdentifier.values()].map((issue) => issue.id)
+      );
+      const workspaceIssueIdsMissingFromPoll = [
+        ...new Set(
+          (await this.store.loadIssueWorkspaces(tenant.projectId))
+            .filter((workspace) => workspace.status !== "removed")
+            .map((workspace) => workspace.issueSubjectId)
+            .filter((issueId) => !trackedIssueSubjectIds.has(issueId))
+        ),
+      ];
+      let workspaceIssuesMissingFromPoll: TrackedIssue[] = [];
+      if (workspaceIssueIdsMissingFromPoll.length > 0) {
+        try {
+          workspaceIssuesMissingFromPoll = resolveCanonicalSubjectIssues(
+            await trackerAdapter.fetchIssueStatesByIds(
+              tenant,
+              workspaceIssueIdsMissingFromPoll,
+              candidateTrackerDependencies
+            )
+          );
+        } catch (error) {
+          this.writeStderr(
+            `[orchestrator] Workspace state refresh failed for ${tenant.projectId}; continuing: ${this.formatErrorMessage(error)}`
+          );
+        }
+      }
+      const cleanupIssuesByIdentifier = new Map<string, TrackedIssue>(
+        [...trackedIssuesByIdentifier.values(), ...workspaceIssuesMissingFromPoll].map(
+          (issue) => [issue.identifier, issue]
+        )
+      );
       const syncedActiveRuns: OrchestratorRunRecord[] = [];
       for (const run of currentActiveRuns) {
         const currentIssue = trackedIssuesByIdentifier.get(run.issueIdentifier);
@@ -1895,7 +1927,7 @@ export class OrchestratorService {
       }
 
       const terminalIssuesByIdentifier = new Map<string, TrackedIssue>();
-      for (const issue of trackedIssuesByIdentifier.values()) {
+      for (const issue of cleanupIssuesByIdentifier.values()) {
         const issueLifecycle = await resolveTrackedIssueLifecycle(issue);
         if (
           isArchivedProjectItem(issue) ||
